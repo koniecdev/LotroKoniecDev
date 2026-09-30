@@ -1,16 +1,17 @@
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
+using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
-using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.Tests.Shared;
+using OpenIddict.Abstractions;
+using OpenIddict.Server;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
@@ -71,6 +72,69 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task RefreshTokenGrant_WhenTheTokenCarriesNoSecurityStamp_ShouldWarnThatTheStampIsNotCurrent()
+    {
+        // Arrange: a token from before #848 carries no stamp, and the stamp check refuses it as well
+        (RegisterRequest user, IdentityId userId) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        using CapturingLoggerFactory loggerFactory = new();
+        await using WebApplicationFactory<Program> host = CreateHost(
+            loggerFactory,
+            server => server.AddEventHandler<OpenIddictServerEvents.ProcessSignInContext>(handler =>
+                handler
+                    .UseInlineHandler(context =>
+                    {
+                        context.Principal?.RemoveClaims(SessionSecurityStamp.ClaimType);
+                        return ValueTask.CompletedTask;
+                    })
+                    .SetOrder(int.MinValue)));
+        using HttpClient client = host.CreateClient();
+        string refreshToken = await GetRefreshTokenAsync(client, user.Email, Password);
+
+        // Act
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(client, refreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        CapturingLoggerFactory.LogEntry warning = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.EventId.Id.ShouldBe(EventIds.RefreshRefusedStaleSecurityStamp);
+        warning.Message.ShouldBe($"Refresh refused for user {userId.Value}: the security stamp in the token is not current");
+    }
+
+    [Fact]
+    public async Task RefreshTokenGrant_WhenTheTokenNamesNoUser_ShouldWarnWithoutAUserId()
+    {
+        // Arrange: OpenIddict never signs in a principal without a subject, so the subject is taken out of
+        // the refresh token only, after OpenIddict has built that token's principal
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        using CapturingLoggerFactory loggerFactory = new();
+        await using WebApplicationFactory<Program> host = CreateHost(
+            loggerFactory,
+            server => server.AddEventHandler<OpenIddictServerEvents.ProcessSignInContext>(handler =>
+                handler
+                    .UseInlineHandler(context =>
+                    {
+                        context.RefreshTokenPrincipal?.RemoveClaims(OpenIddictConstants.Claims.Subject);
+                        return ValueTask.CompletedTask;
+                    })
+                    .SetOrder(OpenIddictServerHandlers.PrepareRefreshTokenPrincipal.Descriptor.Order + 1)));
+        using HttpClient client = host.CreateClient();
+        string refreshToken = await GetRefreshTokenAsync(client, user.Email, Password);
+
+        // Act
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(client, refreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        CapturingLoggerFactory.LogEntry warning = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.EventId.Id.ShouldBe(EventIds.RefreshRefusedNoSubject);
+        warning.Message.ShouldBe("Refresh refused: no user id could be read from the refresh token");
+    }
+
+    [Fact]
     public async Task RefreshTokenGrant_WhenTheAccountIsUnchanged_ShouldNotWarn()
     {
         // Arrange
@@ -94,7 +158,7 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
         switch (change)
         {
             case AccountChange.Deleted:
-                await ChangeUserAsync(email, static (userManager, user) => userManager.DeleteAsync(user));
+                await AccountStateFactory.DeleteAsync(Factory.Services, email);
                 break;
             case AccountChange.DeletionScheduled:
                 await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, email);
@@ -107,24 +171,11 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
                 await AccountStateFactory.LockOutAsync(Factory.Services, email);
                 break;
             case AccountChange.SecurityStampChanged:
-                await ChangeUserAsync(email, static (userManager, user) => userManager.UpdateSecurityStampAsync(user));
+                await AccountStateFactory.ChangeSecurityStampAsync(Factory.Services, email);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(change), change, null);
         }
-    }
-
-    private async Task ChangeUserAsync(
-        string email,
-        Func<UserManager<ApplicationUser>, ApplicationUser, Task<IdentityResult>> change)
-    {
-        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
-        UserManager<ApplicationUser> userManager =
-            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-        ApplicationUser? user = await userManager.FindByEmailAsync(email);
-        user.ShouldNotBeNull();
-
-        (await change(userManager, user)).Succeeded.ShouldBeTrue();
     }
 
     private static List<CapturingLoggerFactory.LogEntry> TokenEndpointEntries(CapturingLoggerFactory loggerFactory) =>
@@ -132,7 +183,9 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
             .Where(entry => entry.Category == typeof(TokenEndpoint).FullName)
             .ToList();
 
-    private WebApplicationFactory<Program> CreateHost(CapturingLoggerFactory loggerFactory) =>
+    private WebApplicationFactory<Program> CreateHost(
+        CapturingLoggerFactory loggerFactory,
+        Action<OpenIddictServerBuilder>? configureServer = null) =>
         Factory.WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(services =>
             {
@@ -140,5 +193,10 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
                 AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
 
                 services.AddSingleton<ILoggerFactory>(loggerFactory);
+
+                if (configureServer is not null)
+                {
+                    services.AddOpenIddict().AddServer(configureServer);
+                }
             }));
 }

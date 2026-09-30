@@ -405,14 +405,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         // Arrange: a password reset lands between /connect/authorize and the code exchange (#848)
         (string authorizationCode, string codeVerifier, _, string email) = await ObtainAuthorizationCodeAsync();
 
-        await using (AsyncServiceScope scope = Factory.Services.CreateAsyncScope())
-        {
-            UserManager<ApplicationUser> userManager =
-                scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-            ApplicationUser? user = await userManager.FindByEmailAsync(email);
-            user.ShouldNotBeNull();
-            (await userManager.UpdateSecurityStampAsync(user)).Succeeded.ShouldBeTrue();
-        }
+        await AccountStateFactory.ChangeSecurityStampAsync(Factory.Services, email);
 
         // Act
         using HttpResponseMessage response = await ExchangeAuthorizationCodeAsync(authorizationCode, codeVerifier);
@@ -476,14 +469,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         // still in flight
         (string authorizationCode, string codeVerifier, _, string email) = await ObtainAuthorizationCodeAsync();
 
-        await using (AsyncServiceScope scope = Factory.Services.CreateAsyncScope())
-        {
-            UserManager<ApplicationUser> userManager =
-                scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-            ApplicationUser? user = await userManager.FindByEmailAsync(email);
-            user.ShouldNotBeNull();
-            (await userManager.DeleteAsync(user)).Succeeded.ShouldBeTrue();
-        }
+        await AccountStateFactory.DeleteAsync(Factory.Services, email);
 
         // Act
         using HttpResponseMessage response = await ExchangeAuthorizationCodeAsync(authorizationCode, codeVerifier);

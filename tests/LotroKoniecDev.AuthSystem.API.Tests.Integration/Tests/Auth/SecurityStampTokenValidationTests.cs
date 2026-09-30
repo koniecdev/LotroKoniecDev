@@ -42,20 +42,13 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
             ApiClient, Faker, AccountConfirmationEmailSpy, CurrentPassword);
         (_, string refreshToken, _) = await SignInAsync(ApiClient.Http, user.Email, OfflineScopes);
 
-        await using (AsyncServiceScope scope = Factory.Services.CreateAsyncScope())
-        {
-            UserManager<ApplicationUser> userManager =
-                scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-            ApplicationUser? account = await userManager.FindByEmailAsync(user.Email);
-            account.ShouldNotBeNull();
-            (await userManager.UpdateSecurityStampAsync(account)).Succeeded.ShouldBeTrue();
-        }
+        await AccountStateFactory.ChangeSecurityStampAsync(Factory.Services, user.Email);
 
         // The row is still valid, so only the stamp check can refuse the refresh below.
         (await OpenIddictTokenState.StatusOfAsync(Factory.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Valid);
 
         // Act
-        using HttpResponseMessage response = await RefreshAsync(ApiClient.Http, refreshToken);
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(ApiClient.Http, refreshToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -73,12 +66,12 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
             ApiClient, Faker, AccountConfirmationEmailSpy, CurrentPassword);
         (_, string firstRefreshToken, _) = await SignInAsync(ApiClient.Http, user.Email, OfflineScopes);
 
-        using HttpResponseMessage firstRefresh = await RefreshAsync(ApiClient.Http, firstRefreshToken);
+        using HttpResponseMessage firstRefresh = await RequestRefreshGrantAsync(ApiClient.Http, firstRefreshToken);
         firstRefresh.StatusCode.ShouldBe(HttpStatusCode.OK);
         string secondRefreshToken = await ReadTokenAsync(firstRefresh, "refresh_token");
 
         // Act
-        using HttpResponseMessage response = await RefreshAsync(ApiClient.Http, secondRefreshToken);
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(ApiClient.Http, secondRefreshToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -112,7 +105,7 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
         (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Valid);
 
         // Act: the account is no longer locked or waiting for deletion
-        using HttpResponseMessage response = await RefreshAsync(client, refreshToken);
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(client, refreshToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -143,7 +136,7 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
         (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Valid);
 
         // Act
-        using HttpResponseMessage response = await RefreshAsync(client, refreshToken);
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(client, refreshToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -174,7 +167,7 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
         (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Valid);
 
         // Act
-        using HttpResponseMessage response = await RefreshAsync(client, refreshToken);
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(client, refreshToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -207,7 +200,7 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
         (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Valid);
 
         // Act
-        using HttpResponseMessage response = await RefreshAsync(client, refreshToken);
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(client, refreshToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -231,7 +224,7 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
         (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Valid);
 
         // Act
-        using HttpResponseMessage response = await RefreshAsync(client, refreshToken);
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(client, refreshToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -253,7 +246,7 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
         (string accessToken, string refreshToken, string? identityToken) =
             await SignInAsync(ApiClient.Http, user.Email, "openid " + OfflineScopes);
 
-        using HttpResponseMessage refreshResponse = await RefreshAsync(ApiClient.Http, refreshToken);
+        using HttpResponseMessage refreshResponse = await RequestRefreshGrantAsync(ApiClient.Http, refreshToken);
         refreshResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         string refreshedAccessToken = await ReadTokenAsync(refreshResponse, "access_token");
         string refreshedIdentityToken = await ReadTokenAsync(refreshResponse, "id_token");
@@ -322,18 +315,6 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
             json.RootElement.GetProperty("access_token").GetString()!,
             json.RootElement.GetProperty("refresh_token").GetString()!,
             json.RootElement.TryGetProperty("id_token", out JsonElement identityToken) ? identityToken.GetString() : null);
-    }
-
-    private static async Task<HttpResponseMessage> RefreshAsync(HttpClient client, string refreshToken)
-    {
-        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "refresh_token",
-            ["refresh_token"] = refreshToken,
-            ["client_id"] = ClientId
-        });
-
-        return await client.PostAsync(new Uri("connect/token", UriKind.Relative), refreshRequest);
     }
 
     private static async Task<string> ReadTokenAsync(HttpResponseMessage response, string name)

@@ -146,8 +146,9 @@ internal sealed partial class TokenEndpoint : IEndpoint
     }
 
     /// <summary>
-    /// Every refusal sends the client the same answer, so a client learns nothing about the account. The
-    /// warning before each one is the only place that names the case (#944).
+    /// Every refusal here sends the client the same answer, so a client learns nothing about the account.
+    /// The warning before each one names the case (#944). A refresh token that was already revoked never
+    /// gets here: OpenIddict refuses it first, with its own answer and its own log line.
     /// </summary>
     private static async Task<IResult> HandleRefreshTokenGrantAsync(
         HttpContext httpContext,
@@ -287,7 +288,7 @@ internal sealed partial class TokenEndpoint : IEndpoint
             .ExcludeFromDescription();
     }
 
-    [LoggerMessage(EventId = EventIds.RefreshRefusedNoSubject, Level = LogLevel.Warning, Message = "Refresh refused: the refresh token names no user")]
+    [LoggerMessage(EventId = EventIds.RefreshRefusedNoSubject, Level = LogLevel.Warning, Message = "Refresh refused: no user id could be read from the refresh token")]
     private static partial void LogRefreshRefusedNoSubject(ILogger logger);
 
     [LoggerMessage(EventId = EventIds.RefreshRefusedUserGone, Level = LogLevel.Warning, Message = "Refresh refused for user {UserId}: the account no longer exists")]

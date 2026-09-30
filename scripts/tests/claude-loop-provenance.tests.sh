@@ -10,7 +10,8 @@
 # PR (ADR-0060): a ticket with an open PR, or with a worktree already on disk, is never started.
 # And it covers the worker's worktree lifecycle: the session runs in its own worktree cut from
 # origin/main, the main checkout is never touched, a finished worktree is removed or salvaged, a
-# stop signal ends the session and its children, and only a real open PR for the ticket counts.
+# stop signal ends the session and its children (also one it starts during the stop — #935), and
+# only a real open PR for the ticket counts.
 # A session that ends normally without a STATUS line is resumed a capped number of times (#925).
 # A usage limit keeps the worktree, and the next run resumes the session in it; a DONE with no
 # open PR is resumed once to open it; the picker does not hide a worktree kept that way (#934).
@@ -1652,69 +1653,107 @@ expect_in_output "PR #7140 opened"
 # A stop signal ends the session and everything it started, then salvages and cleans up.
 # Claude Code runs each Bash command in a process group of its own, so the fake session starts its
 # child the same way (`set -m`): killing the session's group alone would miss it. Unlike claude,
-# the fake does not end that child on TERM, so the loop's own tree kill has to.
-# stop_case <ticket> <signal...> — sends the signals in order to a worker whose session is busy.
-stop_case() {
-    local ticket="$1" worker term_rc=0 session_child
-    shift
-    reset_fixtures
-    fixture_issue "$ticket" maintainer OWNER
-    rm -f "$TMP_ROOT/session-child"
-    behavior "$TMP_ROOT/long.sh" 'git checkout -q -b "${PWD##*ticket-}-fixture"
+# the fake does not end that child on TERM, so the loop's own tree kill has to. Each fake notes
+# every child it starts in $TMP_ROOT/session-children.
+behavior "$TMP_ROOT/long.sh" 'git checkout -q -b "${PWD##*ticket-}-fixture"
 echo "partial" > partial.txt
 set -m
 "$REAL_SLEEP" 60 &
-echo $! > "'"$TMP_ROOT"'/session-child"
+echo $! >> "'"$TMP_ROOT"'/session-children"
 set +m
 wait'
-    env CLAUDE_BEHAVIOR="$TMP_ROOT/long.sh" "$WORK" "$ticket" "$TMP_ROOT/run" > "$TMP_ROOT/term.out" 2>&1 &
+# A command that starts in a group of its own just as the stop begins is in no group the loop read
+# before its TERM (#935). This fake starts one when the TERM reaches it, and goes on running.
+behavior "$TMP_ROOT/starts-on-stop.sh" 'git checkout -q -b "${PWD##*ticket-}-fixture"
+echo "partial" > partial.txt
+trap '"'"'set -m; "$REAL_SLEEP" 60 & echo $! >> "'"$TMP_ROOT"'/session-children"; set +m'"'"' TERM
+set -m
+"$REAL_SLEEP" 60 &
+echo $! >> "'"$TMP_ROOT"'/session-children"
+set +m
+wait || wait'
+
+# start_busy_worker <ticket> <fake session> <output file> — starts a worker whose session is busy
+# and sets worker once the session's first child runs.
+start_busy_worker() {
+    rm -f "$TMP_ROOT/session-children"
+    env CLAUDE_BEHAVIOR="$2" "$WORK" "$1" "$TMP_ROOT/run" > "$3" 2>&1 &
     worker=$!
-    for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
-    [ -s "$TMP_ROOT/session-child" ] || { kill "$worker" 2>/dev/null; fail "the fake session never started" "$(cat "$TMP_ROOT/term.out")"; }
-    session_child="$(cat "$TMP_ROOT/session-child")"
+    for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-children" ] && break; "$REAL_SLEEP" 0.1; done
+    [ -s "$TMP_ROOT/session-children" ] || { kill "$worker" 2>/dev/null; fail "the fake session never started" "$(cat "$3")"; }
+}
+
+# expect_children_gone <fake session> <what failed> — every child the fake started is gone, and the
+# fake that starts one on its TERM did start it, so the case cannot pass without the late child.
+expect_children_gone() {
+    local child started=1
+    [ "$1" != "$TMP_ROOT/starts-on-stop.sh" ] || started=2
+    [ "$(wc -l < "$TMP_ROOT/session-children" | tr -d ' ')" -eq "$started" ] \
+        || fail "the fake session should have started $started child(ren)" "$(cat "$TMP_ROOT/session-children")"
+    while read -r child; do
+        for _ in $(seq 1 100); do alive "$child" || break; "$REAL_SLEEP" 0.1; done
+        if alive "$child"; then
+            kill "$child"
+            fail "$2"
+        fi
+    done < "$TMP_ROOT/session-children"
+}
+
+# stop_case <ticket> <fake session> <signal...> — sends the signals in order to a worker whose
+# session is busy.
+stop_case() {
+    local ticket="$1" fake="$2" term_rc=0 session_child
+    shift 2
+    reset_fixtures
+    fixture_issue "$ticket" maintainer OWNER
+    start_busy_worker "$ticket" "$fake" "$TMP_ROOT/term.out"
+    session_child="$(head -1 "$TMP_ROOT/session-children")"
     [ "$(ps -o pgid= -p "$session_child" | tr -d ' ')" = "$session_child" ] \
         || { kill "$worker" 2>/dev/null; fail "the fake session's child should lead a process group of its own"; }
     for signal in "$@"; do kill -"$signal" "$worker"; done
-    for _ in $(seq 1 100); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
+    # A session that goes on running after its TERM keeps the worker for the whole grace period.
+    for _ in $(seq 1 300); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
     if alive "$worker"; then
         kill -KILL "$worker"
-        fail "work-ticket did not stop within 10 seconds of $*" "$(cat "$TMP_ROOT/term.out")"
+        fail "work-ticket did not stop within 30 seconds of $*" "$(cat "$TMP_ROOT/term.out")"
     fi
     wait "$worker" || term_rc=$?
     [ "$term_rc" -eq 143 ] || fail "a stopped worker should exit 143, got $term_rc" "$(cat "$TMP_ROOT/term.out")"
-    session_child="$(cat "$TMP_ROOT/session-child")"
-    if alive "$session_child"; then
-        kill "$session_child"
-        fail "a process the session started in its own group outlived the stop"
-    fi
+    expect_children_gone "$fake" "a process the session started in its own group outlived the stop"
     grep -qx "outcome=stopped" "$TMP_ROOT/run/ticket-$ticket.meta" || fail "meta should say stopped" "$(cat "$TMP_ROOT/run/ticket-$ticket.meta")"
     [ -n "$(git -C "$FAKE_REPO" for-each-ref "refs/heads/loop-salvage/$ticket-*")" ] \
         || fail "a stopped session's work should be salvaged" "$(cat "$TMP_ROOT/term.out")"
     [ ! -e "$WT_ROOT/ticket-$ticket" ] || fail "a stopped run should not leave its worktree behind"
-    cases=$((cases + 1)); printf '✓ work-ticket: %s stops the session and its children, salvages, and cleans up\n' "$*"
+    cases=$((cases + 1))
+    if [ "$fake" = "$TMP_ROOT/starts-on-stop.sh" ]; then
+        printf '✓ work-ticket: %s also ends a group the session starts during the stop\n' "$*"
+    else
+        printf '✓ work-ticket: %s stops the session and its children, salvages, and cleans up\n' "$*"
+    fi
 }
-stop_case 83 TERM
+stop_case 83 "$TMP_ROOT/long.sh" TERM
 # Closing the terminal: HUP to the job, then TERM from the conductor's trap.
-stop_case 85 HUP TERM
+stop_case 85 "$TMP_ROOT/long.sh" HUP TERM
+stop_case 125 "$TMP_ROOT/starts-on-stop.sh" TERM
 
 # A SIGKILL runs no trap. The watchdog inside the session's group must end the session anyway.
-reset_fixtures
-fixture_issue 86 maintainer OWNER
-rm -f "$TMP_ROOT/session-child"
-env CLAUDE_BEHAVIOR="$TMP_ROOT/long.sh" "$WORK" 86 "$TMP_ROOT/run" > "$TMP_ROOT/kill.out" 2>&1 &
-worker=$!
-for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
-[ -s "$TMP_ROOT/session-child" ] || { kill "$worker" 2>/dev/null; fail "the fake session never started" "$(cat "$TMP_ROOT/kill.out")"; }
-kill -KILL "$worker"
-wait "$worker" 2>/dev/null || true
-session_child="$(cat "$TMP_ROOT/session-child")"
-for _ in $(seq 1 100); do alive "$session_child" || break; "$REAL_SLEEP" 0.1; done
-if alive "$session_child"; then
-    kill "$session_child"
-    fail "the session outlived a SIGKILL of its worker"
-fi
-git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-86"
-cases=$((cases + 1)); printf '✓ work-ticket: a SIGKILLed worker does not leave its session running\n'
+# kill_case <ticket> <fake session>
+kill_case() {
+    reset_fixtures
+    fixture_issue "$1" maintainer OWNER
+    start_busy_worker "$1" "$2" "$TMP_ROOT/kill.out"
+    kill -KILL "$worker"
+    wait "$worker" 2>/dev/null || true
+    # The watchdog notices within seconds, and a session that goes on running gets the grace period.
+    for _ in $(seq 1 300); do alive "$(tail -1 "$TMP_ROOT/session-children")" || break; "$REAL_SLEEP" 0.1; done
+    expect_children_gone "$2" "the session outlived a SIGKILL of its worker"
+    git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-$1"
+    cases=$((cases + 1))
+}
+kill_case 86 "$TMP_ROOT/long.sh"
+printf '✓ work-ticket: a SIGKILLed worker does not leave its session running\n'
+kill_case 126 "$TMP_ROOT/starts-on-stop.sh"
+printf '✓ work-ticket: after a SIGKILLed worker, the watchdog also ends a group the session starts during the stop\n'
 
 # The system may give an ended worker's number to another program at once, and a check by number
 # cannot tell the two apart (#995, #997). No test can make the system reuse a number, so the worker

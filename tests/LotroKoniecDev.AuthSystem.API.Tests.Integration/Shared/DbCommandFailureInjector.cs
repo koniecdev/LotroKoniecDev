@@ -129,7 +129,7 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
     {
         if (TakeFailureFor(command, afterItRan: true) is { } failure)
         {
-            // Reading the reader to its end makes sure PostgreSQL has finished the command.
+            // Disposing the reader drains it, so PostgreSQL has finished the command.
             await result.DisposeAsync();
             throw failure;
         }
@@ -145,6 +145,25 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
     {
         ThrowIfArmedFor(command, afterItRan: true);
         return base.NonQueryExecutedAsync(command, eventData, result, cancellationToken);
+    }
+
+    public override object? ScalarExecuted(
+        DbCommand command,
+        CommandExecutedEventData eventData,
+        object? result)
+    {
+        ThrowIfArmedFor(command, afterItRan: true);
+        return base.ScalarExecuted(command, eventData, result);
+    }
+
+    public override ValueTask<object?> ScalarExecutedAsync(
+        DbCommand command,
+        CommandExecutedEventData eventData,
+        object? result,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfArmedFor(command, afterItRan: true);
+        return base.ScalarExecutedAsync(command, eventData, result, cancellationToken);
     }
 
     private void Arm(Func<DbCommand, bool> matches, Func<Exception> createFailure, bool failAfterItRuns)

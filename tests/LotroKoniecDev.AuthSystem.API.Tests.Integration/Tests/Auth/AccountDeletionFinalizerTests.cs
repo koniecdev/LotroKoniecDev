@@ -214,20 +214,24 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     [Theory]
-    [InlineData(ErasureSaveFailure.DatabaseError)]
-    [InlineData(ErasureSaveFailure.LostToAnotherWrite)]
-    public async Task Finalizer_ShouldFinishTheErasureOnItsNextRun_WhenTheErasureSaveFailed(ErasureSaveFailure failure)
+    [InlineData(ErasureSaveFailure.DatabaseError, EventIds.GdprErasureAuthFailed)]
+    [InlineData(ErasureSaveFailure.LostToAnotherWrite, EventIds.GdprErasureAnonymizationFailed)]
+    public async Task Finalizer_ShouldFinishTheErasureOnItsNextRun_WhenTheErasureSaveFailed(
+        ErasureSaveFailure failure,
+        int criticalEventId)
     {
         // The finalizer finds its work by the real address, so a failed erasure has to leave it in
-        // place for the next run to pick the account up again (#908).
+        // place for the next run to pick the account up again (#908). The failed run says the retry
+        // will come, and that line is the alert for a failed erasure (#962).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
         FailTheNextSaveOf(identityId.Value, failure);
+        using CapturingLoggerFactory loggerFactory = new();
 
         // Act
-        int failedRunCount = await RunFinalizerAsync();
+        int failedRunCount = await RunFinalizerAsync(loggerFactory);
         int retryRunCount = await RunFinalizerAsync();
 
         // Assert
@@ -237,6 +241,12 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         ApplicationUser user = await GetUserAsync(identityId.Value);
         user.Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
         (await HasRolesAsync(identityId.Value)).ShouldBeFalse();
+
+        loggerFactory.Entries.ShouldContain(entry =>
+            entry.EventId.Id == criticalEventId && entry.Level == LogLevel.Critical);
+        loggerFactory.Entries.ShouldContain(entry =>
+            entry.EventId.Id == EventIds.GdprDeletionFinalizerUserFailed
+            && entry.Message.Contains("Will retry", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -448,6 +458,42 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         // Assert
         finalizedCount.ShouldBe(0);
         loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureNoLongerWaiting);
+        loggerFactory.Entries.ShouldNotContain(entry => entry.Message.Contains("will retry", StringComparison.OrdinalIgnoreCase));
+        loggerFactory.Entries.ShouldNotContain(entry => entry.Level >= LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldWarnWithoutPromisingARetry_WhenItCannotTellWhetherTheErasureSaveLanded()
+    {
+        // The owner cancelled, so the lock matches no row, and then the read that tells a landed save
+        // from a cancel fails. No run comes back to the account either way. If the save did land, its
+        // cleanup never runs, so the line is a warning, not a promise (#962).
+
+        // Arrange
+        (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory, beforeFirstErasure: async () =>
+        {
+            await CancelDeletionAsync(registerRequest.Email, cancelToken);
+            Factory.DbCommandFailures.FailNext(
+                command => IsReadOfAnErasedAccount(command, identityId.Value),
+                () => new PostgresException(
+                    "simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.DataCorrupted));
+        });
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        finalizedCount.ShouldBe(0);
+
+        CapturingLoggerFactory.LogEntry unknown = loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureSaveOutcomeUnknown)
+            .ShouldHaveSingleItem();
+        unknown.Level.ShouldBe(LogLevel.Warning);
         loggerFactory.Entries.ShouldNotContain(entry => entry.Message.Contains("will retry", StringComparison.OrdinalIgnoreCase));
         loggerFactory.Entries.ShouldNotContain(entry => entry.Level >= LogLevel.Error);
     }
@@ -707,6 +753,17 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     private static bool IsUpdateOfAccount(DbCommand command, Guid userId) =>
         command.CommandText.Contains($"UPDATE {DatabaseSchemas.Auth}.\"Users\"", StringComparison.Ordinal)
         && CarriesAccountId(command, userId);
+
+    /// <summary>
+    /// Only the check after a failed erasure save reads the account by its id and an anonymized address.
+    /// A background mail job may read the same account by its id at the same moment.
+    /// </summary>
+    private static bool IsReadOfAnErasedAccount(DbCommand command, Guid userId) =>
+        command.CommandText.StartsWith("SELECT", StringComparison.Ordinal)
+        && CarriesAccountId(command, userId)
+        && command.Parameters.Cast<DbParameter>().Any(parameter =>
+            parameter.Value is string value
+            && value.StartsWith(AnonymizationConstants.EmailPrefix, StringComparison.Ordinal));
 
     private static bool IsUpdateOfAToken(DbCommand command) =>
         command.CommandText.Contains($"UPDATE {DatabaseSchemas.Auth}.\"OpenIddictTokens\"", StringComparison.Ordinal);

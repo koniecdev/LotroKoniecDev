@@ -10,8 +10,8 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 /// Finds accounts whose deletion grace period is over and erases them.
 /// It is safe to run twice and safe to restart: accounts that are already anonymized are recognised by
 /// the marker in their e-mail address, a failure on one user is logged, does not hold back the others
-/// and is retried on the next run, and if two runs overlap the second one simply loses on the Identity
-/// concurrency stamp.
+/// and is retried on the next run, and if two runs overlap the second one loses on the Identity
+/// concurrency stamp and leaves the account to the first.
 /// When an account is due is <see cref="IAccountDeletionSchedule"/>'s call, not this class's: the
 /// date it erases on has to be the one the response header, the e-mail and the login page promised
 /// (#685).
@@ -76,11 +76,17 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
                 continue;
             }
 
-            Result erasureResult = await _accountErasureService.EraseAsync(user, cancellationToken);
+            Result<AccountErasureOutcome> erasureResult = await _accountErasureService.EraseAsync(user, cancellationToken);
 
             if (erasureResult.IsFailure)
             {
                 LogFinalizationFailedForUser(_logger, user.Id, erasureResult.Error.Message);
+                continue;
+            }
+
+            // The erasure has logged why. Nothing is left to retry, so this line must not promise it (#962).
+            if (erasureResult.Value is AccountErasureOutcome.NoLongerWaiting)
+            {
                 continue;
             }
 

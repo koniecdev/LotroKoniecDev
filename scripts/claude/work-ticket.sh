@@ -434,13 +434,14 @@ else
 fi
 
 # session_groups <leader> <known groups> — the process groups of every process below the leader or
-# in a known group, the known groups included, one per line. A process whose parent has exited has
-# moved to PID 1 and is no longer below the leader, so only a group seen before still finds it.
+# in a known group, one per line. A process whose parent has exited has moved to PID 1 and is no
+# longer below the leader, so only a group seen before still finds it. A group with no process
+# left is dropped, so its number cannot bring in another group that gets it later.
 # One `ps` call reads every process at the same moment. The known groups go in through the
 # environment: BSD awk refuses a `-v` value with a newline in it.
 session_groups() {
     ps -A -o pid= -o ppid= -o pgid= 2>/dev/null | KNOWN_GROUPS="$2" awk -v leader="$1" '
-        { parent[$1] = $2; group[$1] = $3 }
+        { parent[$1] = $2; group[$1] = $3; used[$3] = 1 }
         END {
             # Never group 0 or 1, in or out: every process descends from them, and `kill -- -1`
             # reaches every process of this user.
@@ -457,7 +458,7 @@ session_groups() {
                 }
             } while (grew)
             for (p in found) if (p in group) wanted[group[p]] = 1
-            for (g in wanted) if (g + 0 > 1) print g
+            for (g in wanted) if (g + 0 > 1 && (g in used)) print g
         }'
 }
 
@@ -513,18 +514,20 @@ end_session_tree() {
     # Paused while its tree is read, the session cannot start a command in a new group between the
     # read and the TERM, where no signal would reach that group (#935). The TERM waits for the
     # CONT. Only the leader is paused, not its group: the watchdog is in that group and runs this
-    # function itself. The pause lasts one read and no more: if this script dies while the session
+    # function itself. The pause lasts one read and no more: if the worker dies while the session
     # is paused, the system sends HUP to the session's whole group.
     kill -STOP "$leader" 2>/dev/null || true
     groups="$(session_groups "$leader" "")"
     kill -TERM -- "-$leader" 2>/dev/null || true
     kill -CONT "$leader" 2>/dev/null || true
-    # A read that fails, for example because no process can be started, keeps the list it had.
+    # A group it starts while it shuts down can only be found while it still runs, so it is read
+    # again at once and then every half second. The first read also finds a command that was
+    # starting during the pause and had not yet moved to its own group. An empty read keeps the
+    # list it had: the read may have failed, for example because no process could be started.
     while kill -0 "$leader" 2>/dev/null && [ "$tries" -lt $(( grace * 2 )) ]; do
+        found="$(session_groups "$leader" "$groups")"; [ -z "$found" ] || groups="$found"
         sleep 0.5
         tries=$((tries + 1))
-        # A group it starts while it shuts down can only be found while it still runs.
-        found="$(session_groups "$leader" "$groups")"; [ -z "$found" ] || groups="$found"
     done
     # Still running after its grace period, it gets no more time: paused for a last read, so it
     # cannot start anything after it, then killed at once.

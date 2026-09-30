@@ -220,10 +220,11 @@ case "\$(cat "$TMP_ROOT/ps-hook.fired")" in
         exec "$REAL_PS" "\$@"
         ;;
     session-starts-group)
-        # The table is read first. The session then starts a group before the worker gets it.
+        # The table is read first. Then the session is asked to start a group before the worker
+        # gets the table. A paused session cannot: the wait runs out, and its TERM ends it first.
         table="\$("$REAL_PS" "\$@")"
         kill -USR1 "\$(cat "$TMP_ROOT/session-pid")"
-        for _ in \$(seq 1 20); do
+        for _ in \$(seq 1 10); do
             [ "\$(wc -l < "$TMP_ROOT/session-children")" -lt 2 ] || break
             "$REAL_SLEEP" 0.1
         done

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
@@ -197,7 +198,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
         string? stampBeforeErasure = (await GetUserAsync(identityId.Value)).SecurityStamp;
-        FailASecondSaveOf(identityId.Value);
+        FailASecondSaveOf(identityId.Value, ErasureSaveFailure.DatabaseError);
 
         // Act
         int finalizedCount = await RunFinalizerAsync();
@@ -236,6 +237,68 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         ApplicationUser user = await GetUserAsync(identityId.Value);
         user.Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
         (await HasRolesAsync(identityId.Value)).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(ErasureSaveFailure.DatabaseError, EventIds.GdprErasureAuthFailed)]
+    [InlineData(ErasureSaveFailure.LostToAnotherWrite, EventIds.GdprErasureAnonymizationFailed)]
+    public async Task Finalizer_ShouldRaiseTheAlertAndPromiseARetry_WhenTheErasureSaveFailed(
+        ErasureSaveFailure failure,
+        int criticalEventId)
+    {
+        // The account still waits, so the retry comes (the test above). These lines are the alert for
+        // a failed erasure, and they may say so only because it is true (#962).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        FailTheNextSaveOf(identityId.Value, failure);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        await RunFinalizerAsync(loggerFactory);
+
+        // Assert
+        loggerFactory.Entries.ShouldContain(entry =>
+            entry.EventId.Id == criticalEventId && entry.Level == LogLevel.Critical);
+        loggerFactory.Entries.ShouldContain(entry =>
+            entry.EventId.Id == EventIds.GdprDeletionFinalizerUserFailed
+            && entry.Message.Contains("Will retry", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldRaiseTheAlertAndRetry_WhenTheEmergencyLockFailsToo()
+    {
+        // Another write changed the account while the erasure ran, so the save loses on the concurrency
+        // stamp while the account still waits. Then the lock fails as well. The run cannot know more, so
+        // it raises the alert and promises the retry, and here the retry really comes (#962).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int failedRunCount = await RunFinalizerAsync(loggerFactory, beforeFirstErasure: async () =>
+        {
+            await ChangeTheConcurrencyStampAsync(identityId.Value);
+            Factory.DbCommandFailures.FailNext(
+                command => IsEmergencyLockOf(command, identityId.Value),
+                () => new PostgresException(
+                    "simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.DataCorrupted));
+        });
+        int retryRunCount = await RunFinalizerAsync();
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        failedRunCount.ShouldBe(0);
+        retryRunCount.ShouldBe(1);
+
+        loggerFactory.Entries.ShouldContain(entry =>
+            entry.EventId.Id == EventIds.GdprErasureEmergencyLockoutFailed && entry.Level == LogLevel.Critical);
+        loggerFactory.Entries.ShouldContain(entry =>
+            entry.EventId.Id == EventIds.GdprErasureAnonymizationFailed && entry.Level == LogLevel.Critical);
+        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprDeletionFinalizerUserFailed);
     }
 
     [Theory]
@@ -367,10 +430,12 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         IAccountErasureService erasureService = CreateErasureService(scope.ServiceProvider, loggerFactory);
 
         // Act
-        Result erasureResult = await erasureService.EraseAsync(readBeforeTheCancel, CancellationToken.None);
+        Result<AccountErasureOutcome> erasureResult =
+            await erasureService.EraseAsync(readBeforeTheCancel, CancellationToken.None);
 
         // Assert
-        erasureResult.IsFailure.ShouldBeTrue();
+        erasureResult.IsSuccess.ShouldBeTrue();
+        erasureResult.Value.ShouldBe(AccountErasureOutcome.NoLongerWaiting);
 
         ApplicationUser user = await GetUserAsync(identityId.Value);
         user.Email.ShouldBe(registerRequest.Email);
@@ -378,7 +443,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         user.LockoutEnd.ShouldBeNull();
 
         loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockout);
-        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockoutNotNeeded);
+        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureNoLongerWaiting);
     }
 
     [Fact]
@@ -402,18 +467,210 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         IAccountErasureService erasureService = CreateErasureService(scope.ServiceProvider, loggerFactory);
 
         // Act
-        Result erasureResult = await erasureService.EraseAsync(readBeforeTheOtherRun, CancellationToken.None);
+        Result<AccountErasureOutcome> erasureResult =
+            await erasureService.EraseAsync(readBeforeTheOtherRun, CancellationToken.None);
 
         // Assert
         otherRunCount.ShouldBe(1);
-        erasureResult.IsFailure.ShouldBeTrue();
+        erasureResult.IsSuccess.ShouldBeTrue();
+        erasureResult.Value.ShouldBe(AccountErasureOutcome.NoLongerWaiting);
 
         ApplicationUser user = await GetUserAsync(identityId.Value);
         user.Email.ShouldBe(erasedByTheOtherRun.Email);
         user.ConcurrencyStamp.ShouldBe(erasedByTheOtherRun.ConcurrencyStamp);
 
         loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockout);
-        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockoutNotNeeded);
+        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureNoLongerWaiting);
+    }
+
+    [Theory]
+    [InlineData(MidErasureChange.OwnerCancels)]
+    [InlineData(MidErasureChange.AnotherRunErasesIt)]
+    public async Task Finalizer_ShouldNotSayItWillRetry_WhenTheAccountStopsWaitingDuringItsErasure(MidErasureChange change)
+    {
+        // The run has read the account again and hands it to the erasure, and only then does the account
+        // stop waiting. The erasure save loses on the concurrency stamp, but no run will come back to the
+        // account, and nothing is wrong that a person has to look at (#962).
+
+        // Arrange
+        (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory, beforeFirstErasure: () => change switch
+        {
+            MidErasureChange.OwnerCancels => CancelDeletionAsync(registerRequest.Email, cancelToken),
+            MidErasureChange.AnotherRunErasesIt => RunFinalizerAsync(),
+            _ => throw new ArgumentOutOfRangeException(nameof(change), change, null)
+        });
+
+        // Assert
+        finalizedCount.ShouldBe(0);
+        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureNoLongerWaiting);
+        loggerFactory.Entries.ShouldNotContain(entry => entry.Message.Contains("will retry", StringComparison.OrdinalIgnoreCase));
+        loggerFactory.Entries.ShouldNotContain(entry => entry.Level >= LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldWarnWithoutPromisingARetry_WhenADatabaseErrorMeetsACancel()
+    {
+        // A race alone is logged at Information. Here the save hit a real database error, and the next
+        // account may hit it too, so the same line is a warning. The owner cancelled, so it still
+        // promises no retry (#962).
+
+        // Arrange
+        (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory, beforeFirstErasure: async () =>
+        {
+            await CancelDeletionAsync(registerRequest.Email, cancelToken);
+            Factory.DbCommandFailures.FailNext(
+                command => IsUpdateOfAccount(command, identityId.Value) && CarriesAnAnonymizedAddress(command),
+                () => CreateFailure(ErasureSaveFailure.DatabaseError));
+        });
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        finalizedCount.ShouldBe(0);
+
+        CapturingLoggerFactory.LogEntry noLongerWaiting = loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureNoLongerWaiting)
+            .ShouldHaveSingleItem();
+        noLongerWaiting.Level.ShouldBe(LogLevel.Warning);
+        loggerFactory.Entries.ShouldNotContain(entry => entry.Message.Contains("will retry", StringComparison.OrdinalIgnoreCase));
+        loggerFactory.Entries.ShouldNotContain(entry => entry.Level >= LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldWarnWithoutPromisingARetry_WhenItCannotTellWhetherTheErasureSaveLanded()
+    {
+        // The owner cancelled, so the lock matches no row, and then the read that tells a landed save
+        // from a cancel fails. No run comes back to the account either way. If the save did land, its
+        // cleanup never runs, so the line is a warning, not a promise (#962).
+
+        // Arrange
+        (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory, beforeFirstErasure: async () =>
+        {
+            await CancelDeletionAsync(registerRequest.Email, cancelToken);
+            Factory.DbCommandFailures.FailNext(
+                command => IsReadOfAnErasedAccount(command, identityId.Value),
+                () => new PostgresException(
+                    "simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.DataCorrupted));
+        });
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        finalizedCount.ShouldBe(0);
+
+        CapturingLoggerFactory.LogEntry unknown = loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureSaveOutcomeUnknown)
+            .ShouldHaveSingleItem();
+        unknown.Level.ShouldBe(LogLevel.Warning);
+        loggerFactory.Entries.ShouldNotContain(entry => entry.Message.Contains("will retry", StringComparison.OrdinalIgnoreCase));
+        loggerFactory.Entries.ShouldNotContain(entry => entry.Level >= LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldCleanUpAndCountTheAccount_WhenTheErasureSaveLandedButItsAnswerWasLost()
+    {
+        // The save lands and its answer is lost. EF runs the save again with the old concurrency stamp,
+        // so Identity reports a conflict. The account is erased all the same, and no later run comes back
+        // to it, so this run has to finish the cleanup (#962).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        Factory.DbCommandFailures.FailNextAfterItRuns(
+            command => IsUpdateOfAccount(command, identityId.Value),
+            CreateTransientFailure);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory);
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        finalizedCount.ShouldBe(1);
+
+        ApplicationUser user = await GetUserAsync(identityId.Value);
+        user.Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
+        (await HasRolesAsync(identityId.Value)).ShouldBeFalse();
+
+        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureSaveLandedAfterAll);
+        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleaned);
+        loggerFactory.Entries.ShouldNotContain(entry => entry.Level >= LogLevel.Error);
+    }
+
+    [Theory]
+    [InlineData(ErasureSaveFailure.DatabaseError)]
+    [InlineData(ErasureSaveFailure.LostToAnotherWrite)]
+    public async Task Finalizer_ShouldNameTheRolesStep_WhenRemovingTheRolesFails(ErasureSaveFailure failure)
+    {
+        // Removing the roles is the next save of the account after the erasure. Identity turns a lost
+        // write there into a failed result, which the cleanup used to take for a success (#962).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        FailASecondSaveOf(identityId.Value, failure);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory);
+
+        // Assert
+        finalizedCount.ShouldBe(1);
+        (await HasRolesAsync(identityId.Value)).ShouldBeTrue();
+
+        loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleaned);
+        CapturingLoggerFactory.LogEntry cleanupFailed = loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleanupFailed)
+            .ShouldHaveSingleItem();
+        cleanupFailed.Message.ShouldContain("Failed: roles: ");
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldNameTheTokensStep_WhenATokenCannotBeRevoked()
+    {
+        // OpenIddict reports a failed write on a token as a false result, not as an exception (#962).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        await CreateValidTokenAsync(identityId.Value);
+        Factory.DbCommandFailures.FailNext(
+            IsUpdateOfAToken,
+            () => new DbUpdateConcurrencyException("simulated lost write"));
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory);
+
+        // Assert
+        finalizedCount.ShouldBe(1);
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+
+        loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleaned);
+        CapturingLoggerFactory.LogEntry cleanupFailed = loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleanupFailed)
+            .ShouldHaveSingleItem();
+        cleanupFailed.Message.ShouldContain("Failed: tokens: ");
+        cleanupFailed.Message.ShouldContain(" not revoked.");
     }
 
     [Fact]
@@ -456,12 +713,21 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         return await finalizer.FinalizeDueAccountsAsync(CancellationToken.None);
     }
 
-    private async Task<int> RunFinalizerAsync(ILoggerFactory loggerFactory)
+    /// <summary>
+    /// The finalizer and its erasure write to <paramref name="loggerFactory"/>, so a test reads every line
+    /// the run wrote about an account.
+    /// </summary>
+    private async Task<int> RunFinalizerAsync(ILoggerFactory loggerFactory, Func<Task>? beforeFirstErasure = null)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         IAccountErasureService erasureService = CreateErasureService(scope.ServiceProvider, loggerFactory);
-        IAccountDeletionFinalizer finalizer =
-            ActivatorUtilities.CreateInstance<AccountDeletionFinalizer>(scope.ServiceProvider, erasureService);
+        if (beforeFirstErasure is not null)
+        {
+            erasureService = new ObservedErasure(erasureService, beforeFirstErasure);
+        }
+
+        IAccountDeletionFinalizer finalizer = ActivatorUtilities.CreateInstance<AccountDeletionFinalizer>(
+            scope.ServiceProvider, erasureService, loggerFactory.CreateLogger<AccountDeletionFinalizer>());
         return await finalizer.FinalizeDueAccountsAsync(CancellationToken.None);
     }
 
@@ -546,33 +812,104 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     private void FailTheNextSaveOf(Guid userId, ErasureSaveFailure failure) =>
         Factory.DbCommandFailures.FailNext(
             command => IsUpdateOfAccount(command, userId),
-            () => failure switch
-            {
-                ErasureSaveFailure.DatabaseError => new PostgresException(
-                    "simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.NotNullViolation),
-                ErasureSaveFailure.LostToAnotherWrite => new DbUpdateConcurrencyException("simulated lost write"),
-                _ => throw new ArgumentOutOfRangeException(nameof(failure), failure, null)
-            });
+            () => CreateFailure(failure));
 
     /// <summary>
     /// Counts the saves of one account and fails the second one. Other accounts are left alone, so a
     /// save of some other account cannot move the count.
     /// </summary>
-    private void FailASecondSaveOf(Guid userId)
+    private void FailASecondSaveOf(Guid userId, ErasureSaveFailure failure)
     {
         int saves = 0;
         Factory.DbCommandFailures.FailNext(
             command => IsUpdateOfAccount(command, userId) && ++saves > 1,
-            () => new PostgresException(
-                "simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.NotNullViolation));
+            () => CreateFailure(failure));
     }
+
+    private static Exception CreateFailure(ErasureSaveFailure failure) =>
+        failure switch
+        {
+            ErasureSaveFailure.DatabaseError => new PostgresException(
+                "simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.NotNullViolation),
+            ErasureSaveFailure.LostToAnotherWrite => new DbUpdateConcurrencyException("simulated lost write"),
+            _ => throw new ArgumentOutOfRangeException(nameof(failure), failure, null)
+        };
+
+    private static NpgsqlException CreateTransientFailure() =>
+        new("The operation has timed out", new TimeoutException());
 
     private static bool IsUpdateOfAccount(DbCommand command, Guid userId) =>
         command.CommandText.Contains($"UPDATE {DatabaseSchemas.Auth}.\"Users\"", StringComparison.Ordinal)
         && CarriesAccountId(command, userId);
 
+    /// <summary>
+    /// Only the check after a failed erasure save reads the account by its id and an anonymized address.
+    /// A background mail job may read the same account by its id at the same moment.
+    /// </summary>
+    private static bool IsReadOfAnErasedAccount(DbCommand command, Guid userId) =>
+        command.CommandText.StartsWith("SELECT", StringComparison.Ordinal)
+        && CarriesAccountId(command, userId)
+        && CarriesAnAnonymizedAddress(command);
+
+    private static bool CarriesAnAnonymizedAddress(DbCommand command) =>
+        command.Parameters.Cast<DbParameter>().Any(parameter =>
+            parameter.Value is string value
+            && value.StartsWith(AnonymizationConstants.EmailPrefix, StringComparison.Ordinal));
+
+    /// <summary>
+    /// The emergency lock is the one update of the account that checks for a scheduled deletion.
+    /// </summary>
+    private static bool IsEmergencyLockOf(DbCommand command, Guid userId) =>
+        command.CommandText.StartsWith("UPDATE", StringComparison.Ordinal)
+        && command.CommandText.Contains("\"DeletionScheduledAt\" IS NOT NULL", StringComparison.Ordinal)
+        && CarriesAccountId(command, userId);
+
+    private static bool IsUpdateOfAToken(DbCommand command) =>
+        command.CommandText.Contains($"UPDATE {DatabaseSchemas.Auth}.\"OpenIddictTokens\"", StringComparison.Ordinal);
+
     private static bool CarriesAccountId(DbCommand command, Guid userId) =>
         command.Parameters.Cast<DbParameter>().Any(parameter => parameter.Value is Guid id && id == userId);
+
+    /// <summary>
+    /// A write to the account that is not a cancel: the account still waits, but a save that read it
+    /// before now loses on the concurrency stamp.
+    /// </summary>
+    private async Task ChangeTheConcurrencyStampAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        string concurrencyStamp = Guid.NewGuid().ToString();
+        await db.Users
+            .Where(user => user.Id == userId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.ConcurrencyStamp, concurrencyStamp));
+    }
+
+    private async Task CancelDeletionAsync(string email, string cancelToken)
+    {
+        HttpResponseMessage cancelResponse = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/account/cancel-deletion", UriKind.Relative),
+            new CancelAccountDeletionRequest(email, cancelToken));
+        cancelResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    /// <summary>
+    /// Gives the account a token of its own, so the test does not depend on the tokens that signing in
+    /// left behind.
+    /// </summary>
+    private async Task CreateValidTokenAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        IOpenIddictTokenManager tokenManager = scope.ServiceProvider.GetRequiredService<IOpenIddictTokenManager>();
+
+        await tokenManager.CreateAsync(new OpenIddictTokenDescriptor
+        {
+            Subject = userId.ToString(),
+            Type = OpenIddictConstants.TokenTypeHints.RefreshToken,
+            Status = OpenIddictConstants.Statuses.Valid,
+            CreationDate = DateTimeOffset.UtcNow,
+            ExpirationDate = DateTimeOffset.UtcNow.AddDays(30)
+        });
+    }
 
     private async Task<bool> HasRolesAsync(Guid userId)
     {
@@ -607,7 +944,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
 
         public IReadOnlyList<Guid> HandedOver => _handedOver;
 
-        public async Task<Result> EraseAsync(ApplicationUser user, CancellationToken cancellationToken)
+        public async Task<Result<AccountErasureOutcome>> EraseAsync(ApplicationUser user, CancellationToken cancellationToken)
         {
             _handedOver.Add(user.Id);
 
@@ -621,6 +958,12 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
 
             return await _inner.EraseAsync(user, cancellationToken);
         }
+    }
+
+    public enum MidErasureChange
+    {
+        OwnerCancels,
+        AnotherRunErasesIt
     }
 
     /// <summary>

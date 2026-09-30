@@ -14,18 +14,22 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
     private readonly Lock _lock = new();
     private Func<DbCommand, bool>? _matches;
     private Func<Exception>? _createFailure;
+    private bool _failAfterItRuns;
 
     public int FailuresInjected { get; private set; }
 
-    public void FailNext(Func<DbCommand, bool> matches, Func<Exception> createFailure)
-    {
-        lock (_lock)
-        {
-            _matches = matches;
-            _createFailure = createFailure;
-            FailuresInjected = 0;
-        }
-    }
+    public void FailNext(Func<DbCommand, bool> matches, Func<Exception> createFailure) =>
+        Arm(matches, createFailure, failAfterItRuns: false);
+
+    /// <summary>
+    /// Makes the next matching command fail after PostgreSQL has run it. EF sends a save of one row
+    /// without a transaction, so PostgreSQL commits it on its own, and this is a save whose answer is
+    /// lost on the way back (#962). <see cref="DbCommitFailureInjector"/> cannot reach that save,
+    /// because it has no commit of its own. A command inside a transaction never matches: failing it
+    /// would roll it back, which is a different case, and <see cref="FailuresInjected"/> stays 0.
+    /// </summary>
+    public void FailNextAfterItRuns(Func<DbCommand, bool> matches, Func<Exception> createFailure) =>
+        Arm(matches, createFailure, failAfterItRuns: true);
 
     public void Disarm()
     {
@@ -33,6 +37,7 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
         {
             _matches = null;
             _createFailure = null;
+            _failAfterItRuns = false;
             FailuresInjected = 0;
         }
     }
@@ -42,7 +47,7 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
         CommandEventData eventData,
         InterceptionResult<DbDataReader> result)
     {
-        ThrowIfArmedFor(command);
+        ThrowIfArmedFor(command, afterItRan: false);
         return base.ReaderExecuting(command, eventData, result);
     }
 
@@ -51,7 +56,7 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
         CommandEventData eventData,
         InterceptionResult<int> result)
     {
-        ThrowIfArmedFor(command);
+        ThrowIfArmedFor(command, afterItRan: false);
         return base.NonQueryExecuting(command, eventData, result);
     }
 
@@ -60,7 +65,7 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
         CommandEventData eventData,
         InterceptionResult<object> result)
     {
-        ThrowIfArmedFor(command);
+        ThrowIfArmedFor(command, afterItRan: false);
         return base.ScalarExecuting(command, eventData, result);
     }
 
@@ -70,7 +75,7 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
         InterceptionResult<DbDataReader> result,
         CancellationToken cancellationToken = default)
     {
-        ThrowIfArmedFor(command);
+        ThrowIfArmedFor(command, afterItRan: false);
         return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
     }
 
@@ -80,7 +85,7 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
         InterceptionResult<int> result,
         CancellationToken cancellationToken = default)
     {
-        ThrowIfArmedFor(command);
+        ThrowIfArmedFor(command, afterItRan: false);
         return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
     }
 
@@ -90,28 +95,115 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
         InterceptionResult<object> result,
         CancellationToken cancellationToken = default)
     {
-        ThrowIfArmedFor(command);
+        ThrowIfArmedFor(command, afterItRan: false);
         return base.ScalarExecutingAsync(command, eventData, result, cancellationToken);
     }
 
-    private void ThrowIfArmedFor(DbCommand command)
+    public override DbDataReader ReaderExecuted(
+        DbCommand command,
+        CommandExecutedEventData eventData,
+        DbDataReader result)
     {
-        Exception? failure = null;
-
-        lock (_lock)
+        if (TakeFailureFor(command, afterItRan: true) is { } failure)
         {
-            if (_matches is not null && _createFailure is not null && _matches(command))
-            {
-                failure = _createFailure();
-                FailuresInjected++;
-                _matches = null;
-                _createFailure = null;
-            }
+            result.Dispose();
+            throw failure;
         }
 
-        if (failure is not null)
+        return base.ReaderExecuted(command, eventData, result);
+    }
+
+    public override int NonQueryExecuted(
+        DbCommand command,
+        CommandExecutedEventData eventData,
+        int result)
+    {
+        ThrowIfArmedFor(command, afterItRan: true);
+        return base.NonQueryExecuted(command, eventData, result);
+    }
+
+    public override async ValueTask<DbDataReader> ReaderExecutedAsync(
+        DbCommand command,
+        CommandExecutedEventData eventData,
+        DbDataReader result,
+        CancellationToken cancellationToken = default)
+    {
+        if (TakeFailureFor(command, afterItRan: true) is { } failure)
+        {
+            // Disposing the reader drains it, so PostgreSQL has finished the command.
+            await result.DisposeAsync();
+            throw failure;
+        }
+
+        return await base.ReaderExecutedAsync(command, eventData, result, cancellationToken);
+    }
+
+    public override ValueTask<int> NonQueryExecutedAsync(
+        DbCommand command,
+        CommandExecutedEventData eventData,
+        int result,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfArmedFor(command, afterItRan: true);
+        return base.NonQueryExecutedAsync(command, eventData, result, cancellationToken);
+    }
+
+    public override object? ScalarExecuted(
+        DbCommand command,
+        CommandExecutedEventData eventData,
+        object? result)
+    {
+        ThrowIfArmedFor(command, afterItRan: true);
+        return base.ScalarExecuted(command, eventData, result);
+    }
+
+    public override ValueTask<object?> ScalarExecutedAsync(
+        DbCommand command,
+        CommandExecutedEventData eventData,
+        object? result,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfArmedFor(command, afterItRan: true);
+        return base.ScalarExecutedAsync(command, eventData, result, cancellationToken);
+    }
+
+    private void Arm(Func<DbCommand, bool> matches, Func<Exception> createFailure, bool failAfterItRuns)
+    {
+        lock (_lock)
+        {
+            _matches = matches;
+            _createFailure = createFailure;
+            _failAfterItRuns = failAfterItRuns;
+            FailuresInjected = 0;
+        }
+    }
+
+    private void ThrowIfArmedFor(DbCommand command, bool afterItRan)
+    {
+        if (TakeFailureFor(command, afterItRan) is { } failure)
         {
             throw failure;
+        }
+    }
+
+    private Exception? TakeFailureFor(DbCommand command, bool afterItRan)
+    {
+        lock (_lock)
+        {
+            if (_matches is null
+                || _createFailure is null
+                || _failAfterItRuns != afterItRan
+                || afterItRan && command.Transaction is not null
+                || !_matches(command))
+            {
+                return null;
+            }
+
+            Exception failure = _createFailure();
+            FailuresInjected++;
+            _matches = null;
+            _createFailure = null;
+            return failure;
         }
     }
 }

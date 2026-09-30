@@ -509,28 +509,36 @@ release_lifeline() {
 # claude ends those itself, so it gets $2 seconds to do that before anything is killed. Whatever
 # process group of its tree is still there after that is ended as well.
 end_session_tree() {
-    local leader="$1" grace="$2" groups group tries=0
-    # Stopped while its tree is read, so it cannot start a command in a new group between the read
-    # and the TERM, where no signal would reach that group (#935). The TERM waits for the CONT.
+    local leader="$1" grace="$2" groups found group tries=0
+    # Paused while its tree is read, the session cannot start a command in a new group between the
+    # read and the TERM, where no signal would reach that group (#935). The TERM waits for the
+    # CONT. Only the leader is paused, not its group: the watchdog is in that group and runs this
+    # function itself. The pause lasts one read and no more: if this script dies while the session
+    # is paused, the system sends HUP to the session's whole group.
     kill -STOP "$leader" 2>/dev/null || true
     groups="$(session_groups "$leader" "")"
     kill -TERM -- "-$leader" 2>/dev/null || true
     kill -CONT "$leader" 2>/dev/null || true
+    # A read that fails, for example because no process can be started, keeps the list it had.
     while kill -0 "$leader" 2>/dev/null && [ "$tries" -lt $(( grace * 2 )) ]; do
         sleep 0.5
         tries=$((tries + 1))
         # A group it starts while it shuts down can only be found while it still runs.
-        groups="$(session_groups "$leader" "$groups")"
+        found="$(session_groups "$leader" "$groups")"; [ -z "$found" ] || groups="$found"
     done
-    # From here on it gets no more time, so it is stopped again and cannot start anything new.
-    kill -STOP "$leader" 2>/dev/null || true
-    groups="$(session_groups "$leader" "$groups")"
+    # Still running after its grace period, it gets no more time: paused for a last read, so it
+    # cannot start anything after it, then killed at once.
+    if kill -0 "$leader" 2>/dev/null; then
+        kill -STOP "$leader" 2>/dev/null || true
+        found="$(session_groups "$leader" "$groups")"; [ -z "$found" ] || groups="$found"
+        kill -KILL "$leader" 2>/dev/null || true
+    fi
     for group in $groups; do
         [ "$group" = "$leader" ] || kill -TERM -- "-$group" 2>/dev/null || true
     done
     sleep 1
     # Read again: a process can start a new group when its TERM arrives.
-    groups="$(session_groups "$leader" "$groups")"
+    found="$(session_groups "$leader" "$groups")"; [ -z "$found" ] || groups="$found"
     for group in $groups; do
         [ "$group" = "$leader" ] || kill -KILL -- "-$group" 2>/dev/null || true
     done
@@ -721,13 +729,14 @@ run_session() {
     # and the session is no longer in this script's group, so a watchdog inside the group ends the
     # session once the lifeline says this script is gone. The session could otherwise go on working
     # and pushing with nothing watching it. The watchdog ignores TERM: the TERM it sends to its own
-    # group must not end it half way.
+    # group must not end it half way. It ignores HUP too: when this script dies while end_session_tree
+    # has paused the session, the system sends HUP to the session's whole group (#935).
     set -m
     (
         set +m  # keep the watchdog in the session's group, so the group's end is its end too
         group="$(exec sh -c 'echo "$PPID"')"
         (
-            trap '' TERM
+            trap '' TERM HUP
             exec 9>&-
             # Nothing writes to the pipe, so `read` returns only at end of file.
             while read -r -u 8 _; do :; done

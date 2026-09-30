@@ -22,6 +22,38 @@ internal static class AccountStateFactory
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow.AddMinutes(30));
     }
 
+    /// <summary>
+    /// Deletes the row the way an operator's manual fix does, which revokes nothing.
+    /// </summary>
+    public static async Task DeleteAsync(IServiceProvider services, string email)
+    {
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        ApplicationUser user = await FindAsync(userManager, email);
+
+        IdentityResult result = await userManager.DeleteAsync(user);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException($"Could not delete test user '{email}'.");
+        }
+    }
+
+    /// <summary>
+    /// Changes only the stamp and revokes nothing, the state a session-ending flow leaves when its revoke fails.
+    /// </summary>
+    public static async Task ChangeSecurityStampAsync(IServiceProvider services, string email)
+    {
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        ApplicationUser user = await FindAsync(userManager, email);
+
+        IdentityResult result = await userManager.UpdateSecurityStampAsync(user);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException($"Could not change the security stamp of test user '{email}'.");
+        }
+    }
+
     public static async Task RemovePasswordAsync(IServiceProvider services, string email)
     {
         await using AsyncServiceScope scope = services.CreateAsyncScope();

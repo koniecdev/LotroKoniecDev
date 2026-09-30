@@ -25,7 +25,8 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
     /// Makes the next matching command fail after PostgreSQL has run it. EF sends a save of one row
     /// without a transaction, so PostgreSQL commits it on its own, and this is a save whose answer is
     /// lost on the way back (#962). <see cref="DbCommitFailureInjector"/> cannot reach that save,
-    /// because it has no commit of its own.
+    /// because it has no commit of its own. A command inside a transaction never matches: failing it
+    /// would roll it back, which is a different case, and <see cref="FailuresInjected"/> stays 0.
     /// </summary>
     public void FailNextAfterItRuns(Func<DbCommand, bool> matches, Func<Exception> createFailure) =>
         Arm(matches, createFailure, failAfterItRuns: true);
@@ -192,6 +193,7 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
             if (_matches is null
                 || _createFailure is null
                 || _failAfterItRuns != afterItRan
+                || afterItRan && command.Transaction is not null
                 || !_matches(command))
             {
                 return null;

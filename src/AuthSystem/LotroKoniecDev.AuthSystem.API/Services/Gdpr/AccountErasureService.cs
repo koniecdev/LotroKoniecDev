@@ -98,7 +98,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         }
         catch (Exception ex)
         {
-            failedSave = new FailedSave(ex.Message, ex);
+            failedSave = new FailedSave(ex.GetBaseException().Message, ex);
         }
 
         if (failedSave is not null)
@@ -138,8 +138,8 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     {
         EmergencyLockOutcome lockOutcome = await TryLockAccountAsync(userId);
 
-        // A failed lock says nothing about the account, so the retry is assumed, not known. The lock's
-        // own line already asks for a person to look.
+        // A failed lock says nothing about the account, so the retry is assumed, not known (#980). The
+        // lock's own line already asks for a person to look.
         if (lockOutcome is not EmergencyLockOutcome.NotNeeded)
         {
             if (failedSave.Exception is { } exception)
@@ -172,7 +172,10 @@ internal sealed partial class AccountErasureService : IAccountErasureService
 
         if (!saveLanded)
         {
-            LogNoLongerWaiting(_logger, failedSave.Exception, userId, failedSave.Errors);
+            // A lost concurrency check is what a race looks like. An exception is a real database error
+            // that happened to meet a race, and the next account may hit it too.
+            LogLevel level = failedSave.Exception is null ? LogLevel.Information : LogLevel.Warning;
+            LogNoLongerWaiting(_logger, level, failedSave.Exception, userId, failedSave.Errors);
             return AccountErasureOutcome.NoLongerWaiting;
         }
 
@@ -201,28 +204,22 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         {
             string userId = user.Id.ToString();
 
-            int unrevokedTokenCount = 0;
             await foreach (object token in _tokenManager.FindBySubjectAsync(userId, cancellationToken))
             {
                 if (!await _tokenManager.TryRevokeAsync(token, cancellationToken))
                 {
-                    unrevokedTokenCount++;
+                    failedSteps.Add($"{step}: {await _tokenManager.GetIdAsync(token, cancellationToken)} not revoked");
                 }
             }
 
-            AddIfNotAllRevoked(failedSteps, step, unrevokedTokenCount);
-
             step = "authorizations";
-            int unrevokedAuthorizationCount = 0;
             await foreach (object authorization in _authorizationManager.FindBySubjectAsync(userId, cancellationToken))
             {
                 if (!await _authorizationManager.TryRevokeAsync(authorization, cancellationToken))
                 {
-                    unrevokedAuthorizationCount++;
+                    failedSteps.Add($"{step}: {await _authorizationManager.GetIdAsync(authorization, cancellationToken)} not revoked");
                 }
             }
-
-            AddIfNotAllRevoked(failedSteps, step, unrevokedAuthorizationCount);
 
             step = "roles";
             IList<string> roles = await _userManager.GetRolesAsync(user);
@@ -316,14 +313,6 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         }
     }
 
-    private static void AddIfNotAllRevoked(List<string> failedSteps, string step, int unrevokedCount)
-    {
-        if (unrevokedCount > 0)
-        {
-            failedSteps.Add($"{step}: {unrevokedCount} could not be revoked");
-        }
-    }
-
     private static void AddIfFailed(List<string> failedSteps, string step, IdentityResult result)
     {
         if (!result.Succeeded)
@@ -347,8 +336,8 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     [LoggerMessage(EventId = EventIds.GdprErasureAuthFailed, Level = LogLevel.Critical, Message = "Auth-side GDPR erasure failed for user {UserId}. The finalizer will retry.")]
     private static partial void LogAuthSideErasureFailed(ILogger logger, Exception exception, Guid userId);
 
-    [LoggerMessage(EventId = EventIds.GdprErasureNoLongerWaiting, Level = LogLevel.Information, Message = "GDPR erasure of user {UserId} stopped after a failed save: the account no longer waits for its erasure. Its owner cancelled the deletion, or another run erased it. No lockout and no retry needed. Errors: {Errors}")]
-    private static partial void LogNoLongerWaiting(ILogger logger, Exception? exception, Guid userId, string errors);
+    [LoggerMessage(EventId = EventIds.GdprErasureNoLongerWaiting, Message = "GDPR erasure of user {UserId} stopped after a failed save: the account no longer waits for its erasure. Its owner cancelled the deletion, or another run erased it. No lockout and no retry needed. Errors: {Errors}")]
+    private static partial void LogNoLongerWaiting(ILogger logger, LogLevel level, Exception? exception, Guid userId, string errors);
 
     [LoggerMessage(EventId = EventIds.GdprErasureSaveLandedAfterAll, Level = LogLevel.Information, Message = "GDPR erasure: the save for user {UserId} was reported as failed, but it landed. The account carries the address this run wrote, so the erasure goes on with the cleanup. Errors: {Errors}")]
     private static partial void LogSaveLandedAfterAll(ILogger logger, Exception? exception, Guid userId, string errors);

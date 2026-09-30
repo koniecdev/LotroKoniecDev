@@ -6,7 +6,8 @@ internal enum AccountErasureOutcome
 
     /// <summary>
     /// The erasure stopped because the account no longer waits for it: its owner cancelled the deletion,
-    /// or another run erased the account first. No run comes back to it, and none has to (#962).
+    /// or another run erased the account first. No run comes back to it (#962). When the erasure cannot
+    /// tell whether its own save landed, it returns this too, after a warning that says so.
     /// </summary>
     NoLongerWaiting
 }

@@ -21,7 +21,7 @@ internal static class EventIds
 
     // GDPR Erasure (2220-2239)
     public const int GdprErasureInitiated = 2220;
-    public const int GdprErasureEmergencyLockoutNotNeeded = 2221;
+    public const int GdprErasureNoLongerWaiting = 2221;
     public const int GdprDeletionFinalizerUserReadFailed = 2222;
     public const int GdprErasureAnonymizationFailed = 2223;
     public const int GdprErasureAuthAnonymized = 2224;
@@ -196,4 +196,8 @@ internal static class EventIds
     // Password confirmation on the account endpoints (2720-2729). The export logs its refusal under
     // 2243, because every export attempt has to stay on that one audit line (#690).
     public const int PasswordConfirmationThrottled = 2720;
+
+    // GDPR Erasure, continued (2730-2739). The 2220-2239 range is full.
+    public const int GdprErasureSaveLandedAfterAll = 2730;
+    public const int GdprErasureSaveOutcomeUnknown = 2731;
 }

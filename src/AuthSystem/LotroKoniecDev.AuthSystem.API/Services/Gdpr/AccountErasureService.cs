@@ -138,8 +138,8 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     {
         EmergencyLockOutcome lockOutcome = await TryLockAccountAsync(userId);
 
-        // A failed lock says nothing about the account, so the retry is assumed. The lock's own line
-        // already asks for a person to look.
+        // A failed lock says nothing about the account, so the retry is assumed, not known. The lock's
+        // own line already asks for a person to look.
         if (lockOutcome is not EmergencyLockOutcome.NotNeeded)
         {
             if (failedSave.Exception is { } exception)
@@ -176,19 +176,20 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             return AccountErasureOutcome.NoLongerWaiting;
         }
 
-        // The save landed, so its changes count as saved, as they would after a save that answered.
-        // Otherwise the next save in the cleanup would write them again against the old concurrency
-        // stamp and fail.
+        // The failed save was one SaveChanges, and its account row landed, so all of it landed. Its
+        // changes count as saved, as they would after a save that answered. Otherwise the next save in
+        // the cleanup would write them again against the old concurrency stamp and fail.
         _dbContext.ChangeTracker.AcceptAllChanges();
         LogSaveLandedAfterAll(_logger, failedSave.Exception, userId, failedSave.Errors);
         return AccountErasureOutcome.Erased;
     }
 
     /// <summary>
-    /// Every step runs, even after an earlier one failed, and the log names each step that failed.
-    /// Identity reports a lost concurrency check as a failed result, and OpenIddict reports any failed
-    /// revoke as <c>false</c>, so each result is checked (#962). Identity keeps the changes of a failed
-    /// step, so a later step saves them again.
+    /// Every step runs even after an earlier one reports a failure, and the log names each step that
+    /// failed. An exception stops the steps after it. Identity reports a lost concurrency check as a
+    /// failed result, and OpenIddict reports any failed revoke as <c>false</c>, so each result is
+    /// checked (#962). Identity keeps the changes of a failed step, so the next Identity save sends
+    /// them again.
     /// </summary>
     private async Task CleanupAuthArtifactsAsync(ApplicationUser user, CancellationToken cancellationToken)
     {
@@ -352,7 +353,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     [LoggerMessage(EventId = EventIds.GdprErasureSaveLandedAfterAll, Level = LogLevel.Information, Message = "GDPR erasure: the save for user {UserId} was reported as failed, but it landed. The account carries the address this run wrote, so the erasure goes on with the cleanup. Errors: {Errors}")]
     private static partial void LogSaveLandedAfterAll(ILogger logger, Exception? exception, Guid userId, string errors);
 
-    [LoggerMessage(EventId = EventIds.GdprErasureSaveOutcomeUnknown, Level = LogLevel.Warning, Message = "GDPR erasure of user {UserId} stopped after a failed save: the account no longer waits for its erasure, so no run will retry it. The check whether this run's own save landed failed. If it did land, the account is erased, but its tokens, roles, claims and logins were not cleaned up. Errors: {Errors}")]
+    [LoggerMessage(EventId = EventIds.GdprErasureSaveOutcomeUnknown, Level = LogLevel.Warning, Message = "GDPR erasure of user {UserId} stopped after a failed save: the account no longer waits for its erasure, so no run comes back to it. The check whether this run's own save landed failed. If it did land, the account is erased, but its tokens, roles, claims and logins were not cleaned up. Errors: {Errors}")]
     private static partial void LogSaveOutcomeUnknown(ILogger logger, Exception exception, Guid userId, string errors);
 
     [LoggerMessage(EventId = EventIds.GdprErasureAccountDeleted, Level = LogLevel.Information, Message = "Account deleted (anonymized) for user {UserId}")]

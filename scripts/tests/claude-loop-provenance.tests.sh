@@ -1748,6 +1748,20 @@ expect_session_gone() {
     esac
 }
 
+# expect_watchdog_gone — nothing is left in the session's group. The watchdog is the last process
+# there and ends itself, so a later case cannot meet it still reading the process table. Zombies
+# count as gone, as in alive.
+expect_watchdog_gone() {
+    local group
+    group="$(cat "$TMP_ROOT/session-pid")"
+    for _ in $(seq 1 100); do
+        "$REAL_PS" -A -o pgid= -o stat= | awk -v group="$group" '$1 == group && $2 !~ /^Z/ { left = 1 } END { exit left }' \
+            && return 0
+        "$REAL_SLEEP" 0.1
+    done
+    fail "the watchdog did not end with its session"
+}
+
 # stop_case <ticket> <fake session> <signal...> — sends the signals in order to a worker whose
 # session is busy.
 stop_case() {
@@ -1801,6 +1815,7 @@ kill_case() {
     # The watchdog notices within seconds, and a session that goes on running gets the grace period.
     for _ in $(seq 1 300); do alive "$(cat "$TMP_ROOT/session-pid")" || break; "$REAL_SLEEP" 0.1; done
     expect_session_gone "$2" "the session outlived a SIGKILL of its worker"
+    expect_watchdog_gone
     git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-$1"
     cases=$((cases + 1))
 }
@@ -1821,6 +1836,7 @@ kill -TERM "$worker"
 wait "$worker" 2>/dev/null || true
 for _ in $(seq 1 300); do alive "$(cat "$TMP_ROOT/session-pid")" || break; "$REAL_SLEEP" 0.1; done
 expect_session_gone "$TMP_ROOT/hung.sh" "a hung session outlived a worker that died while the session was paused"
+expect_watchdog_gone
 git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-128"
 cases=$((cases + 1)); printf '✓ work-ticket: a worker that dies while the session is paused still leaves the watchdog to end it\n'
 

@@ -58,7 +58,7 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
         _ = await Record.ExceptionAsync(() => client.SendAsync(changeRequest));
         await watch.Finished.Task.WaitAsync(CompletionTimeout);
 
-        using HttpResponseMessage refreshResponse = await RefreshAsync(client, refreshToken);
+        using HttpResponseMessage refreshResponse = await RequestRefreshGrantAsync(client, refreshToken);
 
         // Assert
         refreshResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -100,7 +100,7 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
         _ = await Record.ExceptionAsync(() => client.SendAsync(resetRequest));
         await watch.Finished.Task.WaitAsync(CompletionTimeout);
 
-        using HttpResponseMessage refreshResponse = await RefreshAsync(client, refreshToken);
+        using HttpResponseMessage refreshResponse = await RequestRefreshGrantAsync(client, refreshToken);
 
         // Assert
         refreshResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -144,7 +144,7 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
         _ = await Record.ExceptionAsync(() => client.SendAsync(confirmRequest));
         await watch.Finished.Task.WaitAsync(CompletionTimeout);
 
-        using HttpResponseMessage refreshResponse = await RefreshAsync(client, refreshToken);
+        using HttpResponseMessage refreshResponse = await RequestRefreshGrantAsync(client, refreshToken);
 
         // Assert
         refreshResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -192,18 +192,6 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
         return (
             json.RootElement.GetProperty("access_token").GetString()!,
             json.RootElement.GetProperty("refresh_token").GetString()!);
-    }
-
-    private static async Task<HttpResponseMessage> RefreshAsync(HttpClient client, string refreshToken)
-    {
-        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "refresh_token",
-            ["refresh_token"] = refreshToken,
-            ["client_id"] = ClientId
-        });
-
-        return await client.PostAsync(new Uri("connect/token", UriKind.Relative), refreshRequest);
     }
 
     /// <summary>

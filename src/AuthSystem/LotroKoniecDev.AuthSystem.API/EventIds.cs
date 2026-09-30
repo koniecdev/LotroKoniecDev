@@ -132,6 +132,13 @@ internal static class EventIds
     public const int DeletionCancelledRescheduled = 2381;
     public const int DeletionCancelledAddressMissing = 2382;
 
+    // Refused refresh (2390-2399)
+    public const int RefreshRefusedNoSubject = 2390;
+    public const int RefreshRefusedUserGone = 2391;
+    public const int RefreshRefusedDeletionScheduled = 2392;
+    public const int RefreshRefusedLockedOut = 2393;
+    public const int RefreshRefusedStaleSecurityStamp = 2394;
+
     // Change E-mail request / confirm / revert (2500-2519)
     public const int EmailChangeRequested = 2500;
     public const int EmailChangeSameAddress = 2501;

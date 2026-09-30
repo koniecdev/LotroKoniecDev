@@ -12,7 +12,7 @@ using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
-internal sealed class TokenEndpoint : IEndpoint
+internal sealed partial class TokenEndpoint : IEndpoint
 {
     private const string AuthorizationCodeNoLongerValid = "The authorization code is no longer valid.";
     private const string InvalidCredentials = "The email/password combination is invalid.";
@@ -33,7 +33,8 @@ internal sealed class TokenEndpoint : IEndpoint
     private static async Task<IResult> HandleAsync(
         HttpContext httpContext,
         UserManager<ApplicationUser> userManager,
-        SignInManager<ApplicationUser> signInManager)
+        SignInManager<ApplicationUser> signInManager,
+        ILogger<TokenEndpoint> logger)
     {
         OpenIddictRequest request = httpContext.GetOpenIddictServerRequest()
             ?? throw new InvalidOperationException("The OpenID Connect request cannot be retrieved.");
@@ -52,7 +53,7 @@ internal sealed class TokenEndpoint : IEndpoint
 
         if (request.IsRefreshTokenGrantType())
         {
-            return await HandleRefreshTokenGrantAsync(httpContext, userManager, signInManager);
+            return await HandleRefreshTokenGrantAsync(httpContext, userManager, signInManager, logger);
         }
 
         if (request.IsClientCredentialsGrantType())
@@ -144,10 +145,16 @@ internal sealed class TokenEndpoint : IEndpoint
             authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
     }
 
+    /// <summary>
+    /// Every refusal here sends the client the same answer, so a client learns nothing about the account.
+    /// The warning before each one names the case (#944). A refresh token that was already revoked never
+    /// gets here: OpenIddict refuses it first, with its own answer and its own log line.
+    /// </summary>
     private static async Task<IResult> HandleRefreshTokenGrantAsync(
         HttpContext httpContext,
         UserManager<ApplicationUser> userManager,
-        SignInManager<ApplicationUser> signInManager)
+        SignInManager<ApplicationUser> signInManager,
+        ILogger<TokenEndpoint> logger)
     {
         AuthenticateResult authenticateResult = await httpContext.AuthenticateAsync(
             OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
@@ -156,6 +163,7 @@ internal sealed class TokenEndpoint : IEndpoint
 
         if (string.IsNullOrEmpty(userId))
         {
+            LogRefreshRefusedNoSubject(logger);
             return Refuse(RefreshTokenNoLongerValid);
         }
 
@@ -163,14 +171,23 @@ internal sealed class TokenEndpoint : IEndpoint
 
         if (user is null)
         {
+            LogRefreshRefusedUserGone(logger, userId);
             return Refuse(RefreshTokenNoLongerValid);
         }
 
         // Refresh tokens are revoked when a GDPR deletion is scheduled, but that revocation is only
-        // best effort. This check makes sure a locked account, or one waiting for deletion, can never
-        // refresh its way back to a working access token.
-        if (user.DeletionScheduledAt is not null || await userManager.IsLockedOutAsync(user))
+        // best effort. These checks make sure a locked account, or one waiting for deletion, can never
+        // refresh its way back to a working access token. A scheduled deletion also locks the account,
+        // so it is checked first to get the more exact warning.
+        if (user.DeletionScheduledAt is not null)
         {
+            LogRefreshRefusedDeletionScheduled(logger, userId);
+            return Refuse(RefreshTokenNoLongerValid);
+        }
+
+        if (await userManager.IsLockedOutAsync(user))
+        {
+            LogRefreshRefusedLockedOut(logger, userId);
             return Refuse(RefreshTokenNoLongerValid);
         }
 
@@ -179,6 +196,7 @@ internal sealed class TokenEndpoint : IEndpoint
         // unlocked, for example when a scheduled deletion is cancelled (#848).
         if (!await SessionSecurityStamp.IsCurrentAsync(authenticateResult.Principal!, user, signInManager))
         {
+            LogRefreshRefusedStaleSecurityStamp(logger, userId);
             return Refuse(RefreshTokenNoLongerValid);
         }
 
@@ -269,4 +287,19 @@ internal sealed class TokenEndpoint : IEndpoint
             .AllowAnonymous()
             .ExcludeFromDescription();
     }
+
+    [LoggerMessage(EventId = EventIds.RefreshRefusedNoSubject, Level = LogLevel.Warning, Message = "Refresh refused: no user id could be read from the refresh token")]
+    private static partial void LogRefreshRefusedNoSubject(ILogger logger);
+
+    [LoggerMessage(EventId = EventIds.RefreshRefusedUserGone, Level = LogLevel.Warning, Message = "Refresh refused for user {UserId}: the account no longer exists")]
+    private static partial void LogRefreshRefusedUserGone(ILogger logger, string userId);
+
+    [LoggerMessage(EventId = EventIds.RefreshRefusedDeletionScheduled, Level = LogLevel.Warning, Message = "Refresh refused for user {UserId}: account deletion is scheduled")]
+    private static partial void LogRefreshRefusedDeletionScheduled(ILogger logger, string userId);
+
+    [LoggerMessage(EventId = EventIds.RefreshRefusedLockedOut, Level = LogLevel.Warning, Message = "Refresh refused for user {UserId}: the account is locked out")]
+    private static partial void LogRefreshRefusedLockedOut(ILogger logger, string userId);
+
+    [LoggerMessage(EventId = EventIds.RefreshRefusedStaleSecurityStamp, Level = LogLevel.Warning, Message = "Refresh refused for user {UserId}: the security stamp in the token is not current")]
+    private static partial void LogRefreshRefusedStaleSecurityStamp(ILogger logger, string userId);
 }

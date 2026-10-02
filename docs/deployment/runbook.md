@@ -64,7 +64,7 @@ pull error by enabling emulation.
 |---|---|---|
 | `/opt/lotro` | LotroKoniecDev stack: `compose.hetzner.yaml`, `.docker/hetzner/Caddyfile`, `.env` (`chmod 600`, never committed — template: `.env.hetzner.example`), `deploy.sh`, `.previous/` (the last-good config snapshot) | `deploy` |
 | `/opt/tks` | TheKittySaver stack (its own epic; joins the same Caddy via parametrized vhosts) | `deploy` |
-| `/opt/actions-runner` · `/home/ci-runner` | **Staging box only — a guest.** TheKittySaver's self-hosted GitHub Actions runner (koniecdev/TheKittySaver#831, its ADR-0047): user `ci-runner` (in `docker` — its integration suite uses Testcontainers), unit `tks-ci-runner.service`, the .NET SDK and NuGet cache under its home (≈ 7–9 GB with one build tree). One job at a time; registered to the **private** TKS repo only — never register a runner on these boxes to this public repo. Uninstall, after deleting the runner on the TKS side: TheKittySaver `docs/deployment/runbook.md` → "CI runner on the staging box" → Uninstall | TKS |
+| `/opt/actions-runner` · `/home/ci-runner` | **Staging box only — a guest.** TheKittySaver's self-hosted GitHub Actions runner (koniecdev/TheKittySaver#831, its ADR-0047): user `ci-runner` (in `docker` — its integration suite uses Testcontainers), unit `tks-ci-runner.service`, the .NET SDK and NuGet cache under its home — 4.8 GB measured after its first job on 2026-10-02 (runner + checkout 1.3 GB, SDK 0.7 GB, NuGet 2.8 GB), ≈ 7–9 GB once a full Release build tree sits in `_work` (TheKittySaver's runbook estimate). One job at a time; registered to the **private** TKS repo only — never register a runner on these boxes to this public repo. Uninstall, after deleting the runner on the TKS side: TheKittySaver `docs/deployment/runbook.md` → "CI runner on the staging box" → Uninstall | `ci-runner` (TKS) |
 | `/opt/obs` | The observability stack: `compose.observability.yaml`, the Alloy/Loki/Prometheus/Tempo configs, Grafana provisioning, `.env` (`chmod 600` — template: `.env.observability.example`). Its **own** compose project, deployed by hand, never by CD (ADR-0050 §2) | `deploy` |
 
 ## Services & the container contract
@@ -1662,8 +1662,8 @@ interrupts anything (telemetry, for about a minute).
    twenty lines: it takes the quoting trap off the critical path, so when the route does come up the
    only thing left that can be wrong is the route. The netrc file keeps the password off argv, where
    `ps` and the shell history would both see it; publishing on `127.0.0.1` keeps the throwaway Caddy
-   off the box's public interface, which a bare `-p 8899:8899` would not (Docker's DNAT rules sit
-   ahead of the ufw chain).
+   off the box's public interface, where a bare `-p 8899:8899` would get past ufw (Docker's DNAT
+   rules sit ahead of the ufw chain) and be held back only by the `DOCKER-USER` leg (#808).
 
 4. **Staging box, re-plumb `/opt/obs` onto the new network** — about a minute without telemetry;
    the volumes, and the history in them, survive a `down` without `-v`. **Check the network exists
@@ -1817,7 +1817,8 @@ form works for `up` too. It does not.
   predates the leg: `scp scripts/hetzner/bootstrap.sh root@<ip>:/root/ && ssh root@<ip>
   'BOOTSTRAP_SOURCE_ONLY=1 bash -c ". /root/bootstrap.sh; ensure_docker_user_firewall"'`, then read
   it back with `iptables -S DOCKER-USER` (four rules: replies, 80, 443, drop) and the same for
-  `ip6tables`. Applied to `lotro-staging` on 2026-10-02 (a throwaway container on `0.0.0.0:47123`
+  `ip6tables`. Re-running the leg also repairs a chain someone edited by hand — every pass re-applies
+  it. Applied to `lotro-staging` on 2026-10-02 (a throwaway container on `0.0.0.0:47123`
   answered from outside before, timed out after; both sites kept answering on 80/443); `lotro-prod`
   publishes only Caddy and gets it with its next bootstrap pass. Never publish another service's port
   "just to debug"; exec into the network instead

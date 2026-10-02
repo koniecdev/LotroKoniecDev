@@ -172,9 +172,15 @@ EOF
 # which removes containers on a plain TCP command, no auth — on 0.0.0.0 at random ports on every run.
 #
 # Docker keeps DOCKER-USER across its own restarts, but nothing keeps it across a reboot, so a oneshot
-# unit runs the rules script every time docker.service starts. The script replaces the chain in one
-# iptables-restore transaction (a declared chain is flushed even under --noflush), so a re-run
+# unit runs the rules script every time docker.service starts, and retries it if that run fails —
+# the rules live only in the kernel, so a failed start is an open box. The script replaces the chain
+# in one iptables-restore transaction (a declared chain is flushed even under --noflush), so a re-run
 # converges instead of stacking duplicates, and a rule that fails to parse changes nothing.
+#
+# Every pass re-applies the rules, even with both files unchanged. A hand edit while debugging
+# (`iptables -I DOCKER-USER 1 -j ACCEPT`, a flush) leaves the unit `active` and the box open; re-running
+# this leg is the documented fix, so it has to converge the live chain, not just the files. The
+# replace is atomic and its content identical, so on a box that never drifted nothing changes.
 #
 # The paths are variables so scripts/tests/hetzner-bootstrap-docker-user.tests.sh can drive this
 # function against a temp root with stubbed tools, the same way the swap suite drives ensure_swap.
@@ -211,22 +217,22 @@ rules() {
         'COMMIT'
 }
 
-# Docker creates the chain and the jump to it from FORWARD. Without them these rules would sit where
-# no packet goes and protect nothing, so a missing IPv4 chain fails instead of passing quietly.
-if ! iptables -w -S DOCKER-USER > /dev/null 2>&1; then
-    echo "docker-user-firewall: no IPv4 DOCKER-USER chain — Docker's iptables integration is off, so nothing filters published ports. Nothing applied." >&2
+# Docker creates the chain and the jump to it from FORWARD. Without the jump these rules would sit
+# where no packet goes and protect nothing, so a missing IPv4 jump fails instead of passing quietly.
+if ! iptables -w -C FORWARD -j DOCKER-USER > /dev/null 2>&1; then
+    echo "docker-user-firewall: no IPv4 FORWARD jump to DOCKER-USER — Docker's iptables integration is off, so nothing filters published ports. Nothing applied." >&2
     exit 1
 fi
 rules | iptables-restore -w --noflush
 echo "docker-user-firewall: IPv4 — only 80/443 reach a container from ${ext_if}."
 
 # Docker filters IPv6 only when it manages ip6tables (the default since Docker 27). Without that
-# chain an IPv6 published port is served by docker-proxy on the host, where ufw's INPUT rules apply.
-if ip6tables -w -S DOCKER-USER > /dev/null 2>&1; then
+# jump an IPv6 published port is served by docker-proxy on the host, where ufw's INPUT rules apply.
+if ip6tables -w -C FORWARD -j DOCKER-USER > /dev/null 2>&1; then
     rules | ip6tables-restore -w --noflush
     echo "docker-user-firewall: IPv6 — only 80/443 reach a container from ${ext_if}."
 else
-    echo "docker-user-firewall: IPv6 — no DOCKER-USER chain; docker-proxy serves IPv6 ports behind ufw. Skipped."
+    echo "docker-user-firewall: IPv6 — no FORWARD jump to DOCKER-USER; docker-proxy serves IPv6 ports behind ufw. Skipped."
 fi
 EOF
     then
@@ -245,6 +251,8 @@ PartOf=docker.service
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=${rules_script}
+Restart=on-failure
+RestartSec=5s
 
 [Install]
 WantedBy=docker.service
@@ -257,13 +265,9 @@ EOF
         systemctl daemon-reload
     fi
     systemctl enable --quiet "$unit_name"
-    # A restart only when something changed: `start` on an active RemainAfterExit unit is a no-op,
-    # which keeps the second pass on a live box from touching the firewall at all.
-    if [ "$changed" -eq 1 ]; then
-        systemctl restart "$unit_name"
-    else
-        systemctl start "$unit_name"
-    fi
+    # restart, not start: `start` on an active RemainAfterExit unit is a no-op and would leave a
+    # hand-edited chain in place (see the comment above the function).
+    systemctl restart "$unit_name"
 }
 
 # Test seam: `BOOTSTRAP_SOURCE_ONLY=1 . bootstrap.sh` defines the helpers above and stops here,
@@ -453,11 +457,11 @@ su - deploy -c 'docker compose version'
 su - deploy -c 'docker ps > /dev/null'
 echo "deploy can reach the Docker daemon"
 ufw status verbose
-if ! systemctl is-active --quiet docker fail2ban unattended-upgrades; then
-    echo "FATAL: docker/fail2ban/unattended-upgrades not all active — inspect with systemctl status." >&2
+if ! systemctl is-active --quiet docker fail2ban unattended-upgrades docker-user-firewall; then
+    echo "FATAL: docker/fail2ban/unattended-upgrades/docker-user-firewall not all active — inspect with systemctl status." >&2
     exit 1
 fi
-echo "docker + fail2ban + unattended-upgrades: active"
+echo "docker + fail2ban + unattended-upgrades + docker-user-firewall: active"
 echo
 echo "Bootstrap complete. Next: land the stack files in /opt/lotro and bring it up"
 echo "(docs/deployment/runbook.md)."

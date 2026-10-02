@@ -11,10 +11,12 @@
 #
 # The properties that matter: only 80/443 pass from the public interface, the rules match the port
 # BEFORE Docker's DNAT rewrote it, the load never flushes the whole filter table (that would wipe ufw
-# and Docker's own rules), a box where the chain is missing fails instead of reporting a filter that
-# filters nothing, and a second pass on a live box does not touch the firewall at all.
+# and Docker's own rules), nothing touches the chain outside that one transaction, a box without the
+# FORWARD jump or with a failing load fails instead of reporting a filter that filters nothing, and a
+# second pass re-applies the live chain without reloading systemd.
 #
-# CI runs this in the `guards` job, right next to the swap suite.
+# pr-verify and CI run this in their `build` job (the classifier's `guards` verdict), right after
+# the swap suite.
 
 set -euo pipefail
 
@@ -45,8 +47,9 @@ pass() {
 }
 
 # One throwaway "box": a fake root plus stubs for every tool the leg and its rules script shell out
-# to. The box state the stubs read lives in files: `default-route` is what `ip route show default`
-# prints, and `chain-v4` / `chain-v6` exist when Docker has created DOCKER-USER for that family.
+# to. The box state the stubs read lives in files: `default-route` is what `ip -o route show default`
+# prints, `chain-v4` / `chain-v6` exist when Docker jumps from FORWARD to DOCKER-USER for that family,
+# and `restore-fails-v4` / `-v6` make that family's iptables-restore fail.
 new_box() {
     # Exported: the stubs are child processes and read $BOX to find their state and call log.
     export BOX="$TMP_ROOT/box-$((++box_seq))"
@@ -61,21 +64,23 @@ new_box() {
 echo "systemctl $*" >> "$BOX/calls.log"
 EOF
 
+    # Answers only the one question the script should ask — the main table's default route.
     cat > "$BOX/bin/ip" <<'EOF'
 #!/usr/bin/env bash
 echo "ip $*" >> "$BOX/calls.log"
+[ "$*" = '-o route show default' ] || exit 1
 cat "$BOX/default-route"
 EOF
 
-    # iptables/ip6tables: `-S DOCKER-USER` answers from the box state; anything else is recorded so a
-    # rule added one by one (instead of in one restore transaction) shows up as a failure.
+    # iptables/ip6tables: the FORWARD jump probe answers from the box state; every call is recorded,
+    # so a rule changed outside the restore transaction shows up in the call log.
     for family in v4 v6; do
         tool=iptables
         [ "$family" = v6 ] && tool=ip6tables
         cat > "$BOX/bin/$tool" <<EOF
 #!/usr/bin/env bash
 echo "$tool \$*" >> "\$BOX/calls.log"
-if [ "\${*: -2:1}" = "-S" ] && [ "\${*: -1}" = "DOCKER-USER" ]; then
+if [ "\$*" = "-w -C FORWARD -j DOCKER-USER" ]; then
     [ -f "\$BOX/chain-$family" ]
     exit
 fi
@@ -84,6 +89,10 @@ EOF
 #!/usr/bin/env bash
 echo "$tool-restore \$*" >> "\$BOX/calls.log"
 cat > "\$BOX/restore-$family.txt"
+if [ -f "\$BOX/restore-fails-$family" ]; then
+    echo "$tool-restore: line 4 failed" >&2
+    exit 1
+fi
 EOF
     done
 
@@ -145,11 +154,24 @@ unit="$BOX/docker-user-firewall.service"
 grep -qxF "ExecStart=$BOX/docker-user-firewall" "$unit" || fail 'the unit does not run the rules script it wrote'
 grep -qxF 'WantedBy=docker.service' "$unit" || fail 'nothing starts the unit when docker starts — the rules are gone after a reboot'
 grep -qxF 'PartOf=docker.service' "$unit" || fail 'a docker restart would not re-apply the rules'
-grep -qE '^After=.*docker\.service' "$unit" || fail 'the unit may run before Docker has created DOCKER-USER'
+grep -qxF 'After=docker.service network-online.target' "$unit" \
+    || fail 'the unit may run before Docker has created DOCKER-USER or before the default route exists'
+grep -qxF 'Wants=network-online.target' "$unit" || fail 'nothing pulls in network-online.target — the ordering on it is empty'
 grep -qxF 'Type=oneshot' "$unit" || fail 'the unit is not a oneshot'
 grep -qxF 'RemainAfterExit=yes' "$unit" \
     || fail 'the unit does not stay active after the script exits — "start" on a re-run would apply the rules again'
 pass 'the unit runs the script whenever docker.service starts or restarts'
+
+grep -qxF 'Restart=on-failure' "$unit" \
+    || fail 'a failed start is never retried — the rules live only in the kernel, so that box stays open'
+grep -qxF 'RestartSec=5s' "$unit" || fail 'the retry delay is not 5 s'
+pass 'a failed start is retried every 5 s'
+
+grep -qF 'DOCKER_USER_SCRIPT:-/usr/local/sbin/docker-user-firewall}' "$BOOTSTRAP_SH" \
+    || fail 'the real rules-script path drifted from the one the runbook names'
+grep -qF 'DOCKER_USER_UNIT:-/etc/systemd/system/docker-user-firewall.service}' "$BOOTSTRAP_SH" \
+    || fail 'the real unit path drifted from the one the runbook names'
+pass 'on a real box the files land where the runbook says'
 
 [ "$(calls_matching '^systemctl daemon-reload$')" -eq 1 ] || fail 'systemd never learned about the new unit'
 [ "$(calls_matching '^systemctl enable --quiet docker-user-firewall\.service$')" -eq 1 ] \
@@ -164,11 +186,10 @@ CASE='second pass on the same box'
 : > "$BOX/calls.log"
 run_leg
 
-[ "$(calls_matching '^systemctl (daemon-reload|restart)')" -eq 0 ] \
-    || fail 'a re-run reloaded systemd or re-applied an unchanged firewall'
-[ "$(calls_matching '^systemctl start docker-user-firewall\.service$')" -eq 1 ] \
-    || fail 'a re-run does not make sure the unit is active'
-pass 'only makes sure the unit is active — "start" on an active oneshot is a no-op'
+[ "$(calls_matching '^systemctl daemon-reload$')" -eq 0 ] || fail 'a re-run reloaded systemd for unchanged files'
+[ "$(calls_matching '^systemctl restart docker-user-firewall\.service$')" -eq 1 ] \
+    || fail 'a re-run left the live chain as it found it — a hand edit would survive the documented fix'
+pass 'does not reload systemd, and re-applies the live chain (an atomic replace with the same rules)'
 
 # ---------------------------------------------------------------------------------------------
 CASE='rules script edited by hand'
@@ -205,9 +226,12 @@ pass 'IPv6: the same rule set'
     || fail 'a restore ran without --noflush — that wipes ufw and Docker rules'
 pass 'loads each family with --noflush, so only DOCKER-USER is replaced'
 
-[ "$(calls_matching '^ip6?tables -w -(A|I|D|F) ')" -eq 0 ] \
-    || fail 'rules were changed one by one — a failure halfway leaves a half-built chain'
-pass 'changes the chain only inside one restore transaction per family'
+# An allowlist, not a denylist: whatever the spelling (-I, -t filter -A, --insert), any iptables call
+# besides the jump probe is a rule changed outside the transaction — one `-j RETURN` there opens
+# every published port again.
+others="$(grep -E '^ip6?tables ' "$BOX/calls.log" | grep -vxE 'ip6?tables -w -C FORWARD -j DOCKER-USER' || true)"
+[ -z "$others" ] || fail 'iptables was called outside the restore transaction' "$others"
+pass 'touches the chain only inside one restore transaction per family'
 
 # DNAT rewrote the destination before DOCKER-USER sees the packet: --dport 443 would match the
 # container's port, not the published one, and could let a different published port through.
@@ -234,8 +258,32 @@ run_rules
 
 [ -f "$BOX/restore-v4.txt" ] || fail 'IPv4 was skipped together with IPv6'
 [ -e "$BOX/restore-v6.txt" ] && fail 'rules were loaded into an IPv6 chain nothing jumps to'
-printf '%s' "$LAST_OUTPUT" | grep -q 'IPv6 — no DOCKER-USER chain' || fail 'the IPv6 skip was silent' "$LAST_OUTPUT"
+printf '%s' "$LAST_OUTPUT" | grep -q 'IPv6 — no FORWARD jump to DOCKER-USER' || fail 'the IPv6 skip was silent' "$LAST_OUTPUT"
 pass 'applies IPv4, skips IPv6 and says so'
+
+# ---------------------------------------------------------------------------------------------
+# A load that fails must fail the unit: "active (exited)" over a chain that never loaded is a box
+# that looks protected and is not. Restart=on-failure only retries what reports a failure.
+CASE='IPv4 load fails'
+new_box
+run_leg
+: > "$BOX/restore-fails-v4"
+EXPECT_FAILURE=1 run_rules
+EXPECT_FAILURE=0
+
+printf '%s' "$LAST_OUTPUT" | grep -q 'IPv4 — only 80/443' && fail 'a failed IPv4 load still reported success' "$LAST_OUTPUT"
+[ "$(calls_matching '^ip6tables-restore')" -eq 0 ] || fail 'the script carried on after the IPv4 load failed'
+pass 'fails without claiming the box is filtered'
+
+CASE='IPv6 load fails'
+new_box
+run_leg
+: > "$BOX/restore-fails-v6"
+EXPECT_FAILURE=1 run_rules
+EXPECT_FAILURE=0
+
+printf '%s' "$LAST_OUTPUT" | grep -q 'IPv6 — only 80/443' && fail 'a failed IPv6 load still reported success' "$LAST_OUTPUT"
+pass 'fails too — a half-filtered box is not reported as done'
 
 # ---------------------------------------------------------------------------------------------
 # Rules in a chain nothing jumps to filter nothing. Reporting success there would be the worst
@@ -247,8 +295,8 @@ run_leg
 EXPECT_FAILURE=1 run_rules
 EXPECT_FAILURE=0
 
-[ "$(calls_matching '^ip6?tables-restore')" -eq 0 ] || fail 'rules were loaded although the chain is missing'
-printf '%s' "$LAST_OUTPUT" | grep -q 'no IPv4 DOCKER-USER chain' || fail 'the failure does not say why' "$LAST_OUTPUT"
+[ "$(calls_matching '^ip6?tables-restore')" -eq 0 ] || fail 'rules were loaded although nothing jumps to the chain'
+printf '%s' "$LAST_OUTPUT" | grep -q 'no IPv4 FORWARD jump to DOCKER-USER' || fail 'the failure does not say why' "$LAST_OUTPUT"
 pass 'fails, loads nothing and says why'
 
 # ---------------------------------------------------------------------------------------------

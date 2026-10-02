@@ -16,6 +16,8 @@
 #   * Docker Engine + compose plugin — ADOPTS whatever working engine the box already has, and
 #     installs docker-ce from Docker's apt repo only when there is none (see the leg below)
 #   * ufw: deny incoming except 22/80/443, allow outgoing
+#   * a DOCKER-USER firewall rule (rules script + oneshot unit, re-applied whenever docker starts):
+#     from the public interface only 80/443 reach a container — Docker's DNAT bypasses ufw (#808)
 #   * fail2ban with the systemd backend (24.04 ships no /var/log/auth.log without rsyslog)
 #   * unattended-upgrades (security patches apply themselves)
 #   * non-root `deploy` user: docker group, ssh key auth only (key copied from root), locked
@@ -161,9 +163,117 @@ EOF
     fi
 }
 
+# Closes the gap ufw leaves open (#808). A container port published on 0.0.0.0 answers on the public
+# IP whatever ufw says: Docker rewrites the packet's destination (DNAT) before ufw's INPUT rules see
+# it, so the packet takes the FORWARD path, where DOCKER-USER is the one chain Docker runs first and
+# never rewrites. Only Caddy is supposed to publish (80/443 — the note on the ufw leg); this leg makes
+# that true for everything else. It was written for TheKittySaver's CI runner on the staging box
+# (koniecdev/TheKittySaver#831, its ADR-0047): Testcontainers publishes Postgres, MinIO and Ryuk —
+# which removes containers on a plain TCP command, no auth — on 0.0.0.0 at random ports on every run.
+#
+# Docker keeps DOCKER-USER across its own restarts, but nothing keeps it across a reboot, so a oneshot
+# unit runs the rules script every time docker.service starts, and retries it if that run fails —
+# the rules live only in the kernel, so a failed start is an open box. The script replaces the chain
+# in one iptables-restore transaction (a declared chain is flushed even under --noflush), so a re-run
+# converges instead of stacking duplicates, and a rule that fails to parse changes nothing.
+#
+# Every pass re-applies the rules, even with both files unchanged. A hand edit while debugging
+# (`iptables -I DOCKER-USER 1 -j ACCEPT`, a flush) leaves the unit `active` and the box open; re-running
+# this leg is the documented fix, so it has to converge the live chain, not just the files. The
+# replace is atomic and its content identical, so on a box that never drifted nothing changes.
+#
+# The paths are variables so scripts/tests/hetzner-bootstrap-docker-user.tests.sh can drive this
+# function against a temp root with stubbed tools, the same way the swap suite drives ensure_swap.
+ensure_docker_user_firewall() {
+    local rules_script="${DOCKER_USER_SCRIPT:-/usr/local/sbin/docker-user-firewall}"
+    local unit_file="${DOCKER_USER_UNIT:-/etc/systemd/system/docker-user-firewall.service}"
+    local unit_name changed=0
+    unit_name="$(basename "$unit_file")"
+
+    if write_file "$rules_script" 0755 << 'EOF'
+#!/usr/bin/env bash
+# Written by LotroKoniecDev scripts/hetzner/bootstrap.sh (#808) — re-run its docker-user leg to
+# change it; edits here are overwritten. docker-user-firewall.service runs it when docker starts.
+#
+# From the public interface, only ports 80 and 443 reach a container. The rules match the ORIGINAL
+# destination port through conntrack, because DNAT has already rewritten the port by the time a
+# packet reaches DOCKER-USER (Docker docs, "Packet filtering and firewalls").
+set -euo pipefail
+
+ext_if="$(ip -o route show default | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')"
+if [ -z "$ext_if" ]; then
+    echo "docker-user-firewall: no default route, so the public interface is unknown — nothing applied." >&2
+    exit 1
+fi
+
+rules() {
+    printf '%s\n' \
+        '*filter' \
+        ':DOCKER-USER - [0:0]' \
+        "-A DOCKER-USER -i ${ext_if} -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN" \
+        "-A DOCKER-USER -i ${ext_if} -p tcp -m conntrack --ctdir ORIGINAL --ctorigdstport 80 -j RETURN" \
+        "-A DOCKER-USER -i ${ext_if} -p tcp -m conntrack --ctdir ORIGINAL --ctorigdstport 443 -j RETURN" \
+        "-A DOCKER-USER -i ${ext_if} -j DROP" \
+        'COMMIT'
+}
+
+# Docker creates the chain and the jump to it from FORWARD. Without the jump these rules would sit
+# where no packet goes and protect nothing, so a missing IPv4 jump fails instead of passing quietly.
+if ! iptables -w -C FORWARD -j DOCKER-USER > /dev/null 2>&1; then
+    echo "docker-user-firewall: no IPv4 FORWARD jump to DOCKER-USER — Docker's iptables integration is off, so nothing filters published ports. Nothing applied." >&2
+    exit 1
+fi
+rules | iptables-restore -w --noflush
+echo "docker-user-firewall: IPv4 — only 80/443 reach a container from ${ext_if}."
+
+# Docker filters IPv6 only when it manages ip6tables (the default since Docker 27). Without that
+# jump an IPv6 published port is served by docker-proxy on the host, where ufw's INPUT rules apply.
+if ip6tables -w -C FORWARD -j DOCKER-USER > /dev/null 2>&1; then
+    rules | ip6tables-restore -w --noflush
+    echo "docker-user-firewall: IPv6 — only 80/443 reach a container from ${ext_if}."
+else
+    echo "docker-user-firewall: IPv6 — no FORWARD jump to DOCKER-USER; docker-proxy serves IPv6 ports behind ufw. Skipped."
+fi
+EOF
+    then
+        changed=1
+    fi
+
+    if write_file "$unit_file" 0644 << EOF
+# Written by LotroKoniecDev scripts/hetzner/bootstrap.sh (#808) — edits here are overwritten.
+[Unit]
+Description=DOCKER-USER firewall: from the public interface only 80/443 reach a container (#808)
+After=docker.service network-online.target
+Wants=network-online.target
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=${rules_script}
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=docker.service
+EOF
+    then
+        changed=1
+    fi
+
+    if [ "$changed" -eq 1 ]; then
+        systemctl daemon-reload
+    fi
+    systemctl enable --quiet "$unit_name"
+    # restart, not start: `start` on an active RemainAfterExit unit is a no-op and would leave a
+    # hand-edited chain in place (see the comment above the function).
+    systemctl restart "$unit_name"
+}
+
 # Test seam: `BOOTSTRAP_SOURCE_ONLY=1 . bootstrap.sh` defines the helpers above and stops here,
-# before the script touches anything. It is what lets the swap self-test drive ensure_swap against a
-# temp root, and how an already-bootstrapped box gets this one leg without a full re-run (#708).
+# before the script touches anything. It is what lets the self-tests drive ensure_swap and
+# ensure_docker_user_firewall against a temp root, and how an already-bootstrapped box gets one leg
+# without a full re-run (#708, #808).
 if [ "${BOOTSTRAP_SOURCE_ONLY:-0}" = "1" ]; then
     # `return` is the sourced path; the fallback catches someone EXECUTING the script with the seam
     # set, where a bare `return` would be an error. SC2317: not dead code, just conditionally reached.
@@ -284,13 +394,17 @@ fi
 
 log "ufw (deny incoming; allow 22/80/443)"
 # Note: Docker's iptables rules bypass ufw for PUBLISHED container ports. Only Caddy publishes
-# ports in our stacks (80/443, allowed below anyway) — keep it that way; see the runbook gotchas.
+# ports in our stacks (80/443, allowed below anyway) — the DOCKER-USER leg right after this one
+# enforces it; see the runbook gotchas.
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow 22/tcp
 ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
+
+log "DOCKER-USER firewall (from the public interface only 80/443 reach a container)"
+ensure_docker_user_firewall
 
 log "fail2ban (sshd jail on the systemd backend)"
 if write_file /etc/fail2ban/jail.local 0644 <<'EOF'
@@ -343,11 +457,11 @@ su - deploy -c 'docker compose version'
 su - deploy -c 'docker ps > /dev/null'
 echo "deploy can reach the Docker daemon"
 ufw status verbose
-if ! systemctl is-active --quiet docker fail2ban unattended-upgrades; then
-    echo "FATAL: docker/fail2ban/unattended-upgrades not all active — inspect with systemctl status." >&2
+if ! systemctl is-active --quiet docker fail2ban unattended-upgrades docker-user-firewall; then
+    echo "FATAL: docker/fail2ban/unattended-upgrades/docker-user-firewall not all active — inspect with systemctl status." >&2
     exit 1
 fi
-echo "docker + fail2ban + unattended-upgrades: active"
+echo "docker + fail2ban + unattended-upgrades + docker-user-firewall: active"
 echo
 echo "Bootstrap complete. Next: land the stack files in /opt/lotro and bring it up"
 echo "(docs/deployment/runbook.md)."

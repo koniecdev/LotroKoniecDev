@@ -47,7 +47,7 @@ staging.
 | Backups | Hetzner backups on **lotro-prod only** (~20% surcharge); staging is disposable |
 | Memory | 4 GB RAM + a **2 GiB `/swapfile`** at `vm.swappiness = 10`, laid down by `bootstrap.sh` and persisted in `/etc/fstab` (OBS-01 / #708). The Hetzner image ships no swap at all, which turns any spike into an OOM-kill instead of a slowdown |
 | Users | `root` (key-only) · `deploy` (docker group, key-only, locked password — CD and day-2 ops run as this user) |
-| Firewall | ufw: deny incoming except **22/80/443**, allow outgoing |
+| Firewall | ufw: deny incoming except **22/80/443**, allow outgoing · **`DOCKER-USER`**: from the public interface only **80/443** reach a container, everything else published is dropped — ufw cannot filter a published port (Docker's DNAT runs first), this chain can (#808). Rules script `/usr/local/sbin/docker-user-firewall`, re-applied by `docker-user-firewall.service` whenever Docker starts, both laid down by `bootstrap.sh` |
 | Intrusion / patching | fail2ban (sshd jail, systemd backend) · unattended-upgrades |
 | Container runtime | Docker Engine + compose plugin (the box's own — bootstrap **adopts**, never swaps: see [Gotchas](#gotchas)) |
 | Registry | `deploy` is `docker login`-ed to **ghcr.io** with a **read-only** (`read:packages`) PAT |
@@ -64,6 +64,7 @@ pull error by enabling emulation.
 |---|---|---|
 | `/opt/lotro` | LotroKoniecDev stack: `compose.hetzner.yaml`, `.docker/hetzner/Caddyfile`, `.env` (`chmod 600`, never committed — template: `.env.hetzner.example`), `deploy.sh`, `.previous/` (the last-good config snapshot) | `deploy` |
 | `/opt/tks` | TheKittySaver stack (its own epic; joins the same Caddy via parametrized vhosts) | `deploy` |
+| `/opt/actions-runner` · `/home/ci-runner` | **Staging box only — a guest.** TheKittySaver's self-hosted GitHub Actions runner (koniecdev/TheKittySaver#831, its ADR-0047): user `ci-runner` (in `docker` — its integration suite uses Testcontainers), unit `tks-ci-runner.service`, the .NET SDK and NuGet cache under its home — 4.8 GB measured after its first job on 2026-10-02 (runner + checkout 1.3 GB, SDK 0.7 GB, NuGet 2.8 GB), ≈ 7–9 GB once a full Release build tree sits in `_work` (TheKittySaver's runbook estimate). One job at a time; registered to the **private** TKS repo only — never register a runner on these boxes to this public repo. Uninstall, after deleting the runner on the TKS side: TheKittySaver `docs/deployment/runbook.md` → "CI runner on the staging box" → Uninstall | `ci-runner` (TKS) |
 | `/opt/obs` | The observability stack: `compose.observability.yaml`, the Alloy/Loki/Prometheus/Tempo configs, Grafana provisioning, `.env` (`chmod 600` — template: `.env.observability.example`). Its **own** compose project, deployed by hand, never by CD (ADR-0050 §2) | `deploy` |
 
 ## Services & the container contract
@@ -113,6 +114,8 @@ rather than the service.
 | `caddy`, `caddy-validate` | −100 | −100 | literal. The only ingress on either box, and on staging it also serves the obs ingest vhost prod pushes through (ADR-0050 §4). −100 rather than deeper because it restarts in seconds and the prod agent retries connection errors and 5xx, so the worst case is a bounded ingest gap |
 | `loki`, `prometheus`, `tempo`, `grafana` | −200 | *(staging only)* | literal — the `backend` profile pins them to one box, so their role never changes |
 | `preflight` | −200 | −200 | literal. It carries no profile, so unlike the four above it runs in **both** roles; it is a one-shot that exits in milliseconds |
+| TheKittySaver CI build tree (`dotnet build`/`test`, Stryker, the test containers' clients) | **+1000** | *(staging only)* | set per job step by the runner from `PIPELINE_JOB_OOMSCOREADJ=1000` in `tks-ci-runner.service` (koniecdev/TheKittySaver#831). The first victim on the box, on purpose: a killed build is a red CI run, nothing else |
+| TheKittySaver CI runner (`Runner.Listener` / `Runner.Worker`) | **+500** | *(staging only)* | `OOMScoreAdjust=500` on the unit — the staging apps' line, so after the build the kernel picks between the runner and the apps by size (read back 2026-10-02 mid-build: build tree 1366–1452, runner worker ~1009, `obs-*` 500–556) and never reaches the observability stack first |
 | `obs-alloy` | **−300** | **+300** | `${OBS_ALLOY_OOM_SCORE_ADJ}` in `/opt/obs/.env`. The only value in that project that inverts, because `alloy` carries no profile and runs on both boxes from one definition |
 
 **What the agent does not carry.** Prod does **not** ship through the staging box's agent. The prod
@@ -820,7 +823,8 @@ against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://
    **The GHCR login is optional today** — the four images are **public** packages, so `deploy` pulls
    them anonymously. It stays in the script because a *private* package would need it.
 
-   **Bootstrap overwrites `/etc/ssh/sshd_config.d/00-hardening.conf` and `/etc/fail2ban/jail.local`**
+   **Bootstrap overwrites `/etc/ssh/sshd_config.d/00-hardening.conf`, `/etc/fail2ban/jail.local`,
+   `/usr/local/sbin/docker-user-firewall` and `/etc/systemd/system/docker-user-firewall.service`**
    (it converges them to the repo version), so fold any hand-tuned directive into the script first.
 
    **The Docker leg adopts the box's engine, it does not install one** — see [Gotchas](#gotchas).
@@ -1526,8 +1530,10 @@ this file, and a second entry point is a second thing to keep in step.
 
 **Nothing is published to the internet by the observability project itself.** Grafana binds to loopback. Alloy's OTLP receiver binds the
 two docker **bridge gateways** (`10.60.0.1` ours, `10.61.0.1` the guest stack's) and never `0.0.0.0`
-— a port published on `0.0.0.0` is internet-reachable *regardless of `ufw`*, because Docker inserts
-its DNAT rules ahead of the ufw chain (`bootstrap.sh`). Loki, Prometheus and Tempo publish nothing.
+— a port published on `0.0.0.0` bypasses `ufw`, because Docker inserts its DNAT rules ahead of the
+ufw chain; since #808 the `DOCKER-USER` leg of `bootstrap.sh` drops it from the public interface,
+and binding the gateways stays the rule anyway (the chain is a second wall, not the first). Loki,
+Prometheus and Tempo publish nothing.
 No observability container joins `default` or `tks`: the agent reads the Docker socket, containerd
 and `/proc`, so it never needs a route to an app container and does not have one (ADR-0050 §3).
 
@@ -1656,8 +1662,8 @@ interrupts anything (telemetry, for about a minute).
    twenty lines: it takes the quoting trap off the critical path, so when the route does come up the
    only thing left that can be wrong is the route. The netrc file keeps the password off argv, where
    `ps` and the shell history would both see it; publishing on `127.0.0.1` keeps the throwaway Caddy
-   off the box's public interface, which a bare `-p 8899:8899` would not (Docker's DNAT rules sit
-   ahead of the ufw chain).
+   off the box's public interface, where a bare `-p 8899:8899` would get past ufw (Docker's DNAT
+   rules sit ahead of the ufw chain) and be held back only by the `DOCKER-USER` leg (#808).
 
 4. **Staging box, re-plumb `/opt/obs` onto the new network** — about a minute without telemetry;
    the volumes, and the history in them, survive a `down` without `-v`. **Check the network exists
@@ -1802,8 +1808,20 @@ form works for `up` too. It does not.
   `docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$v.Aliases}}{{end}}' <ctr>` — no
   alias may appear on two containers of the same network.
 - **Docker bypasses ufw for published ports** (it programs iptables directly). Our stacks publish only
-  Caddy's 80/443 — which ufw allows anyway. Never publish another service's port "just to debug";
-  exec into the network instead
+  Caddy's 80/443 — which ufw allows anyway. Since #808 the `DOCKER-USER` leg of `bootstrap.sh` drops
+  every other published port arriving on the public interface, so a port published on `0.0.0.0`
+  answers on the box and on the bridges but **not from the internet**: a service that genuinely needs
+  a new public port needs that leg changed, not just a `ports:` line. The staging box needs the rule
+  most — TheKittySaver's CI runner starts Testcontainers there, which publish Postgres, MinIO and
+  Ryuk (it deletes containers on a plain TCP command) on `0.0.0.0` at random ports. On a box that
+  predates the leg: `scp scripts/hetzner/bootstrap.sh root@<ip>:/root/ && ssh root@<ip>
+  'BOOTSTRAP_SOURCE_ONLY=1 bash -c ". /root/bootstrap.sh; ensure_docker_user_firewall"'`, then read
+  it back with `iptables -S DOCKER-USER` (four rules: replies, 80, 443, drop) and the same for
+  `ip6tables`. Re-running the leg also repairs a chain someone edited by hand — every pass re-applies
+  it. Applied to `lotro-staging` on 2026-10-02 (a throwaway container on `0.0.0.0:47123`
+  answered from outside before, timed out after; both sites kept answering on 80/443); `lotro-prod`
+  publishes only Caddy and gets it with its next bootstrap pass. Never publish another service's port
+  "just to debug"; exec into the network instead
   (`docker compose exec caddy wget -qO- http://tms-api:8080/health/live`; the full `/health` also
   needs the `X-LOTRO-Health-Key` header, ADR-0058).
 - **sshd config precedence:** sshd honours the *first* occurrence of a keyword, and

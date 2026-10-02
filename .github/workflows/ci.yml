@@ -87,6 +87,10 @@ jobs:
       - name: Hetzner bootstrap swap self-test
         run: ./scripts/tests/hetzner-bootstrap-swap.tests.sh
 
+      # Same bootstrap DOCKER-USER self-test as pr-verify (#808) — backstops direct pushes to main.
+      - name: Hetzner bootstrap DOCKER-USER self-test
+        run: ./scripts/tests/hetzner-bootstrap-docker-user.tests.sh
+
       # Same three N-1 promotion gate self-tests as pr-verify (#534, #679) — CD is triggered by THIS
       # workflow concluding success, so every script the prod leg is about to run gets checked here too.
       - name: Prod-baseline resolution self-test

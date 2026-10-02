@@ -158,6 +158,13 @@ jobs:
       - name: Hetzner bootstrap swap self-test
         run: ./scripts/tests/hetzner-bootstrap-swap.tests.sh
 
+      # The bootstrap's firewall leg (#808): the DOCKER-USER rules are what stands between the
+      # internet and every container port published on 0.0.0.0 (Docker's DNAT bypasses ufw). The
+      # suite runs the rules script it writes and pins the rule set, the --noflush load that keeps
+      # ufw's and Docker's own rules alive, and the no-op second pass.
+      - name: Hetzner bootstrap DOCKER-USER self-test
+        run: ./scripts/tests/hetzner-bootstrap-docker-user.tests.sh
+
       # The prod-promotion N-1 gate (#534) runs inside CD's prod leg, where its real inputs (the
       # deployments API, the box .env, a schema) exist nowhere in CI — so both halves get a stubbed
       # suite here. The resolver's cases pin the properties the safety story rests on: an

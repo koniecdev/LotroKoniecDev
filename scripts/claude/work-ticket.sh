@@ -617,6 +617,8 @@ run_session() {
         sleeper=$!
         wait "$sleeper"
         sleeper=""
+        # A session that ended in the nap is judged from its result, even past the limit (#991).
+        session_running || break
         if [ $(( $(date +%s) - start_epoch )) -ge $(( TIMEOUT_MIN * 60 )) ]; then
             stop_session
             set -e
@@ -752,6 +754,8 @@ while :; do
     fi
     [ -n "$run_session_id" ] || break
     left_min=$(( TIMEOUT_MIN - ( $(date +%s) - start_epoch ) / 60 ))
+    # A session that ended in its last nap is judged after the clock has run out (#991).
+    [ "$left_min" -ge 0 ] || left_min=0
     if [ "$left_min" -lt "$MIN_RESUME_MIN" ]; then
         log "the session needs a resume, but only ${left_min}m of the ticket's clock is left — not resuming"
         break

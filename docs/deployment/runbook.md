@@ -78,7 +78,7 @@ TLS-terminating ingress:
 | **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (deep: DB; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | translation artifacts (read-only mount) |
 | **frontend** | `lotrokoniecdev-frontend` | `:8080` (HTTP) | — | Data Protection keyring → `/keys` |
 | **migrator** | `lotrokoniecdev-migrator` | one-shot (exits 0) | exit code | — |
-| _ingress_ | **Caddy** (`caddy:2-alpine`) | `:80`, `:443` | — | ACME certs + config volumes |
+| _ingress_ | **Caddy** (`caddy:2.11.4-alpine` — pinned by digest, see the `x-caddy-image` comment in `compose.hetzner.yaml`; 2.11.6 crashes, #988) | `:80`, `:443` | — | ACME certs + config volumes |
 | _broker_ | **RabbitMQ** (`rabbitmq:4.3.4-management-alpine` — pinned, see the compose comment) | `:5672` in-stack (AMQP; auth-api only) | `rabbitmq-diagnostics ping` (container healthcheck) + the `rabbitmq` leg of auth's deep `/health` | broker state (users, quorum queues, parked dead letters) → `rabbitmq-data` volume |
 
 Container contract (ADR-0008 §2): each app serves **plain HTTP on `:8080`** and expects a
@@ -1645,13 +1645,14 @@ interrupts anything (telemetry, for about a minute).
    ```bash
    # On the prod box, with the plaintext in a 600 file there and the DEPLOYED hash read back out
    # of the staging Caddy (never out of the .env — the point is to test what compose rendered).
+   # The throwaway Caddy runs the live proxy's own image, so it never pulls a floating tag (#988).
    ssh lotro-staging 'docker exec lotro-staging-caddy-1 printenv OBS_PUSH_PASSWORD_HASH' \
      | ssh lotro-prod 'umask 077; tr -d "\n" > /root/.obs-push-hash.deployed'
 
    ssh lotro-prod 'd=$(mktemp -d); printf ":8899 {\n\tbasic_auth {\n\t\tprod-agent %s\n\t}\n\trespond \"ok\" 200\n}\n" \
        "$(cat /root/.obs-push-hash.deployed)" > "$d/Caddyfile"; chmod 644 "$d/Caddyfile"
      docker run -d --rm --name obs-cred-probe -p 127.0.0.1:8899:8899 \
-       -v "$d/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine >/dev/null; sleep 2
+       -v "$d/Caddyfile:/etc/caddy/Caddyfile:ro" "$(docker inspect -f "{{.Config.Image}}" lotro-prod-caddy-1)" >/dev/null; sleep 2
      printf "machine 127.0.0.1 login prod-agent password %s\n" "$(cat /root/.obs-push-password)" > "$d/netrc"
      chmod 600 "$d/netrc"
      curl -s -o /dev/null -w "%{http_code}\n" --netrc-file "$d/netrc" http://127.0.0.1:8899/

@@ -1355,7 +1355,43 @@ run_case 3 "work-ticket: no resume when too little of the clock is left" \
 expect_in_output "not resuming"
 [ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no time for a resume" "$LAST_OUTPUT"
 expect_meta 99 outcome=error resumes=0
-rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/bin/date"
+
+# A session that ends during the last nap before the limit is judged from its result, not stopped
+# as a timeout (#991). Only the poll nap is slow here: it waits until the worker has reaped the
+# session, and only then moves the clock past the limit.
+reset_fixtures
+rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/session-pid" "$TMP_ROOT/in-poll-nap"
+fixture_issue 131 maintainer OWNER
+fixture_pr_view 7131 OPEN 131-fixture
+mkdir -p "$TMP_ROOT/last-nap-bin"
+cat > "$TMP_ROOT/last-nap-bin/sleep" <<STUB
+#!/usr/bin/env bash
+[ "\$1" = 30 ] || exec "$REAL_SLEEP" 0.05
+touch "$TMP_ROOT/in-poll-nap"
+for _ in \$(seq 1 200); do
+    session="\$(cat "$TMP_ROOT/session-pid" 2>/dev/null || true)"
+    [ -n "\$session" ] && ! kill -0 "\$session" 2>/dev/null && break
+    "$REAL_SLEEP" 0.05
+done
+echo 1250 > "$TMP_ROOT/clock-skew"
+STUB
+chmod +x "$TMP_ROOT/last-nap-bin/sleep"
+behavior "$TMP_ROOT/ends-in-last-nap.sh" 'echo $$ > "'"$TMP_ROOT"'/session-pid"
+git checkout -q -b 131-fixture
+git commit -q --allow-empty -m "reviewed work"
+for _ in $(seq 1 100); do [ -e "'"$TMP_ROOT"'/in-poll-nap" ] && break; "$REAL_SLEEP" 0.05; done
+echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7131\",\"is_error\":false,\"session_id\":\"s-131\"}"'
+run_case 0 "work-ticket: a session that ends in the last nap before the limit is judged, not timed out" \
+    env PATH="$TMP_ROOT/last-nap-bin:$PATH" LOOP_TICKET_TIMEOUT_MIN=20 \
+    CLAUDE_BEHAVIOR="$TMP_ROOT/ends-in-last-nap.sh" "$WORK" 131 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/clock-skew" 2>/dev/null || true)" = "1250" ] \
+    || fail "the session did not end during the poll nap, so the case proves nothing" "$LAST_OUTPUT"
+expect_in_output "PR #7131 opened"
+expect_meta 131 outcome=pr-opened resumes=0
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a DONE session must not be resumed" "$LAST_OUTPUT"
+[ ! -e "$WT_ROOT/ticket-131" ] || fail "a judged run should not leave its worktree behind"
+rm -rf "$TMP_ROOT/clock-skew" "$TMP_ROOT/bin/date" "$TMP_ROOT/session-pid" "$TMP_ROOT/in-poll-nap" \
+    "$TMP_ROOT/last-nap-bin"
 
 # Only a real open PR for this ticket counts as DONE. With no session id there is nothing to resume.
 reset_fixtures

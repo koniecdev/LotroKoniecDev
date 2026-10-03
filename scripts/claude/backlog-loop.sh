@@ -141,34 +141,30 @@ job_running() {
     return 1
 }
 
-stop_workers() {
-    local entry pid
-    for entry in $RUNNING; do
-        pid="${entry%%:*}"
-        if job_running "$pid"; then
-            kill "$pid" 2>/dev/null || true
-        fi
+# A stop signals every job bash still lists as running: the workers and the nap timer. A job that
+# has ended is not on that list, so its old number gets nothing. The list also has a worker that
+# started just before the stop and is not on RUNNING yet. A job that ends between the read and its
+# kill can still get the signal, but that gap is about a millisecond. Errexit is on inside the EXIT
+# trap too, so a failed kill must not skip the removal of the lock.
+stop_jobs() {
+    local job
+    for job in $(jobs -rp); do
+        kill "$job" 2>/dev/null || true
     done
 }
 
 # Every wait here is a background sleep + `wait`, so a stop signal runs its trap at once instead
 # of after the nap (a usage-limit nap is an hour).
-SLEEPER=""
 nap() {
+    local timer
     sleep "$1" &
-    SLEEPER=$!
-    wait "$SLEEPER" 2>/dev/null || true
-    SLEEPER=""
+    timer=$!
+    wait "$timer" 2>/dev/null || true
 }
 
-# Errexit is on inside the EXIT trap too, so a failed kill must not skip the lock's removal.
-stop_nap() {
-    if job_running "$SLEEPER"; then
-        kill "$SLEEPER" 2>/dev/null || true
-    fi
-    SLEEPER=""
-}
-trap 'stop_workers; stop_nap; rm -rf "$LOCK"' EXIT
+# A second signal, such as a second Ctrl-C, must not cut the cleanup short: its `exit 130` would
+# end this trap half way, with workers still running and the lock still in place.
+trap 'trap "" INT TERM HUP; stop_jobs; rm -rf "$LOCK"' EXIT
 trap 'exit 130' INT TERM HUP
 
 RUN_DIR="$MAIN_ROOT/logs/claude-loop/$(date +%Y%m%d-%H%M%S)"

@@ -15,7 +15,8 @@
 #   * drain mode and -n still work, a number given twice runs once, and nothing calls `gh pr merge`,
 #   * the table names a ticket whose worker had to be resumed,
 #   * the loop refuses to run loop scripts that differ from origin/main,
-#   * stopping the conductor stops its workers and its nap,
+#   * stopping the conductor stops its workers and its nap, also when a second stop comes during
+#     the cleanup,
 #   * a worker that has already ended gets no signal and frees its slot, even when its number now
 #     answers for another program, and an ended nap timer gets no signal either (#992).
 #
@@ -139,7 +140,7 @@ cat > "$TMP_ROOT/bin/sleep" <<'STUB'
 echo "$$" >> "$STATE/nap-pids"
 if [ -f "$STATE/slow-naps" ]; then
     slow_from="$(cat "$STATE/slow-naps")"
-    [ "${1%%.*}" -lt "${slow_from:-60}" ] || exec "$REAL_SLEEP" 30
+    if [ "${1%%.*}" -ge "${slow_from:-60}" ] 2>/dev/null; then exec "$REAL_SLEEP" 30; fi
 fi
 exec "$REAL_SLEEP" 0.05
 STUB
@@ -181,6 +182,19 @@ wait() {
         touch "$STATE/nap-released"
     fi
     return "$rc"
+}
+FAKE
+
+# The first signal the conductor sends to a worker waits 3 seconds, so a case can send a second
+# stop in the middle of the cleanup.
+PAUSE_FIRST_STOP="$TMP_ROOT/pause-first-stop.bash"
+cat > "$PAUSE_FIRST_STOP" <<'FAKE'
+kill() {
+    if [ ! -e "$STATE/stop-paused" ] && [ "$#" -eq 1 ] && grep -qx -- "$1" "$STATE/pids" 2>/dev/null; then
+        touch "$STATE/stop-paused"
+        "$REAL_SLEEP" 3
+    fi
+    builtin kill "$@"
 }
 FAKE
 
@@ -449,7 +463,8 @@ if alive "$worker_72"; then
 fi
 cases=$((cases + 1)); printf '✓ conductor: a stop sends nothing to a worker that has already ended\n'
 
-# The same holds for a nap timer that bash has reaped while the conductor still holds its number.
+# The same holds for a nap timer that bash has reaped while the conductor's nap still holds its
+# number.
 reset_state
 BASH_ENV="$HOLD_AFTER_NAP" FAKE_WORK_SEC=20 "$CONDUCTOR" -j 1 81 > "$TMP_ROOT/held.out" 2>&1 &
 conductor_pid=$!
@@ -476,5 +491,33 @@ fi
 grep -qx "$(cat "$STATE/pid-81")" "$STATE/kills" || fail "the stop of the running worker #81 was not logged" "$(cat "$STATE/kills")"
 [ ! -d "$FAKE_REPO/.claude/backlog-loop.lock" ] || fail "the lock outlived the conductor"
 cases=$((cases + 1)); printf '✓ conductor: a stop sends nothing to a nap timer that has already ended\n'
+
+# A second stop in the middle of the cleanup, such as a second Ctrl-C, is ignored. Its `exit 130`
+# would otherwise end the cleanup before every worker got its TERM.
+reset_state
+BASH_ENV="$PAUSE_FIRST_STOP" FAKE_WORK_SEC=20 "$CONDUCTOR" -j 2 93 94 > "$TMP_ROOT/twice.out" 2>&1 &
+conductor_pid=$!
+for _ in $(seq 1 100); do [ -s "$STATE/pid-93" ] && [ -s "$STATE/pid-94" ] && break; "$REAL_SLEEP" 0.1; done
+if [ ! -s "$STATE/pid-93" ] || [ ! -s "$STATE/pid-94" ]; then
+    kill -TERM "$conductor_pid" 2>/dev/null || true
+    fail "both workers should have started" "$(cat "$TMP_ROOT/twice.out")"
+fi
+kill -TERM "$conductor_pid"
+for _ in $(seq 1 100); do [ -e "$STATE/stop-paused" ] && break; "$REAL_SLEEP" 0.1; done
+[ -e "$STATE/stop-paused" ] || fail "the conductor never started to stop its workers" "$(cat "$TMP_ROOT/twice.out")"
+kill -HUP "$conductor_pid"
+for _ in $(seq 1 100); do kill -0 "$conductor_pid" 2>/dev/null || break; "$REAL_SLEEP" 0.1; done
+if kill -0 "$conductor_pid" 2>/dev/null; then
+    kill -KILL "$conductor_pid"
+    fail "the conductor did not stop within 10 seconds of the second stop" "$(cat "$TMP_ROOT/twice.out")"
+fi
+wait "$conductor_pid" 2>/dev/null || true
+for ticket in 93 94; do
+    worker="$(cat "$STATE/pid-$ticket")"
+    for _ in $(seq 1 30); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
+    if alive "$worker"; then fail "worker #$ticket outlived a conductor that was stopped twice"; fi
+done
+[ ! -d "$FAKE_REPO/.claude/backlog-loop.lock" ] || fail "the lock outlived a conductor that was stopped twice"
+cases=$((cases + 1)); printf '✓ conductor: a second stop during the cleanup still stops every worker\n'
 
 printf 'All %d conductor case(s) passed.\n' "$cases"

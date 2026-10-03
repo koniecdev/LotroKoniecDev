@@ -1692,7 +1692,7 @@ cases=$((cases + 1)); printf '✓ work-ticket: a stop just after the session end
 # forgets that number. The stop comes in that pause.
 reset_fixtures
 fixture_issue 131 maintainer OWNER
-rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/kills" "$TMP_ROOT/poll-pid" "$TMP_ROOT/poll-held"
+rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/kills" "$TMP_ROOT/poll-pid" "$TMP_ROOT/poll-held" "$TMP_ROOT/poll-held.released"
 mkdir -p "$TMP_ROOT/short-poll-bin"
 printf '#!/usr/bin/env bash\n[ "$1" != 30 ] || echo "$$" > "%s"\nexec "%s" 0.05\n' \
     "$TMP_ROOT/poll-pid" "$REAL_SLEEP" > "$TMP_ROOT/short-poll-bin/sleep"
@@ -1708,7 +1708,8 @@ behavior "$TMP_ROOT/outlives-pause.sh" 'echo $$ > "'"$TMP_ROOT"'/session-pid"
         builtin wait "$@" || rc=$?
         if [ ! -e "$POLL_HELD" ] && [ "${1:-}" = "$(cat "$POLL_PID" 2>/dev/null)" ]; then
             echo "$1" > "$POLL_HELD"
-            "$REAL_SLEEP" 3
+            "$REAL_SLEEP" 5
+            touch "$POLL_HELD.released"
         fi
         return "$rc"
     }
@@ -1734,6 +1735,8 @@ term_rc=0
 wait "$worker" || term_rc=$?
 [ "$term_rc" -eq 143 ] || fail "a stopped worker should exit 143, got $term_rc" "$(cat "$TMP_ROOT/poll-held.out")"
 expect_meta 131 outcome=stopped
+# A stop that comes in the pause ends the worker before the pause is released.
+[ ! -e "$TMP_ROOT/poll-held.released" ] || fail "the stop came after the pause, so the case did not test the race"
 # The stop of the running session must be in the log, or the check below is blind.
 grep -qF -- "-TERM -- -$session_pid" "$TMP_ROOT/kills" \
     || fail "the stop of the running session was not logged" "$(cat "$TMP_ROOT/kills" 2>/dev/null || true)"

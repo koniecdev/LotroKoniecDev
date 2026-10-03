@@ -177,7 +177,8 @@ wait() {
     builtin wait "$@" || rc=$?
     if [ ! -e "$STATE/nap-held" ] && grep -qx -- "${1:-}" "$STATE/nap-pids" 2>/dev/null; then
         echo "$1" > "$STATE/nap-held"
-        "$REAL_SLEEP" 3
+        "$REAL_SLEEP" 5
+        touch "$STATE/nap-released"
     fi
     return "$rc"
 }
@@ -469,6 +470,8 @@ if awk -v n="$held_nap" '$1 != "-0" { for (i = 1; i <= NF; i++) if ($i == n) hit
     "$STATE/kills"; then
     fail "the conductor signalled the number of a nap timer that bash had already reaped" "$(cat "$STATE/kills")"
 fi
+# A stop that comes in the pause ends the conductor before the pause is released.
+[ ! -e "$STATE/nap-released" ] || fail "the stop came after the pause, so the case did not test the race"
 # The stop of #81 must be in the log, or the check above is blind.
 grep -qx "$(cat "$STATE/pid-81")" "$STATE/kills" || fail "the stop of the running worker #81 was not logged" "$(cat "$STATE/kills")"
 [ ! -d "$FAKE_REPO/.claude/backlog-loop.lock" ] || fail "the lock outlived the conductor"

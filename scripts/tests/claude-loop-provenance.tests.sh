@@ -1357,12 +1357,9 @@ expect_in_output "not resuming"
 expect_meta 99 outcome=error resumes=0
 
 # A session that ends during the last nap before the limit is judged from its result, not stopped
-# as a timeout (#991). Only the poll nap is slow here: it waits until the worker has reaped the
-# session, and only then moves the clock past the limit.
-reset_fixtures
-rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/session-pid" "$TMP_ROOT/in-poll-nap"
-fixture_issue 131 maintainer OWNER
-fixture_pr_view 7131 OPEN 131-fixture
+# as a timeout (#991). Only the poll nap is slow here. It ends once the worker has reaped the
+# session, and only then moves the clock past the limit, by $NAP_SKEW seconds. A session that still
+# runs after 10 seconds leaves the clock alone, so the worker naps again instead of timing it out.
 mkdir -p "$TMP_ROOT/last-nap-bin"
 cat > "$TMP_ROOT/last-nap-bin/sleep" <<STUB
 #!/usr/bin/env bash
@@ -1370,26 +1367,50 @@ cat > "$TMP_ROOT/last-nap-bin/sleep" <<STUB
 touch "$TMP_ROOT/in-poll-nap"
 for _ in \$(seq 1 200); do
     session="\$(cat "$TMP_ROOT/session-pid" 2>/dev/null || true)"
-    [ -n "\$session" ] && ! kill -0 "\$session" 2>/dev/null && break
+    if [ -n "\$session" ] && ! kill -0 "\$session" 2>/dev/null; then
+        echo "\$NAP_SKEW" > "$TMP_ROOT/clock-skew"
+        exit 0
+    fi
     "$REAL_SLEEP" 0.05
 done
-echo 1250 > "$TMP_ROOT/clock-skew"
 STUB
 chmod +x "$TMP_ROOT/last-nap-bin/sleep"
-behavior "$TMP_ROOT/ends-in-last-nap.sh" 'echo $$ > "'"$TMP_ROOT"'/session-pid"
-git checkout -q -b 131-fixture
+wait_for_poll_nap='echo $$ > "'"$TMP_ROOT"'/session-pid"
+for _ in $(seq 1 100); do [ -e "'"$TMP_ROOT"'/in-poll-nap" ] && break; "$REAL_SLEEP" 0.05; done'
+
+reset_fixtures
+rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/session-pid" "$TMP_ROOT/in-poll-nap"
+fixture_issue 131 maintainer OWNER
+fixture_pr_view 7131 OPEN 131-fixture
+behavior "$TMP_ROOT/done-in-last-nap.sh" 'git checkout -q -b 131-fixture
 git commit -q --allow-empty -m "reviewed work"
-for _ in $(seq 1 100); do [ -e "'"$TMP_ROOT"'/in-poll-nap" ] && break; "$REAL_SLEEP" 0.05; done
+'"$wait_for_poll_nap"'
 echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7131\",\"is_error\":false,\"session_id\":\"s-131\"}"'
 run_case 0 "work-ticket: a session that ends in the last nap before the limit is judged, not timed out" \
-    env PATH="$TMP_ROOT/last-nap-bin:$PATH" LOOP_TICKET_TIMEOUT_MIN=20 \
-    CLAUDE_BEHAVIOR="$TMP_ROOT/ends-in-last-nap.sh" "$WORK" 131 "$TMP_ROOT/run"
+    env PATH="$TMP_ROOT/last-nap-bin:$PATH" NAP_SKEW=1250 LOOP_TICKET_TIMEOUT_MIN=20 \
+    CLAUDE_BEHAVIOR="$TMP_ROOT/done-in-last-nap.sh" "$WORK" 131 "$TMP_ROOT/run"
 [ "$(cat "$TMP_ROOT/clock-skew" 2>/dev/null || true)" = "1250" ] \
     || fail "the session did not end during the poll nap, so the case proves nothing" "$LAST_OUTPUT"
 expect_in_output "PR #7131 opened"
 expect_meta 131 outcome=pr-opened resumes=0
 [ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a DONE session must not be resumed" "$LAST_OUTPUT"
 [ ! -e "$WT_ROOT/ticket-131" ] || fail "a judged run should not leave its worktree behind"
+
+# Judged past the limit, a session that needs a resume never gets one: the clock is the ticket's.
+# Here the clock reads 21:30 of 20 minutes, and the log must not count negative minutes.
+reset_fixtures
+rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/session-pid" "$TMP_ROOT/in-poll-nap"
+fixture_issue 132 maintainer OWNER
+behavior "$TMP_ROOT/no-status-in-last-nap.sh" "$wait_for_poll_nap"'
+echo "{\"result\":\"still working\",\"is_error\":false,\"session_id\":\"s-132\"}"'
+run_case 3 "work-ticket: a session judged past the limit is not resumed" \
+    env PATH="$TMP_ROOT/last-nap-bin:$PATH" NAP_SKEW=1290 LOOP_TICKET_TIMEOUT_MIN=20 \
+    CLAUDE_BEHAVIOR="$TMP_ROOT/no-status-in-last-nap.sh" "$WORK" 132 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/clock-skew" 2>/dev/null || true)" = "1290" ] \
+    || fail "the session did not end during the poll nap, so the case proves nothing" "$LAST_OUTPUT"
+expect_in_output "only 0m of the ticket's clock is left — not resuming"
+expect_meta 132 outcome=error resumes=0
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no time for a resume" "$LAST_OUTPUT"
 rm -rf "$TMP_ROOT/clock-skew" "$TMP_ROOT/bin/date" "$TMP_ROOT/session-pid" "$TMP_ROOT/in-poll-nap" \
     "$TMP_ROOT/last-nap-bin"
 

@@ -185,14 +185,14 @@ wait() {
 }
 FAKE
 
-# The first signal the conductor sends to a worker waits 3 seconds, so a case can send a second
+# The first signal the conductor sends to a worker waits 5 seconds, so a case can send a second
 # stop in the middle of the cleanup.
 PAUSE_FIRST_STOP="$TMP_ROOT/pause-first-stop.bash"
 cat > "$PAUSE_FIRST_STOP" <<'FAKE'
 kill() {
     if [ ! -e "$STATE/stop-paused" ] && [ "$#" -eq 1 ] && grep -qx -- "$1" "$STATE/pids" 2>/dev/null; then
         touch "$STATE/stop-paused"
-        "$REAL_SLEEP" 3
+        "$REAL_SLEEP" 5
     fi
     builtin kill "$@"
 }
@@ -505,7 +505,8 @@ fi
 kill -TERM "$conductor_pid"
 for _ in $(seq 1 100); do [ -e "$STATE/stop-paused" ] && break; "$REAL_SLEEP" 0.1; done
 [ -e "$STATE/stop-paused" ] || fail "the conductor never started to stop its workers" "$(cat "$TMP_ROOT/twice.out")"
-kill -HUP "$conductor_pid"
+kill -HUP "$conductor_pid" 2>/dev/null \
+    || fail "the conductor ended before the second stop, so the case did not test it" "$(cat "$TMP_ROOT/twice.out")"
 for _ in $(seq 1 100); do kill -0 "$conductor_pid" 2>/dev/null || break; "$REAL_SLEEP" 0.1; done
 if kill -0 "$conductor_pid" 2>/dev/null; then
     kill -KILL "$conductor_pid"

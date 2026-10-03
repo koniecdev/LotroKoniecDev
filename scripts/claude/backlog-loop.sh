@@ -122,9 +122,8 @@ if ! mkdir "$LOCK" 2>/dev/null; then
 fi
 echo "$$" > "$LOCK_OWNER"
 
-# Running workers as "pid:ticket" pairs. A background child of a non-interactive shell ignores
-# SIGINT, so Ctrl-C on the conductor would leave every worker running: they are sent TERM on every
-# way out, and each worker kills its own claude session in turn.
+# Running workers as "pid:ticket" pairs: they take the slots, and each one's exit code goes through
+# handle_exit.
 RUNNING=""
 
 # Bash reaps a finished background job at once, not at `wait`. From then on the system may give its
@@ -141,11 +140,13 @@ job_running() {
     return 1
 }
 
-# A stop signals every job bash still lists as running: the workers and the nap timer. A job that
-# has ended is not on that list, so its old number gets nothing. The list also has a worker that
-# started just before the stop and is not on RUNNING yet. A job that ends between the read and its
-# kill can still get the signal, but that gap is about a millisecond. Errexit is on inside the EXIT
-# trap too, so a failed kill must not skip the removal of the lock.
+# A background child of a non-interactive shell ignores SIGINT, so Ctrl-C on the conductor would
+# leave every worker running: they are sent TERM on every way out, and each worker kills its own
+# claude session in turn. A stop signals every job bash still lists as running: the workers and the
+# nap timer. A job that has ended is not on that list, so its old number gets nothing. The list
+# also has a worker that started just before the stop and is not on RUNNING yet. A job that ends
+# between the read and its kill can still get the signal, but that gap is about a millisecond.
+# Errexit is on inside the EXIT trap too, so a failed kill must not skip the removal of the lock.
 stop_jobs() {
     local job
     for job in $(jobs -rp); do

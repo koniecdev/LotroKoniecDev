@@ -642,6 +642,14 @@ alive() {
     return 0
 }
 
+# watchdogs <session leader> <session child> — the members of an ended session's group other than
+# its child, leaving out any process whose parent is in the group too, like a short command the
+# watchdog runs. After the session has ended, a case expects exactly one: the watchdog.
+watchdogs() {
+    ps -A -o pid= -o ppid= -o pgid= | awk -v g="$1" -v c="$2" \
+        '$3 == g { member[$1] = 1; parent[$1] = $2 } END { for (p in member) if (p != c && !(parent[p] in member)) print p }'
+}
+
 # The main checkout is dirty and sits on another branch, and its local `main` carries a commit
 # origin does not have: the loop must cut every worktree from origin/main and touch nothing here.
 git -C "$FAKE_REPO" update-ref refs/heads/main \
@@ -1600,40 +1608,69 @@ fi
 git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-86"
 cases=$((cases + 1)); printf '✓ work-ticket: a SIGKILLed worker does not leave its session running\n'
 
-# The system may give a SIGKILLed worker's number to another program before the watchdog looks
-# again, and `kill -0` cannot tell the two apart (#995). No test can make the system reuse a
-# number, so an exported function stands in for it: in the worker and in its watchdog, where `$$`
-# is the worker's PID too, the worker's number always answers. It leaves a mark each time, so a
-# probe worded another way cannot make the case pass without the stand-in.
+# The system may give an ended worker's number to another program at once, and a check by number
+# cannot tell the two apart (#995, #997). No test can make the system reuse a number, so the worker
+# runs under a parent that never reaps it: once the worker has ended, its number still answers
+# `kill -0` and `ps`, as a zombie, until that parent is gone. The parent is a subshell that has
+# turned into `sleep` with `exec`, so nothing in it ever waits for a child. Its output goes nowhere:
+# after a failed case it still runs for a while, and it must not hold the test run's output open.
+# start_unreaped <ticket> <behavior> [VAR=value...] — sets worker and holder.
+start_unreaped() {
+    local ticket="$1" session_behavior="$2"
+    shift 2
+    rm -f "$TMP_ROOT/worker-pid"
+    (
+        env "$@" CLAUDE_BEHAVIOR="$session_behavior" "$WORK" "$ticket" "$TMP_ROOT/run" > "$TMP_ROOT/unreaped.out" 2>&1 &
+        echo $! > "$TMP_ROOT/worker-pid"
+        exec "$REAL_SLEEP" 120
+    ) > /dev/null 2>&1 &
+    holder=$!
+    for _ in $(seq 1 50); do [ -s "$TMP_ROOT/worker-pid" ] && break; "$REAL_SLEEP" 0.1; done
+    [ -s "$TMP_ROOT/worker-pid" ] || { kill "$holder" 2>/dev/null || true; fail "the worker never started"; }
+    worker="$(cat "$TMP_ROOT/worker-pid")"
+}
+
+# Ends the parent, so the system reaps the worker's zombie.
+stop_unreaped() {
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+}
+
+# wait_until_unreaped — the worker has ended, and its number still answers. Without the second part
+# the case would test a free number, which any check by number handles.
+wait_until_unreaped() {
+    for _ in $(seq 1 100); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
+    if alive "$worker"; then
+        kill -KILL "$worker" 2>/dev/null || true
+        stop_unreaped
+        fail "work-ticket did not end within 10 seconds" "$(cat "$TMP_ROOT/unreaped.out")"
+    fi
+    kill -0 "$worker" 2>/dev/null || { stop_unreaped; fail "the ended worker's number no longer answers, so the case tested nothing"; }
+}
+
 reset_fixtures
 fixture_issue 133 maintainer OWNER
-rm -f "$TMP_ROOT/session-child" "$TMP_ROOT/reused-probed"
-(
-    export REUSED_PROBED="$TMP_ROOT/reused-probed"
-    kill() { [ "$*" = "-0 $$" ] || { builtin kill "$@"; return; }; : >> "$REUSED_PROBED"; }
-    export -f kill
-    exec env CLAUDE_BEHAVIOR="$TMP_ROOT/long.sh" "$WORK" 133 "$TMP_ROOT/run" > "$TMP_ROOT/reused.out" 2>&1
-) &
-worker=$!
+rm -f "$TMP_ROOT/session-child"
+start_unreaped 133 "$TMP_ROOT/long.sh"
 for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
 [ -s "$TMP_ROOT/session-child" ] \
-    || { kill -KILL "$worker" 2>/dev/null || true; fail "the fake session never started" "$(cat "$TMP_ROOT/reused.out")"; }
+    || { kill -KILL "$worker" 2>/dev/null || true; stop_unreaped; fail "the fake session never started" "$(cat "$TMP_ROOT/unreaped.out")"; }
 session_child="$(cat "$TMP_ROOT/session-child")"
 session_pid="$(ps -o ppid= -p "$session_child" 2>/dev/null | tr -d ' ' || true)"
-[ -n "$session_pid" ] \
-    || { kill -KILL "$worker" 2>/dev/null || true; fail "the fake session's child ended before the SIGKILL" "$(cat "$TMP_ROOT/reused.out")"; }
+[ -n "$session_pid" ] || { kill -KILL "$worker" 2>/dev/null || true; stop_unreaped
+    fail "the fake session's child ended before the SIGKILL" "$(cat "$TMP_ROOT/unreaped.out")"; }
 kill -KILL "$worker"
-wait "$worker" 2>/dev/null || true
+wait_until_unreaped
 for _ in $(seq 1 100); do alive "$session_child" || break; "$REAL_SLEEP" 0.1; done
 if alive "$session_child"; then
-    # The watchdog would wait for the stand-in forever, so its whole group goes with the failure.
     kill -KILL "$session_child" 2>/dev/null || true
     kill -KILL -- "-$session_pid" 2>/dev/null || true
-    fail "the session outlived a SIGKILL of its worker once another program answered to its number"
+    stop_unreaped
+    fail "the session outlived a SIGKILL of its worker while the worker's number still answered"
 fi
-[ -e "$TMP_ROOT/reused-probed" ] || fail "the watchdog never asked the stand-in, so the case tested nothing"
+stop_unreaped
 git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-133"
-cases=$((cases + 1)); printf '✓ work-ticket: a SIGKILLed worker whose number is reused does not leave its session running\n'
+cases=$((cases + 1)); printf '✓ work-ticket: a SIGKILLed worker whose number still answers does not leave its session running\n'
 
 # claude ends its own commands when it exits normally (checked by hand against a real session).
 # What is left in the session's own group, like a plain child or the watchdog, ends here.
@@ -1666,7 +1703,7 @@ fixture_issue 130 maintainer OWNER
 rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/session-child" "$TMP_ROOT/kills" "$TMP_ROOT/in-poll-nap"
 # Only the poll nap is a real 30 seconds here, so the worker cannot notice the end before the stop.
 mkdir -p "$TMP_ROOT/poll-nap-bin"
-printf '#!/usr/bin/env bash\n[ "$1" != 30 ] || { touch "%s"; exec "%s" 30; }\nexec "%s" 0.05\n' \
+printf '#!/usr/bin/env bash\n[ "$1" != 30 ] || { echo "$$" > "%s"; exec "%s" 30; }\nexec "%s" 0.05\n' \
     "$TMP_ROOT/in-poll-nap" "$REAL_SLEEP" "$REAL_SLEEP" > "$TMP_ROOT/poll-nap-bin/sleep"
 chmod +x "$TMP_ROOT/poll-nap-bin/sleep"
 # The session leaves a child in its own group and ends while the worker naps.
@@ -1692,11 +1729,15 @@ session_child="$(cat "$TMP_ROOT/session-child")"
 for _ in $(seq 1 100); do kill -0 "$session_pid" 2>/dev/null || break; "$REAL_SLEEP" 0.1; done
 kill -0 "$session_pid" 2>/dev/null \
     && { kill -KILL "$worker" 2>/dev/null || true; fail "the fake session never ended" "$(cat "$TMP_ROOT/ended.out")"; }
-# The watchdog can no longer read the session's parent, and the worker is still alive. It must
-# leave the group alone, or the group's number is free while the worker may still signal it (#995).
+# The worker naps and still holds the lifeline, so it may still signal the group. The watchdog must
+# leave the group alone: once the group is empty, its number is free.
 "$REAL_SLEEP" 1
 alive "$session_child" || { kill -KILL "$worker" 2>/dev/null || true
-    fail "the watchdog ended the group of an ended session while its worker was alive"; }
+    fail "the watchdog ended the group of an ended session while its worker could still signal it"; }
+watchdog="$(watchdogs "$session_pid" "$session_child")"
+[ "$(printf '%s\n' "$watchdog" | grep -c .)" -eq 1 ] || { kill -KILL "$worker" 2>/dev/null || true
+    fail "expected exactly one watchdog in the session's group" \
+        "$(ps -A -o pid= -o pgid= -o command= | awk -v g="$session_pid" '$2 == g')"; }
 kill -TERM "$worker"
 for _ in $(seq 1 100); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
 if alive "$worker"; then
@@ -1707,24 +1748,68 @@ term_rc=0
 wait "$worker" || term_rc=$?
 [ "$term_rc" -eq 143 ] || fail "a stopped worker should exit 143, got $term_rc" "$(cat "$TMP_ROOT/ended.out")"
 expect_meta 130 outcome=stopped
-# The watchdog is the one PID that kept probing the worker. It is still in the session's group, so
-# it may signal that number; nothing else may. The worker's own kills must be in the log (its poll
-# nap ends with one), or the check is blind. A probe with signal 0 sends nothing, so it does not count.
-watchdog="$(awk -v w="$worker" '$1 != w && $2 == "-0" && $3 == w { print $1; exit }' "$TMP_ROOT/kills")"
-[ -n "$watchdog" ] || fail "the session's watchdog never ran" "$(cat "$TMP_ROOT/kills" 2>/dev/null || true)"
+# The watchdog is in the session's group until it ends that group, so it may signal that number;
+# nothing else may. The worker's own kills must be in the log (its poll nap ends with one), or the
+# check is blind. A probe with signal 0 sends nothing, so it does not count.
 grep -q "^$worker " "$TMP_ROOT/kills" || fail "no kill run by the worker was logged" "$(cat "$TMP_ROOT/kills")"
 if awk -v d="$watchdog" -v s="$session_pid" \
     '$1 != d && $2 != "-0" { for (i = 2; i <= NF; i++) if ($i == s || $i == "-" s) hit = 1 } END { exit !hit }' \
     "$TMP_ROOT/kills"; then
     fail "the worker signalled the number of a session that had already ended" "$(grep -v "^$watchdog " "$TMP_ROOT/kills")"
 fi
-# Once the worker is gone, the watchdog ends what is left in the group, and itself last.
+# Once the worker has let go of the session, the watchdog ends what is left in the group, and
+# itself last.
 for _ in $(seq 1 100); do { alive "$session_child" || alive "$watchdog"; } || break; "$REAL_SLEEP" 0.1; done
 if alive "$session_child" || alive "$watchdog"; then
     kill -KILL "$session_child" "$watchdog" 2>/dev/null || true
     fail "what an ended session left in its group outlived the stopped worker"
 fi
 cases=$((cases + 1)); printf '✓ work-ticket: a stop just after the session ended sends nothing to its number\n'
+
+# The two ways in of #997: the session ends while the worker naps and leaves a child in its group.
+# Then the worker is stopped, which leaves the ended session's group to the watchdog (#983), or it
+# is SIGKILLed. Either way the worker's number still answers once the worker has ended (see
+# start_unreaped), and the watchdog must end the group anyway.
+# ended_session_case <ticket> <signal> <description>
+ended_session_case() {
+    local ticket="$1" signal="$2" description="$3" watchdog
+    reset_fixtures
+    fixture_issue "$ticket" maintainer OWNER
+    rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/session-child" "$TMP_ROOT/in-poll-nap"
+    start_unreaped "$ticket" "$TMP_ROOT/ends-leaving-child.sh" PATH="$TMP_ROOT/poll-nap-bin:$PATH"
+    for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
+    [ -s "$TMP_ROOT/session-child" ] \
+        || { kill -KILL "$worker" 2>/dev/null || true; stop_unreaped; fail "the fake session never started" "$(cat "$TMP_ROOT/unreaped.out")"; }
+    session_pid="$(cat "$TMP_ROOT/session-pid")"
+    session_child="$(cat "$TMP_ROOT/session-child")"
+    for _ in $(seq 1 100); do kill -0 "$session_pid" 2>/dev/null || break; "$REAL_SLEEP" 0.1; done
+    kill -0 "$session_pid" 2>/dev/null \
+        && { kill -KILL "$worker" 2>/dev/null || true; stop_unreaped; fail "the fake session never ended" "$(cat "$TMP_ROOT/unreaped.out")"; }
+    watchdog="$(watchdogs "$session_pid" "$session_child")"
+    [ "$(printf '%s\n' "$watchdog" | grep -c .)" -eq 1 ] || { kill -KILL "$worker" 2>/dev/null || true; stop_unreaped
+        fail "expected exactly one watchdog in the session's group" \
+            "$(ps -A -o pid= -o pgid= -o command= | awk -v g="$session_pid" '$2 == g')"; }
+    kill -"$signal" "$worker"
+    wait_until_unreaped
+    for _ in $(seq 1 100); do { alive "$session_child" || alive "$watchdog"; } || break; "$REAL_SLEEP" 0.1; done
+    if alive "$session_child" || alive "$watchdog"; then
+        kill -KILL "$session_child" "$watchdog" 2>/dev/null || true
+        stop_unreaped
+        fail "what an ended session left in its group outlived its worker while the worker's number still answered"
+    fi
+    stop_unreaped
+    if [ "$signal" = TERM ]; then
+        expect_meta "$ticket" outcome=stopped
+        [ ! -e "$WT_ROOT/ticket-$ticket" ] || fail "a stopped run should not leave its worktree behind"
+    else
+        # A SIGKILL leaves the worker's poll nap running, the one real 30-second sleep here.
+        kill "$(cat "$TMP_ROOT/in-poll-nap")" 2>/dev/null || true
+        git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-$ticket"
+    fi
+    cases=$((cases + 1)); printf '✓ work-ticket: %s\n' "$description"
+}
+ended_session_case 134 TERM "a stop after the session ended cleans up what it left, though the worker's number still answers"
+ended_session_case 135 KILL "a SIGKILL after the session ended cleans up what it left, though the worker's number still answers"
 
 # A poll timer that bash has reaped gets no signal either (#992). It leads no process group, so
 # nothing keeps its number reserved. Bash runs a trap only after a foreground command ends, so a

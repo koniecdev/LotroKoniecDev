@@ -443,17 +443,35 @@ descendants() {
     done
 }
 
-# worker_gone <session leader> — this script has died. `kill -0` alone cannot tell it from a program
-# that got its number after a SIGKILL (#995). The leader's parent can: it is this script until this
-# script dies, and then PID 1 or a subreaper. A parent that cannot be read counts as alive: `ps`
-# failed for a moment, or the leader has ended and only the number is left to check. Ending the
-# group then could free its number while this script may still signal it (#983).
-worker_gone() {
-    local parent
-    kill -0 "$$" 2>/dev/null || return 0
-    parent="$(ps -o ppid= -p "$1" 2>/dev/null)"
-    parent="${parent//[[:space:]]/}"
-    [ -n "$parent" ] && [ "$parent" != "$$" ]
+# ── The lifeline: how the watchdog learns that this script is done with the session ─────────────
+# A process number cannot say it: by the time the watchdog checks one, the system may have given it
+# to another program (#983, #995, #997). A pipe can. This script holds the only write end, and the
+# watchdog waits on the read end until no write end is left. That happens when this script dies, by
+# any signal, or when it lets go of the session after its last signal to the session's group. A
+# child inherits the write end, so every child that can outlive this script closes it: the session,
+# the watchdog and the poll timer. Bash 3.2 has no `{name}>` redirections, so the fds are fixed:
+# 8 is the read end and 9 the write end.
+
+# Opens fd 8 and fd 9 on a new pipe. A FIFO opened for one side waits until the other side is open,
+# so a read-write open comes first. The FIFO's name goes at once: only the open fds matter.
+open_lifeline() {
+    local dir rc=1
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/loop-lifeline.XXXXXX")" || return 1
+    if mkfifo "$dir/pipe" && exec 7<>"$dir/pipe"; then
+        # shellcheck disable=SC2094  # both ends of one FIFO, on purpose
+        if exec 8<"$dir/pipe" 9>"$dir/pipe"; then
+            rc=0
+        fi
+        exec 7>&-
+    fi
+    rm -rf "$dir"
+    return "$rc"
+}
+
+# From here on this script sends nothing to the session's group, so the watchdog may end what is
+# left in it. Closing an fd that is already closed does nothing.
+release_lifeline() {
+    exec 8<&- 9>&-
 }
 
 # Ends a session and everything it started. Claude Code runs each Bash command in a process group
@@ -482,9 +500,10 @@ end_session_tree() {
 # on every way out. Bash reaps a finished background job at once, not at `wait`, and from then on
 # the system may give the session's number to another program (#983). It cannot do that while a
 # process is still in the session's group, which has the same number, and the watchdog stays in
-# that group until the group is killed. A stop starts only while bash still lists the session as
-# running, so it leans on the watchdog only if the session ends at that very moment. The steps
-# after the session's end always lean on it: the sweep after `wait`, and the last steps of a stop.
+# that group until this script lets go of the lifeline or kills the group. A stop starts only while
+# bash still lists the session as running, so it leans on the watchdog only if the session ends at
+# that very moment. The steps after the session's end always lean on it: the sweep after `wait`,
+# and the last steps of a stop.
 # The poll timer leads no group, so nothing keeps its number reserved: it gets a signal only while
 # bash still lists it as running (#992).
 pid=""
@@ -506,12 +525,17 @@ session_running() {
 }
 
 stop_session() {
-    [ -n "$pid" ] || return 0
-    if session_running; then
-        end_session_tree "$pid" 20
+    if [ -n "$pid" ]; then
+        if session_running; then
+            end_session_tree "$pid" 20
+        fi
+        wait "$pid" 2>/dev/null || true
+        pid=""
     fi
-    wait "$pid" 2>/dev/null || true
-    pid=""
+    # Also when the session has already ended, so the watchdog ends what it left now, not after
+    # this script exits. And also with no pid: a stop that comes the moment the session starts
+    # leaves a session this script does not know, and only the watchdog can end it.
+    release_lifeline
 }
 
 stop_sleeper() {
@@ -609,32 +633,46 @@ and end with the STATUS: DONE or STATUS: BLOCKED block from /work-ticket, with n
 # sets claude_rc. The wall clock belongs to the ticket, so a resume gets only what is left of it.
 run_session() {
     local out="$1" cmd=(claude -p "$2" "${session_flags[@]}" "${@:3}")
+    # No session starts without a watchdog that can tell when this script is gone.
+    if ! open_lifeline; then
+        release_lifeline
+        meta outcome error
+        finish
+        log "could not open the lifeline pipe for the session's watchdog — no session started"
+        exit 3
+    fi
     set +e
     # `set -m` gives the session its own process group. It also stops bash from pointing a
     # background job's stdin at /dev/null, so that is done by hand: a job outside the terminal's
     # foreground group that reads the terminal is suspended. A SIGKILL to this script runs no trap,
     # and the session is no longer in this script's group, so a watchdog inside the group ends the
-    # session once this script is gone. The session could otherwise go on working and pushing with
-    # nothing watching it. The watchdog ignores TERM: the TERM it sends to its own group must not
-    # end it half way.
+    # session once the lifeline says this script is gone. The session could otherwise go on working
+    # and pushing with nothing watching it. The watchdog ignores TERM: the TERM it sends to its own
+    # group must not end it half way.
     set -m
     (
         set +m  # keep the watchdog in the session's group, so the group's end is its end too
         group="$(exec sh -c 'echo "$PPID"')"
         (
             trap '' TERM
-            until worker_gone "$group"; do sleep 5; done
+            exec 9>&-
+            # Nothing writes to the pipe, so `read` returns only at end of file.
+            while read -r -u 8 _; do :; done
             end_session_tree "$group" 15
         ) < /dev/null > /dev/null 2>&1 &
         # Only now: a session that cannot start must still leave the watchdog in its group (#983).
         cd "$WT" || exit 1
+        # A bare `exec` first. On `exec cmd 8<&- 9>&-`, bash 3.2 keeps saved copies of both fds
+        # (as 10 and 11), so claude and all its children would hold the write end.
+        exec 8<&- 9>&-
         exec "${cmd[@]}"
     ) < /dev/null > "$out" 2>> "$ERR" &
     pid=$!
     set +m
+    exec 8<&-
     while session_running; do
         # A background sleep + wait, so a stop signal runs its trap at once instead of after the nap.
-        sleep 30 &
+        sleep 30 9>&- &
         sleeper=$!
         wait "$sleeper"
         sleeper=""
@@ -655,6 +693,7 @@ run_session() {
     # (the watchdog, which ignores TERM, or a plain child) ends here.
     kill -KILL -- "-$pid" 2>/dev/null || true
     pid=""
+    release_lifeline
     set -e
 }
 

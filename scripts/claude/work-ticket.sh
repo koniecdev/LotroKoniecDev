@@ -433,32 +433,72 @@ else
     fi
 fi
 
-# Every process below $1. It must be read while $1 still runs: once it exits, its children move to
-# PID 1 and can no longer be found from it.
-descendants() {
-    local kid
-    for kid in $(pgrep -P "$1" 2>/dev/null); do
-        echo "$kid"
-        descendants "$kid"
-    done
+# session_groups <leader> <known groups> — the process groups of every process below the leader or
+# in a known group, one per line. A process whose parent has exited has moved to PID 1 and is no
+# longer below the leader, so only a group seen before still finds it. A group with no process
+# left is dropped, so its number cannot bring in another group that gets it later.
+# One `ps` call reads every process at the same moment. The known groups go in through the
+# environment: BSD awk refuses a `-v` value with a newline in it.
+session_groups() {
+    ps -A -o pid= -o ppid= -o pgid= 2>/dev/null | KNOWN_GROUPS="$2" awk -v leader="$1" '
+        { parent[$1] = $2; group[$1] = $3; used[$3] = 1 }
+        END {
+            # Never group 0 or 1, in or out: every process descends from them, and `kill -- -1`
+            # reaches every process of this user.
+            n = split(ENVIRON["KNOWN_GROUPS"], list)
+            for (i = 1; i <= n; i++) if (list[i] + 0 > 1) wanted[list[i]] = 1
+            found[leader] = 1
+            do {
+                grew = 0
+                for (p in parent) {
+                    if (!(p in found) && ((parent[p] in found) || (group[p] in wanted))) {
+                        found[p] = 1
+                        grew = 1
+                    }
+                }
+            } while (grew)
+            for (p in found) if (p in group) wanted[group[p]] = 1
+            for (g in wanted) if (g + 0 > 1 && (g in used)) print g
+        }'
 }
 
 # Ends a session and everything it started. Claude Code runs each Bash command in a process group
 # of its own, so the session's own group holds claude but not its builds and test runs. On TERM,
 # claude ends those itself, so it gets $2 seconds to do that before anything is killed. Whatever
-# process group of its tree (read before the TERM) is still there after that is ended as well.
+# process group of its tree is still there after that is ended as well.
 end_session_tree() {
-    local leader="$1" grace="$2" groups kid group tries=0
-    groups="$(for kid in $(descendants "$leader"); do ps -o pgid= -p "$kid" 2>/dev/null; done | tr -d ' ' | sort -u)"
+    local leader="$1" grace="$2" groups found group tries=0
+    # Paused while its tree is read, the session cannot start a command in a new group between the
+    # read and the TERM, where no signal would reach that group (#935). The TERM waits for the
+    # CONT. Only the leader is paused, not its group: the watchdog is in that group and runs this
+    # function itself. The pause lasts one read and no more: if the worker dies while the session
+    # is paused, the system sends HUP to the session's whole group.
+    kill -STOP "$leader" 2>/dev/null || true
+    groups="$(session_groups "$leader" "")"
     kill -TERM -- "-$leader" 2>/dev/null || true
+    kill -CONT "$leader" 2>/dev/null || true
+    # A group it starts while it shuts down can only be found while it still runs, so it is read
+    # again at once and then every half second. The first read also finds a command that was
+    # starting during the pause and had not yet moved to its own group. An empty read keeps the
+    # list it had: the read may have failed, for example because no process could be started.
     while kill -0 "$leader" 2>/dev/null && [ "$tries" -lt $(( grace * 2 )) ]; do
+        found="$(session_groups "$leader" "$groups")"; [ -z "$found" ] || groups="$found"
         sleep 0.5
         tries=$((tries + 1))
     done
+    # Still running after its grace period, it gets no more time: paused for a last read, so it
+    # cannot start anything after it, then killed at once.
+    if kill -0 "$leader" 2>/dev/null; then
+        kill -STOP "$leader" 2>/dev/null || true
+        found="$(session_groups "$leader" "$groups")"; [ -z "$found" ] || groups="$found"
+        kill -KILL "$leader" 2>/dev/null || true
+    fi
     for group in $groups; do
         [ "$group" = "$leader" ] || kill -TERM -- "-$group" 2>/dev/null || true
     done
     sleep 1
+    # Read again: a process can start a new group when its TERM arrives.
+    found="$(session_groups "$leader" "$groups")"; [ -z "$found" ] || groups="$found"
     for group in $groups; do
         [ "$group" = "$leader" ] || kill -KILL -- "-$group" 2>/dev/null || true
     done
@@ -578,14 +618,15 @@ run_session() {
     # and the session is no longer in this script's group, so a watchdog inside the group ends the
     # session once this script is gone. The session could otherwise go on working and pushing with
     # nothing watching it. The watchdog ignores TERM: the TERM it sends to its own group must not
-    # end it half way.
+    # end it half way. It ignores HUP too: when this script dies while end_session_tree has paused
+    # the session, the system sends HUP to the session's whole group (#935).
     set -m
     (
         set +m  # keep the watchdog in the session's group, so the group's end is its end too
         cd "$WT" || exit 1
         group="$(exec sh -c 'echo "$PPID"')"
         (
-            trap '' TERM
+            trap '' TERM HUP
             while kill -0 "$$" 2>/dev/null; do sleep 5; done
             end_session_tree "$group" 15
         ) < /dev/null > /dev/null 2>&1 &

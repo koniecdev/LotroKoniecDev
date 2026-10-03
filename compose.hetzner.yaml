@@ -27,6 +27,15 @@
 #   docker compose -f compose.hetzner.yaml up -d
 #   docker compose -f compose.hetzner.yaml logs -f migrator caddy
 
+# Caddy's image, shared by the proxy and by the `caddy-validate` gate below, so the gate always checks
+# the Caddyfile with the same Caddy that will run it. Pinned by digest, never a floating tag (#988):
+# `caddy:2-alpine` pulled 2.11.6 on the next deploy, and 2.11.6 panics when an HTTP/2 upstream request
+# is still sending its body after the handler has returned (caddyserver/caddy#8106). It took the staging
+# box down on 2026-10-02, when a backend was OOM-killed mid-request. 2.11.4 is the last release before
+# that change. Move off it only to a release that closes #8106, and bump compose.prod.yaml with it.
+# Dependabot does not watch compose files, so nobody else will move this pin.
+x-caddy-image: &caddy-image caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
+
 # Caddy's environment, shared by the proxy itself and by the `caddy-validate` gate below. It is an
 # anchor and not two copies on purpose: the gate's whole job is to render the SAME Caddyfile the
 # proxy will run, so an env var added to one and forgotten in the other would leave a placeholder
@@ -276,7 +285,7 @@ services:
         condition: service_healthy
 
   caddy:
-    image: caddy:2-alpine
+    image: *caddy-image
     restart: unless-stopped
     # Literal, and the same on both boxes — Caddy is the one component whose value must NOT follow
     # the box's role. It is the only ingress on either box, it fronts the guest TheKittySaver stack
@@ -342,7 +351,7 @@ services:
   # same image, same Caddyfile, same environment (the anchor keeps it honest) — but NO network at
   # all, and a profile so `up` never starts it.
   caddy-validate:
-    image: caddy:2-alpine
+    image: *caddy-image
     profiles: ["validate"]
     # Same value as the proxy it stands in for, so the gate cannot be ranked differently from the
     # thing it validates. It is a one-shot with no network that exits in about a second.

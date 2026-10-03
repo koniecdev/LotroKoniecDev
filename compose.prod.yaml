@@ -253,7 +253,9 @@ services:
         condition: service_healthy
 
   caddy:
-    image: caddy:2-alpine
+    # Pinned in lockstep with compose.hetzner.yaml (the `x-caddy-image` anchor and its comment, #988),
+    # so this parity stack runs the same Caddy as the boxes. Bump both together.
+    image: caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
     ports:
       - "80:80"
       - "443:443"

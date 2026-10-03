@@ -472,18 +472,24 @@ end_session_tree() {
 # that group until the group is killed. A stop starts only while bash still lists the session as
 # running, so it leans on the watchdog only if the session ends at that very moment. The steps
 # after the session's end always lean on it: the sweep after `wait`, and the last steps of a stop.
+# The poll timer leads no group, so nothing keeps its number reserved: it gets a signal only while
+# bash still lists it as running (#992).
 pid=""
 sleeper=""
 
 # Reads this shell's own job list. Bash takes the job off the running list in the same step in
 # which it reaps it. A stopped job is not on that list either, but with job control off (`set +m`)
-# bash never sees the session stop.
-session_running() {
+# bash never sees a job stop.
+job_running() {
     local running
-    [ -n "$pid" ] || return 1
+    [ -n "$1" ] || return 1
     running="$(jobs -rp)"
-    case $'\n'"$running"$'\n' in *$'\n'"$pid"$'\n'*) return 0 ;; esac
+    case $'\n'"$running"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac
     return 1
+}
+
+session_running() {
+    job_running "$pid"
 }
 
 stop_session() {
@@ -497,7 +503,9 @@ stop_session() {
 
 stop_sleeper() {
     [ -n "$sleeper" ] || return 0
-    kill "$sleeper" 2>/dev/null || true
+    if job_running "$sleeper"; then
+        kill "$sleeper" 2>/dev/null || true
+    fi
     sleeper=""
 }
 

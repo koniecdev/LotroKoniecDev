@@ -122,27 +122,50 @@ if ! mkdir "$LOCK" 2>/dev/null; then
 fi
 echo "$$" > "$LOCK_OWNER"
 
-# Running workers as "pid:ticket" pairs. A background child of a non-interactive shell ignores
-# SIGINT, so Ctrl-C on the conductor would leave every worker running: they are sent TERM on every
-# way out, and each worker kills its own claude session in turn.
+# Running workers as "pid:ticket" pairs: they take the slots, and each one's exit code goes through
+# handle_exit.
 RUNNING=""
-stop_workers() {
-    local entry
-    for entry in $RUNNING; do
-        kill "${entry%%:*}" 2>/dev/null || true
+
+# Bash reaps a finished background job at once, not at `wait`. From then on the system may give its
+# number to another program (#992), and no process group keeps the number reserved: a worker does
+# not lead one. So a number that answers `kill -0` proves nothing. This reads the shell's own job
+# list instead: bash takes a job off the running list in the same step in which it reaps it. The
+# worker does the same for its session (#983). Job control is off here, so bash never sees a job
+# stop, and a job is off that list only once it has ended.
+job_running() {
+    local running
+    [ -n "$1" ] || return 1
+    running="$(jobs -rp)"
+    case $'\n'"$running"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac
+    return 1
+}
+
+# A background child of a non-interactive shell ignores SIGINT, so Ctrl-C on the conductor would
+# leave every worker running: they are sent TERM on every way out, and each worker kills its own
+# claude session in turn. A stop signals every job bash still lists as running: the workers and the
+# nap timer. A job that has ended is not on that list, so its old number gets nothing. The list
+# also has a worker that started just before the stop and is not on RUNNING yet. A job that ends
+# between the read and its kill can still get the signal, but that gap is about a millisecond.
+# Errexit is on inside the EXIT trap too, so a failed kill must not skip the removal of the lock.
+stop_jobs() {
+    local job
+    for job in $(jobs -rp); do
+        kill "$job" 2>/dev/null || true
     done
 }
 
 # Every wait here is a background sleep + `wait`, so a stop signal runs its trap at once instead
 # of after the nap (a usage-limit nap is an hour).
-SLEEPER=""
 nap() {
+    local timer
     sleep "$1" &
-    SLEEPER=$!
-    wait "$SLEEPER" 2>/dev/null || true
-    SLEEPER=""
+    timer=$!
+    wait "$timer" 2>/dev/null || true
 }
-trap 'stop_workers; [ -n "$SLEEPER" ] && kill "$SLEEPER" 2>/dev/null; rm -rf "$LOCK"' EXIT
+
+# A second signal, such as a second Ctrl-C, must not cut the cleanup short: its `exit 130` would
+# end this trap half way, with workers still running and the lock still in place.
+trap 'trap "" INT TERM HUP; stop_jobs; rm -rf "$LOCK"' EXIT
 trap 'exit 130' INT TERM HUP
 
 RUN_DIR="$MAIN_ROOT/logs/claude-loop/$(date +%Y%m%d-%H%M%S)"
@@ -230,11 +253,13 @@ handle_exit() {
     esac
 }
 
+# A worker that has ended keeps its slot until this check, so handle_exit sees a usage limit or a
+# stop before anything new starts in that slot.
 reap_finished() {
     local entry pid ticket rc still=""
     for entry in $RUNNING; do
         pid="${entry%%:*}"; ticket="${entry##*:}"
-        if kill -0 "$pid" 2>/dev/null; then
+        if job_running "$pid"; then
             still="$still $entry"
             continue
         fi

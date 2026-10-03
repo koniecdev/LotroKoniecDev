@@ -1686,4 +1686,66 @@ if alive "$session_child" || alive "$watchdog"; then
 fi
 cases=$((cases + 1)); printf '✓ work-ticket: a stop just after the session ended sends nothing to its number\n'
 
+# A poll timer that bash has reaped gets no signal either (#992). It leads no process group, so
+# nothing keeps its number reserved. Bash runs a trap only after a foreground command ends, so a
+# `wait` that pauses right after the poll timer is reaped keeps the worker in the moment before it
+# forgets that number. The stop comes in that pause.
+reset_fixtures
+fixture_issue 131 maintainer OWNER
+rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/kills" "$TMP_ROOT/poll-pid" "$TMP_ROOT/poll-held"
+mkdir -p "$TMP_ROOT/short-poll-bin"
+printf '#!/usr/bin/env bash\n[ "$1" != 30 ] || echo "$$" > "%s"\nexec "%s" 0.05\n' \
+    "$TMP_ROOT/poll-pid" "$REAL_SLEEP" > "$TMP_ROOT/short-poll-bin/sleep"
+chmod +x "$TMP_ROOT/short-poll-bin/sleep"
+# The session outlives the pause, so the stop finds it running.
+behavior "$TMP_ROOT/outlives-pause.sh" 'echo $$ > "'"$TMP_ROOT"'/session-pid"
+"$REAL_SLEEP" 60'
+(
+    export KILL_LOG="$TMP_ROOT/kills" POLL_PID="$TMP_ROOT/poll-pid" POLL_HELD="$TMP_ROOT/poll-held"
+    kill() { printf '%s %s\n' "$(exec sh -c 'echo "$PPID"')" "$*" >> "$KILL_LOG"; builtin kill "$@"; }
+    wait() {
+        local rc=0
+        builtin wait "$@" || rc=$?
+        if [ ! -e "$POLL_HELD" ] && [ "${1:-}" = "$(cat "$POLL_PID" 2>/dev/null)" ]; then
+            echo "$1" > "$POLL_HELD"
+            "$REAL_SLEEP" 3
+        fi
+        return "$rc"
+    }
+    export -f kill wait
+    exec env PATH="$TMP_ROOT/short-poll-bin:$PATH" CLAUDE_BEHAVIOR="$TMP_ROOT/outlives-pause.sh" \
+        "$WORK" 131 "$TMP_ROOT/run" > "$TMP_ROOT/poll-held.out" 2>&1
+) &
+worker=$!
+for _ in $(seq 1 100); do [ -s "$TMP_ROOT/poll-held" ] && [ -s "$TMP_ROOT/session-pid" ] && break; "$REAL_SLEEP" 0.1; done
+if [ ! -s "$TMP_ROOT/poll-held" ] || [ ! -s "$TMP_ROOT/session-pid" ]; then
+    kill -KILL "$worker" 2>/dev/null || true
+    fail "the worker never ended a poll nap while its session ran" "$(cat "$TMP_ROOT/poll-held.out")"
+fi
+poll_timer="$(cat "$TMP_ROOT/poll-held")"
+session_pid="$(cat "$TMP_ROOT/session-pid")"
+kill -TERM "$worker"
+for _ in $(seq 1 150); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
+if alive "$worker"; then
+    kill -KILL "$worker"
+    fail "work-ticket did not stop within 15 seconds of TERM" "$(cat "$TMP_ROOT/poll-held.out")"
+fi
+term_rc=0
+wait "$worker" || term_rc=$?
+[ "$term_rc" -eq 143 ] || fail "a stopped worker should exit 143, got $term_rc" "$(cat "$TMP_ROOT/poll-held.out")"
+expect_meta 131 outcome=stopped
+# The stop of the running session must be in the log, or the check below is blind.
+grep -qF -- "-TERM -- -$session_pid" "$TMP_ROOT/kills" \
+    || fail "the stop of the running session was not logged" "$(cat "$TMP_ROOT/kills" 2>/dev/null || true)"
+if awk -v p="$poll_timer" '$2 != "-0" { for (i = 2; i <= NF; i++) if ($i == p) hit = 1 } END { exit !hit }' \
+    "$TMP_ROOT/kills"; then
+    fail "the worker signalled the number of a poll timer that bash had already reaped" "$(cat "$TMP_ROOT/kills")"
+fi
+for _ in $(seq 1 50); do alive "$session_pid" || break; "$REAL_SLEEP" 0.1; done
+if alive "$session_pid"; then
+    kill -KILL "$session_pid" 2>/dev/null || true
+    fail "the session outlived the stopped worker"
+fi
+cases=$((cases + 1)); printf '✓ work-ticket: a stop just after the poll timer ended sends nothing to its number\n'
+
 printf 'All %d provenance-gate case(s) passed.\n' "$cases"

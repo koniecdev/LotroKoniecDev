@@ -160,7 +160,15 @@ nap() {
     wait "$SLEEPER" 2>/dev/null || true
     SLEEPER=""
 }
-trap 'stop_workers; job_running "$SLEEPER" && kill "$SLEEPER" 2>/dev/null; rm -rf "$LOCK"' EXIT
+
+# Errexit is on inside the EXIT trap too, so a failed kill must not skip the lock's removal.
+stop_nap() {
+    if job_running "$SLEEPER"; then
+        kill "$SLEEPER" 2>/dev/null || true
+    fi
+    SLEEPER=""
+}
+trap 'stop_workers; stop_nap; rm -rf "$LOCK"' EXIT
 trap 'exit 130' INT TERM HUP
 
 RUN_DIR="$MAIN_ROOT/logs/claude-loop/$(date +%Y%m%d-%H%M%S)"

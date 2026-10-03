@@ -443,6 +443,19 @@ descendants() {
     done
 }
 
+# worker_gone <session leader> — this script has died. `kill -0` alone cannot tell it from a program
+# that got its number after a SIGKILL (#995). The leader's parent can: it is this script until this
+# script dies, and then PID 1 or a subreaper. A parent that cannot be read counts as alive: `ps`
+# failed for a moment, or the leader has ended and only the number is left to check. Ending the
+# group then could free its number while this script may still signal it (#983).
+worker_gone() {
+    local parent
+    kill -0 "$$" 2>/dev/null || return 0
+    parent="$(ps -o ppid= -p "$1" 2>/dev/null)"
+    parent="${parent//[[:space:]]/}"
+    [ -n "$parent" ] && [ "$parent" != "$$" ]
+}
+
 # Ends a session and everything it started. Claude Code runs each Bash command in a process group
 # of its own, so the session's own group holds claude but not its builds and test runs. On TERM,
 # claude ends those itself, so it gets $2 seconds to do that before anything is killed. Whatever
@@ -610,7 +623,7 @@ run_session() {
         group="$(exec sh -c 'echo "$PPID"')"
         (
             trap '' TERM
-            while kill -0 "$$" 2>/dev/null; do sleep 5; done
+            until worker_gone "$group"; do sleep 5; done
             end_session_tree "$group" 15
         ) < /dev/null > /dev/null 2>&1 &
         # Only now: a session that cannot start must still leave the watchdog in its group (#983).

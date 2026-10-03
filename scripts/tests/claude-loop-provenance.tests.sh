@@ -1600,6 +1600,41 @@ fi
 git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-86"
 cases=$((cases + 1)); printf '✓ work-ticket: a SIGKILLed worker does not leave its session running\n'
 
+# The system may give a SIGKILLed worker's number to another program before the watchdog looks
+# again, and `kill -0` cannot tell the two apart (#995). No test can make the system reuse a
+# number, so an exported function stands in for it: in the worker and in its watchdog, where `$$`
+# is the worker's PID too, the worker's number always answers. It leaves a mark each time, so a
+# probe worded another way cannot make the case pass without the stand-in.
+reset_fixtures
+fixture_issue 133 maintainer OWNER
+rm -f "$TMP_ROOT/session-child" "$TMP_ROOT/reused-probed"
+(
+    export REUSED_PROBED="$TMP_ROOT/reused-probed"
+    kill() { [ "$*" = "-0 $$" ] || { builtin kill "$@"; return; }; : >> "$REUSED_PROBED"; }
+    export -f kill
+    exec env CLAUDE_BEHAVIOR="$TMP_ROOT/long.sh" "$WORK" 133 "$TMP_ROOT/run" > "$TMP_ROOT/reused.out" 2>&1
+) &
+worker=$!
+for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
+[ -s "$TMP_ROOT/session-child" ] \
+    || { kill -KILL "$worker" 2>/dev/null || true; fail "the fake session never started" "$(cat "$TMP_ROOT/reused.out")"; }
+session_child="$(cat "$TMP_ROOT/session-child")"
+session_pid="$(ps -o ppid= -p "$session_child" 2>/dev/null | tr -d ' ' || true)"
+[ -n "$session_pid" ] \
+    || { kill -KILL "$worker" 2>/dev/null || true; fail "the fake session's child ended before the SIGKILL" "$(cat "$TMP_ROOT/reused.out")"; }
+kill -KILL "$worker"
+wait "$worker" 2>/dev/null || true
+for _ in $(seq 1 100); do alive "$session_child" || break; "$REAL_SLEEP" 0.1; done
+if alive "$session_child"; then
+    # The watchdog would wait for the stand-in forever, so its whole group goes with the failure.
+    kill -KILL "$session_child" 2>/dev/null || true
+    kill -KILL -- "-$session_pid" 2>/dev/null || true
+    fail "the session outlived a SIGKILL of its worker once another program answered to its number"
+fi
+[ -e "$TMP_ROOT/reused-probed" ] || fail "the watchdog never asked the stand-in, so the case tested nothing"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-133"
+cases=$((cases + 1)); printf '✓ work-ticket: a SIGKILLed worker whose number is reused does not leave its session running\n'
+
 # claude ends its own commands when it exits normally (checked by hand against a real session).
 # What is left in the session's own group, like a plain child or the watchdog, ends here.
 reset_fixtures
@@ -1657,6 +1692,11 @@ session_child="$(cat "$TMP_ROOT/session-child")"
 for _ in $(seq 1 100); do kill -0 "$session_pid" 2>/dev/null || break; "$REAL_SLEEP" 0.1; done
 kill -0 "$session_pid" 2>/dev/null \
     && { kill -KILL "$worker" 2>/dev/null || true; fail "the fake session never ended" "$(cat "$TMP_ROOT/ended.out")"; }
+# The watchdog can no longer read the session's parent, and the worker is still alive. It must
+# leave the group alone, or the group's number is free while the worker may still signal it (#995).
+"$REAL_SLEEP" 1
+alive "$session_child" || { kill -KILL "$worker" 2>/dev/null || true
+    fail "the watchdog ended the group of an ended session while its worker was alive"; }
 kill -TERM "$worker"
 for _ in $(seq 1 100); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
 if alive "$worker"; then

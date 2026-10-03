@@ -451,7 +451,8 @@ descendants() {
 worker_gone() {
     local parent
     kill -0 "$$" 2>/dev/null || return 0
-    parent="$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')"
+    parent="$(ps -o ppid= -p "$1" 2>/dev/null)"
+    parent="${parent//[[:space:]]/}"
     [ -n "$parent" ] && [ "$parent" != "$$" ]
 }
 

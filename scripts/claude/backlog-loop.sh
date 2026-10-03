@@ -126,10 +126,28 @@ echo "$$" > "$LOCK_OWNER"
 # SIGINT, so Ctrl-C on the conductor would leave every worker running: they are sent TERM on every
 # way out, and each worker kills its own claude session in turn.
 RUNNING=""
+
+# Bash reaps a finished background job at once, not at `wait`. From then on the system may give its
+# number to another program (#992), and no process group keeps the number reserved: a worker does
+# not lead one. So a number that answers `kill -0` proves nothing. This reads the shell's own job
+# list instead: bash takes a job off the running list in the same step in which it reaps it. The
+# worker does the same for its session (#983). Job control is off here, so bash never sees a job
+# stop, and a job is off that list only once it has ended.
+job_running() {
+    local running
+    [ -n "$1" ] || return 1
+    running="$(jobs -rp)"
+    case $'\n'"$running"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac
+    return 1
+}
+
 stop_workers() {
-    local entry
+    local entry pid
     for entry in $RUNNING; do
-        kill "${entry%%:*}" 2>/dev/null || true
+        pid="${entry%%:*}"
+        if job_running "$pid"; then
+            kill "$pid" 2>/dev/null || true
+        fi
     done
 }
 
@@ -142,7 +160,7 @@ nap() {
     wait "$SLEEPER" 2>/dev/null || true
     SLEEPER=""
 }
-trap 'stop_workers; [ -n "$SLEEPER" ] && kill "$SLEEPER" 2>/dev/null; rm -rf "$LOCK"' EXIT
+trap 'stop_workers; job_running "$SLEEPER" && kill "$SLEEPER" 2>/dev/null; rm -rf "$LOCK"' EXIT
 trap 'exit 130' INT TERM HUP
 
 RUN_DIR="$MAIN_ROOT/logs/claude-loop/$(date +%Y%m%d-%H%M%S)"
@@ -230,11 +248,13 @@ handle_exit() {
     esac
 }
 
+# A worker that has ended keeps its slot until this check, so handle_exit sees a usage limit or a
+# stop before anything new starts in that slot.
 reap_finished() {
     local entry pid ticket rc still=""
     for entry in $RUNNING; do
         pid="${entry%%:*}"; ticket="${entry##*:}"
-        if kill -0 "$pid" 2>/dev/null; then
+        if job_running "$pid"; then
             still="$still $entry"
             continue
         fi

@@ -15,7 +15,9 @@
 #   * drain mode and -n still work, a number given twice runs once, and nothing calls `gh pr merge`,
 #   * the table names a ticket whose worker had to be resumed,
 #   * the loop refuses to run loop scripts that differ from origin/main,
-#   * stopping the conductor stops its workers.
+#   * stopping the conductor stops its workers,
+#   * a worker that has already ended gets no signal and frees its slot, even when its number now
+#     answers for another program (#992).
 #
 # `work-ticket.sh` and `next-ticket.sh` are replaced by fakes, and `gh`, `sleep` and `osascript`
 # are stubbed, so the suite is offline and runs in seconds.
@@ -69,7 +71,8 @@ fail() {
 # ── Fakes ──────────────────────────────────────────────────────────────────────────────────────
 # The fake worker counts how many workers run at once, takes its exit code from
 # $STATE/rc-<ticket> (a list: each run takes the first word, so "6 0" is "limit, then success"),
-# and writes the same .meta file the real one does.
+# and writes the same .meta file the real one does. $STATE/work-sec-<ticket> sets how long one
+# ticket works.
 cat > "$FAKE_REPO/scripts/claude/work-ticket.sh" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -77,11 +80,12 @@ ticket="$1" run_dir="$2"
 sleeper=""
 trap '[ -n "$sleeper" ] && kill "$sleeper" 2>/dev/null; exit 143' TERM
 echo "$$" >> "$STATE/pids"
+echo "$$" > "$STATE/pid-$ticket"
 echo "$ticket" >> "$STATE/started"
 mkdir -p "$STATE/running"
 touch "$STATE/running/$ticket"
 ls "$STATE/running" | wc -l | tr -d ' ' >> "$STATE/concurrency"
-"$REAL_SLEEP" "${FAKE_WORK_SEC:-0.6}" &
+"$REAL_SLEEP" "$(cat "$STATE/work-sec-$ticket" 2>/dev/null || echo "${FAKE_WORK_SEC:-0.6}")" &
 sleeper=$!
 wait "$sleeper"
 sleeper=""
@@ -128,11 +132,12 @@ exit 0
 STUB
 # Every wait in the conductor is a `sleep`: shrink them so a 60-minute nap takes a moment. With
 # $STATE/slow-naps present, a nap of a minute or more really waits, so a case can stop the
-# conductor in the middle of one.
+# conductor in the middle of one. A number in that file lowers the bar to that many seconds.
 cat > "$TMP_ROOT/bin/sleep" <<'STUB'
 #!/usr/bin/env bash
-if [ -f "$STATE/slow-naps" ] && [ "${1%%.*}" -ge 60 ]; then
-    exec "$REAL_SLEEP" 30
+if [ -f "$STATE/slow-naps" ]; then
+    slow_from="$(cat "$STATE/slow-naps")"
+    [ "${1%%.*}" -lt "${slow_from:-60}" ] || exec "$REAL_SLEEP" 30
 fi
 exec "$REAL_SLEEP" 0.05
 STUB
@@ -140,6 +145,25 @@ STUB
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP_ROOT/bin/osascript"
 chmod +x "$TMP_ROOT/bin/"*
 export PATH="$TMP_ROOT/bin:$PATH"
+
+# Bash reaps a finished worker at once, and from then on the system may give its number to another
+# program (#992). No test can make the system do that, so a case that sets BASH_ENV to this file
+# runs the conductor with a `kill` that acts as if it had: the number of a worker that is gone
+# still answers a probe, and a signal to it reaches nobody. Every call is logged first. BASH_ENV
+# loads the function into every bash the case starts, and a function wins over the builtin.
+REUSED_NUMBERS="$TMP_ROOT/reused-numbers.bash"
+cat > "$REUSED_NUMBERS" <<'FAKE'
+kill() {
+    local arg
+    printf '%s\n' "$*" >> "$STATE/kills"
+    for arg in "$@"; do
+        if grep -qx -- "$arg" "$STATE/pids" 2>/dev/null && ! builtin kill -0 "$arg" 2>/dev/null; then
+            return 0
+        fi
+    done
+    builtin kill "$@"
+}
+FAKE
 
 reset_state() {
     rm -rf "$STATE" "$FAKE_REPO/.claude" "$FAKE_REPO/logs"
@@ -217,6 +241,15 @@ reset_state
 run_conductor 0 "conductor: -j 1 runs one at a time, in the given order" -j 1 7 3 9
 [ "$(max_concurrency)" = "1" ] || fail "expected 1 at once, saw $(max_concurrency)" "$LAST_OUTPUT"
 expect_started "7 3 9"
+
+# Before #992 the conductor kept a worker on its list while its number answered a probe, so a
+# number reused at once held the slot for good and hid that worker's result.
+reset_state
+export BASH_ENV="$REUSED_NUMBERS"
+run_conductor 0 "conductor: a worker whose number now answers for another program frees its slot" -j 1 73 74
+unset BASH_ENV
+expect_started "73 74"
+expect_in_output "done: 2 PR opened"
 
 reset_state
 run_conductor 1 "conductor: -j 0 is refused" -j 0 1
@@ -335,5 +368,49 @@ if kill -0 "$conductor_pid" 2>/dev/null; then
 fi
 wait "$conductor_pid" 2>/dev/null || true
 cases=$((cases + 1)); printf '✓ conductor: TERM ends a usage-limit nap at once\n'
+
+# A worker that ended on its own gets no signal from a stop that comes before the conductor's next
+# check (#992). The check nap really waits here, so #71 is still on the conductor's list when the
+# stop comes.
+reset_state
+echo 10 > "$STATE/slow-naps"
+echo 0.3 > "$STATE/work-sec-71"
+BASH_ENV="$REUSED_NUMBERS" FAKE_WORK_SEC=20 "$CONDUCTOR" -j 2 71 72 > "$TMP_ROOT/reaped.out" 2>&1 &
+conductor_pid=$!
+for _ in $(seq 1 100); do
+    [ -s "$STATE/pid-71" ] && [ -s "$STATE/pid-72" ] && break
+    "$REAL_SLEEP" 0.1
+done
+if [ ! -s "$STATE/pid-71" ] || [ ! -s "$STATE/pid-72" ]; then
+    kill -TERM "$conductor_pid" 2>/dev/null || true
+    fail "both workers should have started" "$(cat "$TMP_ROOT/reaped.out")"
+fi
+worker_71="$(cat "$STATE/pid-71")"
+worker_72="$(cat "$STATE/pid-72")"
+# The conductor has reaped #71 once no process answers to its number.
+for _ in $(seq 1 100); do kill -0 "$worker_71" 2>/dev/null || break; "$REAL_SLEEP" 0.1; done
+if kill -0 "$worker_71" 2>/dev/null; then
+    kill -TERM "$conductor_pid" 2>/dev/null || true
+    fail "#71 should have ended on its own" "$(cat "$TMP_ROOT/reaped.out")"
+fi
+kill -TERM "$conductor_pid"
+for _ in $(seq 1 50); do kill -0 "$conductor_pid" 2>/dev/null || break; "$REAL_SLEEP" 0.1; done
+if kill -0 "$conductor_pid" 2>/dev/null; then
+    kill -KILL "$conductor_pid"
+    fail "the conductor did not stop within 5 seconds of TERM" "$(cat "$TMP_ROOT/reaped.out")"
+fi
+wait "$conductor_pid" 2>/dev/null || true
+# A probe sends nothing, so only a call with a real signal counts.
+if awk -v w="$worker_71" '$1 != "-0" { for (i = 1; i <= NF; i++) if ($i == w) hit = 1 } END { exit !hit }' \
+    "$STATE/kills"; then
+    fail "the conductor signalled the number of a worker that bash had already reaped" "$(cat "$STATE/kills")"
+fi
+# The stop of #72 must be in the log, or the check above is blind.
+grep -qx "$worker_72" "$STATE/kills" || fail "the stop of the running worker #72 was not logged" "$(cat "$STATE/kills")"
+for _ in $(seq 1 30); do kill -0 "$worker_72" 2>/dev/null || break; "$REAL_SLEEP" 0.1; done
+if kill -0 "$worker_72" 2>/dev/null; then
+    fail "the running worker #72 outlived the conductor"
+fi
+cases=$((cases + 1)); printf '✓ conductor: a stop sends nothing to a worker that has already ended\n'
 
 printf 'All %d conductor case(s) passed.\n' "$cases"

@@ -351,7 +351,9 @@ later conductor run, both runs' totals count the part of the session before the 
   once, even in the middle of an hour-long usage-limit nap. Each worker then stops its session and
   every process group the session started: Claude Code runs each Bash command in a group of its
   own, so killing the session's own group would miss them. A watchdog does the same if the worker
-  itself is SIGKILLed. `scripts/tests/claude-loop-conductor.tests.sh` pins the conductor
+  itself is SIGKILLed. A worker that has already ended gets no signal, because the system may have
+  given its process number to another program; the conductor asks bash's own job list which
+  workers still run (#992). `scripts/tests/claude-loop-conductor.tests.sh` pins the conductor
   side (with the slot count, the retry after a usage limit and the stop conditions), and
   `scripts/tests/claude-loop-provenance.tests.sh` the worker side.
 - Business decisions are never invented: they come back as BLOCKED questions on the issue.

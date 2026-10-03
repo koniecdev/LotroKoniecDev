@@ -466,14 +466,31 @@ end_session_tree() {
 }
 
 # A background child of this script ignores SIGINT and would outlive it, so the session is stopped
-# on every way out. `pid` is cleared once the session is reaped, so a trap can never hit a
-# recycled PID.
+# on every way out. Bash reaps a finished background job at once, not at `wait`, and from then on
+# the system may give the session's number to another program (#983). It cannot do that while a
+# process is still in the session's group, which has the same number, and the watchdog stays in
+# that group until the group is killed. A stop starts only while bash still lists the session as
+# running, so it leans on the watchdog only if the session ends at that very moment. The steps
+# after the session's end always lean on it: the sweep after `wait`, and the last steps of a stop.
 pid=""
 sleeper=""
 
+# Reads this shell's own job list. Bash takes the job off the running list in the same step in
+# which it reaps it. A stopped job is not on that list either, but with job control off (`set +m`)
+# bash never sees the session stop.
+session_running() {
+    local running
+    [ -n "$pid" ] || return 1
+    running="$(jobs -rp)"
+    case $'\n'"$running"$'\n' in *$'\n'"$pid"$'\n'*) return 0 ;; esac
+    return 1
+}
+
 stop_session() {
     [ -n "$pid" ] || return 0
-    end_session_tree "$pid" 20
+    if session_running; then
+        end_session_tree "$pid" 20
+    fi
     wait "$pid" 2>/dev/null || true
     pid=""
 }
@@ -582,18 +599,19 @@ run_session() {
     set -m
     (
         set +m  # keep the watchdog in the session's group, so the group's end is its end too
-        cd "$WT" || exit 1
         group="$(exec sh -c 'echo "$PPID"')"
         (
             trap '' TERM
             while kill -0 "$$" 2>/dev/null; do sleep 5; done
             end_session_tree "$group" 15
         ) < /dev/null > /dev/null 2>&1 &
+        # Only now: a session that cannot start must still leave the watchdog in its group (#983).
+        cd "$WT" || exit 1
         exec "${cmd[@]}"
     ) < /dev/null > "$out" 2>> "$ERR" &
     pid=$!
     set +m
-    while kill -0 "$pid" 2>/dev/null; do
+    while session_running; do
         # A background sleep + wait, so a stop signal runs its trap at once instead of after the nap.
         sleep 30 &
         sleeper=$!

@@ -1563,4 +1563,70 @@ if alive "$session_child"; then
 fi
 cases=$((cases + 1)); printf '✓ work-ticket: what a finished session left running ends with it\n'
 
+# A session that has ended gets no more signals (#983). Bash reaps a finished background job at
+# once, not at `wait`, and from then on the system may give its number to another program. The
+# worker looks at its session only every 30 seconds, so a stop in that nap must not use the number.
+# No test can make the system reuse a number, so every `kill` is logged instead: an exported
+# function wins over the builtin in each bash below it. It notes the real PID of the shell that
+# called it, because `$$` is the worker's PID in the watchdog subshell too.
+reset_fixtures
+fixture_issue 130 maintainer OWNER
+rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/session-child" "$TMP_ROOT/kills" "$TMP_ROOT/in-poll-nap"
+# Only the poll nap is a real 30 seconds here, so the worker cannot notice the end before the stop.
+mkdir -p "$TMP_ROOT/poll-nap-bin"
+printf '#!/usr/bin/env bash\n[ "$1" != 30 ] || { touch "%s"; exec "%s" 30; }\nexec "%s" 0.05\n' \
+    "$TMP_ROOT/in-poll-nap" "$REAL_SLEEP" "$REAL_SLEEP" > "$TMP_ROOT/poll-nap-bin/sleep"
+chmod +x "$TMP_ROOT/poll-nap-bin/sleep"
+# The session leaves a child in its own group and ends while the worker naps.
+behavior "$TMP_ROOT/ends-leaving-child.sh" 'echo $$ > "'"$TMP_ROOT"'/session-pid"
+"$REAL_SLEEP" 60 > /dev/null 2>&1 &
+echo $! > "'"$TMP_ROOT"'/session-child"
+for _ in $(seq 1 100); do [ -e "'"$TMP_ROOT"'/in-poll-nap" ] && break; "$REAL_SLEEP" 0.05; done
+echo "{\"result\":\"STATUS: DONE\",\"is_error\":false}"'
+(
+    export KILL_LOG="$TMP_ROOT/kills"
+    kill() { printf '%s %s\n' "$(exec sh -c 'echo "$PPID"')" "$*" >> "$KILL_LOG"; builtin kill "$@"; }
+    export -f kill
+    exec env PATH="$TMP_ROOT/poll-nap-bin:$PATH" CLAUDE_BEHAVIOR="$TMP_ROOT/ends-leaving-child.sh" \
+        "$WORK" 130 "$TMP_ROOT/run" > "$TMP_ROOT/ended.out" 2>&1
+) &
+worker=$!
+for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
+[ -s "$TMP_ROOT/session-child" ] \
+    || { kill -KILL "$worker" 2>/dev/null || true; fail "the fake session never started" "$(cat "$TMP_ROOT/ended.out")"; }
+session_pid="$(cat "$TMP_ROOT/session-pid")"
+session_child="$(cat "$TMP_ROOT/session-child")"
+# The worker has reaped the session once no process answers to its number.
+for _ in $(seq 1 100); do kill -0 "$session_pid" 2>/dev/null || break; "$REAL_SLEEP" 0.1; done
+kill -0 "$session_pid" 2>/dev/null \
+    && { kill -KILL "$worker" 2>/dev/null || true; fail "the fake session never ended" "$(cat "$TMP_ROOT/ended.out")"; }
+kill -TERM "$worker"
+for _ in $(seq 1 100); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
+if alive "$worker"; then
+    kill -KILL "$worker"
+    fail "work-ticket did not stop within 10 seconds of TERM" "$(cat "$TMP_ROOT/ended.out")"
+fi
+term_rc=0
+wait "$worker" || term_rc=$?
+[ "$term_rc" -eq 143 ] || fail "a stopped worker should exit 143, got $term_rc" "$(cat "$TMP_ROOT/ended.out")"
+expect_meta 130 outcome=stopped
+# The watchdog is the one PID that kept probing the worker. It is still in the session's group, so
+# it may signal that number; nothing else may. The worker's own kills must be in the log (its poll
+# nap ends with one), or the check is blind. A probe with signal 0 sends nothing, so it does not count.
+watchdog="$(awk -v w="$worker" '$1 != w && $2 == "-0" && $3 == w { print $1; exit }' "$TMP_ROOT/kills")"
+[ -n "$watchdog" ] || fail "the session's watchdog never ran" "$(cat "$TMP_ROOT/kills" 2>/dev/null || true)"
+grep -q "^$worker " "$TMP_ROOT/kills" || fail "no kill run by the worker was logged" "$(cat "$TMP_ROOT/kills")"
+if awk -v d="$watchdog" -v s="$session_pid" \
+    '$1 != d && $2 != "-0" { for (i = 2; i <= NF; i++) if ($i == s || $i == "-" s) hit = 1 } END { exit !hit }' \
+    "$TMP_ROOT/kills"; then
+    fail "the worker signalled the number of a session that had already ended" "$(grep -v "^$watchdog " "$TMP_ROOT/kills")"
+fi
+# Once the worker is gone, the watchdog ends what is left in the group, and itself last.
+for _ in $(seq 1 100); do { alive "$session_child" || alive "$watchdog"; } || break; "$REAL_SLEEP" 0.1; done
+if alive "$session_child" || alive "$watchdog"; then
+    kill -KILL "$session_child" "$watchdog" 2>/dev/null || true
+    fail "what an ended session left in its group outlived the stopped worker"
+fi
+cases=$((cases + 1)); printf '✓ work-ticket: a stop just after the session ended sends nothing to its number\n'
+
 printf 'All %d provenance-gate case(s) passed.\n' "$cases"

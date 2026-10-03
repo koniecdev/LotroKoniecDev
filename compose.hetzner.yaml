@@ -29,9 +29,10 @@
 
 # Caddy's image, shared by the proxy and by the `caddy-validate` gate below, so the gate always checks
 # the Caddyfile with the same Caddy that will run it. Pinned by digest, never a floating tag (#988):
-# `caddy:2-alpine` pulled 2.11.6 on the next deploy, and 2.11.6 panics when an HTTP/2 upstream request
-# is still sending its body after the handler has returned (caddyserver/caddy#8106). It took the staging
-# box down on 2026-10-02, when a backend was OOM-killed mid-request. 2.11.4 is the last release before
+# `caddy:2-alpine` pulled 2.11.6 on the next deploy, and 2.11.6 panics when the reverse proxy is still
+# forwarding a client's HTTP/2 request body after the handler has returned: the body's idle deadline
+# outlives its handler (caddyserver/caddy#8106). It took the staging box down on 2026-10-02, when a
+# backend was OOM-killed mid-request. 2.11.4 is the last release before
 # that change. Move off it only to a release that closes #8106, and bump compose.prod.yaml with it.
 # Dependabot does not watch compose files, so nobody else will move this pin.
 x-caddy-image: &caddy-image caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b

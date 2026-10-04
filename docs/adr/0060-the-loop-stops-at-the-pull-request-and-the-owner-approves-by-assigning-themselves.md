@@ -5,8 +5,8 @@
 **Decision-makers:** Solo maintainer
 **Related:** `scripts/claude/backlog-loop.sh`, `scripts/claude/work-ticket.sh`,
 `scripts/claude/next-ticket.sh`, `.claude/commands/work-ticket.md`, `.claude/commands/backlog.md`,
-`docs/claude-loop.md`, the maintainer's `merge-train` skill (outside this repo); ADR-0026 (its §D is
-reversed here); ticket #884 / PR #895 (per-worktree E2E images)
+`docs/claude-loop.md`, `.github/dependabot.yml`, the maintainer's `merge-train` skill (outside this
+repo); ADR-0026 (its §D is reversed here); ticket #884 / PR #895 (per-worktree E2E images)
 
 ## Amendment (2026-09-29): a worktree kept after a usage limit is resumed, not skipped
 
@@ -147,6 +147,15 @@ the owner unassigns and assigns again.
 Bots keep the old rule. Dependabot is trusted by login and needs no assignee: its PRs are version
 bumps that CI proves, and the owner never reviewed them one by one.
 
+(Added 2026-10-04, #1001.) That reason holds only where a CI check tests what the PR changes. A
+bot PR whose files no check tests is not proven by CI, so its Dependabot entry adds the `on-hold`
+label, which the train skips. The owner reads the PR and removes the label, and the next train
+merges it. Today this is the Caddy entry for the compose files: no check tests a compose file before
+the merge, so a new Caddy first runs on staging, after it. An unread Caddy release took the staging
+box down once (#988). (Workflow files are parsed by actionlint before the merge, #404, so the
+github-actions entry stays without a hold.) The train itself is unchanged. It cannot know which
+files this repo's CI tests, so the entry that opens such a PR carries the hold.
+
 ### 5. The train never deletes a branch here
 
 `merge-train` merges without `--delete-branch` in this repo, as the house rule requires. Other
@@ -182,6 +191,10 @@ session.
 - The gate trusts GitHub's push log (the Activity API). A branch whose log is missing, or does not
   reach the PR head yet, is refused until it does (amended 2026-09-28).
 - The approval rule lives in the maintainer's `merge-train` script, outside this repo.
+- The `on-hold` label of §4 is not tied to the code the owner read. When the train asks Dependabot
+  to rebase a PR after the label is gone, Dependabot builds the change again and can pin a newer
+  digest of the same tag, a rebuild the owner has not seen. The version stays the same. An owner
+  who wants to see that digest first adds the label again (added 2026-10-04, #1001).
 
 ## Alternatives Considered
 

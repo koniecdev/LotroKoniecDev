@@ -78,7 +78,7 @@ TLS-terminating ingress:
 | **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (deep: DB; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | translation artifacts (read-only mount) |
 | **frontend** | `lotrokoniecdev-frontend` | `:8080` (HTTP) | — | Data Protection keyring → `/keys` |
 | **migrator** | `lotrokoniecdev-migrator` | one-shot (exits 0) | exit code | — |
-| _ingress_ | **Caddy** (`caddy:2.11.4-alpine` — pinned by digest, see the `x-caddy-image` comment in `compose.hetzner.yaml`; 2.11.6 crashes, #988) | `:80`, `:443` | — | ACME certs + config volumes |
+| _ingress_ | **Caddy** (the boxes take its tag and digest from one place, the `x-caddy-image` anchor in `compose.hetzner.yaml`; `compose.prod.yaml`, the laptop parity stack, mirrors it; the anchor's comment says why and how Dependabot moves both; 2.11.6 crashes, #988) | `:80`, `:443` | — | ACME certs + config volumes |
 | _broker_ | **RabbitMQ** (`rabbitmq:4.3.4-management-alpine` — pinned, see the compose comment) | `:5672` in-stack (AMQP; auth-api only) | `rabbitmq-diagnostics ping` (container healthcheck) + the `rabbitmq` leg of auth's deep `/health` | broker state (users, quorum queues, parked dead letters) → `rabbitmq-data` volume |
 
 Container contract (ADR-0008 §2): each app serves **plain HTTP on `:8080`** and expects a

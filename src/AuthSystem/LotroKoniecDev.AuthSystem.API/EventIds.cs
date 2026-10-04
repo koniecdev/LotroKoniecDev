@@ -57,6 +57,7 @@ internal static class EventIds
 
     // Logout (2260-2269)
     public const int UserLoggedOut = 2260;
+    public const int SignOutFoundNoSession = 2261;
 
     // Registration (2270-2279)
     public const int RegisterEmailFallback = 2270;
@@ -78,6 +79,8 @@ internal static class EventIds
     // (#349).
     public const int UserSessionsRevoked = 2301;
     public const int UserSessionsRevocationFailed = 2302;
+    public const int SingleSessionRevoked = 2303;
+    public const int SingleSessionRevocationFailed = 2304;
 
     // Token Pruning (2310-2319)
     public const int OpenIddictPruneCompleted = 2310;

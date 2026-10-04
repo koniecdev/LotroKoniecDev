@@ -421,5 +421,7 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
     private sealed class NoOpSessionRevoker : IUserSessionRevoker
     {
         public Task RevokeAllAsync(string userId) => Task.CompletedTask;
+
+        public Task RevokeSessionAsync(string authorizationId) => Task.CompletedTask;
     }
 }

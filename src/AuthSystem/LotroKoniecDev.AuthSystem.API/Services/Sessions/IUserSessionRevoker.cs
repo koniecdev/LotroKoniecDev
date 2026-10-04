@@ -1,15 +1,21 @@
 namespace LotroKoniecDev.AuthSystem.API.Services.Sessions;
 
 /// <summary>
-/// Revokes every OpenIddict token and authorization a user has, which ends all their sessions. It is
-/// used when a password reset or change, an e-mail change or a scheduled deletion has to invalidate
-/// the access and refresh tokens and the consents they already hold.
+/// Ends sessions by revoking OpenIddict authorizations and their tokens: all sessions of a user, or the
+/// one session behind a single authorization.
 /// </summary>
 /// <remarks>
-/// It takes no cancellation token on purpose. Every caller runs it right after a committed save, and a
-/// browser that goes away at that moment must not keep the other devices signed in (#872).
+/// It takes no cancellation token on purpose. A browser that goes away while it runs must not keep a
+/// session alive (#872).
 /// </remarks>
 internal interface IUserSessionRevoker
 {
     Task RevokeAllAsync(string userId);
+
+    /// <summary>
+    /// Every sign-in through the website gets its own authorization, so this ends one sign-in and the
+    /// tokens it renewed. An earlier sign-in on the same device, whose website session has already
+    /// expired, has an authorization of its own and is not ended.
+    /// </summary>
+    Task RevokeSessionAsync(string authorizationId);
 }

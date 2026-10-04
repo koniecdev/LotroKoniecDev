@@ -353,5 +353,5 @@ apply call) to be covered.
 - `.Received()` only for side effects invisible in the return value (cleanup, "must NOT have
   been called on validation failure") — never to mirror internal call patterns
 - Shared test data builders go in `Shared/` (extend `TestDataFactory`, don't hand-roll bytes)
-- Every test database starts from `PostgresImage.Name` (`tests/Shared/PostgresImage.cs`, linked into the four
-  suites that start PostgreSQL), never from its own image tag (#1002)
+- Every test database starts from `PostgresImage.Name` (`tests/Shared/PostgresImage.cs`, linked into every
+  suite that starts PostgreSQL), never from its own image tag (#1002)

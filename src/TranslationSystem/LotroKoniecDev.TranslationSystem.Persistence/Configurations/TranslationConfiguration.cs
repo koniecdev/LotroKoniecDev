@@ -122,7 +122,8 @@ internal sealed class TranslationConfiguration : IEntityTypeConfiguration<Transl
         // scans, since AnyReferencesGameVersionAsync ORs all three columns.
         // Restrict is the database backstop for the gap between that check and the delete: an import
         // that stamps the version in between makes the delete fail instead of leaving rows pointing
-        // at a version that is gone.
+        // at a version that is gone. On PostgreSQL 18 that failure has SQLSTATE 23001 (restrict_violation),
+        // not the 23503 of a NO ACTION key, so code that catches it must check 23001 (#1002).
         builder.Property(translation => translation.IntroducedInVersion)
             .HasColumnName(nameof(Translation.IntroducedInVersion));
 

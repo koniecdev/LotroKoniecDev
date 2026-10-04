@@ -63,8 +63,8 @@ public sealed class GameVersionPointerForeignKeyTests : IAsyncLifetime
         DbUpdateException thrown = await Should.ThrowAsync<DbUpdateException>(
             () => DeleteVersionAsync(referencedVersionId));
 
-        // Assert: the Restrict foreign key blocked the delete and the row survived. Since PostgreSQL 18 a
-        // RESTRICT action fails with its own code, 23001. PostgreSQL 17 used the general 23503 (#1002).
+        // Assert: the Restrict foreign key blocked the delete and the row survived. Why 23001 and not
+        // 23503: see the version pointer keys in TranslationConfiguration.
         PostgresException postgresException = thrown.InnerException.ShouldBeOfType<PostgresException>();
         postgresException.SqlState.ShouldBe(PostgresErrorCodes.RestrictViolation);
         (await VersionExistsAsync(referencedVersionId)).ShouldBeTrue();

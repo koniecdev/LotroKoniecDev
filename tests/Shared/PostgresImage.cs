@@ -6,9 +6,10 @@ namespace LotroKoniecDev.Tests.Shared;
 /// </summary>
 /// <remarks>
 /// Keep it on the same major version as <c>compose.yaml</c>, <c>compose.prod.yaml</c> and the Neon database
-/// that runs production (ADR-0014). The N-1 proof (ADR-0024) runs through these fixtures too, so a test
-/// database on another version tests each migration on a version that production never runs. The version
-/// is also named in <c>.github/workflows/ci.yml</c> and <c>tests/CLAUDE.md</c>, so a bump updates them too.
+/// that runs production (ADR-0014). A test database on another version tests each migration on a version
+/// that production never runs. The N-1 proof (ADR-0024) uses the previous release's copy of this file, so a
+/// bump reaches that proof one release later. The version is also named in <c>.github/workflows/ci.yml</c>
+/// and <c>tests/CLAUDE.md</c>, so a bump updates them too.
 /// </remarks>
 internal static class PostgresImage
 {

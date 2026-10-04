@@ -76,10 +76,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    # A pull request that changes only compose files runs no CI check, so nothing proves a new Caddy
-    # before it reaches both servers (#988). `on-hold` makes /merge-train skip it. The owner reads
-    # the release, then removes the label. These names replace Dependabot's default labels, and a
-    # name that does not exist in the repo is dropped without a warning, so each one must exist.
+    # No CI check tests a pull request that changes only compose files, so a new Caddy first runs on
+    # staging, after the merge (#988). `on-hold` makes /merge-train skip it. The owner reads the
+    # release, then removes the label. These names replace Dependabot's default labels, and a name
+    # that does not exist in the repo is dropped without a warning, so each one must exist.
     labels: ["dependencies", "docker", "on-hold"]
     allow:
       - dependency-name: "caddy"

@@ -154,7 +154,7 @@ bullets. Two sources of completion state, one live and one hand-ticked, is how t
 | `qa-blocked` | Manual QA: a scenario cannot run until the owner supplies a precondition |
 | `escaped-to-prod` | Found by a user in production, not by QA and not by CI — the escape-rate signal |
 | `post-mvp` | Parked beyond the current release gate — do not work it before MVP ships |
-| `on-hold` | On a PR: `/merge-train` skips it. A person reads the PR and removes the label to let it merge |
+| `on-hold` | Do not merge yet: `/merge-train` skips it until a person reads the PR and removes this label |
 
 `post-mvp` is this repo's release gate. TheKittySaver, already past MVP, uses `post-v1` plus
 `release-mvp` / `release-v1` for "required for that release"; this repo tracks the same thing
@@ -171,4 +171,6 @@ GitHub defaults, identical in both repos: `question`, `duplicate`, `invalid`, `w
 `good first issue`, `help wanted`.
 
 Dependabot applies `dependencies`, `github_actions`, `.NET` and `docker` to its own PRs. Its Caddy
-PR for the compose files also gets `on-hold`, because no CI check covers that PR (ADR-0060 §4).
+PR for the compose files also gets `on-hold`, because no CI check tests that PR (ADR-0060 §4).
+Renaming or deleting `on-hold` removes that hold without a warning: Dependabot drops a label the
+repo does not have, and the train then merges the PR unread.

@@ -147,12 +147,13 @@ the owner unassigns and assigns again.
 Bots keep the old rule. Dependabot is trusted by login and needs no assignee: its PRs are version
 bumps that CI proves, and the owner never reviewed them one by one.
 
-(Added 2026-10-04, #1001.) That reason holds only where a CI check covers the PR. A bot PR that no
-CI check covers is not proven by CI, so its Dependabot entry adds the `on-hold` label, which the
-train skips. The owner reads the PR and removes the label, and the next train merges it. Today this
-is the Caddy entry for the compose files: a PR that changes only compose files runs no check, and
-an unread Caddy release took the staging box down once (#988). The train itself is unchanged. It
-cannot know which diffs this repo's CI covers, so the entry that opens such a PR carries the hold.
+(Added 2026-10-04, #1001.) That reason holds only where a CI check tests what the PR changes. A
+bot PR whose files no check tests is not proven by CI, so its Dependabot entry adds the `on-hold`
+label, which the train skips. The owner reads the PR and removes the label, and the next train
+merges it. Today this is the Caddy entry for the compose files: no check tests a compose file before
+the merge, so a new Caddy first runs on staging, after it. An unread Caddy release took the staging
+box down once (#988). The train itself is unchanged. It cannot know which files this repo's CI
+tests, so the entry that opens such a PR carries the hold.
 
 ### 5. The train never deletes a branch here
 

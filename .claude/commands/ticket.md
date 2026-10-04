@@ -185,8 +185,11 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   1. **A defect in this diff.** The line is in `git diff main...HEAD`, or the diff made it
      reachable, and the claim holds when you read the code. Fix it.
   2. **Real, older than this diff, and no ticket.** The same code or behavior is on `main`, and
-     `gh issue list --state all --search "<key words>"` finds nothing. File a follow-up ticket
-     (`docs/labels.md`) and list it under Follow-ups. "Out of scope" never ends a real finding:
+     `gh issue list --state all --search "<key words>"` finds no ticket that covers this case.
+     File it as the class of bug it belongs to, not as one case (`docs/labels.md` → **One bug
+     class per ticket**): findings with one cause share a ticket, and an open ticket of the same
+     class that nobody has started gets the case added to its body. List it under Follow-ups.
+     "Out of scope" never ends a real finding:
      this bucket is where a blind reviewer earns its cost, because it reads the code around the
      diff that the ticket never looked at.
   3. **Already decided.** The ticket asks for it by name, an ADR lists it as an accepted

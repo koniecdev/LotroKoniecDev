@@ -113,6 +113,32 @@ correct in one repo and a violation in the other.
   mirroring the same cleanup in TheKittySaver (~35 titles there) — see that repo's `docs/labels.md`
   for the full before/after list. Closed issues were left alone then and stay out of scope.
 
+## One bug class per ticket
+
+A ticket that reports a defect (a bug, a flaky test, a missing check) names one **class** of
+defect: one thing that goes wrong, for one cause, in one flow. It does not name the single case
+someone happened to hit. **These rules are the same in both repos**; only the examples differ.
+
+- **Name the class, and give the case you found as its first example.** The title says what goes
+  wrong in general, like "The e-mail change confirm and undo pages show the wrong result", not one
+  state of it. The body gives the case you found with its failure scenario, and one task: find
+  every case of this class in the same flow, fix each one, and give each one its own test.
+- **One cause with several symptoms is one ticket.** Each symptom gets its own checkbox and its own
+  test. Two causes stay two tickets, even when they sit in the same file.
+- **Look for an open ticket of the same class before you file.** If one exists and nobody has
+  started it (no branch, no PR), add the new case to its body with `gh issue edit`. If work on it
+  has already started, file a new ticket and link the old one.
+- **Never put unrelated fixes in one ticket to save sessions.** One unclear fix would block the
+  other, and the review gets less sharp. A small ticket is already cheap, because it runs in lane S.
+- **Never drop a finding.** This rule changes the shape of a ticket, not the number of bugs found.
+  A case that does not get a new ticket goes into an existing one.
+
+Why: a review reads the code around a change, and the fix for one case sits right next to the next
+case. Filed one case at a time, a class costs one full session per case, and each session finds the
+next one. #864 → #866 → #869 → #871 → #886 → #941 handled the e-mail change confirm and undo pages
+one state at a time, and #935 → #983 → #992 → #995 → #997 handled stopping a loop worker at the
+moment it ends one race at a time: eleven sessions for two classes (#1011).
+
 ## Epics — how children are attached
 
 The three signals above say a ticket **is** an epic. This says what is **under** it.

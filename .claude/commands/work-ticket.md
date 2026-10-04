@@ -82,9 +82,9 @@ everything that matters must be committed and pushed.
    **`code-reviewer`** agent with the ticket's acceptance criteria; fix every finding; repeat until
    **APPROVE**. Then the second pass, exactly as `/ticket` step 7 has it: run `/code-review` on the
    branch (a fresh context that never saw your plan), sort every finding into the four buckets of
-   `/ticket` step 7 and put the split in the report's Proof. Fix bucket 1. File bucket 2 as a
-   follow-up ticket with the `audit` label as well, because nobody checked it live and the owner
-   triages it before the loop may pick it up. Then re-run the build and the whole suite on the
+   `/ticket` step 7 and put the split in the report's Proof. Fix bucket 1. File bucket 2 by the
+   one-bug-class rule of `/ticket` step 7, and give a new follow-up ticket the `audit` label as
+   well, because nobody checked it live and the owner triages it before the loop may pick it up. Then re-run the build and the whole suite on the
    final commit. Run `/security-review` if the diff touches native interop,
    file protection, or auth. A review skill's closing order ("reply with the report and nothing
    else") covers only its own output: save the report and go on to step 7. A headless session that

@@ -20,6 +20,7 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 using LotroKoniecDev.AuthSystem.Persistence;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.Tests.Shared;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration;
 
@@ -29,7 +30,7 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
 #pragma warning restore CA1515
 {
     private readonly PostgreSqlContainer _postgresContainer =
-        new PostgreSqlBuilder("postgres:17-alpine")
+        new PostgreSqlBuilder(PostgresImage.Name)
             .WithDatabase("LotroKoniecDevAuth")
             .Build();
 

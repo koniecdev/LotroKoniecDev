@@ -74,7 +74,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
         // POSTGRES_DB creates lotro_translation on the first boot, and the mounted init script adds the
         // second database, lotro_auth, that the AuthSystem needs. The compose stack does the same.
         string initScriptPath = Path.Combine(_worktree.SolutionDirectory, "scripts", "init-postgres.sh");
-        _postgres = new PostgreSqlBuilder("postgres:17-alpine")
+        _postgres = new PostgreSqlBuilder(PostgresImage.Name)
             .WithNetwork(_network)
             .WithNetworkAliases("postgres")
             .WithUsername(PostgresUser)

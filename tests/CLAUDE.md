@@ -279,7 +279,7 @@ off-Windows or without a DAT available — `Skipped` on macOS is expected, not a
 
 A Testcontainers-driven suite that mirrors TheKittySaver's `E2E.Tests`: `E2ETestFixture` builds the
 `auth`/`tms`/`migrator` Docker images (`SKIP_DOCKER_BUILD=true` reuses the ones this worktree built last time), spins up a private
-network with `postgres:17-alpine` (+ the bind-mounted `scripts/init-postgres.sh` for the second `lotro_auth`
+network with `postgres:18-alpine` (+ the bind-mounted `scripts/init-postgres.sh` for the second `lotro_auth`
 DB), runs the one-shot migrator, then boots `auth-api` (env `Testing` → password-grant `lotrokoniecdev-test`
 client + seeded Admin) and `tms-api` on `http://+:8080`, waiting on `/health/live`. Tests drive the loop over
 real HTTP with **real auth-api tokens validated by tms-api via live JWKS + lazy translator provisioning** — the
@@ -353,3 +353,7 @@ apply call) to be covered.
 - `.Received()` only for side effects invisible in the return value (cleanup, "must NOT have
   been called on validation failure") — never to mirror internal call patterns
 - Shared test data builders go in `Shared/` (extend `TestDataFactory`, don't hand-roll bytes)
+- Every test database starts from `PostgresImage.Name` (`tests/Shared/PostgresImage.cs`, linked into the four
+  suites that start PostgreSQL), never from its own image tag. It stays on production's major version:
+  compose and Neon run PostgreSQL 18, and a fixture left on 17 once proved every migration on the wrong
+  version (#1002)

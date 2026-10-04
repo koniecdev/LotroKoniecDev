@@ -463,7 +463,7 @@ open_lifeline() {
     for base in "${TMPDIR:-/tmp}" /tmp; do
         lifeline_dir="$(mktemp -d "$base/loop-lifeline.XXXXXX" 2>/dev/null)" || continue
         opened=1
-        if mkfifo "$lifeline_dir/pipe" && exec 7<>"$lifeline_dir/pipe"; then
+        if mkfifo "$lifeline_dir/pipe" 2>/dev/null && exec 7<>"$lifeline_dir/pipe"; then
             # shellcheck disable=SC2094  # both ends of one FIFO, on purpose
             if exec 8<"$lifeline_dir/pipe" 9>"$lifeline_dir/pipe"; then
                 opened=0
@@ -558,10 +558,10 @@ stop_sleeper() {
     sleeper=""
 }
 
-# `ending` is 1 while this script is on its way out: its last session has ended, or it is ending one
-# itself (a stop, the clock, a failed start). A stop that comes then changes nothing. The script
-# exits in moments anyway, and it keeps its real outcome. A stop between a session and its resume
-# cancels only the resume. Closing a terminal sends HUP to the job and then TERM from the conductor:
+# `ending` is 1 while this script is on its way out: its last session has ended, it is ending one
+# itself (a stop, the clock, a failed start), or it leaves before it has one. A stop that comes then
+# changes nothing. The script exits in moments anyway, and it keeps its real outcome. A stop between
+# a session and its resume cancels only the resume. Closing a terminal sends HUP to the job and then TERM from the conductor:
 # the second one lands here too, so it cannot cut the first one's cleanup short. The signals stay
 # caught, never ignored: an ignored signal would carry over into every gh, git and docker started
 # later, and a stuck one could then not be stopped.
@@ -590,6 +590,8 @@ if [ -n "$resume_session" ]; then
     # Claimed with one rename, so two runs can never resume the same session at once: the CLI would
     # interleave both into one transcript.
     if ! mv "$marker" "$marker.claimed" 2>/dev/null; then
+        # The worktree is the other run's now: a stop must not salvage it (see `ending`).
+        ending=1
         meta outcome skipped
         log "SKIPPED — another run has just claimed the kept session $resume_session"
         exit 12
@@ -605,6 +607,7 @@ else
         git fetch --quiet origin main || { meta outcome no-worktree; log "could not fetch origin/main"; exit 10; }
     fi
     if ! git worktree add --quiet --detach "$WT" origin/main; then
+        ending=1
         meta outcome no-worktree
         log "could not create the worktree $WT"
         exit 10
@@ -674,6 +677,8 @@ run_session() {
         exit 3
     fi
     ending=0
+    # A stop that came while this was set up, after the last session, was only recorded.
+    [ "$stop_requested" -eq 0 ] || stop_run
     set +e
     # `set -m` gives the session its own process group. It also stops bash from pointing a
     # background job's stdin at /dev/null, so that is done by hand: a job outside the terminal's

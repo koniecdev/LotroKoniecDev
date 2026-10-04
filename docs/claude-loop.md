@@ -198,10 +198,10 @@ Per-ticket outcomes:
 - **stopped** — you stopped the loop (Ctrl-C, `kill`, closing the terminal). Each running session
   gets 20 seconds to end the builds and tests it started (claude does that itself on TERM); then
   the loop ends whatever of them is left. Its leftovers are salvaged and its worktree is removed,
-  so the next run can start the ticket again. A worker whose session has already ended, or that is
-  already ending one because the clock ran out, does not stop half way: it finishes on its own and
-  keeps its real outcome (a PR, BLOCKED, a worktree kept after a usage limit). The stop only
-  cancels a resume that has not started yet.
+  so the next run can start the ticket again. A worker that has already seen its session end (it
+  looks every 30 seconds), or that is already ending one because the clock ran out, does not stop
+  half way: it finishes on its own and keeps its real outcome (a PR, BLOCKED, a worktree kept after
+  a usage limit). The stop only cancels a resume that has not started yet.
 - **usage limit** — the loop starts nothing new, lets the running tickets finish, naps
   (`LOOP_LIMIT_SLEEP_MIN`) and runs the limited tickets again. Each one whose result names its
   session keeps its worktree, and the next run resumes that session there (see "A session stopped by a usage limit, or DONE without
@@ -360,7 +360,7 @@ later conductor run, both runs' totals count the part of the session before the 
   as running, so a worker that has already ended gets no signal, even when the system has given
   its process number to another program (#992). Only a worker that ends in the millisecond between
   that read and the signal can still get one. A second Ctrl-C does not cut that cleanup short, and
-  neither does a stop that comes after a worker's session has ended (see **stopped** above).
+  neither does a stop that comes after a worker has seen its session end (see **stopped** above).
   `scripts/tests/claude-loop-conductor.tests.sh` pins the conductor
   side (with the slot count, the retry after a usage limit and the stop conditions), and
   `scripts/tests/claude-loop-provenance.tests.sh` the worker side.

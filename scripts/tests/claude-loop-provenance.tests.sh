@@ -1974,26 +1974,51 @@ expect_meta 138 outcome=pr-opened pr=7138
 [ ! -e "$WT_ROOT/ticket-138" ] || fail "the finished worktree should be removed"
 cases=$((cases + 1)); printf '✓ work-ticket: a stop during the last cleanup keeps the real outcome\n'
 
-# hold_gh_case <ticket> <gh arguments to hold> <behavior> — runs the worker, holds the first gh call
-# that matches once the session has run, and stops the worker in that call. Sets held_rc.
-hold_gh_case() {
-    local ticket="$1" match="$2" session_behavior="$3"
-    rm -f "$TMP_ROOT/gh-hold.held" "$TMP_ROOT/gh-hold.released"
-    env GH_HOLD="$TMP_ROOT/gh-hold" GH_HOLD_AFTER="$CLAUDE_MARKER" GH_HOLD_MATCH="$match" \
-        CLAUDE_BEHAVIOR="$session_behavior" "$WORK" "$ticket" "$TMP_ROOT/run" > "$TMP_ROOT/gh-hold.out" 2>&1 &
-    worker=$!
-    for _ in $(seq 1 100); do [ -e "$TMP_ROOT/gh-hold.held" ] && break; "$REAL_SLEEP" 0.1; done
-    [ -e "$TMP_ROOT/gh-hold.held" ] || { kill -KILL "$worker" 2>/dev/null || true
-        fail "the worker never made the gh call '$match' after its session" "$(cat "$TMP_ROOT/gh-hold.out")"; }
+# A hold makes the worker wait in one call, so a case can stop it exactly there. A hold named <name>
+# marks the wait with $TMP_ROOT/<name>-hold.held and lets go once $TMP_ROOT/<name>-hold.released
+# exists, after ten seconds at most.
+# hold_stub <bin dir> <command> <shell test> — a <command> that holds the first call for which the
+# test is true, and then runs the real command.
+hold_stub() {
+    local dir="$1" command="$2" condition="$3" real
+    real="$(command -v "$command")"
+    mkdir -p "$dir"
+    cat > "$dir/$command" <<STUB
+#!/usr/bin/env bash
+if $condition && [ ! -e "$TMP_ROOT/$command-hold.held" ]; then
+    touch "$TMP_ROOT/$command-hold.held"
+    for _ in \$(seq 1 200); do [ -e "$TMP_ROOT/$command-hold.released" ] && break; "$REAL_SLEEP" 0.05; done
+fi
+exec "$real" "\$@"
+STUB
+    chmod +x "$dir/$command"
+}
+
+# stop_in_hold <name> <log file> — stops the worker in the call that the hold <name> keeps waiting,
+# then lets the call go and waits for the worker. Sets held_rc.
+stop_in_hold() {
+    for _ in $(seq 1 100); do [ -e "$TMP_ROOT/$1-hold.held" ] && break; "$REAL_SLEEP" 0.1; done
+    [ -e "$TMP_ROOT/$1-hold.held" ] || { kill -KILL "$worker" 2>/dev/null || true
+        fail "the worker never reached the held $1 call" "$(cat "$2")"; }
     kill -TERM "$worker"
-    touch "$TMP_ROOT/gh-hold.released"
+    touch "$TMP_ROOT/$1-hold.released"
     for _ in $(seq 1 100); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
     if alive "$worker"; then
         kill -KILL "$worker"
-        fail "work-ticket did not end within 10 seconds" "$(cat "$TMP_ROOT/gh-hold.out")"
+        fail "work-ticket did not end within 10 seconds" "$(cat "$2")"
     fi
     held_rc=0
     wait "$worker" || held_rc=$?
+}
+
+# hold_gh_case <ticket> <gh arguments to hold> <behavior> — runs the worker and stops it in the
+# first gh call that matches once the session has run (the gh stub's own hook). Sets held_rc.
+hold_gh_case() {
+    rm -f "$TMP_ROOT"/gh-hold.*
+    env GH_HOLD="$TMP_ROOT/gh-hold" GH_HOLD_AFTER="$CLAUDE_MARKER" GH_HOLD_MATCH="$2" \
+        CLAUDE_BEHAVIOR="$3" "$WORK" "$1" "$TMP_ROOT/run" > "$TMP_ROOT/gh-hold.out" 2>&1 &
+    worker=$!
+    stop_in_hold gh "$TMP_ROOT/gh-hold.out"
 }
 
 # A stop while the loop judges a finished session keeps the real outcome. Here it comes while the
@@ -2017,6 +2042,78 @@ hold_gh_case 142 " api " "$TMP_ROOT/never-status.sh"
 expect_meta 142 outcome=stopped resumes=0
 [ ! -e "$WT_ROOT/ticket-142" ] || fail "a stopped run should not leave its worktree behind"
 cases=$((cases + 1)); printf '✓ work-ticket: a stop before a resume cancels the resume\n'
+
+# A stop that comes while a resume opens its pipe is only recorded at first, because the session
+# before it has ended. It must still cancel the resume before the session starts.
+hold_stub "$TMP_ROOT/hold-fifo-bin" mkfifo '[ -e "'"$CLAUDE_MARKER"'" ]'
+reset_fixtures
+fixture_issue 143 maintainer OWNER
+rm -f "$TMP_ROOT"/mkfifo-hold.*
+env PATH="$TMP_ROOT/hold-fifo-bin:$PATH" CLAUDE_BEHAVIOR="$TMP_ROOT/never-status.sh" "$WORK" 143 "$TMP_ROOT/run" \
+    > "$TMP_ROOT/fifo-hold.out" 2>&1 &
+worker=$!
+stop_in_hold mkfifo "$TMP_ROOT/fifo-hold.out"
+[ "$held_rc" -eq 143 ] || fail "a stop while a resume opens its pipe should stop the run, got $held_rc" "$(cat "$TMP_ROOT/fifo-hold.out")"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a stop while a resume opens its pipe must cancel the resume" "$(cat "$TMP_ROOT/fifo-hold.out")"
+expect_meta 143 outcome=stopped
+[ ! -e "$WT_ROOT/ticket-143" ] || fail "a stopped run should not leave its worktree behind"
+cases=$((cases + 1)); printf '✓ work-ticket: a stop while a resume opens its pipe cancels the resume\n'
+
+# Two runs of one ticket can race for a worktree kept after a usage limit. The one that loses the
+# claim leaves, and a stop that comes as it leaves must not salvage or remove the worktree the
+# other run now works in. The test plays the other run: it takes the claim while the loser's
+# provenance gate is held. The stop comes in the loser's last log line.
+hold_stub "$TMP_ROOT/hold-date-bin" date '[ "${1:-}" = "+%H:%M:%S" ] && [ -e "'"$TMP_ROOT"'/date-hold.armed" ]'
+reset_fixtures
+fixture_issue 144 maintainer OWNER
+run_case 6 "work-ticket: a usage limit keeps the worktree, before two runs race for it" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 144 "$TMP_ROOT/run"
+fixture_transcript s-144
+marker_144="$(kept_marker 144)"
+rm -f "$TMP_ROOT"/gh-hold.* "$TMP_ROOT"/date-hold.*
+env PATH="$TMP_ROOT/hold-date-bin:$PATH" GH_HOLD="$TMP_ROOT/gh-hold" GH_HOLD_MATCH=" api " \
+    CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 144 "$TMP_ROOT/run" > "$TMP_ROOT/claim-lost.out" 2>&1 &
+worker=$!
+for _ in $(seq 1 100); do [ -e "$TMP_ROOT/gh-hold.held" ] && break; "$REAL_SLEEP" 0.1; done
+[ -e "$TMP_ROOT/gh-hold.held" ] || { kill -KILL "$worker" 2>/dev/null || true
+    fail "the worker never reached its provenance gate" "$(cat "$TMP_ROOT/claim-lost.out")"; }
+mv "$marker_144" "$marker_144.claimed"
+touch "$TMP_ROOT/date-hold.armed" "$TMP_ROOT/gh-hold.released"
+stop_in_hold date "$TMP_ROOT/claim-lost.out"
+[ "$held_rc" -eq 12 ] || fail "a run that lost the claim should be skipped, got $held_rc" "$(cat "$TMP_ROOT/claim-lost.out")"
+expect_meta 144 outcome=skipped
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "the run that lost the claim must not resume the session"
+[ -f "$WT_ROOT/ticket-144/uncommitted.txt" ] || fail "the other run's worktree must stay as it is" "$(cat "$TMP_ROOT/claim-lost.out")"
+[ -z "$(git -C "$FAKE_REPO" for-each-ref 'refs/heads/loop-salvage/144-*')" ] \
+    || fail "the run that lost the claim must not salvage the other run's worktree"
+rm -f "$marker_144.claimed"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-144"
+cases=$((cases + 1)); printf '✓ work-ticket: a stop as a run leaves after losing a claim leaves the worktree alone\n'
+
+# A failed `git worktree add` is the machine, not the ticket (outcome no-worktree), and a stop that
+# comes as the run leaves keeps that outcome.
+mkdir -p "$TMP_ROOT/no-worktree-bin"
+cat > "$TMP_ROOT/no-worktree-bin/git" <<STUB
+#!/usr/bin/env bash
+if [ "\${1:-} \${2:-}" = "worktree add" ]; then
+    touch "$TMP_ROOT/date-hold.armed"
+    echo "fatal: no worktree here" >&2
+    exit 1
+fi
+exec "$(command -v git)" "\$@"
+STUB
+chmod +x "$TMP_ROOT/no-worktree-bin/git"
+reset_fixtures
+fixture_issue 145 maintainer OWNER
+rm -f "$TMP_ROOT"/date-hold.*
+env PATH="$TMP_ROOT/no-worktree-bin:$TMP_ROOT/hold-date-bin:$PATH" "$WORK" 145 "$TMP_ROOT/run" \
+    > "$TMP_ROOT/no-worktree.out" 2>&1 &
+worker=$!
+stop_in_hold date "$TMP_ROOT/no-worktree.out"
+[ "$held_rc" -eq 10 ] || fail "a stop as the run leaves should keep exit 10, got $held_rc" "$(cat "$TMP_ROOT/no-worktree.out")"
+expect_meta 145 outcome=no-worktree
+[ ! -f "$CLAUDE_MARKER" ] || fail "no session may start without a worktree"
+cases=$((cases + 1)); printf '✓ work-ticket: a stop as a run leaves without a worktree keeps its outcome\n'
 
 # A poll timer that bash has reaped gets no signal either (#992). It leads no process group, so
 # nothing keeps its number reserved. Bash runs a trap only after a foreground command ends, so a

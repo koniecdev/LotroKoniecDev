@@ -436,7 +436,7 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   assumptions and fix from the Ticket report instead. Opus 5.5 and Fable run a native 1M window in
   Claude Code and auto-compaction stays at its ~967k default on purpose (never set
   `autoCompactWindow`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW` or `CLAUDE_CODE_DISABLE_1M_CONTEXT` —
-  compaction is not wanted here), so only you cap a session: past ~200k in `/context` a ticket
+  compaction is not wanted here), so only you cap a session: past ~500k in `/context` a ticket
   session is a marathon — finish, report, `/clear`. Pick model and effort before the first prompt:
   `/model` mid-session is a full cache miss on every model, `/effort` on every model except
   Fable 5.1 (unverified on Opus 5.5 — assume a miss). Back-to-back sessions reuse only the

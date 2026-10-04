@@ -1336,6 +1336,59 @@ if alive "$session_child"; then
     fail "a process the timed-out session started outlived it"
 fi
 
+# A stop that comes while the worker ends a timed-out session must not cut that short. The session
+# here takes a moment to end on TERM, so the worker's grace loop naps once. That nap is held until
+# the session has ended, and the stop comes then. Its trap would skip the command group the worker
+# has already found, and with the session gone, nothing else can find it.
+reset_fixtures
+rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/session-child" "$TMP_ROOT/clock-skew" \
+    "$TMP_ROOT/in-grace" "$TMP_ROOT/grace-released"
+fixture_issue 136 maintainer OWNER
+mkdir -p "$TMP_ROOT/hold-grace-bin"
+printf '#!/usr/bin/env bash\nif [ "$1" = 0.5 ] && [ ! -e "%s" ]; then\n    touch "%s"\n    for _ in $(seq 1 200); do [ -e "%s" ] && break; "%s" 0.05; done\nfi\nexec "%s" 0.05\n' \
+    "$TMP_ROOT/in-grace" "$TMP_ROOT/in-grace" "$TMP_ROOT/grace-released" "$REAL_SLEEP" "$REAL_SLEEP" \
+    > "$TMP_ROOT/hold-grace-bin/sleep"
+chmod +x "$TMP_ROOT/hold-grace-bin/sleep"
+behavior "$TMP_ROOT/slow-to-end.sh" 'echo $$ > "'"$TMP_ROOT"'/session-pid"
+git checkout -q -b 136-fixture
+trap "$REAL_SLEEP 0.3; exit 143" TERM
+set -m
+"$REAL_SLEEP" 60 &
+echo $! > "'"$TMP_ROOT"'/session-child"
+set +m
+echo '"$(( (DEFAULT_TIMEOUT_MIN + 10) * 60 ))"' > "'"$TMP_ROOT"'/clock-skew"
+wait'
+env PATH="$TMP_ROOT/hold-grace-bin:$PATH" CLAUDE_BEHAVIOR="$TMP_ROOT/slow-to-end.sh" "$WORK" 136 "$TMP_ROOT/run" \
+    > "$TMP_ROOT/held-grace.out" 2>&1 &
+worker=$!
+for _ in $(seq 1 100); do [ -e "$TMP_ROOT/in-grace" ] && break; "$REAL_SLEEP" 0.1; done
+[ -e "$TMP_ROOT/in-grace" ] || { kill -KILL "$worker" 2>/dev/null || true
+    fail "the timed-out session never made the worker nap in its grace loop" "$(cat "$TMP_ROOT/held-grace.out")"; }
+session_pid="$(cat "$TMP_ROOT/session-pid")"
+session_child="$(cat "$TMP_ROOT/session-child")"
+for _ in $(seq 1 50); do kill -0 "$session_pid" 2>/dev/null || break; "$REAL_SLEEP" 0.1; done
+kill -0 "$session_pid" 2>/dev/null && { touch "$TMP_ROOT/grace-released"; kill -KILL "$worker" 2>/dev/null || true
+    kill -KILL "$session_child" 2>/dev/null || true; fail "the timed-out session never ended" "$(cat "$TMP_ROOT/held-grace.out")"; }
+kill -TERM "$worker"
+touch "$TMP_ROOT/grace-released"
+for _ in $(seq 1 300); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
+if alive "$worker"; then
+    kill -KILL "$worker" "$session_child" 2>/dev/null || true
+    fail "work-ticket did not end within 30 seconds" "$(cat "$TMP_ROOT/held-grace.out")"
+fi
+held_rc=0
+wait "$worker" || held_rc=$?
+for _ in $(seq 1 50); do alive "$session_child" || break; "$REAL_SLEEP" 0.1; done
+if alive "$session_child"; then
+    kill -KILL "$session_child"
+    fail "a stop during a timeout cut its cleanup short, and a command group of the session outlived it" "$(cat "$TMP_ROOT/held-grace.out")"
+fi
+[ "$held_rc" -eq 4 ] || fail "a worker that times out should still exit 4 after a stop, got $held_rc" "$(cat "$TMP_ROOT/held-grace.out")"
+expect_meta 136 outcome=timeout
+[ ! -e "$WT_ROOT/ticket-136" ] || fail "a timed-out run should not leave its worktree behind"
+rm -f "$TMP_ROOT/clock-skew"
+cases=$((cases + 1)); printf '✓ work-ticket: a stop while a timed-out session is being ended does not cut that short\n'
+
 # One clock for the whole ticket (20 minutes): the first run uses 5, and the resume reaches 20:50.
 # A resume with a clock of its own would count only 15:50 and run on.
 reset_fixtures
@@ -1541,6 +1594,17 @@ git -C "$FAKE_REPO" remote set-url origin "$TMP_ROOT/origin.git"
 grep -qx "outcome=no-worktree" "$TMP_ROOT/run/ticket-82.meta" || fail "meta should say no-worktree"
 [ ! -f "$CLAUDE_MARKER" ] || fail "no session may start without a worktree"
 
+# The lifeline pipe is made in TMPDIR. Without it the watchdog could not tell when the worker is
+# gone, so no session starts.
+reset_fixtures
+fixture_issue 137 maintainer OWNER
+run_case 3 "work-ticket: no session starts when the watchdog's pipe cannot be made" \
+    env TMPDIR="$TMP_ROOT/no-such-dir" "$WORK" 137 "$TMP_ROOT/run"
+expect_in_output "could not open the lifeline pipe"
+[ ! -f "$CLAUDE_MARKER" ] || fail "no session may start without its lifeline"
+expect_meta 137 outcome=error
+[ ! -e "$WT_ROOT/ticket-137" ] || fail "the worktree should be removed when no session could start"
+
 # A stop signal ends the session and everything it started, then salvages and cleans up.
 # Claude Code runs each Bash command in a process group of its own, so the fake session starts its
 # child the same way (`set -m`): killing the session's group alone would miss it. Unlike claude,
@@ -1630,10 +1694,16 @@ start_unreaped() {
     worker="$(cat "$TMP_ROOT/worker-pid")"
 }
 
-# Ends the parent, so the system reaps the worker's zombie.
+# Ends the parent, so the system reaps the worker's zombie. A worker that ended without its stop
+# trap, or a failed case, can leave the worker's poll nap running: in the cases that use it
+# (poll-nap-bin below), that is the one real 30-second sleep. It goes too, if it is still that sleep.
 stop_unreaped() {
+    local nap
     kill "$holder" 2>/dev/null || true
     wait "$holder" 2>/dev/null || true
+    nap="$(cat "$TMP_ROOT/in-poll-nap" 2>/dev/null || true)"
+    [ -n "$nap" ] || return 0
+    case "$(ps -o command= -p "$nap" 2>/dev/null)" in *"sleep 30") kill "$nap" 2>/dev/null || true ;; esac
 }
 
 # wait_until_unreaped — the worker has ended, and its number still answers. Without the second part
@@ -1650,7 +1720,7 @@ wait_until_unreaped() {
 
 reset_fixtures
 fixture_issue 133 maintainer OWNER
-rm -f "$TMP_ROOT/session-child"
+rm -f "$TMP_ROOT/session-child" "$TMP_ROOT/in-poll-nap"
 start_unreaped 133 "$TMP_ROOT/long.sh"
 for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
 [ -s "$TMP_ROOT/session-child" ] \
@@ -1770,13 +1840,23 @@ cases=$((cases + 1)); printf '✓ work-ticket: a stop just after the session end
 # Then the worker is stopped, which leaves the ended session's group to the watchdog (#983), or it
 # is SIGKILLed. Either way the worker's number still answers once the worker has ended (see
 # start_unreaped), and the watchdog must end the group anyway.
+# A stopped worker lets go of the session before its cleanup, so the group ends at once and not
+# only when the worker exits: a `git gc` that the salvage commit starts in the background would
+# otherwise hold the pipe open for minutes. In the stop case a slow `docker`, the last step of the
+# cleanup, holds the worker there, and the group must end while the worker waits.
+mkdir -p "$TMP_ROOT/held-finish-bin"
+printf '#!/usr/bin/env bash\ntouch "%s"\nfor _ in $(seq 1 200); do [ -e "%s" ] && break; "%s" 0.05; done\n' \
+    "$TMP_ROOT/in-finish" "$TMP_ROOT/finish-released" "$REAL_SLEEP" > "$TMP_ROOT/held-finish-bin/docker"
+chmod +x "$TMP_ROOT/held-finish-bin/docker"
 # ended_session_case <ticket> <signal> <description>
 ended_session_case() {
-    local ticket="$1" signal="$2" description="$3" watchdog
+    local ticket="$1" signal="$2" description="$3" watchdog path="$TMP_ROOT/poll-nap-bin:$PATH"
     reset_fixtures
     fixture_issue "$ticket" maintainer OWNER
-    rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/session-child" "$TMP_ROOT/in-poll-nap"
-    start_unreaped "$ticket" "$TMP_ROOT/ends-leaving-child.sh" PATH="$TMP_ROOT/poll-nap-bin:$PATH"
+    rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/session-child" "$TMP_ROOT/in-poll-nap" \
+        "$TMP_ROOT/in-finish" "$TMP_ROOT/finish-released"
+    [ "$signal" != TERM ] || path="$TMP_ROOT/held-finish-bin:$path"
+    start_unreaped "$ticket" "$TMP_ROOT/ends-leaving-child.sh" PATH="$path"
     for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
     [ -s "$TMP_ROOT/session-child" ] \
         || { kill -KILL "$worker" 2>/dev/null || true; stop_unreaped; fail "the fake session never started" "$(cat "$TMP_ROOT/unreaped.out")"; }
@@ -1790,6 +1870,20 @@ ended_session_case() {
         fail "expected exactly one watchdog in the session's group" \
             "$(ps -A -o pid= -o pgid= -o command= | awk -v g="$session_pid" '$2 == g')"; }
     kill -"$signal" "$worker"
+    if [ "$signal" = TERM ]; then
+        for _ in $(seq 1 100); do [ -e "$TMP_ROOT/in-finish" ] && break; "$REAL_SLEEP" 0.1; done
+        [ -e "$TMP_ROOT/in-finish" ] || { kill -KILL "$worker" 2>/dev/null || true; stop_unreaped
+            fail "the stopped worker never reached the end of its cleanup" "$(cat "$TMP_ROOT/unreaped.out")"; }
+        for _ in $(seq 1 50); do { alive "$session_child" || alive "$watchdog"; } || break; "$REAL_SLEEP" 0.1; done
+        if alive "$session_child" || alive "$watchdog"; then
+            kill -KILL "$session_child" "$watchdog" 2>/dev/null || true
+            touch "$TMP_ROOT/finish-released"
+            stop_unreaped
+            fail "the watchdog waited for the stopped worker to exit before it ended the session's group"
+        fi
+        alive "$worker" || { stop_unreaped; fail "the worker left its cleanup early, so the case tested nothing"; }
+        touch "$TMP_ROOT/finish-released"
+    fi
     wait_until_unreaped
     for _ in $(seq 1 100); do { alive "$session_child" || alive "$watchdog"; } || break; "$REAL_SLEEP" 0.1; done
     if alive "$session_child" || alive "$watchdog"; then
@@ -1802,8 +1896,6 @@ ended_session_case() {
         expect_meta "$ticket" outcome=stopped
         [ ! -e "$WT_ROOT/ticket-$ticket" ] || fail "a stopped run should not leave its worktree behind"
     else
-        # A SIGKILL leaves the worker's poll nap running, the one real 30-second sleep here.
-        kill "$(cat "$TMP_ROOT/in-poll-nap")" 2>/dev/null || true
         git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-$ticket"
     fi
     cases=$((cases + 1)); printf '✓ work-ticket: %s\n' "$description"

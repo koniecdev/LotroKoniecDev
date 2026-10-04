@@ -444,8 +444,8 @@ descendants() {
 }
 
 # ── The lifeline: how the watchdog learns that this script is done with the session ─────────────
-# A process number cannot say it: by the time the watchdog checks one, the system may have given it
-# to another program (#983, #995, #997). A pipe can. This script holds the only write end, and the
+# A process number cannot tell the watchdog this: by the time the watchdog checks one, the system
+# may have given it to another program (#983, #995, #997). A pipe can. This script holds the only write end, and the
 # watchdog waits on the read end until no write end is left. That happens when this script dies, by
 # any signal, or when it lets go of the session after its last signal to the session's group. A
 # child inherits the write end, so every child that can outlive this script closes it: the session,
@@ -453,25 +453,30 @@ descendants() {
 # 8 is the read end and 9 the write end.
 
 # Opens fd 8 and fd 9 on a new pipe. A FIFO opened for one side waits until the other side is open,
-# so a read-write open comes first. The FIFO's name goes at once: only the open fds matter.
+# so a read-write open (fd 7) comes first. The FIFO's name goes at once: only the open fds matter.
+# The folder's name is global, so a stop in the middle of this still removes it.
+lifeline_dir=""
 open_lifeline() {
-    local dir rc=1
-    dir="$(mktemp -d "${TMPDIR:-/tmp}/loop-lifeline.XXXXXX")" || return 1
-    if mkfifo "$dir/pipe" && exec 7<>"$dir/pipe"; then
+    local rc=1
+    lifeline_dir="$(mktemp -d "${TMPDIR:-/tmp}/loop-lifeline.XXXXXX")" || return 1
+    if mkfifo "$lifeline_dir/pipe" && exec 7<>"$lifeline_dir/pipe"; then
         # shellcheck disable=SC2094  # both ends of one FIFO, on purpose
-        if exec 8<"$dir/pipe" 9>"$dir/pipe"; then
+        if exec 8<"$lifeline_dir/pipe" 9>"$lifeline_dir/pipe"; then
             rc=0
         fi
         exec 7>&-
     fi
-    rm -rf "$dir"
+    rm -rf "$lifeline_dir"
+    lifeline_dir=""
     return "$rc"
 }
 
 # From here on this script sends nothing to the session's group, so the watchdog may end what is
 # left in it. Closing an fd that is already closed does nothing.
 release_lifeline() {
-    exec 8<&- 9>&-
+    exec 7>&- 8<&- 9>&-
+    [ -z "$lifeline_dir" ] || rm -rf "$lifeline_dir"
+    lifeline_dir=""
 }
 
 # Ends a session and everything it started. Claude Code runs each Bash command in a process group
@@ -679,6 +684,10 @@ run_session() {
         # A session that ended in the nap is judged from its result, even past the limit (#991).
         session_running || break
         if [ $(( $(date +%s) - start_epoch )) -ge $(( TIMEOUT_MIN * 60 )) ]; then
+            # This script ends here anyway, so a stop signal from now on is ignored. Its trap would
+            # cut the stop below short, and once the session has ended, nothing would end the
+            # command groups that this stop has already found.
+            trap '' INT TERM HUP
             stop_session
             set -e
             meta outcome timeout

@@ -353,10 +353,11 @@ later conductor run, both runs' totals count the part of the session before the 
   own, so killing the session's own group would miss them. A watchdog does the same if the worker
   itself is SIGKILLed. It learns that the worker is gone from a pipe that only the worker holds
   open, not from a process number, so a number the system has already given to another program
-  cannot keep it waiting (#997). The conductor signals only what bash's own job list still shows as running,
-  so a worker that has already ended gets no signal, even when the system has given its process
-  number to another program (#992). Only a worker that ends in the millisecond between that read
-  and the signal can still get one. A second Ctrl-C does not cut that cleanup short.
+  cannot keep it waiting (#997). The conductor signals only what bash's own job list still shows
+  as running, so a worker that has already ended gets no signal, even when the system has given
+  its process number to another program (#992). Only a worker that ends in the millisecond between
+  that read and the signal can still get one. A second Ctrl-C does not cut that cleanup short, and
+  neither does a stop that comes while a worker is ending a session that ran out of time.
   `scripts/tests/claude-loop-conductor.tests.sh` pins the conductor
   side (with the slot count, the retry after a usage limit and the stop conditions), and
   `scripts/tests/claude-loop-provenance.tests.sh` the worker side.

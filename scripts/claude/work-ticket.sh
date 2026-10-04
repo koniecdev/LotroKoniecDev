@@ -445,12 +445,12 @@ descendants() {
 
 # ── The lifeline: how the watchdog learns that this script is done with the session ─────────────
 # A process number cannot tell the watchdog this: by the time the watchdog checks one, the system
-# may have given it to another program (#983, #995, #997). A pipe can. This script holds the only write end, and the
-# watchdog waits on the read end until no write end is left. That happens when this script dies, by
-# any signal, or when it lets go of the session after its last signal to the session's group. A
-# child inherits the write end, so every child that can outlive this script closes it: the session,
-# the watchdog and the poll timer. Bash 3.2 has no `{name}>` redirections, so the fds are fixed:
-# 8 is the read end and 9 the write end.
+# may have given it to another program (#983, #995, #997). A pipe can. This script holds the only
+# write end, and the watchdog waits on the read end until no write end is left. That happens when
+# this script dies, by any signal, or when it lets go of the session after its last signal to the
+# session's group. A child inherits the write end, so every child that can outlive this script
+# closes it: the session, the watchdog and the poll timer. Bash 3.2 has no `{name}>` redirections,
+# so the fds are fixed: 8 is the read end and 9 the write end.
 
 # Opens fd 8 and fd 9 on a new pipe. A FIFO opened for one side waits until the other side is open,
 # so a read-write open (fd 7) comes first. The FIFO's name goes at once: only the open fds matter.
@@ -640,6 +640,9 @@ run_session() {
     local out="$1" cmd=(claude -p "$2" "${session_flags[@]}" "${@:3}")
     # No session starts without a watchdog that can tell when this script is gone.
     if ! open_lifeline; then
+        # This script ends here, so a stop would only cut the cleanup short (see the trap after the
+        # resume loop).
+        trap '' INT TERM HUP
         release_lifeline
         meta outcome error
         finish
@@ -834,6 +837,7 @@ while :; do
     trust_rc=0
     "$REPO_ROOT/scripts/claude/issue-trust.sh" "$ISSUE" || trust_rc=$?
     if [ "$trust_rc" -eq 1 ]; then
+        trap '' INT TERM HUP  # ends here: see the trap after this loop
         meta outcome untrusted
         finish
         log "REFUSED by the provenance gate before a resume — untrusted writer (see above)"
@@ -855,6 +859,12 @@ while :; do
     run_session "$OUT.resume-$resumes" "$(resume_prompt "$reason" "$left_min")" --resume "$run_session_id"
     keep_result "$resumes"
 done
+
+# No session runs or starts from here on: the rest only judges the result and cleans up, and then
+# this script exits. A stop would run its trap in the middle of that, write "stopped" over the real
+# outcome and salvage a second time, so it is ignored. A command that hangs here held up the trap
+# before too: bash runs a trap only after the command in front ends.
+trap '' INT TERM HUP
 
 elapsed_min=$(( ( $(date +%s) - start_epoch ) / 60 ))
 

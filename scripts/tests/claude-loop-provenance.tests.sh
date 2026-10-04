@@ -1903,6 +1903,35 @@ ended_session_case() {
 ended_session_case 134 TERM "a stop after the session ended cleans up what it left, though the worker's number still answers"
 ended_session_case 135 KILL "a SIGKILL after the session ended cleans up what it left, though the worker's number still answers"
 
+# Once the session is over, the worker only judges the result, cleans up and exits. A stop in that
+# cleanup used to run the stop trap in its middle: "stopped" replaced the real outcome, and the
+# salvage ran a second time. The slow `docker` above holds the worker in the cleanup of a DONE run.
+reset_fixtures
+fixture_issue 138 maintainer OWNER
+fixture_pr_view 7138 OPEN 138-fixture
+rm -f "$TMP_ROOT/in-finish" "$TMP_ROOT/finish-released"
+env PATH="$TMP_ROOT/held-finish-bin:$PATH" CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 138 "$TMP_ROOT/run" \
+    > "$TMP_ROOT/held-finish.out" 2>&1 &
+worker=$!
+for _ in $(seq 1 100); do [ -e "$TMP_ROOT/in-finish" ] && break; "$REAL_SLEEP" 0.1; done
+[ -e "$TMP_ROOT/in-finish" ] || { kill -KILL "$worker" 2>/dev/null || true
+    fail "the worker never reached the end of its cleanup" "$(cat "$TMP_ROOT/held-finish.out")"; }
+kill -TERM "$worker"
+touch "$TMP_ROOT/finish-released"
+for _ in $(seq 1 100); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
+if alive "$worker"; then
+    kill -KILL "$worker"
+    fail "work-ticket did not end within 10 seconds" "$(cat "$TMP_ROOT/held-finish.out")"
+fi
+held_rc=0
+wait "$worker" || held_rc=$?
+[ "$held_rc" -eq 0 ] || fail "a stop in the last cleanup should not change the exit code, got $held_rc" "$(cat "$TMP_ROOT/held-finish.out")"
+expect_meta 138 outcome=pr-opened pr=7138
+[ -z "$(git -C "$FAKE_REPO" for-each-ref 'refs/heads/loop-salvage/138-*')" ] \
+    || fail "a clean worktree must not get a salvage branch from a second cleanup"
+[ ! -e "$WT_ROOT/ticket-138" ] || fail "the finished worktree should be removed"
+cases=$((cases + 1)); printf '✓ work-ticket: a stop during the last cleanup keeps the real outcome\n'
+
 # A poll timer that bash has reaped gets no signal either (#992). It leads no process group, so
 # nothing keeps its number reserved. Bash runs a trap only after a foreground command ends, so a
 # `wait` that pauses right after the poll timer is reaped keeps the worker in the moment before it

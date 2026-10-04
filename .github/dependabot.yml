@@ -67,8 +67,8 @@ updates:
         patterns: ["*"]
 
   # Caddy, the proxy in front of both servers (#1001). Its image is only in compose files, which the
-  # `docker` entry above does not read. One pull request moves both pins: the `x-caddy-image` anchor
-  # in compose.hetzner.yaml and the `caddy` service in compose.prod.yaml.
+  # `docker` entry above does not read. How its pull request moves the pins: the comment above
+  # `x-caddy-image` in compose.hetzner.yaml.
   # Only caddy, on purpose. Every other compose image is a separate decision: a postgres major needs
   # a data migration. The ghcr.io app images take their tag from variables, and Dependabot skips them.
   - package-ecosystem: "docker-compose"

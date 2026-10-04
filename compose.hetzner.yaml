@@ -35,11 +35,11 @@
 # backend was OOM-killed mid-request. 2.11.4 is the last release before
 # that change. Move off it only to a release that closes #8106, and bump compose.prod.yaml with it.
 #
-# Dependabot moves this pin (#1001). When a new Caddy image is out, it opens one pull request that
-# changes this line and the one in compose.prod.yaml together. It never offers 2.11.6, and by default
-# it waits 3 days after a release. Keep the pin on an `image:` line that the services merge in with
-# `<<:`: Dependabot rewrites only text that reads `image: <ref>`. When the pin was the anchor's bare
-# value, a test run of Dependabot failed with "Expected content to change!" and opened no pull request.
+# Dependabot proposes the next pin (#1001). When a new Caddy image is out, it opens one pull request
+# that changes this line and the one in compose.prod.yaml together. It never offers 2.11.6, and by
+# default it waits 3 days after a release. Keep the pin on an `image:` line that the services merge
+# in with `<<:`. Dependabot rewrites only text that reads `image: <ref>`. With the image as the
+# anchor's direct value, its update fails and no pull request opens at all.
 x-caddy-image: &caddy-image
   image: caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
 

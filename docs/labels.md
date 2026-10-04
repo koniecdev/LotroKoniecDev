@@ -169,4 +169,4 @@ TheKittySaver**, whose last entry is its own parking label `post-v1` instead. Se
 GitHub defaults, identical in both repos: `question`, `duplicate`, `invalid`, `wontfix`,
 `good first issue`, `help wanted`.
 
-Dependabot applies `dependencies`, `github_actions`, `.NET` and `docker` to its own PRs.
+Dependabot applies `dependencies`, `github_actions`, `.NET`, `docker` and `docker_compose` to its own PRs.

@@ -128,15 +128,19 @@ name the single case someone happened to hit.
   state of it. The body gives the case you found with its failure scenario, and one task: find
   every case of this class in the flow, fix each one, and give each one its own test. A class can
   have more than one cause. Each cause gets its own checkbox.
-- **Cases with one cause always share a ticket**, even when they show up in more than one flow. A
-  different kind of wrong result, or a different flow with its own cause, is a separate ticket.
+- **Cases with one cause always share a ticket**, even when they show up in more than one flow.
+  Otherwise, a different kind of wrong result or a different flow is a separate ticket.
+- **A case of the class your own ticket names is not a follow-up.** Finding the other cases is
+  that ticket's task, so fix it in your diff, with its own test.
 - **Look for a ticket of the same class before you file.**
   - **Open, and nobody has started it** (no branch, no PR, no loop worktree for it): read its body,
     add the case as a new checkbox, and write the body back with `gh issue edit --body-file`. Then
     post a comment that names the case, says where it was found and says nobody has checked it
     live. Later comments override the body and any older plan, so the comment keeps the case from
-    being missed. Give the ticket every label a new follow-up would get.
+    being missed. Add any process label, such as `audit`, that a new follow-up would get.
   - **Open and already started, or closed:** file a new ticket and link the old one.
+  - **A bug a tester filed** never gets a case added: the tester's report stays one bug. File a
+    new ticket and link it.
 - **Never put unrelated fixes in one ticket to save sessions.** One unclear fix would block the
   other, and the review gets less sharp. A small ticket is already cheap, because it runs in lane S.
 - **Never drop a finding.** This rule changes the shape of a ticket, not the number of bugs found.

@@ -183,16 +183,20 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   pipeline could send three times and an export that spent two rate-limit permits per click.
   **Sort every finding into exactly one bucket, and check the bucket instead of guessing it:**
   1. **A defect in this diff.** The line is in `git diff main...HEAD`, or the diff made it
-     reachable, and the claim holds when you read the code. Fix it.
+     reachable, and the claim holds when you read the code. Fix it. Another case of the class
+     this ticket names belongs here too: finding those cases is this ticket's own task, so fix it
+     in this diff with its own test.
   2. **Real, older than this diff, and no ticket.** The same code or behavior is on `main`, and
-     `gh issue list --state all --search "<key words>"` finds no ticket that names this case.
+     `gh issue list --state all --search "<key words>"` finds no open ticket that names this case
+     (a closed one that names it means the bug came back: file a new ticket that links it).
      File it as the class of bug it belongs to, not as one case (`docs/labels.md` → **One bug
      class per ticket**): a new ticket, or a new case added to an open ticket of the same class
      that nobody has started. List it under Follow-ups. "Out of scope" never ends a real finding:
      this bucket is where a blind reviewer earns its cost, because it reads the code around the
      diff that the ticket never looked at.
   3. **Already decided.** The ticket asks for it by name, an ADR lists it as an accepted
-     trade-off, or an open ticket already names this case. Write one line with the pointer.
+     trade-off, an open ticket already names this case, or a ticket closed it as not planned with
+     a reason. Write one line with the pointer.
   4. **Opinion:** duplication, design altitude, micro-performance, style. Write one line on why
      not. Never reject a house-rule finding only because a merged sibling does the same. If the
      pattern is rare, fix both copies. If it is common across the repo, the rule and the practice
@@ -229,8 +233,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   push is free, every later push to an open PR re-runs pr-verify on billed minutes.
 - **Re-read the issue (body and comments) right before `gh pr create`.** A case added to it after
   you read it (`docs/labels.md` → **One bug class per ticket**) is not in this diff. Move it to a
-  new ticket, link the two both ways, and list it under Follow-ups, so `Closes #<n>` never closes
-  a case nobody fixed.
+  new ticket with the same labels, link the two both ways, and list it under Follow-ups, so
+  `Closes #<n>` never closes a case nobody fixed.
 - `git push -u origin HEAD`, then `gh pr create` with the title mirroring the ticket and a body
   containing `Closes #<n>` plus a short what/why/test summary. The ticket is the authorization —
   do not stop to ask for permission to commit, push, or open the PR.

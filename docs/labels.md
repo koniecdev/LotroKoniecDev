@@ -113,6 +113,50 @@ correct in one repo and a violation in the other.
   mirroring the same cleanup in TheKittySaver (~35 titles there) — see that repo's `docs/labels.md`
   for the full before/after list. Closed issues were left alone then and stay out of scope.
 
+## One bug class per ticket
+
+This section covers a defect a session finds on its own: a bug, a flaky test or a missing check
+that a review turns up next to the code it reads. A bug a tester files follows the tester wiki
+instead (`Workflow-testera.md` §8: one bug, one report). **These rules are the same in both
+repos**; only the examples differ.
+
+A ticket for such a defect names one **class**: one kind of wrong result in one flow. It does not
+name the single case someone happened to hit.
+
+- **Name the class, and give the case you found as its first example.** The title says what goes
+  wrong in general, like "The e-mail change confirm and undo pages show the wrong result", not one
+  state of it. The body gives the case you found with its failure scenario, and one task: find
+  every case of this class in the flow, fix each one, and give each one its own test. A class can
+  have more than one cause. Each cause gets its own checkbox.
+- **Cases with one cause always share a ticket**, even when they show up in more than one flow.
+  Otherwise, a different kind of wrong result or a different flow is a separate ticket.
+- **A case of the class your own ticket names is not a follow-up.** For an older ticket that names
+  only one case, that is the class of that case. Finding the other cases is that ticket's task, so
+  fix it in your diff with its own test, and name it under Shipped in the report.
+- **Look for a ticket of the same class before you file.**
+  - **Open, and nobody has started it** (no branch, no PR, no loop worktree for it): read its body,
+    add the case as a new checkbox, and write the body back with `gh issue edit --body-file`. Then
+    post a comment that names the case, says where it was found and says nobody has checked it
+    live. Later comments override the body and any older plan, so the comment keeps the case from
+    being missed. Add any process label, such as `audit`, that a new follow-up would get.
+  - **Open and already started, or closed as completed:** file a new ticket and link the old one.
+    A ticket closed as not planned has already decided the case: point to it instead.
+  - **A bug a tester filed** never gets a case added: the tester's report stays one bug. File a
+    new ticket and link it.
+- **Never put unrelated fixes in one ticket to save sessions.** One unclear fix would block the
+  other, and the review gets less sharp. A small ticket is already cheap, because it runs in lane S.
+- **Never drop a finding.** This rule changes the shape of a ticket, not the number of bugs found.
+  A case that does not get a new ticket goes into an existing one. A session re-reads its ticket
+  before `gh pr create` (`/ticket` step 8), so a case added after it started is never closed
+  unfixed.
+
+Why: a review reads the code around a change, and the fix for one case sits right next to the next
+case. Filed one case at a time, a class gets one ticket and one full session per case, and each
+session finds the next case. #864 → #866 → #869 → #871 → #886 → #941 took the e-mail change confirm
+and undo pages one state at a time. #935 → #983 → #992 → #995 → #997 took one race at a time where
+stopping a loop worker did not stop exactly its own processes. That is eleven tickets for two
+classes (#1011).
+
 ## Epics — how children are attached
 
 The three signals above say a ticket **is** an epic. This says what is **under** it.

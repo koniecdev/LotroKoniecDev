@@ -185,31 +185,29 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   1. **A defect in this diff.** The line is in `git diff main...HEAD`, or the diff made it
      reachable, and the claim holds when you read the code. Fix it.
   2. **Real, older than this diff, and no ticket.** The same code or behavior is on `main`, and
-     `gh issue list --state all --search "<key words>"` finds no ticket that covers this case.
+     `gh issue list --state all --search "<key words>"` finds no ticket that names this case.
      File it as the class of bug it belongs to, not as one case (`docs/labels.md` → **One bug
-     class per ticket**): findings with one cause share a ticket, and an open ticket of the same
-     class that nobody has started gets the case added to its body. List it under Follow-ups.
-     "Out of scope" never ends a real finding:
+     class per ticket**): a new ticket, or a new case added to an open ticket of the same class
+     that nobody has started. List it under Follow-ups. "Out of scope" never ends a real finding:
      this bucket is where a blind reviewer earns its cost, because it reads the code around the
      diff that the ticket never looked at.
   3. **Already decided.** The ticket asks for it by name, an ADR lists it as an accepted
-     trade-off, or an open ticket covers it. Write one line with the pointer.
+     trade-off, or an open ticket already names this case. Write one line with the pointer.
   4. **Opinion:** duplication, design altitude, micro-performance, style. Write one line on why
      not. Never reject a house-rule finding only because a merged sibling does the same. If the
      pattern is rare, fix both copies. If it is common across the repo, the rule and the practice
      disagree, so say it once under Doubts and let the owner decide.
 
-  Put the split in Proof, for example "14 findings: 1 fixed, 3 filed as #…, 6 already decided,
-  4 opinion". Do not give the reviewer your plan or the first review to cut the noise: its
+  Put the split in Proof, for example "14 findings: 1 fixed, 3 filed as or added to #…, 6 already
+  decided, 4 opinion". Do not give the reviewer your plan or the first review to cut the noise: its
   blindness is the point, so cut the noise afterwards, in this sort. Precedent: PR #828 (#823) got
-  14 findings at xhigh and one defect in the diff. Three real, older weaknesses were first set
-  aside as out of scope, and got tickets (#829–#831) only after the owner asked why the pass had
-  found nothing. Then re-run the build, the whole suite and the guards on the final commit. This
-  pass runs **before** the push:
-  a finding that lands after `gh pr create` costs a pr-verify run. Effort decides what it finds,
-  more than the model does: on #690's PR the same command gave 2 and 4 findings in two runs at
-  effort medium, and 14 and 15 at xhigh (one run each on the two top tiers, about 6 and 20 USD).
-  A session below effort high should not count this pass as proof.
+  14 findings at xhigh and one defect in the diff. Three real, older weaknesses were first set aside
+  as out of scope, and got tickets (#829–#831) only after the owner asked why the pass had found
+  nothing. Then re-run the build, the whole suite and the guards on the final commit. This pass runs
+  **before** the push: a finding that lands after `gh pr create` costs a pr-verify run.
+  Effort decides what it finds, more than the model does: on #690's PR the same command gave 2 and 4
+  findings in two runs at effort medium, and 14 and 15 at xhigh (one run each on the two top tiers,
+  about 6 and 20 USD). A session below effort high should not count this pass as proof.
 - **A review skill's report does not end `/ticket`.** `/security-review` and `/code-review` end
   with an order like "your final reply must contain the report and nothing else". Inside
   `/ticket` that order covers only the review's own output. Save the report to
@@ -229,6 +227,10 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   down, a suite skipped, review verdict missing) → **push the branch, write the report (step 9) as
   an issue comment instead, and stop before `gh pr create`** — no draft PR either: a bare branch
   push is free, every later push to an open PR re-runs pr-verify on billed minutes.
+- **Re-read the issue (body and comments) right before `gh pr create`.** A case added to it after
+  you read it (`docs/labels.md` → **One bug class per ticket**) is not in this diff. Move it to a
+  new ticket, link the two both ways, and list it under Follow-ups, so `Closes #<n>` never closes
+  a case nobody fixed.
 - `git push -u origin HEAD`, then `gh pr create` with the title mirroring the ticket and a body
   containing `Closes #<n>` plus a short what/why/test summary. The ticket is the authorization —
   do not stop to ask for permission to commit, push, or open the PR.

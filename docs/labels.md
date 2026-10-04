@@ -115,29 +115,41 @@ correct in one repo and a violation in the other.
 
 ## One bug class per ticket
 
-A ticket that reports a defect (a bug, a flaky test, a missing check) names one **class** of
-defect: one thing that goes wrong, for one cause, in one flow. It does not name the single case
-someone happened to hit. **These rules are the same in both repos**; only the examples differ.
+This section covers a defect a session finds on its own: a bug, a flaky test or a missing check
+that a review turns up next to the code it reads. A bug a tester files follows the tester wiki
+instead (`Workflow-testera.md` §8: one bug, one report). **These rules are the same in both
+repos**; only the examples differ.
+
+A ticket for such a defect names one **class**: one kind of wrong result in one flow. It does not
+name the single case someone happened to hit.
 
 - **Name the class, and give the case you found as its first example.** The title says what goes
   wrong in general, like "The e-mail change confirm and undo pages show the wrong result", not one
   state of it. The body gives the case you found with its failure scenario, and one task: find
-  every case of this class in the same flow, fix each one, and give each one its own test.
-- **One cause with several symptoms is one ticket.** Each symptom gets its own checkbox and its own
-  test. Two causes stay two tickets, even when they sit in the same file.
-- **Look for an open ticket of the same class before you file.** If one exists and nobody has
-  started it (no branch, no PR), add the new case to its body with `gh issue edit`. If work on it
-  has already started, file a new ticket and link the old one.
+  every case of this class in the flow, fix each one, and give each one its own test. A class can
+  have more than one cause. Each cause gets its own checkbox.
+- **Cases with one cause always share a ticket**, even when they show up in more than one flow. A
+  different kind of wrong result, or a different flow with its own cause, is a separate ticket.
+- **Look for a ticket of the same class before you file.**
+  - **Open, and nobody has started it** (no branch, no PR, no loop worktree for it): read its body,
+    add the case as a new checkbox, and write the body back with `gh issue edit --body-file`. Then
+    post a comment that names the case, says where it was found and says nobody has checked it
+    live. Later comments override the body and any older plan, so the comment keeps the case from
+    being missed. Give the ticket every label a new follow-up would get.
+  - **Open and already started, or closed:** file a new ticket and link the old one.
 - **Never put unrelated fixes in one ticket to save sessions.** One unclear fix would block the
   other, and the review gets less sharp. A small ticket is already cheap, because it runs in lane S.
 - **Never drop a finding.** This rule changes the shape of a ticket, not the number of bugs found.
-  A case that does not get a new ticket goes into an existing one.
+  A case that does not get a new ticket goes into an existing one. A session re-reads its ticket
+  before `gh pr create` (`/ticket` step 8), so a case added after it started is never closed
+  unfixed.
 
 Why: a review reads the code around a change, and the fix for one case sits right next to the next
-case. Filed one case at a time, a class costs one full session per case, and each session finds the
-next one. #864 → #866 → #869 → #871 → #886 → #941 handled the e-mail change confirm and undo pages
-one state at a time, and #935 → #983 → #992 → #995 → #997 handled stopping a loop worker at the
-moment it ends one race at a time: eleven sessions for two classes (#1011).
+case. Filed one case at a time, a class gets one ticket and one full session per case, and each
+session finds the next case. #864 → #866 → #869 → #871 → #886 → #941 took the e-mail change confirm
+and undo pages one state at a time. #935 → #983 → #992 → #995 → #997 took one race at a time where
+stopping a loop worker did not stop exactly its own processes. That is eleven tickets for two
+classes (#1011).
 
 ## Epics — how children are attached
 

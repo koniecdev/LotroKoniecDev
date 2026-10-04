@@ -83,16 +83,18 @@ everything that matters must be committed and pushed.
    **APPROVE**. Then the second pass, exactly as `/ticket` step 7 has it: run `/code-review` on the
    branch (a fresh context that never saw your plan), sort every finding into the four buckets of
    `/ticket` step 7 and put the split in the report's Proof. Fix bucket 1. File bucket 2 by the
-   one-bug-class rule of `/ticket` step 7, and give a new follow-up ticket the `audit` label as
-   well, because nobody checked it live and the owner triages it before the loop may pick it up. Then re-run the build and the whole suite on the
-   final commit. Run `/security-review` if the diff touches native interop,
+   one-bug-class rule of `/ticket` step 7. A new follow-up ticket, and an open ticket that gets a
+   case added, both get the `audit` label as well, because nobody checked the case live and the
+   owner triages it before the loop may pick it up. Then re-run the build and the whole suite on
+   the final commit. Run `/security-review` if the diff touches native interop,
    file protection, or auth. A review skill's closing order ("reply with the report and nothing
    else") covers only its own output: save the report and go on to step 7. A headless session that
    ends its turn on a review report dies with no PR and no `STATUS` block. Cannot reach
    green/clean → `STATUS: BLOCKED` with the reason — never push broken work.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish
    line: after APPROVE, commit (message references the ticket, ends with the `Co-Authored-By:`
-   footer), push, `gh pr create --fill --body-file <body>`. The body starts with
+   footer), push, re-read the issue as `/ticket` step 8 says (a case added after you started moves
+   to a new ticket), then `gh pr create --fill --body-file <body>`. The body starts with
    `Closes #$ARGUMENTS` and ends with a **`## Ticket report`** section — `**Shipped:**` /
    `**Proof:**` / `**Assumptions:**` / `**Doubts:**` / `**Follow-ups:**`, where "none" is a valid
    entry and silence is not: the run is unattended, so every judgment call and every unverified

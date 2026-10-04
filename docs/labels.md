@@ -130,15 +130,17 @@ name the single case someone happened to hit.
   have more than one cause. Each cause gets its own checkbox.
 - **Cases with one cause always share a ticket**, even when they show up in more than one flow.
   Otherwise, a different kind of wrong result or a different flow is a separate ticket.
-- **A case of the class your own ticket names is not a follow-up.** Finding the other cases is
-  that ticket's task, so fix it in your diff, with its own test.
+- **A case of the class your own ticket names is not a follow-up.** For an older ticket that names
+  only one case, that is the class of that case. Finding the other cases is that ticket's task, so
+  fix it in your diff with its own test, and name it under Shipped in the report.
 - **Look for a ticket of the same class before you file.**
   - **Open, and nobody has started it** (no branch, no PR, no loop worktree for it): read its body,
     add the case as a new checkbox, and write the body back with `gh issue edit --body-file`. Then
     post a comment that names the case, says where it was found and says nobody has checked it
     live. Later comments override the body and any older plan, so the comment keeps the case from
     being missed. Add any process label, such as `audit`, that a new follow-up would get.
-  - **Open and already started, or closed:** file a new ticket and link the old one.
+  - **Open and already started, or closed as completed:** file a new ticket and link the old one.
+    A ticket closed as not planned has already decided the case: point to it instead.
   - **A bug a tester filed** never gets a case added: the tester's report stays one bug. File a
     new ticket and link it.
 - **Never put unrelated fixes in one ticket to save sessions.** One unclear fix would block the

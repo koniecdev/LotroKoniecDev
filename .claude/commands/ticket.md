@@ -184,16 +184,18 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   **Sort every finding into exactly one bucket, and check the bucket instead of guessing it:**
   1. **A defect in this diff.** The line is in `git diff main...HEAD`, or the diff made it
      reachable, and the claim holds when you read the code. Fix it. Another case of the class
-     this ticket names belongs here too: finding those cases is this ticket's own task, so fix it
-     in this diff with its own test.
+     this ticket names belongs here too (for an older ticket that names one case: the class of
+     that case). Finding those cases is this ticket's own task, so fix it in this diff with its
+     own test. A case with a cause the diff has not fixed yet gets one more `code-reviewer`
+     round; the second pass does not run again.
   2. **Real, older than this diff, and no ticket.** The same code or behavior is on `main`, and
      `gh issue list --state all --search "<key words>"` finds no open ticket that names this case
-     (a closed one that names it means the bug came back: file a new ticket that links it).
-     File it as the class of bug it belongs to, not as one case (`docs/labels.md` → **One bug
-     class per ticket**): a new ticket, or a new case added to an open ticket of the same class
-     that nobody has started. List it under Follow-ups. "Out of scope" never ends a real finding:
-     this bucket is where a blind reviewer earns its cost, because it reads the code around the
-     diff that the ticket never looked at.
+     (a ticket closed as completed that names it means the bug came back: file a new ticket that
+     links it). File it as the class of bug it belongs to, not as one case (`docs/labels.md` →
+     **One bug class per ticket**): a new ticket, or a new case added to an open ticket of the
+     same class that nobody has started. List it under Follow-ups. "Out of scope" never ends a
+     real finding: this bucket is where a blind reviewer earns its cost, because it reads the code
+     around the diff that the ticket never looked at.
   3. **Already decided.** The ticket asks for it by name, an ADR lists it as an accepted
      trade-off, an open ticket already names this case, or a ticket closed it as not planned with
      a reason. Write one line with the pointer.

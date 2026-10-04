@@ -10,7 +10,8 @@
 # PR (ADR-0060): a ticket with an open PR, or with a worktree already on disk, is never started.
 # And it covers the worker's worktree lifecycle: the session runs in its own worktree cut from
 # origin/main, the main checkout is never touched, a finished worktree is removed or salvaged, a
-# stop signal ends the session and its children, and only a real open PR for the ticket counts.
+# stop signal ends the session and its children (also one it starts during the stop — #935), and
+# only a real open PR for the ticket counts.
 # A session that ends normally without a STATUS line is resumed a capped number of times (#925).
 # A usage limit keeps the worktree, and the next run resumes the session in it; a DONE with no
 # open PR is resumed once to open it; the picker does not hide a worktree kept that way (#934).
@@ -204,7 +205,35 @@ STUB
 REAL_SLEEP="$(command -v sleep)"
 printf '#!/usr/bin/env bash\nexec "%s" 0.05\n' "$REAL_SLEEP" > "$TMP_ROOT/bin/sleep"
 
-chmod +x "$TMP_ROOT/bin/gh" "$TMP_ROOT/bin/claude" "$TMP_ROOT/bin/docker" "$TMP_ROOT/bin/sleep"
+# Plain `ps`, except once: when a case writes a mode to $TMP_ROOT/ps-hook, the next read of the
+# whole process table acts on it. That read is the worker's first one in a stop, made while the
+# session is paused, so a case can put something exactly there (#935). The rename makes it fire
+# once and is the case's proof that it fired.
+REAL_PS="$(command -v ps)"
+cat > "$TMP_ROOT/bin/ps" <<STUB
+#!/usr/bin/env bash
+case " \$* " in *" -A "*) ;; *) exec "$REAL_PS" "\$@" ;; esac
+mv "$TMP_ROOT/ps-hook" "$TMP_ROOT/ps-hook.fired" 2>/dev/null || exec "$REAL_PS" "\$@"
+case "\$(cat "$TMP_ROOT/ps-hook.fired")" in
+    kill-worker)
+        kill -KILL "\$(cat "$TMP_ROOT/worker-pid")"
+        exec "$REAL_PS" "\$@"
+        ;;
+    session-starts-group)
+        # The table is read first. Then the session is asked to start a group before the worker
+        # gets the table. A paused session cannot: the wait runs out, and its TERM ends it first.
+        table="\$("$REAL_PS" "\$@")"
+        kill -USR1 "\$(cat "$TMP_ROOT/session-pid")"
+        for _ in \$(seq 1 10); do
+            [ "\$(wc -l < "$TMP_ROOT/session-children")" -lt 2 ] || break
+            "$REAL_SLEEP" 0.1
+        done
+        printf '%s\n' "\$table"
+        ;;
+esac
+STUB
+
+chmod +x "$TMP_ROOT/bin/gh" "$TMP_ROOT/bin/claude" "$TMP_ROOT/bin/docker" "$TMP_ROOT/bin/sleep" "$TMP_ROOT/bin/ps"
 export PATH="$TMP_ROOT/bin:$PATH"
 
 command -v jq >/dev/null 2>&1 || fail "this suite needs jq on PATH"
@@ -1652,69 +1681,165 @@ expect_in_output "PR #7140 opened"
 # A stop signal ends the session and everything it started, then salvages and cleans up.
 # Claude Code runs each Bash command in a process group of its own, so the fake session starts its
 # child the same way (`set -m`): killing the session's group alone would miss it. Unlike claude,
-# the fake does not end that child on TERM, so the loop's own tree kill has to.
-# stop_case <ticket> <signal...> — sends the signals in order to a worker whose session is busy.
-stop_case() {
-    local ticket="$1" worker term_rc=0 session_child
-    shift
-    reset_fixtures
-    fixture_issue "$ticket" maintainer OWNER
-    rm -f "$TMP_ROOT/session-child"
-    behavior "$TMP_ROOT/long.sh" 'git checkout -q -b "${PWD##*ticket-}-fixture"
+# the fake does not end that child on TERM, so the loop's own tree kill has to. Each fake notes its
+# own PID in $TMP_ROOT/session-pid and every child it starts in $TMP_ROOT/session-children.
+# fake_session <file> <shell lines run before its first child starts> [the lines that wait]
+fake_session() {
+    behavior "$1" 'echo $$ > "'"$TMP_ROOT"'/session-pid"
+git checkout -q -b "${PWD##*ticket-}-fixture"
 echo "partial" > partial.txt
+'"$2"'
 set -m
 "$REAL_SLEEP" 60 &
-echo $! > "'"$TMP_ROOT"'/session-child"
+echo $! >> "'"$TMP_ROOT"'/session-children"
 set +m
-wait'
-    env CLAUDE_BEHAVIOR="$TMP_ROOT/long.sh" "$WORK" "$ticket" "$TMP_ROOT/run" > "$TMP_ROOT/term.out" 2>&1 &
+'"${3:-wait}"
+}
+START_CHILD='set -m; "$REAL_SLEEP" 60 & echo $! >> "'"$TMP_ROOT"'/session-children"; set +m'
+fake_session "$TMP_ROOT/long.sh" ''
+# A command that starts in a group of its own just as the stop begins is in no group the loop read
+# before its TERM (#935). This fake starts one when the TERM reaches it and exits a second later,
+# the way claude exits once it has cleaned up. Only a read made in that second can find the group.
+fake_session "$TMP_ROOT/starts-on-stop.sh" "trap '$START_CHILD' TERM" 'wait || { "$REAL_SLEEP" 1; exit 0; }'
+# This one starts one on USR1, which the ps hook sends while the worker reads the groups; its TERM
+# still ends it at once.
+fake_session "$TMP_ROOT/starts-at-read.sh" "trap '$START_CHILD' USR1" 'wait || wait'
+# A hung session: TERM and HUP do not end it, nor its child, which inherits that.
+fake_session "$TMP_ROOT/hung.sh" "trap '' TERM HUP"
+
+# arm_ps_hook <mode> — see the ps stub.
+arm_ps_hook() {
+    rm -f "$TMP_ROOT/ps-hook.fired"
+    echo "$1" > "$TMP_ROOT/ps-hook"
+}
+
+# start_busy_worker <ticket> <fake session> <output file> — starts a worker whose session is busy
+# and sets worker once the session's first child runs.
+start_busy_worker() {
+    rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/session-children"
+    env CLAUDE_BEHAVIOR="$2" "$WORK" "$1" "$TMP_ROOT/run" > "$3" 2>&1 &
     worker=$!
-    for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
-    [ -s "$TMP_ROOT/session-child" ] || { kill "$worker" 2>/dev/null; fail "the fake session never started" "$(cat "$TMP_ROOT/term.out")"; }
-    session_child="$(cat "$TMP_ROOT/session-child")"
+    echo "$worker" > "$TMP_ROOT/worker-pid"
+    for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-children" ] && break; "$REAL_SLEEP" 0.1; done
+    [ -s "$TMP_ROOT/session-children" ] || { kill "$worker" 2>/dev/null; fail "the fake session never started" "$(cat "$3")"; }
+}
+
+# expect_session_gone <fake session> <what failed> — the session and every child it started are
+# gone (whatever is left is killed before the case fails). A case whose fake depends on a late
+# child or on the ps hook also proves that this really happened, so it cannot pass without it.
+expect_session_gone() {
+    local process survived=0
+    while read -r process; do
+        for _ in $(seq 1 100); do alive "$process" || break; "$REAL_SLEEP" 0.1; done
+        if alive "$process"; then
+            kill -KILL "$process" 2>/dev/null || true
+            survived=1
+        fi
+    done < <(cat "$TMP_ROOT/session-pid" "$TMP_ROOT/session-children")
+    rm -f "$TMP_ROOT/ps-hook"
+    [ "$survived" -eq 0 ] || fail "$2"
+    case "$1" in
+        "$TMP_ROOT/starts-on-stop.sh")
+            [ "$(wc -l < "$TMP_ROOT/session-children" | tr -d ' ')" -eq 2 ] \
+                || fail "the fake session should have started a second child when the TERM reached it"
+            ;;
+        "$TMP_ROOT/starts-at-read.sh"|"$TMP_ROOT/hung.sh")
+            [ -e "$TMP_ROOT/ps-hook.fired" ] || fail "the ps hook never fired: nothing read the process table during the stop"
+            ;;
+    esac
+}
+
+# expect_watchdog_gone — nothing is left in the session's group. The watchdog is the last process
+# there and ends itself, so a later case cannot meet it still reading the process table. Zombies
+# count as gone, as in alive.
+expect_watchdog_gone() {
+    local group
+    group="$(cat "$TMP_ROOT/session-pid")"
+    for _ in $(seq 1 100); do
+        "$REAL_PS" -A -o pgid= -o stat= | awk -v group="$group" '$1 == group && $2 !~ /^Z/ { left = 1 } END { exit left }' \
+            && return 0
+        "$REAL_SLEEP" 0.1
+    done
+    fail "the watchdog did not end with its session"
+}
+
+# stop_case <ticket> <fake session> <signal...> — sends the signals in order to a worker whose
+# session is busy.
+stop_case() {
+    local ticket="$1" fake="$2" term_rc=0 session_child
+    shift 2
+    reset_fixtures
+    fixture_issue "$ticket" maintainer OWNER
+    start_busy_worker "$ticket" "$fake" "$TMP_ROOT/term.out"
+    session_child="$(head -1 "$TMP_ROOT/session-children")"
     [ "$(ps -o pgid= -p "$session_child" | tr -d ' ')" = "$session_child" ] \
         || { kill "$worker" 2>/dev/null; fail "the fake session's child should lead a process group of its own"; }
     for signal in "$@"; do kill -"$signal" "$worker"; done
-    for _ in $(seq 1 100); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
+    # A session that goes on running after its TERM keeps the worker for the whole grace period.
+    for _ in $(seq 1 300); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
     if alive "$worker"; then
         kill -KILL "$worker"
-        fail "work-ticket did not stop within 10 seconds of $*" "$(cat "$TMP_ROOT/term.out")"
+        fail "work-ticket did not stop within 30 seconds of $*" "$(cat "$TMP_ROOT/term.out")"
     fi
     wait "$worker" || term_rc=$?
     [ "$term_rc" -eq 143 ] || fail "a stopped worker should exit 143, got $term_rc" "$(cat "$TMP_ROOT/term.out")"
-    session_child="$(cat "$TMP_ROOT/session-child")"
-    if alive "$session_child"; then
-        kill "$session_child"
-        fail "a process the session started in its own group outlived the stop"
-    fi
+    expect_session_gone "$fake" "a process the session started in its own group outlived the stop"
     grep -qx "outcome=stopped" "$TMP_ROOT/run/ticket-$ticket.meta" || fail "meta should say stopped" "$(cat "$TMP_ROOT/run/ticket-$ticket.meta")"
     [ -n "$(git -C "$FAKE_REPO" for-each-ref "refs/heads/loop-salvage/$ticket-*")" ] \
         || fail "a stopped session's work should be salvaged" "$(cat "$TMP_ROOT/term.out")"
     [ ! -e "$WT_ROOT/ticket-$ticket" ] || fail "a stopped run should not leave its worktree behind"
-    cases=$((cases + 1)); printf '✓ work-ticket: %s stops the session and its children, salvages, and cleans up\n' "$*"
+    cases=$((cases + 1))
+    case "$fake" in
+        "$TMP_ROOT/starts-on-stop.sh")
+            printf '✓ work-ticket: %s also ends a group the session starts when the TERM reaches it\n' "$*" ;;
+        "$TMP_ROOT/starts-at-read.sh")
+            printf '✓ work-ticket: %s leaves no group the session starts between the read of its groups and the TERM\n' "$*" ;;
+        *)
+            printf '✓ work-ticket: %s stops the session and its children, salvages, and cleans up\n' "$*" ;;
+    esac
 }
-stop_case 83 TERM
+stop_case 83 "$TMP_ROOT/long.sh" TERM
 # Closing the terminal: HUP to the job, then TERM from the conductor's trap.
-stop_case 85 HUP TERM
+stop_case 85 "$TMP_ROOT/long.sh" HUP TERM
+stop_case 125 "$TMP_ROOT/starts-on-stop.sh" TERM
+arm_ps_hook session-starts-group
+stop_case 127 "$TMP_ROOT/starts-at-read.sh" TERM
 
 # A SIGKILL runs no trap. The watchdog inside the session's group must end the session anyway.
+# kill_case <ticket> <fake session>
+kill_case() {
+    reset_fixtures
+    fixture_issue "$1" maintainer OWNER
+    start_busy_worker "$1" "$2" "$TMP_ROOT/kill.out"
+    kill -KILL "$worker"
+    wait "$worker" 2>/dev/null || true
+    # The watchdog notices within seconds, and a session that goes on running gets the grace period.
+    for _ in $(seq 1 300); do alive "$(cat "$TMP_ROOT/session-pid")" || break; "$REAL_SLEEP" 0.1; done
+    expect_session_gone "$2" "the session outlived a SIGKILL of its worker"
+    expect_watchdog_gone
+    git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-$1"
+    cases=$((cases + 1))
+}
+kill_case 86 "$TMP_ROOT/long.sh"
+printf '✓ work-ticket: a SIGKILLed worker does not leave its session running\n'
+kill_case 126 "$TMP_ROOT/starts-on-stop.sh"
+printf '✓ work-ticket: after a SIGKILLed worker, the watchdog also ends a group the session starts during the stop\n'
+
+# The worker can die while the session is paused for a read of its groups. The system then sends
+# HUP and CONT to the session's group, and the watchdog in it must live through that HUP (#935).
+# In a container whose PID 1 shares the session, the orphan gets that PID 1 as its parent and no HUP
+# comes, so there the case passes without the HUP ignore too.
 reset_fixtures
-fixture_issue 86 maintainer OWNER
-rm -f "$TMP_ROOT/session-child"
-env CLAUDE_BEHAVIOR="$TMP_ROOT/long.sh" "$WORK" 86 "$TMP_ROOT/run" > "$TMP_ROOT/kill.out" 2>&1 &
-worker=$!
-for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
-[ -s "$TMP_ROOT/session-child" ] || { kill "$worker" 2>/dev/null; fail "the fake session never started" "$(cat "$TMP_ROOT/kill.out")"; }
-kill -KILL "$worker"
+fixture_issue 128 maintainer OWNER
+start_busy_worker 128 "$TMP_ROOT/hung.sh" "$TMP_ROOT/kill.out"
+arm_ps_hook kill-worker
+kill -TERM "$worker"
 wait "$worker" 2>/dev/null || true
-session_child="$(cat "$TMP_ROOT/session-child")"
-for _ in $(seq 1 100); do alive "$session_child" || break; "$REAL_SLEEP" 0.1; done
-if alive "$session_child"; then
-    kill "$session_child"
-    fail "the session outlived a SIGKILL of its worker"
-fi
-git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-86"
-cases=$((cases + 1)); printf '✓ work-ticket: a SIGKILLed worker does not leave its session running\n'
+for _ in $(seq 1 300); do alive "$(cat "$TMP_ROOT/session-pid")" || break; "$REAL_SLEEP" 0.1; done
+expect_session_gone "$TMP_ROOT/hung.sh" "a hung session outlived a worker that died while the session was paused"
+expect_watchdog_gone
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-128"
+cases=$((cases + 1)); printf '✓ work-ticket: a worker that dies while the session is paused still leaves the watchdog to end it\n'
 
 # The system may give an ended worker's number to another program at once, and a check by number
 # cannot tell the two apart (#995, #997). No test can make the system reuse a number, so the worker
@@ -1767,12 +1892,12 @@ wait_until_unreaped() {
 # which only the pipe handles, are cases 134 and 135.
 reset_fixtures
 fixture_issue 133 maintainer OWNER
-rm -f "$TMP_ROOT/session-child" "$TMP_ROOT/in-poll-nap"
+rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/session-children" "$TMP_ROOT/in-poll-nap"
 start_unreaped 133 "$TMP_ROOT/long.sh"
-for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
-[ -s "$TMP_ROOT/session-child" ] \
+for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-children" ] && break; "$REAL_SLEEP" 0.1; done
+[ -s "$TMP_ROOT/session-children" ] \
     || { kill -KILL "$worker" 2>/dev/null || true; stop_unreaped; fail "the fake session never started" "$(cat "$TMP_ROOT/unreaped.out")"; }
-session_child="$(cat "$TMP_ROOT/session-child")"
+session_child="$(head -1 "$TMP_ROOT/session-children")"
 session_pid="$(ps -o ppid= -p "$session_child" 2>/dev/null | tr -d ' ' || true)"
 [ -n "$session_pid" ] || { kill -KILL "$worker" 2>/dev/null || true; stop_unreaped
     fail "the fake session's child ended before the SIGKILL" "$(cat "$TMP_ROOT/unreaped.out")"; }

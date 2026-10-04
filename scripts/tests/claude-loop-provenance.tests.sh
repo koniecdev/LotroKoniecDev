@@ -1892,12 +1892,12 @@ wait_until_unreaped() {
 # which only the pipe handles, are cases 134 and 135.
 reset_fixtures
 fixture_issue 133 maintainer OWNER
-rm -f "$TMP_ROOT/session-child" "$TMP_ROOT/in-poll-nap"
+rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/session-children" "$TMP_ROOT/in-poll-nap"
 start_unreaped 133 "$TMP_ROOT/long.sh"
-for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
-[ -s "$TMP_ROOT/session-child" ] \
+for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-children" ] && break; "$REAL_SLEEP" 0.1; done
+[ -s "$TMP_ROOT/session-children" ] \
     || { kill -KILL "$worker" 2>/dev/null || true; stop_unreaped; fail "the fake session never started" "$(cat "$TMP_ROOT/unreaped.out")"; }
-session_child="$(cat "$TMP_ROOT/session-child")"
+session_child="$(head -1 "$TMP_ROOT/session-children")"
 session_pid="$(ps -o ppid= -p "$session_child" 2>/dev/null | tr -d ' ' || true)"
 [ -n "$session_pid" ] || { kill -KILL "$worker" 2>/dev/null || true; stop_unreaped
     fail "the fake session's child ended before the SIGKILL" "$(cat "$TMP_ROOT/unreaped.out")"; }

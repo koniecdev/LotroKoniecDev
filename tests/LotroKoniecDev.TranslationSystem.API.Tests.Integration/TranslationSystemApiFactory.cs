@@ -12,6 +12,7 @@ using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.Tests.Shared;
 using LotroKoniecDev.TranslationSystem.API.Features.Progress;
 using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 using LotroKoniecDev.TranslationSystem.API.Features.Translations;
@@ -34,7 +35,7 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         new("integration-test-signing-key-32-bytes!!"u8.ToArray());
 
     private readonly PostgreSqlContainer _postgresContainer =
-        new PostgreSqlBuilder("postgres:17-alpine")
+        new PostgreSqlBuilder(PostgresImage.Name)
             .WithDatabase("LotroKoniecDevTranslation")
             .Build();
 

@@ -28,6 +28,7 @@
              the NaughtyStrings theory sources (#569). -->
         <Compile Include="..\Shared\VerifyModuleInitializer.cs" Link="Shared\VerifyModuleInitializer.cs" />
         <Compile Include="..\Shared\CapturingLoggerFactory.cs" Link="Shared\CapturingLoggerFactory.cs" />
+        <Compile Include="..\Shared\PostgresImage.cs" Link="Shared\PostgresImage.cs" />
     </ItemGroup>
 
     <ItemGroup>

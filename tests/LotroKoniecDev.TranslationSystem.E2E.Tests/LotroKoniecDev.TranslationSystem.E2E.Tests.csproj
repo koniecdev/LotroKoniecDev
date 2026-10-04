@@ -29,6 +29,7 @@
 
     <ItemGroup>
         <Compile Include="..\Shared\E2EWorktree.cs" Link="Shared\E2EWorktree.cs" />
+        <Compile Include="..\Shared\PostgresImage.cs" Link="Shared\PostgresImage.cs" />
     </ItemGroup>
 
     <ItemGroup>

@@ -443,17 +443,47 @@ descendants() {
     done
 }
 
-# worker_gone <session leader> — this script has died. `kill -0` alone cannot tell it from a program
-# that got its number after a SIGKILL (#995). The leader's parent can: it is this script until this
-# script dies, and then PID 1 or a subreaper. A parent that cannot be read counts as alive: `ps`
-# failed for a moment, or the leader has ended and only the number is left to check. Ending the
-# group then could free its number while this script may still signal it (#983).
-worker_gone() {
-    local parent
-    kill -0 "$$" 2>/dev/null || return 0
-    parent="$(ps -o ppid= -p "$1" 2>/dev/null)"
-    parent="${parent//[[:space:]]/}"
-    [ -n "$parent" ] && [ "$parent" != "$$" ]
+# ── The lifeline: how the watchdog learns that this script is done with the session ─────────────
+# A process number cannot tell the watchdog this: by the time the watchdog checks one, the system
+# may have given it to another program (#983, #995, #997). A pipe can. This script holds the only
+# write end, and the watchdog waits on the read end until no write end is left. That happens when
+# this script dies, by any signal, or when it lets go of the session after its last signal to the
+# session's group. A child inherits the write end, so every child that can outlive this script
+# closes it: the session, the watchdog and the poll timer. Bash 3.2 has no `{name}>` redirections,
+# so the fds are fixed: 8 is the read end and 9 the write end.
+
+# Opens fd 8 and fd 9 on a new pipe, in TMPDIR or else in /tmp, as bash itself falls back: a stale
+# TMPDIR must not stop every ticket. A FIFO opened for one side waits until the other side is open,
+# so a read-write open (fd 7) comes first. The FIFO's name goes at once: only the open fds matter.
+# The folder's name is global, so a stop in the middle of this still removes it. On a failure
+# nothing stays open.
+lifeline_dir=""
+open_lifeline() {
+    local base opened
+    for base in "${TMPDIR:-/tmp}" /tmp; do
+        lifeline_dir="$(mktemp -d "$base/loop-lifeline.XXXXXX" 2>/dev/null)" || continue
+        opened=1
+        if mkfifo "$lifeline_dir/pipe" 2>/dev/null && exec 7<>"$lifeline_dir/pipe"; then
+            # shellcheck disable=SC2094  # both ends of one FIFO, on purpose
+            if exec 8<"$lifeline_dir/pipe" 9>"$lifeline_dir/pipe"; then
+                opened=0
+            fi
+            exec 7>&-
+        fi
+        rm -rf "$lifeline_dir"
+        lifeline_dir=""
+        [ "$opened" -ne 0 ] || return 0
+        exec 8<&- 9>&-
+    done
+    return 1
+}
+
+# From here on this script sends nothing to the session's group, so the watchdog may end what is
+# left in it. Closing an fd that is already closed does nothing.
+release_lifeline() {
+    exec 7>&- 8<&- 9>&-
+    [ -z "$lifeline_dir" ] || rm -rf "$lifeline_dir"
+    lifeline_dir=""
 }
 
 # Ends a session and everything it started. Claude Code runs each Bash command in a process group
@@ -482,9 +512,10 @@ end_session_tree() {
 # on every way out. Bash reaps a finished background job at once, not at `wait`, and from then on
 # the system may give the session's number to another program (#983). It cannot do that while a
 # process is still in the session's group, which has the same number, and the watchdog stays in
-# that group until the group is killed. A stop starts only while bash still lists the session as
-# running, so it leans on the watchdog only if the session ends at that very moment. The steps
-# after the session's end always lean on it: the sweep after `wait`, and the last steps of a stop.
+# that group until this script lets go of the lifeline or kills the group. A stop starts only while
+# bash still lists the session as running, so it leans on the watchdog only if the session ends at
+# that very moment. The steps after the session's end always lean on it: the sweep after `wait`,
+# and the last steps of a stop.
 # The poll timer leads no group, so nothing keeps its number reserved: it gets a signal only while
 # bash still lists it as running (#992).
 pid=""
@@ -506,12 +537,17 @@ session_running() {
 }
 
 stop_session() {
-    [ -n "$pid" ] || return 0
-    if session_running; then
-        end_session_tree "$pid" 20
+    if [ -n "$pid" ]; then
+        if session_running; then
+            end_session_tree "$pid" 20
+        fi
+        wait "$pid" 2>/dev/null || true
+        pid=""
     fi
-    wait "$pid" 2>/dev/null || true
-    pid=""
+    # Also when the session has already ended, so the watchdog ends what it left now, not after
+    # this script exits. And also with no pid: a stop that comes the moment the session starts
+    # leaves a session this script does not know, and only the watchdog can end it.
+    release_lifeline
 }
 
 stop_sleeper() {
@@ -522,10 +558,20 @@ stop_sleeper() {
     sleeper=""
 }
 
-# Closing a terminal sends HUP to the job and then TERM from the conductor, so further signals are
-# ignored while the first one cleans up; otherwise the second would kill this script half way.
-on_stop_signal() {
-    trap '' INT TERM HUP
+# While `ending` is 1, a stop is only noted. That holds from the claim or the making of the worktree
+# until the session starts, and again from the end of the last session, or while this script ends
+# one itself (a stop, the clock, a failed start). Before a session starts, run_session acts on the
+# noted stop. After the last session it changes nothing: the script exits in moments anyway and
+# keeps its real outcome. A stop between a session and its resume cancels only the resume. Closing
+# a terminal sends HUP to the job and then TERM from the conductor: the second one lands here too,
+# so it cannot cut the first one's cleanup short. The signals stay caught, never ignored: an
+# ignored signal would carry over into every gh, git and docker started later, and a stuck one
+# could then not be stopped.
+ending=0
+stop_requested=0
+
+stop_run() {
+    ending=1
     stop_sleeper
     stop_session
     meta outcome stopped
@@ -533,13 +579,21 @@ on_stop_signal() {
     log "STOPPED — session killed, changes salvaged"
     exit 143
 }
+
+on_stop_signal() {
+    stop_requested=1
+    [ "$ending" -eq 1 ] || stop_run
+}
 # Set before the fetch, so a stop while the worktree is being made still cleans it up.
 trap 'stop_sleeper; stop_session' EXIT
 trap on_stop_signal INT TERM HUP
 
 if [ -n "$resume_session" ]; then
     # Claimed with one rename, so two runs can never resume the same session at once: the CLI would
-    # interleave both into one transcript.
+    # interleave both into one transcript. If the claim fails, the worktree is the other run's, so
+    # a stop must not salvage it. From here a stop is only noted (see `ending`), and run_session
+    # acts on it before the session starts.
+    ending=1
     if ! mv "$marker" "$marker.claimed" 2>/dev/null; then
         meta outcome skipped
         log "SKIPPED — another run has just claimed the kept session $resume_session"
@@ -555,6 +609,9 @@ else
         sleep 5
         git fetch --quiet origin main || { meta outcome no-worktree; log "could not fetch origin/main"; exit 10; }
     fi
+    # A failed add may have met another run's worktree under the same name. So from here a stop is
+    # only noted (see `ending`), and run_session acts on it before the session starts.
+    ending=1
     if ! git worktree add --quiet --detach "$WT" origin/main; then
         meta outcome no-worktree
         log "could not create the worktree $WT"
@@ -609,38 +666,67 @@ and end with the STATUS: DONE or STATUS: BLOCKED block from /work-ticket, with n
 # sets claude_rc. The wall clock belongs to the ticket, so a resume gets only what is left of it.
 run_session() {
     local out="$1" cmd=(claude -p "$2" "${session_flags[@]}" "${@:3}")
+    # No session starts without a watchdog that can tell when this script is gone.
+    if ! open_lifeline; then
+        ending=1
+        meta outcome error
+        # A worktree kept for a resume after a usage limit stays as the session left it (#934), so
+        # the next run can still resume the session there.
+        if [ "$resuming_kept" -eq 1 ] && keep_for_resume; then
+            meta worktree kept
+            log "could not open the lifeline pipe for the session's watchdog — session not resumed; its worktree stays kept for the next run"
+            exit 3
+        fi
+        finish
+        log "could not open the lifeline pipe for the session's watchdog — no session started"
+        exit 3
+    fi
+    # From here a stop stops this script again. One that came while `ending` was set, after the
+    # last session or during the start, stops it now.
+    ending=0
+    [ "$stop_requested" -eq 0 ] || stop_run
     set +e
     # `set -m` gives the session its own process group. It also stops bash from pointing a
     # background job's stdin at /dev/null, so that is done by hand: a job outside the terminal's
     # foreground group that reads the terminal is suspended. A SIGKILL to this script runs no trap,
     # and the session is no longer in this script's group, so a watchdog inside the group ends the
-    # session once this script is gone. The session could otherwise go on working and pushing with
-    # nothing watching it. The watchdog ignores TERM: the TERM it sends to its own group must not
-    # end it half way.
+    # session once the lifeline says this script is gone. The session could otherwise go on working
+    # and pushing with nothing watching it. The watchdog ignores TERM: the TERM it sends to its own
+    # group must not end it half way.
     set -m
     (
         set +m  # keep the watchdog in the session's group, so the group's end is its end too
         group="$(exec sh -c 'echo "$PPID"')"
         (
             trap '' TERM
-            until worker_gone "$group"; do sleep 5; done
+            exec 9>&-
+            # Nothing writes to the pipe, so `read` returns only at end of file.
+            while read -r -u 8 _; do :; done
             end_session_tree "$group" 15
         ) < /dev/null > /dev/null 2>&1 &
         # Only now: a session that cannot start must still leave the watchdog in its group (#983).
         cd "$WT" || exit 1
+        # A bare `exec` first. On `exec cmd 8<&- 9>&-`, bash 3.2 keeps saved copies of both fds
+        # (as 10 and 11), so claude and all its children would hold the write end.
+        exec 8<&- 9>&-
         exec "${cmd[@]}"
     ) < /dev/null > "$out" 2>> "$ERR" &
     pid=$!
     set +m
+    exec 8<&-
     while session_running; do
         # A background sleep + wait, so a stop signal runs its trap at once instead of after the nap.
-        sleep 30 &
+        sleep 30 9>&- &
         sleeper=$!
         wait "$sleeper"
         sleeper=""
         # A session that ended in the nap is judged from its result, even past the limit (#991).
         session_running || break
         if [ $(( $(date +%s) - start_epoch )) -ge $(( TIMEOUT_MIN * 60 )) ]; then
+            # A stop from here on changes nothing (see `ending`). Its trap would cut the stop below
+            # short, and once the session has ended, nothing would end the command groups that this
+            # stop has already found.
+            ending=1
             stop_session
             set -e
             meta outcome timeout
@@ -651,10 +737,12 @@ run_session() {
     done
     wait "$pid"
     claude_rc=$?
+    ending=1
     # claude ends its own commands when it exits normally; what is left in the session's own group
     # (the watchdog, which ignores TERM, or a plain child) ends here.
     kill -KILL -- "-$pid" 2>/dev/null || true
     pid=""
+    release_lifeline
     set -e
 }
 
@@ -701,6 +789,9 @@ find_ticket_pr() {
 }
 
 start_epoch="$(date +%s)"
+# 1 while run_session resumes a worktree kept after a usage limit: if that cannot start, the
+# worktree stays kept.
+resuming_kept=0
 resumes=0
 turns="$resume_turns"
 # The last session id a run reported. A run that crashes without JSON must not lose it.
@@ -723,7 +814,9 @@ if [ -n "$resume_session" ]; then
     resumes=1
     meta resumes 1
     log "resuming session $resume_session after a usage limit, in the kept worktree $WT (model=$MODEL, effort=$EFFORT, timeout=${TIMEOUT_MIN}m)"
+    resuming_kept=1
     run_session "$OUT.resume-1" "$(resume_prompt limit "$TIMEOUT_MIN")" --resume "$resume_session"
+    resuming_kept=0
     keep_result 1
 else
     log "fresh headless session starting in $WT (model=$MODEL, effort=$EFFORT, timeout=${TIMEOUT_MIN}m)"
@@ -795,6 +888,8 @@ while :; do
         log "provenance gate could not verify #$ISSUE before a resume (rc=$trust_rc) — not resuming"
         break
     fi
+    # A stop that came while the loop judged the session's end cancels the resume (see `ending`).
+    [ "$stop_requested" -eq 0 ] || stop_run
     resumes=$((resumes + 1))
     meta resumes "$resumes"
     if [ "$reason" = "no-pr" ]; then

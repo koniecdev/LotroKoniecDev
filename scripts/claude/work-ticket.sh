@@ -732,8 +732,9 @@ run_session() {
     # and the session is no longer in this script's group, so a watchdog inside the group ends the
     # session once the lifeline says this script is gone. The session could otherwise go on working
     # and pushing with nothing watching it. The watchdog ignores TERM: the TERM it sends to its own
-    # group must not end it half way. It ignores HUP too: when this script dies while end_session_tree
-    # has paused the session, the system sends HUP to the session's whole group (#935).
+    # group must not end it half way. It ignores HUP too: when this script dies while
+    # end_session_tree has paused the session, the system sends HUP to the session's whole group
+    # (#935).
     set -m
     (
         set +m  # keep the watchdog in the session's group, so the group's end is its end too

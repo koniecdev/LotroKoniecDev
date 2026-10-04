@@ -53,7 +53,7 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
     }
 
 
-    protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings,
+    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings,
         CancellationToken cancellationToken)
     {
         ConsoleWriter.WriteNotice(RiskNotice.Text);

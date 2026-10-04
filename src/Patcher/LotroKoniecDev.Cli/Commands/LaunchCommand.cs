@@ -54,7 +54,7 @@ internal sealed class LaunchCommand : AsyncCommand<LaunchCommand.Settings>
         public bool SkipSync { get; init; }
     }
 
-    protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings,
+    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings,
         CancellationToken cancellationToken)
     {
         ConsoleWriter.WriteNotice(RiskNotice.Text);

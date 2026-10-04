@@ -34,7 +34,7 @@ internal sealed class ExportCommand : AsyncCommand<ExportCommand.Settings>
         public string? OutputPath { get; init; }
     }
 
-    protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
+    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
         string? actualDatPath = _datPathResolver.Resolve(settings.DatFilePath);
         if (actualDatPath is null)

@@ -6,6 +6,9 @@
 # Three is the floor, not a preference: Dependabot raises pull requests per ecosystem and cannot
 # combine across them. Every group below therefore matches "*" with no `update-types` filter, so
 # nothing can fall outside a group and earn a pull request of its own.
+# The fourth entry, docker-compose, is the one exception and needs no group. It allows a single
+# image (caddy), so it opens at most one pull request, and only in a week when Caddy publishes a new
+# image. A normal week still brings three.
 #
 # Security updates are deliberately NOT grouped (that needs `applies-to: security-updates`). They
 # should keep arriving as their own immediate pull requests -- a CVE fix must never sit behind a
@@ -62,3 +65,20 @@ updates:
     groups:
       docker-base-images:
         patterns: ["*"]
+
+  # Caddy, the proxy in front of both servers (#1001). Its image is only in compose files, which the
+  # `docker` entry above does not read. One pull request moves both pins: the `x-caddy-image` anchor
+  # in compose.hetzner.yaml and the `caddy` service in compose.prod.yaml.
+  # Only caddy, on purpose. Every other compose image is a separate decision: a postgres major needs
+  # a data migration. The ghcr.io app images take their tag from variables, and Dependabot skips them.
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    allow:
+      - dependency-name: "caddy"
+    ignore:
+      # 2.11.6 crashes the proxy (#988). This also covers the `2.11.6-alpine` tag we would pin:
+      # Dependabot compares only the version part of a tag and drops the `-alpine` suffix.
+      - dependency-name: "caddy"
+        versions: ["2.11.6"]

@@ -354,6 +354,4 @@ apply call) to be covered.
   been called on validation failure") — never to mirror internal call patterns
 - Shared test data builders go in `Shared/` (extend `TestDataFactory`, don't hand-roll bytes)
 - Every test database starts from `PostgresImage.Name` (`tests/Shared/PostgresImage.cs`, linked into the four
-  suites that start PostgreSQL), never from its own image tag. It stays on production's major version:
-  compose and Neon run PostgreSQL 18, and a fixture left on 17 once proved every migration on the wrong
-  version (#1002)
+  suites that start PostgreSQL), never from its own image tag (#1002)

@@ -2,6 +2,7 @@ name: lotrokoniecdev
 
 services:
   postgres:
+    # Keep the major version in step with Neon (ADR-0014) and with tests/Shared/PostgresImage.cs (#1002).
     image: postgres:18-alpine
     environment:
       POSTGRES_USER: postgres

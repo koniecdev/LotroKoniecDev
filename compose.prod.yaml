@@ -25,6 +25,7 @@ name: lotrokoniecdev-prod
 
 services:
   postgres:
+    # Keep the major version in step with Neon (ADR-0014) and with tests/Shared/PostgresImage.cs (#1002).
     image: postgres:18-alpine
     # Copy the mounted certs to a postgres-owned path, fix key perms (Postgres refuses a key it can
     # read but does not own / that is group/world-readable), then hand off to the stock entrypoint

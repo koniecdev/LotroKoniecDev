@@ -558,13 +558,15 @@ stop_sleeper() {
     sleeper=""
 }
 
-# `ending` is 1 while this script is on its way out: its last session has ended, it is ending one
-# itself (a stop, the clock, a failed start), or it leaves before it has one. A stop that comes then
-# changes nothing. The script exits in moments anyway, and it keeps its real outcome. A stop between
-# a session and its resume cancels only the resume. Closing a terminal sends HUP to the job and then TERM from the conductor:
-# the second one lands here too, so it cannot cut the first one's cleanup short. The signals stay
-# caught, never ignored: an ignored signal would carry over into every gh, git and docker started
-# later, and a stuck one could then not be stopped.
+# While `ending` is 1, a stop is only noted. That holds from the claim or the making of the worktree
+# until the session starts, and again from the end of the last session, or while this script ends
+# one itself (a stop, the clock, a failed start). Before a session starts, run_session acts on the
+# noted stop. After the last session it changes nothing: the script exits in moments anyway and
+# keeps its real outcome. A stop between a session and its resume cancels only the resume. Closing
+# a terminal sends HUP to the job and then TERM from the conductor: the second one lands here too,
+# so it cannot cut the first one's cleanup short. The signals stay caught, never ignored: an
+# ignored signal would carry over into every gh, git and docker started later, and a stuck one
+# could then not be stopped.
 ending=0
 stop_requested=0
 
@@ -588,10 +590,11 @@ trap on_stop_signal INT TERM HUP
 
 if [ -n "$resume_session" ]; then
     # Claimed with one rename, so two runs can never resume the same session at once: the CLI would
-    # interleave both into one transcript.
+    # interleave both into one transcript. If the claim fails, the worktree is the other run's, so
+    # a stop must not salvage it. From here a stop is only noted (see `ending`), and run_session
+    # acts on it before the session starts.
+    ending=1
     if ! mv "$marker" "$marker.claimed" 2>/dev/null; then
-        # The worktree is the other run's now: a stop must not salvage it (see `ending`).
-        ending=1
         meta outcome skipped
         log "SKIPPED — another run has just claimed the kept session $resume_session"
         exit 12
@@ -606,8 +609,10 @@ else
         sleep 5
         git fetch --quiet origin main || { meta outcome no-worktree; log "could not fetch origin/main"; exit 10; }
     fi
+    # A failed add may have met another run's worktree under the same name. So from here a stop is
+    # only noted (see `ending`), and run_session acts on it before the session starts.
+    ending=1
     if ! git worktree add --quiet --detach "$WT" origin/main; then
-        ending=1
         meta outcome no-worktree
         log "could not create the worktree $WT"
         exit 10
@@ -676,8 +681,9 @@ run_session() {
         log "could not open the lifeline pipe for the session's watchdog — no session started"
         exit 3
     fi
+    # From here a stop stops this script again. One that came while `ending` was set, after the
+    # last session or during the start, stops it now.
     ending=0
-    # A stop that came while this was set up, after the last session, was only recorded.
     [ "$stop_requested" -eq 0 ] || stop_run
     set +e
     # `set -m` gives the session its own process group. It also stops bash from pointing a

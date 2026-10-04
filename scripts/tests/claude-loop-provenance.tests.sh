@@ -2060,26 +2060,25 @@ expect_meta 143 outcome=stopped
 cases=$((cases + 1)); printf '✓ work-ticket: a stop while a resume opens its pipe cancels the resume\n'
 
 # Two runs of one ticket can race for a worktree kept after a usage limit. The one that loses the
-# claim leaves, and a stop that comes as it leaves must not salvage or remove the worktree the
+# claim leaves, and a stop that comes during its claim must not salvage or remove the worktree the
 # other run now works in. The test plays the other run: it takes the claim while the loser's
-# provenance gate is held. The stop comes in the loser's last log line.
-hold_stub "$TMP_ROOT/hold-date-bin" date '[ "${1:-}" = "+%H:%M:%S" ] && [ -e "'"$TMP_ROOT"'/date-hold.armed" ]'
+# rename is held, and the stop comes in that rename.
+hold_stub "$TMP_ROOT/hold-mv-bin" mv 'case "$*" in *loop-resume*) true ;; *) false ;; esac'
 reset_fixtures
 fixture_issue 144 maintainer OWNER
 run_case 6 "work-ticket: a usage limit keeps the worktree, before two runs race for it" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 144 "$TMP_ROOT/run"
 fixture_transcript s-144
 marker_144="$(kept_marker 144)"
-rm -f "$TMP_ROOT"/gh-hold.* "$TMP_ROOT"/date-hold.*
-env PATH="$TMP_ROOT/hold-date-bin:$PATH" GH_HOLD="$TMP_ROOT/gh-hold" GH_HOLD_MATCH=" api " \
-    CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 144 "$TMP_ROOT/run" > "$TMP_ROOT/claim-lost.out" 2>&1 &
+rm -f "$TMP_ROOT"/mv-hold.*
+env PATH="$TMP_ROOT/hold-mv-bin:$PATH" CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 144 "$TMP_ROOT/run" \
+    > "$TMP_ROOT/claim-lost.out" 2>&1 &
 worker=$!
-for _ in $(seq 1 100); do [ -e "$TMP_ROOT/gh-hold.held" ] && break; "$REAL_SLEEP" 0.1; done
-[ -e "$TMP_ROOT/gh-hold.held" ] || { kill -KILL "$worker" 2>/dev/null || true
-    fail "the worker never reached its provenance gate" "$(cat "$TMP_ROOT/claim-lost.out")"; }
+for _ in $(seq 1 100); do [ -e "$TMP_ROOT/mv-hold.held" ] && break; "$REAL_SLEEP" 0.1; done
+[ -e "$TMP_ROOT/mv-hold.held" ] || { kill -KILL "$worker" 2>/dev/null || true
+    fail "the worker never tried to claim the kept session" "$(cat "$TMP_ROOT/claim-lost.out")"; }
 mv "$marker_144" "$marker_144.claimed"
-touch "$TMP_ROOT/date-hold.armed" "$TMP_ROOT/gh-hold.released"
-stop_in_hold date "$TMP_ROOT/claim-lost.out"
+stop_in_hold mv "$TMP_ROOT/claim-lost.out"
 [ "$held_rc" -eq 12 ] || fail "a run that lost the claim should be skipped, got $held_rc" "$(cat "$TMP_ROOT/claim-lost.out")"
 expect_meta 144 outcome=skipped
 [ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "the run that lost the claim must not resume the session"
@@ -2088,15 +2087,16 @@ expect_meta 144 outcome=skipped
     || fail "the run that lost the claim must not salvage the other run's worktree"
 rm -f "$marker_144.claimed"
 git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-144"
-cases=$((cases + 1)); printf '✓ work-ticket: a stop as a run leaves after losing a claim leaves the worktree alone\n'
+cases=$((cases + 1)); printf '✓ work-ticket: a stop during a lost claim leaves the other run'"'"'s worktree alone\n'
 
-# A failed `git worktree add` is the machine, not the ticket (outcome no-worktree), and a stop that
-# comes as the run leaves keeps that outcome.
+# A failed `git worktree add` may have met another run's worktree under the same name, so a stop
+# that comes during it must not clean anything up, and the run keeps its outcome (no-worktree).
 mkdir -p "$TMP_ROOT/no-worktree-bin"
 cat > "$TMP_ROOT/no-worktree-bin/git" <<STUB
 #!/usr/bin/env bash
 if [ "\${1:-} \${2:-}" = "worktree add" ]; then
-    touch "$TMP_ROOT/date-hold.armed"
+    touch "$TMP_ROOT/git-hold.held"
+    for _ in \$(seq 1 200); do [ -e "$TMP_ROOT/git-hold.released" ] && break; "$REAL_SLEEP" 0.05; done
     echo "fatal: no worktree here" >&2
     exit 1
 fi
@@ -2105,15 +2105,14 @@ STUB
 chmod +x "$TMP_ROOT/no-worktree-bin/git"
 reset_fixtures
 fixture_issue 145 maintainer OWNER
-rm -f "$TMP_ROOT"/date-hold.*
-env PATH="$TMP_ROOT/no-worktree-bin:$TMP_ROOT/hold-date-bin:$PATH" "$WORK" 145 "$TMP_ROOT/run" \
-    > "$TMP_ROOT/no-worktree.out" 2>&1 &
+rm -f "$TMP_ROOT"/git-hold.*
+env PATH="$TMP_ROOT/no-worktree-bin:$PATH" "$WORK" 145 "$TMP_ROOT/run" > "$TMP_ROOT/no-worktree.out" 2>&1 &
 worker=$!
-stop_in_hold date "$TMP_ROOT/no-worktree.out"
-[ "$held_rc" -eq 10 ] || fail "a stop as the run leaves should keep exit 10, got $held_rc" "$(cat "$TMP_ROOT/no-worktree.out")"
+stop_in_hold git "$TMP_ROOT/no-worktree.out"
+[ "$held_rc" -eq 10 ] || fail "a stop during a failed worktree add should keep exit 10, got $held_rc" "$(cat "$TMP_ROOT/no-worktree.out")"
 expect_meta 145 outcome=no-worktree
 [ ! -f "$CLAUDE_MARKER" ] || fail "no session may start without a worktree"
-cases=$((cases + 1)); printf '✓ work-ticket: a stop as a run leaves without a worktree keeps its outcome\n'
+cases=$((cases + 1)); printf '✓ work-ticket: a stop during a failed worktree add keeps its outcome\n'
 
 # A poll timer that bash has reaped gets no signal either (#992). It leads no process group, so
 # nothing keeps its number reserved. Bash runs a trap only after a foreground command ends, so a

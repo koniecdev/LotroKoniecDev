@@ -60,7 +60,7 @@ URL, the OIDC `Authority`, and the token `iss` never change between workflows.
 
 `auth-api` is a self-hosted **OpenIddict** authorization server backed by **ASP.NET Core Identity**.
 It signs **JWT access tokens** (encryption disabled, so resource servers validate them as plain
-signed JWTs — `OpenIddictExtensions.cs:64`) and exposes the public signing key via JWKS.
+signed JWTs — `OpenIddictExtensions.cs:67`) and exposes the public signing key via JWKS.
 
 | Grant | Used by | Enabled |
 |---|---|---|
@@ -80,10 +80,9 @@ OAuth clients seeded at startup (`DatabaseSeederExtensions.cs:111`):
 Token lifetimes (`OpenIddictSettings.cs`): access **5 min** (ADR-0049), refresh **9 h**. Every refresh
 issues a new refresh token with the full 9 h, so the clock starts again at each use. The 9 h is the
 frontend cookie's 8-hour idle timeout plus a margin, because the token lives in that cookie (#1014).
-Email-confirmation
-and password-reset tokens live **24 h** (`PersistenceDependencyInjection.cs:63`). Dev/Testing use
-**ephemeral** signing keys; production supplies an RSA-2048 signing key (public half via JWKS) and a
-≥256-bit symmetric encryption key via config, with one-previous-key rotation support.
+Email-confirmation and password-reset tokens live **24 h** (`PersistenceDependencyInjection.cs:63`).
+Dev/Testing use **ephemeral** signing keys; production supplies an RSA-2048 signing key (public half
+via JWKS) and a ≥256-bit symmetric encryption key via config, with one-previous-key rotation support.
 
 ### 2.2 Authorization — `tms-api` (JwtBearer)
 

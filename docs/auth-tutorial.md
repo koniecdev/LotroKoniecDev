@@ -84,7 +84,7 @@ skalowalne, odporne na podmianę (zmiana payloadu psuje podpis).
 ### 2.5 Czemu nie genialne
 Access token jest **ważny do `exp`** i nie da się go łatwo odwołać (stateless). Dlatego **krótki
 żywot** (5 min — ADR-0049) + **refresh tokeny referencyjne** (w bazie, rewokowalne — §10.2). U nas dodatkowo
-access token **nie jest szyfrowany** (`DisableAccessTokenEncryption`, `OpenIddictExtensions.cs:64`) —
+access token **nie jest szyfrowany** (`DisableAccessTokenEncryption`, `OpenIddictExtensions.cs:67`) —
 podpisany (tamper-proof), ale czytelny — żeby standardowa walidacja JwtBearer działała bez
 deszyfrowania.
 
@@ -377,7 +377,7 @@ sekretu) generuje `code_verifier`, wysyła `code_challenge = SHA256(verifier)` p
 wymianie `code → token` dowodzi posiadania `verifier`. Chroni przed przechwyceniem kodu autoryzacyjnego.
 
 ### 10.2 Rolling reference refresh tokens
-`UseReferenceRefreshTokens()` (`:50`). Refresh tokeny są **referencyjne** (zapisane w bazie, nie
+`UseReferenceRefreshTokens()` (`:53`). Refresh tokeny są **referencyjne** (zapisane w bazie, nie
 self-contained) ⇒ **rewokowalne**. Rolling: użycie refresh tokena unieważnia stary i wydaje nowy ⇒
 ogranicza replay. Logout rewokuje te z sesji tego urządzenia (`LogoutEndpoint.cs` → `IUserSessionRevoker`).
 Refresh token żyje **9 h** od ostatniego użycia: każdy nowy token dostaje znów pełne 9 h (sliding). Cookie

@@ -38,9 +38,11 @@ public sealed class RefreshTokenLifetimeTests : EndpointsTestBase
         DateTimeOffset issuedAt = clock.GetUtcNow();
 
         // Act
-        string refreshToken = await SignInAsync(client, user.Email);
+        using HttpResponseMessage response = await RequestPasswordGrantAsync(client, user.Email);
 
         // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string refreshToken = await ReadRefreshTokenAsync(response);
         (DateTimeOffset? createdAt, DateTimeOffset? expiresAt) =
             await OpenIddictTokenState.DatesOfAsync(host.Services, refreshToken);
         createdAt.ShouldBe(issuedAt);
@@ -63,9 +65,12 @@ public sealed class RefreshTokenLifetimeTests : EndpointsTestBase
         DateTimeOffset refreshedAt = clock.GetUtcNow();
 
         // Act
-        string secondRefreshToken = await RefreshAsync(client, firstRefreshToken);
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(client, firstRefreshToken);
 
         // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string secondRefreshToken = await ReadRefreshTokenAsync(response);
+
         // A fixed expiry would keep the first token's date, one hour earlier, and sign a user who keeps
         // working out in the middle of the day.
         (DateTimeOffset? createdAt, DateTimeOffset? expiresAt) =
@@ -88,8 +93,8 @@ public sealed class RefreshTokenLifetimeTests : EndpointsTestBase
             }));
 
     /// <summary>
-    /// The stopped clock starts at the real time, so nothing that checks a token against the real clock
-    /// sees it issued in the future. A whole second keeps the stored dates exact.
+    /// The stopped clock starts at the real time, so the first token is not dated in the future. OpenIddict
+    /// stores its dates to the whole second, so a clock on a whole second keeps them exact.
     /// </summary>
     private static DateTimeOffset WholeSecondNow()
     {
@@ -102,6 +107,14 @@ public sealed class RefreshTokenLifetimeTests : EndpointsTestBase
     /// </summary>
     private static async Task<string> SignInAsync(HttpClient client, string email)
     {
+        using HttpResponseMessage loginResponse = await RequestPasswordGrantAsync(client, email);
+        loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        return await ReadRefreshTokenAsync(loginResponse);
+    }
+
+    private static async Task<HttpResponseMessage> RequestPasswordGrantAsync(HttpClient client, string email)
+    {
         using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
@@ -111,14 +124,10 @@ public sealed class RefreshTokenLifetimeTests : EndpointsTestBase
             ["scope"] = "email profile roles api offline_access"
         });
 
-        using HttpResponseMessage loginResponse = await client.PostAsync(
-            new Uri("connect/token", UriKind.Relative), loginRequest);
-        loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        return await ReadRefreshTokenAsync(loginResponse);
+        return await client.PostAsync(new Uri("connect/token", UriKind.Relative), loginRequest);
     }
 
-    private static async Task<string> RefreshAsync(HttpClient client, string refreshToken)
+    private static async Task<HttpResponseMessage> RequestRefreshGrantAsync(HttpClient client, string refreshToken)
     {
         using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
         {
@@ -127,11 +136,7 @@ public sealed class RefreshTokenLifetimeTests : EndpointsTestBase
             ["client_id"] = ClientId
         });
 
-        using HttpResponseMessage refreshResponse = await client.PostAsync(
-            new Uri("connect/token", UriKind.Relative), refreshRequest);
-        refreshResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        return await ReadRefreshTokenAsync(refreshResponse);
+        return await client.PostAsync(new Uri("connect/token", UriKind.Relative), refreshRequest);
     }
 
     private static async Task<string> ReadRefreshTokenAsync(HttpResponseMessage response)

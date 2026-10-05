@@ -15,8 +15,9 @@ is flat whether you run 1 ticket or grind the backlog all night.
 3. Read each PR. When you are happy with one, **assign yourself** — that is the approval, because
    GitHub does not let you approve your own PR.
 4. When the batch is read, run **`/merge-train`**. It merges only PRs you assigned yourself to, and
-   only if nothing reached the PR after that. If something did, read it, then unassign and assign
-   again.
+   only if nothing reached the PR after that, except a clean rebase onto `main` or the train's own
+   conflict fix (ADR-0060, amended 2026-10-05). If something else did, read it, then unassign and
+   assign again.
 
 ## Why this shape (context economics)
 
@@ -348,8 +349,9 @@ later conductor run, both runs' totals count the part of the session before the 
   this change, bring the checkout you start the loop from up to date with `main`.
 - The worker session may commit/push/PR (that authorization is the point of loop mode). **Nothing
   in the loop merges or assigns** (ADR-0060). The merge path is `/merge-train`, and it takes only
-  PRs the owner assigned to themselves after the last push, with green required checks and zero
-  open CodeQL alerts — and it never deletes the branch.
+  PRs the owner assigned to themselves after the last push (a clean rebase and the train's own
+  conflict fix do not count as a push), with green required checks and zero open CodeQL alerts —
+  and it never deletes the branch.
 - Stopping the conductor (Ctrl-C, `kill`, closing the terminal) stops every running worker at
   once, even in the middle of an hour-long usage-limit nap. Each worker then stops its session and
   every process group the session started: Claude Code runs each Bash command in a group of its

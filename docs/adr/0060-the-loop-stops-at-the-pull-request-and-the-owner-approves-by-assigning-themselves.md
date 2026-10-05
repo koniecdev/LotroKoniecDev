@@ -8,6 +8,53 @@
 `docs/claude-loop.md`, `.github/dependabot.yml`, the maintainer's `merge-train` skill (outside this
 repo); ADR-0026 (its §D is reversed here); ticket #884 / PR #895 (per-worktree E2E images)
 
+## Amendment (2026-10-05): the merge train fixes conflicts itself, and its fix keeps the approval
+
+**Narrows §4 and the 2026-09-28 amendment.** The owner's rule: the merge train always rebases a
+branch and fixes its conflicts itself. It no longer leaves a PR in conflict for a person. In the
+owner's words: "ufam że zrobi to dobrze, nie potrzebuję re-review robić" (I trust it to do this
+well, and I do not need to review it again).
+
+Until now a conflict stopped the train. On 2026-10-05, PR #979 was approved but could not merge
+after #967 and #968 landed. Its conflict fix would have counted as new code, so the PR would have
+gone back to the owner for a second review of work that was not part of the change they had read.
+
+What changes:
+
+- An approved PR in conflict, a PR GitHub cannot rebase, and a branch that holds a merge commit go
+  on a "to resolve" list. The session that runs the train rebases each one in its own worktree and
+  fixes the conflicts. It then runs the full gate from `CLAUDE.md`: the Release build, the whole
+  test suite and the guard scripts. Only a green result is pushed, with `--force-with-lease` pinned
+  to the head the fix started from.
+- A rebase can break the code without a conflict marker. In #979, main got the same test helper
+  in #968, so the rebase left two copies of it and the tests stopped compiling. The session looks
+  for this kind of break, and puts each such fix in its own commit, so the PR shows what the train
+  changed.
+- After the push, the train writes the fix to a ledger on the maintainer's machine. It writes it
+  only when all of these hold:
+  - the PR head is the pushed fix;
+  - the branch's push log shows the fix pushed straight over the head before it, at or after the
+    owner's assignment;
+  - the fix holds no merge commit;
+  - the head before the fix held the owner's approval.
+
+  So code someone else pushed in between can never be recorded.
+- The approval gate also accepts a head that is the recorded fix, or the recorded fix rebased
+  cleanly onto `main`, but only while the push log still shows that fix pushed over the head
+  before it. A conflict fix the train did not record, or anything pushed on top of a recorded fix,
+  still voids the approval.
+- A PR the owner has not approved is not fixed. The train skips it, as before.
+- Dependabot fixes its own branch. The train asks it to rebase, or to recreate the branch when a
+  merge commit shows someone edited it, and merges the PR in a later run.
+
+The cost: the owner merges conflict fixes they did not read. The full gate runs on every fix before
+the push, and the fix stays visible in the PR. Like the rest of the approval rule, the ledger lives
+outside this repo. If it is lost, the gate refuses the fixed PR, and the owner assigns again. The
+ledger is a plain local file, and the rule "record only your own fix" lives in the merge train's
+instructions, not in code. A session that writes a false line still needs the push it names in the
+push log, but it is the same kind of trust as the assignee, which any session holding the owner's
+token could set.
+
 ## Amendment (2026-09-29): a worktree kept after a usage limit is resumed, not skipped
 
 **Narrows §2 and §3.** When a worker hits the usage limit, it now keeps the ticket's worktree exactly as
@@ -59,6 +106,10 @@ The train updates a branch that is behind with `gh pr update-branch --rebase`. W
 rebase it (a conflict), the train leaves the PR for a person and never falls back to a merge
 commit. The fix is a local `git rebase origin/main` and a `--force-with-lease` push. The same check
 applies to that push, so a clean local rebase keeps the approval too.
+
+(Narrowed 2026-10-05, see the amendment above: a conflict is now the train's own job, and its
+recorded fix keeps the approval. A branch that holds a merge commit, or one in conflict, goes on
+the train's "to resolve" list instead of being refused.)
 
 ## Context
 
@@ -134,7 +185,7 @@ In this repo, `merge-train` merges a PR written by a person only when:
 - the branch's push log shows which head the owner read: the one left by the last push before the
   owner's latest assignment;
 - nothing was pushed after that, or everything pushed after it adds up to that head rebased onto
-  `main` and nothing more;
+  `main` and nothing more, or to the train's own recorded conflict fix of it (amended 2026-10-05);
 - the branch holds no merge commit, and it lives in this repo, not in a fork.
 
 (Amended 2026-09-28, see the amendment above. The first version took each commit's push time from
@@ -171,21 +222,25 @@ session.
 
 ### Positive
 
-- Nothing reaches `main` before the owner has read it.
+- Nothing reaches `main` before the owner has read it, except the train's own conflict fixes
+  (amended 2026-10-05).
 - Several tickets run at once, so a batch takes the time of its slowest ticket, not the sum.
 - The main checkout stays free while the loop runs.
 - There is one merge path, and it is the same for PRs from the loop and from manual sessions.
 - An approval does not survive a later push, so the owner never merges code they did not see.
+  The one exception is the train's own conflict fix (amended 2026-10-05).
 
 ### Negative / Accepted Trade-offs
 
 - Merges wait for the owner. The loop's throughput is now bounded by review time.
 - PRs cut from the same `main` can conflict. After the first one merges, the second may need a
-  rebase. When that rebase needs a conflict resolution, the resolution is new code, so it needs a
-  fresh look and a fresh assignment. Picking tickets that touch different areas keeps this rare.
+  rebase. When that rebase needs a conflict resolution, the train makes it, and the approval
+  stays (amended 2026-10-05). Picking tickets that touch different areas still keeps this rare.
 - GitHub does not enforce the assignee. Any session holding the owner's token could set it. The
   rule "no session sets an assignee" lives in the worker and `/ticket` prompts, and the staleness
-  check limits the damage to code that was on GitHub when the owner assigned themselves.
+  check limits the damage to code that was on GitHub when the owner assigned themselves. Since
+  2026-10-05 the train's ledger is a second way in, with the same kind of trust (see that
+  amendment).
 - The gate knows when the owner clicked, not what the owner saw. A push that lands while the owner
   reads, before the click, counts as read. So the owner reloads the PR right before assigning.
 - The gate trusts GitHub's push log (the Activity API). A branch whose log is missing, or does not
@@ -246,7 +301,9 @@ the same either way, so serial only costs wall-clock time. `-j 1` stays availabl
 - The maintainer's `~/.claude-account1/skills/merge-train/merge-train.sh`: the approval check
   (the push log and the tree check since 2026-09-28), a rebase-only branch update, the merge-commit
   refusal, `--match-head-commit`, and no `--delete-branch` for this repo, with its own offline
-  self-test `merge-train.tests.sh` next to it.
+  self-test `merge-train.tests.sh` next to it. Since 2026-10-05 also the "to resolve" list, the
+  `--record-resolution` call and the ledger of the train's own conflict fixes
+  (`~/.local/state/merge-train/`).
 
 ## References
 

@@ -130,8 +130,8 @@ try
         options.DefaultScheme = OpenIddict.Validation.AspNetCore.OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
     })
     // AddCookie with our own handler, which gives every sign-in a new session key (ADR-0062). AddCookie
-    // cannot name a handler, so the scheme is added directly, and the post-configure line below is the
-    // part of AddCookie that fills in the cookie's data format, cookie manager and paths.
+    // cannot name a handler, so the scheme is added directly, and the post-configure line and the
+    // Validate call below are the rest of what AddCookie registers.
     .AddScheme<CookieAuthenticationOptions, SignInSessionCookieHandler>(
         Microsoft.AspNetCore.Identity.IdentityConstants.ApplicationScheme,
         options =>
@@ -156,6 +156,7 @@ try
     // The cookie carries only a session key, and the session lives in the auth database (ADR-0062).
     builder.Services
         .AddOptions<CookieAuthenticationOptions>(Microsoft.AspNetCore.Identity.IdentityConstants.ApplicationScheme)
+        .Validate(options => options.Cookie.Expiration == null, "Cookie.Expiration is ignored, use ExpireTimeSpan instead.")
         .Configure<SignInSessionTicketStore>((options, ticketStore) => options.SessionStore = ticketStore);
 
     builder.Services.AddAuthorization();

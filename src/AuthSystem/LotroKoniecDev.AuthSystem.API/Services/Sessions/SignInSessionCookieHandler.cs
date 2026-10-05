@@ -83,6 +83,6 @@ internal sealed partial class SignInSessionCookieHandler : CookieAuthenticationH
         return Options.TicketDataFormat.Unprotect(cookie, tlsTokenBinding)?.Principal.FindFirstValue(SessionKeyClaimType);
     }
 
-    [LoggerMessage(EventId = EventIds.SignInSessionNotEndedAtSignOut, Level = LogLevel.Error, Message = "Signing out could not end the stored sign-in session. The browser's cookie was cleared, but a copy of it keeps working until the session expires.")]
+    [LoggerMessage(EventId = EventIds.SignInSessionNotEndedAtSignOut, Level = LogLevel.Error, Message = "Signing out failed, so the stored sign-in session may still exist. The browser's cookie was cleared, but a copy of it can keep working until the session expires.")]
     private static partial void LogStoredSessionNotEnded(ILogger logger, Exception exception);
 }

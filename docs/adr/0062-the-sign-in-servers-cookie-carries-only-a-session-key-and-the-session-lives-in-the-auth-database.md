@@ -44,8 +44,9 @@ request.
 
 The scheme's handler is `SignInSessionCookieHandler`, a sealed subclass of the framework's
 `CookieAuthenticationHandler`. It changes the sign-in and the sign-out (decisions 5 and 6) and nothing
-else. `Program.cs` adds the scheme with `AddScheme` and the one post-configure line `AddCookie` would add,
-because `AddCookie` cannot name a handler.
+else. `AddCookie` cannot name a handler, so `Program.cs` adds the scheme with `AddScheme` and registers the
+rest of what `AddCookie` does itself: the post-configure step that fills in the cookie's defaults, and the
+check that `Cookie.Expiration` stays unset.
 
 Other devices have their own rows, so "Wyloguj" still ends this device only (#931).
 

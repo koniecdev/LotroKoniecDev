@@ -475,7 +475,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     {
         // An earlier run locked the account for good. This run's save fails, its lock fails, and the check
         // after them fails too. The finalizer's own read from before the erasure already showed the lock,
-        // and only a cancel lowers it, so nobody has to act now. The retry stays (#1018).
+        // and only a write that ends the schedule lowers it, so nobody has to lock it by hand. The retry
+        // stays (#1018).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();

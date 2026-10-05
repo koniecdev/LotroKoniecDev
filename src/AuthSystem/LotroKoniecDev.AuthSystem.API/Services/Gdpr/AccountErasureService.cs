@@ -191,8 +191,9 @@ internal sealed partial class AccountErasureService : IAccountErasureService
 
             // Nothing new is known about the account, so it is taken to still wait, as before #980: the
             // retry is assumed. The lock's line asks a person to look, unless an earlier run's lock was
-            // already there when the finalizer read the account. Only a cancel lowers that lock, and an
-            // account that no longer waits needs no lock (#1018).
+            // already there when the finalizer read the account. The two writes that lower that lock, a
+            // cancel and an undone e-mail change, also end the schedule, and an account that no longer
+            // waits needs no lock. Identity's own lockout skips a scheduled account (#861, #1018).
             LogSaveCheckFailedAfterFailedLock(_logger, ex, userId);
             state = new AccountState(SaveLanded: false, StillWaits: true, LockedForGood: lockedForGoodWhenRead);
         }
@@ -504,7 +505,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     [LoggerMessage(EventId = EventIds.GdprErasureUnneededLockoutFailed, Level = LogLevel.Warning, Message = "GDPR erasure: the emergency lockout for user {UserId} failed, but no lockout was needed, because the account no longer waits for its erasure.")]
     private static partial void LogUnneededLockoutFailed(ILogger logger, Exception exception, Guid userId);
 
-    [LoggerMessage(EventId = EventIds.GdprErasureLockoutFailedOnLockedAccount, Level = LogLevel.Warning, Message = "GDPR erasure: the emergency lockout for user {UserId} failed, but the account is already locked for good, so nobody has to lock it by hand.")]
+    [LoggerMessage(EventId = EventIds.GdprErasureLockoutFailedOnLockedAccount, Level = LogLevel.Warning, Message = "GDPR erasure: the emergency lockout for user {UserId} failed, but a read of the account in this run found it already locked for good, so nobody has to lock it by hand.")]
     private static partial void LogLockoutFailedOnLockedAccount(ILogger logger, Exception exception, Guid userId);
 
     [LoggerMessage(EventId = EventIds.GdprErasureSaveCheckFailedAfterFailedLock, Level = LogLevel.Warning, Message = "GDPR erasure of user {UserId}: after the emergency lockout failed, the check whether this run's own save landed failed too. The account is taken to still wait, so the lines after this one promise a retry. If the save did land, the account is erased and no run comes back to it, so its tokens, roles, claims and logins are never cleaned up.")]

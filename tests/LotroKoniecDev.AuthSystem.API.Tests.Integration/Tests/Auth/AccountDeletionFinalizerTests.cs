@@ -275,8 +275,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     {
         // Another write changed the account while the erasure ran, so the save loses on the concurrency
         // stamp while the account still waits. Then the lock fails as well. The read after it finds the
-        // account still waiting, so the run raises the lock's alert once and promises the retry, and here
-        // the retry really comes (#962, #980).
+        // account still waiting and not locked for good, so the run raises the lock's alert once and
+        // promises the retry, and here the retry really comes (#962, #980, #1018).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -310,8 +310,9 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldRaiseTheLockAlertOnceAndRetry_WhenADatabaseErrorMeetsAFailedLock()
     {
-        // The save fails on a real database error while the account still waits, and the lock fails too.
-        // The lock's alert is written once, and the retry comes (#980).
+        // The save fails on a real database error while the account still waits and is not locked for
+        // good, and the lock fails too. The lock's alert is written once, and the retry comes (#980,
+        // #1018).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -423,6 +424,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
             .ShouldHaveSingleItem()
             .Level.ShouldBe(LogLevel.Warning);
         loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureSaveOutcomeUnknown);
+        loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureLockoutFailedOnLockedAccount);
     }
 
     [Theory]
@@ -466,6 +468,50 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
             entry.EventId.Id == EventIds.GdprDeletionFinalizerUserFailed
             && entry.Message.Contains("Will retry", StringComparison.Ordinal));
         loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureUnneededLockoutFailed);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldWarnWithoutTheLockAlertAndRetry_WhenTheCheckFailsAfterAFailedLockOnAnAccountAnEarlierRunLocked()
+    {
+        // An earlier run locked the account for good. This run's save fails, its lock fails, and the check
+        // after them fails too. The finalizer's own read from before the erasure already showed the lock,
+        // and only a cancel lowers it, so nobody has to act now. The retry stays (#1018).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        FailTheNextSaveOf(identityId.Value, ErasureSaveFailure.DatabaseError);
+        await RunFinalizerAsync();
+        FailTheNextSaveOf(identityId.Value, ErasureSaveFailure.DatabaseError);
+        FailTheEmergencyLockOf(identityId.Value);
+        Factory.DbCommandFailures.FailNext(
+            command => IsReadOfAnErasedAccount(command, identityId.Value),
+            CreateDataCorruption);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int failedRunCount = await RunFinalizerAsync(loggerFactory);
+        int retryRunCount = await RunFinalizerAsync();
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(4);
+        failedRunCount.ShouldBe(0);
+        retryRunCount.ShouldBe(1);
+
+        loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureSaveCheckFailedAfterFailedLock)
+            .ShouldHaveSingleItem()
+            .Level.ShouldBe(LogLevel.Warning);
+        loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureLockoutFailedOnLockedAccount)
+            .ShouldHaveSingleItem()
+            .Level.ShouldBe(LogLevel.Warning);
+        loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockoutFailed);
+        loggerFactory.Entries.ShouldContain(entry =>
+            entry.EventId.Id == EventIds.GdprErasureAuthFailed && entry.Level == LogLevel.Critical);
+        loggerFactory.Entries.ShouldContain(entry =>
+            entry.EventId.Id == EventIds.GdprDeletionFinalizerUserFailed
+            && entry.Message.Contains("Will retry", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -46,7 +46,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         _logger = logger;
     }
 
-    public async Task<Result<AccountErasureOutcome>> EraseAsync(ApplicationUser user, CancellationToken cancellationToken)
+    public async Task<Result<AccountErasureOutcome>> EraseAsync(ApplicationUser user)
     {
         LogGdprErasureInitiated(_logger, user.Id);
 
@@ -60,7 +60,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             // anonymizing save: the finalizer retries an account only until that save lands, so a delete
             // that came after it and failed would never run again. It runs only while the account still
             // waits, by the emergency lock's rule: an owner who cancelled meanwhile may have signed in
-            // again. No token, like the save itself.
+            // again.
             Guid userId = user.Id;
             await _dbContext.SignInSessions
                 .Where(session => session.UserId == userId
@@ -129,7 +129,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
 
         // Best-effort cleanup: revoke the tokens and remove roles, claims and logins. The account is
         // already anonymized and locked, so a failure here does not break GDPR compliance.
-        await CleanupAuthArtifactsAsync(user, cancellationToken);
+        await CleanupAuthArtifactsAsync(user.Id);
 
         LogAccountDeleted(_logger, user.Id);
 
@@ -161,8 +161,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         try
         {
             // The address is new for every attempt, so only this run's own save can have written it.
-            // "Still waits" is the lock's own rule. The read takes no cancellation token, like the lock
-            // before it: its answer decides whether the cleanup runs.
+            // "Still waits" is the lock's own rule.
             state = await _dbContext.Users
                 .Where(u => u.Id == userId)
                 .Select(u => new AccountState(
@@ -232,77 +231,161 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     }
 
     /// <summary>
-    /// Every step runs even after an earlier one reports a failure, and the log names each step that
-    /// failed. An exception stops the steps after it. Identity reports a lost concurrency check as a
-    /// failed result, and OpenIddict reports any failed revoke as <c>false</c>, so each result is
-    /// checked (#962). Identity keeps the changes of a failed step, so the next Identity save sends
-    /// them again.
+    /// Every step runs, even after an earlier one failed, and the log names each step that failed.
+    /// Identity reports a lost concurrency check as a failed result, and OpenIddict reports any failed
+    /// revoke as <c>false</c>, so each result is checked (#962).
+    /// All steps share one context, and a failed write leaves its changes in it. Identity never undoes
+    /// them, and OpenIddict undoes them only after a lost concurrency check. The next save would send
+    /// them again and fail with them, so every failure empties the context first (#981).
     /// </summary>
-    private async Task CleanupAuthArtifactsAsync(ApplicationUser user, CancellationToken cancellationToken)
+    private async Task CleanupAuthArtifactsAsync(Guid userId)
     {
-        List<string> failedSteps = [];
-        Exception? stoppedBy = null;
-        string step = "tokens";
+        string subject = userId.ToString();
+        (string Step, IAsyncEnumerable<CleanupFailure> Failures)[] steps =
+        [
+            ("tokens", RevokeTokensAsync(subject)),
+            ("authorizations", RevokeAuthorizationsAsync(subject)),
+            ("roles", RemoveRolesAsync(userId)),
+            ("claims", RemoveClaimsAsync(userId)),
+            ("logins", RemoveLoginsAsync(userId))
+        ];
 
-        try
+        List<(string Step, CleanupFailure Failure)> failed = [];
+
+        foreach ((string step, IAsyncEnumerable<CleanupFailure> failures) in steps)
         {
-            string userId = user.Id.ToString();
-
-            await foreach (object token in _tokenManager.FindBySubjectAsync(userId, cancellationToken))
+            try
             {
-                if (!await _tokenManager.TryRevokeAsync(token, cancellationToken))
+                await foreach (CleanupFailure failure in failures)
                 {
-                    failedSteps.Add($"{step}: {await _tokenManager.GetIdAsync(token, cancellationToken)} not revoked");
+                    failed.Add((step, failure));
+                    _dbContext.ChangeTracker.Clear();
                 }
             }
-
-            step = "authorizations";
-            await foreach (object authorization in _authorizationManager.FindBySubjectAsync(userId, cancellationToken))
+            catch (Exception ex)
             {
-                if (!await _authorizationManager.TryRevokeAsync(authorization, cancellationToken))
-                {
-                    failedSteps.Add($"{step}: {await _authorizationManager.GetIdAsync(authorization, cancellationToken)} not revoked");
-                }
-            }
-
-            step = "roles";
-            IList<string> roles = await _userManager.GetRolesAsync(user);
-            if (roles.Count > 0)
-            {
-                AddIfFailed(failedSteps, step, await _userManager.RemoveFromRolesAsync(user, roles));
-            }
-
-            step = "claims";
-            IList<Claim> claims = await _userManager.GetClaimsAsync(user);
-            if (claims.Count > 0)
-            {
-                AddIfFailed(failedSteps, step, await _userManager.RemoveClaimsAsync(user, claims));
-            }
-
-            step = "logins";
-            IList<UserLoginInfo> logins = await _userManager.GetLoginsAsync(user);
-            foreach (UserLoginInfo login in logins)
-            {
-                AddIfFailed(
-                    failedSteps,
-                    $"{step} ({login.LoginProvider})",
-                    await _userManager.RemoveLoginAsync(user, login.LoginProvider, login.ProviderKey));
+                failed.Add((step, new CleanupFailure($"{ex.GetBaseException().Message} (the step stopped here)", ex)));
+                _dbContext.ChangeTracker.Clear();
             }
         }
-        catch (Exception ex)
-        {
-            stoppedBy = ex;
-            failedSteps.Add($"{step}: {ex.Message} (the cleanup stopped here)");
-        }
 
-        if (failedSteps.Count > 0)
+        if (failed.Count == 0)
         {
-            LogArtifactsCleanupFailed(_logger, stoppedBy, user.Id, string.Join("; ", failedSteps));
+            LogArtifactsCleaned(_logger, userId);
             return;
         }
 
-        LogArtifactsCleaned(_logger, user.Id);
+        List<Exception> exceptions = failed
+            .Select(entry => entry.Failure.Exception)
+            .OfType<Exception>()
+            .ToList();
+        Exception? exception = exceptions.Count switch
+        {
+            0 => null,
+            1 => exceptions[0],
+            _ => new AggregateException(exceptions)
+        };
+        LogArtifactsCleanupFailed(
+            _logger,
+            exception,
+            userId,
+            string.Join("; ", failed.Select(entry => $"{entry.Step}: {entry.Failure.Reason}")));
     }
+
+    /// <summary>
+    /// OpenIddict's token manager writes a token again even when it is already revoked. Its
+    /// authorization manager does not. Scheduling the deletion has usually revoked the tokens already,
+    /// so this skips a revoked token: the write would change nothing, and if the prune removed the row
+    /// in the meantime, it would log a false failure.
+    /// </summary>
+    private async IAsyncEnumerable<CleanupFailure> RevokeTokensAsync(string subject)
+    {
+        await foreach (object token in _tokenManager.FindBySubjectAsync(subject))
+        {
+            if (await _tokenManager.HasStatusAsync(token, OpenIddictConstants.Statuses.Revoked))
+            {
+                continue;
+            }
+
+            if (!await _tokenManager.TryRevokeAsync(token))
+            {
+                yield return new CleanupFailure($"{await _tokenManager.GetIdAsync(token)} not revoked", Exception: null);
+            }
+        }
+    }
+
+    private async IAsyncEnumerable<CleanupFailure> RevokeAuthorizationsAsync(string subject)
+    {
+        await foreach (object authorization in _authorizationManager.FindBySubjectAsync(subject))
+        {
+            if (!await _authorizationManager.TryRevokeAsync(authorization))
+            {
+                yield return new CleanupFailure(
+                    $"{await _authorizationManager.GetIdAsync(authorization)} not revoked",
+                    Exception: null);
+            }
+        }
+    }
+
+    private async IAsyncEnumerable<CleanupFailure> RemoveRolesAsync(Guid userId)
+    {
+        ApplicationUser account = await FindAccountAsync(userId);
+        IList<string> roles = await _userManager.GetRolesAsync(account);
+        if (roles.Count > 0 && await _userManager.RemoveFromRolesAsync(account, roles) is { Succeeded: false } result)
+        {
+            yield return new CleanupFailure(Describe(result), Exception: null);
+        }
+    }
+
+    private async IAsyncEnumerable<CleanupFailure> RemoveClaimsAsync(Guid userId)
+    {
+        ApplicationUser account = await FindAccountAsync(userId);
+        IList<Claim> claims = await _userManager.GetClaimsAsync(account);
+        if (claims.Count > 0 && await _userManager.RemoveClaimsAsync(account, claims) is { Succeeded: false } result)
+        {
+            yield return new CleanupFailure(Describe(result), Exception: null);
+        }
+    }
+
+    private async IAsyncEnumerable<CleanupFailure> RemoveLoginsAsync(Guid userId)
+    {
+        IList<UserLoginInfo> logins = await _userManager.GetLoginsAsync(await FindAccountAsync(userId));
+        foreach (UserLoginInfo login in logins)
+        {
+            if (await TryRemoveLoginAsync(userId, login) is { } failure)
+            {
+                yield return failure;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Catches its own exception, so the logins after one that fails are still removed.
+    /// </summary>
+    private async Task<CleanupFailure?> TryRemoveLoginAsync(Guid userId, UserLoginInfo login)
+    {
+        try
+        {
+            ApplicationUser account = await FindAccountAsync(userId);
+            IdentityResult result = await _userManager.RemoveLoginAsync(account, login.LoginProvider, login.ProviderKey);
+            return result.Succeeded
+                ? null
+                : new CleanupFailure($"{login.LoginProvider}: {Describe(result)}", Exception: null);
+        }
+        catch (Exception ex)
+        {
+            return new CleanupFailure($"{login.LoginProvider}: {ex.GetBaseException().Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// The copy the context tracks, or a new read once a failure has emptied the context. The copy from
+    /// before the failure may carry a concurrency stamp that was never saved, or one another write has
+    /// replaced, and every save of it would fail on that stamp (#981).
+    /// </summary>
+    private async Task<ApplicationUser> FindAccountAsync(Guid userId) =>
+        await _dbContext.Users.FindAsync(userId)
+        ?? throw new InvalidOperationException($"User {userId} is not in the database.");
 
     /// <summary>
     /// Locks the account for good after a failed erasure, so its data cannot be reached while it waits
@@ -318,8 +401,6 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     /// The security stamp stays as it is. Scheduling the deletion already ended every session, and
     /// sign-in is refused while a deletion is scheduled. A new stamp would only break the cancel link
     /// the owner may still hold.
-    /// The write takes no cancellation token, like the erasure save before it. A shutdown must not skip
-    /// this one short write, and a cancelled lock would be logged as a failed one.
     /// A failed lock is not logged here, only returned. Whether a lock was needed at all is known only
     /// after the read that follows it, and an account that no longer waits needs none (#980). A lock
     /// that neither landed nor failed matched no row.
@@ -359,14 +440,6 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         }
     }
 
-    private static void AddIfFailed(List<string> failedSteps, string step, IdentityResult result)
-    {
-        if (!result.Succeeded)
-        {
-            failedSteps.Add($"{step}: {Describe(result)}");
-        }
-    }
-
     private static string Describe(IdentityResult result) =>
         string.Join(", ", result.Errors.Select(e => e.Description));
 
@@ -397,7 +470,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     [LoggerMessage(EventId = EventIds.GdprErasureArtifactsCleaned, Level = LogLevel.Information, Message = "GDPR erasure: tokens, authorizations, roles, claims, and logins cleaned up for user {UserId}")]
     private static partial void LogArtifactsCleaned(ILogger logger, Guid userId);
 
-    [LoggerMessage(EventId = EventIds.GdprErasureArtifactsCleanupFailed, Level = LogLevel.Warning, Message = "GDPR erasure: the cleanup of auth artifacts for user {UserId} did not finish. Failed: {FailedSteps}. The account is already anonymized and locked. Its tokens expire on their own. Anything else that was not removed stays until someone removes it.")]
+    [LoggerMessage(EventId = EventIds.GdprErasureArtifactsCleanupFailed, Level = LogLevel.Warning, Message = "GDPR erasure: some steps of the auth artifact cleanup failed for user {UserId}. Failed: {FailedSteps}. The account is already anonymized and locked. Its tokens expire on their own. Anything else that was not removed stays until someone removes it.")]
     private static partial void LogArtifactsCleanupFailed(ILogger logger, Exception? exception, Guid userId, string failedSteps);
 
     [LoggerMessage(EventId = EventIds.GdprErasureEmergencyLockout, Level = LogLevel.Warning, Message = "Emergency lockout applied for user {UserId} after a failed GDPR erasure")]
@@ -423,4 +496,9 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     /// wrote the anonymized address, so the account no longer waits.
     /// </summary>
     private sealed record AccountState(bool SaveLanded, bool StillWaits);
+
+    /// <summary>
+    /// One write the cleanup could not make. An exception's message stands in for the reason.
+    /// </summary>
+    private sealed record CleanupFailure(string Reason, Exception? Exception);
 }

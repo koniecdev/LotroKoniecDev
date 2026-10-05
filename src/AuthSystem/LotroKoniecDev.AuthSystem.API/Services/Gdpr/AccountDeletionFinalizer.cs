@@ -76,7 +76,7 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
                 continue;
             }
 
-            Result<AccountErasureOutcome> erasureResult = await _accountErasureService.EraseAsync(user, cancellationToken);
+            Result<AccountErasureOutcome> erasureResult = await _accountErasureService.EraseAsync(user);
 
             if (erasureResult.IsFailure)
             {

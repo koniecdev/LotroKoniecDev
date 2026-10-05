@@ -1,6 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
-using static OpenIddict.Abstractions.OpenIddictConstants;
+using LotroKoniecDev.AuthSystem.API.Extensions;
 
 namespace LotroKoniecDev.AuthSystem.API.Common;
 
@@ -18,10 +18,6 @@ internal static class UserTokenPolicy
         .RequireAssertion(context => IsIssuedToUser(context.User))
         .Build();
 
-    // The user id is a GUID. This reads it the way the account endpoints do, so the policy and the
-    // handler always look at the same claim.
     private static bool IsIssuedToUser(ClaimsPrincipal principal) =>
-        Guid.TryParse(
-            principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? principal.FindFirstValue(Claims.Subject),
-            out _);
+        Guid.TryParse(principal.FindUserId(), out _);
 }

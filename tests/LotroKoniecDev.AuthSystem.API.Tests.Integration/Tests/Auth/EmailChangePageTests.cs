@@ -22,6 +22,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 public sealed partial class EmailChangePageTests : EndpointsTestBase
 {
     private const string Password = "TestPass1!";
+    private const string UsedLinkCookieName = ".lotrokoniecdev.used-link.email-change";
 
     public EmailChangePageTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
@@ -105,13 +106,16 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ConfirmPage_PostTwice_ShouldRefuseTheSecondTime()
+    public async Task ConfirmPage_PostTheUsedLinkFromAnotherBrowser_ShouldCallItDead()
     {
+        // Only the browser that used the link holds its marker (#941). Anywhere else a used link is dead.
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
         await ConfirmAsync(userId, newEmail, token);
+        using HttpClient otherBrowser = Factory.CreateClient();
 
         HttpResponseMessage replay = await PostToPageAsync(
+            otherBrowser,
             "/Account/ConfirmEmailChange",
             ConfirmUrl(userId, newEmail, token),
             new Dictionary<string, string>
@@ -181,6 +185,81 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         html.ShouldContain("Od teraz logujesz się nowym adresem.");
         html.ShouldNotContain("Link wygasł lub jest nieprawidłowy");
         html.ShouldNotContain("data-testid=\"confirm-email-change-form\"");
+    }
+
+    [Fact]
+    public async Task ConfirmPage_Post_ShouldLeaveTheUsedLinkMarkerInThisBrowser()
+    {
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToPageAsync(
+            browser,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            ConfirmForm(userId, newEmail, token));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        response.Headers.GetValues("Set-Cookie").ShouldContain(cookie => cookie.StartsWith(UsedLinkCookieName + "=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ConfirmPage_GetTheUsedLinkAgainInTheSameBrowser_ShouldShowTheChangeAsDone()
+    {
+        // #941: Back from the done view loads the link again. Its button would send the used link, and the
+        // page would call it dead although the change worked.
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        await ConfirmAsync(userId, newEmail, token);
+
+        HttpResponseMessage back = await ApiClient.Http.GetAsync(new Uri(ConfirmUrl(userId, newEmail, token), UriKind.Relative));
+
+        back.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await back.Content.ReadAsStringAsync();
+        html.ShouldContain("data-testid=\"confirm-email-change-success\"");
+        html.ShouldNotContain("data-testid=\"confirm-email-change-form\"");
+        html.ShouldNotContain("Link wygasł lub jest nieprawidłowy");
+    }
+
+    [Fact]
+    public async Task ConfirmPage_PostTheUsedLinkAgainInTheSameBrowser_ShouldRedirectToTheDoneView()
+    {
+        // A form the browser brings back from its cache can send the used link once more. The link asks for
+        // no input, so the second answer is the first one.
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        (await PostToPageAsync(browser, "/Account/ConfirmEmailChange", ConfirmUrl(userId, newEmail, token), ConfirmForm(userId, newEmail, token)))
+            .StatusCode.ShouldBe(HttpStatusCode.Redirect);
+
+        // The used link now opens the done view, which has no form, so the antiforgery token comes from the
+        // form of another link.
+        HttpResponseMessage replay = await PostToPageAsync(
+            browser,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, "another-token"),
+            ConfirmForm(userId, newEmail, token));
+
+        replay.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        replay.Headers.Location!.OriginalString.ShouldBe("/Account/ConfirmEmailChange?handler=Done");
+    }
+
+    [Fact]
+    public async Task ConfirmPage_GetALinkThisBrowserDidNotUse_ShouldShowTheForm()
+    {
+        // The marker names one link. Another link opened in the same browser still gets its form.
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        await ConfirmAsync(userId, newEmail, token);
+
+        HttpResponseMessage response = await ApiClient.Http.GetAsync(
+            new Uri(ConfirmUrl(userId, newEmail, token + "x"), UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("data-testid=\"confirm-email-change-form\"");
+        html.ShouldNotContain("data-testid=\"confirm-email-change-success\"");
     }
 
     /// <summary>
@@ -685,6 +764,14 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
+
+    private static Dictionary<string, string> ConfirmForm(Guid userId, string newEmail, string token) =>
+        new()
+        {
+            ["UserId"] = userId.ToString(),
+            ["Email"] = newEmail,
+            ["Token"] = token
+        };
 
     private static Dictionary<string, string> RevertForm(Guid userId, string from, string to, string token) =>
         new()

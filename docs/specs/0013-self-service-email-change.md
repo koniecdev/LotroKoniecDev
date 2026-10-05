@@ -338,6 +338,11 @@ outlier and explicitly **not** the pattern here.
   > się nowym adresem". Printing an address from the URL would let a hand-made link show a
   > stranger's choice of address as the account's new login. The password reset page does the same
   > with `?handler=Done`.
+  > **Amended 2026-10-06 (#941):** Back from the done view loads the confirm link again, and its button
+  > sent the used link, which the page called dead. A done confirm now leaves a 30-minute marker cookie
+  > in the browser that sent it. While that cookie names the link, the link's page shows the same done
+  > view, and a POST of the link redirects to it. Nothing is looked up, so the answer reveals nothing
+  > about any account (ADR-0063). The password reset page shows its done view the same way on a GET.
 - **Files touched:** no DAT and no translation artifact. One EF migration,
   `AddEmailChangeRevertFieldsToUsers` — two nullable columns, additive and N-1 safe.
 

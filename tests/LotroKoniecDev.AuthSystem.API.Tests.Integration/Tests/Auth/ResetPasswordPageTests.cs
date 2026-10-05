@@ -11,6 +11,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 public sealed partial class ResetPasswordPageTests : EndpointsTestBase
 {
+    private const string UsedLinkCookieName = ".lotrokoniecdev.used-link.password-reset";
+
     public ResetPasswordPageTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
     [Fact]
@@ -123,6 +125,93 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         html.ShouldNotContain("data-testid=\"reset-password-submit\"");
     }
 
+    [Fact]
+    public async Task ResetPasswordPage_Post_ShouldLeaveTheUsedLinkMarkerInThisBrowser()
+    {
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToResetPasswordPageAsync(browser, ResetForm(registerRequest.Email, resetToken, "NewPass99!"));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        response.Headers.GetValues("Set-Cookie").ShouldContain(cookie => cookie.StartsWith(UsedLinkCookieName + "=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ResetPasswordPage_GetTheUsedLinkAgainInTheSameBrowser_ShouldShowThePasswordAsChanged()
+    {
+        // #941: Back from the done view loads the link again. Its button would send the used link, and the
+        // page would call it dead although the new password works.
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        (await PostToResetPasswordPageAsync(browser, ResetForm(registerRequest.Email, resetToken, "NewPass99!")))
+            .StatusCode.ShouldBe(HttpStatusCode.Redirect);
+
+        HttpResponseMessage back = await browser.GetAsync(new Uri(ResetUrl(registerRequest.Email, resetToken), UriKind.Relative));
+
+        back.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await back.Content.ReadAsStringAsync();
+        html.ShouldContain("data-testid=\"reset-password-success\"");
+        html.ShouldNotContain("data-testid=\"reset-password-submit\"");
+        html.ShouldNotContain("data-testid=\"reset-password-error\"");
+    }
+
+    /// <summary>
+    /// The page answers from the browser's own cookie and the link, and never looks the address up. So the
+    /// answer is the same for an address with an account and one without, with the marker and without it.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    public async Task ResetPasswordPage_Get_ShouldAnswerTheSameWhetherOrNotTheAddressHasAnAccount(
+        bool addressHasAnAccount, bool browserUsedTheLink)
+    {
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        if (browserUsedTheLink)
+        {
+            (await PostToResetPasswordPageAsync(browser, ResetForm(registerRequest.Email, resetToken, "NewPass99!")))
+                .StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        }
+
+        string address = addressHasAnAccount ? registerRequest.Email : Faker.Internet.Email();
+
+        HttpResponseMessage response = await browser.GetAsync(new Uri(ResetUrl(address, resetToken), UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.Contains("data-testid=\"reset-password-success\"", StringComparison.Ordinal).ShouldBe(browserUsedTheLink);
+        html.Contains("data-testid=\"reset-password-submit\"", StringComparison.Ordinal).ShouldBe(!browserUsedTheLink);
+    }
+
+    [Fact]
+    public async Task ResetPasswordPage_PostTheUsedLinkAgainInTheSameBrowser_ShouldNotSayTheNewPasswordIsActive()
+    {
+        // The second send carries a password typed again, maybe a different one. "Hasło zmienione" would then
+        // name the wrong password as the active one, so the POST does not read the marker (ADR-0063).
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        (await PostToResetPasswordPageAsync(browser, ResetForm(registerRequest.Email, resetToken, "NewPass99!")))
+            .StatusCode.ShouldBe(HttpStatusCode.Redirect);
+
+        HttpResponseMessage replay = await PostToResetPasswordPageAsync(browser, ResetForm(registerRequest.Email, resetToken, "OtherPass77!"));
+
+        replay.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await replay.Content.ReadAsStringAsync();
+        html.ShouldContain("data-testid=\"reset-password-error\"");
+        html.ShouldNotContain("data-testid=\"reset-password-success\"");
+    }
+
     [Theory]
     [InlineData("WrongToken", "NewPass99!", "NewPass99!")]
     [InlineData("", "NewPass99!", "NewPass99!")]
@@ -183,6 +272,18 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
 
         return PasswordResetEmailSpy.LastResetToken!;
     }
+
+    private static Dictionary<string, string> ResetForm(string email, string token, string newPassword) =>
+        new()
+        {
+            ["Email"] = email,
+            ["Token"] = token,
+            ["NewPassword"] = newPassword,
+            ["ConfirmPassword"] = newPassword
+        };
+
+    private static string ResetUrl(string email, string token) =>
+        $"/Account/ResetPassword?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
 
     private Task<HttpResponseMessage> PostToResetPasswordPageAsync(Dictionary<string, string> formFields) =>
         PostToResetPasswordPageAsync(ApiClient.Http, formFields);

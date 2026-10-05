@@ -394,7 +394,7 @@
                             <p class="auth-lead">
                                 Na dotychczasowy adres wyślemy wiadomość z linkiem, którym w razie potrzeby cofniesz tę zmianę.
                             </p>
-                            <form method="post" data-testid="confirm-email-change-form" data-submit-once>
+                            <form method="post" data-testid="confirm-email-change-form" data-submit-once data-recheck-when-restored>
                                 <input type="hidden" asp-for="UserId" />
                                 <input type="hidden" asp-for="Email" />
                                 <input type="hidden" asp-for="Token" />

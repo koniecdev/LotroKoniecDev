@@ -82,11 +82,12 @@ internal static class EventIds
     public const int SingleSessionRevoked = 2303;
     public const int SingleSessionRevocationFailed = 2304;
 
-    // Token and Sign-in Session Pruning (2310-2319)
+    // Token Pruning and Sign-in Sessions (2310-2319)
     public const int OpenIddictPruneCompleted = 2310;
     public const int OpenIddictPruneFailed = 2311;
     public const int SignInSessionPruneCompleted = 2312;
     public const int SignInSessionPruneFailed = 2313;
+    public const int SignInSessionUnreadable = 2314;
 
     // Outbox Relay (2320-2329)
     public const int OutboxRelayPassFailed = 2320;

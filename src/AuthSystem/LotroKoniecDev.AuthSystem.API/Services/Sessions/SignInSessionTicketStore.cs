@@ -18,7 +18,7 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Sessions;
 /// A singleton, because the cookie options hold one instance. Each call opens its own scope, so the
 /// store never saves changes that belong to the request's own <see cref="AuthDbContext"/>.
 /// </remarks>
-internal sealed class SignInSessionTicketStore : ITicketStore
+internal sealed partial class SignInSessionTicketStore : ITicketStore
 {
     /// <summary>
     /// Not the cookie's own purpose, so a stored ticket can never be pasted in as a cookie.
@@ -29,13 +29,16 @@ internal sealed class SignInSessionTicketStore : ITicketStore
 
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IDataProtector _protector;
+    private readonly ILogger<SignInSessionTicketStore> _logger;
 
     public SignInSessionTicketStore(
         IServiceScopeFactory serviceScopeFactory,
-        IDataProtectionProvider dataProtectionProvider)
+        IDataProtectionProvider dataProtectionProvider,
+        ILogger<SignInSessionTicketStore> logger)
     {
         _serviceScopeFactory = serviceScopeFactory;
         _protector = dataProtectionProvider.CreateProtector(ProtectorPurpose);
+        _logger = logger;
     }
 
     public Task<string> StoreAsync(AuthenticationTicket ticket) =>
@@ -83,6 +86,10 @@ internal sealed class SignInSessionTicketStore : ITicketStore
     public Task<AuthenticationTicket?> RetrieveAsync(string key) =>
         RetrieveAsync(key, CancellationToken.None);
 
+    /// <summary>
+    /// Ignores the request's token, like <see cref="RemoveAsync(string, CancellationToken)"/>: a sign-out
+    /// reads the session before it deletes it, and a read cut short there would leave the session alive.
+    /// </summary>
     public async Task<AuthenticationTicket?> RetrieveAsync(string key, CancellationToken cancellationToken)
     {
         if (!TryParseKey(key, out Guid id))
@@ -92,12 +99,11 @@ internal sealed class SignInSessionTicketStore : ITicketStore
 
         await using AsyncServiceScope scope = _serviceScopeFactory.CreateAsyncScope();
         AuthDbContext dbContext = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
-        byte[]? protectedTicket = await dbContext.SignInSessions
-            .Where(session => session.Id == id)
-            .Select(session => session.ProtectedTicket)
-            .SingleOrDefaultAsync(cancellationToken);
+        SignInSession? session = await dbContext.SignInSessions
+            .AsNoTracking()
+            .SingleOrDefaultAsync(session => session.Id == id, CancellationToken.None);
 
-        return protectedTicket is null ? null : Unprotect(protectedTicket);
+        return session is null ? null : Unprotect(session);
     }
 
     public Task RemoveAsync(string key) =>
@@ -126,17 +132,19 @@ internal sealed class SignInSessionTicketStore : ITicketStore
 
     /// <summary>
     /// A row that no key can open any more reads as no session, the same answer the cookie handler gives
-    /// a cookie it cannot open: the user signs in again.
+    /// a cookie it cannot open: the user signs in again. It is still worth a warning, because the cookie
+    /// that named this row was opened with the same keyring.
     /// </summary>
-    private AuthenticationTicket? Unprotect(byte[] protectedTicket)
+    private AuthenticationTicket? Unprotect(SignInSession session)
     {
         byte[] serializedTicket;
         try
         {
-            serializedTicket = _protector.Unprotect(protectedTicket);
+            serializedTicket = _protector.Unprotect(session.ProtectedTicket);
         }
-        catch (CryptographicException)
+        catch (CryptographicException exception)
         {
+            LogSessionUnreadable(_logger, exception, session.UserId);
             return null;
         }
 
@@ -157,4 +165,7 @@ internal sealed class SignInSessionTicketStore : ITicketStore
 
     private static bool TryParseKey(string key, out Guid id) =>
         Guid.TryParseExact(key, KeyFormat, out id);
+
+    [LoggerMessage(EventId = EventIds.SignInSessionUnreadable, Level = LogLevel.Warning, Message = "A stored sign-in session of user {UserId} could not be decrypted, so its cookie no longer signs anyone in. Check the Data Protection keyring if this repeats.")]
+    private static partial void LogSessionUnreadable(ILogger logger, Exception exception, Guid userId);
 }

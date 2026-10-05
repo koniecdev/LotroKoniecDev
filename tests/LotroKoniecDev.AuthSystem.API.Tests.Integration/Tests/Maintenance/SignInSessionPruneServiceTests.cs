@@ -107,6 +107,43 @@ public sealed class SignInSessionPruneServiceTests : EndpointsTestBase
         await Should.ThrowAsync<OperationCanceledException>(() => pruneService.PruneOnceAsync(shutdown.Token));
     }
 
+    [Fact]
+    public async Task PruneOnceAsync_ShouldSwallowACancellationThatIsNotAShutdown()
+    {
+        // Arrange: a cancellation the host did not ask for is a failure like any other
+        Guid userId = await RegisterUserAsync();
+        Guid expiredSessionId = await AddSessionAsync(userId, FixedUtcNow.AddDays(-1));
+        Factory.DbCommandFailures.FailNext(
+            command => command.CommandText.Contains(
+                $"DELETE FROM {DatabaseSchemas.Auth}.\"SignInSessions\"", StringComparison.Ordinal),
+            () => new OperationCanceledException());
+        using SignInSessionPruneService pruneService = CreatePruneService();
+
+        // Act & Assert
+        await Should.NotThrowAsync(() => pruneService.PruneOnceAsync(CancellationToken.None));
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        (await SessionExistsAsync(expiredSessionId)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task StartAsync_StoppedBeforeTheStartupDelayEnds_NeverPrunes()
+    {
+        // Arrange: the real clock, so the one-minute startup delay cannot end within this test
+        Guid userId = await RegisterUserAsync();
+        Guid expiredSessionId = await AddSessionAsync(userId, DateTimeOffset.UtcNow.AddDays(-1));
+        using SignInSessionPruneService pruneService = new(
+            Factory.Services.GetRequiredService<IServiceScopeFactory>(),
+            TimeProvider.System,
+            NullLogger<SignInSessionPruneService>.Instance);
+
+        // Act
+        await pruneService.StartAsync(CancellationToken.None);
+        await pruneService.StopAsync(CancellationToken.None);
+
+        // Assert
+        (await SessionExistsAsync(expiredSessionId)).ShouldBeTrue();
+    }
+
     private SignInSessionPruneService CreatePruneService()
     {
         TimeProvider timeProvider = Substitute.For<TimeProvider>();

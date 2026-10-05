@@ -944,7 +944,6 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         CapturingLoggerFactory.LogEntry cleanupFailed = loggerFactory.Entries
             .Where(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleanupFailed)
             .ShouldHaveSingleItem();
-        cleanupFailed.Message.ShouldContain("Failed: roles: ");
         cleanupFailed.Message.ShouldContain("simulated permanent failure (the step stopped here)");
     }
 

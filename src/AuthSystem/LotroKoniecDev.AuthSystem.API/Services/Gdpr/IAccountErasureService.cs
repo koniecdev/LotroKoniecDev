@@ -10,10 +10,10 @@ internal interface IAccountErasureService
     /// When the emergency lock failed too, that is assumed, not known.
     /// It takes no cancellation token, so the stop signal of a shutdown does not end an erasure halfway.
     /// No later run comes back to an erased account, so a cleanup step that a shutdown skipped would
-    /// never be done (#981). Only killing the process can still cut an erasure, for example Docker at the
-    /// end of its stop grace period. The log may then show the "auth data anonymized" line with no
-    /// cleanup line after it. A kill can lose the last log lines too, so the sure sign is an anonymized
-    /// account that still has roles, claims or logins.
+    /// never be done (#981). Only the end of the process can still cut an erasure: Docker's kill at the
+    /// end of its stop grace period, or the host giving up after its own stop timeout. The log may then
+    /// show the "auth data anonymized" line with no cleanup line after it. A kill can lose the last log
+    /// lines too, so the sure sign is an anonymized account that still has roles, claims or logins.
     /// The cleanup may empty the context, so <paramref name="user"/> must not be saved afterwards.
     /// </summary>
     Task<Result<AccountErasureOutcome>> EraseAsync(ApplicationUser user);

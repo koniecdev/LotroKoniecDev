@@ -396,10 +396,15 @@ oraz że hint należy do klienta, do którego należy `post_logout_redirect_uri`
 ważności: stary ID token działa, dopóki jego sesja żyje, a hint sesji już zakończonej nic nie robi.
 Potem `IUserSessionRevoker.RevokeSessionAsync(authorizationId)`: najpierw autoryzacja, potem jej tokeny
 jednym bulk update (`RevokeByAuthorizationIdAsync`), w tej samej kolejności co `RevokeAllAsync` przy
-zmianie hasła. Na koniec `SignOutAsync` czyści cookie `auth-api` tej przeglądarki.
-Cookie Identity nie wskazuje sesji: należy do przeglądarki, nie do jednego logowania strony. Dlatego
-logout bez ważnego hintu niczego nie rewokuje, tylko czyści cookie. Frontend zawsze wysyła hint, gdy
-ma sesję (`AuthEndpointsExtensions.LogoutAsync`).
+zmianie hasła. Na koniec `SignOutAsync` czyści cookie `auth-api` tej przeglądarki i usuwa z bazy jego
+sesję (ADR-0062): cookie niesie tylko klucz sesji, a sama sesja leży w tabeli `SignInSessions`
+(`SignInSessionTicketStore`), więc skopiowane cookie przestaje działać razem z oryginałem. Każde
+logowanie dostaje nową sesję (`SignInSessionCookieHandler` usuwa najpierw sesję starego cookie tej
+przeglądarki), więc kopia starego cookie nie przejmuje nowego logowania, a wylogowanie czyści cookie
+przeglądarki nawet przy błędzie bazy.
+Cookie Identity nie wskazuje sesji strony: należy do przeglądarki, nie do jednego logowania strony.
+Dlatego logout bez ważnego hintu niczego nie rewokuje, tylko kończy sesję cookie. Frontend zawsze
+wysyła hint, gdy ma sesję (`AuthEndpointsExtensions.LogoutAsync`).
 Na innych urządzeniach żyją i sesje strony, i cookie `auth-api` — tak ma być. Wszystkie sesje naraz
 kończy zmiana hasła (i reset, zmiana e-maila, usunięcie konta), które zmieniają security stamp.
 
@@ -423,7 +428,8 @@ trafiają w to samo cookie). 8 h sliding.
 `acceptedTermsOfService` **muszą być `true`**, data każdej zgody stemplowana na `ApplicationUser`.
 `DeleteAccount` **planuje** kasowanie RODO z 14-dniowym oknem anulowania (ADR-0031): konto
 zablokowane na czas okna, sesje i tokeny rewokowane, jednorazowy link anulowania mailem;
-erasure wykonuje finalizer po upływie okna, a anulowanie wymusza reset hasła.
+erasure wykonuje finalizer po upływie okna (usuwa też zapisane sesje cookie `auth-api` — ADR-0062),
+a anulowanie wymusza reset hasła.
 `auth/account/data-export` = eksport danych.
 
 ### 10.8 Walidacja kluczy w produkcji

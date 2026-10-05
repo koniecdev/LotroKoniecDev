@@ -4,7 +4,8 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Sessions;
 
 /// <summary>
 /// The <see cref="IUserSessionRevoker"/> built on the OpenIddict token and authorization managers. Every
-/// flow that ends sessions goes through this one class.
+/// flow that ends website sessions goes through this one class. The sign-in server's own cookie sessions
+/// end through its cookie handler and the security stamp (ADR-0062).
 /// </summary>
 internal sealed partial class UserSessionRevoker : IUserSessionRevoker
 {

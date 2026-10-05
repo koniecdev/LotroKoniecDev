@@ -1,8 +1,10 @@
 using System.Globalization;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
@@ -127,21 +129,35 @@ try
     {
         options.DefaultScheme = OpenIddict.Validation.AspNetCore.OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
     })
-    .AddCookie(Microsoft.AspNetCore.Identity.IdentityConstants.ApplicationScheme, options =>
-    {
-        options.LoginPath = "/Account/Login";
-        options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
-        options.SlidingExpiration = true;
-        options.Cookie.Name = "LotroKoniecDev.Auth";
-        options.Cookie.HttpOnly = true;
-        options.Cookie.SameSite = SameSiteMode.Strict;
-        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    // AddCookie with our own handler, which gives every sign-in a new session key (ADR-0062). AddCookie
+    // cannot name a handler, so the scheme is added directly, and the post-configure line and the
+    // Validate call below are the rest of what AddCookie registers.
+    .AddScheme<CookieAuthenticationOptions, SignInSessionCookieHandler>(
+        Microsoft.AspNetCore.Identity.IdentityConstants.ApplicationScheme,
+        options =>
+        {
+            options.LoginPath = "/Account/Login";
+            options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
+            options.SlidingExpiration = true;
+            options.Cookie.Name = "LotroKoniecDev.Auth";
+            options.Cookie.HttpOnly = true;
+            options.Cookie.SameSite = SameSiteMode.Strict;
+            options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
 
-        // Check the Identity security stamp on every request, so a password reset, change or delete,
-        // which all change the stamp, drops an auth cookie that is still valid before it can get fresh
-        // tokens from /connect/authorize (SEC-03, #282).
-        options.Events.OnValidatePrincipal = SecurityStampCookieValidator.ValidatePrincipalAsync;
-    });
+            // Check the Identity security stamp on every request, so a password reset, change or delete,
+            // which all change the stamp, drops an auth cookie that is still valid before it can get fresh
+            // tokens from /connect/authorize (SEC-03, #282).
+            options.Events.OnValidatePrincipal = SecurityStampCookieValidator.ValidatePrincipalAsync;
+        });
+
+    builder.Services.TryAddEnumerable(
+        ServiceDescriptor.Singleton<IPostConfigureOptions<CookieAuthenticationOptions>, PostConfigureCookieAuthenticationOptions>());
+
+    // The cookie carries only a session key, and the session lives in the auth database (ADR-0062).
+    builder.Services
+        .AddOptions<CookieAuthenticationOptions>(Microsoft.AspNetCore.Identity.IdentityConstants.ApplicationScheme)
+        .Validate(options => options.Cookie.Expiration == null, "Cookie.Expiration is ignored, use ExpireTimeSpan instead.")
+        .Configure<SignInSessionTicketStore>((options, ticketStore) => options.SessionStore = ticketStore);
 
     builder.Services.AddAuthorization();
     builder.Services.AddRazorPages()

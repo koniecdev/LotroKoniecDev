@@ -6,6 +6,7 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationRoles.Entities;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Inbox;
 using LotroKoniecDev.AuthSystem.Persistence.Outbox;
+using LotroKoniecDev.AuthSystem.Persistence.Sessions;
 
 namespace LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 
@@ -18,6 +19,8 @@ public sealed class AuthDbContext : IdentityDbContext<ApplicationUser, Applicati
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     public DbSet<InboxMessage> InboxMessages => Set<InboxMessage>();
+
+    public DbSet<SignInSession> SignInSessions => Set<SignInSession>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {

@@ -106,6 +106,7 @@ internal static class ApiDependencyInjection
             services.AddHostedService<AccountDeletionFinalizerHostedService>();
 
             services.AddScoped<IUserSessionRevoker, UserSessionRevoker>();
+            services.AddSingleton<SignInSessionTicketStore>();
             services.AddScoped<IEmailChangeRevertWindow, EmailChangeRevertWindow>();
             services.AddScoped<IEmailChangeRevertReservation, EmailChangeRevertReservation>();
 
@@ -179,6 +180,9 @@ internal static class ApiDependencyInjection
             // PERF-02: reference refresh tokens add one row per refresh and nothing else deletes them,
             // so expired and invalid tokens and authorizations are cleaned up once a day.
             services.AddHostedService<OpenIddictPruneService>();
+
+            // ADR-0062: expired sign-in sessions whose cookie never came back.
+            services.AddHostedService<SignInSessionPruneService>();
 
             // Checks the OpenIddict server config at startup and stops the app when it is wrong
             // (ADR-0008 §3, M6-05). OpenIddictSettingsValidator requires real keys and an issuer in

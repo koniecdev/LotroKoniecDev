@@ -32,6 +32,7 @@ internal sealed class CleanerService
                                                  authsystem."UserTokens",
                                                  authsystem."OpenIddictTokens",
                                                  authsystem."OpenIddictAuthorizations",
+                                                 authsystem."SignInSessions",
                                                  authsystem."Users",
                                                  authsystem."OutboxMessages",
                                                  authsystem."InboxMessages"

@@ -58,9 +58,15 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         {
             // A stored sign-in session holds the name and e-mail too (ADR-0062). It goes before the
             // anonymizing save: the finalizer retries an account only until that save lands, so a delete
-            // that came after it and failed would never run again. No token, like the save itself.
+            // that came after it and failed would never run again. It runs only while the account still
+            // waits, by the emergency lock's rule: an owner who cancelled meanwhile may have signed in
+            // again. No token, like the save itself.
+            Guid userId = user.Id;
             await _dbContext.SignInSessions
-                .Where(session => session.UserId == user.Id)
+                .Where(session => session.UserId == userId
+                                  && _dbContext.Users.Any(u => u.Id == userId
+                                                               && u.DeletionScheduledAt != null
+                                                               && !u.Email!.EndsWith(AnonymizationConstants.EmailDomain)))
                 .ExecuteDeleteAsync(CancellationToken.None);
 
             // Then anonymize the auth user data, which is the core GDPR requirement.

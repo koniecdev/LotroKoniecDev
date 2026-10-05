@@ -731,6 +731,39 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task Erasure_ShouldKeepTheOwnersNewSignInSession_WhenTheOwnerCancelledTheDeletionMeanwhile()
+    {
+        // The erasure read the account, then the owner followed the cancel link and signed in again. Their
+        // new session must survive the erasure that lost.
+
+        // Arrange
+        (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        ApplicationUser readBeforeTheCancel = await db.Users.SingleAsync(row => row.Id == identityId.Value);
+
+        HttpResponseMessage cancelResponse = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/account/cancel-deletion", UriKind.Relative),
+            new CancelAccountDeletionRequest(registerRequest.Email, cancelToken));
+        cancelResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await AddSignInSessionAsync(identityId.Value);
+
+        IAccountErasureService erasureService = scope.ServiceProvider.GetRequiredService<IAccountErasureService>();
+
+        // Act
+        Result<AccountErasureOutcome> erasureResult =
+            await erasureService.EraseAsync(readBeforeTheCancel, CancellationToken.None);
+
+        // Assert
+        erasureResult.IsSuccess.ShouldBeTrue();
+        erasureResult.Value.ShouldBe(AccountErasureOutcome.NoLongerWaiting);
+        (await CountSignInSessionsAsync(identityId.Value)).ShouldBe(1);
+    }
+
+    [Fact]
     public async Task Finalizer_ShouldDeleteTheSignInSessionsOnTheNextRun_WhenTheDeleteFailed()
     {
         // The delete runs before the anonymizing save. Once that save lands the finalizer never comes back

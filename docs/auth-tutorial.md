@@ -413,8 +413,11 @@ sieć, restart `auth-api`). Dlatego frontend przed redirectem sam rewokuje swój
 `token` + `token_type_hint=refresh_token` + `client_id` (klient publiczny, bez sekretu) przez
 `ITokenEndpointClient` z kontrolą originu i kluczem frontendu (ADR-0054). Ma limit 5 s, nie zależy od
 `RequestAborted` (zamknięta karta to właśnie ten przypadek), a błąd tylko loguje i nie zatrzymuje
-wylogowania. Kopia cookie strony nie odnowi się już po wygaśnięciu access tokena. Autoryzację i resztę
-tokenów kończy nadal `connect/logout`, gdy przeglądarka tam dotrze.
+wylogowania. Na żądaniu wylogowania `CookieTokenRefresher` nie odświeża tokena i niczego nie sprawdza
+(czyści tylko znacznik martwej sesji): odświeżenie zużyłoby bieżący refresh token, a zużyty OpenIddict
+przyjmuje jeszcze przez okno reuse leeway (domyślnie 30 s), więc rewokacja trafiłaby w nowy token, a
+nie w ten z kopii cookie. Kopia cookie strony nie odnowi się już po wygaśnięciu access tokena.
+Autoryzację i resztę tokenów kończy nadal `connect/logout`, gdy przeglądarka tam dotrze.
 Na innych urządzeniach żyją i sesje strony, i cookie `auth-api` — tak ma być. Wszystkie sesje naraz
 kończy zmiana hasła (i reset, zmiana e-maila, usunięcie konta), które zmieniają security stamp.
 

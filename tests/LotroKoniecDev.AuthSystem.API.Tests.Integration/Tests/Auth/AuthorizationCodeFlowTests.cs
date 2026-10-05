@@ -698,7 +698,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     }
 
     [Fact]
-    public async Task Discovery_ShouldAdvertiseTheRevocationEndpoint()
+    public async Task Discovery_ShouldAdvertiseTheRevocationEndpoint_WhenAnyClientAsks()
     {
         // Arrange: the website finds the endpoint here, never by a path of its own (#964)
 
@@ -755,6 +755,9 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         WebsiteSession session = await SignInThroughTheWebsiteAsync();
         using HttpResponseMessage revokeResponse = await RevokeAsync(session.RefreshToken);
         revokeResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        List<string?> statusesAfterTheRevoke =
+            await OpenIddictTokenState.AuthorizationStatusesOfAsync(Factory.Services, session.UserId);
+        statusesAfterTheRevoke.ShouldHaveSingleItem().ShouldBe(OpenIddictConstants.Statuses.Valid);
 
         // Act
         using HttpResponseMessage response = await SignOutAsync(session.IdToken, authCookies: []);

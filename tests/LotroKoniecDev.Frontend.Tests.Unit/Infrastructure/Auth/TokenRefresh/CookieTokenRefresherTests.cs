@@ -261,6 +261,157 @@ public sealed class CookieTokenRefresherTests : IDisposable
         sessionExpiryNotice.Received(1).Raise();
     }
 
+    /// <summary>
+    /// #964: the sign-out revokes the stored refresh token. A refresh first would redeem it, and OpenIddict
+    /// still accepts a redeemed token for its reuse window, so the token in a copied cookie would survive.
+    /// </summary>
+    [Theory]
+    [InlineData("/auth/logout")]
+    [InlineData("/AUTH/Logout")]
+    [InlineData("/auth/logout/")]
+    public async Task ValidateAsync_OnTheSignOutRequestNearExpiry_KeepsTheStoredRefreshTokenUnredeemed(string path)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse
+            {
+                AccessToken = "refreshed-access-token",
+                RefreshToken = "rotated-refresh-token",
+                ExpiresIn = 300
+            });
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token",
+            path: path);
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldNotBeNull();
+        context.ShouldRenew.ShouldBeFalse();
+        context.Properties.GetTokenValue(RefreshTokenName).ShouldBe("refresh-token");
+    }
+
+    [Theory]
+    [InlineData("/auth/logout-everywhere")]
+    [InlineData("/auth/logoutx")]
+    [InlineData("/auth/logout/extra")]
+    [InlineData("/auth/login")]
+    public async Task ValidateAsync_OnAPathThatOnlyLooksLikeTheSignOut_StillRefreshes(string path)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse
+            {
+                AccessToken = "refreshed-access-token",
+                RefreshToken = "rotated-refresh-token",
+                ExpiresIn = 300
+            });
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token",
+            path: path);
+
+        await refresher.ValidateAsync(context);
+
+        context.Properties.GetTokenValue(RefreshTokenName).ShouldBe("rotated-refresh-token");
+    }
+
+    /// <summary>
+    /// The sign-out ends the session itself, so a dead-session marker must not reject it first: that would
+    /// hide the tokens from the sign-out and show the "session expired" notice to a user who signed out.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_OnTheSignOutRequestWhenMarkedDead_KeepsTheSessionForTheSignOut()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
+        deadSessionRegistry.ConsumeAsync(Subject, Arg.Any<CancellationToken>()).Returns(true);
+        ISessionExpiryNotice sessionExpiryNotice = Substitute.For<ISessionExpiryNotice>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            deadSessionRegistry: deadSessionRegistry,
+            sessionExpiryNotice: sessionExpiryNotice);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddHours(1),
+            refreshToken: "refresh-token",
+            path: "/auth/logout");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldNotBeNull();
+        sessionExpiryNotice.DidNotReceive().Raise();
+    }
+
+    /// <summary>
+    /// A marker left behind would end the user's next sign-in at once, so the sign-out still reads it, and
+    /// a dropped request must not stop that read. Reading it is invisible in the result, hence the check.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_OnTheSignOutRequest_ClearsTheDeadSessionMarkerEvenWhenTheBrowserLeft()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            deadSessionRegistry: deadSessionRegistry);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddHours(1),
+            path: "/auth/logout",
+            requestAborted: new CancellationToken(canceled: true));
+
+        await refresher.ValidateAsync(context);
+
+        await deadSessionRegistry.Received(1).ConsumeAsync(
+            Subject, Arg.Is<CancellationToken>(token => !token.IsCancellationRequested));
+    }
+
+    /// <summary>
+    /// Off the sign-out, a token signed by an unknown key is rejected and a dropped request throws. On the
+    /// sign-out neither may happen, or the sign-out never reads the tokens it has to revoke.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_OnTheSignOutRequestAfterTheBrowserLeft_KeepsTheSessionWithoutChecks()
+    {
+        RsaSecurityKey actualSigningKey = CreateRsaKey();
+        RsaSecurityKey trustedKey = CreateRsaKey();
+        string accessToken = MintAccessToken(actualSigningKey, tokenIssuer: DiscoveryIssuer);
+
+        CookieTokenRefresher refresher = CreateRefresher(trustedKeys: [trustedKey], discoveryIssuer: DiscoveryIssuer);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddHours(1),
+            refreshToken: "refresh-token",
+            path: "/auth/logout",
+            requestAborted: new CancellationToken(canceled: true));
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldNotBeNull();
+    }
+
     public void Dispose()
     {
         foreach (RSA rsa in _rsaInstances)
@@ -316,15 +467,19 @@ public sealed class CookieTokenRefresherTests : IDisposable
         string accessToken,
         IAuthenticationService authenticationService,
         DateTimeOffset expiresAt,
-        string? refreshToken = null)
+        string? refreshToken = null,
+        string path = "/",
+        CancellationToken requestAborted = default)
     {
         ServiceCollection services = new();
         services.AddSingleton(authenticationService);
 
         DefaultHttpContext httpContext = new()
         {
-            RequestServices = services.BuildServiceProvider()
+            RequestServices = services.BuildServiceProvider(),
+            RequestAborted = requestAborted
         };
+        httpContext.Request.Path = path;
 
         ClaimsPrincipal principal = new(new ClaimsIdentity(
             [new Claim("sub", Subject)],

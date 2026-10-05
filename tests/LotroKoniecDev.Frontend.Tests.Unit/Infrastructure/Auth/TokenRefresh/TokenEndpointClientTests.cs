@@ -389,7 +389,7 @@ public sealed class TokenEndpointClientTests
     /// of its kind and the client id, sent to the endpoint the discovery document named.
     /// </summary>
     [Fact]
-    public async Task RevokeRefreshTokenAsync_SendsTheTokenItsKindAndTheClientIdToTheGivenEndpoint()
+    public async Task RevokeRefreshTokenAsync_Always_SendsTheTokenItsKindAndTheClientIdToTheGivenEndpoint()
     {
         StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
         using HttpClient httpClient = CreateHttpClient(transport);

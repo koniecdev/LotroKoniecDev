@@ -690,9 +690,10 @@ The cross-service settings that are individually valid but break the system when
    Encrypt cert, so this is free; only the local parity stack needs the CA shim). One more coupling:
    the frontend's `AuthSystem__BaseUrl` MUST share the issuer's origin. The sign-out revoke goes to the
    `revocation_endpoint` from discovery, which OpenIddict builds from `OpenIddict__Issuer`, and the
-   frontend refuses an endpoint off `AuthSystem__BaseUrl`'s origin. A mismatch shows only as one
-   warning per sign-out, and the session is then revoked only if the browser reaches `connect/logout`
-   (#964).
+   frontend refuses an endpoint off `AuthSystem__BaseUrl`'s origin. A mismatch shows only as two
+   warnings per sign-out ("Refused an API request to …" and "Refresh token revocation at sign-out
+   threw an exception."), and the session is then revoked only if the browser reaches
+   `connect/logout` (#964).
 
 3. **Frontend redirect URIs must be registered at the auth server.** The frontend sends
    `redirect_uri = <its public origin> + AuthSystem__CallbackPath` (and post-logout = origin +

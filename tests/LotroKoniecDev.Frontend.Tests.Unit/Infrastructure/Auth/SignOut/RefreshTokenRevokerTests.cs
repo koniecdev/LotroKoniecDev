@@ -142,6 +142,33 @@ public sealed class RefreshTokenRevokerTests
         entry.Message.ShouldBe("Refresh token revocation at sign-out failed with an unexpected exception.");
     }
 
+    [Fact]
+    public async Task RevokeAsync_WhenTheOidcOptionsCannotBeBuilt_LogsOneWarningAndDoesNotThrow()
+    {
+        IOptionsMonitor<OpenIdConnectOptions> optionsMonitor = Substitute.For<IOptionsMonitor<OpenIdConnectOptions>>();
+        optionsMonitor.Get(OpenIdConnectDefaults.AuthenticationScheme)
+            .Returns(_ => throw new OptionsValidationException(
+                OpenIdConnectDefaults.AuthenticationScheme, typeof(OpenIdConnectOptions), ["The options are invalid."]));
+        StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
+        using HttpClient httpClient = new(transport) { BaseAddress = new Uri(AuthBaseUrl) };
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        RefreshTokenRevoker revoker = new(
+            new TokenEndpointClient(
+                httpClient,
+                Microsoft.Extensions.Options.Options.Create(CreateSettings()),
+                loggerFactory.CreateLogger<TokenEndpointClient>()),
+            optionsMonitor,
+            TimeProvider.System,
+            loggerFactory.CreateLogger<RefreshTokenRevoker>());
+
+        await revoker.RevokeAsync(RefreshToken);
+
+        transport.LastRequest.ShouldBeNull();
+        logs.Entries.ShouldHaveSingleItem().Message
+            .ShouldBe("Refresh token revocation at sign-out failed with an unexpected exception.");
+    }
+
     /// <summary>
     /// The sign-out waits for the revoke, so a discovery fetch that never answers must not hold it past
     /// the limit, even if the configuration manager ignores the token.

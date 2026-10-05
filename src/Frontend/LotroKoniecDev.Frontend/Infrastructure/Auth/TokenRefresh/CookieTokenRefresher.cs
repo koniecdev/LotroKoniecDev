@@ -18,8 +18,8 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// refresh token. When the token is still valid by the local clock, it also checks the token's
 /// signature against the cached OIDC keys, so a key that was rotated upstream signs the user out
 /// cleanly instead of letting a token that is already dead reach the API.
-/// Every rejection sets the one-time "session expired" notice. A user's own <c>/auth/logout</c> does not
-/// come through here, so it never sets it.
+/// Every rejection sets the one-time "session expired" notice. On the user's own <c>/auth/logout</c> it
+/// only clears the marker and checks nothing else, so it never sets the notice there (#964).
 /// </summary>
 internal sealed class CookieTokenRefresher
 {
@@ -57,6 +57,16 @@ internal sealed class CookieTokenRefresher
 
     public async Task ValidateAsync(CookieValidatePrincipalContext context)
     {
+        // The sign-out ends the session itself and revokes the stored refresh token (#964). A refresh
+        // here would redeem that token first, and OpenIddict still accepts a redeemed token for a short
+        // reuse window, so the revoke would miss the token a copied cookie holds. A failed refresh would
+        // even throw the token away. So the sign-out request is not checked at all.
+        if (IsSignOutRequest(context.HttpContext.Request))
+        {
+            await ClearDeadSessionMarkerAsync(context);
+            return;
+        }
+
         CancellationToken cancellationToken = context.HttpContext.RequestAborted;
 
         // The fallback path: on an earlier request the TMS delegating handler saw a 401 and marked this
@@ -241,6 +251,22 @@ internal sealed class CookieTokenRefresher
 
         cancellationToken.ThrowIfCancellationRequested();
         return result.IsValid;
+    }
+
+    private static bool IsSignOutRequest(HttpRequest request) =>
+        request.Path.StartsWithSegments(AuthenticationDependencyInjectionExtensions.LogoutPath, out PathString remaining)
+        && (!remaining.HasValue || remaining == "/");
+
+    /// <summary>
+    /// A marker left behind would end the user's next sign-in at once. The request's own token is not used:
+    /// a browser that drops the sign-out request must not stop it.
+    /// </summary>
+    private async Task ClearDeadSessionMarkerAsync(CookieValidatePrincipalContext context)
+    {
+        if (GetSubject(context) is { } subject)
+        {
+            await _deadSessionRegistry.ConsumeAsync(subject, CancellationToken.None);
+        }
     }
 
     private static string? GetSubject(CookieValidatePrincipalContext context)

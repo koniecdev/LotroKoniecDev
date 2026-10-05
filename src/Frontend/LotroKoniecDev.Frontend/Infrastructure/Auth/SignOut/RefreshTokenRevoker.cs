@@ -46,20 +46,20 @@ internal sealed class RefreshTokenRevoker
     {
         using CancellationTokenSource timeLimit = new(TimeLimit, _timeProvider);
 
-        Uri? revocationEndpoint = await ResolveRevocationEndpointAsync(timeLimit.Token);
-        if (revocationEndpoint is null)
-        {
-            return;
-        }
-
         try
         {
+            Uri? revocationEndpoint = await ResolveRevocationEndpointAsync(timeLimit.Token);
+            if (revocationEndpoint is null)
+            {
+                return;
+            }
+
             await _tokenEndpointClient.RevokeRefreshTokenAsync(revocationEndpoint, refreshToken, timeLimit.Token);
         }
         catch (Exception exception)
         {
-            // The client logs every failure it expects. This catches the rest, because an exception here
-            // would undo the sign-out: the error page drops the header that deletes the cookie.
+            // Every failure we expect is logged further in. This catches the rest, because an exception
+            // here would undo the sign-out: the error page drops the header that deletes the cookie.
             LogRevocationFailedUnexpectedly(_logger, exception);
         }
     }

@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -47,7 +46,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         _logger = logger;
     }
 
-    public async Task<Result<AccountErasureOutcome>> EraseAsync(ApplicationUser user, CancellationToken cancellationToken)
+    public async Task<Result<AccountErasureOutcome>> EraseAsync(ApplicationUser user)
     {
         LogGdprErasureInitiated(_logger, user.Id);
 
@@ -130,7 +129,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
 
         // Best-effort cleanup: revoke the tokens and remove roles, claims and logins. The account is
         // already anonymized and locked, so a failure here does not break GDPR compliance.
-        await CleanupAuthArtifactsAsync(user.Id, cancellationToken);
+        await CleanupAuthArtifactsAsync(user.Id);
 
         LogAccountDeleted(_logger, user.Id);
 
@@ -240,117 +239,136 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     /// them, and OpenIddict undoes them only after a lost concurrency check. The next save would send
     /// them again and fail with them, so every failure empties the context first (#981).
     /// </summary>
-    private async Task CleanupAuthArtifactsAsync(Guid userId, CancellationToken cancellationToken)
+    /// <remarks>
+    /// It takes no cancellation token, like the save before it. No later run comes back to an erased
+    /// account, so a step that a shutdown skipped would never be done.
+    /// </remarks>
+    private async Task CleanupAuthArtifactsAsync(Guid userId)
     {
         string subject = userId.ToString();
-        (string Step, IAsyncEnumerable<string> Failures)[] steps =
+        (string Step, IAsyncEnumerable<CleanupFailure> Failures)[] steps =
         [
-            ("tokens", RevokeTokensAsync(subject, cancellationToken)),
-            ("authorizations", RevokeAuthorizationsAsync(subject, cancellationToken)),
-            ("roles", RemoveRolesAsync(userId, cancellationToken)),
-            ("claims", RemoveClaimsAsync(userId, cancellationToken)),
-            ("logins", RemoveLoginsAsync(userId, cancellationToken))
+            ("tokens", RevokeTokensAsync(subject)),
+            ("authorizations", RevokeAuthorizationsAsync(subject)),
+            ("roles", RemoveRolesAsync(userId)),
+            ("claims", RemoveClaimsAsync(userId)),
+            ("logins", RemoveLoginsAsync(userId))
         ];
 
-        List<string> failedSteps = [];
-        List<Exception> exceptions = [];
+        List<(string Step, CleanupFailure Failure)> failed = [];
 
-        foreach ((string step, IAsyncEnumerable<string> failures) in steps)
+        foreach ((string step, IAsyncEnumerable<CleanupFailure> failures) in steps)
         {
             try
             {
-                await foreach (string failure in failures)
+                await foreach (CleanupFailure failure in failures)
                 {
-                    failedSteps.Add($"{step}: {failure}");
+                    failed.Add((step, failure));
                     _dbContext.ChangeTracker.Clear();
                 }
             }
             catch (Exception ex)
             {
-                exceptions.Add(ex);
-                failedSteps.Add($"{step}: {ex.GetBaseException().Message}");
+                failed.Add((step, new CleanupFailure(ex.GetBaseException().Message, ex)));
                 _dbContext.ChangeTracker.Clear();
             }
         }
 
-        if (failedSteps.Count == 0)
+        if (failed.Count == 0)
         {
             LogArtifactsCleaned(_logger, userId);
             return;
         }
 
+        List<Exception> exceptions = failed
+            .Select(entry => entry.Failure.Exception)
+            .OfType<Exception>()
+            .ToList();
         Exception? exception = exceptions.Count switch
         {
             0 => null,
             1 => exceptions[0],
             _ => new AggregateException(exceptions)
         };
-        LogArtifactsCleanupFailed(_logger, exception, userId, string.Join("; ", failedSteps));
+        LogArtifactsCleanupFailed(
+            _logger,
+            exception,
+            userId,
+            string.Join("; ", failed.Select(entry => $"{entry.Step}: {entry.Failure.Reason}")));
     }
 
-    private async IAsyncEnumerable<string> RevokeTokensAsync(
-        string subject,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+    private async IAsyncEnumerable<CleanupFailure> RevokeTokensAsync(string subject)
     {
-        await foreach (object token in _tokenManager.FindBySubjectAsync(subject, cancellationToken))
+        await foreach (object token in _tokenManager.FindBySubjectAsync(subject))
         {
-            if (!await _tokenManager.TryRevokeAsync(token, cancellationToken))
+            if (!await _tokenManager.TryRevokeAsync(token))
             {
-                yield return $"{await _tokenManager.GetIdAsync(token, cancellationToken)} not revoked";
+                yield return new CleanupFailure($"{await _tokenManager.GetIdAsync(token)} not revoked", Exception: null);
             }
         }
     }
 
-    private async IAsyncEnumerable<string> RevokeAuthorizationsAsync(
-        string subject,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+    private async IAsyncEnumerable<CleanupFailure> RevokeAuthorizationsAsync(string subject)
     {
-        await foreach (object authorization in _authorizationManager.FindBySubjectAsync(subject, cancellationToken))
+        await foreach (object authorization in _authorizationManager.FindBySubjectAsync(subject))
         {
-            if (!await _authorizationManager.TryRevokeAsync(authorization, cancellationToken))
+            if (!await _authorizationManager.TryRevokeAsync(authorization))
             {
-                yield return $"{await _authorizationManager.GetIdAsync(authorization, cancellationToken)} not revoked";
+                yield return new CleanupFailure(
+                    $"{await _authorizationManager.GetIdAsync(authorization)} not revoked",
+                    Exception: null);
             }
         }
     }
 
-    private async IAsyncEnumerable<string> RemoveRolesAsync(
-        Guid userId,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+    private async IAsyncEnumerable<CleanupFailure> RemoveRolesAsync(Guid userId)
     {
-        ApplicationUser account = await FindAccountAsync(userId, cancellationToken);
+        ApplicationUser account = await FindAccountAsync(userId);
         IList<string> roles = await _userManager.GetRolesAsync(account);
         if (roles.Count > 0 && await _userManager.RemoveFromRolesAsync(account, roles) is { Succeeded: false } result)
         {
-            yield return Describe(result);
+            yield return new CleanupFailure(Describe(result), Exception: null);
         }
     }
 
-    private async IAsyncEnumerable<string> RemoveClaimsAsync(
-        Guid userId,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+    private async IAsyncEnumerable<CleanupFailure> RemoveClaimsAsync(Guid userId)
     {
-        ApplicationUser account = await FindAccountAsync(userId, cancellationToken);
+        ApplicationUser account = await FindAccountAsync(userId);
         IList<Claim> claims = await _userManager.GetClaimsAsync(account);
         if (claims.Count > 0 && await _userManager.RemoveClaimsAsync(account, claims) is { Succeeded: false } result)
         {
-            yield return Describe(result);
+            yield return new CleanupFailure(Describe(result), Exception: null);
         }
     }
 
-    private async IAsyncEnumerable<string> RemoveLoginsAsync(
-        Guid userId,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+    private async IAsyncEnumerable<CleanupFailure> RemoveLoginsAsync(Guid userId)
     {
-        IList<UserLoginInfo> logins = await _userManager.GetLoginsAsync(await FindAccountAsync(userId, cancellationToken));
+        IList<UserLoginInfo> logins = await _userManager.GetLoginsAsync(await FindAccountAsync(userId));
         foreach (UserLoginInfo login in logins)
         {
-            ApplicationUser account = await FindAccountAsync(userId, cancellationToken);
-            IdentityResult result = await _userManager.RemoveLoginAsync(account, login.LoginProvider, login.ProviderKey);
-            if (!result.Succeeded)
+            if (await TryRemoveLoginAsync(userId, login) is { } failure)
             {
-                yield return $"{login.LoginProvider}: {Describe(result)}";
+                yield return failure;
             }
+        }
+    }
+
+    /// <summary>
+    /// Catches its own exception, so one login that cannot be removed does not keep the logins after it.
+    /// </summary>
+    private async Task<CleanupFailure?> TryRemoveLoginAsync(Guid userId, UserLoginInfo login)
+    {
+        try
+        {
+            ApplicationUser account = await FindAccountAsync(userId);
+            IdentityResult result = await _userManager.RemoveLoginAsync(account, login.LoginProvider, login.ProviderKey);
+            return result.Succeeded
+                ? null
+                : new CleanupFailure($"{login.LoginProvider}: {Describe(result)}", Exception: null);
+        }
+        catch (Exception ex)
+        {
+            return new CleanupFailure($"{login.LoginProvider}: {ex.GetBaseException().Message}", ex);
         }
     }
 
@@ -359,8 +377,8 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     /// before the failure may carry a concurrency stamp that was never saved, or one another write has
     /// replaced, and every save of it would fail on that stamp (#981).
     /// </summary>
-    private async Task<ApplicationUser> FindAccountAsync(Guid userId, CancellationToken cancellationToken) =>
-        await _dbContext.Users.FindAsync([userId], cancellationToken)
+    private async Task<ApplicationUser> FindAccountAsync(Guid userId) =>
+        await _dbContext.Users.FindAsync(userId)
         ?? throw new InvalidOperationException($"User {userId} is not in the database.");
 
     /// <summary>
@@ -474,4 +492,9 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     /// wrote the anonymized address, so the account no longer waits.
     /// </summary>
     private sealed record AccountState(bool SaveLanded, bool StillWaits);
+
+    /// <summary>
+    /// One write the cleanup could not make. An exception's message stands in for the reason.
+    /// </summary>
+    private sealed record CleanupFailure(string Reason, Exception? Exception);
 }

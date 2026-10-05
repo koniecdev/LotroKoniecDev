@@ -7,14 +7,18 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 /// Makes the next matching commit throw after PostgreSQL has already saved it. That is what a
 /// connection lost during a commit looks like to the app: it cannot tell whether the data landed, so it
 /// tries again (#839). <see cref="DbCommandFailureInjector"/> cannot reach this moment, because a commit
-/// is not a command. It does nothing until a test arms it, and it disarms itself after one failure.
+/// is not a command. It does nothing until a test arms it, and each armed failure fires once. Arming
+/// one more leaves the others armed, like <see cref="DbCommandFailureInjector"/>, and the failure armed
+/// first takes a commit that two of them match.
 /// </summary>
 public sealed class DbCommitFailureInjector : DbTransactionInterceptor
 {
     private readonly Lock _lock = new();
-    private Func<TransactionEndEventData, bool>? _matches;
-    private Func<Exception>? _createFailure;
+    private readonly List<ArmedFailure> _armed = [];
 
+    /// <summary>
+    /// Counts every failure that fired since the last <see cref="Disarm"/>, whichever arm it came from.
+    /// </summary>
     public int FailuresInjected { get; private set; }
 
     public void FailNextCommitAfterItLands(
@@ -23,9 +27,7 @@ public sealed class DbCommitFailureInjector : DbTransactionInterceptor
     {
         lock (_lock)
         {
-            _matches = matches;
-            _createFailure = createFailure;
-            FailuresInjected = 0;
+            _armed.Add(new ArmedFailure(matches, createFailure));
         }
     }
 
@@ -33,8 +35,7 @@ public sealed class DbCommitFailureInjector : DbTransactionInterceptor
     {
         lock (_lock)
         {
-            _matches = null;
-            _createFailure = null;
+            _armed.Clear();
             FailuresInjected = 0;
         }
     }
@@ -48,12 +49,12 @@ public sealed class DbCommitFailureInjector : DbTransactionInterceptor
 
         lock (_lock)
         {
-            if (_matches is not null && _createFailure is not null && _matches(eventData))
+            int index = _armed.FindIndex(armed => armed.Matches(eventData));
+            if (index >= 0)
             {
-                failure = _createFailure();
+                failure = _armed[index].CreateFailure();
+                _armed.RemoveAt(index);
                 FailuresInjected++;
-                _matches = null;
-                _createFailure = null;
             }
         }
 
@@ -61,4 +62,6 @@ public sealed class DbCommitFailureInjector : DbTransactionInterceptor
             ? base.TransactionCommittedAsync(transaction, eventData, cancellationToken)
             : Task.FromException(failure);
     }
+
+    private sealed record ArmedFailure(Func<TransactionEndEventData, bool> Matches, Func<Exception> CreateFailure);
 }

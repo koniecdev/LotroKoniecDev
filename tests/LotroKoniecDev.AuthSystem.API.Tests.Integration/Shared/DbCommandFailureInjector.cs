@@ -7,37 +7,39 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 /// Makes the next database command that matches fail before it reaches PostgreSQL. A test uses it to
 /// stop a unit of work between two of its writes, which is the moment a real outage or a killed
 /// process can hit and nothing else in this suite can reach (#839). It does nothing until a test arms
-/// it, and it disarms itself after the failure it was asked for.
+/// it, and each armed failure fires once. A test may arm more than one, for a run that has to meet two
+/// failures (#980). Arming one more leaves the others armed. When one command matches two of them, the
+/// failure armed first takes it, and the ones armed after it never see that command. So a predicate
+/// that counts the commands it sees counts fewer than ran when an earlier arm overlaps it.
 /// </summary>
 public sealed class DbCommandFailureInjector : DbCommandInterceptor
 {
     private readonly Lock _lock = new();
-    private Func<DbCommand, bool>? _matches;
-    private Func<Exception>? _createFailure;
-    private bool _failAfterItRuns;
+    private readonly List<ArmedFailure> _armed = [];
 
+    /// <summary>
+    /// Counts every failure that fired since the last <see cref="Disarm"/>, whichever arm it came from.
+    /// </summary>
     public int FailuresInjected { get; private set; }
 
     public void FailNext(Func<DbCommand, bool> matches, Func<Exception> createFailure) =>
-        Arm(matches, createFailure, failAfterItRuns: false);
+        Arm(new ArmedFailure(matches, createFailure, FailAfterItRuns: false));
 
     /// <summary>
     /// Makes the next matching command fail after PostgreSQL has run it. EF sends a save of one row
     /// without a transaction, so PostgreSQL commits it on its own, and this is a save whose answer is
     /// lost on the way back (#962). <see cref="DbCommitFailureInjector"/> cannot reach that save,
     /// because it has no commit of its own. A command inside a transaction never matches: failing it
-    /// would roll it back, which is a different case, and <see cref="FailuresInjected"/> stays 0.
+    /// would roll it back, which is a different case, and it is not counted in <see cref="FailuresInjected"/>.
     /// </summary>
     public void FailNextAfterItRuns(Func<DbCommand, bool> matches, Func<Exception> createFailure) =>
-        Arm(matches, createFailure, failAfterItRuns: true);
+        Arm(new ArmedFailure(matches, createFailure, FailAfterItRuns: true));
 
     public void Disarm()
     {
         lock (_lock)
         {
-            _matches = null;
-            _createFailure = null;
-            _failAfterItRuns = false;
+            _armed.Clear();
             FailuresInjected = 0;
         }
     }
@@ -167,14 +169,11 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
         return base.ScalarExecutedAsync(command, eventData, result, cancellationToken);
     }
 
-    private void Arm(Func<DbCommand, bool> matches, Func<Exception> createFailure, bool failAfterItRuns)
+    private void Arm(ArmedFailure failure)
     {
         lock (_lock)
         {
-            _matches = matches;
-            _createFailure = createFailure;
-            _failAfterItRuns = failAfterItRuns;
-            FailuresInjected = 0;
+            _armed.Add(failure);
         }
     }
 
@@ -188,22 +187,28 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
 
     private Exception? TakeFailureFor(DbCommand command, bool afterItRan)
     {
+        if (afterItRan && command.Transaction is not null)
+        {
+            return null;
+        }
+
         lock (_lock)
         {
-            if (_matches is null
-                || _createFailure is null
-                || _failAfterItRuns != afterItRan
-                || afterItRan && command.Transaction is not null
-                || !_matches(command))
+            // A predicate may count the commands it sees, so it is asked only about commands of its phase.
+            int index = _armed.FindIndex(armed => armed.FailAfterItRuns == afterItRan && armed.Matches(command));
+            if (index < 0)
             {
                 return null;
             }
 
-            Exception failure = _createFailure();
+            // A factory that throws leaves its arm in place and uncounted, so the test fails on its own
+            // setup error and not on a count that is off by one.
+            Exception failure = _armed[index].CreateFailure();
+            _armed.RemoveAt(index);
             FailuresInjected++;
-            _matches = null;
-            _createFailure = null;
             return failure;
         }
     }
+
+    private sealed record ArmedFailure(Func<DbCommand, bool> Matches, Func<Exception> CreateFailure, bool FailAfterItRuns);
 }

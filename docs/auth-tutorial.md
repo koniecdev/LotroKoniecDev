@@ -371,6 +371,11 @@ buduje `ClaimsIdentity` z `sub = client_id`, scope'ami z requestu i `aud = lotro
 stronie `tms-api` taki token przechodzi policy `RequireServiceScope` (scope `service`) — gdyby slice
 tego wymagał (dziś żaden nie wymaga, ale infrastruktura jest gotowa).
 
+W samym `auth-api` taki token nie wejdzie na endpointy konta (`auth/*` z logowaniem). Domyślna policy
+tego API to `UserTokenPolicy`: `sub` musi być GUID-em usera, więc token usługi dostaje 403, zanim ruszy
+handler (#966). Wyjątkiem jest `connect/userinfo`, który ma własną policy i odpowiada `invalid_token`
+(#955).
+
 ---
 
 ## 10. Bezpieczeństwo — co i czemu

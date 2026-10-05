@@ -154,6 +154,7 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
             .WithTags("Account")
             .Produces<AccountDataExportResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status429TooManyRequests);

@@ -103,6 +103,7 @@ internal sealed partial class ExportAccountData : IApiEndpoint
             .WithTags("Account")
             .Produces<AccountDataExportResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
     }
 }

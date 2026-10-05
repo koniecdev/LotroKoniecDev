@@ -1653,7 +1653,8 @@ read paths no longer demand elevation. Why: YAGNI with a written revisit trigger
 
 **ADR-0031 — GDPR account deletion runs through a 14-day grace period.**
 What: `DeleteAccount` no longer erases immediately — it schedules deletion, locks the account
-for a 14-day window (capped at 30 by options validation, inside GDPR Art. 12(3)'s one month),
+for a 14-day window (options validation caps the window plus the finalizer's poll interval at 30
+days, inside GDPR Art. 12(3)'s one month — #946),
 revokes sessions and tokens, and emails a one-time cancel link; a background finalizer performs
 the actual anonymization after the window, and cancelling forces a password reset. Why: with
 password-only confirmation, one credential-stuffing hit could irreversibly erase an account;

@@ -293,8 +293,10 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     }
 
     /// <summary>
-    /// Scheduling the deletion already revoked every token, and OpenIddict's token manager writes a
-    /// revoked token again. Its authorization manager skips one, and so does this.
+    /// OpenIddict's token manager writes a token again even when it is already revoked. Its
+    /// authorization manager does not. Scheduling the deletion has usually revoked the tokens already,
+    /// so this skips a revoked token: the write would change nothing, and if the prune removed the row
+    /// in the meantime, it would log a false failure.
     /// </summary>
     private async IAsyncEnumerable<CleanupFailure> RevokeTokensAsync(string subject)
     {

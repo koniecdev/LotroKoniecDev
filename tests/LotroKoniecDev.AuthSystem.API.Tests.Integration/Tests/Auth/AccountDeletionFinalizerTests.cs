@@ -927,6 +927,28 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task Finalizer_ShouldSayTheStepStopped_WhenACleanupStepThrows()
+    {
+        // A step that throws skips the rest of its own work, and the log has to show that.
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        FailASecondSaveOf(identityId.Value, ErasureSaveFailure.DatabaseError);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        await RunFinalizerAsync(loggerFactory);
+
+        // Assert
+        CapturingLoggerFactory.LogEntry cleanupFailed = loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleanupFailed)
+            .ShouldHaveSingleItem();
+        cleanupFailed.Message.ShouldContain("Failed: roles: ");
+        cleanupFailed.Message.ShouldContain("simulated permanent failure (the step stopped here)");
+    }
+
+    [Fact]
     public async Task Finalizer_ShouldFinishTheCleanup_WhenTheHostStopsAfterTheRunReadTheAccount()
     {
         // A shutdown must not cut an erasure halfway (#981).
@@ -1062,7 +1084,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         // on (#981).
 
         // Arrange
-        IdentityId identityId = await ArrangeTwoLoginsWhoseFirstRemovalFailsAsync(failure);
+        (IdentityId identityId, _) = await ArrangeTwoLoginsWhoseFirstRemovalFailsAsync(failure);
 
         // Act
         int finalizedCount = await RunFinalizerAsync();
@@ -1079,20 +1101,39 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     public async Task Finalizer_ShouldNameOnlyTheFailedLogin_WhenRemovingOneLoginFails(ErasureSaveFailure failure)
     {
         // Arrange
-        IdentityId identityId = await ArrangeTwoLoginsWhoseFirstRemovalFailsAsync(failure);
+        (_, List<string> failedProviders) = await ArrangeTwoLoginsWhoseFirstRemovalFailsAsync(failure);
         using CapturingLoggerFactory loggerFactory = new();
 
         // Act
         await RunFinalizerAsync(loggerFactory);
 
         // Assert
-        string keptProvider = (await LoginProvidersOfAsync(identityId.Value)).ShouldHaveSingleItem();
-        string removedProvider = keptProvider == "Google" ? "Microsoft" : "Google";
+        string failedProvider = failedProviders.ShouldHaveSingleItem();
+        string otherProvider = failedProvider == "Google" ? "Microsoft" : "Google";
         CapturingLoggerFactory.LogEntry cleanupFailed = loggerFactory.Entries
             .Where(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleanupFailed)
             .ShouldHaveSingleItem();
-        cleanupFailed.Message.ShouldContain($"Failed: logins: {keptProvider}: ");
-        cleanupFailed.Message.ShouldNotContain(removedProvider);
+        cleanupFailed.Message.ShouldContain($"Failed: logins: {failedProvider}: ");
+        cleanupFailed.Message.ShouldNotContain(otherProvider);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldNotSayTheStepStopped_WhenRemovingOneLoginThrows()
+    {
+        // Each login catches its own exception, so the logins step goes on after it.
+
+        // Arrange
+        await ArrangeTwoLoginsWhoseFirstRemovalFailsAsync(ErasureSaveFailure.DatabaseError);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        await RunFinalizerAsync(loggerFactory);
+
+        // Assert
+        CapturingLoggerFactory.LogEntry cleanupFailed = loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleanupFailed)
+            .ShouldHaveSingleItem();
+        cleanupFailed.Message.ShouldNotContain("stopped here");
     }
 
     [Fact]
@@ -1409,19 +1450,35 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
 
     /// <summary>
     /// Fails the first login removal of the account, whichever login PostgreSQL hands back first, so the
-    /// other one always comes after it.
+    /// other one always comes after it. The removal carries the account's id because EF sends it in one
+    /// command with the update of the account. The list gets the provider of the login that failed.
     /// </summary>
-    private async Task<IdentityId> ArrangeTwoLoginsWhoseFirstRemovalFailsAsync(ErasureSaveFailure failure)
+    private async Task<(IdentityId IdentityId, List<string> FailedProviders)> ArrangeTwoLoginsWhoseFirstRemovalFailsAsync(
+        ErasureSaveFailure failure)
     {
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
         await AddLoginAsync(identityId.Value, "Google");
         await AddLoginAsync(identityId.Value, "Microsoft");
+        List<string> failedProviders = [];
         Factory.DbCommandFailures.FailNext(
-            command => IsDeleteFrom(command, "UserLogins") && CarriesAccountId(command, identityId.Value),
+            command =>
+            {
+                if (!IsDeleteFrom(command, "UserLogins") || !CarriesAccountId(command, identityId.Value))
+                {
+                    return false;
+                }
+
+                failedProviders.AddRange(command.Parameters
+                    .Cast<DbParameter>()
+                    .Select(parameter => parameter.Value)
+                    .OfType<string>()
+                    .Where(value => value is "Google" or "Microsoft"));
+                return true;
+            },
             () => CreateFailure(failure));
 
-        return identityId;
+        return (identityId, failedProviders);
     }
 
     private void RefuseTheRolesAndClaimsOf(Guid userId) =>

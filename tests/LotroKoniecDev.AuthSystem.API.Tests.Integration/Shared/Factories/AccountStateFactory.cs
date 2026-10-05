@@ -52,6 +52,23 @@ internal static class AccountStateFactory
         }
     }
 
+    /// <summary>
+    /// Deletes the row the way an operator does by hand: nothing is revoked, so every token the account
+    /// already holds is still valid in the database.
+    /// </summary>
+    public static async Task DeleteAsync(IServiceProvider services, string email)
+    {
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        ApplicationUser user = await FindAsync(userManager, email);
+
+        IdentityResult result = await userManager.DeleteAsync(user);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException($"Could not delete test user '{email}'.");
+        }
+    }
+
     public static async Task SpendPasswordResetBudgetAsync(IServiceProvider services, string email)
     {
         await using AsyncServiceScope scope = services.CreateAsyncScope();

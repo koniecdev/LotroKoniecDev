@@ -201,7 +201,8 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
                 return null;
             }
 
-            // A factory that throws leaves its arm in place and uncounted.
+            // A factory that throws leaves its arm in place and uncounted, so the test fails on its own
+            // setup error and not on a count that is off by one.
             Exception failure = _armed[index].CreateFailure();
             _armed.RemoveAt(index);
             FailuresInjected++;

@@ -143,7 +143,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     /// landed with only the answer lost: EF's retry then ran the save again with the old concurrency
     /// stamp, and Identity reported the conflict. Or the account may no longer wait, because its owner
     /// cancelled or another run erased it, and then no run comes back to it. A failed lock is reported as
-    /// a failed lock only when the read says a lock was needed (#980).
+    /// a failed lock only when the read says a lock was needed, or when the read fails too (#980).
     /// </summary>
     private async Task<Result<AccountErasureOutcome>> ResolveFailedSaveAsync(
         Guid userId,

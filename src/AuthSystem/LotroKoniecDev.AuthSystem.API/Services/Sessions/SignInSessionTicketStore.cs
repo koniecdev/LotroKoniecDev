@@ -4,15 +4,15 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Sessions;
 
 namespace LotroKoniecDev.AuthSystem.API.Services.Sessions;
 
 /// <summary>
-/// The session store of the sign-in server's cookie (ADR-0062, #1013). The ticket lives in the auth
-/// database and the cookie carries only its key, so signing out deletes the session on the server and
-/// every copy of the cookie stops working with it.
+/// The session store of the sign-in server's cookie (ADR-0062): the ticket lives in the auth database,
+/// and the cookie carries only its key.
 /// </summary>
 /// <remarks>
 /// A singleton, because the cookie options hold one instance. Each call opens its own scope, so the
@@ -51,7 +51,15 @@ internal sealed partial class SignInSessionTicketStore : ITicketStore
         await using AsyncServiceScope scope = _serviceScopeFactory.CreateAsyncScope();
         AuthDbContext dbContext = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
         dbContext.SignInSessions.Add(session);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (IsPrimaryKeyClash(exception, dbContext))
+        {
+            // The id is new for every sign-in, so only this insert can hold it: the insert landed, its
+            // answer was lost, and EF's retry sent it again (the same case as #962).
+        }
 
         return session.Id.ToString(KeyFormat);
     }
@@ -179,6 +187,13 @@ internal sealed partial class SignInSessionTicketStore : ITicketStore
     private static DateTimeOffset ExpiryOf(AuthenticationTicket ticket) =>
         ticket.Properties.ExpiresUtc
         ?? throw new InvalidOperationException("The cookie handler stored a ticket with no expiry.");
+
+    private static bool IsPrimaryKeyClash(DbUpdateException exception, AuthDbContext dbContext) =>
+        exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } violation
+        && string.Equals(
+            violation.ConstraintName,
+            dbContext.Model.FindEntityType(typeof(SignInSession))?.FindPrimaryKey()?.GetName(),
+            StringComparison.Ordinal);
 
     private static bool TryParseKey(string key, out Guid id) =>
         Guid.TryParseExact(key, KeyFormat, out id);

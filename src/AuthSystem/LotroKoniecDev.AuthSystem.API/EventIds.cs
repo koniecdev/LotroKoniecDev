@@ -88,6 +88,7 @@ internal static class EventIds
     public const int SignInSessionPruneCompleted = 2312;
     public const int SignInSessionPruneFailed = 2313;
     public const int SignInSessionUnreadable = 2314;
+    public const int SignInSessionNotEndedAtSignOut = 2315;
 
     // Outbox Relay (2320-2329)
     public const int OutboxRelayPassFailed = 2320;

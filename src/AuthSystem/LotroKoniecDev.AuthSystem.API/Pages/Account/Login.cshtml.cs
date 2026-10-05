@@ -9,7 +9,6 @@ using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
-using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 
@@ -194,11 +193,9 @@ internal sealed partial class LoginModel : PageModel
         ClaimsIdentity identity = new(claims, IdentityConstants.ApplicationScheme);
         ClaimsPrincipal principal = new(identity);
 
-        // Never HttpContext.SignInAsync directly: the browser may still hold an older cookie, and the new
-        // sign-in must not inherit that cookie's session key (ADR-0062).
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        await SignInSessionCookie.SignInAsync(
-            HttpContext,
+        await HttpContext.SignInAsync(
+            IdentityConstants.ApplicationScheme,
             principal,
             new AuthenticationProperties
             {

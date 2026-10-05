@@ -13,6 +13,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using NSubstitute;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
@@ -21,6 +22,7 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Sessions;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
@@ -188,6 +190,55 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task SignIn_ShouldWork_WhenTheSessionInsertLandedButItsAnswerWasLost()
+    {
+        // Arrange: EF sends the insert again, with the id the landed insert already holds
+        (string email, Guid userId) = await RegisterUserAsync();
+        Factory.DbCommandFailures.FailNextAfterItRuns(
+            command => command.CommandText.Contains(
+                $"INSERT INTO {DatabaseSchemas.Auth}.\"SignInSessions\"", StringComparison.Ordinal),
+            () => new NpgsqlException("The operation has timed out", new TimeoutException()));
+
+        // Act
+        string authCookie = await SignInAsync(email, rememberMe: true);
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        (await AuthorizeAsync(authCookie)).Location.ShouldContain("code=");
+        SignInSession session = (await SessionsOfAsync(userId)).ShouldHaveSingleItem();
+        SessionKeyOf(authCookie).ShouldBe(session.Id.ToString("N"));
+    }
+
+    /// <summary>
+    /// Ending the stored session needs the database. The browser's own cookie must go anyway, or the next
+    /// person at a shared computer is signed in as this user.
+    /// </summary>
+    [Theory]
+    [InlineData("SELECT")]
+    [InlineData("DELETE")]
+    public async Task SignOut_ShouldStillClearTheBrowsersCookie_WhenTheDatabaseFails(string failingStatement)
+    {
+        // Arrange
+        (string email, _) = await RegisterUserAsync();
+        string authCookie = await SignInAsync(email, rememberMe: true);
+        Factory.DbCommandFailures.FailNext(
+            command => command.CommandText.StartsWith(failingStatement, StringComparison.Ordinal)
+                       && command.CommandText.Contains("\"SignInSessions\"", StringComparison.Ordinal),
+            () => new PostgresException(
+                "simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.DataCorrupted));
+
+        // Act
+        using HttpResponseMessage signOutResponse = await SignOutAsync(idTokenHint: null, authCookie);
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        signOutResponse.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        signOutResponse.Headers.GetValues("Set-Cookie").ShouldContain(cookie =>
+            cookie.StartsWith(AuthCookieOptions.Cookie.Name + "=;", StringComparison.Ordinal)
+            && cookie.Contains("expires=Thu, 01 Jan 1970", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task SignIn_ShouldPutOnlyTheSessionKeyInTheCookie()
     {
         // Arrange
@@ -197,12 +248,12 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
         string authCookie = await SignInAsync(email, rememberMe: true);
 
         // Assert: no name, e-mail, user id or security stamp travels in the cookie any more. The claim type
-        // is pinned too, because the login page reads the key under it to end the browser's old session.
+        // is pinned too: our cookie handler reads the key under it to end the browser's old session.
         AuthenticationTicket? cookieTicket = AuthCookieOptions.TicketDataFormat.Unprotect(CookieValueOf(authCookie));
         SignInSession session = (await SessionsOfAsync(userId)).ShouldHaveSingleItem();
         cookieTicket.ShouldNotBeNull();
         Claim sessionKeyClaim = cookieTicket.Principal.Claims.ShouldHaveSingleItem();
-        sessionKeyClaim.Type.ShouldBe(SignInSessionCookie.SessionKeyClaimType);
+        sessionKeyClaim.Type.ShouldBe(SignInSessionCookieHandler.SessionKeyClaimType);
         sessionKeyClaim.Value.ShouldBe(session.Id.ToString("N"));
     }
 

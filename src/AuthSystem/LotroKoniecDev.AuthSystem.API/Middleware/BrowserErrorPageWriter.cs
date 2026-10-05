@@ -7,8 +7,10 @@ namespace LotroKoniecDev.AuthSystem.API.Middleware;
 /// still gets the JSON.
 /// </summary>
 /// <remarks>
-/// Some error answers never reach it: the rate limiter's 429 page, which the limiter writes itself, and
-/// OpenIddict's own protocol errors on <c>/connect/*</c>.
+/// The rate limiter's 429 page never reaches it, because the limiter writes that page itself. OpenIddict's
+/// errors on the sign-in and sign-out links do reach it, through the status-code pages (#912). Its errors
+/// on the token, userinfo, introspection and revocation endpoints do not: only programs call those, and
+/// OAuth says how their JSON looks.
 /// <para>
 /// It has to be registered before <c>AddProblemDetails()</c>. The service asks the writers in order, and
 /// ASP.NET Core's own writer takes a browser too, because a browser also accepts <c>*/*</c>.

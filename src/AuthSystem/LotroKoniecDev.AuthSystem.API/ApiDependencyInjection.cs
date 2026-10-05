@@ -47,7 +47,7 @@ internal static class ApiDependencyInjection
 
             // Must stay before AddProblemDetails(); BrowserErrorPageWriter says why.
             services.AddSingleton<IProblemDetailsWriter, BrowserErrorPageWriter>();
-            services.AddProblemDetails();
+            services.AddProblemDetails(options => options.CustomizeProblemDetails = OpenIddictErrorProblemDetails.Add);
 
             services.ConfigureHttpJsonOptions(jsonOptions =>
             {

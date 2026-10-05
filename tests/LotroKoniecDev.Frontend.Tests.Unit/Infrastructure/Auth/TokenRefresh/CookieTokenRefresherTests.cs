@@ -194,12 +194,13 @@ public sealed class CookieTokenRefresherTests : IDisposable
     /// the session is ended. The answer also carries new tokens, and none of them may be stored.
     /// </summary>
     [Theory]
+    [InlineData(null)]
     [InlineData("")]
     [InlineData(" ")]
     [InlineData("   ")]
     [InlineData("\t\r\n")]
-    public async Task ValidateAsync_WhenRefreshAnswersWithABlankAccessToken_RejectsPrincipalAndStoresNothing(
-        string blankAccessToken)
+    public async Task ValidateAsync_WhenRefreshAnswersWithoutAUsableAccessToken_RejectsPrincipalAndStoresNothing(
+        string? blankAccessToken)
     {
         RsaSecurityKey signingKey = CreateRsaKey();
         string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
@@ -278,16 +279,18 @@ public sealed class CookieTokenRefresherTests : IDisposable
     }
 
     /// <summary>
-    /// The session ends either way, so the log is the only place that says why.
+    /// The session ends either way, so the log is the only place that says why. A warning, because our own
+    /// sign-in server never sends such an answer, so something between us and it is broken.
     /// </summary>
     [Theory]
-    [InlineData("", 300, "blank access_token")]
-    [InlineData("   ", 300, "blank access_token")]
+    [InlineData(null, 300, "missing, empty or blank access_token")]
+    [InlineData("", 300, "missing, empty or blank access_token")]
+    [InlineData("   ", 300, "missing, empty or blank access_token")]
     [InlineData("refreshed-access-token", null, "expires_in: missing")]
     [InlineData("refreshed-access-token", 0, "expires_in: 0")]
     [InlineData("refreshed-access-token", -5, "expires_in: -5")]
-    public async Task ValidateAsync_WhenRefreshAnswerIsUnusable_LogsTheReason(
-        string refreshedAccessToken,
+    public async Task ValidateAsync_WhenRefreshAnswerIsUnusable_LogsOneWarningWithTheReason(
+        string? refreshedAccessToken,
         int? expiresIn,
         string expectedReason)
     {
@@ -310,8 +313,82 @@ public sealed class CookieTokenRefresherTests : IDisposable
         await refresher.ValidateAsync(context);
 
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
-        entry.Level.ShouldBe(LogLevel.Information);
+        entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldContain(expectedReason);
+    }
+
+    /// <summary>
+    /// Every rejection raises the one-time "session expired" notice, and an unusable answer is no
+    /// exception. The notice is not visible in the context, hence the check on the substitute.
+    /// </summary>
+    [Theory]
+    [InlineData(null, 300)]
+    [InlineData("   ", 300)]
+    [InlineData("refreshed-access-token", null)]
+    [InlineData("refreshed-access-token", 0)]
+    public async Task ValidateAsync_WhenRefreshAnswerIsUnusable_RaisesTheExpiryNotice(
+        string? refreshedAccessToken,
+        int? expiresIn)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        ISessionExpiryNotice sessionExpiryNotice = Substitute.For<ISessionExpiryNotice>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse { AccessToken = refreshedAccessToken, ExpiresIn = expiresIn },
+            sessionExpiryNotice: sessionExpiryNotice);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        sessionExpiryNotice.Received(1).Raise();
+    }
+
+    /// <summary>
+    /// #974: a blank refresh or ID token counts as no token, like an empty one. It must not replace the
+    /// stored one: a blank refresh token would fail the next refresh, and a blank ID token would leave the
+    /// sign-out without its hint.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("\t\r\n")]
+    public async Task ValidateAsync_WhenRefreshAnswersWithABlankRefreshOrIdToken_KeepsTheStoredOnes(
+        string? blankToken)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse
+            {
+                AccessToken = "refreshed-access-token",
+                RefreshToken = blankToken,
+                IdToken = blankToken,
+                ExpiresIn = 300
+            });
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token",
+            idToken: "id-token");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldNotBeNull();
+        context.Properties.GetTokenValue(AccessTokenName).ShouldBe("refreshed-access-token");
+        context.Properties.GetTokenValue(RefreshTokenName).ShouldBe("refresh-token");
+        context.Properties.GetTokenValue(IdTokenName).ShouldBe("id-token");
     }
 
     /// <summary>

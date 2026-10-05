@@ -52,7 +52,16 @@ internal sealed class RefreshTokenRevoker
             return;
         }
 
-        await _tokenEndpointClient.RevokeRefreshTokenAsync(revocationEndpoint, refreshToken, timeLimit.Token);
+        try
+        {
+            await _tokenEndpointClient.RevokeRefreshTokenAsync(revocationEndpoint, refreshToken, timeLimit.Token);
+        }
+        catch (Exception exception)
+        {
+            // The client logs every failure it expects. This catches the rest, because an exception here
+            // would undo the sign-out: the error page drops the header that deletes the cookie.
+            LogRevocationFailedUnexpectedly(_logger, exception);
+        }
     }
 
     private async Task<Uri?> ResolveRevocationEndpointAsync(CancellationToken cancellationToken)
@@ -62,7 +71,7 @@ internal sealed class RefreshTokenRevoker
             .ConfigurationManager;
         if (configurationManager is null)
         {
-            LogNoRevocationEndpoint(_logger, null);
+            LogNoConfigurationManager(_logger, null);
             return null;
         }
 
@@ -80,7 +89,7 @@ internal sealed class RefreshTokenRevoker
             return null;
         }
 
-        // On Linux a path such as "/connect/revoke" also parses as absolute, as a file:// address.
+        // On Linux and macOS a path such as "/connect/revoke" also parses as absolute, as a file:// address.
         if (!Uri.TryCreate(configuration.RevocationEndpoint, UriKind.Absolute, out Uri? revocationEndpoint)
             || !IsWebAddress(revocationEndpoint))
         {
@@ -104,5 +113,17 @@ internal sealed class RefreshTokenRevoker
         LoggerMessage.Define(
             LogLevel.Warning,
             new EventId(2, nameof(LogNoRevocationEndpoint)),
-            "The auth server's discovery document names no revocation endpoint, so the refresh token was not revoked at sign-out.");
+            "The auth server's discovery document has no usable revocation endpoint, so the refresh token was not revoked at sign-out.");
+
+    private static readonly Action<ILogger, Exception?> LogNoConfigurationManager =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(3, nameof(LogNoConfigurationManager)),
+            "The OIDC handler has no configuration manager, so the refresh token was not revoked at sign-out.");
+
+    private static readonly Action<ILogger, Exception?> LogRevocationFailedUnexpectedly =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(4, nameof(LogRevocationFailedUnexpectedly)),
+            "Refresh token revocation at sign-out failed with an unexpected exception.");
 }

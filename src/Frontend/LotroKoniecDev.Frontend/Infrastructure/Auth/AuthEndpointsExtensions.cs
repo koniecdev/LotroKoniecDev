@@ -106,9 +106,10 @@ internal static class AuthEndpointsExtensions
 
     /// <summary>
     /// The logout route's handler, internal so a unit test can call it without a web host.
-    /// The redirect below revokes this device's session only if the browser reaches the auth server. So
-    /// the website first revokes its own refresh token server to server, which the same session holds
-    /// (#931, #964). The redirect stays for the auth server's own cookie.
+    /// The redirect below revokes this device's session only if the browser reaches the auth server. The
+    /// refresh token belongs to the same session, so the website revokes it first, server to server. That
+    /// revoke does not depend on the browser (#931, #964). The redirect stays for the auth server's own
+    /// cookie.
     /// </summary>
     internal static async Task<IResult> LogoutAsync(
         HttpContext context,
@@ -122,7 +123,7 @@ internal static class AuthEndpointsExtensions
 
         await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
 
-        if (!string.IsNullOrEmpty(refreshToken))
+        if (!string.IsNullOrWhiteSpace(refreshToken))
         {
             await refreshTokenRevoker.RevokeAsync(refreshToken);
         }

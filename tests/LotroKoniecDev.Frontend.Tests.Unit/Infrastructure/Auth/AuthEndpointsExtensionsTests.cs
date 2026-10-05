@@ -209,6 +209,7 @@ public sealed class AuthEndpointsExtensionsTests
     [InlineData("timed out")]
     [InlineData("503")]
     [InlineData("400")]
+    [InlineData("unexpected exception")]
     public async Task LogoutAsync_WhenTheRevokeFails_StillSignsOutAndRedirectsToTheEndSessionPage(string failure)
     {
         StubHttpMessageHandler authApi = failure switch
@@ -216,6 +217,7 @@ public sealed class AuthEndpointsExtensionsTests
             "connection refused" => StubHttpMessageHandler.Throw(new HttpRequestException("Connection refused.")),
             "timed out" => StubHttpMessageHandler.Throw(new TaskCanceledException("The revoke timed out.")),
             "503" => StubHttpMessageHandler.RespondWith(HttpStatusCode.ServiceUnavailable, string.Empty),
+            "unexpected exception" => StubHttpMessageHandler.Throw(new InvalidOperationException("A new handler failed.")),
             _ => StubHttpMessageHandler.RespondWith(HttpStatusCode.BadRequest, """{"error":"invalid_request"}""")
         };
         IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
@@ -234,6 +236,7 @@ public sealed class AuthEndpointsExtensionsTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
+    [InlineData("   ")]
     public async Task LogoutAsync_WhenTheCookieHoldsNoRefreshToken_RevokesNothingAndStillRedirects(string? refreshToken)
     {
         StubHttpMessageHandler authApi = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);

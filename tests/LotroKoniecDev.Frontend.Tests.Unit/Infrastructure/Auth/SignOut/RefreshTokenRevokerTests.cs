@@ -102,7 +102,7 @@ public sealed class RefreshTokenRevokerTests
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldBe(
-            "The auth server's discovery document names no revocation endpoint, so the refresh token was not revoked at sign-out.");
+            "The auth server's discovery document has no usable revocation endpoint, so the refresh token was not revoked at sign-out.");
     }
 
     [Fact]
@@ -116,7 +116,30 @@ public sealed class RefreshTokenRevokerTests
         await revoker.RevokeAsync(RefreshToken);
 
         transport.LastRequest.ShouldBeNull();
-        logs.Entries.ShouldHaveSingleItem().Level.ShouldBe(LogLevel.Warning);
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldBe(
+            "The OIDC handler has no configuration manager, so the refresh token was not revoked at sign-out.");
+    }
+
+    /// <summary>
+    /// The token client catches only the failures it expects. Anything else must still not escape,
+    /// because an escape after the cookie sign-out would leave the user signed in.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_WhenTheRevokeThrowsAnUnexpectedException_LogsOneWarningAndDoesNotThrow()
+    {
+        StubHttpMessageHandler transport = StubHttpMessageHandler.Throw(new InvalidOperationException("A new handler failed."));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        RefreshTokenRevoker revoker = CreateRevoker(
+            transport, DiscoveryNaming(RevocationEndpoint), loggerFactory: loggerFactory);
+
+        await revoker.RevokeAsync(RefreshToken);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldBe("Refresh token revocation at sign-out failed with an unexpected exception.");
     }
 
     /// <summary>

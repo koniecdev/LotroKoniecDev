@@ -199,6 +199,10 @@ are the answer to that case.
   calls the endpoints named in the auth API's own discovery document, which the frontend trusts as
   the issuer's metadata. So the origin check does not apply to either. Since #899 neither follows a
   redirect, unless other code sets its own back-channel handler first (today only tests do).
+- **Amendment (2026-10-05, #964):** the token client no longer posts only to a fixed path. At
+  sign-out it also follows the `revocation_endpoint` link from the auth API's discovery document,
+  so `SameOriginDelegatingHandler` is now its first handler too, bound to `AuthSystem:BaseUrl`.
+  Only the OIDC back-channel stays outside the origin check.
 
 ## References
 

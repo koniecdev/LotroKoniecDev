@@ -335,7 +335,7 @@ zaszyfrowanej sesji po stronie serwera (`SaveTokens = true`).
 - `MapInboundClaims = false`, `NameClaimType = "name"`, `RoleClaimType = "role"`;
 - `CallbackPath` / `SignedOutCallbackPath` z konfiguracji; scope'y z `settings.Scopes`;
 - `OnValidatePrincipal = CookieTokenRefresher.ValidateAsync` — odświeża wygasający access token z
-  refresh tokena na każdym żądaniu (§8.4);
+  refresh tokena na każdym żądaniu poza `POST /auth/logout` (§8.4);
 - `OnRemoteFailure` / `OnAccessDenied` → dedykowane strony błędów (trace ID zachowany).
 
 ### 8.3 Login / logout flow
@@ -351,8 +351,10 @@ zaszyfrowanej sesji po stronie serwera (`SaveTokens = true`).
 ### 8.4 CookieTokenRefresher
 `Infrastructure/Auth/TokenRefresh/CookieTokenRefresher.cs` na `OnValidatePrincipal`: gdy access token
 bliski wygaśnięcia, wymienia refresh token na nowy w `connect/token` (przez `ITokenEndpointClient`) i
-aktualizuje sesję. Rolling refresh ⇒ stary refresh token unieważniony, nowy zapisany. Martwa sesja
-(refresh odrzucony) ⇒ `DeadSessionRegistry` (czysty re-login).
+aktualizuje sesję. Rolling refresh ⇒ stary refresh token unieważniony, nowy zapisany. Odrzucony
+refresh kończy sesję od razu. 401 z API zostawia znacznik w `DeadSessionRegistry`, a następne żądanie
+kończy po nim sesję (czysty re-login). Na `POST /auth/logout` refresher niczego nie sprawdza i tylko
+czyści ten znacznik, żeby wylogowanie rewokowało bieżący, nie zużyty refresh token (§10.3, #964).
 
 ### 8.5 Wywołania do API z tokenem
 `TranslationContentNegotiationAndAuthDelegatingHandler` dokłada `Authorization: Bearer <access>` (z

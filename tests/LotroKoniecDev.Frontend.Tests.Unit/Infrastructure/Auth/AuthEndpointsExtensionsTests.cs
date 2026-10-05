@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Net;
 using System.Security.Claims;
+using System.Web;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
@@ -9,8 +11,8 @@ using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -336,7 +338,7 @@ public sealed class AuthEndpointsExtensionsTests
             new AuthenticationToken
             {
                 Name = "expires_at",
-                Value = accessTokenExpiresAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture)
+                Value = accessTokenExpiresAt.ToString("o", CultureInfo.InvariantCulture)
             }
         ]);
         ClaimsPrincipal principal = new(new ClaimsIdentity(
@@ -419,7 +421,7 @@ public sealed class AuthEndpointsExtensionsTests
             CancellationToken cancellationToken)
         {
             string body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
-            string token = System.Web.HttpUtility.ParseQueryString(body)["token"] ?? string.Empty;
+            string token = HttpUtility.ParseQueryString(body)["token"] ?? string.Empty;
             _requests.Add($"{request.RequestUri} token={token}");
             return new HttpResponseMessage(HttpStatusCode.OK);
         }

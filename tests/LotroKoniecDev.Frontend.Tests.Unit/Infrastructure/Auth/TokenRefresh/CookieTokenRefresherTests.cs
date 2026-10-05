@@ -288,7 +288,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
             Substitute.For<IAuthenticationService>(),
             expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
             refreshToken: "refresh-token",
-            path: path);
+            path: path,
+            method: "POST");
 
         await refresher.ValidateAsync(context);
 
@@ -297,12 +298,20 @@ public sealed class CookieTokenRefresherTests : IDisposable
         context.Properties.GetTokenValue(RefreshTokenName).ShouldBe("refresh-token");
     }
 
+    /// <summary>
+    /// Only what routing sends to the logout handler skips the check. A GET to the same path ends on the
+    /// 405 page, and skipping there would lose a dead-session marker and let the cookie's sliding renewal
+    /// write back a token that is about to be redeemed.
+    /// </summary>
     [Theory]
-    [InlineData("/auth/logout-everywhere")]
-    [InlineData("/auth/logoutx")]
-    [InlineData("/auth/logout/extra")]
-    [InlineData("/auth/login")]
-    public async Task ValidateAsync_OnAPathThatOnlyLooksLikeTheSignOut_StillRefreshes(string path)
+    [InlineData("POST", "/auth/logout-everywhere")]
+    [InlineData("POST", "/auth/logoutx")]
+    [InlineData("POST", "/auth/logout/extra")]
+    [InlineData("POST", "/auth/login")]
+    [InlineData("GET", "/auth/logout")]
+    [InlineData("HEAD", "/auth/logout")]
+    [InlineData("PUT", "/auth/logout")]
+    public async Task ValidateAsync_OnARequestThatOnlyLooksLikeTheSignOut_StillRefreshes(string method, string path)
     {
         RsaSecurityKey signingKey = CreateRsaKey();
         string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
@@ -321,7 +330,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
             Substitute.For<IAuthenticationService>(),
             expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
             refreshToken: "refresh-token",
-            path: path);
+            path: path,
+            method: method);
 
         await refresher.ValidateAsync(context);
 
@@ -351,7 +361,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
             Substitute.For<IAuthenticationService>(),
             expiresAt: DateTimeOffset.UtcNow.AddHours(1),
             refreshToken: "refresh-token",
-            path: "/auth/logout");
+            path: "/auth/logout",
+            method: "POST");
 
         await refresher.ValidateAsync(context);
 
@@ -379,7 +390,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
             Substitute.For<IAuthenticationService>(),
             expiresAt: DateTimeOffset.UtcNow.AddHours(1),
             path: "/auth/logout",
-            requestAborted: new CancellationToken(canceled: true));
+            requestAborted: new CancellationToken(canceled: true),
+            method: "POST");
 
         await refresher.ValidateAsync(context);
 
@@ -405,7 +417,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
             expiresAt: DateTimeOffset.UtcNow.AddHours(1),
             refreshToken: "refresh-token",
             path: "/auth/logout",
-            requestAborted: new CancellationToken(canceled: true));
+            requestAborted: new CancellationToken(canceled: true),
+            method: "POST");
 
         await refresher.ValidateAsync(context);
 
@@ -469,7 +482,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
         DateTimeOffset expiresAt,
         string? refreshToken = null,
         string path = "/",
-        CancellationToken requestAborted = default)
+        CancellationToken requestAborted = default,
+        string method = "GET")
     {
         ServiceCollection services = new();
         services.AddSingleton(authenticationService);
@@ -480,6 +494,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
             RequestAborted = requestAborted
         };
         httpContext.Request.Path = path;
+        httpContext.Request.Method = method;
 
         ClaimsPrincipal principal = new(new ClaimsIdentity(
             [new Claim("sub", Subject)],

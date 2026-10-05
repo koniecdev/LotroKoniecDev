@@ -253,13 +253,18 @@ internal sealed class CookieTokenRefresher
         return result.IsValid;
     }
 
+    /// <summary>
+    /// The same requests routing sends to the logout handler: POST only, so a GET to the same path, which
+    /// ends on the 405 page, is still checked like any other request.
+    /// </summary>
     private static bool IsSignOutRequest(HttpRequest request) =>
-        request.Path.StartsWithSegments(AuthenticationDependencyInjectionExtensions.LogoutPath, out PathString remaining)
+        HttpMethods.IsPost(request.Method)
+        && request.Path.StartsWithSegments(AuthenticationDependencyInjectionExtensions.LogoutPath, out PathString remaining)
         && (!remaining.HasValue || remaining == "/");
 
     /// <summary>
-    /// A marker left behind would end the user's next sign-in at once. The request's own token is not used:
-    /// a browser that drops the sign-out request must not stop it.
+    /// A marker left behind would end the user's next sign-in, as long as it lives. It does not use the
+    /// request's cancellation token: a browser that drops the sign-out request must not stop it.
     /// </summary>
     private async Task ClearDeadSessionMarkerAsync(CookieValidatePrincipalContext context)
     {

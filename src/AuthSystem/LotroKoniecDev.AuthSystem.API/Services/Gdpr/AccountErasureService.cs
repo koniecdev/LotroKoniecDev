@@ -60,7 +60,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             // anonymizing save: the finalizer retries an account only until that save lands, so a delete
             // that came after it and failed would never run again. It runs only while the account still
             // waits, by the emergency lock's rule: an owner who cancelled meanwhile may have signed in
-            // again. No token, like the save itself.
+            // again.
             Guid userId = user.Id;
             await _dbContext.SignInSessions
                 .Where(session => session.UserId == userId
@@ -161,8 +161,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         try
         {
             // The address is new for every attempt, so only this run's own save can have written it.
-            // "Still waits" is the lock's own rule. The read takes no cancellation token, like the lock
-            // before it: its answer decides whether the cleanup runs.
+            // "Still waits" is the lock's own rule.
             state = await _dbContext.Users
                 .Where(u => u.Id == userId)
                 .Select(u => new AccountState(
@@ -239,10 +238,6 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     /// them, and OpenIddict undoes them only after a lost concurrency check. The next save would send
     /// them again and fail with them, so every failure empties the context first (#981).
     /// </summary>
-    /// <remarks>
-    /// It takes no cancellation token, like the save before it. No later run comes back to an erased
-    /// account, so a step that a shutdown skipped would never be done.
-    /// </remarks>
     private async Task CleanupAuthArtifactsAsync(Guid userId)
     {
         string subject = userId.ToString();
@@ -354,7 +349,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     }
 
     /// <summary>
-    /// Catches its own exception, so one login that cannot be removed does not keep the logins after it.
+    /// Catches its own exception, so the logins after one that fails are still removed.
     /// </summary>
     private async Task<CleanupFailure?> TryRemoveLoginAsync(Guid userId, UserLoginInfo login)
     {
@@ -395,8 +390,6 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     /// The security stamp stays as it is. Scheduling the deletion already ended every session, and
     /// sign-in is refused while a deletion is scheduled. A new stamp would only break the cancel link
     /// the owner may still hold.
-    /// The write takes no cancellation token, like the erasure save before it. A shutdown must not skip
-    /// this one short write, and a cancelled lock would be logged as a failed one.
     /// A failed lock is not logged here, only returned. Whether a lock was needed at all is known only
     /// after the read that follows it, and an account that no longer waits needs none (#980). A lock
     /// that neither landed nor failed matched no row.

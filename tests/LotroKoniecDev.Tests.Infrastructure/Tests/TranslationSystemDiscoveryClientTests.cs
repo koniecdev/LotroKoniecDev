@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using LotroKoniecDev.Application.Abstractions;
@@ -167,6 +168,32 @@ public sealed class TranslationSystemDiscoveryClientTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe(DomainErrors.TranslationFileSync.ResponseTooLargeCode);
+    }
+
+    [Theory]
+    [InlineData("utf8")]
+    [InlineData("bogus")]
+    [InlineData("utf-7")]
+    public async Task FetchLinksAsync_DocumentNamingACharsetDotNetCannotUse_ShouldReadItAsUtf8(string charset)
+    {
+        // Arrange: #972. A proxy in front of the TMS can rewrite the header. Discovery must still find the
+        // links instead of throwing up to the launch command.
+        using HttpResponseMessage response = new(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(Encoding.UTF8.GetBytes(ServiceDocument))
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue(MediaTypes.HateoasJson) { CharSet = charset } }
+            }
+        };
+        using HttpClient httpClient = new(new StubHttpMessageHandler(response));
+        TranslationSystemDiscoveryClient sut = new(httpClient);
+
+        // Act
+        Result<IReadOnlyList<DiscoveredLink>> result = await sut.FetchLinksAsync(BaseUrl, CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldContain(link => link.Rel == "translation-file" && link.Href == DownloadHref);
     }
 
     private static HttpResponseMessage JsonResponse(string body) =>

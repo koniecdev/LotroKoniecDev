@@ -51,9 +51,9 @@ internal static class ImportExportEndpointsExtensions
                 StatusCodes.Status502BadGateway));
         }
 
-        // UTF-8 without a BOM. The TMS endpoint serves the file as Encoding.UTF8 text, and the CLI
-        // download (TranslationFileDownloader, M2-20) reads it with ReadAsStringAsync, the same way this
-        // route does. Encoding it again without a BOM keeps the bytes identical to that proven path.
+        // UTF-8 without a BOM. The TMS endpoint serves the file as Encoding.UTF8 text. This route and the
+        // CLI download (TranslationFileDownloader, M2-20) both decode it as UTF-8 and drop a BOM.
+        // Encoding it again without a BOM keeps the bytes identical to that proven path.
         // The patcher parses the first field as a number, so a BOM at the start would break it.
         byte[] bytes = Encoding.UTF8.GetBytes(result.Value);
 

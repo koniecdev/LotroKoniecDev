@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
@@ -15,6 +16,7 @@ namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 public sealed class ForumPageFetcherTests
 {
     private const string PageContent = "<html>Update 48.0 Release Notes</html>";
+    private const string PolishPageContent = "<html>Aktualizacja 48.0: zażółć gęślą jaźń</html>";
 
     [Fact]
     public async Task FetchReleaseNotesPageAsync_PageWithinTheSizeCap_ShouldReturnItsContent()
@@ -102,6 +104,73 @@ public sealed class ForumPageFetcherTests
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("GameUpdateCheck.NetworkError");
     }
+
+    [Theory]
+    [InlineData("utf8")]
+    [InlineData("bogus")]
+    [InlineData("\"utf8\"")]
+    [InlineData("utf-7")]
+    public async Task FetchReleaseNotesPageAsync_PageNamingACharsetDotNetCannotUse_ShouldReadItAsUtf8(string charset)
+    {
+        // Arrange: #972. The forum is a third-party site, so the header is outside our control. A name
+        // .NET does not know, or refuses like "utf-7", must not stop the launch.
+        using HttpResponseMessage response = BytesResponse(Encoding.UTF8.GetBytes(PolishPageContent), charset);
+        using HttpClient httpClient = new(new StubHttpMessageHandler(response));
+        ForumPageFetcher sut = new(httpClient);
+
+        // Act
+        Result<string> result = await sut.FetchReleaseNotesPageAsync();
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(PolishPageContent);
+    }
+
+    [Fact]
+    public async Task FetchReleaseNotesPageAsync_PageNamingAnUnknownCharsetWithAUtf8ByteOrderMark_ShouldDropTheMark()
+    {
+        // Arrange
+        using HttpResponseMessage response = BytesResponse(
+            [.. Encoding.UTF8.Preamble, .. Encoding.UTF8.GetBytes(PolishPageContent)], "utf8");
+        using HttpClient httpClient = new(new StubHttpMessageHandler(response));
+        ForumPageFetcher sut = new(httpClient);
+
+        // Act
+        Result<string> result = await sut.FetchReleaseNotesPageAsync();
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(PolishPageContent);
+    }
+
+    [Theory]
+    [InlineData("iso-8859-1")]
+    [InlineData("\"iso-8859-1\"")]
+    public async Task FetchReleaseNotesPageAsync_PageNamingAKnownNonUtf8Charset_ShouldStillDecodeItByThatCharset(string charset)
+    {
+        // Arrange: the page is HTML, so a real charset still counts. In Latin-1 "é" is the single byte
+        // 0xE9, which read as UTF-8 would turn into U+FFFD.
+        const string page = "<html>Café</html>";
+        using HttpResponseMessage response = BytesResponse(Encoding.Latin1.GetBytes(page), charset);
+        using HttpClient httpClient = new(new StubHttpMessageHandler(response));
+        ForumPageFetcher sut = new(httpClient);
+
+        // Act
+        Result<string> result = await sut.FetchReleaseNotesPageAsync();
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(page);
+    }
+
+    private static HttpResponseMessage BytesResponse(byte[] body, string charset) =>
+        new(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(body)
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue("text/html") { CharSet = charset } }
+            }
+        };
 
     private static HttpResponseMessage OkResponse(string body) =>
         new(HttpStatusCode.OK)

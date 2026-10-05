@@ -23,6 +23,14 @@ public sealed class TranslationFileDownloaderTests
     /// <summary>Independently computed (shell <c>shasum -a 256</c>), never via the code under test.</summary>
     private const string ContentHash = "579BDE6E87308282DEA0FCB1A3E8AF668BF6F558CC4545457C696EFB75F7FD18";
 
+    private const string PolishContent = "Zażółć gęślą jaźń";
+
+    /// <summary>Independently computed (shell <c>shasum -a 256</c>) over the UTF-8 bytes.</summary>
+    private const string PolishContentHash = "BC5348FD7C2DD8BBF411F0B9268265F7C2E0D31EBF314695882B8170C7E1E9D7";
+
+    /// <summary>Independently computed (shell <c>shasum -a 256</c>) over "polish content " plus the byte 0xE9.</summary>
+    private const string InvalidUtf8ContentHash = "E140F7C67333A1A33122DC54346B931C5230220A033461264E9BCC514DA1CE12";
+
     [Fact]
     public async Task FetchAsync_BodyMatchingTheETagHash_ShouldReturnModifiedContent()
     {
@@ -245,6 +253,60 @@ public sealed class TranslationFileDownloaderTests
         // Assert
         result.IsSuccess.ShouldBeTrue();
         result.Value.IsModified.ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("utf8")]
+    [InlineData("bogus")]
+    [InlineData("utf-7")]
+    public async Task FetchAsync_BodyNamingACharsetDotNetCannotUse_ShouldReadItAsUtf8AndStillMatchTheETagHash(string charset)
+    {
+        // Arrange: #972. A proxy can rewrite the header. The UTF-8 read must keep the exact bytes the
+        // ETag hash covers, so the file is accepted just as it is under "utf-8".
+        using HttpResponseMessage response = BytesResponse(
+            Encoding.UTF8.GetBytes(PolishContent), charset, $"\"{PolishContentHash}\"");
+        using HttpClient httpClient = new(new StubHttpMessageHandler(response));
+        TranslationFileDownloader sut = new(httpClient);
+
+        // Act
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(Endpoint, null, CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.IsModified.ShouldBeTrue();
+        result.Value.Content.ShouldBe(PolishContent);
+    }
+
+    [Fact]
+    public async Task FetchAsync_BodyThatIsNotUtf8UnderAnUnknownCharset_ShouldRejectTheDownloadInsteadOfThrowing()
+    {
+        // Arrange: the ETag is the hash of these exact bytes, but 0xE9 alone is not UTF-8. The UTF-8 read
+        // turns it into U+FFFD, so the text no longer hashes to the ETag and the sync keeps the cached
+        // copy. A fallback read can never let changed text through the integrity check.
+        using HttpResponseMessage response = BytesResponse(
+            [.. Encoding.ASCII.GetBytes("polish content "), 0xE9], "bogus", $"\"{InvalidUtf8ContentHash}\"");
+        using HttpClient httpClient = new(new StubHttpMessageHandler(response));
+        TranslationFileDownloader sut = new(httpClient);
+
+        // Act
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(Endpoint, null, CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe(DomainErrors.TranslationFileSync.IntegrityCheckFailedCode);
+    }
+
+    private static HttpResponseMessage BytesResponse(byte[] body, string charset, string eTag)
+    {
+        HttpResponseMessage response = new(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(body)
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue("text/plain") { CharSet = charset } }
+            }
+        };
+        response.Headers.ETag = new EntityTagHeaderValue(eTag);
+        return response;
     }
 
     private static HttpResponseMessage OkResponse(string body, string? eTag)

@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.Http.Headers;
+using System.Text;
 using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.TranslationSystem.Contracts.Progress;
@@ -386,6 +388,171 @@ public sealed class HttpClientApiExtensionsTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.ShouldBe(new PublicProgressResponse(200, 150, 80, "48.1"));
     }
+
+    /// <summary>
+    /// #972: decoding by the header's charset throws on a name .NET does not know or refuses, such as
+    /// "utf8" or "utf-7". The answer is JSON, so it is read as UTF-8 whatever the header says, with or
+    /// without a UTF-8 byte order mark.
+    /// </summary>
+    public static TheoryData<string?, bool> AnyCharsetWithAndWithoutBom => new()
+    {
+        { "utf-8", false },
+        { null, false },
+        { "utf8", false },
+        { "bogus", false },
+        { "utf-7", false },
+        { "utf-8", true },
+        { null, true },
+        { "utf8", true },
+        { "bogus", true },
+        { "utf-7", true }
+    };
+
+    [Theory]
+    [MemberData(nameof(AnyCharsetWithAndWithoutBom))]
+    public async Task GetApiResultAsync_WhenTheSuccessAnswerNamesAnyCharset_ReadsItAsUtf8(string? charset, bool withBom)
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            Utf8Body("\"Zażółć gęślą jaźń\"", charset, withBom)));
+
+        ApiResult<string> result = await httpClient.GetApiResultAsync<string>("progress");
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe("Zażółć gęślą jaźń");
+    }
+
+    [Theory]
+    [MemberData(nameof(AnyCharsetWithAndWithoutBom))]
+    public async Task GetApiResultAsync_WhenTheErrorAnswerNamesAnyCharset_ReadsTheProblemAsUtf8(string? charset, bool withBom)
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.UnprocessableEntity,
+            Utf8Body("""{ "title": "Nieprawidłowe hasło", "status": 422 }""", charset, withBom)));
+
+        ApiResult<string> result = await httpClient.GetApiResultAsync<string>("auth/account/password");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(422);
+        result.ProblemDetails.Title.ShouldBe("Nieprawidłowe hasło");
+    }
+
+    [Theory]
+    [MemberData(nameof(AnyCharsetWithAndWithoutBom))]
+    public async Task GetTextAsync_WhenTheAnswerNamesAnyCharset_ReturnsTheUtf8TextWithoutTheBom(string? charset, bool withBom)
+    {
+        const string body = "620756992||1001||Zażółć gęślą jaźń||NULL||NULL||1";
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            Utf8Body(body, charset, withBom)));
+
+        ApiResult<string> result = await httpClient.GetTextAsync("translation-files/pl");
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(body);
+    }
+
+    [Theory]
+    [InlineData("utf8")]
+    [InlineData("bogus")]
+    [InlineData("utf-7")]
+    public async Task GetTextAsync_WhenTheErrorAnswerNamesAnUnknownCharset_ReadsTheProblem(string charset)
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.NotFound,
+            Utf8Body("""{ "title": "Brak pliku tłumaczenia", "status": 404 }""", charset, withBom: false)));
+
+        ApiResult<string> result = await httpClient.GetTextAsync("translation-files/pl");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(404);
+        result.ProblemDetails.Title.ShouldBe("Brak pliku tłumaczenia");
+    }
+
+    [Theory]
+    [InlineData("utf8")]
+    [InlineData("bogus")]
+    [InlineData("utf-7")]
+    public async Task PostForHeadersApiResultAsync_WhenTheErrorAnswerNamesAnUnknownCharset_ReadsTheProblem(string charset)
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.UnprocessableEntity,
+            Utf8Body("""{ "title": "Nieprawidłowe hasło", "status": 422 }""", charset, withBom: false)));
+
+        ApiResult<ApiResponseHeaders> result = await httpClient.PostForHeadersApiResultAsync(
+            "auth/account/delete",
+            new { Password = "x" });
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(422);
+        result.ProblemDetails.Title.ShouldBe("Nieprawidłowe hasło");
+    }
+
+    [Theory]
+    [InlineData("utf8")]
+    [InlineData("bogus")]
+    [InlineData("utf-7")]
+    public async Task DeleteApiResultAsync_WhenTheErrorAnswerNamesAnUnknownCharset_ReadsTheProblem(string charset)
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.Conflict,
+            Utf8Body("""{ "title": "Wiersz został już usunięty", "status": 409 }""", charset, withBom: false)));
+
+        ApiResult result = await httpClient.DeleteApiResultAsync("translations/1");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(409);
+        result.ProblemDetails.Title.ShouldBe("Wiersz został już usunięty");
+    }
+
+    [Theory]
+    [InlineData("utf8")]
+    [InlineData("bogus")]
+    public async Task GetApiResultAsync_WhenASuccessBodyWithAnUnknownCharsetIsNotTheApisJson_FailsWithATranslatableBadGatewayProblem(
+        string charset)
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            Utf8Body("<html><body>Maintenance</body></html>", charset, withBom: false)));
+
+        ApiResult<PublicProgressResponse> result =
+            await httpClient.GetApiResultAsync<PublicProgressResponse>("progress");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(StatusCodes.Status502BadGateway);
+        result.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.FrontendAuthoredExtensionKey);
+    }
+
+    [Theory]
+    [InlineData("utf-16")]
+    [InlineData("bogus")]
+    [InlineData(null)]
+    public async Task GetApiResultAsync_WhenASuccessBodyIsUtf16_FailsWithATranslatableBadGatewayProblem(string? charset)
+    {
+        // The header's charset is not read any more, so a correct "utf-16" label does not help, and
+        // neither does a UTF-16 byte order mark with no label: JSON between services is UTF-8
+        // (RFC 8259 §8.1). Read as UTF-8, these bytes are not JSON.
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            BytesBody(
+                [.. Encoding.Unicode.Preamble, .. Encoding.Unicode.GetBytes("\"Zażółć\"")],
+                charset)));
+
+        ApiResult<string> result = await httpClient.GetApiResultAsync<string>("progress");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(StatusCodes.Status502BadGateway);
+        result.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.FrontendAuthoredExtensionKey);
+    }
+
+    private static Func<HttpContent> Utf8Body(string body, string? charset, bool withBom) =>
+        BytesBody(withBom ? [.. Encoding.UTF8.Preamble, .. Encoding.UTF8.GetBytes(body)] : Encoding.UTF8.GetBytes(body), charset);
+
+    private static Func<HttpContent> BytesBody(byte[] body, string? charset) =>
+        () => new ByteArrayContent(body)
+        {
+            Headers = { ContentType = new MediaTypeHeaderValue("application/json") { CharSet = charset } }
+        };
 
     private static HttpClient CreateClient(StubHttpMessageHandler handler)
     {

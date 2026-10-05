@@ -4,10 +4,10 @@ using Microsoft.Extensions.Configuration;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// #855: a 429 from fixed-by-ip says when the caller may try again, so a client such as the CLI does
-/// not have to guess. The limiter is forced on for a derived host, and every test creates its own host,
-/// so its buckets are its own. In Testing <c>UseForwardedHeaders</c> trusts every peer, so
-/// <c>X-Forwarded-For</c> names the caller.
+/// #855: a 429 from fixed-by-ip says how long to wait, so a client such as the CLI does not have to
+/// guess. The value is the whole window, the longest wait, not the time left in it (#892). The limiter is
+/// forced on for a derived host, and every test creates its own host, so its buckets are its own. In
+/// Testing <c>UseForwardedHeaders</c> trusts every peer, so <c>X-Forwarded-For</c> names the caller.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class RetryAfterTests
@@ -46,7 +46,7 @@ public sealed class RetryAfterTests
         overTheLimit.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
         overTheLimit.Headers.RetryAfter.ShouldNotBeNull();
         overTheLimit.Headers.RetryAfter!.Delta.ShouldNotBeNull();
-        overTheLimit.Headers.RetryAfter.Delta!.Value.ShouldBeInRange(TimeSpan.FromSeconds(1), Window);
+        overTheLimit.Headers.RetryAfter.Delta!.Value.ShouldBe(Window);
     }
 
     private static async Task<HttpResponseMessage> GetAsync(HttpClient client, string path, string callerAddress)

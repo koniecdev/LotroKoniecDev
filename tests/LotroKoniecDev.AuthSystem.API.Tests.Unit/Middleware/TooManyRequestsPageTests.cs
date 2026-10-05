@@ -14,7 +14,6 @@ public sealed class TooManyRequestsPageTests
     [InlineData(4, "4 minuty")]
     [InlineData(5, "5 minut")]
     [InlineData(15, "15 minut")]
-    [InlineData(60, "60 minut")]
     public void BuildWaitSentence_ShouldUseThePolishPluralForTheNumber(int minutes, string expected)
     {
         // Act

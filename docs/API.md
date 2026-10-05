@@ -212,8 +212,10 @@ because a fixed window never gives one back. A refusal is a 429 with `Auth.Delet
 
 Every 429 from a limiter policy carries `Retry-After`, and a browser gets a Polish page explaining the
 wait instead of the framework's bare status text. On both APIs `Retry-After` is the window length, so it
-is an upper bound: after it the limit is free again, but it may be free sooner (#892). The page names
-the same number as the longest wait. The 429s from the budgets inside the handlers
+is an upper bound: the window renews within that time (give or take a fraction of a second), and it may
+renew much sooner (#892). Callers that share a limit key, such as everyone behind one address, share
+one window, so a retry after the renewal can still be refused. The page names the same number as the
+longest wait. The 429s from the budgets inside the handlers
 (`Auth.PasswordConfirmationThrottled`, `Auth.EmailChangeRecipientThrottled`,
 `Auth.RegistrationMailboxThrottled`, `Auth.DeletionScheduleThrottled`) carry no `Retry-After`: their
 window is fixed, 15 minutes for the first three and one hour for the deletion schedule. The frontend

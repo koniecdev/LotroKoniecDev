@@ -21,6 +21,8 @@ public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
     /// <summary>Mirrors the forgot-password-limit policy the page carries: 3 POSTs per 15 minutes.</summary>
     private const int ForgotPasswordPermitLimit = 3;
 
+    private static readonly TimeSpan ForgotPasswordWindow = TimeSpan.FromMinutes(15);
+
     private const string ForwardedForHeader = "X-Forwarded-For";
 
     private static readonly Uri LoginPage = new("/Account/Login", UriKind.Relative);
@@ -282,7 +284,7 @@ public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
         lastResponse.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
         lastResponse.Headers.RetryAfter.ShouldNotBeNull();
         lastResponse.Headers.RetryAfter!.Delta.ShouldNotBeNull();
-        lastResponse.Headers.RetryAfter.Delta!.Value.ShouldBeGreaterThan(TimeSpan.Zero);
+        lastResponse.Headers.RetryAfter.Delta!.Value.ShouldBe(ForgotPasswordWindow);
 
         string body = await lastResponse.Content.ReadAsStringAsync();
         body.ShouldContain("Za dużo prób");

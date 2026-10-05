@@ -1,5 +1,7 @@
 using System.Data.Common;
 using System.Net.Http.Headers;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -830,6 +832,140 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         cleanupFailed.Message.ShouldContain(" not revoked.");
     }
 
+    [Theory]
+    [InlineData(ErasureSaveFailure.DatabaseError)]
+    [InlineData(ErasureSaveFailure.LostToAnotherWrite)]
+    public async Task Finalizer_ShouldStillRemoveTheClaims_WhenRemovingTheRolesFails(ErasureSaveFailure failure)
+    {
+        // A failed step used to stop the cleanup, or to leave its changes in the context for the next
+        // save to send again. The claims have nothing wrong of their own, so they go (#981). The roles
+        // stay: their delete went with the failed save, and nothing sends it again.
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        await AddClaimAsync(identityId.Value);
+        FailASecondSaveOf(identityId.Value, failure);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory);
+
+        // Assert
+        finalizedCount.ShouldBe(1);
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        (await HasClaimsAsync(identityId.Value)).ShouldBeFalse();
+        (await HasRolesAsync(identityId.Value)).ShouldBeTrue();
+
+        CapturingLoggerFactory.LogEntry cleanupFailed = loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleanupFailed)
+            .ShouldHaveSingleItem();
+        cleanupFailed.Message.ShouldContain("Failed: roles: ");
+        cleanupFailed.Message.ShouldNotContain("claims: ");
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldNameEachFailedStepAndRemoveTheLogins_WhenTheRolesAndClaimsKeepFailing()
+    {
+        // The database refuses the deletes of the roles and the claims every time. Each of the two steps
+        // fails for its own reason, and neither failed delete goes out again with a later save (#981).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        await AddClaimAsync(identityId.Value);
+        await AddLoginAsync(identityId.Value, "Google");
+        Factory.DbCommandFailures.FailEvery(
+            command => (IsDeleteFrom(command, "UserRoles") || IsDeleteFrom(command, "UserClaims"))
+                       && CarriesAccountId(command, identityId.Value),
+            () => CreateFailure(ErasureSaveFailure.DatabaseError));
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory);
+
+        // Assert
+        finalizedCount.ShouldBe(1);
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(2);
+        (await HasLoginAsync(identityId.Value, "Google")).ShouldBeFalse();
+        (await HasRolesAsync(identityId.Value)).ShouldBeTrue();
+        (await HasClaimsAsync(identityId.Value)).ShouldBeTrue();
+
+        CapturingLoggerFactory.LogEntry cleanupFailed = loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleanupFailed)
+            .ShouldHaveSingleItem();
+        cleanupFailed.Message.ShouldContain("Failed: roles: ");
+        cleanupFailed.Message.ShouldContain("; claims: ");
+        cleanupFailed.Message.ShouldContain("simulated permanent failure");
+        cleanupFailed.Message.ShouldNotContain("logins: ");
+        cleanupFailed.Exception.ShouldBeOfType<AggregateException>().InnerExceptions.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldFinishTheCleanup_WhenOneTokenKeepsFailing()
+    {
+        // OpenIddict keeps a token whose save failed in the context, unless the save lost a concurrency
+        // check. Every later save in the cleanup used to send it again and fail with it (#981).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        string failingTokenId = await CreateValidTokenAsync(identityId.Value);
+        string otherTokenId = await CreateValidTokenAsync(identityId.Value);
+        Factory.DbCommandFailures.FailEvery(
+            command => IsUpdateOfAToken(command) && CarriesValue(command, failingTokenId),
+            () => CreateFailure(ErasureSaveFailure.DatabaseError));
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory);
+
+        // Assert
+        finalizedCount.ShouldBe(1);
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        (await TokenStatusAsync(failingTokenId)).ShouldBe(OpenIddictConstants.Statuses.Valid);
+        (await TokenStatusAsync(otherTokenId)).ShouldBe(OpenIddictConstants.Statuses.Revoked);
+        (await HasRolesAsync(identityId.Value)).ShouldBeFalse();
+
+        CapturingLoggerFactory.LogEntry cleanupFailed = loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleanupFailed)
+            .ShouldHaveSingleItem();
+        cleanupFailed.Message.ShouldContain($"Failed: tokens: {failingTokenId} not revoked. The account");
+        cleanupFailed.Exception.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldRemoveTheOtherLogin_WhenRemovingOneLoginLosesToAnotherWrite()
+    {
+        // The lost save leaves the account in the context with a concurrency stamp that was never saved.
+        // The next login reads the account again instead of failing on that stamp (#981).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        await AddLoginAsync(identityId.Value, "Google");
+        await AddLoginAsync(identityId.Value, "Microsoft");
+        Factory.DbCommandFailures.FailNext(
+            command => IsDeleteFrom(command, "UserLogins") && CarriesValue(command, "Google"),
+            () => CreateFailure(ErasureSaveFailure.LostToAnotherWrite));
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory);
+
+        // Assert
+        finalizedCount.ShouldBe(1);
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        (await HasLoginAsync(identityId.Value, "Google")).ShouldBeTrue();
+        (await HasLoginAsync(identityId.Value, "Microsoft")).ShouldBeFalse();
+
+        CapturingLoggerFactory.LogEntry cleanupFailed = loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleanupFailed)
+            .ShouldHaveSingleItem();
+        cleanupFailed.Message.ShouldContain("Failed: logins: Google: ");
+        cleanupFailed.Message.ShouldNotContain("Microsoft");
+    }
+
     [Fact]
     public async Task Finalizer_ShouldEraseTheOtherDueAccounts_WhenReadingOneAccountFails()
     {
@@ -1134,8 +1270,14 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     private static bool IsUpdateOfAToken(DbCommand command) =>
         command.CommandText.Contains($"UPDATE {DatabaseSchemas.Auth}.\"OpenIddictTokens\"", StringComparison.Ordinal);
 
+    private static bool IsDeleteFrom(DbCommand command, string table) =>
+        command.CommandText.Contains($"DELETE FROM {DatabaseSchemas.Auth}.\"{table}\"", StringComparison.Ordinal);
+
     private static bool CarriesAccountId(DbCommand command, Guid userId) =>
         command.Parameters.Cast<DbParameter>().Any(parameter => parameter.Value is Guid id && id == userId);
+
+    private static bool CarriesValue(DbCommand command, string value) =>
+        command.Parameters.Cast<DbParameter>().Any(parameter => parameter.Value is string text && text == value);
 
     /// <summary>
     /// A write to the account that is not a cancel: the account still waits, but a save that read it
@@ -1163,12 +1305,12 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     /// Gives the account a token of its own, so the test does not depend on the tokens that signing in
     /// left behind.
     /// </summary>
-    private async Task CreateValidTokenAsync(Guid userId)
+    private async Task<string> CreateValidTokenAsync(Guid userId)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         IOpenIddictTokenManager tokenManager = scope.ServiceProvider.GetRequiredService<IOpenIddictTokenManager>();
 
-        await tokenManager.CreateAsync(new OpenIddictTokenDescriptor
+        object token = await tokenManager.CreateAsync(new OpenIddictTokenDescriptor
         {
             Subject = userId.ToString(),
             Type = OpenIddictConstants.TokenTypeHints.RefreshToken,
@@ -1176,6 +1318,17 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
             CreationDate = DateTimeOffset.UtcNow,
             ExpirationDate = DateTimeOffset.UtcNow.AddDays(30)
         });
+
+        return (await tokenManager.GetIdAsync(token))!;
+    }
+
+    private async Task<string?> TokenStatusAsync(string tokenId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        IOpenIddictTokenManager tokenManager = scope.ServiceProvider.GetRequiredService<IOpenIddictTokenManager>();
+
+        object? token = await tokenManager.FindByIdAsync(tokenId);
+        return token is null ? null : await tokenManager.GetStatusAsync(token);
     }
 
     private async Task<bool> HasRolesAsync(Guid userId)
@@ -1183,6 +1336,39 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
         return await db.UserRoles.AnyAsync(userRole => userRole.UserId == userId);
+    }
+
+    private async Task AddClaimAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        ApplicationUser user = await userManager.Users.SingleAsync(row => row.Id == userId);
+        (await userManager.AddClaimAsync(user, new Claim("test-claim", "test-value"))).Succeeded.ShouldBeTrue();
+    }
+
+    private async Task<bool> HasClaimsAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        return await db.UserClaims.AnyAsync(userClaim => userClaim.UserId == userId);
+    }
+
+    private async Task AddLoginAsync(Guid userId, string provider)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        ApplicationUser user = await userManager.Users.SingleAsync(row => row.Id == userId);
+        UserLoginInfo login = new(provider, $"{provider}-{Guid.NewGuid():N}", provider);
+        (await userManager.AddLoginAsync(user, login)).Succeeded.ShouldBeTrue();
+    }
+
+    private async Task<bool> HasLoginAsync(Guid userId, string provider)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        return await db.UserLogins.AnyAsync(userLogin => userLogin.UserId == userId && userLogin.LoginProvider == provider);
     }
 
     private async Task<ApplicationUser> GetUserAsync(Guid userId)

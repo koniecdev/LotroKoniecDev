@@ -7,10 +7,11 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 /// Makes the next database command that matches fail before it reaches PostgreSQL. A test uses it to
 /// stop a unit of work between two of its writes, which is the moment a real outage or a killed
 /// process can hit and nothing else in this suite can reach (#839). It does nothing until a test arms
-/// it, and each armed failure fires once. A test may arm more than one, for a run that has to meet two
-/// failures (#980). Arming one more leaves the others armed. When one command matches two of them, the
-/// failure armed first takes it, and the ones armed after it never see that command. So a predicate
-/// that counts the commands it sees counts fewer than ran when an earlier arm overlaps it.
+/// it, and each armed failure fires once, unless a test armed it with <see cref="FailEvery"/>. A test
+/// may arm more than one, for a run that has to meet two failures (#980). Arming one more leaves the
+/// others armed. When one command matches two of them, the failure armed first takes it, and the ones
+/// armed after it never see that command. So a predicate that counts the commands it sees counts fewer
+/// than ran when an earlier arm overlaps it.
 /// </summary>
 public sealed class DbCommandFailureInjector : DbCommandInterceptor
 {
@@ -23,7 +24,14 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
     public int FailuresInjected { get; private set; }
 
     public void FailNext(Func<DbCommand, bool> matches, Func<Exception> createFailure) =>
-        Arm(new ArmedFailure(matches, createFailure, FailAfterItRuns: false));
+        Arm(new ArmedFailure(matches, createFailure, FailAfterItRuns: false, KeepArmed: false));
+
+    /// <summary>
+    /// Makes every matching command fail until the test ends, like a row the database keeps refusing.
+    /// A failed write that a later save sends again then fails there too (#981).
+    /// </summary>
+    public void FailEvery(Func<DbCommand, bool> matches, Func<Exception> createFailure) =>
+        Arm(new ArmedFailure(matches, createFailure, FailAfterItRuns: false, KeepArmed: true));
 
     /// <summary>
     /// Makes the next matching command fail after PostgreSQL has run it. EF sends a save of one row
@@ -33,7 +41,7 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
     /// would roll it back, which is a different case, and it is not counted in <see cref="FailuresInjected"/>.
     /// </summary>
     public void FailNextAfterItRuns(Func<DbCommand, bool> matches, Func<Exception> createFailure) =>
-        Arm(new ArmedFailure(matches, createFailure, FailAfterItRuns: true));
+        Arm(new ArmedFailure(matches, createFailure, FailAfterItRuns: true, KeepArmed: false));
 
     public void Disarm()
     {
@@ -203,12 +211,21 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
 
             // A factory that throws leaves its arm in place and uncounted, so the test fails on its own
             // setup error and not on a count that is off by one.
-            Exception failure = _armed[index].CreateFailure();
-            _armed.RemoveAt(index);
+            ArmedFailure taken = _armed[index];
+            Exception failure = taken.CreateFailure();
+            if (!taken.KeepArmed)
+            {
+                _armed.RemoveAt(index);
+            }
+
             FailuresInjected++;
             return failure;
         }
     }
 
-    private sealed record ArmedFailure(Func<DbCommand, bool> Matches, Func<Exception> CreateFailure, bool FailAfterItRuns);
+    private sealed record ArmedFailure(
+        Func<DbCommand, bool> Matches,
+        Func<Exception> CreateFailure,
+        bool FailAfterItRuns,
+        bool KeepArmed);
 }

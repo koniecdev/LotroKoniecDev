@@ -27,7 +27,7 @@ internal sealed class CapturingLoggerFactory : ILoggerFactory
     {
     }
 
-    internal sealed record LogEntry(string Category, LogLevel Level, EventId EventId, string Message);
+    internal sealed record LogEntry(string Category, LogLevel Level, EventId EventId, string Message, Exception? Exception);
 
     private sealed class CapturingLogger : ILogger
     {
@@ -52,7 +52,7 @@ internal sealed class CapturingLoggerFactory : ILoggerFactory
             Func<TState, Exception?, string> formatter)
         {
             ArgumentNullException.ThrowIfNull(formatter);
-            _entries.Enqueue(new LogEntry(_category, logLevel, eventId, formatter(state, exception)));
+            _entries.Enqueue(new LogEntry(_category, logLevel, eventId, formatter(state, exception), exception));
         }
     }
 }

@@ -814,7 +814,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
         await CreateValidTokenAsync(identityId.Value);
         Factory.DbCommandFailures.FailNext(
-            IsUpdateOfAToken,
+            command => IsUpdateOf(command, "OpenIddictTokens"),
             () => new DbUpdateConcurrencyException("simulated lost write"));
         using CapturingLoggerFactory loggerFactory = new();
 
@@ -929,25 +929,26 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldFinishTheCleanup_WhenTheHostStopsAfterTheRunReadTheAccount()
     {
-        // No later run comes back to an erased account, so a cleanup step that a shutdown skipped would
-        // never be done (#981).
+        // A shutdown must not cut an erasure halfway (#981).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        string tokenId = await CreateValidTokenAsync(identityId.Value);
         await AddClaimAsync(identityId.Value);
+        await AddLoginAsync(identityId.Value, "Google");
         using CancellationTokenSource shutdown = new();
-        using CapturingLoggerFactory loggerFactory = new();
 
         // Act
-        int finalizedCount = await RunFinalizerAsync(loggerFactory, shutdown.CancelAsync, shutdown.Token);
+        int finalizedCount = await RunFinalizerAsync(NullLoggerFactory.Instance, shutdown.CancelAsync, shutdown.Token);
 
         // Assert
         shutdown.IsCancellationRequested.ShouldBeTrue();
         finalizedCount.ShouldBe(1);
+        (await TokenStatusAsync(tokenId)).ShouldBe(OpenIddictConstants.Statuses.Revoked);
         (await HasRolesAsync(identityId.Value)).ShouldBeFalse();
         (await HasClaimsAsync(identityId.Value)).ShouldBeFalse();
-        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleaned);
+        (await HasLoginAsync(identityId.Value, "Google")).ShouldBeFalse();
     }
 
     [Fact]
@@ -1048,6 +1049,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
             .ShouldHaveSingleItem();
         cleanupFailed.Message.ShouldContain(
             $"Failed: authorizations: {failingAuthorizationId} not revoked. The account");
+        cleanupFailed.Exception.ShouldBeNull();
     }
 
     [Theory]
@@ -1367,7 +1369,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The authorizations come back in the order they were made, the same way as the tokens.
+    /// PostgreSQL most likely hands the authorizations back in the order they were made, like the tokens.
     /// </summary>
     private async Task<(IdentityId IdentityId, string FailingId, string OtherId)> ArrangeAnAuthorizationThatKeepsFailingAsync()
     {
@@ -1383,7 +1385,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The Google login is made first, so it is most likely removed first too.
+    /// The Google login is made first, so it is most likely removed first too, and the Microsoft login
+    /// comes after the one that fails.
     /// </summary>
     private async Task<IdentityId> ArrangeAGoogleLoginThatFailsAsync(ErasureSaveFailure failure)
     {
@@ -1450,9 +1453,6 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         command.CommandText.StartsWith("UPDATE", StringComparison.Ordinal)
         && command.CommandText.Contains("\"DeletionScheduledAt\" IS NOT NULL", StringComparison.Ordinal)
         && CarriesAccountId(command, userId);
-
-    private static bool IsUpdateOfAToken(DbCommand command) =>
-        command.CommandText.Contains($"UPDATE {DatabaseSchemas.Auth}.\"OpenIddictTokens\"", StringComparison.Ordinal);
 
     private static bool IsUpdateOf(DbCommand command, string table) =>
         command.CommandText.Contains($"UPDATE {DatabaseSchemas.Auth}.\"{table}\"", StringComparison.Ordinal);

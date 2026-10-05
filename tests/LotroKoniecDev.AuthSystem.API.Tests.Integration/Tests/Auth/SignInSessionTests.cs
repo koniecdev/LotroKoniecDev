@@ -11,7 +11,10 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Options;
+using NSubstitute;
+using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -123,6 +126,44 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task SignIn_ShouldNotBringBackAStolenCopy_WhenTheBrowserStillHoldsTheOldCookie()
+    {
+        // Arrange: a copy taken before a password change, and the victim's browser still holds the old
+        // cookie when they sign in again. The reset page links straight to the login form.
+        (string email, _) = await RegisterUserAsync();
+        string oldCookie = await SignInAsync(email, rememberMe: true);
+        string stolenCopy = oldCookie;
+        await ChangePasswordAsync(email);
+
+        // Act
+        string newCookie = await SignInAsync(email, rememberMe: true, browserCookie: oldCookie, password: NewPassword);
+
+        // Assert
+        (await AuthorizeAsync(newCookie)).Location.ShouldContain("code=");
+        (HttpStatusCode copyStatus, string copyLocation) = await AuthorizeAsync(stolenCopy);
+        copyStatus.ShouldBe(HttpStatusCode.Redirect);
+        copyLocation.ShouldContain("/Account/Login");
+    }
+
+    [Fact]
+    public async Task SignIn_ShouldStartASessionOfTheNewUser_WhenTheBrowserStillHoldsAnotherUsersCookie()
+    {
+        // Arrange: a shared computer, and the first user never signed out
+        (string firstEmail, Guid firstUserId) = await RegisterUserAsync();
+        (string secondEmail, Guid secondUserId) = await RegisterUserAsync();
+        string firstUsersCookie = await SignInAsync(firstEmail, rememberMe: true);
+
+        // Act
+        string secondUsersCookie = await SignInAsync(secondEmail, rememberMe: true, browserCookie: firstUsersCookie);
+
+        // Assert: a copy of the first user's cookie must not be signed in as the second user
+        SignInSession secondUsersSession = (await SessionsOfAsync(secondUserId)).ShouldHaveSingleItem();
+        SessionKeyOf(secondUsersCookie).ShouldBe(secondUsersSession.Id.ToString("N"));
+        (await SessionsOfAsync(firstUserId)).ShouldBeEmpty();
+        (await AuthorizeAsync(firstUsersCookie)).Location.ShouldContain("/Account/Login");
+    }
+
+    [Fact]
     public async Task SignIn_ShouldPutOnlyTheSessionKeyInTheCookie()
     {
         // Arrange
@@ -131,11 +172,14 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
         // Act
         string authCookie = await SignInAsync(email, rememberMe: true);
 
-        // Assert: no name, e-mail, user id or security stamp travels in the cookie any more
+        // Assert: no name, e-mail, user id or security stamp travels in the cookie any more. The claim type
+        // is pinned too, because the login page reads the key under it to end the browser's old session.
         AuthenticationTicket? cookieTicket = AuthCookieOptions.TicketDataFormat.Unprotect(CookieValueOf(authCookie));
         SignInSession session = (await SessionsOfAsync(userId)).ShouldHaveSingleItem();
         cookieTicket.ShouldNotBeNull();
-        cookieTicket.Principal.Claims.ShouldHaveSingleItem().Value.ShouldBe(session.Id.ToString("N"));
+        Claim sessionKeyClaim = cookieTicket.Principal.Claims.ShouldHaveSingleItem();
+        sessionKeyClaim.Type.ShouldBe(SignInSessionCookie.SessionKeyClaimType);
+        sessionKeyClaim.Value.ShouldBe(session.Id.ToString("N"));
     }
 
     [Fact]
@@ -188,6 +232,45 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
         // Assert
         status.ShouldBe(HttpStatusCode.Redirect);
         location.ShouldContain("/Account/Login");
+    }
+
+    [Fact]
+    public async Task Authorize_ShouldDeleteTheStoredSession_WhenItsCookieComesBackExpired()
+    {
+        // Arrange: a short session, 30 minutes without "Zapamiętaj mnie"
+        (string email, Guid userId) = await RegisterUserAsync();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        await using WebApplicationFactory<Program> host = CreateHostWithCookieClock(() => now);
+        string authCookie = await SignInAsync(email, rememberMe: false, host: host);
+        now = now.AddMinutes(31);
+
+        // Act
+        (HttpStatusCode status, string location) = await AuthorizeAsync(authCookie, host);
+
+        // Assert
+        status.ShouldBe(HttpStatusCode.Redirect);
+        location.ShouldContain("/Account/Login");
+        (await SessionsOfAsync(userId)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Authorize_ShouldMoveTheStoredExpiry_WhenTheCookieSlides()
+    {
+        // Arrange: past half of its 30 minutes, the next request renews the session
+        (string email, Guid userId) = await RegisterUserAsync();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        await using WebApplicationFactory<Program> host = CreateHostWithCookieClock(() => now);
+        string authCookie = await SignInAsync(email, rememberMe: false, host: host);
+        now = now.AddMinutes(16);
+
+        // Act
+        (HttpStatusCode status, string location) = await AuthorizeAsync(authCookie, host);
+
+        // Assert: without the move, the daily prune would delete a session that is still in use
+        status.ShouldBe(HttpStatusCode.Redirect);
+        location.ShouldContain("code=");
+        SignInSession session = (await SessionsOfAsync(userId)).ShouldHaveSingleItem();
+        session.ExpiresAt.ShouldBe(now.AddMinutes(30), ExpiryTolerance);
     }
 
     [Fact]
@@ -265,11 +348,17 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
 
     /// <summary>
     /// Signs in through the login form, like a browser on a device of its own, and returns the sign-in
-    /// server's cookie as <c>name=value</c>.
+    /// server's cookie as <c>name=value</c>. <paramref name="browserCookie"/> is a sign-in cookie the
+    /// browser already holds.
     /// </summary>
-    private async Task<string> SignInAsync(string email, bool rememberMe)
+    private async Task<string> SignInAsync(
+        string email,
+        bool rememberMe,
+        string? browserCookie = null,
+        string password = Password,
+        WebApplicationFactory<Program>? host = null)
     {
-        using HttpClient device = CreateDevice();
+        using HttpClient device = CreateDevice(host);
 
         using HttpResponseMessage loginPage = await device.GetAsync(new Uri("/Account/Login", UriKind.Relative));
         loginPage.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -278,7 +367,7 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
         Dictionary<string, string> form = new()
         {
             ["Email"] = email,
-            ["Password"] = Password,
+            ["Password"] = password,
             ["RememberMe"] = rememberMe ? "true" : "false",
             ["__RequestVerificationToken"] = AntiForgeryTokenRegex().Match(html).Groups[1].Value
         };
@@ -288,6 +377,11 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
         foreach (string cookie in loginPage.Headers.GetValues("Set-Cookie"))
         {
             loginRequest.Headers.Add("Cookie", cookie.Split(';')[0]);
+        }
+
+        if (browserCookie is not null)
+        {
+            loginRequest.Headers.Add("Cookie", browserCookie);
         }
 
         using HttpResponseMessage loginResponse = await device.SendAsync(loginRequest);
@@ -327,10 +421,13 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
         return tokens.RootElement.GetProperty("id_token").GetString()!;
     }
 
-    private async Task<(HttpStatusCode Status, string Location)> AuthorizeAsync(string authCookie)
+    private async Task<(HttpStatusCode Status, string Location)> AuthorizeAsync(
+        string authCookie,
+        WebApplicationFactory<Program>? host = null)
     {
         (_, string codeChallenge) = GeneratePkce();
-        using HttpResponseMessage response = await SendAsync(HttpMethod.Get, BuildAuthorizeUrl(codeChallenge), authCookie);
+        using HttpResponseMessage response =
+            await SendAsync(HttpMethod.Get, BuildAuthorizeUrl(codeChallenge), authCookie, host);
         return (response.StatusCode, response.Headers.Location?.ToString() ?? string.Empty);
     }
 
@@ -346,9 +443,13 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
         return await SendAsync(HttpMethod.Get, logoutUrl, authCookie);
     }
 
-    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, string authCookie)
+    private async Task<HttpResponseMessage> SendAsync(
+        HttpMethod method,
+        string url,
+        string authCookie,
+        WebApplicationFactory<Program>? host = null)
     {
-        using HttpClient device = CreateDevice();
+        using HttpClient device = CreateDevice(host);
         using HttpRequestMessage request = new(method, new Uri(url, UriKind.RelativeOrAbsolute));
         request.Headers.Add("Cookie", authCookie);
         return await device.SendAsync(request);
@@ -421,12 +522,32 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
         overwritten.ShouldBe(1);
     }
 
-    private HttpClient CreateDevice() =>
-        Factory.CreateClient(new WebApplicationFactoryClientOptions
+    private HttpClient CreateDevice(WebApplicationFactory<Program>? host = null) =>
+        (host ?? Factory).CreateClient(new WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false,
             HandleCookies = false
         });
+
+    /// <summary>
+    /// This host with the sign-in cookie on a clock the test moves. Each host protects cookies with its
+    /// own keys, so a test signs in and authorizes through the same host.
+    /// </summary>
+    private WebApplicationFactory<Program> CreateHostWithCookieClock(Func<DateTimeOffset> utcNow)
+    {
+        TimeProvider clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(_ => utcNow());
+
+        return Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                // A second relay on this database could take a row another test waits for.
+                AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
+                services.Configure<CookieAuthenticationOptions>(
+                    IdentityConstants.ApplicationScheme,
+                    options => options.TimeProvider = clock);
+            }));
+    }
 
     private static AuthenticationTicket TicketFor(Guid userId, DateTimeOffset issuedUtc, DateTimeOffset expiresUtc) =>
         new(
@@ -435,6 +556,11 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
                 IdentityConstants.ApplicationScheme)),
             new AuthenticationProperties { IssuedUtc = issuedUtc, ExpiresUtc = expiresUtc },
             IdentityConstants.ApplicationScheme);
+
+    private string SessionKeyOf(string authCookie) =>
+        AuthCookieOptions.TicketDataFormat.Unprotect(CookieValueOf(authCookie))
+            .ShouldNotBeNull()
+            .Principal.Claims.ShouldHaveSingleItem().Value;
 
     private static string CookieValueOf(string authCookie) =>
         authCookie[(authCookie.IndexOf('=', StringComparison.Ordinal) + 1)..];

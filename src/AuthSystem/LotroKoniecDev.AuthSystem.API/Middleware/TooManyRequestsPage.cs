@@ -35,8 +35,8 @@ internal static class TooManyRequestsPage
     /// invents one.
     /// </summary>
     /// <remarks>
-    /// A fixed window reports its whole length, not the time left in it, so the number is an upper bound
-    /// and the page says "najpóźniej", never "około" (#892). Rounding up keeps it an upper bound.
+    /// The limiter's number is an upper bound (see <c>OnRejected</c> in <c>Program.cs</c>, #892), so the
+    /// sentence says "najpóźniej". Rounding up keeps it an upper bound.
     /// </remarks>
     internal static string BuildWaitSentence(TimeSpan retryAfter)
     {

@@ -24,20 +24,6 @@ public sealed class TooManyRequestsPageTests
         sentence.ShouldBe("Spróbuj ponownie później. Limit odnowi się najpóźniej za " + expected + ".");
     }
 
-    [Theory]
-    [InlineData(10)]
-    [InlineData(900)]
-    [InlineData(3600)]
-    public void BuildWaitSentence_ShouldNameTheLongestWait_NotAnEstimate(int seconds)
-    {
-        // Act: a fixed window reports its whole length, so the real wait is often shorter (#892)
-        string sentence = TooManyRequestsPage.BuildWaitSentence(TimeSpan.FromSeconds(seconds));
-
-        // Assert
-        sentence.ShouldContain("najpóźniej za");
-        sentence.ShouldNotContain("około");
-    }
-
     [Fact]
     public void BuildWaitSentence_ShouldRoundAPartialMinuteUp()
     {
@@ -48,7 +34,7 @@ public sealed class TooManyRequestsPageTests
         string sentence = TooManyRequestsPage.BuildWaitSentence(partialMinute);
 
         // Assert
-        sentence.ShouldContain("1 minutę");
+        sentence.ShouldBe("Spróbuj ponownie później. Limit odnowi się najpóźniej za 1 minutę.");
     }
 
     [Theory]
@@ -64,9 +50,10 @@ public sealed class TooManyRequestsPageTests
     }
 
     [Fact]
-    public void BuildHtml_ShouldTellTheUserHowLongToWait()
+    public void BuildHtml_ShouldTellTheUserTheLongestWait()
     {
-        // Act: the wait is the one thing a throttled user can act on (#692)
+        // Act: the wait is the one thing a throttled user can act on (#692). The limiter's number is an
+        // upper bound, so the page names it as the longest wait, never as an estimate (#892).
         string html = TooManyRequestsPage.BuildHtml(TimeSpan.FromMinutes(3), nonce: null);
 
         // Assert

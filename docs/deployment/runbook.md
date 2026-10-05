@@ -511,7 +511,7 @@ Two limits apply to the reset page, and they look different:
 - **per account:** 3 mails per 15 minutes. A fourth request shows the normal panel and sends
   nothing;
 - **per address (IP):** 3 form posts per 15 minutes. A fourth post from the same machine gets the
-  **"Za dużo prób"** page (HTTP 429), which says the longest wait. The limit may be free again
+  **"Za dużo prób"** page (HTTP 429), which names the longest wait. The limit may be free again
   sooner.
 
 Wait out that window before you blame delivery.

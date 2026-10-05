@@ -1062,7 +1062,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         // on (#981).
 
         // Arrange
-        IdentityId identityId = await ArrangeAGoogleLoginThatFailsAsync(failure);
+        IdentityId identityId = await ArrangeTwoLoginsWhoseFirstRemovalFailsAsync(failure);
 
         // Act
         int finalizedCount = await RunFinalizerAsync();
@@ -1070,8 +1070,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         // Assert
         finalizedCount.ShouldBe(1);
         Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
-        (await HasLoginAsync(identityId.Value, "Google")).ShouldBeTrue();
-        (await HasLoginAsync(identityId.Value, "Microsoft")).ShouldBeFalse();
+        (await LoginProvidersOfAsync(identityId.Value)).ShouldHaveSingleItem();
     }
 
     [Theory]
@@ -1080,18 +1079,42 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     public async Task Finalizer_ShouldNameOnlyTheFailedLogin_WhenRemovingOneLoginFails(ErasureSaveFailure failure)
     {
         // Arrange
-        await ArrangeAGoogleLoginThatFailsAsync(failure);
+        IdentityId identityId = await ArrangeTwoLoginsWhoseFirstRemovalFailsAsync(failure);
         using CapturingLoggerFactory loggerFactory = new();
 
         // Act
         await RunFinalizerAsync(loggerFactory);
 
         // Assert
+        string keptProvider = (await LoginProvidersOfAsync(identityId.Value)).ShouldHaveSingleItem();
+        string removedProvider = keptProvider == "Google" ? "Microsoft" : "Google";
         CapturingLoggerFactory.LogEntry cleanupFailed = loggerFactory.Entries
             .Where(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleanupFailed)
             .ShouldHaveSingleItem();
-        cleanupFailed.Message.ShouldContain("Failed: logins: Google: ");
-        cleanupFailed.Message.ShouldNotContain("Microsoft");
+        cleanupFailed.Message.ShouldContain($"Failed: logins: {keptProvider}: ");
+        cleanupFailed.Message.ShouldNotContain(removedProvider);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldNotWriteATokenAgain_WhenItIsAlreadyRevoked()
+    {
+        // OpenIddict's token manager writes a revoked token again. Scheduling the deletion already revoked
+        // the tokens, so each such write is work for nothing, and one that fails is a false warning.
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        await CreateTokenAsync(identityId.Value, OpenIddictConstants.Statuses.Revoked);
+        Factory.DbCommandFailures.FailEvery(
+            command => IsUpdateOf(command, "OpenIddictTokens"),
+            () => CreateFailure(ErasureSaveFailure.DatabaseError));
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync();
+
+        // Assert
+        finalizedCount.ShouldBe(1);
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(0);
     }
 
     [Fact]
@@ -1385,17 +1408,17 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The Google login is made first, so it is most likely removed first too, and the Microsoft login
-    /// comes after the one that fails.
+    /// Fails the first login removal of the account, whichever login PostgreSQL hands back first, so the
+    /// other one always comes after it.
     /// </summary>
-    private async Task<IdentityId> ArrangeAGoogleLoginThatFailsAsync(ErasureSaveFailure failure)
+    private async Task<IdentityId> ArrangeTwoLoginsWhoseFirstRemovalFailsAsync(ErasureSaveFailure failure)
     {
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
         await AddLoginAsync(identityId.Value, "Google");
         await AddLoginAsync(identityId.Value, "Microsoft");
         Factory.DbCommandFailures.FailNext(
-            command => IsDeleteFrom(command, "UserLogins") && CarriesValue(command, "Google"),
+            command => IsDeleteFrom(command, "UserLogins") && CarriesAccountId(command, identityId.Value),
             () => CreateFailure(failure));
 
         return identityId;
@@ -1492,7 +1515,10 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     /// Gives the account a token of its own, so the test does not depend on the tokens that signing in
     /// left behind.
     /// </summary>
-    private async Task<string> CreateValidTokenAsync(Guid userId)
+    private Task<string> CreateValidTokenAsync(Guid userId) =>
+        CreateTokenAsync(userId, OpenIddictConstants.Statuses.Valid);
+
+    private async Task<string> CreateTokenAsync(Guid userId, string status)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         IOpenIddictTokenManager tokenManager = scope.ServiceProvider.GetRequiredService<IOpenIddictTokenManager>();
@@ -1501,7 +1527,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         {
             Subject = userId.ToString(),
             Type = OpenIddictConstants.TokenTypeHints.RefreshToken,
-            Status = OpenIddictConstants.Statuses.Valid,
+            Status = status,
             CreationDate = DateTimeOffset.UtcNow,
             ExpirationDate = DateTimeOffset.UtcNow.AddDays(30)
         });
@@ -1576,6 +1602,16 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         ApplicationUser user = await userManager.Users.SingleAsync(row => row.Id == userId);
         UserLoginInfo login = new(provider, $"{provider}-{Guid.NewGuid():N}", provider);
         (await userManager.AddLoginAsync(user, login)).Succeeded.ShouldBeTrue();
+    }
+
+    private async Task<List<string>> LoginProvidersOfAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        return await db.UserLogins
+            .Where(userLogin => userLogin.UserId == userId)
+            .Select(userLogin => userLogin.LoginProvider)
+            .ToListAsync();
     }
 
     private async Task<bool> HasLoginAsync(Guid userId, string provider)

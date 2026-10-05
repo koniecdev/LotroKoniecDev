@@ -264,7 +264,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             }
             catch (Exception ex)
             {
-                failed.Add((step, new CleanupFailure(ex.GetBaseException().Message, ex)));
+                failed.Add((step, new CleanupFailure($"{ex.GetBaseException().Message} (the step stopped here)", ex)));
                 _dbContext.ChangeTracker.Clear();
             }
         }
@@ -292,10 +292,19 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             string.Join("; ", failed.Select(entry => $"{entry.Step}: {entry.Failure.Reason}")));
     }
 
+    /// <summary>
+    /// Scheduling the deletion already revoked every token, and OpenIddict's token manager writes a
+    /// revoked token again. Its authorization manager skips one, and so does this.
+    /// </summary>
     private async IAsyncEnumerable<CleanupFailure> RevokeTokensAsync(string subject)
     {
         await foreach (object token in _tokenManager.FindBySubjectAsync(subject))
         {
+            if (await _tokenManager.HasStatusAsync(token, OpenIddictConstants.Statuses.Revoked))
+            {
+                continue;
+            }
+
             if (!await _tokenManager.TryRevokeAsync(token))
             {
                 yield return new CleanupFailure($"{await _tokenManager.GetIdAsync(token)} not revoked", Exception: null);

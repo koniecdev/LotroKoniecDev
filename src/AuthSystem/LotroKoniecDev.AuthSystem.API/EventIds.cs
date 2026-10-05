@@ -217,4 +217,5 @@ internal static class EventIds
     public const int GdprErasureNoLongerWaiting = 2732;
     public const int GdprErasureUnneededLockoutFailed = 2733;
     public const int GdprErasureSaveCheckFailedAfterFailedLock = 2734;
+    public const int GdprErasureLockoutFailedOnLockedAccount = 2735;
 }

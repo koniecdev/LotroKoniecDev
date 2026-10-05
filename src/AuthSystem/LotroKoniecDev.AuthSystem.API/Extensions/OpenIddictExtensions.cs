@@ -47,7 +47,9 @@ internal static class OpenIddictExtensions
 
                 // Rolling refresh tokens: using a refresh token invalidates it and issues a new one, so
                 // an old token cannot be replayed. Reference tokens live in the database, which is what
-                // makes revoking them possible.
+                // makes revoking them possible. Sliding expiration stays on: each new token gets the
+                // full lifetime from the refresh, so the short lifetime never signs out a user who keeps
+                // working (#1014). Never call DisableSlidingRefreshTokenExpiration.
                 options.UseReferenceRefreshTokens();
 
                 options.RegisterScopes(
@@ -115,7 +117,7 @@ internal sealed class ConfigureOpenIddictServerSettings(IConfiguration configura
 
         options.Issuer = new Uri(settings.Issuer);
         options.AccessTokenLifetime = TimeSpan.FromMinutes(settings.AccessTokenLifetimeMinutes);
-        options.RefreshTokenLifetime = TimeSpan.FromDays(settings.RefreshTokenLifetimeDays);
+        options.RefreshTokenLifetime = TimeSpan.FromMinutes(settings.RefreshTokenLifetimeMinutes);
 
         // Development and testing use throwaway keys only, set up in AddServer. Production uses RSA
         // keys, and the public one is published through JWKS so tokens can be validated.

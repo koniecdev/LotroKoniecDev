@@ -311,7 +311,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     {
         // The save did not land, so the run cannot tell an account that still waits from one whose owner
         // cancelled. It assumes the retry, and here the account still waits, so the retry comes. The
-        // lock's alert is written only after the check whether the save landed, and only once (#980).
+        // lock's alert is written once (#980).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -376,6 +376,10 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         loggerFactory.Entries.ShouldContain(entry =>
             entry.EventId.Id == EventIds.GdprDeletionFinalizerUserFailed
             && entry.Message.Contains("Will retry", StringComparison.Ordinal));
+        loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureSaveCheckFailedAfterFailedLock)
+            .ShouldHaveSingleItem()
+            .Level.ShouldBe(LogLevel.Warning);
         loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureSaveOutcomeUnknown);
     }
 

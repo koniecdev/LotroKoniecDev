@@ -8,14 +8,17 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 /// stop a unit of work between two of its writes, which is the moment a real outage or a killed
 /// process can hit and nothing else in this suite can reach (#839). It does nothing until a test arms
 /// it, and each armed failure fires once. A test may arm more than one, for a run that has to meet two
-/// failures (#980). Each one waits for the first command that matches it, and arming one more leaves
-/// the others armed.
+/// failures (#980). Arming one more leaves the others armed. When one command matches two of them, the
+/// failure armed first takes it, and the ones armed after it never see that command.
 /// </summary>
 public sealed class DbCommandFailureInjector : DbCommandInterceptor
 {
     private readonly Lock _lock = new();
     private readonly List<ArmedFailure> _armed = [];
 
+    /// <summary>
+    /// Counts every failure that fired since the last <see cref="Disarm"/>, whichever arm it came from.
+    /// </summary>
     public int FailuresInjected { get; private set; }
 
     public void FailNext(Func<DbCommand, bool> matches, Func<Exception> createFailure) =>
@@ -26,7 +29,7 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
     /// without a transaction, so PostgreSQL commits it on its own, and this is a save whose answer is
     /// lost on the way back (#962). <see cref="DbCommitFailureInjector"/> cannot reach that save,
     /// because it has no commit of its own. A command inside a transaction never matches: failing it
-    /// would roll it back, which is a different case, and <see cref="FailuresInjected"/> stays 0.
+    /// would roll it back, which is a different case, and it is not counted in <see cref="FailuresInjected"/>.
     /// </summary>
     public void FailNextAfterItRuns(Func<DbCommand, bool> matches, Func<Exception> createFailure) =>
         Arm(new ArmedFailure(matches, createFailure, FailAfterItRuns: true));
@@ -191,6 +194,8 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
         lock (_lock)
         {
             // A predicate may count the commands it sees, so it is asked only about commands of its phase.
+            // A command an earlier arm takes is not shown to the arms after it, so a counting predicate
+            // armed behind an overlapping one counts fewer commands than ran.
             int index = _armed.FindIndex(armed => armed.FailAfterItRuns == afterItRan && armed.Matches(command));
             if (index < 0)
             {

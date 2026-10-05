@@ -140,20 +140,20 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     /// Finds out what a failed erasure save means before anything about it is logged, so the log never
     /// promises a retry that will not come (#962). A lock that landed means the account still waits and
     /// the next run retries it. In every other case this run first checks whether its own save landed and
-    /// only the answer was lost. EF's retry then ran the save again with the old concurrency stamp, and
-    /// Identity reported the conflict. A lock that matched no row, after a save that did not land, means
-    /// no run comes back to the account: its owner cancelled, or another run erased it. A failed lock says
-    /// nothing about the account, so after a save that did not land the retry is assumed, not known
-    /// (#980).
+    /// only the answer was lost. When it did, EF's retry had run the save again with the old concurrency
+    /// stamp, and Identity reported the conflict. A lock that matched no row, after a save that did not
+    /// land, means no run comes back to the account: its owner cancelled, or another run erased it. A
+    /// failed lock says nothing about the account, so after a save that did not land the retry is
+    /// assumed, not known (#980).
     /// </summary>
     private async Task<Result<AccountErasureOutcome>> ResolveFailedSaveAsync(
         Guid userId,
         string anonymizedEmail,
         FailedSave failedSave)
     {
-        (EmergencyLockOutcome lockOutcome, Exception? lockFailure) = await TryLockAccountAsync(userId);
+        (bool locked, Exception? lockFailure) = await TryLockAccountAsync(userId);
 
-        if (lockOutcome is EmergencyLockOutcome.Locked)
+        if (locked)
         {
             return FailForTheNextRun(userId, failedSave);
         }
@@ -173,8 +173,8 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             if (lockFailure is not null)
             {
                 // Nothing is known about the account, so the retry is assumed and the lock's line asks a
-                // person to look. The check's own error is not logged: the lock's and the save's errors
-                // already show that the database is failing.
+                // person to look.
+                LogSaveCheckFailedAfterFailedLock(_logger, ex, userId);
                 LogEmergencyLockoutFailed(_logger, lockFailure, userId);
                 return FailForTheNextRun(userId, failedSave);
             }
@@ -213,7 +213,8 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     }
 
     /// <summary>
-    /// The account still waits, or may still wait, so the next run of the finalizer picks it up again.
+    /// The account still waits, or may still wait. If it does, the next run of the finalizer picks it up
+    /// again.
     /// </summary>
     private Result<AccountErasureOutcome> FailForTheNextRun(Guid userId, FailedSave failedSave)
     {
@@ -318,10 +319,11 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     /// the owner may still hold.
     /// The write takes no cancellation token, like the erasure save before it. A shutdown must not skip
     /// this one short write, and a cancelled lock would be logged as a failed one.
-    /// A failed lock is not logged here. Whether a lock was needed at all is known only after the check
-    /// whether this run's own save landed, and a landed save needs none (#980).
+    /// A failed lock is not logged here, only returned. Whether a lock was needed at all is known only
+    /// after the check whether this run's own save landed, and a landed save needs none (#980). A lock
+    /// that neither landed nor failed matched no row.
     /// </remarks>
-    private async Task<(EmergencyLockOutcome Outcome, Exception? Failure)> TryLockAccountAsync(Guid userId)
+    private async Task<(bool Locked, Exception? Failure)> TryLockAccountAsync(Guid userId)
     {
         try
         {
@@ -344,15 +346,15 @@ internal sealed partial class AccountErasureService : IAccountErasureService
 
             if (lockedCount == 0)
             {
-                return (EmergencyLockOutcome.NotNeeded, null);
+                return (false, null);
             }
 
             LogEmergencyLockout(_logger, userId);
-            return (EmergencyLockOutcome.Locked, null);
+            return (true, null);
         }
         catch (Exception ex)
         {
-            return (EmergencyLockOutcome.Failed, ex);
+            return (false, ex);
         }
     }
 
@@ -406,12 +408,8 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     [LoggerMessage(EventId = EventIds.GdprErasureUnneededLockoutFailed, Level = LogLevel.Warning, Message = "GDPR erasure: the emergency lockout for user {UserId} failed, but no lockout was needed. This run's own save had landed, and it locked the account itself.")]
     private static partial void LogUnneededLockoutFailed(ILogger logger, Exception exception, Guid userId);
 
-    private enum EmergencyLockOutcome
-    {
-        Locked,
-        NotNeeded,
-        Failed
-    }
+    [LoggerMessage(EventId = EventIds.GdprErasureSaveCheckFailedAfterFailedLock, Level = LogLevel.Warning, Message = "GDPR erasure of user {UserId}: after the emergency lockout failed, the check whether this run's own save landed failed too. Nothing is known about the account.")]
+    private static partial void LogSaveCheckFailedAfterFailedLock(ILogger logger, Exception exception, Guid userId);
 
     /// <summary>
     /// Identity reports a lost concurrency check as errors. Anything else arrives as an exception, and

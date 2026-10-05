@@ -25,8 +25,9 @@ internal sealed partial class LogoutEndpoint : IEndpoint
 
         // OpenIddict checks the hint's signature and that its token and authorization rows are still
         // valid, but not its lifetime. So an old ID token works while its session lives, and the hint of
-        // an ended session gives no principal. This server's own cookie cannot name the session: it
-        // belongs to the browser, not to one sign-in of the website, so it is only cleared.
+        // an ended session gives no principal. This server's own cookie cannot name the website's
+        // session: it belongs to the browser, not to one sign-in of the website. Signing it out deletes its
+        // stored session as well, so a copy of the cookie stops working too (ADR-0062).
         AuthenticateResult hintResult =
             await httpContext.AuthenticateAsync(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         if (hintResult.Principal is { } principal

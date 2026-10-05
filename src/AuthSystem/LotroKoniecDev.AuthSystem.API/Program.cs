@@ -143,6 +143,13 @@ try
         options.Events.OnValidatePrincipal = SecurityStampCookieValidator.ValidatePrincipalAsync;
     });
 
+    // The session lives in the auth database and the cookie carries only its key. Signing out deletes the
+    // session, so a copy of the cookie taken from this browser stops working too (ADR-0062, #1013).
+    builder.Services
+        .AddOptions<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions>(
+            Microsoft.AspNetCore.Identity.IdentityConstants.ApplicationScheme)
+        .Configure<SignInSessionTicketStore>((options, ticketStore) => options.SessionStore = ticketStore);
+
     builder.Services.AddAuthorization();
     builder.Services.AddRazorPages()
         .AddMvcOptions(options => options.Filters.Add(new AntiforgeryFailureFilter()));

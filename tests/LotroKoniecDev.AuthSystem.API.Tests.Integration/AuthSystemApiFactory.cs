@@ -209,11 +209,14 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             // No job that runs on the real clock is hosted here. A prune pass and a due deletion each
             // write several tables in one transaction, and the cleaner's TRUNCATE takes the same tables
             // in another order: the prune's one-minute start deadlocked it mid-suite (#821). Their tests
-            // call PruneOnceAsync and IAccountDeletionFinalizer directly. The outbox relay stays: it
-            // wakes on a signal, registration tests need it, and each of its statements touches one table.
+            // call each prune job's PruneOnceAsync and IAccountDeletionFinalizer directly. The outbox
+            // relay stays: it wakes on a signal, registration tests need it, and each of its statements
+            // touches one table.
             RemoveHostedService<OpenIddictPruneService>(services);
+            RemoveHostedService<SignInSessionPruneService>(services);
             RemoveHostedService<AccountDeletionFinalizerHostedService>(services);
             services.AddSingleton<OpenIddictPruneService>();
+            services.AddSingleton<SignInSessionPruneService>();
 
             // The RabbitMQ publisher is replaced with a spy, because this suite has no broker and the
             // outbox relay tests check what was published. The spy also plays the part of the removed

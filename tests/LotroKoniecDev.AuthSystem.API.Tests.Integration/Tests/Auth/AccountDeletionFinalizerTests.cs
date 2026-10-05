@@ -14,6 +14,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.AuthSystem.Persistence.Sessions;
 using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
@@ -703,6 +704,76 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         ApplicationUser unreadable = await GetUserAsync(unreadableId.Value);
         unreadable.Email.ShouldBe(unreadableRequest.Email);
         unreadable.DeletionScheduledAt.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldDeleteTheAccountsSignInSessions_WhenItAnonymizesTheAccount()
+    {
+        // A stored sign-in session holds the name and e-mail (ADR-0062), so the erasure takes it with the
+        // rest. Another account's session is left alone.
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        await AddSignInSessionAsync(identityId.Value);
+        await AddSignInSessionAsync(identityId.Value);
+        IdentityId otherId =
+            await UserFactory.RegisterRandomUserAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
+        await AddSignInSessionAsync(otherId.Value);
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync();
+
+        // Assert
+        finalizedCount.ShouldBe(1);
+        (await CountSignInSessionsAsync(identityId.Value)).ShouldBe(0);
+        (await CountSignInSessionsAsync(otherId.Value)).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldDeleteTheSignInSessionsOnTheNextRun_WhenTheDeleteFailed()
+    {
+        // The delete runs before the anonymizing save. Once that save lands the finalizer never comes back
+        // to the account, so a delete that failed after it would never run again.
+
+        // Arrange
+        (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        await AddSignInSessionAsync(identityId.Value);
+        Factory.DbCommandFailures.FailNext(
+            command => command.CommandText.Contains(
+                $"DELETE FROM {DatabaseSchemas.Auth}.\"SignInSessions\"", StringComparison.Ordinal),
+            () => new PostgresException(
+                "simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.DataCorrupted));
+
+        // Act
+        int failedRunCount = await RunFinalizerAsync();
+        ApplicationUser afterTheFailedRun = await GetUserAsync(identityId.Value);
+        int sessionsAfterTheFailedRun = await CountSignInSessionsAsync(identityId.Value);
+        int retriedRunCount = await RunFinalizerAsync();
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        failedRunCount.ShouldBe(0);
+        afterTheFailedRun.Email.ShouldBe(registerRequest.Email);
+        sessionsAfterTheFailedRun.ShouldBe(1);
+        retriedRunCount.ShouldBe(1);
+        (await CountSignInSessionsAsync(identityId.Value)).ShouldBe(0);
+    }
+
+    private async Task AddSignInSessionAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        db.SignInSessions.Add(SignInSession.Create(userId, [1, 2, 3], DateTimeOffset.UtcNow.AddDays(30)));
+        await db.SaveChangesAsync();
+    }
+
+    private async Task<int> CountSignInSessionsAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        return await db.SignInSessions.CountAsync(session => session.UserId == userId);
     }
 
     private async Task<int> RunFinalizerAsync()

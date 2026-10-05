@@ -23,7 +23,8 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Sessions;
 /// into a 500.
 /// This one checks the stamp through the same framework method the built-in validator uses,
 /// <see cref="SignInManager{TUser}.ValidateSecurityStampAsync(System.Security.Claims.ClaimsPrincipal)"/>,
-/// and signs out only the one scheme this server owns, like <c>LogoutEndpoint</c> does.
+/// and signs out only the one scheme this server owns, like <c>LogoutEndpoint</c> does. That sign-out
+/// also deletes the cookie's stored session (ADR-0062).
 /// Checking on every request is deliberate: this is the auth server itself, so the interval is zero.
 /// </remarks>
 internal static class SecurityStampCookieValidator

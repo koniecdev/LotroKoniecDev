@@ -74,10 +74,11 @@ internal static class OpenIddictExtensions
                         .AddEphemeralEncryptionKey();
                 }
 
-                // A broken sign-in or sign-out link gets the same answer as any other refused request: a
-                // browser sees the general Polish page, a program sees problem details (#912). Without it,
-                // OpenIddict writes its own English plain text. It covers only the browser endpoints
-                // (authorize and logout). Token, userinfo, introspection and revocation keep their OAuth JSON.
+                // With the status-code pages switch, a broken sign-in or sign-out link gets the same answer as
+                // any other refused request: a browser sees the general Polish page, a program sees problem
+                // details (#912). Without the switch, OpenIddict writes its own English plain text. The switch
+                // covers only the browser endpoints (authorize and logout). Token, userinfo, introspection and
+                // revocation keep their OAuth JSON.
                 OpenIddictServerAspNetCoreBuilder aspNetCoreBuilder = options.UseAspNetCore()
                     .EnableTokenEndpointPassthrough()
                     .EnableAuthorizationEndpointPassthrough()

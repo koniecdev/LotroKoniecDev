@@ -197,15 +197,20 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Sign-in and sign-out links that OpenIddict refuses itself, because it cannot trust the address to
-    /// send the error back to (#912). Each one carries a <c>state</c>, which no answer may repeat. The
-    /// second value is the parameter OpenIddict names as the reason.
+    /// Sign-in and sign-out links that OpenIddict refuses itself, without sending the error back to the
+    /// client (#912). Each one carries a <c>state</c>, which no answer may repeat. The second value is the
+    /// parameter OpenIddict names as the reason.
     /// </summary>
+    /// <remarks>
+    /// The row without PKCE has a valid client and callback. It is answered here too, because OpenIddict
+    /// sends an error back to the client only when the whole request passed its checks.
+    /// </remarks>
     public static TheoryData<string, string> BrokenSignInAndSignOutLinks => new()
     {
         { AuthorizeLink(clientId: "no-such-client", ValidCallback), "client_id" },
         { AuthorizeLink(clientId: null, ValidCallback), "client_id" },
         { AuthorizeLink(AuthConstants.ClientIds.Web, ForeignCallback), "redirect_uri" },
+        { AuthorizeLink(AuthConstants.ClientIds.Web, ValidCallback, codeChallenge: null), "code_challenge" },
         { LogoutLink(ForeignCallback), "post_logout_redirect_uri" }
     };
 
@@ -225,6 +230,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.Headers.Location.ShouldBeNull();
         response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Nie udało się obsłużyć żądania</h1>");
@@ -276,20 +282,21 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The frontend's own media type goes to the fallback writer. Nothing sends it to a sign-in link, but if
-    /// something did, it must still get problem details and not a page or a 500.
+    /// An <c>Accept</c> that names neither JSON nor HTML goes to the fallback writer, which knows only the
+    /// status (#912 follow-up). Nothing sends these to a sign-in link, but if something did, it must still
+    /// get problem details and not a page or a 500.
     /// </summary>
-    [Fact]
-    public async Task BrokenSignInLink_ShouldAnswerTheHateoasMediaTypeWithProblemDetails()
+    [Theory]
+    [InlineData("application/vnd.dev-lotrokoniecdev.hateoas.json")]
+    [InlineData("text/plain")]
+    public async Task BrokenSignInLink_ShouldAnswerAnyOtherMediaTypeWithProblemDetails(string accept)
     {
         // Arrange
         using HttpClient client = CreateClientWithoutRedirects();
 
         // Act
         using HttpResponseMessage response = await GetAsync(
-            client,
-            AuthorizeLink(clientId: "no-such-client", ValidCallback),
-            "application/vnd.dev-lotrokoniecdev.hateoas.json");
+            client, AuthorizeLink(clientId: "no-such-client", ValidCallback), accept);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -326,7 +333,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
         json.RootElement.GetProperty("error").GetString().ShouldBe("invalid_client");
     }
 
-    private static string AuthorizeLink(string? clientId, string redirectUri)
+    private static string AuthorizeLink(string? clientId, string redirectUri, string? codeChallenge = PkceChallenge)
     {
         Dictionary<string, string?> query = new()
         {
@@ -334,8 +341,8 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
             ["client_id"] = clientId,
             ["redirect_uri"] = redirectUri,
             ["scope"] = "openid",
-            ["code_challenge"] = PkceChallenge,
-            ["code_challenge_method"] = "S256",
+            ["code_challenge"] = codeChallenge,
+            ["code_challenge_method"] = codeChallenge is null ? null : "S256",
             ["state"] = CallerState
         };
 

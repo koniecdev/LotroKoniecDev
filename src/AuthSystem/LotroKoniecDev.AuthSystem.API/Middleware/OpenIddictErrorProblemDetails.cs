@@ -12,6 +12,11 @@ namespace LotroKoniecDev.AuthSystem.API.Middleware;
 /// </summary>
 /// <remarks>
 /// The <c>state</c> parameter is left out on purpose, as OpenIddict's own plain-text answer leaves it out.
+/// <para>
+/// Only ASP.NET Core's own writer calls this hook. A program whose <c>Accept</c> names neither JSON nor
+/// HTML (<c>text/plain</c>, the HATEOAS type) gets the shared fallback writer, so its problem details carry
+/// the status and no reason.
+/// </para>
 /// </remarks>
 internal static class OpenIddictErrorProblemDetails
 {

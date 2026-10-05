@@ -12,11 +12,14 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Middleware;
 /// </summary>
 public sealed class OpenIddictErrorProblemDetailsTests
 {
-    [Fact]
-    public void Add_ShouldCopyTheOAuthErrorButNotTheState_WhenOpenIddictRefusedTheRequest()
+    [Theory]
+    [InlineData(OpenIddictServerEndpointType.Authorization)]
+    [InlineData(OpenIddictServerEndpointType.EndSession)]
+    public void Add_ShouldCopyTheOAuthErrorButNotTheState_WhenOpenIddictRefusedASignInOrSignOutLink(
+        OpenIddictServerEndpointType endpointType)
     {
         // Arrange
-        ProblemDetailsContext context = BuildContext(new OpenIddictResponse
+        ProblemDetailsContext context = BuildContext(endpointType, new OpenIddictResponse
         {
             Error = "invalid_request",
             ErrorDescription = "The specified 'client_id' is invalid.",
@@ -36,13 +39,39 @@ public sealed class OpenIddictErrorProblemDetailsTests
         }, ignoreOrder: true);
     }
 
+    /// <summary>
+    /// Userinfo leaves its body to the status-code pages too. A request there with no token must get no
+    /// error code (RFC 6750 §3.1), so nothing is copied for any endpoint but authorize and logout.
+    /// </summary>
+    [Theory]
+    [InlineData(OpenIddictServerEndpointType.UserInfo)]
+    [InlineData(OpenIddictServerEndpointType.Token)]
+    [InlineData(OpenIddictServerEndpointType.Introspection)]
+    [InlineData(OpenIddictServerEndpointType.Revocation)]
+    [InlineData(OpenIddictServerEndpointType.Unknown)]
+    public void Add_ShouldAddNothing_OnAnyOtherEndpoint(OpenIddictServerEndpointType endpointType)
+    {
+        // Arrange
+        ProblemDetailsContext context = BuildContext(endpointType, new OpenIddictResponse
+        {
+            Error = "missing_token",
+            ErrorDescription = "The mandatory 'Authorization' header is missing."
+        });
+
+        // Act
+        OpenIddictErrorProblemDetails.Add(context);
+
+        // Assert
+        context.ProblemDetails.Extensions.ShouldBeEmpty();
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     public void Add_ShouldCopyOnlyTheError_WhenOpenIddictGaveNoDescriptionOrUri(string? missing)
     {
         // Arrange
-        ProblemDetailsContext context = BuildContext(new OpenIddictResponse
+        ProblemDetailsContext context = BuildContext(OpenIddictServerEndpointType.Authorization, new OpenIddictResponse
         {
             Error = "invalid_request",
             ErrorDescription = missing,
@@ -62,7 +91,9 @@ public sealed class OpenIddictErrorProblemDetailsTests
     public void Add_ShouldAddNothing_WhenOpenIddictsAnswerIsNoError(string? error)
     {
         // Arrange
-        ProblemDetailsContext context = BuildContext(new OpenIddictResponse { Error = error, ErrorDescription = "unused" });
+        ProblemDetailsContext context = BuildContext(
+            OpenIddictServerEndpointType.Authorization,
+            new OpenIddictResponse { Error = error, ErrorDescription = "unused" });
 
         // Act
         OpenIddictErrorProblemDetails.Add(context);
@@ -84,12 +115,14 @@ public sealed class OpenIddictErrorProblemDetailsTests
         context.ProblemDetails.Extensions.ShouldBeEmpty();
     }
 
-    private static ProblemDetailsContext BuildContext(OpenIddictResponse response)
+    private static ProblemDetailsContext BuildContext(
+        OpenIddictServerEndpointType endpointType,
+        OpenIddictResponse response)
     {
         DefaultHttpContext httpContext = new();
         httpContext.Features.Set(new OpenIddictServerAspNetCoreFeature
         {
-            Transaction = new OpenIddictServerTransaction { Response = response }
+            Transaction = new OpenIddictServerTransaction { EndpointType = endpointType, Response = response }
         });
 
         return new ProblemDetailsContext { HttpContext = httpContext };

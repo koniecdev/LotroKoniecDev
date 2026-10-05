@@ -18,7 +18,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
 {
     private const string BrowserAccept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
     private const string LoginPage = "/Account/Login";
-    private const string ValidCallback = "https://localhost:5001/callback";
+    private const string ValidCallback = AuthSystemApiFactory.TestFrontendAppRoot + "/callback";
     private const string ForeignCallback = "https://attacker.example/callback";
     private const string CallerState = "caller-state-912";
 
@@ -229,16 +229,32 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
         using HttpResponseMessage response = await GetAsync(browser, link, BrowserAccept);
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest, $"refused for '{rejectedParameter}'");
         response.Headers.Location.ShouldBeNull();
         response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Nie udało się obsłużyć żądania</h1>");
+        string nonce = StyleNonce(response).ShouldNotBeNull();
+        html.ShouldContain($"<style nonce=\"{nonce}\">");
+    }
+
+    [Theory]
+    [MemberData(nameof(BrokenSignInAndSignOutLinks))]
+    public async Task BrokenSignInOrSignOutLink_ShouldShowABrowserNeitherTheReasonNorTheState(
+        string link,
+        string rejectedParameter)
+    {
+        // Arrange
+        using HttpClient browser = CreateClientWithoutRedirects();
+
+        // Act
+        using HttpResponseMessage response = await GetAsync(browser, link, BrowserAccept);
+
+        // Assert
+        string html = await response.Content.ReadAsStringAsync();
         html.ShouldNotContain("invalid_request");
         html.ShouldNotContain(rejectedParameter);
         html.ShouldNotContain(CallerState);
-        string nonce = StyleNonce(response).ShouldNotBeNull();
-        html.ShouldContain($"<style nonce=\"{nonce}\">");
     }
 
     [Theory]
@@ -262,10 +278,16 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
         json.RootElement.GetProperty("error_uri").GetString().ShouldNotBeNullOrWhiteSpace();
     }
 
+    /// <summary>
+    /// The last two go to the fallback writer, because they name neither JSON nor HTML. OpenIddict's own
+    /// plain text gave the reason to every caller, so they must keep it too.
+    /// </summary>
     [Theory]
     [InlineData("application/json")]
     [InlineData(null)]
-    public async Task BrokenSignInLink_ShouldTellAProgramWhyItWasRefused_WhateverJsonItAccepts(string? accept)
+    [InlineData("application/vnd.dev-lotrokoniecdev.hateoas.json")]
+    [InlineData("text/plain")]
+    public async Task BrokenSignInLink_ShouldTellAProgramWhyItWasRefused_WhateverItAccepts(string? accept)
     {
         // Arrange
         using HttpClient client = CreateClientWithoutRedirects();
@@ -282,32 +304,27 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// An <c>Accept</c> that names neither JSON nor HTML goes to the fallback writer, which knows only the
-    /// status (#912 follow-up). Nothing sends these to a sign-in link, but if something did, it must still
-    /// get problem details and not a page or a 500.
+    /// Userinfo gives its error in the <c>WWW-Authenticate</c> header, and a request with no token gets no
+    /// error code there (RFC 6750 §3.1). The body the status-code pages write must not add one.
     /// </summary>
-    [Theory]
-    [InlineData("application/vnd.dev-lotrokoniecdev.hateoas.json")]
-    [InlineData("text/plain")]
-    public async Task BrokenSignInLink_ShouldAnswerAnyOtherMediaTypeWithProblemDetails(string accept)
+    [Fact]
+    public async Task UserInfoWithoutAToken_ShouldNameNoErrorInTheBody()
     {
         // Arrange
         using HttpClient client = CreateClientWithoutRedirects();
 
         // Act
-        using HttpResponseMessage response = await GetAsync(
-            client, AuthorizeLink(clientId: "no-such-client", ValidCallback), accept);
+        using HttpResponseMessage response = await GetAsync(client, "/connect/userinfo", "*/*");
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         response.Content.Headers.ContentType?.MediaType.ShouldBe("application/problem+json");
         using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        json.RootElement.GetProperty("status").GetInt32().ShouldBe((int)HttpStatusCode.BadRequest);
+        json.RootElement.TryGetProperty("error", out _).ShouldBeFalse();
     }
 
     /// <summary>
-    /// The switch behind #912 covers the browser endpoints only. The token endpoint answers programs, and
-    /// OAuth fixes the JSON it returns, so even a request that names <c>text/html</c> gets that JSON.
+    /// The token endpoint writes its OAuth JSON itself, even for a request that names <c>text/html</c>.
     /// </summary>
     [Fact]
     public async Task RefusedTokenRequest_ShouldKeepItsOAuthJson_EvenForABrowserAccept()

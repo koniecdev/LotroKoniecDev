@@ -1,29 +1,33 @@
-using Microsoft.AspNetCore;
 using OpenIddict.Abstractions;
+using OpenIddict.Server;
+using OpenIddict.Server.AspNetCore;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace LotroKoniecDev.AuthSystem.API.Middleware;
 
 /// <summary>
-/// OpenIddict leaves a refused sign-in or sign-out link to the status-code pages (#912), and they know
-/// only the status. This copies the OAuth error into the problem details, so a program still learns why
-/// the link was refused. A browser never sees it: <see cref="BrowserErrorPageWriter"/> shows the general
-/// page instead.
+/// The status-code pages know only the status of a refused sign-in or sign-out link (#912). This copies
+/// the OAuth error into the problem details, so a program still learns why the link was refused.
 /// </summary>
 /// <remarks>
-/// The <c>state</c> parameter is left out on purpose, as OpenIddict's own plain-text answer leaves it out.
+/// Only authorize and logout. Userinfo gives its error in the <c>WWW-Authenticate</c> header and leaves
+/// the body to the status-code pages too, but the bearer rules (RFC 6750 §3.1) say a request with no
+/// token gets no error code, so its body must not name one either.
 /// <para>
-/// Only ASP.NET Core's own writer calls this hook. A program whose <c>Accept</c> names neither JSON nor
-/// HTML (<c>text/plain</c>, the HATEOAS type) gets the shared fallback writer, so its problem details carry
-/// the status and no reason.
+/// The <c>state</c> parameter is left out on purpose, as OpenIddict's own plain-text answer leaves it out.
 /// </para>
 /// </remarks>
 internal static class OpenIddictErrorProblemDetails
 {
     internal static void Add(ProblemDetailsContext context)
     {
-        OpenIddictResponse? response = context.HttpContext.GetOpenIddictServerResponse();
-        if (response?.Error is not { Length: > 0 } error)
+        OpenIddictServerTransaction? transaction =
+            context.HttpContext.Features.Get<OpenIddictServerAspNetCoreFeature>()?.Transaction;
+        if (transaction is not
+            {
+                EndpointType: OpenIddictServerEndpointType.Authorization or OpenIddictServerEndpointType.EndSession,
+                Response: { Error: { Length: > 0 } error } response
+            })
         {
             return;
         }

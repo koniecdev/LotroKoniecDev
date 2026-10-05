@@ -154,6 +154,27 @@ internal sealed class CookieTokenRefresher
             return RefreshOutcome.Stop;
         }
 
+        // Our own sign-in server never sends a blank token or a token without a positive lifetime. So either
+        // one means that something between us and the server is broken (#974). The API would refuse a blank
+        // token on every call. A token with no lifetime looks expired at once, so every page would redeem
+        // the refresh token again.
+        if (string.IsNullOrWhiteSpace(tokenResponse.AccessToken))
+        {
+            LogBlankAccessToken(_logger, null);
+            await RejectAsync(context);
+            return RefreshOutcome.Stop;
+        }
+
+        if (tokenResponse.ExpiresIn is not { } expiresInSeconds || expiresInSeconds <= 0)
+        {
+            LogNoPositiveLifetime(
+                _logger,
+                tokenResponse.ExpiresIn?.ToString(CultureInfo.InvariantCulture) ?? "missing",
+                null);
+            await RejectAsync(context);
+            return RefreshOutcome.Stop;
+        }
+
         properties.UpdateTokenValue(AccessTokenName, tokenResponse.AccessToken);
 
         if (!string.IsNullOrEmpty(tokenResponse.RefreshToken))
@@ -166,7 +187,7 @@ internal sealed class CookieTokenRefresher
             properties.UpdateTokenValue(IdTokenName, tokenResponse.IdToken);
         }
 
-        DateTimeOffset newExpiresAt = DateTimeOffset.UtcNow.AddSeconds(tokenResponse.ExpiresIn);
+        DateTimeOffset newExpiresAt = DateTimeOffset.UtcNow.AddSeconds(expiresInSeconds);
         properties.UpdateTokenValue(
             ExpiresAtName,
             newExpiresAt.ToString("o", CultureInfo.InvariantCulture));
@@ -338,4 +359,16 @@ internal sealed class CookieTokenRefresher
             LogLevel.Information,
             new EventId(4, nameof(LogReactiveDeadSession)),
             "Session was marked dead by a prior 401; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogBlankAccessToken =
+        LoggerMessage.Define(
+            LogLevel.Information,
+            new EventId(5, nameof(LogBlankAccessToken)),
+            "Refresh token grant returned an empty or blank access_token; principal rejected.");
+
+    private static readonly Action<ILogger, string, Exception?> LogNoPositiveLifetime =
+        LoggerMessage.Define<string>(
+            LogLevel.Information,
+            new EventId(6, nameof(LogNoPositiveLifetime)),
+            "Refresh token grant returned a missing or non-positive expires_in; principal rejected. expires_in: {ExpiresIn}");
 }

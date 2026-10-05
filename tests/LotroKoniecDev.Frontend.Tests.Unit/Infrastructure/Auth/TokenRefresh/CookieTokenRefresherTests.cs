@@ -3,11 +3,13 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
+using LotroKoniecDev.Frontend.Tests.Unit.Shared;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -24,6 +26,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
     private const string Subject = "11111111-1111-1111-1111-111111111111";
     private const string AccessTokenName = "access_token";
     private const string RefreshTokenName = "refresh_token";
+    private const string IdTokenName = "id_token";
     private const string ExpiresAtName = "expires_at";
 
     private readonly List<RSA> _rsaInstances = [];
@@ -184,6 +187,177 @@ public sealed class CookieTokenRefresherTests : IDisposable
             Arg.Any<HttpContext>(),
             CookieAuthenticationDefaults.AuthenticationScheme,
             Arg.Any<AuthenticationProperties>());
+    }
+
+    /// <summary>
+    /// #974: the API refuses a blank token on every call, so storing it would cost the user a page before
+    /// the session is ended. The answer also carries new tokens, and none of them may be stored.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("   ")]
+    [InlineData("\t\r\n")]
+    public async Task ValidateAsync_WhenRefreshAnswersWithABlankAccessToken_RejectsPrincipalAndStoresNothing(
+        string blankAccessToken)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+        DateTimeOffset expiresAt = DateTimeOffset.UtcNow.AddSeconds(30);
+
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse
+            {
+                AccessToken = blankAccessToken,
+                RefreshToken = "rotated-refresh-token",
+                IdToken = "rotated-id-token",
+                ExpiresIn = 300
+            });
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken, authenticationService, expiresAt, refreshToken: "refresh-token", idToken: "id-token");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldBeNull();
+        context.ShouldRenew.ShouldBeFalse();
+        context.Properties.GetTokenValue(AccessTokenName).ShouldBe(accessToken);
+        context.Properties.GetTokenValue(RefreshTokenName).ShouldBe("refresh-token");
+        context.Properties.GetTokenValue(IdTokenName).ShouldBe("id-token");
+        context.Properties.GetTokenValue(ExpiresAtName).ShouldBe(expiresAt.ToString("o", CultureInfo.InvariantCulture));
+        await authenticationService.Received(1).SignOutAsync(
+            Arg.Any<HttpContext>(),
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            Arg.Any<AuthenticationProperties>());
+    }
+
+    /// <summary>
+    /// #974, owner decision: a token with no lifetime would look expired at once, so every page would
+    /// redeem the refresh token again. Such an answer ends the session like any other bad answer.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(int.MinValue)]
+    public async Task ValidateAsync_WhenRefreshAnswersWithoutAPositiveLifetime_RejectsPrincipalAndStoresNothing(
+        int? expiresIn)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+        DateTimeOffset expiresAt = DateTimeOffset.UtcNow.AddSeconds(30);
+
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse
+            {
+                AccessToken = "refreshed-access-token",
+                RefreshToken = "rotated-refresh-token",
+                IdToken = "rotated-id-token",
+                ExpiresIn = expiresIn
+            });
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken, authenticationService, expiresAt, refreshToken: "refresh-token", idToken: "id-token");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldBeNull();
+        context.ShouldRenew.ShouldBeFalse();
+        context.Properties.GetTokenValue(AccessTokenName).ShouldBe(accessToken);
+        context.Properties.GetTokenValue(RefreshTokenName).ShouldBe("refresh-token");
+        context.Properties.GetTokenValue(IdTokenName).ShouldBe("id-token");
+        context.Properties.GetTokenValue(ExpiresAtName).ShouldBe(expiresAt.ToString("o", CultureInfo.InvariantCulture));
+        await authenticationService.Received(1).SignOutAsync(
+            Arg.Any<HttpContext>(),
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            Arg.Any<AuthenticationProperties>());
+    }
+
+    /// <summary>
+    /// The session ends either way, so the log is the only place that says why.
+    /// </summary>
+    [Theory]
+    [InlineData("", 300, "blank access_token")]
+    [InlineData("   ", 300, "blank access_token")]
+    [InlineData("refreshed-access-token", null, "expires_in: missing")]
+    [InlineData("refreshed-access-token", 0, "expires_in: 0")]
+    [InlineData("refreshed-access-token", -5, "expires_in: -5")]
+    public async Task ValidateAsync_WhenRefreshAnswerIsUnusable_LogsTheReason(
+        string refreshedAccessToken,
+        int? expiresIn,
+        string expectedReason)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse { AccessToken = refreshedAccessToken, ExpiresIn = expiresIn },
+            logger: loggerFactory.CreateLogger<CookieTokenRefresher>());
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Information);
+        entry.Message.ShouldContain(expectedReason);
+    }
+
+    /// <summary>
+    /// #974 changes nothing for an answer with a positive lifetime. It rejects only a lifetime of zero or
+    /// less, so one second, the smallest positive value, is still stored.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(300)]
+    [InlineData(3600)]
+    public async Task ValidateAsync_WhenRefreshAnswersWithAPositiveLifetime_StoresTheTokensAndTheNewExpiry(
+        int expiresIn)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse
+            {
+                AccessToken = "refreshed-access-token",
+                RefreshToken = "rotated-refresh-token",
+                IdToken = "rotated-id-token",
+                ExpiresIn = expiresIn
+            });
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            authenticationService,
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token",
+            idToken: "id-token");
+
+        DateTimeOffset before = DateTimeOffset.UtcNow;
+        await refresher.ValidateAsync(context);
+        DateTimeOffset after = DateTimeOffset.UtcNow;
+
+        context.Principal.ShouldNotBeNull();
+        context.ShouldRenew.ShouldBeTrue();
+        context.Properties.GetTokenValue(AccessTokenName).ShouldBe("refreshed-access-token");
+        context.Properties.GetTokenValue(RefreshTokenName).ShouldBe("rotated-refresh-token");
+        context.Properties.GetTokenValue(IdTokenName).ShouldBe("rotated-id-token");
+        DateTimeOffset storedExpiresAt = DateTimeOffset.Parse(
+            context.Properties.GetTokenValue(ExpiresAtName).ShouldNotBeNull(), CultureInfo.InvariantCulture);
+        storedExpiresAt.ShouldBeInRange(before.AddSeconds(expiresIn), after.AddSeconds(expiresIn));
     }
 
     [Fact]
@@ -438,7 +612,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
         string? discoveryIssuer,
         TokenResponse? refreshResult = null,
         IDeadSessionRegistry? deadSessionRegistry = null,
-        ISessionExpiryNotice? sessionExpiryNotice = null)
+        ISessionExpiryNotice? sessionExpiryNotice = null,
+        ILogger<CookieTokenRefresher>? logger = null)
     {
         ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
         if (refreshResult is not null)
@@ -473,7 +648,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
             optionsMonitor,
             deadSessionRegistry ?? Substitute.For<IDeadSessionRegistry>(),
             sessionExpiryNotice ?? Substitute.For<ISessionExpiryNotice>(),
-            NullLogger<CookieTokenRefresher>.Instance);
+            logger ?? NullLogger<CookieTokenRefresher>.Instance);
     }
 
     private static CookieValidatePrincipalContext CreateContext(
@@ -481,6 +656,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
         IAuthenticationService authenticationService,
         DateTimeOffset expiresAt,
         string? refreshToken = null,
+        string? idToken = null,
         string path = "/",
         CancellationToken requestAborted = default,
         string method = "GET")
@@ -513,6 +689,11 @@ public sealed class CookieTokenRefresherTests : IDisposable
         if (refreshToken is not null)
         {
             tokens.Add(new AuthenticationToken { Name = RefreshTokenName, Value = refreshToken });
+        }
+
+        if (idToken is not null)
+        {
+            tokens.Add(new AuthenticationToken { Name = IdTokenName, Value = idToken });
         }
 
         AuthenticationProperties properties = new();

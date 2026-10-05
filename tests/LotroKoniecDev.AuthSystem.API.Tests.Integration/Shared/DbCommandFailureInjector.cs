@@ -9,7 +9,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 /// process can hit and nothing else in this suite can reach (#839). It does nothing until a test arms
 /// it, and each armed failure fires once. A test may arm more than one, for a run that has to meet two
 /// failures (#980). Arming one more leaves the others armed. When one command matches two of them, the
-/// failure armed first takes it, and the ones armed after it never see that command.
+/// failure armed first takes it, and the ones armed after it never see that command. So a predicate
+/// that counts the commands it sees counts fewer than ran when an earlier arm overlaps it.
 /// </summary>
 public sealed class DbCommandFailureInjector : DbCommandInterceptor
 {
@@ -194,18 +195,17 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
         lock (_lock)
         {
             // A predicate may count the commands it sees, so it is asked only about commands of its phase.
-            // A command an earlier arm takes is not shown to the arms after it, so a counting predicate
-            // armed behind an overlapping one counts fewer commands than ran.
             int index = _armed.FindIndex(armed => armed.FailAfterItRuns == afterItRan && armed.Matches(command));
             if (index < 0)
             {
                 return null;
             }
 
-            ArmedFailure armed = _armed[index];
+            // A factory that throws leaves its arm in place and uncounted.
+            Exception failure = _armed[index].CreateFailure();
             _armed.RemoveAt(index);
             FailuresInjected++;
-            return armed.CreateFailure();
+            return failure;
         }
     }
 

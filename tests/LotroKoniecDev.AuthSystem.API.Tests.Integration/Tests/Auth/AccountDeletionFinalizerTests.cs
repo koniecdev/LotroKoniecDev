@@ -303,6 +303,83 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     [Theory]
+    [InlineData(ErasureSaveFailure.DatabaseError, EventIds.GdprErasureAuthFailed)]
+    [InlineData(ErasureSaveFailure.LostToAnotherWrite, EventIds.GdprErasureAnonymizationFailed)]
+    public async Task Finalizer_ShouldRaiseTheLockAlertOnceAndRetry_WhenTheSaveDidNotLandAndTheLockFailed(
+        ErasureSaveFailure failure,
+        int criticalEventId)
+    {
+        // The save did not land, so the run cannot tell an account that still waits from one whose owner
+        // cancelled. It assumes the retry, and here the account still waits, so the retry comes. The
+        // lock's alert is written only after the check whether the save landed, and only once (#980).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        FailTheNextSaveOf(identityId.Value, failure);
+        FailTheEmergencyLockOf(identityId.Value);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int failedRunCount = await RunFinalizerAsync(loggerFactory);
+        int retryRunCount = await RunFinalizerAsync();
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(2);
+        failedRunCount.ShouldBe(0);
+        retryRunCount.ShouldBe(1);
+
+        loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockoutFailed)
+            .ShouldHaveSingleItem()
+            .Level.ShouldBe(LogLevel.Critical);
+        loggerFactory.Entries.ShouldContain(entry =>
+            entry.EventId.Id == criticalEventId && entry.Level == LogLevel.Critical);
+        loggerFactory.Entries.ShouldContain(entry =>
+            entry.EventId.Id == EventIds.GdprDeletionFinalizerUserFailed
+            && entry.Message.Contains("Will retry", StringComparison.Ordinal));
+        loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureUnneededLockoutFailed);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldRaiseTheLockAlertAndRetry_WhenTheCheckWhetherTheSaveLandedFailsAfterAFailedLock()
+    {
+        // Nothing is known about the account, so the run keeps the answer it gave before #980: the retry
+        // is assumed, and the lock's alert asks a person to look. Here the account still waits, so the
+        // retry comes.
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        FailTheNextSaveOf(identityId.Value, ErasureSaveFailure.DatabaseError);
+        FailTheEmergencyLockOf(identityId.Value);
+        Factory.DbCommandFailures.FailNext(
+            command => IsReadOfAnErasedAccount(command, identityId.Value),
+            CreateDataCorruption);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int failedRunCount = await RunFinalizerAsync(loggerFactory);
+        int retryRunCount = await RunFinalizerAsync();
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(3);
+        failedRunCount.ShouldBe(0);
+        retryRunCount.ShouldBe(1);
+
+        loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockoutFailed)
+            .ShouldHaveSingleItem()
+            .Level.ShouldBe(LogLevel.Critical);
+        loggerFactory.Entries.ShouldContain(entry =>
+            entry.EventId.Id == EventIds.GdprErasureAuthFailed && entry.Level == LogLevel.Critical);
+        loggerFactory.Entries.ShouldContain(entry =>
+            entry.EventId.Id == EventIds.GdprDeletionFinalizerUserFailed
+            && entry.Message.Contains("Will retry", StringComparison.Ordinal));
+        loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureSaveOutcomeUnknown);
+    }
+
+    [Theory]
     [InlineData(ErasureSaveFailure.DatabaseError)]
     [InlineData(ErasureSaveFailure.LostToAnotherWrite)]
     public async Task Finalizer_ShouldLockTheAccountForGoodAndKeepItsAddress_WhenTheErasureSaveFailed(ErasureSaveFailure failure)
@@ -614,6 +691,43 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
 
         loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureSaveLandedAfterAll);
         loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleaned);
+        loggerFactory.Entries.ShouldNotContain(entry => entry.Level >= LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldCleanUpAndCountTheAccount_WhenTheErasureSaveLandedButItsAnswerWasLostAndTheLockFailed()
+    {
+        // The save lands, its answer is lost, and then the emergency lock fails as well. A failed lock says
+        // nothing about the account, so the run still checks whether its own save landed. It did, so the
+        // lock was not needed, nobody has to look, and no later run comes back for the cleanup (#980).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        Factory.DbCommandFailures.FailNextAfterItRuns(
+            command => IsUpdateOfAccount(command, identityId.Value),
+            CreateTransientFailure);
+        FailTheEmergencyLockOf(identityId.Value);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory);
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(2);
+        finalizedCount.ShouldBe(1);
+
+        ApplicationUser user = await GetUserAsync(identityId.Value);
+        user.Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
+        (await HasRolesAsync(identityId.Value)).ShouldBeFalse();
+
+        loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureUnneededLockoutFailed)
+            .ShouldHaveSingleItem()
+            .Level.ShouldBe(LogLevel.Warning);
+        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureSaveLandedAfterAll);
+        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleaned);
+        loggerFactory.Entries.ShouldNotContain(entry => entry.Message.Contains("will retry", StringComparison.OrdinalIgnoreCase));
         loggerFactory.Entries.ShouldNotContain(entry => entry.Level >= LogLevel.Error);
     }
 
@@ -939,8 +1053,17 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
             _ => throw new ArgumentOutOfRangeException(nameof(failure), failure, null)
         };
 
+    private void FailTheEmergencyLockOf(Guid userId) =>
+        Factory.DbCommandFailures.FailNext(command => IsEmergencyLockOf(command, userId), CreateDataCorruption);
+
     private static NpgsqlException CreateTransientFailure() =>
         new("The operation has timed out", new TimeoutException());
+
+    /// <summary>
+    /// The retry does not replay this error, so the command fails for good.
+    /// </summary>
+    private static PostgresException CreateDataCorruption() =>
+        new("simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.DataCorrupted);
 
     private static bool IsUpdateOfAccount(DbCommand command, Guid userId) =>
         command.CommandText.Contains($"UPDATE {DatabaseSchemas.Auth}.\"Users\"", StringComparison.Ordinal)

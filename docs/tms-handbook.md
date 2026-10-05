@@ -1013,8 +1013,10 @@ consciously; Part 12, question 10.
 - **Session cookies**: the auth server's own login cookie is strict (HttpOnly, SameSite=Strict,
   30-minute sliding) and re-validates the user's **security stamp on every request** — so a
   password change or account deletion kills every live session immediately, and a stolen cookie
-  cannot quietly mint new tokens. Signing out does not change the stamp: it clears this cookie
-  only in the browser that signs out, and the other devices stay signed in by design (#931).
+  cannot quietly mint new tokens. The cookie carries only a session key: the session itself lives
+  in the auth database, encrypted, and every sign-in gets a new one (ADR-0062). Signing out does
+  not change the stamp. It deletes this browser's session on the server, so a stolen copy of the
+  cookie stops working too, and the other devices stay signed in by design (#931).
 - **Data Protection keyrings** (the keys that encrypt cookies and antiforgery tokens) are
   persisted to a mounted volume in every deployed environment, with a fail-fast startup guard.
   Without this, every redeploy would silently log everyone out (ADR-0005).

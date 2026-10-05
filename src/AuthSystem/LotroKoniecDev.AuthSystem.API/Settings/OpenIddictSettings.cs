@@ -21,11 +21,9 @@ internal sealed class OpenIddictSettings
     public int AccessTokenLifetimeMinutes { get; init; } = 5;
 
     /// <summary>
-    /// How long a refresh token stays valid after it was issued. Each refresh issues a new token with
-    /// the full lifetime again. The website keeps the token in its session cookie, which ends after 8
-    /// idle hours (Frontend <c>AuthenticationDependencyInjectionExtensions</c>), so a token never needs
-    /// to live longer than that. The extra hour makes sure the token never dies before the cookie that
-    /// carries it, because the cookie is written a moment after the token is issued (#1014).
+    /// The website's session cookie carries the refresh token and ends after 8 idle hours (Frontend
+    /// <c>AuthenticationDependencyInjectionExtensions</c>). The extra hour makes sure the token never
+    /// dies before that cookie (#1014).
     /// </summary>
     public int RefreshTokenLifetimeMinutes { get; init; } = 540;
     public EncryptionKeySettings EncryptionKey { get; init; } = new();

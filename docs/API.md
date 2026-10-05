@@ -80,7 +80,7 @@ OAuth clients seeded at startup (`DatabaseSeederExtensions.cs:111`):
 Token lifetimes (`OpenIddictSettings.cs`): access **5 min** (ADR-0049), refresh **9 h**. Every refresh
 issues a new refresh token with the full 9 h, so the clock starts again at each use. The 9 h is the
 frontend cookie's 8-hour idle timeout plus a margin, because the token lives in that cookie (#1014).
-Email-confirmation and password-reset tokens live **24 h** (`PersistenceDependencyInjection.cs:63`).
+Email-confirmation and password-reset tokens live **24 h** (`PersistenceDependencyInjection.cs:73`).
 Dev/Testing use **ephemeral** signing keys; production supplies an RSA-2048 signing key (public half
 via JWKS) and a ≥256-bit symmetric encryption key via config, with one-previous-key rotation support.
 

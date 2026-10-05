@@ -12,9 +12,8 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// The website keeps the refresh token in its session cookie, and that cookie ends after 8 idle hours.
-/// So the token lives 9 hours from its last use: the cookie's idle time plus a margin (#1014). OpenIddict
-/// runs on a stopped clock here, so the dates in the token rows can be compared exactly.
+/// A refresh token lives 9 hours from its last use (#1014). OpenIddict runs on a stopped clock here, so
+/// the dates in the token rows can be compared exactly.
 /// </summary>
 public sealed class RefreshTokenLifetimeTests : EndpointsTestBase
 {
@@ -38,7 +37,7 @@ public sealed class RefreshTokenLifetimeTests : EndpointsTestBase
         DateTimeOffset issuedAt = clock.GetUtcNow();
 
         // Act
-        using HttpResponseMessage response = await RequestPasswordGrantAsync(client, user.Email);
+        using HttpResponseMessage response = await PostPasswordGrantAsync(client, user.Email);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -65,7 +64,7 @@ public sealed class RefreshTokenLifetimeTests : EndpointsTestBase
         DateTimeOffset refreshedAt = clock.GetUtcNow();
 
         // Act
-        using HttpResponseMessage response = await RequestRefreshGrantAsync(client, firstRefreshToken);
+        using HttpResponseMessage response = await PostRefreshGrantAsync(client, firstRefreshToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -77,6 +76,50 @@ public sealed class RefreshTokenLifetimeTests : EndpointsTestBase
             await OpenIddictTokenState.DatesOfAsync(host.Services, secondRefreshToken);
         createdAt.ShouldBe(refreshedAt);
         expiresAt.ShouldBe(refreshedAt + ExpectedLifetime);
+    }
+
+    [Fact]
+    public async Task RefreshTokenGrant_ShouldReturnNewTokens_OneSecondBeforeTheTokenExpires()
+    {
+        // Arrange
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+
+        FakeTimeProvider clock = new(WholeSecondNow());
+        await using WebApplicationFactory<Program> host = CreateHostOnClock(clock);
+        using HttpClient client = host.CreateClient();
+
+        string refreshToken = await SignInAsync(client, user.Email);
+        clock.Advance(ExpectedLifetime - TimeSpan.FromSeconds(1));
+
+        // Act
+        using HttpResponseMessage response = await PostRefreshGrantAsync(client, refreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task RefreshTokenGrant_ShouldReturnInvalidGrant_OneSecondAfterTheTokenExpires()
+    {
+        // Arrange
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+
+        FakeTimeProvider clock = new(WholeSecondNow());
+        await using WebApplicationFactory<Program> host = CreateHostOnClock(clock);
+        using HttpClient client = host.CreateClient();
+
+        string refreshToken = await SignInAsync(client, user.Email);
+        clock.Advance(ExpectedLifetime + TimeSpan.FromSeconds(1));
+
+        // Act
+        using HttpResponseMessage response = await PostRefreshGrantAsync(client, refreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
     }
 
     /// <summary>
@@ -107,13 +150,13 @@ public sealed class RefreshTokenLifetimeTests : EndpointsTestBase
     /// </summary>
     private static async Task<string> SignInAsync(HttpClient client, string email)
     {
-        using HttpResponseMessage loginResponse = await RequestPasswordGrantAsync(client, email);
+        using HttpResponseMessage loginResponse = await PostPasswordGrantAsync(client, email);
         loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         return await ReadRefreshTokenAsync(loginResponse);
     }
 
-    private static async Task<HttpResponseMessage> RequestPasswordGrantAsync(HttpClient client, string email)
+    private static async Task<HttpResponseMessage> PostPasswordGrantAsync(HttpClient client, string email)
     {
         using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
         {
@@ -127,7 +170,7 @@ public sealed class RefreshTokenLifetimeTests : EndpointsTestBase
         return await client.PostAsync(new Uri("connect/token", UriKind.Relative), loginRequest);
     }
 
-    private static async Task<HttpResponseMessage> RequestRefreshGrantAsync(HttpClient client, string refreshToken)
+    private static async Task<HttpResponseMessage> PostRefreshGrantAsync(HttpClient client, string refreshToken)
     {
         using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
         {

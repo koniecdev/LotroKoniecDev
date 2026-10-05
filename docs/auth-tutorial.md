@@ -399,8 +399,9 @@ jednym bulk update (`RevokeByAuthorizationIdAsync`), w tej samej kolejności co 
 zmianie hasła. Na koniec `SignOutAsync` czyści cookie `auth-api` tej przeglądarki i usuwa z bazy jego
 sesję (ADR-0062): cookie niesie tylko klucz sesji, a sama sesja leży w tabeli `SignInSessions`
 (`SignInSessionTicketStore`), więc skopiowane cookie przestaje działać razem z oryginałem. Każde
-logowanie dostaje nową sesję (`SignInSessionCookie.SignInAsync` usuwa najpierw sesję starego cookie tej
-przeglądarki), więc kopia starego cookie nie przejmuje nowego logowania.
+logowanie dostaje nową sesję (`SignInSessionCookieHandler` usuwa najpierw sesję starego cookie tej
+przeglądarki), więc kopia starego cookie nie przejmuje nowego logowania, a wylogowanie czyści cookie
+przeglądarki nawet przy błędzie bazy.
 Cookie Identity nie wskazuje sesji strony: należy do przeglądarki, nie do jednego logowania strony.
 Dlatego logout bez ważnego hintu niczego nie rewokuje, tylko kończy sesję cookie. Frontend zawsze
 wysyła hint, gdy ma sesję (`AuthEndpointsExtensions.LogoutAsync`).

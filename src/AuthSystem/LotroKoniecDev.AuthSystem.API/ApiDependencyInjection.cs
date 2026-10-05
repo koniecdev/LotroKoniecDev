@@ -181,8 +181,7 @@ internal static class ApiDependencyInjection
             // so expired and invalid tokens and authorizations are cleaned up once a day.
             services.AddHostedService<OpenIddictPruneService>();
 
-            // The cookie handler deletes an expired sign-in session only when its cookie comes back, so
-            // the rows of cookies that never come back are cleaned up once a day (ADR-0062).
+            // ADR-0062: expired sign-in sessions whose cookie never came back.
             services.AddHostedService<SignInSessionPruneService>();
 
             // Checks the OpenIddict server config at startup and stops the app when it is wrong

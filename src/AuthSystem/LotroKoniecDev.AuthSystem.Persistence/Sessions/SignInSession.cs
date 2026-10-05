@@ -3,8 +3,8 @@ using LotroKoniecDev.SharedKernel.Guards;
 namespace LotroKoniecDev.AuthSystem.Persistence.Sessions;
 
 /// <summary>
-/// One sign-in to the sign-in server: the authentication ticket behind its cookie. The cookie carries
-/// only <see cref="Id"/>, so deleting this row ends every copy of that cookie at once (ADR-0062).
+/// One sign-in to the sign-in server: the authentication ticket behind its cookie, which carries only
+/// <see cref="Id"/> (ADR-0062).
 /// </summary>
 public sealed class SignInSession
 {

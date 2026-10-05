@@ -3,7 +3,8 @@
 **Status:** Accepted
 **Date:** 2026-10-05
 **Decision-makers:** Solo maintainer (ticket #1013)
-**Related:** AuthSystem.API (`Program.cs` cookie setup, `Services/Sessions/SignInSessionTicketStore.cs`,
+**Related:** AuthSystem.API (`Program.cs` cookie setup, `Services/Sessions/SignInSessionCookieHandler.cs`,
+`Services/Sessions/SignInSessionTicketStore.cs`,
 `Services/Maintenance/SignInSessionPruneService.cs`, `Services/Gdpr/AccountErasureService.cs`);
 AuthSystem.Persistence (`Sessions/SignInSession.cs`, the `SignInSessions` table); ADR-0023 (migrations
 are expand-only), ADR-0031 (two-phase account deletion); tickets #282 (SEC-03), #931, #963, #970, #1013
@@ -41,6 +42,11 @@ same row, so they all stop working at once. Nothing in `LogoutEndpoint` changed:
 signs a refused cookie out the same way, so a cookie that a stamp change killed loses its row on its next
 request.
 
+The scheme's handler is `SignInSessionCookieHandler`, a sealed subclass of the framework's
+`CookieAuthenticationHandler`. It changes the sign-in and the sign-out (decisions 5 and 6) and nothing
+else. `Program.cs` adds the scheme with `AddScheme` and the one post-configure line `AddCookie` would add,
+because `AddCookie` cannot name a handler.
+
 Other devices have their own rows, so "Wyloguj" still ends this device only (#931).
 
 ### 2. The store is a table in the auth database
@@ -72,41 +78,58 @@ same keyring.
 - When the cookie slides, the handler calls `RenewAsync`, which moves `ExpiresAt`. Renewing is an update
   and never an insert, so a session that a sign-out in another tab deleted stays deleted.
 - The handler deletes an expired row when its cookie comes back. A cookie that never comes back (a closed
-  browser, a cleared cookie jar, a second sign-in without a sign-out) would leave its row forever, so
+  browser, a cleared cookie jar) would leave its row forever, so
   `SignInSessionPruneService` deletes every row whose `ExpiresAt` has passed once a day. It follows the
   pattern of `OpenIddictPruneService` (PERF-02). A row is expired by the handler's own rule: its expiry is
-  in the past.
+  in the past. `ExpiresAt` has no index: the table holds one row per live sign-in, the prune runs once a
+  day, and every slide would also have to update the index.
 - `RetrieveAsync` and `RemoveAsync` ignore the request's cancellation token. A sign-out reads the session
   and then deletes it, and a browser that leaves before the answer must not keep its session alive.
+- A sign-in's insert can land while its answer is lost, and EF's retry then sends the same id again. The
+  id is new for every sign-in, so the store reads that primary-key clash as the insert that landed, the
+  same case #962 handled for the erasure.
 
 ### 5. Every sign-in starts a new session
 
-Before it signs in, the cookie handler reads the cookie the browser already has. While that cookie's
-session lives, the handler does not store the new sign-in under a new key: it renews the old row and
-keeps the old key (aspnetcore#22135). Every copy of the old cookie would then hold the new sign-in:
+Before it signs in, the framework's cookie handler reads the cookie the browser already has. While that
+cookie's session lives, it does not store the new sign-in under a new key: it renews the old row and keeps
+the old key (aspnetcore#22135). Every copy of the old cookie would then hold the new sign-in:
 
 - A copy that a password change killed would work again as soon as the victim signs in on that browser.
   The reset page links straight to the login form.
 - On a shared computer, a copy of the first user's cookie would be signed in as the second user, and the
   row would still carry the first user's id, so the erasure and #970 would miss it.
 
-So the login page signs in through `SignInSessionCookie.SignInAsync`. It reads the session key out of the
-browser's current cookie, deletes that session, and only then signs in. The handler finds no session and
-stores the new sign-in under a new key. Signing out first does not work: the handler keeps the old key
-after its own sign-out and would renew the row it has just deleted, so the new cookie would name nothing.
+So `SignInSessionCookieHandler` deletes the session that the browser's current cookie names, and only then
+lets the framework sign in. The framework finds no session and stores the new sign-in under a new key.
+Because this lives in the handler, every sign-in path gets it, today's login page and any later one, with
+no convention to remember. Signing out first would not work: the framework keeps the old key after its own
+sign-out and would renew the row it had just deleted, so the new cookie would name nothing.
 
-ASP.NET Core keeps the session key's claim type private, so `SignInSessionCookie` repeats it, and
-`SignInSessionTests` pins it against a real cookie. A new sign-in path must go through this method too:
-a direct `HttpContext.SignInAsync` on this scheme brings the shared key back.
+The handler opens the cookie the way the framework does, TLS token binding included. The framework keeps
+the session key's claim type private, so the handler repeats it, and `SignInSessionTests` pins it against
+a real cookie. When something earlier in the same request has already read the cookie, the framework keeps
+the old key anyway, the new cookie names no session, and the user signs in again. That fails closed, and
+nothing reads the cookie before a sign-in today.
 
-### 6. The final account erasure deletes the user's rows
+### 6. A sign-out always clears the browser's cookie
+
+The framework clears the cookie only after the store has read and deleted the session. A database error
+there would answer with a 500 and leave this browser signed in, and the next person at a shared computer
+would get the session. So `SignInSessionCookieHandler` catches a failed sign-out, logs it as an error and
+clears the cookie anyway, like the best-effort revoke in `LogoutEndpoint` (#931). The row then lives until
+it expires, and only a copy of the cookie could still use it.
+
+### 7. The final account erasure deletes the user's rows
 
 The stored ticket is personal data, so `AccountErasureService` deletes every row of the user. It does
 that before the anonymizing save, not in the best-effort cleanup after it. The finalizer retries an
 account only until that save lands, so a delete that came after it and failed would never run again.
-A failed delete fails this run, and the next run tries again.
+A failed delete fails this run, and the next run tries again. The delete runs only while the account still
+waits for its erasure, by the rule the emergency lock uses: an owner who cancelled meanwhile may already
+have signed in again.
 
-### 7. Rollout: a cookie from the other side of the deploy sends the user to the login form
+### 8. Rollout: a cookie from the other side of the deploy sends the user to the login form
 
 - A cookie written before this change has no session key. The cookie handler refuses it ("SessionId
   missing"), and `connect/authorize` sends the browser to the login form. Every signed-in user types the
@@ -136,19 +159,23 @@ Neither direction ends on an error page. `SignInSessionTests` pins the first one
   not the cookie.
 - One insert per sign-in, plus a delete when the browser still held an older session; one update per
   slide (at most about once per half of the cookie's lifetime); and one delete per sign-out.
-- Nothing checks mechanically that every sign-in goes through `SignInSessionCookie.SignInAsync`. There is
-  one sign-in path today, the login page. A cookie handler subclass that ends the old session in its own
-  sign-in would cover every future path, at the cost of replacing the framework's handler. Revisit when a
-  second sign-in path appears.
+- We subclass the framework's cookie handler and repeat two of its details it does not publish: the
+  session key's claim type and how it opens the cookie. One test pins the claim type against a real
+  cookie, and the sign-in-over-an-old-cookie tests fail if the handler stops ending the old session, so
+  an upgrade that changes either one fails the tests, not production.
 - An older request from the same browser that slides its cookie after the login POST answered can set the
   old key back in the browser. The user then signs in once more. Nothing comes back to life, because a
   slide only updates a row and the old row is gone.
+- A sign-out that hits a database error clears the browser's cookie but leaves the row until it expires.
+  It is logged as an error.
 - A new kind of server-side state with personal data. It is encrypted, pruned when it expires and
-  deleted at erasure. It holds nothing the account itself does not already hold.
+  deleted at erasure. It holds what the account held at sign-in, so after an e-mail change a row can
+  still hold the old address, until its cookie comes back (the stamp check then deletes it) or it expires.
 - A row whose cookie never comes back stays until it expires: at most 30 days, then the daily prune
   deletes it.
 - A row that a stamp change killed stays until its cookie comes back or it expires. Nobody can use it,
-  because the stamp check refuses it. #970 can delete such rows at once if that is ever wanted.
+  because the stamp check refuses it. #970 ("sign out of every device") is the ticket that deletes every
+  row of a user at once, and the flows that change the stamp can call it then.
 
 ## Alternatives Considered
 
@@ -181,8 +208,8 @@ product.
 
 - `src/AuthSystem/LotroKoniecDev.AuthSystem.Persistence/Sessions/SignInSession.cs`,
   `Configurations/SignInSessionConfiguration.cs`, `Migrations/*_AddSignInSessions.cs` — the table.
-- `src/AuthSystem/LotroKoniecDev.AuthSystem.API/Services/Sessions/SignInSessionCookie.cs` — every sign-in
-  starts a new session; `Pages/Account/Login.cshtml.cs` signs in through it.
+- `src/AuthSystem/LotroKoniecDev.AuthSystem.API/Services/Sessions/SignInSessionCookieHandler.cs` — a new
+  session on every sign-in, and a sign-out that always clears the cookie; `Program.cs` adds the scheme.
 - `src/AuthSystem/LotroKoniecDev.AuthSystem.API/Services/Sessions/SignInSessionTicketStore.cs` — the store;
   `Program.cs` sets it on the cookie options, `ApiDependencyInjection.cs` registers it.
 - `src/AuthSystem/LotroKoniecDev.AuthSystem.API/Services/Maintenance/SignInSessionPruneService.cs` — the
@@ -190,9 +217,10 @@ product.
 - `src/AuthSystem/LotroKoniecDev.AuthSystem.API/Services/Gdpr/AccountErasureService.cs` — the delete
   before the anonymizing save.
 - Tests: `Tests/Auth/SignInSessionTests.cs` (a copy after sign-out, two devices, a password change, a
-  sign-in over an older cookie of the same user and of another user, a cookie from before the change,
-  the cookie's contents, the stored ticket, and an expired and a sliding cookie through the real handler),
-  `Tests/Maintenance/SignInSessionPruneServiceTests.cs`, and two cases in
+  sign-in over an older cookie of the same user and of another user or over one with no live session, a
+  cookie from before the change, the cookie's contents, the stored ticket, a lost insert answer, a
+  sign-out on a database error, and an expired and a sliding cookie through the real handler),
+  `Tests/Maintenance/SignInSessionPruneServiceTests.cs`, and three cases in
   `Tests/Auth/AccountDeletionFinalizerTests.cs`.
 
 ## References

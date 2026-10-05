@@ -438,8 +438,10 @@ try
                     })
                 : RateLimitPartition.GetNoLimiter<string>(authPageViewPartition));
 
-        // 429 is the one rejection a caller can act on, so it says when to come back. Rounding up, because
-        // a remainder under a second would otherwise tell the caller to retry immediately.
+        // 429 is the one rejection a caller can act on, so it says when to come back. Every policy here is a
+        // fixed window, and a fixed window reports its whole length, not the time left in it. So the value
+        // is an upper bound: after that wait the limit is free again for sure, but it may be free sooner
+        // (#892). Rounding up keeps it an upper bound.
         // A browser gets a page instead of the problem-details JSON UseStatusCodePages writes: this is
         // now reachable from the login and register forms, and an English dead end there is no answer.
         options.OnRejected = async (context, cancellationToken) =>

@@ -14,13 +14,28 @@ public sealed class TooManyRequestsPageTests
     [InlineData(4, "4 minuty")]
     [InlineData(5, "5 minut")]
     [InlineData(15, "15 minut")]
+    [InlineData(60, "60 minut")]
     public void BuildWaitSentence_ShouldUseThePolishPluralForTheNumber(int minutes, string expected)
     {
         // Act
         string sentence = TooManyRequestsPage.BuildWaitSentence(TimeSpan.FromMinutes(minutes));
 
         // Assert
-        sentence.ShouldContain(expected);
+        sentence.ShouldBe("Spróbuj ponownie później. Limit odnowi się najpóźniej za " + expected + ".");
+    }
+
+    [Theory]
+    [InlineData(10)]
+    [InlineData(900)]
+    [InlineData(3600)]
+    public void BuildWaitSentence_ShouldNameTheLongestWait_NotAnEstimate(int seconds)
+    {
+        // Act: a fixed window reports its whole length, so the real wait is often shorter (#892)
+        string sentence = TooManyRequestsPage.BuildWaitSentence(TimeSpan.FromSeconds(seconds));
+
+        // Assert
+        sentence.ShouldContain("najpóźniej za");
+        sentence.ShouldNotContain("około");
     }
 
     [Fact]
@@ -55,7 +70,7 @@ public sealed class TooManyRequestsPageTests
         string html = TooManyRequestsPage.BuildHtml(TimeSpan.FromMinutes(3), nonce: null);
 
         // Assert
-        html.ShouldContain("Spróbuj ponownie za około 3 minuty.");
+        html.ShouldContain("Spróbuj ponownie później. Limit odnowi się najpóźniej za 3 minuty.");
     }
 
     [Fact]

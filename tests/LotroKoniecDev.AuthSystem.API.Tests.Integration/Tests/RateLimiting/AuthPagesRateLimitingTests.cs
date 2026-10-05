@@ -286,6 +286,7 @@ public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
 
         string body = await lastResponse.Content.ReadAsStringAsync();
         body.ShouldContain("Za dużo prób");
+        body.ShouldContain("Limit odnowi się najpóźniej za 15 minut.");
         body.ShouldContain("Wróć do logowania");
         lastResponse.Dispose();
     }

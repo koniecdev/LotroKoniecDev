@@ -31,8 +31,13 @@ internal static class TooManyRequestsPage
     }
 
     /// <summary>
-    /// Says how long the wait is only when the limiter gave a number, so the page never invents one.
+    /// Names the longest wait, and names a wait only when the limiter gave a number, so the page never
+    /// invents one.
     /// </summary>
+    /// <remarks>
+    /// A fixed window reports its whole length, not the time left in it, so the number is an upper bound
+    /// and the page says "najpóźniej", never "około" (#892). Rounding up keeps it an upper bound.
+    /// </remarks>
     internal static string BuildWaitSentence(TimeSpan retryAfter)
     {
         if (retryAfter <= TimeSpan.Zero)
@@ -43,7 +48,8 @@ internal static class TooManyRequestsPage
         int minutes = (int)Math.Ceiling(retryAfter.TotalMinutes);
         string unit = minutes == 1 ? "minutę" : minutes < 5 ? "minuty" : "minut";
 
-        return "Spróbuj ponownie za około " + minutes.ToString(CultureInfo.InvariantCulture) + " " + unit + ".";
+        return "Spróbuj ponownie później. Limit odnowi się najpóźniej za "
+            + minutes.ToString(CultureInfo.InvariantCulture) + " " + unit + ".";
     }
 
     internal static string BuildHtml(TimeSpan retryAfter, string? nonce) =>

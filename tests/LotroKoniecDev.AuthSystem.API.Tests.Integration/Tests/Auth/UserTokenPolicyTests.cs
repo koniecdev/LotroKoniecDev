@@ -44,7 +44,7 @@ public sealed class UserTokenPolicyTests : EndpointsTestBase
         AuthenticationHeaderValue challenge = response.Headers.WwwAuthenticate.ShouldHaveSingleItem();
         challenge.Scheme.ShouldBe("Bearer");
         challenge.Parameter.ShouldNotBeNull().ShouldContain("error=\"insufficient_access\"");
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/problem+json");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("application/problem+json");
         using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("status").GetInt32().ShouldBe(403);
         body.RootElement.GetProperty("title").GetString().ShouldBe("Forbidden");

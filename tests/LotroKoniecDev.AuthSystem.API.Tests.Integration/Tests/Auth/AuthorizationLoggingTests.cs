@@ -86,6 +86,7 @@ public sealed class AuthorizationLoggingTests : EndpointsTestBase
         using HttpClient client = host.CreateClient();
         using HttpRequestMessage tokenRequest = CreateClientCredentialsRequest(AuthSystemApiFactory.TestApiClientSecret, "203.0.113.95");
         using HttpResponseMessage tokenResponse = await client.SendAsync(tokenRequest);
+        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         using JsonDocument token = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync());
         using HttpRequestMessage request = CreateRequest(HttpMethod.Get, AccountPath, "203.0.113.95");
         request.Headers.Authorization = new AuthenticationHeaderValue(

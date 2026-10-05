@@ -45,6 +45,20 @@ public sealed class UserTokenPolicyTests
     }
 
     [Fact]
+    public async Task Policy_WhenTheUserIdComesAsANameIdentifier_Succeeds()
+    {
+        // Arrange: the Identity sign-in cookie carries the user id here, and carries no "sub"
+        ClaimsPrincipal principal = CreateSignedInPrincipal(
+            new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()));
+
+        // Act
+        AuthorizationResult result = await AuthorizeAsync(principal);
+
+        // Assert
+        result.Succeeded.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task Policy_WhenTheTokenCarriesNoSubject_Fails()
     {
         // Arrange

@@ -18,7 +18,10 @@ internal static class UserTokenPolicy
         .RequireAssertion(context => IsIssuedToUser(context.User))
         .Build();
 
-    // A user's subject is the user id, a GUID. The TMS reads it the same way (CurrentUserAccessor).
+    // The user id is a GUID. This reads it the way the account endpoints do, so the policy and the
+    // handler always look at the same claim.
     private static bool IsIssuedToUser(ClaimsPrincipal principal) =>
-        Guid.TryParse(principal.FindFirstValue(Claims.Subject), out _);
+        Guid.TryParse(
+            principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? principal.FindFirstValue(Claims.Subject),
+            out _);
 }

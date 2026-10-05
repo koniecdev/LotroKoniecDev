@@ -1,9 +1,11 @@
+using LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Settings;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
@@ -48,9 +50,12 @@ internal static class AuthenticationDependencyInjectionExtensions
             // IHttpClientFactory provides. Holding a short-lived typed client inside a singleton would
             // break how the factory recycles connections and picks up DNS changes.
             services.AddScoped<CookieTokenRefresher>();
+            services.AddScoped<RefreshTokenRevoker>();
+            services.TryAddSingleton(TimeProvider.System);
 
-            // The refresh grant and the OIDC back-channel below carry the visitor's address to the auth
-            // API the same way the typed account client does (ADR-0054).
+            // The refresh grant, the sign-out's revoke and the OIDC back-channel below carry the visitor's
+            // address to the auth API the same way the typed account client does (ADR-0054). The revoke
+            // follows a link from the discovery document, so the origin check comes first (#830).
             services.AddHttpContextAccessor();
             services.AddHttpClient<ITokenEndpointClient, TokenEndpointClient>((sp, client) =>
                 {
@@ -59,6 +64,7 @@ internal static class AuthenticationDependencyInjectionExtensions
                     client.BaseAddress = new Uri(settings.BaseUrl);
                 })
                 .ConfigurePrimaryHttpMessageHandler(HttpClientsDependencyInjectionExtensions.CreatePrimaryHandler)
+                .AddSameOriginHandler<AuthSystemSettings>(settings => settings.BaseUrl)
                 .AddFrontendCallerHandler<AuthSystemSettings>(settings => settings.CallerKey);
 
             services.AddAuthentication(options =>

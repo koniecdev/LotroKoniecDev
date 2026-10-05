@@ -291,7 +291,7 @@ Staging/Production.
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates the DP keyring guard. |
 | `ASPNETCORE_URLS` | `https://localhost:7017` (launchSettings) | `http://+:8080` | ✅ all | plain | Prod serves HTTP only (Caddy owns TLS). |
 | `AuthSystem__Authority` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ all | plain | Drives the `/authorize` redirect (front-channel) **and** discovery/token (back-channel). |
-| `AuthSystem__BaseUrl` | `https://localhost:5003/` | `https://auth.lotro-translator.pl/` | ✅ all | plain | Auth origin (trailing slash). |
+| `AuthSystem__BaseUrl` | `https://localhost:5003/` | `https://auth.lotro-translator.pl/` | ✅ all | plain | Auth origin (trailing slash). MUST be the same origin as auth's `OpenIddict__Issuer`: the sign-out revoke follows the discovered `revocation_endpoint`, and the frontend refuses it on any other origin (#964). |
 | `AuthSystem__ClientId` | `lotrokoniecdev-web` | `lotrokoniecdev-web` | ✅ all | plain | Must match the OpenIddict web-client id. |
 | `AuthSystem__CallbackPath` | `/callback` | `/callback` | ✅ all | plain | Origin + this MUST be registered in auth `RedirectUris`. |
 | `AuthSystem__SignedOutCallbackPath` | `/signout-callback-oidc` | `/signout-callback-oidc` | ✅ all | plain | Origin + this MUST be in auth `PostLogoutRedirectUris`. |
@@ -687,7 +687,13 @@ The cross-service settings that are individually valid but break the system when
    traps: (a) in Production **OpenIddict rejects plain HTTP**, so the Authority MUST be `https` — use
    the public Caddy origin, never `http://auth-api:8080`; (b) that host MUST be reachable from inside
    the container and its cert trusted by the container's OS store (on the boxes it is a real Let's
-   Encrypt cert, so this is free; only the local parity stack needs the CA shim).
+   Encrypt cert, so this is free; only the local parity stack needs the CA shim). One more coupling:
+   the frontend's `AuthSystem__BaseUrl` MUST share the issuer's origin. The sign-out revoke goes to the
+   `revocation_endpoint` from discovery, which OpenIddict builds from `OpenIddict__Issuer`, and the
+   frontend refuses an endpoint off `AuthSystem__BaseUrl`'s origin. A mismatch shows only as two
+   warnings per sign-out ("Refused an API request to …" and "Refresh token revocation at sign-out
+   threw an exception."), and the session is then revoked only if the browser reaches
+   `connect/logout` (#964).
 
 3. **Frontend redirect URIs must be registered at the auth server.** The frontend sends
    `redirect_uri = <its public origin> + AuthSystem__CallbackPath` (and post-logout = origin +

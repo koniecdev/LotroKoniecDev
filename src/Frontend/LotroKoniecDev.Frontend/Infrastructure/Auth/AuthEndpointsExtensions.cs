@@ -1,3 +1,4 @@
+using LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
 using LotroKoniecDev.Frontend.Infrastructure.Security;
 using LotroKoniecDev.Frontend.Settings;
 using Microsoft.AspNetCore.Authentication;
@@ -11,13 +12,14 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 
 /// <summary>
 /// Maps the login and logout routes the OIDC setup needs. Login starts the challenge; logout clears the
-/// cookie and ends the session at the auth server. The navbar's login and logout buttons point here
-/// (M3-02).
+/// cookie, revokes the refresh token and ends the session at the auth server. The navbar's login and
+/// logout buttons point here (M3-02).
 /// </summary>
 internal static class AuthEndpointsExtensions
 {
     private const string EndSessionPath = "connect/logout";
     private const string IdTokenName = "id_token";
+    private const string RefreshTokenName = "refresh_token";
 
     private static readonly Action<ILogger, Exception?> LogOidcAuthorityUnreachable =
         LoggerMessage.Define(
@@ -102,13 +104,29 @@ internal static class AuthEndpointsExtensions
         return Results.Redirect(redirect);
     }
 
-    private static async Task<IResult> LogoutAsync(
+    /// <summary>
+    /// The logout route's handler, internal so a unit test can call it without a web host.
+    /// The redirect below revokes this device's session only if the browser reaches the auth server. The
+    /// refresh token belongs to the same session, so the website revokes it first, server to server. That
+    /// revoke does not depend on the browser (#931, #964). The redirect stays for the auth server's own
+    /// cookie.
+    /// </summary>
+    internal static async Task<IResult> LogoutAsync(
         HttpContext context,
-        IOptions<AuthSystemSettings> authSystemOptions)
+        IOptions<AuthSystemSettings> authSystemOptions,
+        RefreshTokenRevoker refreshTokenRevoker)
     {
-        string? idToken = await context.GetTokenAsync(IdTokenName);
+        AuthenticateResult authentication =
+            await context.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        string? idToken = authentication.Properties?.GetTokenValue(IdTokenName);
+        string? refreshToken = authentication.Properties?.GetTokenValue(RefreshTokenName);
 
         await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+
+        if (!string.IsNullOrWhiteSpace(refreshToken))
+        {
+            await refreshTokenRevoker.RevokeAsync(refreshToken);
+        }
 
         string authority = authSystemOptions.Value.Authority.TrimEnd('/');
         string postLogoutRedirect = $"{context.Request.Scheme}://{context.Request.Host}";

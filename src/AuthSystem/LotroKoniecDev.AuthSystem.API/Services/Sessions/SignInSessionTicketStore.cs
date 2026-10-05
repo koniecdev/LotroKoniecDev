@@ -108,13 +108,15 @@ internal sealed partial class SignInSessionTicketStore : ITicketStore
             return null;
         }
 
-        AuthenticationTicket? ticket = Unprotect(session);
+        AuthenticationTicket? ticket = Unprotect(session.ProtectedTicket, out CryptographicException? failure);
         if (ticket is null)
         {
-            // Nothing can ever read this row again, so it goes now and not at its expiry.
+            // Nothing can ever read this row again, so it goes now and not at its expiry. The warning
+            // comes after the delete, so it never reports a delete that failed.
             await dbContext.SignInSessions
                 .Where(storedSession => storedSession.Id == id)
                 .ExecuteDeleteAsync(CancellationToken.None);
+            LogSessionUnreadable(_logger, failure, session.UserId);
         }
 
         return ticket;
@@ -149,19 +151,20 @@ internal sealed partial class SignInSessionTicketStore : ITicketStore
     /// a cookie it cannot open: the user signs in again. It is still worth a warning, because the cookie
     /// that named this row was opened with the same keyring.
     /// </summary>
-    private AuthenticationTicket? Unprotect(SignInSession session)
+    private AuthenticationTicket? Unprotect(byte[] protectedTicket, out CryptographicException? failure)
     {
         byte[] serializedTicket;
         try
         {
-            serializedTicket = _protector.Unprotect(session.ProtectedTicket);
+            serializedTicket = _protector.Unprotect(protectedTicket);
         }
         catch (CryptographicException exception)
         {
-            LogSessionUnreadable(_logger, exception, session.UserId);
+            failure = exception;
             return null;
         }
 
+        failure = null;
         return TicketSerializer.Default.Deserialize(serializedTicket);
     }
 
@@ -180,6 +183,6 @@ internal sealed partial class SignInSessionTicketStore : ITicketStore
     private static bool TryParseKey(string key, out Guid id) =>
         Guid.TryParseExact(key, KeyFormat, out id);
 
-    [LoggerMessage(EventId = EventIds.SignInSessionUnreadable, Level = LogLevel.Warning, Message = "A stored sign-in session of user {UserId} could not be decrypted, so it was deleted and its cookie no longer signs anyone in. Check the Data Protection keyring if this repeats.")]
-    private static partial void LogSessionUnreadable(ILogger logger, Exception exception, Guid userId);
+    [LoggerMessage(EventId = EventIds.SignInSessionUnreadable, Level = LogLevel.Warning, Message = "A stored sign-in session of user {UserId} could not be read, so it was deleted and its cookie no longer signs anyone in. Check the Data Protection keyring if this repeats.")]
+    private static partial void LogSessionUnreadable(ILogger logger, Exception? exception, Guid userId);
 }

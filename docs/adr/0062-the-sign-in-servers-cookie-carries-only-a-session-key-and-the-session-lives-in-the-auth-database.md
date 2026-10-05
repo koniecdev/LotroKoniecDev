@@ -61,8 +61,9 @@ cookie. A copy of the database alone gives neither the personal data nor a worki
 has to be encrypted with the keyring.
 
 A row that cannot be decrypted any more reads as no session. The cookie handler then answers as it does
-for a cookie it cannot open, and the user signs in again. The store logs a warning, because the cookie
-that named the row was opened with the same keyring.
+for a cookie it cannot open, and the user signs in again. Nothing can ever read that row again, so the
+store deletes it at once and logs a warning, because the cookie that named the row was opened with the
+same keyring.
 
 ### 4. A row lives exactly as long as its cookie
 
@@ -136,7 +137,12 @@ Neither direction ends on an error page. `SignInSessionTests` pins the first one
 - One insert per sign-in, plus a delete when the browser still held an older session; one update per
   slide (at most about once per half of the cookie's lifetime); and one delete per sign-out.
 - Nothing checks mechanically that every sign-in goes through `SignInSessionCookie.SignInAsync`. There is
-  one sign-in path today, the login page.
+  one sign-in path today, the login page. A cookie handler subclass that ends the old session in its own
+  sign-in would cover every future path, at the cost of replacing the framework's handler. Revisit when a
+  second sign-in path appears.
+- An older request from the same browser that slides its cookie after the login POST answered can set the
+  old key back in the browser. The user then signs in once more. Nothing comes back to life, because a
+  slide only updates a row and the old row is gone.
 - A new kind of server-side state with personal data. It is encrypted, pruned when it expires and
   deleted at erasure. It holds nothing the account itself does not already hold.
 - A row whose cookie never comes back stays until it expires: at most 30 days, then the daily prune

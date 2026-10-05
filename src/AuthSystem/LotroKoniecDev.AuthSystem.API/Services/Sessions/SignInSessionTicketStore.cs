@@ -101,9 +101,23 @@ internal sealed partial class SignInSessionTicketStore : ITicketStore
         AuthDbContext dbContext = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
         SignInSession? session = await dbContext.SignInSessions
             .AsNoTracking()
-            .SingleOrDefaultAsync(session => session.Id == id, CancellationToken.None);
+            .SingleOrDefaultAsync(storedSession => storedSession.Id == id, CancellationToken.None);
 
-        return session is null ? null : Unprotect(session);
+        if (session is null)
+        {
+            return null;
+        }
+
+        AuthenticationTicket? ticket = Unprotect(session);
+        if (ticket is null)
+        {
+            // Nothing can ever read this row again, so it goes now and not at its expiry.
+            await dbContext.SignInSessions
+                .Where(storedSession => storedSession.Id == id)
+                .ExecuteDeleteAsync(CancellationToken.None);
+        }
+
+        return ticket;
     }
 
     public Task RemoveAsync(string key) =>
@@ -166,6 +180,6 @@ internal sealed partial class SignInSessionTicketStore : ITicketStore
     private static bool TryParseKey(string key, out Guid id) =>
         Guid.TryParseExact(key, KeyFormat, out id);
 
-    [LoggerMessage(EventId = EventIds.SignInSessionUnreadable, Level = LogLevel.Warning, Message = "A stored sign-in session of user {UserId} could not be decrypted, so its cookie no longer signs anyone in. Check the Data Protection keyring if this repeats.")]
+    [LoggerMessage(EventId = EventIds.SignInSessionUnreadable, Level = LogLevel.Warning, Message = "A stored sign-in session of user {UserId} could not be decrypted, so it was deleted and its cookie no longer signs anyone in. Check the Data Protection keyring if this repeats.")]
     private static partial void LogSessionUnreadable(ILogger logger, Exception exception, Guid userId);
 }

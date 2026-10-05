@@ -163,6 +163,30 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
         (await AuthorizeAsync(firstUsersCookie)).Location.ShouldContain("/Account/Login");
     }
 
+    /// <summary>
+    /// A browser can hold a cookie that names no live session. On the day of the deploy every remembered
+    /// browser holds one from before the session store: the authorize step sends it to the login form,
+    /// but the cookie stays and rides along with the login POST.
+    /// </summary>
+    [Theory]
+    [InlineData(BrowserCookieKind.WrittenBeforeTheSessionStore)]
+    [InlineData(BrowserCookieKind.Unreadable)]
+    [InlineData(BrowserCookieKind.AlreadySignedOut)]
+    public async Task SignIn_ShouldStartANewSession_WhenTheBrowserCookieNamesNoLiveSession(BrowserCookieKind kind)
+    {
+        // Arrange
+        (string email, Guid userId) = await RegisterUserAsync();
+        string browserCookie = await BrowserCookieAsync(kind, email);
+
+        // Act
+        string newCookie = await SignInAsync(email, rememberMe: true, browserCookie: browserCookie);
+
+        // Assert
+        (await AuthorizeAsync(newCookie)).Location.ShouldContain("code=");
+        SignInSession session = (await SessionsOfAsync(userId)).ShouldHaveSingleItem();
+        SessionKeyOf(newCookie).ShouldBe(session.Id.ToString("N"));
+    }
+
     [Fact]
     public async Task SignIn_ShouldPutOnlyTheSessionKeyInTheCookie()
     {
@@ -229,9 +253,10 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
         // Act
         (HttpStatusCode status, string location) = await AuthorizeAsync(authCookie);
 
-        // Assert
+        // Assert: nothing can ever read that row again, so it goes now and not at its expiry
         status.ShouldBe(HttpStatusCode.Redirect);
         location.ShouldContain("/Account/Login");
+        (await SessionsOfAsync(userId)).ShouldBeEmpty();
     }
 
     [Fact]
@@ -467,6 +492,27 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
+    private async Task<string> BrowserCookieAsync(BrowserCookieKind kind, string email)
+    {
+        switch (kind)
+        {
+            case BrowserCookieKind.WrittenBeforeTheSessionStore:
+                return await WriteCookieWithoutASessionKeyAsync(email);
+            case BrowserCookieKind.Unreadable:
+                return $"{AuthCookieOptions.Cookie.Name}=CfDJ8NotAProtectedTicket";
+            case BrowserCookieKind.AlreadySignedOut:
+                string signedOutCookie = await SignInAsync(email, rememberMe: true);
+                using (HttpResponseMessage signOutResponse = await SignOutAsync(idTokenHint: null, signedOutCookie))
+                {
+                    signOutResponse.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+                }
+
+                return signedOutCookie;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
+        }
+    }
+
     /// <summary>
     /// Writes the sign-in server's cookie the way it was written before it had a session store.
     /// </summary>
@@ -585,4 +631,11 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
 
     [GeneratedRegex("""name="__RequestVerificationToken".*?value="([^"]+)""")]
     private static partial Regex AntiForgeryTokenRegex();
+
+    public enum BrowserCookieKind
+    {
+        WrittenBeforeTheSessionStore,
+        Unreadable,
+        AlreadySignedOut
+    }
 }

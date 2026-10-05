@@ -147,7 +147,7 @@ rule, the wiki stating it, and a follow-up ticket amending ADR-0003 and the vali
 | Touch the `\|\|` translation file (parser, serializer, a column) | `README.md` → "Translation file format" for the format, the rules digest below, ADRs 0039/0042/0043/0047 for the reasoning; golden fixtures on both sides; the format changes only via ADR |
 | **File** an issue, label one, or title one | `docs/labels.md` — the five axes (`priority-*`, `type-*`, `severity-*`, `area-*`, process), the title convention, the three-signal epic rule and one bug class per ticket, **shared 1:1 with TheKittySaver**; a change in one repo is ported to the other in the same session. Read it *before* `gh issue create`, not after |
 | Run the backlog autonomously (Loop mode) | **`/backlog <numbers>`** → `scripts/claude/backlog-loop.sh` — one fresh headless session and one worktree per ticket, up to 3 at once; it opens PRs and never merges (ADR-0060); manual: `docs/claude-loop.md` |
-| Merge reviewed PRs | **`/merge-train`** — merges only PRs the owner approved by assigning themselves after the last push (ADR-0060) |
+| Merge reviewed PRs | **`/merge-train`** — merges only PRs the owner approved by assigning themselves after the last push, and fixes an approved PR's conflicts itself (ADR-0060) |
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
 | Re-investigate update behavior, vnum, translation survival, launch flow | **don't** — empirically settled in `docs/knowledge-base/` (start at its README) |
 | Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot + freeze/unfreeze amendments), 0008 (cloud-agnostic deployment + env strategy — M6), 0009 (browser E2E via Testcontainers + Playwright) |
@@ -627,10 +627,12 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
 - **Git is rebase-based, and branches are never deleted.** Integrate a feature branch off `main`
   with `git rebase main` — never `git merge main`; no merge commits in feature branches, from any
   tool (remote `main` is squash-only, so history stays linear). `/merge-train` brings a branch up
-  to date with GitHub's rebase, never falls back to a merge, and refuses a branch that holds a
-  merge commit. A branch GitHub cannot rebase is rebased locally and pushed with
-  `--force-with-lease`. A rebase keeps the owner's approval when its result is exactly the
-  approved code on top of `main` (ADR-0060, amended 2026-09-28).
+  to date with GitHub's rebase, never falls back to a merge, and never merges a branch that holds
+  a merge commit. An approved branch in conflict, or one that holds a merge commit, is the train's
+  own job: `/merge-train` rebases it locally, fixes the conflict, runs the full gate and pushes
+  with `--force-with-lease`. A rebase keeps the owner's approval when its result is exactly the
+  approved code on top of `main`, and so does the train's own recorded conflict fix (ADR-0060,
+  amended 2026-09-28 and 2026-10-05).
   After a PR's squash commit lands on `main`,
   **keep both the local and the remote branch** — merge with plain `gh pr merge --squash` (never
   `--delete-branch`), and never run `git branch -d/-D` or `git push origin --delete`.
@@ -875,7 +877,8 @@ re-read it every turn; that anti-pattern is retired.
 **The loop stops at the PR (ADR-0060).** Nothing in it merges or assigns. The owner reads each PR
 and approves it by **assigning themselves** — GitHub does not let an author approve their own PR,
 and every PR here is opened under the owner's account. `/merge-train` then merges only PRs assigned
-to the owner after their last push (a clean rebase onto `main` does not count as new code), with
+to the owner after their last push (a clean rebase onto `main` and the train's own recorded
+conflict fix do not count as new code), with
 green required checks and zero open CodeQL alerts, and never deletes a branch. The assignee therefore *is* the approval: no session ever sets it.
 
 **Git hygiene — never let two tickets share a working copy.** Each ticket owns its worktree and the

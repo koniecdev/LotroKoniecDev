@@ -17,6 +17,8 @@ public sealed class TokenEndpointClientTests
     private const string AuthBaseUrl = "https://auth.lotro.test/";
     private const string RefreshToken = "the-refresh-token";
 
+    private static readonly Uri RevocationEndpoint = new("https://auth.lotro.test/connect/revoke");
+
     private static readonly byte[] InvalidUtf8InTheAccessToken =
         [.. """{"access_token":"a"""u8, 0xFF, .. """a","expires_in":3600}"""u8];
 
@@ -380,6 +382,144 @@ public sealed class TokenEndpointClientTests
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldBe("Refresh token grant failed with status 502.");
+    }
+
+    /// <summary>
+    /// #964: the sign-out's own revoke, as RFC 7009 describes it for a public client: the token, a hint
+    /// of its kind and the client id, sent to the endpoint the discovery document named.
+    /// </summary>
+    [Fact]
+    public async Task RevokeRefreshTokenAsync_SendsTheTokenItsKindAndTheClientIdToTheGivenEndpoint()
+    {
+        StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
+        using HttpClient httpClient = CreateHttpClient(transport);
+        TokenEndpointClient client = CreateClient(httpClient);
+
+        await client.RevokeRefreshTokenAsync(RevocationEndpoint, RefreshToken);
+
+        transport.LastRequest.ShouldNotBeNull().Method.ShouldBe(HttpMethod.Post);
+        transport.LastRequest.RequestUri.ShouldBe(RevocationEndpoint);
+        transport.LastRequestBody.ShouldBe(
+            $"token={RefreshToken}&token_type_hint=refresh_token&client_id=lotrokoniecdev-web");
+    }
+
+    [Fact]
+    public async Task RevokeRefreshTokenAsync_WhenTheAuthApiRevokes_LogsNothing()
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
+
+        await client.RevokeRefreshTokenAsync(RevocationEndpoint, RefreshToken);
+
+        logs.Entries.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest, "unsupported_token_type", "The specified token cannot be revoked.")]
+    [InlineData(HttpStatusCode.Unauthorized, "invalid_client", "The specified client_id is invalid.")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "temporarily_unavailable", "Try again later.")]
+    public async Task RevokeRefreshTokenAsync_WhenTheAuthApiRefusesWithTheOAuthErrorBody_LogsOneWarningWithTheStatusAndTheReason(
+        HttpStatusCode statusCode,
+        string error,
+        string errorDescription)
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
+            statusCode,
+            $$"""{"error":"{{error}}","error_description":"{{errorDescription}}"}"""));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
+
+        await client.RevokeRefreshTokenAsync(RevocationEndpoint, RefreshToken);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldBe(
+            $"Refresh token revocation at sign-out failed with status {(int)statusCode}. Error: {error}. Description: {errorDescription}");
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadGateway, "<html><body>502 Bad Gateway</body></html>")]
+    [InlineData(HttpStatusCode.BadRequest, "")]
+    [InlineData(HttpStatusCode.BadRequest, """{"error":"","error_description":"no error code"}""")]
+    [InlineData(HttpStatusCode.InternalServerError, """{"title":"Internal Server Error","status":500}""")]
+    public async Task RevokeRefreshTokenAsync_WhenTheRefusalBodyIsNotTheOAuthShape_LogsOneWarningWithTheStatusAlone(
+        HttpStatusCode statusCode,
+        string body)
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(statusCode, body));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
+
+        await client.RevokeRefreshTokenAsync(RevocationEndpoint, RefreshToken);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldBe($"Refresh token revocation at sign-out failed with status {(int)statusCode}.");
+    }
+
+    /// <summary>
+    /// #899: the primary handler follows no redirect, so a redirect is a failed revoke like any other.
+    /// </summary>
+    [Fact]
+    public async Task RevokeRefreshTokenAsync_WhenTheAuthApiAnswersWithARedirect_LogsOneWarningWithTheStatus()
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWithHeaders(
+            HttpStatusCode.TemporaryRedirect,
+            new Dictionary<string, string> { ["Location"] = "https://attacker.example/connect/revoke" }));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
+
+        await client.RevokeRefreshTokenAsync(RevocationEndpoint, RefreshToken);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Message.ShouldBe("Refresh token revocation at sign-out failed with status 307.");
+    }
+
+    public static TheoryData<Exception> TransportFailures() => new()
+    {
+        new HttpRequestException("Connection refused."),
+        new TaskCanceledException("The revoke timed out."),
+        new OperationCanceledException("The sign-out's time limit ran out.")
+    };
+
+    /// <summary>
+    /// A revoke that cannot reach the auth API must never turn the sign-out into an error page.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TransportFailures))]
+    public async Task RevokeRefreshTokenAsync_WhenTheAuthApiCannotBeReached_LogsOneWarningAndDoesNotThrow(Exception failure)
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.Throw(failure));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
+
+        await client.RevokeRefreshTokenAsync(RevocationEndpoint, RefreshToken);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldBe("Refresh token revocation at sign-out threw an exception.");
+    }
+
+    [Theory]
+    [InlineData($$"""{"error":"invalid_request","error_description":"Refused.","token":"{{RefreshToken}}"}""")]
+    [InlineData("token=" + RefreshToken + "&token_type_hint=refresh_token")]
+    public async Task RevokeRefreshTokenAsync_WhenTheRefusalBodyRepeatsTheRefreshToken_NeverLogsIt(string body)
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.BadRequest, body));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
+
+        await client.RevokeRefreshTokenAsync(RevocationEndpoint, RefreshToken);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Message.ShouldNotContain(RefreshToken);
     }
 
     private static Func<HttpContent> JsonBytes(byte[] body, string? charset) =>

@@ -1,5 +1,6 @@
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
+using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Settings;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -69,6 +70,19 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         List<HttpMessageHandler> chain = ResolveTokenEndpointClientHandlerChain();
 
         chain[^1].ShouldBeOfType<SocketsHttpHandler>().UseCookies.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// #964: the sign-out's revoke follows a link from the discovery document, so the origin check has to
+    /// run before the caller key is added (#830).
+    /// </summary>
+    [Fact]
+    public void AddFrontendAuthentication_TokenEndpointClient_ChecksTheOriginBeforeAnyOtherFrontendHandler()
+    {
+        List<HttpMessageHandler> chain = ResolveTokenEndpointClientHandlerChain();
+
+        chain.First(handler => handler.GetType().Assembly == typeof(SameOriginDelegatingHandler).Assembly)
+            .ShouldBeOfType<SameOriginDelegatingHandler>();
     }
 
     /// <summary>#924: the same for every visitor's code exchange and userinfo call.</summary>

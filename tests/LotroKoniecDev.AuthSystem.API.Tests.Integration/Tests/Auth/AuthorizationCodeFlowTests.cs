@@ -697,6 +697,91 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
             .ShouldBe(OpenIddictConstants.Statuses.Valid);
     }
 
+    [Fact]
+    public async Task Discovery_ShouldAdvertiseTheRevocationEndpoint()
+    {
+        // Arrange: the website finds the endpoint here, never by a path of its own (#964)
+
+        // Act
+        using HttpResponseMessage response = await ApiClient.Http.GetAsync(
+            new Uri(".well-known/openid-configuration", UriKind.Relative));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using JsonDocument discovery = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Uri revocationEndpoint = new(discovery.RootElement.GetProperty("revocation_endpoint").GetString()!);
+        revocationEndpoint.AbsolutePath.ShouldBe("/connect/revoke");
+    }
+
+    [Fact]
+    public async Task Revoke_ShouldEndTheWebsitesRefreshToken_WhenTheWebsiteRevokesIt()
+    {
+        // Arrange: the website's own revoke before it hands the sign-out to the browser (#964)
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
+
+        // Act
+        using HttpResponseMessage revokeResponse = await RevokeAsync(session.RefreshToken);
+
+        // Assert
+        revokeResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, session.RefreshToken))
+            .ShouldBe(OpenIddictConstants.Statuses.Revoked);
+        using HttpResponseMessage refreshResponse = await RefreshAsync(session.RefreshToken);
+        refreshResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Revoke_ShouldKeepTheSessionOnAnotherDevice_WhenTheWebsiteRevokesTheRefreshTokenOfOne()
+    {
+        // Arrange
+        const string password = "TestPass1!";
+        string email = await RegisterUserAsync(password);
+        WebsiteSession thisDevice = await SignInThroughTheWebsiteAsync(email, password);
+        WebsiteSession otherDevice = await SignInThroughTheWebsiteAsync(email, password);
+
+        // Act
+        using HttpResponseMessage revokeResponse = await RevokeAsync(thisDevice.RefreshToken);
+
+        // Assert
+        revokeResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, otherDevice.RefreshToken))
+            .ShouldBe(OpenIddictConstants.Statuses.Valid);
+    }
+
+    [Fact]
+    public async Task Logout_ShouldStillRevokeTheSession_WhenTheWebsiteRevokedItsRefreshTokenFirst()
+    {
+        // Arrange: the browser still goes to the end-session page after the website's own revoke
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
+        using HttpResponseMessage revokeResponse = await RevokeAsync(session.RefreshToken);
+        revokeResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Act
+        using HttpResponseMessage response = await SignOutAsync(session.IdToken, authCookies: []);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        response.Headers.Location?.ToString().ShouldStartWith(PostLogoutRedirectUri);
+        List<string?> authorizationStatuses =
+            await OpenIddictTokenState.AuthorizationStatusesOfAsync(Factory.Services, session.UserId);
+        authorizationStatuses.ShouldHaveSingleItem().ShouldBe(OpenIddictConstants.Statuses.Revoked);
+    }
+
+    [Fact]
+    public async Task Revoke_ShouldAnswerOk_WhenTheRefreshTokenWasAlreadyRevoked()
+    {
+        // Arrange: a sign-out after the session already ended elsewhere (RFC 7009 §2.2)
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
+        using HttpResponseMessage firstResponse = await RevokeAsync(session.RefreshToken);
+        firstResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Act
+        using HttpResponseMessage response = await RevokeAsync(session.RefreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
     private async Task<(string Code, string CodeVerifier, List<string> AuthCookies, string Email)>
         ObtainAuthorizationCodeAsync(string? password = null)
     {
@@ -883,6 +968,21 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         });
 
         return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), refreshRequest);
+    }
+
+    /// <summary>
+    /// The request the website sends: a public client names itself and sends no secret.
+    /// </summary>
+    private async Task<HttpResponseMessage> RevokeAsync(string refreshToken)
+    {
+        using FormUrlEncodedContent revokeRequest = new(new Dictionary<string, string>
+        {
+            ["token"] = refreshToken,
+            ["token_type_hint"] = "refresh_token",
+            ["client_id"] = "lotrokoniecdev-web"
+        });
+
+        return await ApiClient.Http.PostAsync(new Uri("connect/revoke", UriKind.Relative), revokeRequest);
     }
 
     /// <summary>

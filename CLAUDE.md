@@ -556,7 +556,8 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   error in the CLI) — never a locally composed path, because an absent rel means the server does
   not offer that affordance to this caller. An href off the client's configured origin is refused
   too. The CLI does it in its resolver (#611). The frontend does it in `SameOriginDelegatingHandler`,
-  the first handler on the TMS and auth typed clients (#830). No frontend client to either API
+  the first handler on the TMS and auth typed clients (#830) and on the token client, whose sign-out
+  revoke follows the discovery document's `revocation_endpoint` (#964). No frontend client to either API
   follows a redirect, so no bearer token, refresh token or caller key leaves for another host. The
   two typed clients (#830) and the token client (#899) use `CreatePrimaryHandler` as their primary
   handler. The OIDC back-channel (#899) uses it too, unless other code sets a back-channel handler
@@ -728,7 +729,8 @@ structure.
   the two snapshot suites use **Verify.Xunit** — see the next bullet; `AuthSystem.API.Tests.Unit`
   uses **Microsoft.Extensions.TimeProvider.Testing** (`FakeTimeProvider`) for code that waits on a
   `TimeProvider` timer, which no substitute can fire — ADR-0059; `AuthSystem.API.Tests.Integration`
-  uses it to stop OpenIddict's clock, so stored token dates can be compared exactly — #1014.)
+  uses it to stop OpenIddict's clock, so stored token dates can be compared exactly — #1014;
+  `Frontend.Tests.Unit` uses it for the time limit of the sign-out's own revoke — #964.)
 - **Snapshots pin shape; they never replace an assert (#571).** Three tools, three jobs: **golden
   fixtures** own the `||` file contract on both sides (a snapshot adds nothing there and must not
   replace them), **plain asserts** own behavior across many inputs, and a **Verify snapshot** owns

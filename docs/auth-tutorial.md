@@ -342,9 +342,11 @@ zaszyfrowanej sesji po stronie serwera (`SaveTokens = true`).
 `AuthEndpointsExtensions.cs`:
 - **Login**: `GET /auth/login?returnUrl=…` → `Results.Challenge` na schemat OIDC → 302 do
   `connect/authorize`. `returnUrl` waliduje `IsLocalUrl` (anti open-redirect).
-- **Logout**: `POST /auth/logout` → `SignOutAsync(cookie)` + redirect na `connect/logout` z
-  `id_token_hint` + `post_logout_redirect_uri` (RP-initiated end-session). `auth-api` przy logoucie
-  **rewokuje sesję tego urządzenia** (§10.3); sesje na innych urządzeniach żyją dalej.
+- **Logout**: `POST /auth/logout` → `SignOutAsync(cookie)`, potem frontend sam rewokuje swój refresh
+  token w `connect/revoke` (serwer–serwer, `RefreshTokenRevoker`, #964), a na koniec redirect na
+  `connect/logout` z `id_token_hint` + `post_logout_redirect_uri` (RP-initiated end-session).
+  `auth-api` przy logoucie **rewokuje sesję tego urządzenia** (§10.3); sesje na innych urządzeniach
+  żyją dalej.
 
 ### 8.4 CookieTokenRefresher
 `Infrastructure/Auth/TokenRefresh/CookieTokenRefresher.cs` na `OnValidatePrincipal`: gdy access token
@@ -405,6 +407,14 @@ przeglądarki nawet przy błędzie bazy.
 Cookie Identity nie wskazuje sesji strony: należy do przeglądarki, nie do jednego logowania strony.
 Dlatego logout bez ważnego hintu niczego nie rewokuje, tylko kończy sesję cookie. Frontend zawsze
 wysyła hint, gdy ma sesję (`AuthEndpointsExtensions.LogoutAsync`).
+Redirect na `connect/logout` działa tylko wtedy, gdy przeglądarka tam dotrze (zamknięta karta, zerwana
+sieć, restart `auth-api`). Dlatego frontend przed redirectem sam rewokuje swój refresh token (#964):
+`RefreshTokenRevoker` bierze `revocation_endpoint` z discovery (nigdy własnej ścieżki), wysyła
+`token` + `token_type_hint=refresh_token` + `client_id` (klient publiczny, bez sekretu) przez
+`ITokenEndpointClient` z kontrolą originu i kluczem frontendu (ADR-0054). Ma limit 5 s, nie zależy od
+`RequestAborted` (zamknięta karta to właśnie ten przypadek), a błąd tylko loguje i nie zatrzymuje
+wylogowania. Kopia cookie strony nie odnowi się już po wygaśnięciu access tokena. Autoryzację i resztę
+tokenów kończy nadal `connect/logout`, gdy przeglądarka tam dotrze.
 Na innych urządzeniach żyją i sesje strony, i cookie `auth-api` — tak ma być. Wszystkie sesje naraz
 kończy zmiana hasła (i reset, zmiana e-maila, usunięcie konta), które zmieniają security stamp.
 
@@ -473,9 +483,9 @@ bezużyteczny.
 `{authority}/.well-known/openid-configuration`, sprawdza podpis, `iss`, `aud`, `exp`. Klucza prywatnego
 RS nie zna.
 
-**Q: Co się dzieje przy logoucie?** — Cookie sign-out + RP-initiated end-session do `auth-api`, które
-**rewokuje autoryzację i reference tokeny sesji tego urządzenia** (§10.3). Inne urządzenia zostają
-zalogowane. Access token (krótki) wygaśnie sam.
+**Q: Co się dzieje przy logoucie?** — Cookie sign-out, rewokacja refresh tokena strony serwer–serwer
+(#964) i RP-initiated end-session do `auth-api`, które **rewokuje autoryzację i reference tokeny sesji
+tego urządzenia** (§10.3). Inne urządzenia zostają zalogowane. Access token (krótki) wygaśnie sam.
 
 **Q: Czemu refresh tokeny są referencyjne?** — Żeby były **rewokowalne** (w bazie) i rolling (replay
 mitigation). Self-contained nie da się unieważnić przed wygaśnięciem.

@@ -10,6 +10,9 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
     private const string RefreshTokenGrantType = "refresh_token";
     private const string RefreshTokenParam = "refresh_token";
     private const string ClientIdParam = "client_id";
+    private const string TokenParam = "token";
+    private const string TokenTypeHintParam = "token_type_hint";
+    private const string RefreshTokenTypeHint = "refresh_token";
     private const int MaxLoggedFieldLength = 200;
     private static readonly Uri TokenRelativeUri = new("connect/token", UriKind.Relative);
 
@@ -47,7 +50,7 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
 
             if (!response.IsSuccessStatusCode)
             {
-                await LogRefusalAsync(response);
+                await LogRefusalAsync(response, LogRefreshRefused, LogRefreshFailed);
                 return null;
             }
 
@@ -70,23 +73,58 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
         }
     }
 
+    public async Task RevokeRefreshTokenAsync(
+        Uri revocationEndpoint,
+        string refreshToken,
+        CancellationToken cancellationToken = default)
+    {
+        using FormUrlEncodedContent content = new(
+        [
+            new KeyValuePair<string, string>(TokenParam, refreshToken),
+            new KeyValuePair<string, string>(TokenTypeHintParam, RefreshTokenTypeHint),
+            new KeyValuePair<string, string>(ClientIdParam, _authSystemOptions.Value.ClientId)
+        ]);
+
+        try
+        {
+            using HttpResponseMessage response = await _httpClient.PostAsync(
+                revocationEndpoint, content, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                await LogRefusalAsync(response, LogRevocationRefused, LogRevocationFailed);
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            LogRevocationError(_logger, ex);
+        }
+        catch (OperationCanceledException ex)
+        {
+            LogRevocationError(_logger, ex);
+        }
+    }
+
     /// <summary>
     /// Only the two OAuth fields are logged, never the raw body, so nothing else the answer carries can
     /// reach the log. For a body of any other shape, the warning holds the status code alone (#914).
     /// </summary>
-    private async Task LogRefusalAsync(HttpResponseMessage response)
+    private async Task LogRefusalAsync(
+        HttpResponseMessage response,
+        Action<ILogger, int, string?, string?, Exception?> logRefused,
+        Action<ILogger, int, Exception?> logFailed)
     {
         int statusCode = (int)response.StatusCode;
 
         if (await TryReadErrorAsync(response.Content) is { } errorResponse
             && !string.IsNullOrWhiteSpace(errorResponse.Error))
         {
-            LogRefreshRefused(
+            logRefused(
                 _logger, statusCode, ForLog(errorResponse.Error), ForLog(errorResponse.ErrorDescription), null);
             return;
         }
 
-        LogRefreshFailed(_logger, statusCode, null);
+        logFailed(_logger, statusCode, null);
     }
 
     /// <summary>
@@ -151,4 +189,22 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
             LogLevel.Warning,
             new EventId(2, nameof(LogRefreshError)),
             "Refresh token grant threw an exception.");
+
+    private static readonly Action<ILogger, int, Exception?> LogRevocationFailed =
+        LoggerMessage.Define<int>(
+            LogLevel.Warning,
+            new EventId(4, nameof(LogRevocationFailed)),
+            "Refresh token revocation at sign-out failed with status {StatusCode}.");
+
+    private static readonly Action<ILogger, int, string?, string?, Exception?> LogRevocationRefused =
+        LoggerMessage.Define<int, string?, string?>(
+            LogLevel.Warning,
+            new EventId(5, nameof(LogRevocationRefused)),
+            "Refresh token revocation at sign-out failed with status {StatusCode}. Error: {Error}. Description: {ErrorDescription}");
+
+    private static readonly Action<ILogger, Exception> LogRevocationError =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(6, nameof(LogRevocationError)),
+            "Refresh token revocation at sign-out threw an exception.");
 }

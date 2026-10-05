@@ -47,7 +47,7 @@ public sealed class UserTokenPolicyTests
     [Fact]
     public async Task Policy_WhenTheUserIdComesAsANameIdentifier_Succeeds()
     {
-        // Arrange: the Identity sign-in cookie carries the user id here, and carries no "sub"
+        // Arrange: the account handlers read NameIdentifier before sub (FindUserId), so the policy accepts it too
         ClaimsPrincipal principal = CreateSignedInPrincipal(
             new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()));
 

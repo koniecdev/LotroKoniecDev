@@ -19,7 +19,13 @@ internal sealed class OpenIddictSettings
     /// RevokeAllAsync has killed it in the database. Five minutes is the agreed window (ADR-0049).
     /// </summary>
     public int AccessTokenLifetimeMinutes { get; init; } = 5;
-    public int RefreshTokenLifetimeDays { get; init; } = 14;
+
+    /// <summary>
+    /// The website's session cookie carries the refresh token and ends after 8 idle hours (Frontend
+    /// <c>AuthenticationDependencyInjectionExtensions</c>). The extra hour makes sure the token never
+    /// dies before that cookie (#1014).
+    /// </summary>
+    public int RefreshTokenLifetimeMinutes { get; init; } = 540;
     public EncryptionKeySettings EncryptionKey { get; init; } = new();
     public SigningKeySettings SigningKey { get; init; } = new();
 

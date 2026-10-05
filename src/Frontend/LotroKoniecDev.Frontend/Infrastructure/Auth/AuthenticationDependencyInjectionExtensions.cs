@@ -78,6 +78,9 @@ internal static class AuthenticationDependencyInjectionExtensions
                     // future code path that signs in under a non-root PathBase would write a cookie that
                     // /auth/logout, which runs with an empty PathBase, could not delete.
                     options.Cookie.Path = "/";
+                    // This cookie carries the refresh token. The auth API's
+                    // OpenIddict:RefreshTokenLifetimeMinutes must stay at least this long plus a margin,
+                    // or a user idle just under 8 hours gets "session expired" (#1014).
                     options.ExpireTimeSpan = TimeSpan.FromHours(8);
                     options.SlidingExpiration = true;
                     options.LoginPath = LoginPath;

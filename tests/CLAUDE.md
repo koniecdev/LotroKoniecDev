@@ -65,7 +65,9 @@ per-project `stryker-config.json` after reviewing the baseline report.
 - **Verify.Xunit** — snapshot tests for API response contracts and rendered SSR markup (see below)
 - **Microsoft.Extensions.TimeProvider.Testing** — `FakeTimeProvider`, for code that waits on a
   `TimeProvider` timer (`Task.Delay(…, timeProvider, …)`); a substitute cannot fire those timers.
-  Used by `AuthSystem.API.Tests.Unit` for the response-time floor (ADR-0059)
+  Used by `AuthSystem.API.Tests.Unit` for the response-time floor (ADR-0059), and by
+  `AuthSystem.API.Tests.Integration` as OpenIddict's stopped clock, so the stored token dates can be
+  compared exactly (#1014)
 - **Xunit.SkippableFact** — E2E tests that need Windows + a real DAT
 - **coverlet.collector** — code coverage
 - Versions: `Directory.Packages.props` is the single source of truth.

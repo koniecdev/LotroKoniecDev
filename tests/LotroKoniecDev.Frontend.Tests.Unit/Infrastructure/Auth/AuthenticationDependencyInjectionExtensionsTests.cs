@@ -94,6 +94,19 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         options.Cookie.SecurePolicy.ShouldBe(CookieSecurePolicy.Always);
     }
 
+    /// <summary>
+    /// #1014: this cookie carries the refresh token, and the auth API lets that token live 9 hours from
+    /// its last use. A longer idle time here would keep a cookie whose token is already dead.
+    /// </summary>
+    [Fact]
+    public void AddFrontendAuthentication_CookieOptions_EndsAfterEightIdleHours()
+    {
+        CookieAuthenticationOptions options = ResolveConfiguredCookieOptions("Production");
+
+        options.ExpireTimeSpan.ShouldBe(TimeSpan.FromHours(8));
+        options.SlidingExpiration.ShouldBeTrue();
+    }
+
     [Fact]
     public void AddFrontendAuthentication_CookieOptions_DevelopmentEnvironment_UsesSameAsRequest()
     {

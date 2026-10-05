@@ -126,9 +126,10 @@ which would make one shared introspection point cheaper than it is today.
 
 The Context above names two things that end a session: `RevokeAllAsync` and the stamp check on the
 auth-server cookie. The token endpoint only had the first. It refused a revoked token, but it never
-compared the security stamp. So a refresh token that the revoke missed kept working for its whole 14
-days. The revoke is best effort. A missed token was held back only while the account stayed locked,
-and it worked again as soon as a scheduled deletion was cancelled.
+compared the security stamp. So a refresh token that the revoke missed kept working for its whole
+lifetime, which was 14 days then (9 hours since #1014). The revoke is best effort. A missed token was
+held back only while the account stayed locked, and it worked again as soon as a scheduled deletion
+was cancelled.
 
 Every sign-in now writes the current stamp into the principal, with no destination. OpenIddict keeps
 it in the authorization code and the refresh token, which only auth-api can read, and never puts it

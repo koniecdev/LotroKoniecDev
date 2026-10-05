@@ -83,8 +83,8 @@ skalowalne, odporne na podmianę (zmiana payloadu psuje podpis).
 
 ### 2.5 Czemu nie genialne
 Access token jest **ważny do `exp`** i nie da się go łatwo odwołać (stateless). Dlatego **krótki
-żywot** (60 min) + **refresh tokeny referencyjne** (w bazie, rewokowalne — §10.2). U nas dodatkowo
-access token **nie jest szyfrowany** (`DisableAccessTokenEncryption`, `OpenIddictExtensions.cs:64`) —
+żywot** (5 min — ADR-0049) + **refresh tokeny referencyjne** (w bazie, rewokowalne — §10.2). U nas dodatkowo
+access token **nie jest szyfrowany** (`DisableAccessTokenEncryption`, `OpenIddictExtensions.cs:67`) —
 podpisany (tamper-proof), ale czytelny — żeby standardowa walidacja JwtBearer działała bez
 deszyfrowania.
 
@@ -377,16 +377,20 @@ sekretu) generuje `code_verifier`, wysyła `code_challenge = SHA256(verifier)` p
 wymianie `code → token` dowodzi posiadania `verifier`. Chroni przed przechwyceniem kodu autoryzacyjnego.
 
 ### 10.2 Rolling reference refresh tokens
-`UseReferenceRefreshTokens()` (`:50`). Refresh tokeny są **referencyjne** (zapisane w bazie, nie
+`UseReferenceRefreshTokens()` (`:53`). Refresh tokeny są **referencyjne** (zapisane w bazie, nie
 self-contained) ⇒ **rewokowalne**. Rolling: użycie refresh tokena unieważnia stary i wydaje nowy ⇒
 ogranicza replay. Logout rewokuje te z sesji tego urządzenia (`LogoutEndpoint.cs` → `IUserSessionRevoker`).
+Refresh token żyje **9 h** od ostatniego użycia: każdy nowy token dostaje znów pełne 9 h (sliding). Cookie
+strony, w którym frontend trzyma token, wygasa po 8 h bezczynności, więc dłuższy czas nic nie daje, a
+godzina zapasu pilnuje, żeby token nie umarł przed cookie (#1014).
 
 ### 10.3 Token revocation przy logout
 Logout kończy **tylko sesję tego urządzenia** (decyzja ownera w #931). Każde logowanie przez stronę
 dostaje od OpenIddict własną autoryzację (ad-hoc, bo `AuthorizeEndpoint` żadnej nie tworzy sam), a
 refresh zachowuje jej id: jedno logowanie = jedna autoryzacja. `LogoutEndpoint.cs` bierze jej id z
 `id_token_hint`. Wcześniejsze logowanie na tym samym urządzeniu, którego sesja strony już wygasła
-(cookie strony żyje 8 h, refresh token 14 dni), ma własną autoryzację i logout jej nie kończy.
+(cookie strony żyje 8 h, refresh token 9 h od ostatniego użycia), ma własną autoryzację i logout jej
+nie kończy.
 OpenIddict sprawdza podpis hintu oraz to, że wiersz tokena i jego autoryzacji w bazie są wciąż ważne,
 oraz że hint należy do klienta, do którego należy `post_logout_redirect_uri`. Nie sprawdza czasu
 ważności: stary ID token działa, dopóki jego sesja żyje, a hint sesji już zakończonej nic nie robi.

@@ -181,10 +181,14 @@ internal static class AuthenticationDependencyInjectionExtensions
         // too (ADR-0054). Like the typed clients, it follows no redirect (#899) and keeps no cookies
         // (#924). The framework builds that client from this handler after every Configure has run. A
         // back-channel handler configured elsewhere is wrapped, never replaced, so it keeps its own
-        // redirect and cookie settings.
-        options.BackchannelHttpHandler = new FrontendCallerDelegatingHandler(httpContextAccessor, settings.CallerKey)
+        // redirect and cookie settings. The library reads these answers by the charset they name, so a
+        // name .NET cannot use is dropped first (#972).
+        options.BackchannelHttpHandler = new UnknownCharsetDelegatingHandler
         {
-            InnerHandler = options.BackchannelHttpHandler ?? HttpClientsDependencyInjectionExtensions.CreatePrimaryHandler()
+            InnerHandler = new FrontendCallerDelegatingHandler(httpContextAccessor, settings.CallerKey)
+            {
+                InnerHandler = options.BackchannelHttpHandler ?? HttpClientsDependencyInjectionExtensions.CreatePrimaryHandler()
+            }
         };
     }
 

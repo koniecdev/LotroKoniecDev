@@ -39,20 +39,42 @@ public sealed class UnknownCharsetDelegatingHandlerTests
     }
 
     [Theory]
-    [InlineData("utf-8")]
-    [InlineData("iso-8859-1")]
-    [InlineData("\"iso-8859-1\"")]
-    public async Task SendAsync_WhenTheAnswerNamesACharsetDotNetKnows_KeepsIt(string charset)
+    [InlineData("utf-8", "utf-8")]
+    [InlineData("iso-8859-1", "iso-8859-1")]
+    [InlineData("\"iso-8859-1\"", "iso-8859-1")]
+    public async Task SendAsync_WhenTheAnswerNamesACharsetDotNetKnows_KeepsIt(string charset, string encodingName)
     {
         // In Latin-1 "é" is the single byte 0xE9, so only a read by the kept charset gives "Café" back.
-        Encoding encoding = charset == "utf-8" ? Encoding.UTF8 : Encoding.Latin1;
-        HttpMessageInvoker invoker = CreateInvoker(encoding.GetBytes("Café"), charset);
+        HttpMessageInvoker invoker = CreateInvoker(Encoding.GetEncoding(encodingName).GetBytes("Café"), charset);
 
         using HttpRequestMessage request = new(HttpMethod.Get, AuthBaseUrl);
         using HttpResponseMessage response = await invoker.SendAsync(request, CancellationToken.None);
 
         response.Content.Headers.ContentType.ShouldNotBeNull().CharSet.ShouldBe(charset);
         (await response.Content.ReadAsStringAsync()).ShouldBe("Café");
+    }
+
+    [Theory]
+    [InlineData("application/json; charset=utf8; charset=bogus")]
+    [InlineData("application/json; charset=utf8; charset=utf-7")]
+    [InlineData("application/json; charset=utf8; charset=utf-8")]
+    public async Task SendAsync_WhenTheRawHeaderNamesTheCharsetTwice_LetsItBeReadAsUtf8(string contentType)
+    {
+        // The transport keeps the header as raw text and parses it on first use. Once the first unusable
+        // name is gone, the second one is what the read sees.
+        const string body = """{ "name": "Zażółć gęślą jaźń" }""";
+        StubHttpMessageHandler inner = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, () =>
+        {
+            ByteArrayContent content = new(Encoding.UTF8.GetBytes(body));
+            content.Headers.TryAddWithoutValidation("Content-Type", contentType);
+            return content;
+        });
+        HttpMessageInvoker invoker = new(new UnknownCharsetDelegatingHandler { InnerHandler = inner });
+
+        using HttpRequestMessage request = new(HttpMethod.Get, AuthBaseUrl);
+        using HttpResponseMessage response = await invoker.SendAsync(request, CancellationToken.None);
+
+        (await response.Content.ReadAsStringAsync()).ShouldBe(body);
     }
 
     [Fact]

@@ -2,7 +2,6 @@ using System.Security.Claims;
 using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.AspNetCore.Identity;
-using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
@@ -215,8 +214,7 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
                 ICommandHandler<Command, Result> handler,
                 CancellationToken cancellationToken) =>
             {
-                string? userId = user.FindFirstValue(ClaimTypes.NameIdentifier)
-                    ?? user.FindFirstValue(OpenIddictConstants.Claims.Subject);
+                string? userId = user.FindUserId();
 
                 if (string.IsNullOrEmpty(userId))
                 {
@@ -251,6 +249,7 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             .Produces(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status429TooManyRequests);
     }

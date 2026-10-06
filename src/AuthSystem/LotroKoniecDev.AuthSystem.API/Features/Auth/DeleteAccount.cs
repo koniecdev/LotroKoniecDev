@@ -2,7 +2,6 @@ using System.Security.Claims;
 using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.AspNetCore.Identity;
-using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
@@ -95,7 +94,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             // The permit comes first: after validation, before the account is even loaded. A refused
             // request then costs no database read, a burst of guesses cannot slip past the gate, and every
             // later refusal sits behind it, so probing an account's state costs a permit too (ADR-0053).
-            // The key is the id the token names; a token this server signed always carries one.
+            // The key is the id the token names. UserTokenPolicy lets in only a token that names a user.
             if (!Guid.TryParse(command.UserId, out Guid userId))
             {
                 return Result.Failure<ScheduledDeletion>(AuthErrors.UserNotFound);
@@ -197,8 +196,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
                 ICommandHandler<Command, Result<ScheduledDeletion>> handler,
                 CancellationToken cancellationToken) =>
             {
-                string? userId = user.FindFirstValue(ClaimTypes.NameIdentifier)
-                    ?? user.FindFirstValue(OpenIddictConstants.Claims.Subject);
+                string? userId = user.FindUserId();
 
                 if (string.IsNullOrEmpty(userId))
                 {
@@ -236,6 +234,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status429TooManyRequests)
             .ProducesProblem(StatusCodes.Status500InternalServerError);

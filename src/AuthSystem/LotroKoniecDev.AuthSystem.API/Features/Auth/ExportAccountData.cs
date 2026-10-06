@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
-using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.Hateoas.ContentNegotiation;
@@ -42,6 +41,12 @@ internal sealed partial class ExportAccountData : IApiEndpoint
         public async ValueTask<Result<AccountDataExportResponse>> Handle(
             Query query, CancellationToken cancellationToken)
         {
+            // Identity reads a user id as a GUID and throws on anything else (#966).
+            if (!Guid.TryParse(query.UserId, out _))
+            {
+                return Result.Failure<AccountDataExportResponse>(AuthErrors.UserNotFound);
+            }
+
             ApplicationUser? appUser = await _userManager.FindByIdAsync(query.UserId);
             if (appUser is null)
             {
@@ -72,8 +77,7 @@ internal sealed partial class ExportAccountData : IApiEndpoint
                 IAccountAggregateLinkFactory accountAggregateLinkFactory,
                 CancellationToken cancellationToken) =>
             {
-                string? userId = user.FindFirstValue(ClaimTypes.NameIdentifier)
-                    ?? user.FindFirstValue(OpenIddictConstants.Claims.Subject);
+                string? userId = user.FindUserId();
 
                 if (string.IsNullOrEmpty(userId))
                 {
@@ -103,6 +107,7 @@ internal sealed partial class ExportAccountData : IApiEndpoint
             .WithTags("Account")
             .Produces<AccountDataExportResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
     }
 }

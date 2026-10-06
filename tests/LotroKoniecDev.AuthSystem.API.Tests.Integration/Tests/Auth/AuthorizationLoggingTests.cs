@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -18,8 +19,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 /// connection, and then the connection's own address (ADR-0054, amended by #854). Each test boots a
 /// derived host whose logger factory captures what the host logged. In Testing <c>UseForwardedHeaders</c>
 /// trusts every peer, so <c>X-Forwarded-For</c> plays the connection address Caddy resolves:
-/// <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses are visitors. No endpoint here refuses a
-/// signed-in caller with 403 today, so the 403 warning is proven on the TMS API.
+/// <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses are visitors. The one 403 here is a
+/// service token at an account endpoint (#966).
 /// </summary>
 public sealed class AuthorizationLoggingTests : EndpointsTestBase
 {
@@ -74,6 +75,33 @@ public sealed class AuthorizationLoggingTests : EndpointsTestBase
         warning.Level.ShouldBe(LogLevel.Warning);
         warning.EventId.Id.ShouldBe(EventIds.UnauthorizedAccessAttempt);
         warning.Message.ShouldBe($"Unauthorized access attempt: POST /{TokenPath} from 203.0.113.91 via 203.0.113.91");
+    }
+
+    [Fact]
+    public async Task GetAccountData_WithAServiceToken_ShouldWarnAboutTheForbiddenCall()
+    {
+        // Arrange: the token comes from this host, because each host signs with its own keys
+        using CapturingLoggerFactory loggerFactory = new();
+        using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
+        using HttpClient client = host.CreateClient();
+        using HttpRequestMessage tokenRequest = CreateClientCredentialsRequest(AuthSystemApiFactory.TestApiClientSecret, "203.0.113.95");
+        using HttpResponseMessage tokenResponse = await client.SendAsync(tokenRequest);
+        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using JsonDocument token = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync());
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, AccountPath, "203.0.113.95");
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Bearer", token.RootElement.GetProperty("access_token").GetString());
+
+        // Act
+        using HttpResponseMessage response = await client.SendAsync(request);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        CapturingLoggerFactory.LogEntry warning = MiddlewareEntries(loggerFactory).ShouldHaveSingleItem();
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.EventId.Id.ShouldBe(EventIds.ForbiddenAccessAttempt);
+        warning.Message.ShouldBe(
+            $"Forbidden access attempt: GET /{AccountPath} from 203.0.113.95 via 203.0.113.95 by {AuthConstants.ClientIds.Api}");
     }
 
     [Theory]

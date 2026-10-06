@@ -14,6 +14,7 @@ using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Sinks.OpenTelemetry;
 using LotroKoniecDev.AuthSystem.API;
+using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Health;
 using LotroKoniecDev.AuthSystem.API.Middleware;
@@ -159,7 +160,10 @@ try
         .Validate(options => options.Cookie.Expiration == null, "Cookie.Expiration is ignored, use ExpireTimeSpan instead.")
         .Configure<SignInSessionTicketStore>((options, ticketStore) => options.SessionStore = ticketStore);
 
-    builder.Services.AddAuthorization();
+    // A plain RequireAuthorization means a user's token here, not any valid token (#966). UserTokenPolicy
+    // says why.
+    builder.Services.AddAuthorizationBuilder()
+        .SetDefaultPolicy(UserTokenPolicy.Policy);
     builder.Services.AddRazorPages()
         .AddMvcOptions(options => options.Filters.Add(new AntiforgeryFailureFilter()));
 

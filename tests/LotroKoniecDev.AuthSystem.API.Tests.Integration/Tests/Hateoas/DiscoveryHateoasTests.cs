@@ -78,6 +78,32 @@ public sealed class DiscoveryHateoasTests : EndpointsTestBase
         response.Links.ShouldNotContain(l => l.Rel == Rels.ForgotPassword);
     }
 
+    /// <summary>
+    /// The account endpoints refuse a service token with 403 (#966), so the account link is not offered
+    /// to one (ADR-0040).
+    /// </summary>
+    [Fact]
+    public async Task Discovery_ShouldNotAdvertiseTheAccount_WhenTheTokenWasIssuedToAService()
+    {
+        // Arrange
+        string accessToken = await GetClientCredentialsAccessTokenAsync();
+
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri("", UriKind.Relative));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Headers.Accept.Clear();
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.HateoasJson));
+
+        // Act
+        HttpResponseMessage httpResponse = await ApiClient.Http.SendAsync(request);
+        string stringResponse = await httpResponse.EnsureSuccessWithDetailsAsync();
+
+        DiscoveryResponse response = JsonSerializer.Deserialize<DiscoveryResponse>(
+            stringResponse, ApiClient.JsonOptions)!;
+
+        // Assert
+        response.Links.ShouldHaveSingleItem().Rel.ShouldBe(Rels.Self);
+    }
+
     [Fact]
     public async Task Discovery_AllLinks_ShouldHaveAbsoluteHrefs()
     {

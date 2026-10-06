@@ -134,8 +134,7 @@ internal sealed partial class ChangePassword : IApiEndpoint
                 ICommandHandler<Command, Result> handler,
                 CancellationToken cancellationToken) =>
             {
-                string? userId = user.FindFirstValue(ClaimTypes.NameIdentifier)
-                    ?? user.FindFirstValue(OpenIddict.Abstractions.OpenIddictConstants.Claims.Subject);
+                string? userId = user.FindUserId();
 
                 if (string.IsNullOrEmpty(userId))
                 {
@@ -158,6 +157,7 @@ internal sealed partial class ChangePassword : IApiEndpoint
             .Produces(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status429TooManyRequests);
     }

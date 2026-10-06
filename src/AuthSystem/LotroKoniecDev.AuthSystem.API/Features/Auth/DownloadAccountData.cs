@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
-using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
@@ -124,8 +123,7 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
                 IQueryHandler<Query, Result<AccountDataExportResponse>> handler,
                 CancellationToken cancellationToken) =>
             {
-                string? userId = user.FindFirstValue(ClaimTypes.NameIdentifier)
-                    ?? user.FindFirstValue(OpenIddictConstants.Claims.Subject);
+                string? userId = user.FindUserId();
 
                 if (string.IsNullOrEmpty(userId))
                 {
@@ -154,6 +152,7 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
             .WithTags("Account")
             .Produces<AccountDataExportResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status429TooManyRequests);

@@ -92,10 +92,51 @@ public sealed class UnknownCharsetDelegatingHandlerTests
         (await response.Content.ReadAsStringAsync()).ShouldBe("Zażółć");
     }
 
+    [Fact]
+    public async Task SendAsync_WhenTheRawHeaderNamesAUsableCharsetFirst_KeepsIt()
+    {
+        // The read decodes by the first charset in the header, so the handler must stop at the first name
+        // it can use and not look past it. In Latin-1 "é" is the single byte 0xE9.
+        HttpMessageInvoker invoker = new(new UnknownCharsetDelegatingHandler
+        {
+            InnerHandler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, () =>
+            {
+                ByteArrayContent content = new(Encoding.Latin1.GetBytes("Café"));
+                content.Headers.TryAddWithoutValidation("Content-Type", "application/json; charset=iso-8859-1; charset=utf8");
+                return content;
+            })
+        });
+
+        using HttpRequestMessage request = new(HttpMethod.Get, AuthBaseUrl);
+        using HttpResponseMessage response = await invoker.SendAsync(request, CancellationToken.None);
+
+        (await response.Content.ReadAsStringAsync()).ShouldBe("Café");
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenTheContentTypeNamesNoCharset_LeavesTheHeaderAsItCame()
+    {
+        HttpMessageInvoker invoker = new(new UnknownCharsetDelegatingHandler
+        {
+            InnerHandler = StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                () => new ByteArrayContent(Encoding.UTF8.GetBytes("Zażółć"))
+                {
+                    Headers = { ContentType = new MediaTypeHeaderValue("application/json") }
+                })
+        });
+
+        using HttpRequestMessage request = new(HttpMethod.Get, AuthBaseUrl);
+        using HttpResponseMessage response = await invoker.SendAsync(request, CancellationToken.None);
+
+        response.Content.Headers.ContentType.ShouldNotBeNull().ToString().ShouldBe("application/json");
+        (await response.Content.ReadAsStringAsync()).ShouldBe("Zażółć");
+    }
+
     [Theory]
     [InlineData("utf8")]
     [InlineData("utf-7")]
-    public async Task OpenIdConnectMetadata_ThroughTheRealRegistration_ReadsADocumentWithAnUnknownCharset(string charset)
+    public async Task AddFrontendAuthentication_WhenTheMetadataNamesAnUnknownCharset_ReadsIt(string charset)
     {
         // The discovery document is the first thing a sign-in reads, through the back-channel the
         // frontend's registration builds. A handler put on that seam first stands in for the transport.

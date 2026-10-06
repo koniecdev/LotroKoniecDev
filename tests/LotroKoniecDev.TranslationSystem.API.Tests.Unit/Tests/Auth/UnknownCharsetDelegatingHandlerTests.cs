@@ -76,10 +76,55 @@ public sealed class UnknownCharsetDelegatingHandlerTests
         (await response.Content.ReadAsStringAsync()).ShouldBe(Body);
     }
 
+    [Fact]
+    public async Task SendAsync_WhenTheRawHeaderNamesAUsableCharsetFirst_KeepsIt()
+    {
+        // The read decodes by the first charset in the header, so the handler must stop at the first name
+        // it can use and not look past it. In Latin-1 "é" is the single byte 0xE9.
+        HttpMessageInvoker invoker = CreateInvoker(() =>
+        {
+            ByteArrayContent content = new(Encoding.Latin1.GetBytes("Café"));
+            content.Headers.TryAddWithoutValidation("Content-Type", "application/json; charset=iso-8859-1; charset=utf8");
+            return content;
+        });
+
+        using HttpRequestMessage request = new(HttpMethod.Get, Issuer);
+        using HttpResponseMessage response = await invoker.SendAsync(request, CancellationToken.None);
+
+        (await response.Content.ReadAsStringAsync()).ShouldBe("Café");
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenTheAnswerHasNoContentType_ReturnsItAsItCame()
+    {
+        HttpMessageInvoker invoker = CreateInvoker(() => new ByteArrayContent(Encoding.UTF8.GetBytes("Zażółć")));
+
+        using HttpRequestMessage request = new(HttpMethod.Get, Issuer);
+        using HttpResponseMessage response = await invoker.SendAsync(request, CancellationToken.None);
+
+        response.Content.Headers.ContentType.ShouldBeNull();
+        (await response.Content.ReadAsStringAsync()).ShouldBe("Zażółć");
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenTheContentTypeNamesNoCharset_LeavesTheHeaderAsItCame()
+    {
+        HttpMessageInvoker invoker = CreateInvoker(() => new ByteArrayContent(Encoding.UTF8.GetBytes("Zażółć"))
+        {
+            Headers = { ContentType = new MediaTypeHeaderValue("application/json") }
+        });
+
+        using HttpRequestMessage request = new(HttpMethod.Get, Issuer);
+        using HttpResponseMessage response = await invoker.SendAsync(request, CancellationToken.None);
+
+        response.Content.Headers.ContentType.ShouldNotBeNull().ToString().ShouldBe("application/json");
+        (await response.Content.ReadAsStringAsync()).ShouldBe("Zażółć");
+    }
+
     [Theory]
     [InlineData("utf8")]
     [InlineData("utf-7")]
-    public async Task JwtBearerMetadata_ThroughTheRealRegistration_ReadsADocumentWithAnUnknownCharset(string charset)
+    public async Task AddJwtBearerAuthentication_WhenTheMetadataNamesAnUnknownCharset_ReadsIt(string charset)
     {
         // The discovery document is the first thing a signed-in call needs. A handler put on the
         // back-channel seam first stands in for the transport.

@@ -223,9 +223,9 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
         HttpResponseMessage response = await PostToResetPasswordPageAsync(browser, form);
+        HttpResponseMessage back = await browser.GetAsync(new Uri(ResetUrl(email, token), UriKind.Relative));
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        HttpResponseMessage back = await browser.GetAsync(new Uri(ResetUrl(email, token), UriKind.Relative));
         (await back.Content.ReadAsStringAsync()).ShouldNotContain("data-testid=\"reset-password-success\"");
         response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies);
         (cookies ?? []).ShouldNotContain(cookie => cookie.StartsWith(UsedLinkCookieName + "=", StringComparison.Ordinal));

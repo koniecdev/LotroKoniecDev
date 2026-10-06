@@ -291,9 +291,9 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
 
         HttpResponseMessage response = await PostToPageAsync(
             browser, "/Account/ConfirmEmailChange", ConfirmUrl(userId, newEmail, sentToken), ConfirmForm(userId, newEmail, sentToken));
+        HttpResponseMessage back = await browser.GetAsync(new Uri(ConfirmUrl(userId, newEmail, sentToken), UriKind.Relative));
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        HttpResponseMessage back = await browser.GetAsync(new Uri(ConfirmUrl(userId, newEmail, sentToken), UriKind.Relative));
         (await back.Content.ReadAsStringAsync()).ShouldNotContain("data-testid=\"confirm-email-change-success\"");
         response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies);
         (cookies ?? []).ShouldNotContain(cookie => cookie.StartsWith(UsedLinkCookieName + "=", StringComparison.Ordinal));
@@ -862,10 +862,10 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             "/Account/RevertEmailChange",
             RevertUrl(userId, user.Email, newEmail, revertToken),
             RevertForm(userId, user.Email, newEmail, revertToken));
-
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
         HttpResponseMessage back = await browser.GetAsync(
             new Uri(RevertUrl(userId, user.Email, newEmail, revertToken), UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
         back.StatusCode.ShouldBe(HttpStatusCode.OK);
         response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies);
         (cookies ?? []).ShouldNotContain(cookie => cookie.StartsWith(".lotrokoniecdev.used-link.", StringComparison.Ordinal));
@@ -1062,5 +1062,4 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
 
     [GeneratedRegex("""name="__RequestVerificationToken".*?value="([^"]+)""")]
     private static partial Regex AntiForgeryTokenRegex();
-
 }

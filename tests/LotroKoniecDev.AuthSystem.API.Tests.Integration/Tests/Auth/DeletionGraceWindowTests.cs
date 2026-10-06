@@ -370,6 +370,23 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     }
 
     [Fact]
+    public async Task CancelDeletionPage_PostTheUsedLinkAgainInTheSameBrowser_ShouldSendItOnToTheSamePasswordForm()
+    {
+        // A form the browser brings back from its cache can send the used link once more. The link asks for
+        // no input, so the second answer is the first one, and the cancel does not run twice.
+        (RegisterRequest registerRequest, string cancelToken) = await RegisterAndScheduleDeletionAsync();
+        HttpResponseMessage cancelled = await PostCancelDeletionPageAsync(_noRedirectClient, registerRequest.Email, cancelToken);
+        cancelled.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+
+        // The used link now redirects, so the antiforgery token comes from the form of another link.
+        HttpResponseMessage replay = await PostCancelDeletionPageAsync(
+            _noRedirectClient, registerRequest.Email, cancelToken, formPageToken: "another-token");
+
+        replay.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        replay.Headers.Location.ShouldBe(cancelled.Headers.Location);
+    }
+
+    [Fact]
     public async Task CancelDeletionPage_GetTheUsedLinkFromAnotherBrowser_ShouldShowTheFormAndNoPasswordForm()
     {
         // The password form carries a live reset token. Only the browser that used the cancel link may be
@@ -402,10 +419,12 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     private static string CancelDeletionUrl(string email, string token) =>
         $"/Account/CancelDeletion?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
 
-    private static async Task<HttpResponseMessage> PostCancelDeletionPageAsync(HttpClient client, string email, string token)
+    private static async Task<HttpResponseMessage> PostCancelDeletionPageAsync(
+        HttpClient client, string email, string token, string? formPageToken = null)
     {
         string pageUrl = CancelDeletionUrl(email, token);
-        HttpResponseMessage pageResponse = await client.GetAsync(new Uri(pageUrl, UriKind.Relative));
+        HttpResponseMessage pageResponse = await client.GetAsync(
+            new Uri(CancelDeletionUrl(email, formPageToken ?? token), UriKind.Relative));
         pageResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         Dictionary<string, string> formData = new()

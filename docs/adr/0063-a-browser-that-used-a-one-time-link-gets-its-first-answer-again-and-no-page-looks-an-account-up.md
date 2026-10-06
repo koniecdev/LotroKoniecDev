@@ -76,8 +76,8 @@ from a mail client, and a browser may treat Back to it like that first visit fro
 - The undo and cancel `OnGet` redirect to the same password form as the first time. If the reset is done
   by then, the reset's own marker shows that form as done (decision 4, first point).
 
-Without a match, nothing changes: the form, as before. On the confirm and undo pages the link's values
-must first pass the shape check that already runs there.
+Without a match, nothing changes: the form, as before. On every page the link's values must first pass
+the shape or presence check that already runs there.
 
 The answer depends only on the cookie and the link the visitor sent. No page looks the address, the user or
 the token up, so the answer is the same for an address with an account and one without, and the time
@@ -91,7 +91,10 @@ A browser can still show the old form: a second tab on the same link, or a page 
 from its cache. The POST then sends the used link.
 
 - The confirm, undo and cancel forms ask for no input, so a second send asks for exactly what the first
-  one did. When the cookie matches, the POST gives the first answer without calling the handler.
+  one did. When the cookie matches, the POST gives the first answer without calling the handler. On the
+  cancel page that also skips the handler's time floor (ADR-0059). That is safe: only a cookie this server
+  encrypted after a successful cancel in that browser takes this path, and every other request still goes
+  through the handler and its floor.
 - The reset form carries a password the user typed again, maybe a different one. The done view says
   "Twoje nowe hasło jest aktywne", which would then name the wrong password. So the reset POST keeps its
   answer: the link is used up.

@@ -14,16 +14,28 @@ internal sealed class UsedLinkNextStepCookie
 {
     private const string ProtectorPurpose = "LotroKoniecDev.AuthSystem.UsedLinkNextStep.v1";
 
-    private readonly IDataProtector _protector;
+    private readonly IDataProtector _revertProtector;
+    private readonly IDataProtector _cancelProtector;
+    private readonly TimeProvider _timeProvider;
 
-    public UsedLinkNextStepCookie(IDataProtectionProvider dataProtectionProvider)
+    public UsedLinkNextStepCookie(IDataProtectionProvider dataProtectionProvider, TimeProvider timeProvider)
     {
-        _protector = dataProtectionProvider.CreateProtector(ProtectorPurpose);
+        IDataProtector protector = dataProtectionProvider.CreateProtector(ProtectorPurpose);
+        _revertProtector = protector.CreateProtector(nameof(UsedLinkFlow.EmailChangeRevert));
+        _cancelProtector = protector.CreateProtector(nameof(UsedLinkFlow.DeletionCancel));
+        _timeProvider = timeProvider;
     }
 
     public void Remember(HttpContext httpContext, UsedLinkFlow flow, string usedToken, PasswordResetStep nextStep)
     {
-        string payload = JsonSerializer.Serialize(new Payload(UsedLinkCookie.HashOf(usedToken), nextStep.Email, nextStep.Token));
+        // The expiry rides inside the encrypted value, so a copied cookie stops working on the server too,
+        // not only in a browser that keeps to the cookie's max-age.
+        Payload value = new(
+            UsedLinkCookie.HashOf(usedToken),
+            nextStep.Email,
+            nextStep.Token,
+            _timeProvider.GetUtcNow() + UsedLinkCookie.Lifetime);
+        string payload = JsonSerializer.Serialize(value);
         httpContext.Response.Cookies.Append(
             NameOf(flow),
             ProtectorFor(flow).Protect(payload),
@@ -38,7 +50,9 @@ internal sealed class UsedLinkNextStepCookie
         }
 
         Payload? payload = Read(ProtectorFor(flow), value);
-        if (payload is null || !string.Equals(payload.LinkHash, UsedLinkCookie.HashOf(usedToken), StringComparison.Ordinal))
+        if (payload is null
+            || payload.ExpiresAt <= _timeProvider.GetUtcNow()
+            || !string.Equals(payload.LinkHash, UsedLinkCookie.HashOf(usedToken), StringComparison.Ordinal))
         {
             return null;
         }
@@ -72,9 +86,14 @@ internal sealed class UsedLinkNextStepCookie
     /// <summary>
     /// One purpose per flow, so the undo cookie cannot be pasted in as the cancel cookie.
     /// </summary>
-    private IDataProtector ProtectorFor(UsedLinkFlow flow) => _protector.CreateProtector(flow.ToString());
+    private IDataProtector ProtectorFor(UsedLinkFlow flow) => flow switch
+    {
+        UsedLinkFlow.EmailChangeRevert => _revertProtector,
+        UsedLinkFlow.DeletionCancel => _cancelProtector,
+        _ => throw new ArgumentOutOfRangeException(nameof(flow), flow, null)
+    };
 
-    private sealed record Payload(string LinkHash, string Email, string Token);
+    private sealed record Payload(string LinkHash, string Email, string Token, DateTimeOffset ExpiresAt);
 }
 
 internal enum UsedLinkFlow

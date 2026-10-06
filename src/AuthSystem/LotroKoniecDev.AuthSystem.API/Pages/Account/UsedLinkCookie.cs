@@ -7,8 +7,9 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 /// <summary>
 /// Remembers, in the browser that used it, that a one-time link already did its job. Back from a success
 /// page loads the link's form again, and its button would send the used link, which the server rightly
-/// calls dead (#941). The cookie holds only a hash of the used token, and it changes only the answer to the
-/// browser that sends it, so no page has to look an account up to tell "done" from "dead" (ADR-0063).
+/// calls dead (#941). The cookie holds only hashes of the last few used tokens, and it changes only the
+/// answer to the browser that sends it, so no page has to look an account up to tell "done" from "dead"
+/// (ADR-0063).
 /// </summary>
 internal sealed class UsedLinkCookie
 {
@@ -17,10 +18,19 @@ internal sealed class UsedLinkCookie
     public static readonly UsedLinkCookie PasswordReset = new(".lotrokoniecdev.used-link.password-reset");
 
     /// <summary>
-    /// Long enough for the Back button after the success page. Short enough to stay one of the short-lived
-    /// technical cookies the privacy policy lists.
+    /// Long enough for the Back button after the success page, and the lifetime the privacy policy gives.
     /// </summary>
-    private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(30);
+    internal static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// A second change in the same half hour must not make the first link's page call it dead again.
+    /// </summary>
+    private const int RememberedLinks = 5;
+
+    /// <summary>
+    /// Not a base64url character, so it can never appear inside a hash.
+    /// </summary>
+    private const char Separator = '.';
 
     private UsedLinkCookie(string name)
     {
@@ -31,13 +41,25 @@ internal sealed class UsedLinkCookie
 
     public void Remember(HttpContext httpContext, string token)
     {
-        httpContext.Response.Cookies.Append(Name, HashOf(token), BuildOptions(httpContext.Request.IsHttps));
+        string hash = HashOf(token);
+        IEnumerable<string> earlierHashes = HashesIn(httpContext.Request)
+            .Where(earlierHash => !string.Equals(earlierHash, hash, StringComparison.Ordinal))
+            .Take(RememberedLinks - 1);
+
+        httpContext.Response.Cookies.Append(
+            Name,
+            string.Join(Separator, earlierHashes.Prepend(hash)),
+            BuildOptions(httpContext.Request.IsHttps));
     }
 
     public bool WasUsedHere(HttpRequest request, string token) =>
         !string.IsNullOrEmpty(token)
-        && request.Cookies.TryGetValue(Name, out string? value)
-        && string.Equals(value, HashOf(token), StringComparison.Ordinal);
+        && HashesIn(request).Contains(HashOf(token), StringComparer.Ordinal);
+
+    private string[] HashesIn(HttpRequest request) =>
+        request.Cookies.TryGetValue(Name, out string? value)
+            ? value.Split(Separator, StringSplitOptions.RemoveEmptyEntries)
+            : [];
 
     internal static string HashOf(string token) =>
         Base64Url.EncodeToString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));

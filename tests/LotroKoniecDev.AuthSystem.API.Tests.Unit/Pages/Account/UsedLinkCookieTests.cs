@@ -73,6 +73,32 @@ public sealed class UsedLinkCookieTests
         used.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// A second change in the same half hour must not make Back to the first link's page call it dead again.
+    /// </summary>
+    [Fact]
+    public void WasUsedHere_AnEarlierLinkAfterASecondOneWasUsed_ReturnsTrue()
+    {
+        HttpRequest request = RequestCarrying(SetCookieAfterRememberingInOrder(UsedLinkCookie.EmailChangeConfirm, "first-link", "second-link"));
+
+        bool firstUsed = UsedLinkCookie.EmailChangeConfirm.WasUsedHere(request, "first-link");
+        bool secondUsed = UsedLinkCookie.EmailChangeConfirm.WasUsedHere(request, "second-link");
+
+        firstUsed.ShouldBeTrue();
+        secondUsed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void WasUsedHere_AfterSixLinks_ForgetsOnlyTheOldest()
+    {
+        string[] tokens = ["link-1", "link-2", "link-3", "link-4", "link-5", "link-6"];
+        HttpRequest request = RequestCarrying(SetCookieAfterRememberingInOrder(UsedLinkCookie.PasswordReset, tokens));
+
+        bool[] used = tokens.Select(token => UsedLinkCookie.PasswordReset.WasUsedHere(request, token)).ToArray();
+
+        used.ShouldBe([false, true, true, true, true, true]);
+    }
+
     [Fact]
     public void Remember_ShouldNotStoreTheTokenItself()
     {
@@ -114,6 +140,25 @@ public sealed class UsedLinkCookieTests
         usedLinkCookie.Remember(httpContext, token);
 
         return SetCookieHeaderValue.Parse(httpContext.Response.Headers.SetCookie.ToString());
+    }
+
+    private static SetCookieHeaderValue SetCookieAfterRememberingInOrder(UsedLinkCookie usedLinkCookie, params string[] tokens)
+    {
+        SetCookieHeaderValue? cookie = null;
+        foreach (string token in tokens)
+        {
+            DefaultHttpContext httpContext = new();
+            httpContext.Request.IsHttps = true;
+            if (cookie is not null)
+            {
+                httpContext.Request.Headers.Cookie = new CookieHeaderValue(cookie.Name, cookie.Value).ToString();
+            }
+
+            usedLinkCookie.Remember(httpContext, token);
+            cookie = SetCookieHeaderValue.Parse(httpContext.Response.Headers.SetCookie.ToString());
+        }
+
+        return cookie ?? throw new ArgumentException("At least one token is needed.", nameof(tokens));
     }
 
     private static HttpRequest RequestCarrying(SetCookieHeaderValue cookie)

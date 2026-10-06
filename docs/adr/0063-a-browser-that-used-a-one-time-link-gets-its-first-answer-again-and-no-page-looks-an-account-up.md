@@ -45,7 +45,8 @@ in that browser, and the link's page reads it. No page asks the account anything
 ### 1. The confirm and reset pages leave a marker
 
 When a confirm or a reset succeeds, the page adds a cookie to its redirect to the done view. The cookie
-holds the SHA-256 of the link's token, in base64url, never the token:
+holds the SHA-256 of the link's token, in base64url, never the token. It keeps the last five, newest first,
+so a second change in the same half hour does not bring the bug back for the first link:
 
 - `.lotrokoniecdev.used-link.email-change` for the confirm of a new address;
 - `.lotrokoniecdev.used-link.password-reset` for the password reset.
@@ -61,7 +62,9 @@ Protection under its own purpose, one sub-purpose per flow:
 
 The reset token already went to this browser in the redirect and sits in its history, so the cookie gives
 it nothing new. The encryption stops anybody from reading it out of the cookie, and stops a forged cookie
-from sending the browser anywhere: a value that does not decrypt marks nothing.
+from sending the browser anywhere: a value that does not decrypt marks nothing. The encrypted value also
+carries its own expiry, 30 minutes from the undo or cancel, checked against the server's clock. So a copied
+value stops working on time even in a browser that ignores the cookie's max-age.
 
 ### 3. All four cookies have the same shape
 
@@ -135,12 +138,19 @@ the mark; the login form does not.
   browser already holds it in its history. Once the reset is done, the token is dead.
 - **The undo and cancel cookies depend on the Data Protection keyring.** After the keyring is lost, the
   cookie decrypts to nothing and the page shows its form, as before this change.
-- **More short-lived cookies on the auth origin.** They fit the privacy policy's "Cookie techniczne
-  krótkotrwałe" entry, a state marker, so the policy text does not change. That entry names one cookie as
-  an example and says it lives tens of seconds; these live 30 minutes. Naming them there is legal text and
-  the owner's call.
-- **One cookie per flow.** Two resets in 30 minutes keep only the second one's marker, so Back to the first
-  form shows the form. That needs a second reset link inside 30 minutes, and the first link is dead anyway.
+- **More short-lived cookies on the auth origin.** The privacy policy now lists them in their own entry
+  ("Cookie użytych linków z e-maili"), with the 30 minutes and the fact that the undo and cancel cookies hold
+  the address and the password link, encrypted. The wording is the owner's to change.
+- **The next step is not checked again.** If the reset token dies inside the 30 minutes, for example
+  because the user reset the password through another link, the used undo or cancel link still sends the
+  browser to the password form, and that form refuses the dead token after the user types a password.
+  Before, the undo or cancel page refused at once. Both end on a link that is truly dead, and checking
+  the token would mean a lookup on every Back.
+- **A restored form that was sent always loads its page again.** Values typed on it, and an error shown on
+  it, are gone after Back. Only the server knows whether the link is used up, so the page has to ask.
+- **The undo and cancel cookies keep one next step per flow.** A second undo or cancel within 30 minutes
+  replaces the first. That needs a second e-mail change or a second scheduled deletion inside the same half
+  hour.
 
 ## Alternatives Considered
 
@@ -185,11 +195,11 @@ then hand out a working reset token. Rejected.
 
 ## Implementation Notes
 
-- `UsedLinkCookie` is a small sealed class with one instance per flow: `Remember` on success,
-  `WasUsedHere` on a GET or POST.
-- `UsedLinkNextStepCookie` is a singleton service built on `IDataProtectionProvider`, with
-  `Remember(flow, usedToken, nextStep)` and `NextStepFor(flow, usedToken)`. A value that does not decrypt
-  or parse marks nothing.
+- `UsedLinkCookie` is a small sealed class with one instance per flow: `Remember` on success adds the
+  link's hash to the front of the list and keeps five, `WasUsedHere` on a GET or POST.
+- `UsedLinkNextStepCookie` is a singleton service built on `IDataProtectionProvider` and `TimeProvider`,
+  with `Remember(flow, usedToken, nextStep)` and `NextStepFor(flow, usedToken)`. A value that does not
+  decrypt or parse, or whose expiry has passed, marks nothing.
 - Tests: `UsedLinkCookieTests` and `UsedLinkNextStepCookieTests` (unit); `EmailChangePageTests`,
   `ResetPasswordPageTests`, `DeletionGraceWindowTests`, `EmailChangeSaveFailureTests` and
   `SubmitOnceFormTests` (integration, real PostgreSQL); `OneTimeLinkBackTests` (browser: Back from every

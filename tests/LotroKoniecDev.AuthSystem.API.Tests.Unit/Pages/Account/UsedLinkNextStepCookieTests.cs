@@ -1,6 +1,7 @@
 using LotroKoniecDev.AuthSystem.API.Pages.Account;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.Net.Http.Headers;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Pages.Account;
@@ -14,7 +15,13 @@ public sealed class UsedLinkNextStepCookieTests
     private const string UsedToken = "CfDJ8Kx+used/undo==";
     private static readonly PasswordResetStep NextStep = new("frodo@shire.me", "CfDJ8Kx+fresh/reset==");
 
-    private readonly UsedLinkNextStepCookie _cookie = new(new EphemeralDataProtectionProvider());
+    private readonly FakeTimeProvider _timeProvider = new(new DateTimeOffset(2026, 10, 6, 12, 0, 0, TimeSpan.Zero));
+    private readonly UsedLinkNextStepCookie _cookie;
+
+    public UsedLinkNextStepCookieTests()
+    {
+        _cookie = new UsedLinkNextStepCookie(new EphemeralDataProtectionProvider(), _timeProvider);
+    }
 
     [Theory]
     [InlineData(nameof(UsedLinkFlow.EmailChangeRevert))]
@@ -27,6 +34,24 @@ public sealed class UsedLinkNextStepCookieTests
         PasswordResetStep? step = _cookie.NextStepFor(request, flow, UsedToken);
 
         step.ShouldBe(NextStep);
+    }
+
+    /// <summary>
+    /// The 30 minutes are checked on the server too, so a copied cookie value stops working even in a
+    /// browser that ignores the cookie's max-age.
+    /// </summary>
+    [Theory]
+    [InlineData(29, true)]
+    [InlineData(30, false)]
+    [InlineData(24 * 60, false)]
+    public void NextStepFor_ThirtyMinutesAfterTheLinkWasUsed_StopsSendingTheBrowserOn(int minutesLater, bool expectsAStep)
+    {
+        HttpRequest request = RequestCarrying(SetCookieAfterRemembering(_cookie, UsedLinkFlow.DeletionCancel, UsedToken));
+        _timeProvider.Advance(TimeSpan.FromMinutes(minutesLater));
+
+        PasswordResetStep? step = _cookie.NextStepFor(request, UsedLinkFlow.DeletionCancel, UsedToken);
+
+        (step is not null).ShouldBe(expectsAStep);
     }
 
     [Theory]
@@ -70,7 +95,7 @@ public sealed class UsedLinkNextStepCookieTests
     [Fact]
     public void NextStepFor_AValueMadeWithAnotherKeyring_ReturnsNull()
     {
-        UsedLinkNextStepCookie otherServer = new(new EphemeralDataProtectionProvider());
+        UsedLinkNextStepCookie otherServer = new(new EphemeralDataProtectionProvider(), _timeProvider);
         HttpRequest request = RequestCarrying(SetCookieAfterRemembering(otherServer, UsedLinkFlow.EmailChangeRevert, UsedToken));
 
         PasswordResetStep? step = _cookie.NextStepFor(request, UsedLinkFlow.EmailChangeRevert, UsedToken);

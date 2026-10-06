@@ -9,6 +9,13 @@
 # the apps is plain HTTP on :8080 with X-Forwarded-Proto/Host/For set, exercising UseForwardedHeaders
 # (M6-02). Explicit `tls` files make Caddy serve our cert and skip ACME — no internet needed.
 
+# The same header limit as .docker/hetzner/Caddyfile, which says why (#989).
+{
+	servers {
+		max_header_size 32KiB
+	}
+}
+
 # SEO crawler control (#531) — parity with .docker/hetzner/Caddyfile. The parity stack passes no
 # XROBOTS env, so this always renders the `all` default (an explicit no-op header).
 (seo_headers) {

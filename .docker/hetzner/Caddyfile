@@ -10,6 +10,12 @@
 
 {
 	email {$ACME_EMAIL}
+	# Since 2.11.6, Caddy answers 431 to request headers over 16 KiB (#989). The apps behind it
+	# accept 32 KB (Kestrel's default), so Caddy takes the same limit. Without it, a big sign-in
+	# cookie would fail here, before it reaches an app that could log it.
+	servers {
+		max_header_size 32KiB
+	}
 }
 
 # SEO crawler control (#531): every LOTRO vhost stamps X-Robots-Tag from the per-box XROBOTS env

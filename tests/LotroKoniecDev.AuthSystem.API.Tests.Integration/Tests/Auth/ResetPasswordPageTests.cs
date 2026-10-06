@@ -192,6 +192,45 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         html.Contains("data-testid=\"reset-password-submit\"", StringComparison.Ordinal).ShouldBe(!browserUsedTheLink);
     }
 
+    /// <summary>
+    /// Only a done reset may leave the marker. A marker after a refusal would make Back say "Hasło zmienione"
+    /// while the old password still works, which is worse than the dead link of #941.
+    /// </summary>
+    [Theory]
+    [InlineData(ResetRefusal.DeadLink)]
+    [InlineData(ResetRefusal.PasswordsDiffer)]
+    [InlineData(ResetRefusal.PasswordRefusedByThePolicy)]
+    [InlineData(ResetRefusal.UnknownAddress)]
+    [InlineData(ResetRefusal.DeletionScheduled)]
+    public async Task ResetPasswordPage_PostThatIsRefused_ShouldLeaveNoUsedLinkMarker(ResetRefusal refusal)
+    {
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        if (refusal is ResetRefusal.DeletionScheduled)
+        {
+            await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, registerRequest.Email);
+        }
+
+        string email = refusal is ResetRefusal.UnknownAddress ? Faker.Internet.Email() : registerRequest.Email;
+        string token = refusal is ResetRefusal.DeadLink ? resetToken + "x" : resetToken;
+        Dictionary<string, string> form = ResetForm(email, token, refusal is ResetRefusal.PasswordRefusedByThePolicy ? "abc" : "NewPass99!");
+        if (refusal is ResetRefusal.PasswordsDiffer)
+        {
+            form["ConfirmPassword"] = "OtherPass77!";
+        }
+
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToResetPasswordPageAsync(browser, form);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        HttpResponseMessage back = await browser.GetAsync(new Uri(ResetUrl(email, token), UriKind.Relative));
+        (await back.Content.ReadAsStringAsync()).ShouldNotContain("data-testid=\"reset-password-success\"");
+        response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies);
+        (cookies ?? []).ShouldNotContain(cookie => cookie.StartsWith(UsedLinkCookieName + "=", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task ResetPasswordPage_PostTheUsedLinkAgainInTheSameBrowser_ShouldNotSayTheNewPasswordIsActive()
     {
@@ -271,6 +310,15 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         await PasswordResetEmailSpy.WaitForCaptureAsync();
 
         return PasswordResetEmailSpy.LastResetToken!;
+    }
+
+    public enum ResetRefusal
+    {
+        DeadLink,
+        PasswordsDiffer,
+        PasswordRefusedByThePolicy,
+        UnknownAddress,
+        DeletionScheduled
     }
 
     private static Dictionary<string, string> ResetForm(string email, string token, string newPassword) =>

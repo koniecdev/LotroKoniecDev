@@ -353,6 +353,78 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         location.ShouldContain("token=");
     }
 
+    [Fact]
+    public async Task CancelDeletionPage_GetTheUsedLinkAgainInTheSameBrowser_ShouldSendItOnToTheSamePasswordForm()
+    {
+        // #941: Back from the password form loads the used cancel link again. Its button would call the link
+        // dead, although the deletion was cancelled and the password form was one step away.
+        (RegisterRequest registerRequest, string cancelToken) = await RegisterAndScheduleDeletionAsync();
+        HttpResponseMessage cancelled = await PostCancelDeletionPageAsync(_noRedirectClient, registerRequest.Email, cancelToken);
+        cancelled.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+
+        HttpResponseMessage back = await _noRedirectClient.GetAsync(
+            new Uri(CancelDeletionUrl(registerRequest.Email, cancelToken), UriKind.Relative));
+
+        back.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        back.Headers.Location.ShouldBe(cancelled.Headers.Location);
+    }
+
+    [Fact]
+    public async Task CancelDeletionPage_GetTheUsedLinkFromAnotherBrowser_ShouldShowTheFormAndNoPasswordForm()
+    {
+        // The password form carries a live reset token. Only the browser that used the cancel link may be
+        // sent there again.
+        (RegisterRequest registerRequest, string cancelToken) = await RegisterAndScheduleDeletionAsync();
+        (await PostCancelDeletionPageAsync(_noRedirectClient, registerRequest.Email, cancelToken))
+            .StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        using HttpClient otherBrowser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await otherBrowser.GetAsync(
+            new Uri(CancelDeletionUrl(registerRequest.Email, cancelToken), UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("cancel-deletion-form");
+    }
+
+    [Fact]
+    public async Task CancelDeletionPage_PostThatIsRefused_ShouldLeaveNoNextStepCookie()
+    {
+        // Only a done cancel may leave the cookie. After a refusal the deletion is still scheduled.
+        (RegisterRequest registerRequest, _) = await RegisterAndScheduleDeletionAsync();
+
+        HttpResponseMessage response = await PostCancelDeletionPageAsync(_noRedirectClient, registerRequest.Email, "not-a-real-token");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies);
+        (cookies ?? []).ShouldNotContain(cookie => cookie.StartsWith(".lotrokoniecdev.used-link.", StringComparison.Ordinal));
+    }
+
+    private static string CancelDeletionUrl(string email, string token) =>
+        $"/Account/CancelDeletion?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
+
+    private static async Task<HttpResponseMessage> PostCancelDeletionPageAsync(HttpClient client, string email, string token)
+    {
+        string pageUrl = CancelDeletionUrl(email, token);
+        HttpResponseMessage pageResponse = await client.GetAsync(new Uri(pageUrl, UriKind.Relative));
+        pageResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        Dictionary<string, string> formData = new()
+        {
+            ["Email"] = email,
+            ["Token"] = token
+        };
+        string? antiForgeryToken = ExtractAntiForgeryToken(await pageResponse.Content.ReadAsStringAsync());
+        if (antiForgeryToken is not null)
+        {
+            formData["__RequestVerificationToken"] = antiForgeryToken;
+        }
+
+        using FormUrlEncodedContent content = new(formData);
+        using HttpRequestMessage postRequest = new(HttpMethod.Post, pageUrl);
+        postRequest.Content = content;
+        return await client.SendAsync(postRequest);
+    }
+
     private async Task<(RegisterRequest Request, string CancelToken)> RegisterAndScheduleDeletionAsync()
     {
         (RegisterRequest registerRequest, _) =

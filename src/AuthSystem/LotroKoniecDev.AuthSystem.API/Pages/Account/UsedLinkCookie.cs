@@ -39,7 +39,7 @@ internal sealed class UsedLinkCookie
         && request.Cookies.TryGetValue(Name, out string? value)
         && string.Equals(value, HashOf(token), StringComparison.Ordinal);
 
-    private static string HashOf(string token) =>
+    internal static string HashOf(string token) =>
         Base64Url.EncodeToString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 
     /// <summary>
@@ -48,7 +48,7 @@ internal sealed class UsedLinkCookie
     /// not Strict: the link's page was first opened from a mail client, and a browser may treat Back to it
     /// like that first visit from another site, which gets no Strict cookie.
     /// </summary>
-    private static CookieOptions BuildOptions(bool isHttps) => new()
+    internal static CookieOptions BuildOptions(bool isHttps) => new()
     {
         Path = "/",
         HttpOnly = true,

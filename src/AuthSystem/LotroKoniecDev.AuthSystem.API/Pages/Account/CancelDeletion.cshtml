@@ -348,7 +348,7 @@
                                 Kliknij poniższy przycisk, aby anulować usunięcie. Ze względów bezpieczeństwa
                                 dotychczasowe hasło przestanie działać — w następnym kroku ustawisz nowe.
                             </p>
-                            <form method="post" data-testid="cancel-deletion-form" data-submit-once>
+                            <form method="post" data-testid="cancel-deletion-form" data-submit-once data-recheck-when-restored>
                                 <input type="hidden" asp-for="Email" />
                                 <input type="hidden" asp-for="Token" />
                                 <div class="auth-actions">

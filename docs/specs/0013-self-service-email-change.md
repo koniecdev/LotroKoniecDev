@@ -343,6 +343,9 @@ outlier and explicitly **not** the pattern here.
   > in the browser that sent it. While that cookie names the link, the link's page shows the same done
   > view, and a POST of the link redirects to it. Nothing is looked up, so the answer reveals nothing
   > about any account (ADR-0063). The password reset page shows its done view the same way on a GET.
+  > The revert page had the same gap on Back from the password form it leads to. A done revert leaves
+  > an encrypted 30-minute cookie that holds the password form's address and token, and the used
+  > revert link, opened or sent again in that browser, redirects to that same password form.
 - **Files touched:** no DAT and no translation artifact. One EF migration,
   `AddEmailChangeRevertFieldsToUsers` — two nullable columns, additive and N-1 safe.
 

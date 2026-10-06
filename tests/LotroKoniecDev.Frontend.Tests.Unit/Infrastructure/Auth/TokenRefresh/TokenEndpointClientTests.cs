@@ -36,6 +36,26 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
+    /// #974: a missing lifetime must stay apart from a zero one, so the refresh can log which it got.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"access_token":"x"}""", null)]
+    [InlineData("""{"access_token":"x","expires_in":null}""", null)]
+    [InlineData("""{"access_token":"x","expires_in":0}""", 0)]
+    [InlineData("""{"access_token":"x","expires_in":-1}""", -1)]
+    [InlineData("""{"access_token":"x","expires_in":3600}""", 3600)]
+    [InlineData("""{"access_token":"x","expires_in":"3600"}""", 3600)]
+    public async Task RefreshAsync_WhenTheAnswerSendsOrOmitsExpiresIn_ReturnsTheLifetimeAsSent(string body, int? expectedExpiresIn)
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
+        TokenEndpointClient client = CreateClient(httpClient);
+
+        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+
+        response.ShouldNotBeNull().ExpiresIn.ShouldBe(expectedExpiresIn);
+    }
+
+    /// <summary>
     /// #943: a charset .NET does not know, such as the common misspelling "utf8", must not stop the
     /// refresh, because the tokens are read from the bytes. A UTF-8 byte order mark must not stop it either.
     /// </summary>
@@ -93,6 +113,10 @@ public sealed class TokenEndpointClientTests
     [InlineData("<html><body>200 OK</body></html>")]
     [InlineData("""{"access_token":5}""")]
     [InlineData("""{"access_token":"a""")]
+    [InlineData("""{"access_token":"a","expires_in":3600.5}""")]
+    [InlineData("""{"access_token":"a","expires_in":2147483648}""")]
+    [InlineData("""{"access_token":"a","expires_in":"soon"}""")]
+    [InlineData("""{"access_token":"a","expires_in":true}""")]
     public async Task RefreshAsync_WhenTheTokenAnswerIsNotATokenObject_ReturnsNull(string body)
     {
         using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));

@@ -147,26 +147,48 @@ internal sealed class CookieTokenRefresher
         TokenResponse? tokenResponse = await _tokenEndpointClient.RefreshAsync(
             refreshToken, cancellationToken);
 
-        if (tokenResponse?.AccessToken is null)
+        if (tokenResponse is null)
         {
             LogRefreshFailed(_logger, null);
             await RejectAsync(context);
             return RefreshOutcome.Stop;
         }
 
+        // Our own sign-in server always sends an access token and a positive lifetime. So an answer without
+        // them means that something between us and the server is broken (#974). The API would refuse a blank
+        // token on every call. A token with no lifetime looks expired at once, so every page would redeem
+        // the refresh token again.
+        if (string.IsNullOrWhiteSpace(tokenResponse.AccessToken))
+        {
+            LogNoUsableAccessToken(_logger, null);
+            await RejectAsync(context);
+            return RefreshOutcome.Stop;
+        }
+
+        if (tokenResponse.ExpiresIn is not { } expiresInSeconds || expiresInSeconds <= 0)
+        {
+            LogNoPositiveLifetime(
+                _logger,
+                tokenResponse.ExpiresIn?.ToString(CultureInfo.InvariantCulture) ?? "missing",
+                null);
+            await RejectAsync(context);
+            return RefreshOutcome.Stop;
+        }
+
         properties.UpdateTokenValue(AccessTokenName, tokenResponse.AccessToken);
 
-        if (!string.IsNullOrEmpty(tokenResponse.RefreshToken))
+        // A blank value counts as no value, like an empty one, so the stored token stays (#974).
+        if (!string.IsNullOrWhiteSpace(tokenResponse.RefreshToken))
         {
             properties.UpdateTokenValue(RefreshTokenName, tokenResponse.RefreshToken);
         }
 
-        if (!string.IsNullOrEmpty(tokenResponse.IdToken))
+        if (!string.IsNullOrWhiteSpace(tokenResponse.IdToken))
         {
             properties.UpdateTokenValue(IdTokenName, tokenResponse.IdToken);
         }
 
-        DateTimeOffset newExpiresAt = DateTimeOffset.UtcNow.AddSeconds(tokenResponse.ExpiresIn);
+        DateTimeOffset newExpiresAt = DateTimeOffset.UtcNow.AddSeconds(expiresInSeconds);
         properties.UpdateTokenValue(
             ExpiresAtName,
             newExpiresAt.ToString("o", CultureInfo.InvariantCulture));
@@ -325,7 +347,7 @@ internal sealed class CookieTokenRefresher
         LoggerMessage.Define(
             LogLevel.Information,
             new EventId(2, nameof(LogRefreshFailed)),
-            "Refresh token grant returned no access_token; principal rejected.");
+            "Refresh token grant returned no usable answer; principal rejected.");
 
     private static readonly Action<ILogger, Exception?> LogProactiveInvalidToken =
         LoggerMessage.Define(
@@ -338,4 +360,16 @@ internal sealed class CookieTokenRefresher
             LogLevel.Information,
             new EventId(4, nameof(LogReactiveDeadSession)),
             "Session was marked dead by a prior 401; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogNoUsableAccessToken =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(5, nameof(LogNoUsableAccessToken)),
+            "Refresh token grant returned a missing, empty or blank access_token; principal rejected.");
+
+    private static readonly Action<ILogger, string, Exception?> LogNoPositiveLifetime =
+        LoggerMessage.Define<string>(
+            LogLevel.Warning,
+            new EventId(6, nameof(LogNoPositiveLifetime)),
+            "Refresh token grant returned a missing or non-positive expires_in; principal rejected. expires_in: {ExpiresIn}");
 }

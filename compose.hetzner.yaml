@@ -32,8 +32,10 @@
 # `caddy:2-alpine` pulled 2.11.6 on the next deploy, and 2.11.6 panics when the reverse proxy is still
 # forwarding a client's HTTP/2 request body after the handler has returned: the body's idle deadline
 # outlives its handler (caddyserver/caddy#8106). It took the staging box down on 2026-10-02, when a
-# backend was OOM-killed mid-request. 2.11.4 is the last release before
-# that change. Move off it only to a release that closes #8106, and bump compose.prod.yaml with it.
+# backend was OOM-killed mid-request. 2.11.7 fixes it (caddyserver/caddy#8107), so the pin moved from
+# 2.11.4 straight to 2.11.7 (#989). Never pin 2.11.6, and bump compose.prod.yaml with this line.
+# #989 checked the other changes 2.11.6 brought against LOTRO's traffic. Its new 16 KiB limit on
+# request headers is raised in the Caddyfile to the apps' own limit.
 #
 # Dependabot proposes the next pin (#1001). When a new Caddy image is out (a new release, or a Docker
 # Hub rebuild of the pinned tag, which changes only the digest), it opens one pull request that
@@ -43,7 +45,7 @@
 # services merge in with `<<:`. Dependabot rewrites only text that reads `image: <ref>`. With the
 # image as the anchor's direct value, its update fails and no pull request opens at all.
 x-caddy-image: &caddy-image
-  image: caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
+  image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
 
 # Caddy's environment, shared by the proxy itself and by the `caddy-validate` gate below. It is an
 # anchor and not two copies on purpose: the gate's whole job is to render the SAME Caddyfile the

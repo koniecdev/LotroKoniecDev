@@ -199,6 +199,8 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         SecurityTokenDescriptor descriptor = new()
         {
             Issuer = TestIssuer,
+            // One audience goes out as a string, like the service token and every real one-API token.
+            Audience = audiences is null ? TestAudience : null,
             IssuedAt = expires.AddMinutes(-30),
             NotBefore = expires.AddMinutes(-30),
             Expires = expires,
@@ -213,7 +215,7 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
             }
         };
 
-        foreach (string audience in audiences ?? [TestAudience])
+        foreach (string audience in audiences ?? [])
         {
             descriptor.Audiences.Add(audience);
         }

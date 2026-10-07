@@ -1,7 +1,6 @@
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
 using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;

@@ -8,7 +8,7 @@ namespace LotroKoniecDev.AuthSystem.API.Settings;
 /// Stops the boot when the configured CORS origins are missing or malformed in a deployed environment,
 /// Staging or Production, and names the key at fault (ADR-0008 §3, M6-03). Development uses the open
 /// AllowAnyOrigin policy and Testing runs in memory on one origin, so neither supplies origins and
-/// both skip this check, like <c>OpenIddictSettingsValidator</c> does.
+/// both skip this check, like <c>OpenIddictSettingsValidator</c> does for its production values.
 /// </summary>
 internal sealed class CorsSettingsValidator : IValidateOptions<CorsSettings>
 {

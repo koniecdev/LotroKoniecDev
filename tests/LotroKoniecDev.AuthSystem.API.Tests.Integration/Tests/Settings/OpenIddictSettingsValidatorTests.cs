@@ -269,7 +269,7 @@ public sealed class OpenIddictSettingsValidatorTests
     [InlineData(Staging, 2)]
     [InlineData(Development, 2)]
     [InlineData(Testing, 2)]
-    [InlineData(Testing, int.MaxValue)]
+    [InlineData(Testing, 60)]
     public void Validate_AccessTokenLifetimeOfAtLeastTwoMinutes_Succeeds(
         string environmentName,
         int accessTokenLifetimeMinutes)

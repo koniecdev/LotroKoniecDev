@@ -1,7 +1,7 @@
 name: Actionlint
 
-# Why this exists (CI-02 / #404): pr-verify classifies everything under .github/ as inert and its
-# force_build rescues only pr-verify.yml + ci.yml, so every OTHER workflow file used to merge with
+# Why this exists (CI-02 / #404): pr-verify classifies everything under .github/ as inert except
+# pr-verify.yml and ci.yml (they define its own gate), so every OTHER workflow file used to merge with
 # no pre-merge check parsing it. PR #388 (Dependabot's github-actions group) changed cd.yml,
 # codeql.yml and deploy.yml and merged with "Pull Request Verification" skipped — and cd.yml /
 # deploy.yml cannot run on a PR by design (workflow_run / workflow_call), so the first execution
@@ -12,7 +12,7 @@ name: Actionlint
 #
 # Deadlock-proofing: the workflow always triggers and the job always reports — never on.paths
 # (a paths-filtered required check never reports on non-matching PRs and would deadlock them, the
-# exact trap pr-verify's changes gate escapes). Linting every workflow takes seconds, so unlike
+# exact trap pr-verify escapes by always triggering). Linting every workflow takes seconds, so unlike
 # pr-verify's heavy .NET job there is nothing worth a diff classifier here — and a path
 # classifier rotting green is precisely what let #388 through, so not having one is the point.
 #

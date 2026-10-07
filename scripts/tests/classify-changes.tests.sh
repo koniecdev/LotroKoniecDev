@@ -5,8 +5,9 @@
 #
 # It runs UNCONDITIONALLY in the required "Pull Request Verification" job, before the classifier is
 # trusted to classify anything: a classifier that mis-classifies real source as inert would silently
-# skip the build and the tests, and no other check would notice. The false-green half of the table below is therefore
-# the point of this file — the "skips the right things" half only guards the CI bill.
+# skip the build and the tests, and no other check would notice. The false-green half of the table
+# below is therefore the point of this file — the "skips the right things" half only guards the CI
+# bill.
 #
 # Pure bash + git-free: every case feeds a path list on stdin through the --files seam.
 set -uo pipefail

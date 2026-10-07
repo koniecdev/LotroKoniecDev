@@ -57,8 +57,9 @@ permissions:
 jobs:
   build:
     name: Pull Request Verification
-    # Never add `needs:` or a job-level `if:` here (#791, see the header): either one lets a
-    # failure somewhere else skip this job, and the ruleset counts a skipped job as passed.
+    # Never add `needs:` or a job-level `if:` here (#791, see the header). With `needs:`, a failure
+    # in another job skips this one; with `if:`, the condition alone can skip it. The ruleset counts
+    # a skipped job as passed. No other job in any workflow may carry this job's name either.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
@@ -79,9 +80,9 @@ jobs:
         run: ./scripts/tests/classify-changes.tests.sh
 
       # Three verdicts (code / guards / images) from the PR's own diff. No untrusted input reaches
-      # it — pure git against the checked-out merge commit. Fails OPEN (everything true) if the diff
-      # cannot be computed: a redundant build beats a false green. A classifier that crashes fails
-      # this step, and so the whole required check.
+      # it — pure git against the checked-out merge commit. If the diff cannot be computed, every
+      # verdict is true and every gate runs: a redundant build beats a false green. A classifier
+      # that crashes fails this step, and so the whole required check.
       - name: Classify changed paths
         id: diff
         run: ./scripts/ci/classify-changes.sh HEAD^1
@@ -297,17 +298,19 @@ jobs:
   # Packaging gate (CI-01 / #403): build the four SHIPPED images (cd.yml's exact matrix) on the PRs
   # that can change them — Dockerfile/.dockerignore edits, incl. Dependabot base-image digest bumps —
   # so a base that breaks `dotnet publish` inside the container or carries a fixable HIGH/CRITICAL
-  # goes red BEFORE the merge, not in cd.yml after it. Skipped by `if:` (never `on.paths`) for the
-  # same required-check reason as the .NET job above. Nothing is pushed and no registry credentials
+  # goes red BEFORE the merge, not in cd.yml after it. Skipped by `if:`, never by `on.paths`: a
+  # filtered-out workflow reports nothing at all. Nothing is pushed and no registry credentials
   # are involved, so the job also works on Dependabot PRs (read-only token, zero secrets).
   # It reads the images verdict from the required job, so it starts only after that job ends (#791).
   # A Dockerfile-only PR waits for the guard steps alone, seconds; a PR that also changes code waits
-  # for the whole .NET gate. That is the price of having no helper job: when classification fails,
-  # this job is skipped too, but the required check above is red, so the PR cannot merge anyway.
+  # for the whole .NET gate, so the scan may still run after the required check is green. That is
+  # the price of having no helper job. `!cancelled()` keeps the scan running when the required job
+  # fails (a red test, or a failed classification, which leaves the verdict empty and so runs it):
+  # the PR then still shows the image result next to the red check.
   images:
     name: Build & scan image (${{ matrix.image }})
     needs: build
-    if: needs.build.outputs.images != 'false'
+    if: ${{ !cancelled() && needs.build.outputs.images != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:

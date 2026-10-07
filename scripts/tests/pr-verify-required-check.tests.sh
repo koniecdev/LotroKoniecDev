@@ -7,17 +7,20 @@
 # fails or never starts, and when its job-level `if:` is false. So this job must start on every PR
 # and decide inside itself what to run. This file proves that in two ways:
 #
-#   1. Shape. The job exists under that exact name. It has no `needs:`, no job-level `if:` and no
-#      `continue-on-error`. The steps up to the classifier (`id: diff`) carry no `if:`. Every later
-#      step has no `if:`, or skips only when its verdict is exactly 'false'. The workflow has no
-#      `paths` filter. Broken copies of the workflow prove that each of these checks still fires.
+#   1. Shape. Exactly one job, in all workflows, carries that name. It has no `needs:`, no
+#      job-level `if:` and no `continue-on-error`. The steps up to the classifier (`id: diff`) carry
+#      no `if:`. Every later step has no `if:`, or skips only when its verdict is exactly 'false'.
+#      The workflow has no `paths` filter. Broken copies of the workflow prove that each check
+#      still fires.
 #   2. Behavior. It runs the job's own steps up to the classifier in a scratch git repo, with a
 #      deliberately broken classifier in place, the way the runner runs them. Then it replays every
 #      later step's `if:` against the verdicts those steps wrote. A broken classifier must leave the
 #      job red, or make the whole .NET gate run. Green with the gate skipped is the bug.
 #
-# The YAML reader understands the block style pr-verify.yml uses: two-space indent, one key per line,
-# a one-line `run:` for every step up to the classifier. A layout it cannot read fails the test.
+# The YAML reader understands the block style pr-verify.yml uses: two-space indent, one key per
+# line, a one-line `run:` for every step up to the classifier. Quoted keys are fine. A form it cannot
+# follow (a YAML anchor, alias or merge key, a job written on one line, no `on:` section) fails the
+# test instead of being guessed at.
 #
 # Pure bash + awk + git. CI-only (Linux runners), like classify-changes.sh, so no .ps1 twin.
 set -uo pipefail
@@ -53,33 +56,64 @@ fail() {
 }
 
 # Prints one record per line, fields split by $US:
+#   SEC <name>                         a top-level key (on, jobs, …)
 #   ON  <key>                          a paths / paths-ignore filter under `on:`
 #   J   <job> <key> <value>            a job-level key
 #   S   <job> <step> <key> <value>     a step key (step = 0-based index)
-# Values lose a trailing YAML comment and their outer quotes. Q holds a single quote: awk flavors
-# disagree on \x27, and the program itself sits in single quotes.
+#   X   <what>                         a line in a form the reader cannot follow
+# Keys and values lose their outer quotes; values also lose a trailing YAML comment. Q holds a
+# single quote: awk flavors disagree on \x27, and the program itself sits in single quotes.
 # shellcheck disable=SC2016 # awk program, not shell
 READER='
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
+function quoted(v) {
+    return length(v) >= 2 && ((substr(v, 1, 1) == "\"" && substr(v, length(v), 1) == "\"") || (substr(v, 1, 1) == Q && substr(v, length(v), 1) == Q))
+}
+function unquote(v,    q) {
+    if (!quoted(v)) { return v }
+    q = substr(v, 1, 1)
+    v = substr(v, 2, length(v) - 2)
+    if (q == Q) { gsub(Q Q, Q, v) }
+    return v
+}
 function clean(v) {
     v = trim(v)
-    if (length(v) >= 2 && v ~ /^".*"$/) { return substr(v, 2, length(v) - 2) }
-    if (length(v) >= 2 && substr(v, 1, 1) == Q && substr(v, length(v), 1) == Q) {
-        v = substr(v, 2, length(v) - 2); gsub(Q Q, Q, v); return v
-    }
+    if (quoted(v)) { return unquote(v) }
     sub(/[ \t]+#.*$/, "", v)
     return trim(v)
 }
-function keyval(line) { KEY = line; sub(/:.*/, "", KEY); KEY = trim(KEY); VAL = line; sub(/^[^:]*:/, "", VAL); VAL = clean(VAL) }
-/^[A-Za-z_"][^:]*:/ { section = $0; sub(/:.*/, "", section); gsub(/"/, "", section); job = ""; insteps = 0; next }
-section == "on" && /^[ \t]+(paths|paths-ignore):/ { keyval($0); print "ON" US KEY; next }
+function keyval(line) { KEY = line; sub(/:.*/, "", KEY); KEY = unquote(trim(KEY)); VAL = line; sub(/^[^:]*:/, "", VAL); VAL = clean(VAL) }
+BEGIN { PATHS = "^[ \t]+[\"" Q "]?paths(-ignore)?[\"" Q "]?:" }
+/^[^ \t#]/ {
+    keyval($0); section = KEY; job = ""; insteps = 0; print "SEC" US section
+    if (section == "on" && VAL ~ /paths/) { print "ON" US "paths" }
+    next
+}
+section == "on" && $0 ~ PATHS { keyval($0); print "ON" US KEY; next }
 section != "jobs" { next }
-/^  [A-Za-z0-9_-]+:[ \t]*$/ { job = trim($0); sub(/:$/, "", job); step = -1; insteps = 0; next }
+/^  [^ \t#]/ { keyval(substr($0, 3)); job = KEY; step = -1; insteps = 0; if (VAL != "") { print "X" US "job " job " is written on one line" }; next }
 job == "" { next }
-/^    [A-Za-z0-9_-]+:/ { keyval(substr($0, 5)); print "J" US job US KEY US VAL; insteps = (KEY == "steps"); next }
-insteps && /^      - [A-Za-z0-9_-]+:/ { step++; keyval(substr($0, 9)); print "S" US job US step US KEY US VAL; next }
-insteps && /^        [A-Za-z0-9_-]+:/ { keyval(substr($0, 9)); print "S" US job US step US KEY US VAL; next }
+/^    [^ \t#]/ { keyval(substr($0, 5)); print "J" US job US KEY US VAL; insteps = (KEY == "steps"); next }
+insteps && /^      - / { step++; keyval(substr($0, 9)); print "S" US job US step US KEY US VAL; next }
+insteps && /^        [^ \t#]/ {
+    if (step < 0) { print "X" US "a step key of job " job " sits before its first step"; next }
+    keyval(substr($0, 9)); print "S" US job US step US KEY US VAL; next
+}
 '
+
+# A key the reader trusts. Anything else (a merge key `<<`, an alias, an indentless list item) could
+# hide a `needs:` or an `if:` from it.
+SAFE_KEY='^[A-Za-z0-9_-]+$'
+
+# note_unreadable <where> <key> <value>
+note_unreadable() {
+    if ! printf '%s' "$2" | grep -Eq "$SAFE_KEY"; then
+        UNREADABLE="$UNREADABLE$1 has a key the reader cannot follow: $2"$'\n'
+    fi
+    case "$3" in
+        '*'* | '&'*) UNREADABLE="$UNREADABLE$1 uses a YAML alias or anchor in $2"$'\n' ;;
+    esac
+}
 
 # Fills the REQ_* globals and the STEP_* arrays from the required job of <workflow>.
 load_required_job() {
@@ -87,23 +121,36 @@ load_required_job() {
     records="$(awk -v US="$US" -v Q="'" "$READER" "$1")"
 
     REQ_JOB=''
+    REQ_NAME_COUNT=0
     while IFS="$US" read -r kind f1 f2 f3 f4; do
         if [ "$kind" = J ] && [ "$f2" = name ] && [ "$f3" = "$REQUIRED_CHECK" ]; then
-            REQ_JOB="$f1"
-            break
+            [ -n "$REQ_JOB" ] || REQ_JOB="$f1"
+            REQ_NAME_COUNT=$((REQ_NAME_COUNT + 1))
         fi
     done <<< "$records"
 
+    SECTIONS=' '
+    UNREADABLE=''
     ON_FILTERS=''
-    REQ_JOB_KEYS=''
+    REQ_JOB_KEYS=' '
     STEP_COUNT=0
     STEP_NAME=(); STEP_ID=(); STEP_IF=(); STEP_RUN=(); STEP_USES=(); STEP_COE=()
     while IFS="$US" read -r kind f1 f2 f3 f4; do
         case "$kind" in
-            ON) ON_FILTERS="$ON_FILTERS $f1" ;;
-            J)  [ "$f1" = "$REQ_JOB" ] && REQ_JOB_KEYS="$REQ_JOB_KEYS $f2" ;;
+            SEC) SECTIONS="$SECTIONS$f1 " ;;
+            X)   UNREADABLE="$UNREADABLE$f1"$'\n' ;;
+            ON)  ON_FILTERS="$ON_FILTERS $f1" ;;
+            J)
+                [ "$f1" = "$REQ_JOB" ] || continue
+                REQ_JOB_KEYS="$REQ_JOB_KEYS$f2 "
+                note_unreadable 'the required job' "$f2" "$f3"
+                if [ "$f2" = steps ] && [ -n "$f3" ]; then
+                    UNREADABLE="${UNREADABLE}the required job's steps: is not a block list"$'\n'
+                fi
+                ;;
             S)
                 [ "$f1" = "$REQ_JOB" ] || continue
+                note_unreadable "step #$f2 of the required job" "$f3" "$f4"
                 [ "$f2" -ge "$STEP_COUNT" ] && STEP_COUNT=$((f2 + 1))
                 case "$f3" in
                     name)              STEP_NAME[f2]="$f4" ;;
@@ -139,21 +186,33 @@ FAIL_CLOSED_CONDITION="^steps\.diff\.outputs\.[a-z]+ != 'false'$"
 # Prints every shape problem of <workflow>, one per line; prints nothing when the shape is right.
 shape_problems() {
     load_required_job "$1"
+    if [ -n "$UNREADABLE" ]; then
+        printf '%s' "$UNREADABLE" | sed 's/$/ — so this test cannot prove the shape/'
+    fi
+    case "$SECTIONS" in
+        *' on '*) ;;
+        *) echo "the reader found no on: section — so it cannot check the trigger for a paths filter" ;;
+    esac
     if [ -z "$REQ_JOB" ]; then
         echo "no job is named '$REQUIRED_CHECK' — the ruleset requires exactly that name"
         return
     fi
+    if [ "$REQ_NAME_COUNT" -gt 1 ]; then
+        echo "$REQ_NAME_COUNT jobs are named '$REQUIRED_CHECK' — one that gets skipped reports the check as passed"
+    fi
     local key i condition gated=0
     for key in $ON_FILTERS; do
-        echo "on: carries a '$key' filter — a run filtered out never reports the required check (#255)"
+        echo "on: carries a '$key' filter — a run filtered out never reports the required check (#285)"
     done
-    for key in $REQ_JOB_KEYS; do
-        case "$key" in
-            needs)             echo "the required job has needs: — a failed or unstarted job there skips it, and skipped counts as passed" ;;
-            if)                echo "the required job has a job-level if: — when it is false the job is skipped, and skipped counts as passed" ;;
-            continue-on-error) echo "the required job has continue-on-error — a failed step would still report success" ;;
-        esac
-    done
+    case "$REQ_JOB_KEYS" in *' needs '*)
+        echo "the required job has needs: — a failed or unstarted job there skips it, and skipped counts as passed" ;;
+    esac
+    case "$REQ_JOB_KEYS" in *' if '*)
+        echo "the required job has a job-level if: — when it is false the job is skipped, and skipped counts as passed" ;;
+    esac
+    case "$REQ_JOB_KEYS" in *' continue-on-error '*)
+        echo "the required job has continue-on-error — a failed step would still report success" ;;
+    esac
     if [ "$DIFF_IDX" -lt 0 ]; then
         echo "no step has id: diff — nothing classifies the PR inside the required job"
         return
@@ -211,6 +270,29 @@ insert_after() {
     local out="$TMP_ROOT/$1.yml"
     awk -v anchor="$2" -v added="$3" '{ print } !done && $0 == anchor { print added; done = 1 }' "$WORKFLOW" > "$out"
     printf '%s' "$out"
+}
+
+# jobs_named_required <workflow>... → how many jobs in these files carry the required name.
+jobs_named_required() {
+    local file count total=0
+    for file in "$@"; do
+        count="$(awk -v US="$US" -v Q="'" "$READER" "$file" \
+            | awk -F "$US" -v want="$REQUIRED_CHECK" '$1 == "J" && $3 == "name" && $4 == want { n++ } END { print n + 0 }')"
+        total=$((total + count))
+    done
+    printf '%s' "$total"
+}
+
+# expect_jobs_named_required <expected count> <description> <workflow>...
+expect_jobs_named_required() {
+    local expected="$1" description="$2" actual
+    shift 2
+    actual="$(jobs_named_required "$@")"
+    if [ "$actual" = "$expected" ]; then
+        pass "$description"
+    else
+        fail "$description" "expected $expected job(s) named '$REQUIRED_CHECK', found $actual"
+    fi
 }
 
 # Writes the classifier for <flavor> to <path>. `healthy` is the real one; every other flavor is a
@@ -368,6 +450,40 @@ expect_shape_problem 'the required job renamed' 'no job is named' \
 # shellcheck disable=SC2016 # an awk program, not shell
 expect_shape_problem 'no classification step at all' 'no step has id: diff' \
     "$(mutate no-diff '$0 == "        id: diff" { next } { print }')"
+expect_shape_problem 'a second job with the required name, which needs the first' "2 jobs are named '$REQUIRED_CHECK'" \
+    "$(mutate second-job '{ print } END { print "  shadow:"; print "    name: Pull Request Verification"; print "    needs: build"; print "    if: failure()" }')"
+
+echo
+echo '── the reader does not lose a key to YAML syntax ──────────────────────────────────────────'
+expect_shape_problem 'a quoted job key still counts' 'has needs:' \
+    "$(insert_after quoted-needs "    name: $REQUIRED_CHECK" '    "needs": changes')"
+# shellcheck disable=SC2016 # an awk program, not shell
+expect_shape_problem 'a quoted on: key still has its paths filter read' "carries a 'paths-ignore' filter" \
+    "$(mutate quoted-on '$0 == "on:" { print Q "on" Q ":"; next } { print } $0 == "    branches: [\"main\"]" { print "    paths-ignore: [docs]" }')"
+expect_shape_problem 'a merge key that could carry needs: fails the test' 'cannot follow: <<' \
+    "$(insert_after merge-key "    name: $REQUIRED_CHECK" '    <<: *gate')"
+expect_shape_problem 'an alias for a step condition fails the test' 'uses a YAML alias or anchor in if' \
+    "$(insert_after alias-if '      - name: Build' '        if: *only-on-code')"
+
+echo
+echo '── exactly one job in all workflows carries the required name ─────────────────────────────'
+workflows=()
+while IFS= read -r file; do
+    workflows+=("$file")
+done < <(find "$REPO_ROOT/.github/workflows" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)
+expect_jobs_named_required 1 "the ${#workflows[@]} workflow files name one job '$REQUIRED_CHECK'" "${workflows[@]}"
+cat > "$TMP_ROOT/another-workflow.yml" <<EOF
+name: Another workflow
+on:
+  pull_request:
+jobs:
+  shadow:
+    name: $REQUIRED_CHECK
+    runs-on: ubuntu-24.04
+    steps:
+      - run: 'true'
+EOF
+expect_jobs_named_required 2 'a job of that name in another workflow is counted' "${workflows[@]}" "$TMP_ROOT/another-workflow.yml"
 
 load_required_job "$WORKFLOW"
 if [ -n "$problems" ] || [ "$DIFF_IDX" -lt 0 ]; then
@@ -379,7 +495,7 @@ fi
 
 echo
 echo '── the replay tells a skipped gate from a run one ──────────────────────────────────────────'
-expect_replay gate-skipped 'healthy classifier, docs-only PR: green with the gate skipped (#255 stays fixed)' healthy 'docs/notes.md'
+expect_replay gate-skipped 'healthy classifier, docs-only PR: green with the gate skipped (#285 stays fixed)' healthy 'docs/notes.md'
 expect_replay gate-ran     'healthy classifier, a C# change: the gate runs'                                 healthy 'src/Patcher/LotroKoniecDev.Domain/Result.cs'
 
 echo

@@ -611,13 +611,15 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
 - **Required PR checks always report, and they decide inside themselves what to run (#791).**
   The `main` ruleset requires "Pull Request Verification", and GitHub counts a **skipped** job as a
   passed check. So never path-filter a required check (`on.paths` / `paths-ignore`): it never
-  reports and the PR deadlocks (#255). And never put it behind a helper job: when a job in its
+  reports and the PR deadlocks (#285). And never put it behind a helper job: when a job in its
   `needs:` fails or never starts (a classifier bug, a runner problem, a spending limit), the
   required job is skipped, and the PR merges with no build and no tests. The required job has no
-  `needs:` and no job-level `if:`. It classifies the diff in its own first steps, and every later
-  step skips only on `steps.diff.outputs.<verdict> != 'false'`, so a missing or garbled verdict runs
-  the gate. A job that needs a verdict (the image build) lists the required job in its `needs:`,
-  never the other way round. `scripts/tests/pr-verify-required-check.tests.sh` pins this shape and
+  `needs:` and no job-level `if:`. It classifies the diff in its own first steps. Every later
+  step's `if:` is exactly `steps.diff.outputs.<verdict> != 'false'`, so the step is skipped only on
+  an explicit `false`, and a missing or garbled verdict runs the gate. A job that needs a verdict
+  (the image build) lists the required job in its `needs:`, never the other way round. Exactly one
+  job in all workflows carries the required name: a second one that gets skipped would report the
+  same check as passed. `scripts/tests/pr-verify-required-check.tests.sh` pins all of this and
   replays the job against deliberately broken classifiers, on every PR. A new required check
   follows the same rule.
 - **CI runs what the diff can actually break — nothing more (`scripts/ci/classify-changes.sh`).**

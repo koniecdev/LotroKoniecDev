@@ -176,6 +176,10 @@ internal static class AuthenticationDependencyInjectionExtensions
         options.Events.OnRemoteFailure = OnRemoteFailureAsync;
         options.Events.OnAccessDenied = OnAccessDeniedAsync;
 
+        // SaveTokens stores only expires_at. The refresh time also needs the token's lifetime, which is
+        // known only now, as the first token arrives (#1025).
+        options.Events.OnTicketReceived = OnTicketReceivedAsync;
+
         // The code exchange, the userinfo call and the metadata and key fetch go through the handler's
         // own back-channel client, not through the typed clients, so the visitor's address rides on it
         // too (ADR-0054). Like the typed clients, it follows no redirect (#899) and keeps no cookies
@@ -201,6 +205,17 @@ internal static class AuthenticationDependencyInjectionExtensions
 
         context.Response.Redirect(ErrorPath);
         context.HandleResponse();
+        return Task.CompletedTask;
+    }
+
+    private static Task OnTicketReceivedAsync(TicketReceivedContext context)
+    {
+        if (context.Properties is { } properties)
+        {
+            TimeProvider timeProvider = context.Options.TimeProvider ?? TimeProvider.System;
+            AccessTokenRefreshSchedule.Schedule(properties, timeProvider.GetUtcNow());
+        }
+
         return Task.CompletedTask;
     }
 

@@ -14,8 +14,8 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// <summary>
 /// Runs on every cookie validation (<c>OnValidatePrincipal</c>).
 /// First it reads any "dead session" marker a previous 401 left behind and signs the cookie out
-/// properly. Otherwise it refreshes the access token shortly before it expires, using the stored
-/// refresh token. When the token is still valid by the local clock, it also checks the token's
+/// properly. Otherwise it refreshes the access token shortly before it expires, at the time
+/// <see cref="AccessTokenRefreshSchedule"/> sets, using the stored refresh token. When the token is still valid by the local clock, it also checks the token's
 /// signature against the cached OIDC keys, so a key that was rotated upstream signs the user out
 /// cleanly instead of letting a token that is already dead reach the API.
 /// Every rejection sets the one-time "session expired" notice. On the user's own <c>/auth/logout</c> it
@@ -26,14 +26,7 @@ internal sealed class CookieTokenRefresher
     private const string AccessTokenName = "access_token";
     private const string RefreshTokenName = "refresh_token";
     private const string IdTokenName = "id_token";
-    private const string ExpiresAtName = "expires_at";
     private const string SubjectClaimType = "sub";
-
-    /// <summary>
-    /// Refresh a little before the token really expires, so a call already on its way cannot arrive with
-    /// a token that still looks valid here but is already refused by the server.
-    /// </summary>
-    private static readonly TimeSpan RefreshSkew = TimeSpan.FromSeconds(60);
 
     private readonly ITokenEndpointClient _tokenEndpointClient;
     private readonly IOptionsMonitor<OpenIdConnectOptions> _openIdConnectOptionsMonitor;
@@ -120,18 +113,13 @@ internal sealed class CookieTokenRefresher
     {
         AuthenticationProperties properties = context.Properties;
 
-        string? expiresAtRaw = properties.GetTokenValue(ExpiresAtName);
-        if (string.IsNullOrEmpty(expiresAtRaw)
-            || !DateTimeOffset.TryParse(
-                expiresAtRaw,
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                out DateTimeOffset expiresAt))
+        if (!AccessTokenRefreshSchedule.TryGetMoment(
+                properties, AccessTokenRefreshSchedule.ExpiresAtName, out DateTimeOffset expiresAt))
         {
             return RefreshOutcome.Stop;
         }
 
-        if (DateTimeOffset.UtcNow + RefreshSkew < expiresAt)
+        if (!AccessTokenRefreshSchedule.IsDue(properties, expiresAt, DateTimeOffset.UtcNow))
         {
             return RefreshOutcome.Unchanged;
         }
@@ -188,10 +176,11 @@ internal sealed class CookieTokenRefresher
             properties.UpdateTokenValue(IdTokenName, tokenResponse.IdToken);
         }
 
-        DateTimeOffset newExpiresAt = DateTimeOffset.UtcNow.AddSeconds(expiresInSeconds);
+        DateTimeOffset receivedAt = DateTimeOffset.UtcNow;
         properties.UpdateTokenValue(
-            ExpiresAtName,
-            newExpiresAt.ToString("o", CultureInfo.InvariantCulture));
+            AccessTokenRefreshSchedule.ExpiresAtName,
+            receivedAt.AddSeconds(expiresInSeconds).ToString("o", CultureInfo.InvariantCulture));
+        AccessTokenRefreshSchedule.Schedule(properties, receivedAt);
 
         context.ShouldRenew = true;
         return RefreshOutcome.Refreshed;

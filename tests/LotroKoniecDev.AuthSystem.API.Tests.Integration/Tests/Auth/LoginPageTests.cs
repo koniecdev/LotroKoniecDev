@@ -241,12 +241,6 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The reset-password and confirm-email pages send the user to a plain <c>/Account/Login</c>, so a
-    /// successful sign-in has nowhere to continue. This host's root serves the discovery JSON, which is
-    /// a dead end for a browser, so the fallback has to go to the frontend's login route, where the
-    /// cookie we just issued completes the OIDC challenge without the user noticing.
-    /// </summary>
-    /// <summary>
     /// The breach check runs only where a password is set (ADR-0065). A password that shows up in a leak
     /// after it was set must not lock its owner out.
     /// </summary>
@@ -270,6 +264,12 @@ public sealed partial class LoginPageTests : EndpointsTestBase
         response.Headers.Location!.OriginalString.ShouldBe(ExpectedFrontendLoginUrl);
     }
 
+    /// <summary>
+    /// The reset-password and confirm-email pages send the user to a plain <c>/Account/Login</c>, so a
+    /// successful sign-in has nowhere to continue. This host's root serves the discovery JSON, which is
+    /// a dead end for a browser, so the fallback has to go to the frontend's login route, where the
+    /// cookie we just issued completes the OIDC challenge without the user noticing.
+    /// </summary>
     [Fact]
     public async Task LoginPage_ShouldRedirectToTheFrontend_WhenThereIsNoReturnUrl()
     {

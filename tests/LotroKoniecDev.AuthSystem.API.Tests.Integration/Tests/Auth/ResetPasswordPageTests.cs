@@ -375,6 +375,27 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task ResetPasswordPage_Post_ShouldNameThePolicyNotTheLeak_WhenAWeakPasswordIsAlsoInDataBreaches()
+    {
+        // Nearly every weak password is in a breach list too. The rule it breaks is the useful answer.
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        Factory.PwnedPasswords.MarkBreached("abc");
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToResetPasswordPageAsync(
+            browser, ResetForm(registerRequest.Email, resetToken, "abc"));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldNotContain("wyciekach danych");
+        html.ShouldNotContain("known data breaches");
+        html.ShouldContain("Passwords must be at least 8 characters.");
+        html.ShouldContain("data-testid=\"reset-password-submit\"");
+    }
+
+    [Fact]
     public async Task ResetPasswordPage_Post_ShouldAcceptAnotherPasswordOnTheSameLink_AfterABreachedOneWasRefused()
     {
         (RegisterRequest registerRequest, _) =

@@ -4,9 +4,9 @@
 **Date:** 2026-10-07
 **Decision-makers:** Solo maintainer (ticket #694)
 **Related:** AuthSystem.Infrastructure (`PwnedPasswords/`), AuthSystem.API (`Services/Accounts/BreachedPasswordValidator.cs`,
-`Features/Auth/{RegisterUser,ChangePassword,ResetPassword}`, `Pages/Account/{Register,ResetPassword}`),
-Frontend (`Infrastructure/Errors/ApiProblemCopy.cs`); ADR-0044 (the Frontend's Polish error copy),
-ADR-0059 (the time floor on the reset answer); ticket #694
+`Features/Auth/{RegisterUser,ChangePassword,ResetPassword}`, `Pages/Account/{Register,ResetPassword}`,
+`Program.cs`), Frontend (`Infrastructure/Errors/ApiProblemCopy.cs`); ADR-0044 (the Frontend's Polish
+error copy), ADR-0059 (the time floor on the reset answer); tickets #694, #1045
 
 ## Context
 
@@ -46,12 +46,27 @@ before it validates the new password, so a wrong current password or a dead link
 `AddIdentityCore` registers the built-in validator with `TryAdd`. Ours is registered after it, in
 `AddAuthApi`, so it joins the built-in rules instead of replacing them.
 
+The policy rules come first. A password that breaks them is refused by the built-in validator, whose
+error names the rule, so ours does not ask the service about it at all. Nearly every weak password is
+in a breach list too, and the reset page would otherwise show the vaguer breach message instead of
+the rule. The handlers and the reset page map a result to the breach message only when the breach is
+its one error.
+
 ### 2. Only the five-character prefix leaves the process
 
 `PwnedPasswordChecker` hashes the password with SHA-1 (UTF-8), sends the first five hex characters to
 the range endpoint with `Add-Padding: true`, and looks for the other 35 in the answer. A matching line
 counts only with a count above zero, because padding lines carry 0. The answer is read as bytes and
 decoded as UTF-8, whatever charset it names (#1036).
+
+A real answer always holds hundreds of `SUFFIX:COUNT` lines. A successful answer with none, such as a
+proxy's error page, says nothing about the password, so it counts as `Unavailable`, not as clean.
+
+The prefix is safe at Have I Been Pwned, which cannot tie it to anyone. In our own logs and traces it
+would sit next to the request and the account it belongs to, and 20 bits of an unsalted SHA-1 cut a
+cracking dictionary about a million times. So the client has no request logging
+(`RemoveAllLoggers`), and the trace pipeline drops its requests (`PwnedPasswordsTelemetry` in the
+filter of `AddHttpClientInstrumentation`). The HTTP metrics carry the host, never the path.
 
 ### 3. The client is narrow
 
@@ -61,8 +76,9 @@ person on the form wait longer for an answer the policy can do without.
 
 ### 4. Fail-open: a check that cannot run lets the password through
 
-When the service is down, slow, or answers with anything but success, the verdict is `Unavailable`.
-The validator accepts the password and the checker logs a warning (event ids 3300–3302). The rest of
+When the service is down, slow, answers with anything but success, or answers with no hash line, the
+verdict is `Unavailable`. The validator accepts the password and the checker logs a warning (event ids
+3300–3303). The rest of
 the password policy still applies.
 
 A fail-closed check would make registration, password change and password reset depend on the uptime
@@ -75,7 +91,7 @@ smaller harm, and the warning makes the outage visible.
 Login sets no password, so the validator never runs there. A password that appears in a leak after it
 was set does not lock its owner out. A prompt that asks such a user to change the password is parked:
 it needs the password in plain text, which exists only during login, and where the prompt lives is a
-product decision. It has its own follow-up ticket.
+product decision. It is #1045.
 
 ### 6. A real answer is remembered for five minutes
 
@@ -96,7 +112,8 @@ danych, wybierz inne." A refused reset keeps the form, because the link is still
 
 - `Password1!` and every other known-breached password can no longer be set anywhere.
 - One validator covers every path that sets a password, including paths added later.
-- No secret, key or account is needed, and nothing about the password leaves the process.
+- No secret, key or account is needed. Only the first five hex characters of the password's SHA-1
+  leave the process, only to the range API, and they are kept out of our own logs and traces.
 
 ### Negative / Accepted Trade-offs
 
@@ -114,7 +131,9 @@ danych, wybierz inne." A refused reset keeps the form, because the link is still
   and an offline run passes by decision 4. The integration suite replaces the checker with a stub, so it
   never reaches the internet.
 - **Verdicts sit in memory for five minutes.** A heap dump would show the SHA-1 of recently checked
-  passwords. Whoever can take a heap dump of the auth server already holds its signing keys.
+  passwords. Whoever can take a heap dump of the auth server already holds its signing keys. The cache
+  has no size limit: one small entry per distinct password, and every path that reaches it is rate
+  limited.
 
 ## Alternatives Considered
 
@@ -137,7 +156,7 @@ two-box deployment with no real users yet.
 ### D. Check at login too
 
 Rejected by the ticket: it would lock out a user whose password leaked after they set it. A prompt to
-change it is the right shape, and it is parked (decision 5).
+change it is the right shape, and it is parked in #1045 (decision 5).
 
 ### E. A configuration switch to turn the check off
 
@@ -147,18 +166,22 @@ Tests replace the checker in the container instead.
 ## Implementation Notes
 
 - `IPwnedPasswordChecker`, `PwnedPasswordVerdict`, `PwnedPasswordChecker` and
-  `PwnedPasswordsDependencyInjection` live in `AuthSystem.Infrastructure/PwnedPasswords/`.
+  `PwnedPasswordsDependencyInjection` and `PwnedPasswordsTelemetry` live in
+  `AuthSystem.Infrastructure/PwnedPasswords/`.
   `BreachedPasswordValidator` lives in `AuthSystem.API/Services/Accounts/`, because it needs
   `ApplicationUser`, and `IdentityResult.IsBreachedPassword` maps its error in the handlers and the
   reset page.
-- Tests: `PwnedPasswordCheckerTests` (what is sent, padding lines, errors, timeout, the cache) and
-  `PwnedPasswordsDependencyInjectionTests` (the registered client), `BreachedPasswordValidatorTests`
-  (unit); the register, change-password and reset endpoint and page tests, and a login page test that a
-  password breached after it was set still signs in (integration, with `StubPwnedPasswordChecker`).
+- Tests: `PwnedPasswordCheckerTests` (what is sent, padding lines, unreadable answers, errors, timeout,
+  the cache), `PwnedPasswordsDependencyInjectionTests` (the registered client, its time limit and its
+  silent logging), `PwnedPasswordsTelemetryTests` and `BreachedPasswordValidatorTests` (unit); the
+  register, change-password and reset endpoint and page tests, a login page test that a password
+  breached after it was set still signs in, and `HttpClientTracingTests` for the real host's trace
+  filter (integration, with `StubPwnedPasswordChecker`).
 
 ## References
 
 - #694 — the ticket.
+- #1045 — the parked prompt for a password that leaks after it was set.
 - https://haveibeenpwned.com/API/v3#PwnedPasswords — the range API, its padding and its terms.
 - ADR-0056 — the admin is seeded without a password on deployed boxes.
 - #1036 — an unknown charset in an answer must not throw.

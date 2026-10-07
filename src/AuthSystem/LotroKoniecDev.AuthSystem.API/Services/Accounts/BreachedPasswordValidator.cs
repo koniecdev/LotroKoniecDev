@@ -13,6 +13,8 @@ internal sealed class BreachedPasswordValidator : IPasswordValidator<Application
 {
     internal const string ErrorCode = "PasswordFoundInBreaches";
 
+    private static readonly PasswordValidator<ApplicationUser> PolicyRules = new();
+
     private readonly IPwnedPasswordChecker _pwnedPasswordChecker;
 
     public BreachedPasswordValidator(IPwnedPasswordChecker pwnedPasswordChecker)
@@ -27,6 +29,15 @@ internal sealed class BreachedPasswordValidator : IPasswordValidator<Application
     {
         // Refusing an empty password is the built-in validator's job.
         if (string.IsNullOrEmpty(password))
+        {
+            return IdentityResult.Success;
+        }
+
+        // A password that breaks the policy is already refused by the built-in validator, whose error
+        // names the rule. Nearly every weak password is in a breach too, so asking would only cost a call
+        // and hide that rule behind a vaguer message on the reset page.
+        IdentityResult policyResult = await PolicyRules.ValidateAsync(manager, user, password);
+        if (!policyResult.Succeeded)
         {
             return IdentityResult.Success;
         }

@@ -21,6 +21,7 @@ using LotroKoniecDev.AuthSystem.API.Middleware;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Settings;
+using LotroKoniecDev.AuthSystem.Infrastructure.PwnedPasswords;
 using LotroKoniecDev.AuthSystem.Persistence.Settings;
 using LotroKoniecDev.Logging.Redaction;
 
@@ -179,7 +180,9 @@ try
             .AddService(builder.Environment.ApplicationName, autoGenerateServiceInstanceId: false)
             .AddAttributes(telemetryResourceAttributes))
         .WithTracing(tracing => tracing
-            .AddHttpClientInstrumentation()
+            // A breach check's URL carries the password's hash prefix, so it never becomes a span.
+            .AddHttpClientInstrumentation(options =>
+                options.FilterHttpRequestMessage = request => !PwnedPasswordsTelemetry.IsRangeApiRequest(request))
             .AddAspNetCoreInstrumentation()
             .AddSource("Npgsql"))
         .WithMetrics(metrics => metrics

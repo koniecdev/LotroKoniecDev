@@ -20,6 +20,7 @@ If you are here to contribute, the things that *are* meant for you are:
 
 | Script | Role |
 |---|---|
+| `start-loop.sh` | The one way to start the loop: in a plain terminal, never from a Claude Code session (a background command there dies after two hours). It moves the loop's own checkout next to the main one to `origin/main`, runs the conductor from there under `caffeinate`, and copies the console to `logs/claude-loop/console-<timestamp>.log`. |
 | `backlog-loop.sh` | The conductor. Runs the given (or ready) tickets, up to three at once, each in its own fresh headless process, and prints the PRs they opened. |
 | `next-ticket.sh` | Deterministic ready-ticket picker — priority labels + `Depends on #X` + no open PR yet (a worktree kept for a resume after a usage limit does not hide its ticket). No LLM, no tokens. |
 | `work-ticket.sh` | Runs exactly one ticket in its own worktree and a fresh process, then judges its `STATUS: DONE\|BLOCKED` block. A session that ends without one is resumed, at most `LOOP_MAX_RESUMES` times (default 2), and a DONE with no open PR once. On a usage limit it keeps the worktree, and the next run resumes the same session there instead of starting over. |
@@ -46,4 +47,5 @@ already read the issue *and its comments* personally. There is no other good rea
 
 Publishing this file does not weaken the gate: it is an allowlist check, not a secret. Its
 behaviour is covered by `scripts/tests/claude-loop-provenance.tests.sh`; the conductor's own
-scheduling by `scripts/tests/claude-loop-conductor.tests.sh`.
+scheduling by `scripts/tests/claude-loop-conductor.tests.sh`, and the terminal launcher by
+`scripts/tests/claude-loop-launcher.tests.sh`.

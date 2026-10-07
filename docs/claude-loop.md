@@ -9,9 +9,11 @@ is flat whether you run 1 ticket or grind the backlog all night.
 
 1. In an ordinary session, pick the tickets you want (for example every open `type-bug` +
    `area-auth` ticket that touches different files) — `/preflight` helps.
-2. Hand the numbers to the loop: `/backlog 812 830 842`, or `scripts/claude/backlog-loop.sh 812 830 842`.
-   It runs up to three at once, each in `.claude/worktrees/ticket-<n>` cut from `origin/main`,
-   and ends with a table of the PRs it opened.
+2. Start the loop **in a plain terminal**, never from a Claude Code session (see "Start it in a
+   terminal" below): `scripts/claude/start-loop.sh 812 830 842`, by its full path when you are in
+   another folder. `/backlog 812 830 842` prints that line for you. The loop runs up to three at
+   once, each in `.claude/worktrees/ticket-<n>` cut from `origin/main`, and ends with a table of
+   the PRs it opened; `/backlog` with no arguments reads that table back from the saved console.
 3. Read each PR. When you are happy with one, **assign yourself** — that is the approval, because
    GitHub does not let you approve your own PR.
 4. When the batch is read, run **`/merge-train`**. It merges only PRs you assigned yourself to, and
@@ -44,22 +46,32 @@ produces PRs, and the one merge path is `/merge-train` over PRs the owner approv
 
 | Piece | Role |
 |---|---|
+| `scripts/claude/start-loop.sh` | the terminal launcher — the one way to start a run: refuses while a loop runs, moves the loop's own checkout (`<main checkout>-loop`) to `origin/main`, hands over to the launcher copy there, runs the conductor under `caffeinate` and copies the console to `logs/claude-loop/console-<timestamp>.log` |
 | `scripts/claude/backlog-loop.sh` | the conductor — up to `-j` tickets at once, lock, stop conditions, roll-up table of PRs |
 | `scripts/claude/next-ticket.sh` | deterministic picker: priority labels + `Depends on #X` gate + skip rules + "no open PR yet" (a worktree kept for a resume after a usage limit does not hide its ticket) |
 | `scripts/claude/issue-trust.sh` | the provenance gate: refuses an issue written by anyone without write access (ADR-0026) |
 | `scripts/claude/work-ticket.sh` | one ticket: provenance gate → resume the session of a worktree kept after a usage limit, or skip if already in flight → worktree from `origin/main` → fresh headless session → judge `STATUS:` (no line: resume the same session, at most `LOOP_MAX_RESUMES` times) → confirm the PR exists (DONE with no open PR: resume once) → remove the clean worktree (usage limit: keep it for the next run) |
 | `.claude/commands/work-ticket.md` | the per-ticket discipline prompt (the old `ticket-worker` agent, promoted to a slash command) |
-| `.claude/commands/backlog.md` | `/backlog` in an interactive session = launch the script in background + report the roll-up |
+| `.claude/commands/backlog.md` | `/backlog <numbers>` prints the terminal command; `/backlog` with no arguments, after a run, reports the roll-up from the console copy and the run's `.meta` files. It never starts the loop |
 | `~/.claude-account1/skills/merge-train/` | the maintainer's merge path — merges PRs the owner approved by assigning themselves (lives outside this repo) |
-| `scripts/tests/claude-loop-{provenance,conductor}.tests.sh` | offline self-tests; both run in `pr-verify` and `ci` |
+| `scripts/tests/claude-loop-{provenance,conductor,launcher}.tests.sh` | offline self-tests; all three run in `pr-verify` and `ci` |
 
 ## Usage
 
+Start a run in a plain terminal, from any folder (by the script's full path when you are not in the
+repository; a symlink to it, say in `~/.local/bin`, works too):
+
 ```bash
-scripts/claude/backlog-loop.sh 123 130 131  # exactly these tickets, up to 3 at once (the normal use)
-scripts/claude/backlog-loop.sh -j 1 123 130 # one at a time, in this order
-scripts/claude/backlog-loop.sh -n 3         # the next 3 ready tickets from the picker
-scripts/claude/backlog-loop.sh              # drain: every ready ticket
+scripts/claude/start-loop.sh 123 130 131    # exactly these tickets, up to 3 at once (the normal use)
+scripts/claude/start-loop.sh -j 1 123 130   # one at a time, in this order
+scripts/claude/start-loop.sh -n 3           # the next 3 ready tickets from the picker
+```
+
+Its arguments, and every env var under "Knobs" below, go to the conductor. The pieces under it
+still work on their own, in a checkout that is up to date with `main`:
+
+```bash
+scripts/claude/backlog-loop.sh              # the conductor without the launcher; no arguments = drain every ready ticket
 scripts/claude/work-ticket.sh 123           # a single ticket, one fresh session, one worktree
 scripts/claude/next-ticket.sh               # dry-run the picker (prints the next ready number)
 ```
@@ -73,22 +85,50 @@ tickets that edit the same file give the second PR a conflict at merge time), an
 must tag its Docker images per worktree, so two runs never test each other's build. That tagging
 arrives with PR #895 (#884); until it is on `main`, run with `-j 1`.
 
-**Overnight (macOS):** the machine must not sleep mid-run:
+### Start it in a terminal, never from a Claude Code session (#969)
 
-```bash
-caffeinate -is scripts/claude/backlog-loop.sh
+Since Claude Code 2.1.285, a command that the Bash tool runs in the background is killed after two
+hours at most, and a foreground call ends at its own timeout. The kill is a SIGKILL to the whole
+process tree, so no trap runs: the conductor's lock stays, no worker salvages its work, no
+`loop-resume` marker is written, and the next run skips each of those tickets because its worktree
+still exists. A normal batch runs five hours or more. On 2026-09-29 a run of 15 tickets started from
+a session died exactly two hours in, in the middle of three tickets; a run started the same way from
+2.1.284 had gone on for 4.5 hours. A plain terminal has no such limit, so the loop starts there and
+only there, and `/backlog` gives you the command instead of running it.
+
+`start-loop.sh` does what you would otherwise do by hand before each run:
+
+- It refuses inside a Claude Code session (the session sets `CLAUDECODE` in every command it runs;
+  the conductor and the worker refuse it too), and it refuses arguments without ticket numbers and
+  without `-n N` above zero, because the conductor would then take every ready ticket. It refuses
+  while a loop runs (the lock's owner is alive and is `backlog-loop.sh`), and while a worker of the
+  last run still salvages from the loop checkout. All of this comes before it touches anything.
+- It runs the conductor from its own detached checkout next to the main one,
+  `<main checkout>-loop`. It creates that checkout when it is missing (also when its folder was
+  deleted by hand and git still lists it), refuses when it has local changes or is not a checkout
+  of this repository, and moves it to `origin/main`. So the main
+  checkout may sit on any branch, with any loop code in it, and you may keep working there. The
+  logs, the lock and the ticket worktrees still live under the main checkout.
+- It then hands over to its own copy in that checkout: whichever copy you start, the code that runs
+  is the reviewed code on `origin/main`.
+- It runs the conductor under `caffeinate -is` when `caffeinate` exists, because a Mac must not
+  sleep in the middle of a run, and copies the console to `logs/claude-loop/console-<timestamp>.log`
+  in the main checkout. The copy ignores Ctrl-C, a closed terminal and TERM (a logout sends TERM to
+  every process), and ends only when every writer is done: if it ended first, a worker that writes
+  its cleanup lines into the closed pipe would be killed by SIGPIPE before it salvaged anything.
+
+Ctrl-C, or closing the terminal, stops the run as **stopped** below describes. `/backlog` with no
+arguments then reads the newest console copy and the run's `ticket-<n>.meta` files, and writes the
+roll-up. A worker killed with SIGKILL (a power cut, `kill -9`) still leaves its worktree without a
+resume marker, and the loop skips that ticket until you clean the worktree up (see Troubleshooting).
+
+**Cron (optional):** prefer a run you start yourself — cron on a sleeping laptop silently skips. If
+the machine is awake at night anyway, add the entry below. Cron starts with a short `PATH`
+(`/usr/bin:/bin`), so put a `PATH=` line with the folders of `gh`, `claude` and `jq` above it:
+
 ```
-
-**Cron (optional):** prefer the manual `caffeinate` run — cron on a sleeping laptop silently
-skips. If the machine is awake at night anyway:
-
+0 1 * * * ~/RiderProjects/LotroKoniecDev/scripts/claude/start-loop.sh -n 6 >> ~/RiderProjects/LotroKoniecDev/logs/claude-loop/cron.log 2>&1
 ```
-0 1 * * * cd ~/RiderProjects/LotroKoniecDev && /usr/bin/caffeinate -is scripts/claude/backlog-loop.sh -n 6 >> logs/claude-loop/cron.log 2>&1
-```
-
-From an interactive Claude session, `/backlog [issue numbers | n] [-j N]` does the launch + final
-roll-up for you. The loop never touches the main checkout, so you can keep working there while it
-runs — just stay out of the `ticket-<n>` worktrees it owns.
 
 ## What "ready" means (the picker)
 
@@ -202,7 +242,8 @@ Per-ticket outcomes:
   so the next run can start the ticket again. A worker that has already seen its session end (it
   looks every 30 seconds), or that is already ending one because the clock ran out, does not stop
   half way: it finishes on its own and keeps its real outcome (a PR, BLOCKED, a worktree kept after
-  a usage limit). The stop only cancels a resume that has not started yet.
+  a usage limit). The stop only cancels a resume that has not started yet. A stopped conductor
+  prints no table, so `/backlog` builds the roll-up of such a run from its `.meta` files.
 - **usage limit** — the loop starts nothing new, lets the running tickets finish, naps
   (`LOOP_LIMIT_SLEEP_MIN`) and runs the limited tickets again. Each one whose result names its
   session keeps its worktree, and the next run resumes that session there (see "A session stopped by a usage limit, or DONE without
@@ -345,8 +386,8 @@ later conductor run, both runs' totals count the part of the session before the 
   worktree is removed, together with the E2E images tagged for it; the branch always stays.
 - The loop runs only when `scripts/claude/` in the checkout that starts it matches `origin/main`.
   That guard exists only from ADR-0060 on: a branch cut before it still carries the old conductor,
-  which merges PRs and checks out `main` in your main checkout. So once, before the first run after
-  this change, bring the checkout you start the loop from up to date with `main`.
+  which merges PRs and checks out `main` in your main checkout. `start-loop.sh` meets it by itself:
+  it runs the conductor from the loop checkout, which it has just moved to `origin/main`.
 - The worker session may commit/push/PR (that authorization is the point of loop mode). **Nothing
   in the loop merges or assigns** (ADR-0060). The merge path is `/merge-train`, and it takes only
   PRs the owner assigned to themselves after the last push (a clean rebase and the train's own
@@ -402,8 +443,37 @@ later conductor run, both runs' totals count the part of the session before the 
   ```
 - **"scripts/claude/ … differs from origin/main — refusing"** — the loop scripts run from the
   checkout you start them in, and that checkout is on an old branch or has local edits. Old loop
-  code may still merge PRs (it did before ADR-0060). Start the loop from a checkout that is up to
-  date with `main`; set `LOOP_ALLOW_LOCAL_SCRIPTS=1` only when you are changing the loop itself.
+  code may still merge PRs (it did before ADR-0060). Start the loop with `start-loop.sh`, which
+  runs it from a checkout on `origin/main`; set `LOOP_ALLOW_LOCAL_SCRIPTS=1` only when you are
+  changing the loop itself and run `backlog-loop.sh` directly.
+- **"start-loop: … has local changes, and the loop runs from there"** — someone edited files in the
+  loop checkout (`<main checkout>-loop`). The launcher lists them and moves nothing. That checkout
+  is the loop's alone: keep what you need, then `git -C <main checkout>-loop checkout -- .` or
+  remove the untracked files.
+- **"start-loop: … is not inside a checkout of the repository"** or **"… has no backlog-loop.sh"**
+  — you started a *copy* of the launcher that lives outside the repository. Start the one in the
+  repository, or make your wrapper a symlink to it (or a script that `exec`s it by its full path).
+- **"start-loop: … is not a checkout of this repository"** — a folder that is not this
+  repository's worktree sits where the loop checkout belongs. Move it away; the next start makes the
+  checkout.
+- **"start-loop: a loop is already running (pid N)"** — the same lock test as the conductor's: a
+  live conductor owns the lock. Wait for it, or stop it with Ctrl-C in its terminal.
+- **"… never from a Claude Code session (#969)"** (`start-loop.sh`, `backlog-loop.sh` and
+  `work-ticket.sh` all check) — the script saw `CLAUDECODE`, which Claude Code
+  sets in every command it runs. Run the command in a new terminal window, not in one that a Claude
+  Code session started.
+- **"start-loop: workers from … are still running"** — a worker still runs from the loop
+  checkout, so the launcher does not move it, and it lists each one with its process number. After
+  a normal stop they only salvage and end within seconds. If they go on, their conductor was killed
+  with SIGKILL and they still work their tickets (up to `LOOP_TICKET_TIMEOUT_MIN`): wait for them,
+  or stop each one with a plain `kill <pid>`, which lets it salvage first.
+- **"start-loop: name the tickets, or -n N with N above zero"** — the arguments named no ticket and
+  no count, and the conductor would have taken every ready ticket. To work through the whole
+  backlog on purpose, give `-n` a number large enough.
+- **A run started from a Claude Code session died at exactly two hours** — that is the Bash tool's
+  background limit (see "Start it in a terminal"). Its tickets' worktrees have no resume marker,
+  so the loop skips them: clean each one up as below, then start the run again with
+  `start-loop.sh`.
 - **A ticket is always "SKIPPED — … already exists"** — a worktree `.claude/worktrees/ticket-<n>`
   is still on disk: a manual session, or a run the loop could not clean up (a rebase or merge left
   half done, or leftovers it could not commit — the run's log line says which). Look inside, finish

@@ -65,6 +65,13 @@ case "$ISSUE" in
     ''|*[!0-9]*) echo "work-ticket: not an issue number: '$ISSUE'" >&2; exit 3 ;;
 esac
 
+# A Claude Code session kills its background commands after two hours, and nothing cleans up then
+# (#969). Claude Code sets CLAUDECODE in every command its Bash tool runs.
+if [ -n "${CLAUDECODE:-}" ]; then
+    echo "work-ticket: run the loop in a plain terminal with scripts/claude/start-loop.sh, never from a Claude Code session (#969)" >&2
+    exit 3
+fi
+
 # Worktrees, logs and the lock live under the MAIN checkout even when this script runs from a
 # worktree, so every run on the machine sees the same `.claude/worktrees/ticket-<n>` names.
 MAIN_ROOT="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"

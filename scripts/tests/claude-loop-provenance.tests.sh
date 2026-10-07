@@ -32,6 +32,9 @@ trap 'rm -rf "$TMP_ROOT"' EXIT
 # maintainer's ~/.claude/model-policy.env, which the worker reads before its defaults.
 unset BASH_MAX_TIMEOUT_MS BASH_DEFAULT_TIMEOUT_MS CLAUDE_CODE_DISABLE_BACKGROUND_TASKS LOOP_MAX_RESUMES \
     LOOP_KEEP_WORKTREE LOOP_TICKET_TIMEOUT_MIN
+# A developer may run this suite from a Claude Code session, whose CLAUDECODE the worker refuses
+# (#969); one case sets it on purpose.
+unset CLAUDECODE
 export HOME="$TMP_ROOT/home"
 mkdir -p "$HOME"
 # The ticket clock when LOOP_TICKET_TIMEOUT_MIN is unset (#953).
@@ -495,6 +498,14 @@ run_case 2 "issue-trust: LOOP_TRUST_GATE=0 does not disable the argument guard" 
     env LOOP_TRUST_GATE=0 "$TRUST" "42; rm -rf /"
 
 run_case 3 "work-ticket: a non-numeric issue argument is rejected" "$WORK" "1 2" "$TMP_ROOT/run"
+
+# A Claude Code session kills its background commands after two hours, with no cleanup (#969).
+rm -f "$CLAUDE_MARKER"
+run_case 3 "work-ticket: a start from inside a Claude Code session is refused" \
+    env CLAUDECODE=1 "$WORK" 99 "$TMP_ROOT/run"
+printf '%s' "$LAST_OUTPUT" | grep -qF "never from a Claude Code session" || fail "the refusal should say why" "$LAST_OUTPUT"
+[ ! -f "$CLAUDE_MARKER" ] || fail "work-ticket spawned a claude session from inside a Claude Code session"
+[ ! -e "$FAKE_REPO/.claude/worktrees/ticket-99" ] || fail "a refused start must not make a worktree"
 
 # ── next-ticket.sh: the picker never selects untrusted work ────────────────────────────────────
 picker() { env LOOP_SKIP_ISSUES= LOOP_SKIP_TITLES= "$NEXT" "$@"; }

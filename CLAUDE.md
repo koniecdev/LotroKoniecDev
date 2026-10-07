@@ -146,7 +146,7 @@ rule, the wiki stating it, and a follow-up ticket amending ADR-0003 and the vali
 | Make a PR body, report or comment readable for a non-native reader | run **`/b2-english <PR# / comment URL / file>`** — `/ticket` and `/work-ticket` run it as their last step |
 | Touch the `\|\|` translation file (parser, serializer, a column) | `README.md` → "Translation file format" for the format, the rules digest below, ADRs 0039/0042/0043/0047 for the reasoning; golden fixtures on both sides; the format changes only via ADR |
 | **File** an issue, label one, or title one | `docs/labels.md` — the five axes (`priority-*`, `type-*`, `severity-*`, `area-*`, process), the title convention, the three-signal epic rule and one bug class per ticket, **shared 1:1 with TheKittySaver**; a change in one repo is ported to the other in the same session. Read it *before* `gh issue create`, not after |
-| Run the backlog autonomously (Loop mode) | **`/backlog <numbers>`** → `scripts/claude/backlog-loop.sh` — one fresh headless session and one worktree per ticket, up to 3 at once; it opens PRs and never merges (ADR-0060); manual: `docs/claude-loop.md` |
+| Run the backlog autonomously (Loop mode) | **`scripts/claude/start-loop.sh <numbers>` in a plain terminal** — never from a session, whose background commands die at two hours (#969); **`/backlog <numbers>`** prints that line, `/backlog` after the run reports the roll-up. One fresh headless session and one worktree per ticket, up to 3 at once; it opens PRs and never merges (ADR-0060); manual: `docs/claude-loop.md` |
 | Merge reviewed PRs | **`/merge-train`** — merges only PRs the owner approved by assigning themselves after the last push, and fixes an approved PR's conflicts itself (ADR-0060) |
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
 | Re-investigate update behavior, vnum, translation survival, launch flow | **don't** — empirically settled in `docs/knowledge-base/` (start at its README) |
@@ -189,10 +189,12 @@ gh pr create --fill --body "Closes #<n>"               # PR title mirrors the ti
 
 # Autonomous backlog loop (Loop mode) — bash conductor + one FRESH headless session and worktree per
 # ticket, up to 3 at once. It stops at the PR: review, assign yourself to approve, then /merge-train.
-scripts/claude/backlog-loop.sh 123 130 131             # exactly these tickets (the normal use)
-scripts/claude/backlog-loop.sh -j 1 123 130            # one at a time
-scripts/claude/backlog-loop.sh -n 3                    # the next 3 ready tickets
-caffeinate -is scripts/claude/backlog-loop.sh 123 130  # keep macOS awake for the run
+# Start it in a plain TERMINAL, never from a Claude Code session: a background command there is
+# killed after two hours, with no cleanup (#969). The launcher runs the conductor from its own
+# checkout moved to origin/main, under caffeinate, and copies the console to logs/claude-loop/.
+scripts/claude/start-loop.sh 123 130 131               # exactly these tickets (the normal use); full path from any other folder
+scripts/claude/start-loop.sh -j 1 123 130              # one at a time
+scripts/claude/start-loop.sh -n 3                      # the next 3 ready tickets
 scripts/claude/next-ticket.sh                          # print the next READY ticket (priority + deps + no open PR)
 scripts/claude/work-ticket.sh 123                      # one ticket, one headless session, one worktree (resumed after a usage limit)
 # defaults: model + effort from ~/.claude/model-policy.env (Opus 5.5 · xhigh since 2026-09-22), else opus · high · permission-mode auto — override via LOOP_MODEL /
@@ -873,9 +875,13 @@ with `/qa-ticket #<n>` before handing it over.**
 Working the backlog autonomously has **two non-negotiables: one ticket = one PR (git hygiene), and
 one ticket = one fresh context (cost + quality).** Different rules; both must hold.
 
-**The loop is a SCRIPT, not a session — `scripts/claude/backlog-loop.sh` (the conductor).** It takes
-the ticket numbers the owner hands it (the normal use: pick independent tickets in a recon session,
-then `/backlog <numbers>`), or picks ready ones itself (`next-ticket.sh`: priority labels + the
+**The loop is a SCRIPT, not a session — `scripts/claude/backlog-loop.sh` (the conductor).** The
+owner starts it in a plain terminal with `scripts/claude/start-loop.sh`, never from a Claude Code
+session: a background command there is killed after two hours with no cleanup, and a batch runs
+five hours or more (#969). `/backlog <numbers>` only prints that terminal line, and `/backlog`
+after the run reports the roll-up from the saved console. It takes the ticket numbers the owner
+hands it (the normal use: pick independent tickets in a recon session, then start the loop with
+them), or picks ready ones itself (`next-ticket.sh`: priority labels + the
 `Depends on #X` gate + skip rules for qa/post-mvp/audit/Windows-only work + no open PR yet). Each
 ticket runs in a **fresh headless process** (`work-ticket.sh` → `claude -p "/work-ticket <n>"`)
 inside its **own worktree** `.claude/worktrees/ticket-<n>` cut from `origin/main`, up to three at
@@ -909,7 +915,7 @@ questions posted as an issue comment — triage is `gh issue list --label loop-b
 per-ticket session logs stay in `logs/claude-loop/<run>/` for debugging only). Business questions
 are **extracted for the user, never invented** — that rule binds the worker and the conductor alike.
 
-Entering loop mode (`/backlog`, or an explicit "work through the backlog") **is** the standing
+Starting the loop (`start-loop.sh`, the line `/backlog` hands over) **is** the standing
 authorization for commit → push → PR — never for a merge, which stays the owner's `/merge-train`.
 A single wholesale lift (e.g. the AuthSystem module) is **one ticket**: a large diff there is
 expected and fine — what's not fine is two tickets sharing one working copy or one context. Full
@@ -980,11 +986,15 @@ them yourself when the request matches, without waiting for the user to type the
 - User is **settling an architecture/modeling choice** → **`/adr`** first, then implement.
 - Any **DAT binary format work** → hand off to the **`dat-format-expert`** agent.
 - User says **"kontynuuj pracę w pętli" / "continue the loop" / "work through the backlog" /
-  "jazda dalej"** (any keep-grinding-tickets phrasing) → invoke **`/backlog`**, which launches
-  `scripts/claude/backlog-loop.sh` in the background — one fresh headless `claude -p` process and
-  one worktree per ticket; it opens PRs and never merges. NEVER grind tickets inline in the current session and never spawn per-ticket subagents
-  from it — both balloon one context, the exact anti-pattern Loop mode retires — and never route
-  to `/loop`.
+  "jazda dalej"** (any keep-grinding-tickets phrasing) → invoke **`/backlog <numbers>`** with the
+  tickets the owner names (ask once which ones when none are named: `/backlog` with no arguments
+  only reports the last run). It prints the one terminal command
+  (`scripts/claude/start-loop.sh <numbers>`) for the owner to run — one fresh headless `claude -p`
+  process and one worktree per ticket; it opens PRs and never merges. NEVER
+  start the loop from a session, in the background or not: Claude Code kills a background command
+  after two hours, with no cleanup (#969). NEVER grind tickets inline in the current session and
+  never spawn per-ticket subagents from it — both balloon one context, the exact anti-pattern Loop
+  mode retires — and never route to `/loop`.
 
 Don't narrate "I'll run the command" — just follow the workflow and report results. Never scaffold
 off a vague one-liner: if a business rule is unclear, ask once, then proceed.

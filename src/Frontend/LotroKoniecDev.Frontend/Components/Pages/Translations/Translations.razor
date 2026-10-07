@@ -392,7 +392,10 @@
     private static string EditorHref(TranslationListItemResponse item) =>
         $"/editor/{item.Id.Value}";
 
-    /// <summary>Polish plural of "tłumaczenie" for the approved-count flash (1 / 2-4 / 5+ forms).</summary>
+    /// <summary>
+    /// Polish plural of "tłumaczenie" for the approved-count flash. "Tłumaczenia" follows every number that
+    /// ends in 2, 3 or 4, except numbers that end in 12, 13 or 14.
+    /// </summary>
     private static string TranslationsPlural(int count)
     {
         if (count == 1)

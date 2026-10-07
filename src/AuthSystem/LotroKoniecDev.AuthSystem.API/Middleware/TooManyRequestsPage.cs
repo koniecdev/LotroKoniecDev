@@ -60,7 +60,8 @@ internal static class TooManyRequestsPage
             BrowserErrorPage.BackToLoginLink);
 
     /// <summary>
-    /// Polish uses "minuty" after every number that ends in 2, 3 or 4, except 12, 13 and 14 (#1032).
+    /// Polish uses "minuty" after every number that ends in 2, 3 or 4, except numbers that end in 12, 13
+    /// or 14 (#1032).
     /// The frontend's <c>TranslationsPlural</c> uses the same rule.
     /// </summary>
     private static string MinutesPlural(int count)

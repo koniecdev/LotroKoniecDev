@@ -143,7 +143,7 @@ public sealed class ImportExportLoaderTests
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "body");
         ImportExportLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
 
-        ApiResult<string> result = await loader.DownloadTranslationFileAsync();
+        ApiResult<Stream> result = await loader.DownloadTranslationFileAsync();
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(403);
@@ -156,7 +156,7 @@ public sealed class ImportExportLoaderTests
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "body");
         ImportExportLoader loader = new(StubDiscoveryCache.Unavailable(), CreateClient(handler));
 
-        ApiResult<string> result = await loader.DownloadTranslationFileAsync();
+        ApiResult<Stream> result = await loader.DownloadTranslationFileAsync();
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(503);
@@ -256,7 +256,8 @@ public sealed class ImportExportLoaderTests
     {
         ImportExportLoader loader = CreateLoader(HttpStatusCode.OK, "file body", out StubHttpMessageHandler handler);
 
-        await loader.DownloadTranslationFileAsync();
+        ApiResult<Stream> result = await loader.DownloadTranslationFileAsync();
+        await using Stream stream = result.Value;
 
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Get);
@@ -270,10 +271,11 @@ public sealed class ImportExportLoaderTests
         const string body = "# polish.txt\n620756992||1001||Witaj w Śródziemiu!||NULL||NULL||1";
         ImportExportLoader loader = CreateLoader(HttpStatusCode.OK, body, out _);
 
-        ApiResult<string> result = await loader.DownloadTranslationFileAsync();
+        ApiResult<Stream> result = await loader.DownloadTranslationFileAsync();
 
         result.IsSuccess.ShouldBeTrue();
-        result.Value.ShouldBe(body);
+        await using Stream stream = result.Value;
+        (await new StreamReader(stream, Encoding.UTF8).ReadToEndAsync()).ShouldBe(body);
     }
 
     [Fact]
@@ -284,7 +286,7 @@ public sealed class ImportExportLoaderTests
             """{ "title": "Brak pliku tłumaczenia", "status": 404 }""",
             out _);
 
-        ApiResult<string> result = await loader.DownloadTranslationFileAsync();
+        ApiResult<Stream> result = await loader.DownloadTranslationFileAsync();
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(404);

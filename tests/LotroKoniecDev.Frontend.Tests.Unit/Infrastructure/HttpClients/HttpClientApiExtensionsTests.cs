@@ -49,42 +49,54 @@ public sealed class HttpClientApiExtensionsTests
     }
 
     [Fact]
-    public async Task GetTextAsync_OnSuccess_ReturnsTheRawBodyWithoutJsonParsing()
+    public async Task GetBodyStreamAsync_OnSuccess_ReturnsTheBodyWithoutJsonParsing()
     {
         // The body is a plain text file and not JSON, so it has to come back unchanged. The JSON helpers
-        // would throw on it. That is the whole difference between GetTextAsync and GetApiResultAsync.
+        // would throw on it.
         const string body = "# polish.txt\n620756992||1001||Witaj||NULL||NULL||1";
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
 
-        ApiResult<string> result = await httpClient.GetTextAsync("api/v1/translation-files/pl");
+        ApiResult<Stream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
 
         result.IsSuccess.ShouldBeTrue();
-        result.Value.ShouldBe(body);
+        await using Stream stream = result.Value;
+        (await new StreamReader(stream, Encoding.UTF8).ReadToEndAsync()).ShouldBe(body);
     }
 
     [Fact]
-    public async Task GetTextAsync_WhenApiReturnsProblem_MapsToFailureWithProblemDetails()
+    public async Task GetBodyStreamAsync_WhenApiReturnsProblem_MapsToFailureWithProblemDetails()
     {
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.NotFound,
             """{ "title": "Brak pliku tłumaczenia", "status": 404 }"""));
 
-        ApiResult<string> result = await httpClient.GetTextAsync("api/v1/translation-files/pl");
+        ApiResult<Stream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(404);
     }
 
     [Fact]
-    public async Task GetTextAsync_WhenTransportFails_MapsToServiceUnavailableProblem()
+    public async Task GetBodyStreamAsync_WhenTransportFails_MapsToServiceUnavailableProblem()
     {
         HttpClient httpClient = CreateClient(
             StubHttpMessageHandler.Throw(new HttpRequestException("connection refused")));
 
-        ApiResult<string> result = await httpClient.GetTextAsync("api/v1/translation-files/pl");
+        ApiResult<Stream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(503);
+    }
+
+    [Fact]
+    public async Task GetBodyStreamAsync_WhenRequestTimesOut_MapsToGatewayTimeoutProblem()
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.Throw(new TimeoutRejectedException()));
+
+        ApiResult<Stream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(504);
     }
 
     [Fact]
@@ -226,11 +238,11 @@ public sealed class HttpClientApiExtensionsTests
     [Theory]
     [InlineData(HttpStatusCode.Found)]
     [InlineData(HttpStatusCode.TemporaryRedirect)]
-    public async Task GetTextAsync_WhenTheApiAnswersWithARedirect_MapsToBadGatewayProblem(HttpStatusCode statusCode)
+    public async Task GetBodyStreamAsync_WhenTheApiAnswersWithARedirect_MapsToBadGatewayProblem(HttpStatusCode statusCode)
     {
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(statusCode, ""));
 
-        ApiResult<string> result = await httpClient.GetTextAsync("translation-files/pl");
+        ApiResult<Stream> result = await httpClient.GetBodyStreamAsync("translation-files/pl");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(StatusCodes.Status502BadGateway);
@@ -439,30 +451,36 @@ public sealed class HttpClientApiExtensionsTests
 
     [Theory]
     [MemberData(nameof(AnyCharsetWithAndWithoutBom))]
-    public async Task GetTextAsync_WhenTheAnswerNamesAnyCharset_ReturnsTheUtf8TextWithoutTheBom(string? charset, bool withBom)
+    public async Task GetBodyStreamAsync_WhenTheAnswerNamesAnyCharset_ReturnsTheBytesUnchanged(string? charset, bool withBom)
     {
+        // The bytes are passed on, never decoded, so no charset can break the download (#1036), and the
+        // browser gets exactly what the TMS hashed into its ETag.
         const string body = "620756992||1001||Zażółć gęślą jaźń||NULL||NULL||1";
+        byte[] sent = withBom ? [.. Encoding.UTF8.Preamble, .. Encoding.UTF8.GetBytes(body)] : Encoding.UTF8.GetBytes(body);
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
-            Utf8Body(body, charset, withBom)));
+            BytesBody(sent, charset)));
 
-        ApiResult<string> result = await httpClient.GetTextAsync("translation-files/pl");
+        ApiResult<Stream> result = await httpClient.GetBodyStreamAsync("translation-files/pl");
 
         result.IsSuccess.ShouldBeTrue();
-        result.Value.ShouldBe(body);
+        await using Stream stream = result.Value;
+        using MemoryStream received = new();
+        await stream.CopyToAsync(received);
+        received.ToArray().ShouldBe(sent);
     }
 
     [Theory]
     [InlineData("utf8")]
     [InlineData("bogus")]
     [InlineData("utf-7")]
-    public async Task GetTextAsync_WhenTheErrorAnswerNamesAnUnknownCharset_ReadsTheProblem(string charset)
+    public async Task GetBodyStreamAsync_WhenTheErrorAnswerNamesAnUnknownCharset_ReadsTheProblem(string charset)
     {
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.NotFound,
             Utf8Body("""{ "title": "Brak pliku tłumaczenia", "status": 404 }""", charset, withBom: false)));
 
-        ApiResult<string> result = await httpClient.GetTextAsync("translation-files/pl");
+        ApiResult<Stream> result = await httpClient.GetBodyStreamAsync("translation-files/pl");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(404);

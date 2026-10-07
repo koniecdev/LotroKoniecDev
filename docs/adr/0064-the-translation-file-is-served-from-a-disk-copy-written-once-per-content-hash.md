@@ -4,7 +4,9 @@
 **Date:** 2026-10-07
 **Decision-makers:** Solo maintainer (ticket #715)
 **Related:** TranslationSystem.API (`Features/TranslationFiles/GetTranslationFile.cs`,
-`TranslationFileDiskCache.cs`, `TranslationFileDiskCacheSettings.cs`); ADR-0007 (read projections),
+`TranslationFileDiskCache.cs`, `TranslationFileDiskCacheSettings.cs`); Frontend
+(`Components/Pages/ImportExport/ImportExportEndpointsExtensions.cs`,
+`Infrastructure/HttpClients/HttpClientApiExtensions.cs`); ADR-0007 (read projections),
 ADR-0021 (the debounced rebuild and its single-instance assumption), ADR-0041 (no gateway);
 spec 0001; tickets #286 (PERF-01), #391 (AUDIT-SEC-01), #708, #715 (PERF-09), #716 (PERF-10)
 
@@ -113,6 +115,20 @@ is on for `text/plain`, so a client that sends `Accept-Encoding` (a browser) get
 on the fly, which costs CPU per download. The CLI sends no `Accept-Encoding`, so the update-day crowd
 does not pay it. And the rebuild and the first load after it use separate gates, so the worst peak is
 one rebuild plus one load, about 500 MB at full size. That is bounded and does not grow with the crowd.
+
+### 7. The frontend's public download streams the file too
+
+Players can also download `polish.txt` from the landing page. That route, `/download/polish.txt` in the
+frontend, is public. It fetched the whole file from the TMS API, decoded it into a string and encoded
+it into a byte array again, so it held about three copies of the file for every request, in a
+container on the same box. That is the same fault in a second place, so it is fixed here as well.
+
+The route now asks the TMS client for the body as a stream (`GetBodyStreamAsync`) and passes it to the
+browser with `Results.Stream`. Only the headers wait for the client's 10-second limit; before, the whole
+82 MB had to arrive inside it. The bytes reach the browser exactly as the TMS sent them, which are the
+bytes its ETag hashes, so the old decode-and-encode step that dropped a BOM is gone: the TMS sends
+none, and its tests pin that. The browser no longer gets a `Content-Length` for this download, so it
+cannot show how much is left.
 
 ## Rejected alternatives
 

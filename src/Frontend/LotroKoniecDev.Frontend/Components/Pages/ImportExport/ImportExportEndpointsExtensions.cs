@@ -1,4 +1,3 @@
-using System.Text;
 using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using Microsoft.AspNetCore.Mvc;
@@ -32,7 +31,7 @@ internal static class ImportExportEndpointsExtensions
 
     /// <summary>
     /// The route's handler, internal so a unit test can call it without a web host. On success it returns
-    /// a <see cref="Results.File(byte[],string,string,bool,DateTimeOffset?,Microsoft.Net.Http.Headers.EntityTagHeaderValue)"/>
+    /// a <see cref="Results.Stream(Stream,string,string,DateTimeOffset?,Microsoft.Net.Http.Headers.EntityTagHeaderValue,bool)"/>
     /// result, and on failure a problem result, either the one from the API or a 502 of our own.
     /// </summary>
     internal static async Task<IResult> DownloadTranslationFileAsync(
@@ -40,7 +39,7 @@ internal static class ImportExportEndpointsExtensions
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
-        ApiResult<string> result = await loader.DownloadTranslationFileAsync(cancellationToken);
+        ApiResult<Stream> result = await loader.DownloadTranslationFileAsync(cancellationToken);
 
         if (result.IsFailure)
         {
@@ -51,15 +50,11 @@ internal static class ImportExportEndpointsExtensions
                 StatusCodes.Status502BadGateway));
         }
 
-        // UTF-8 without a BOM. The TMS endpoint serves the file as Encoding.UTF8 text with charset=utf-8.
-        // This route always decodes it as UTF-8. The CLI download (TranslationFileDownloader, M2-20)
-        // decodes it by that charset, so it reads UTF-8 too, and both drop a BOM. Encoding it again
-        // without a BOM keeps the bytes identical to that proven path.
-        // The patcher parses the first field as a number, so a BOM at the start would break it.
-        byte[] bytes = Encoding.UTF8.GetBytes(result.Value);
-
-        return Results.File(
-            bytes,
+        // The bytes go to the browser exactly as the TMS sent them, without being held here: the route
+        // is public, and a full copy per request would let a crowd of players fill this container's
+        // memory (PERF-09, #715). Those bytes are what the TMS hashes into its ETag, UTF-8 with no BOM.
+        return Results.Stream(
+            result.Value,
             contentType: "text/plain",
             fileDownloadName: ImportExportLoader.DownloadFileName);
     }

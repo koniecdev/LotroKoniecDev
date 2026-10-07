@@ -23,9 +23,9 @@ internal sealed class TranslationSystemClient : ITranslationSystemClient
         return _httpClient.GetApiResultAsync<T>(relativeUri, cancellationToken);
     }
 
-    public Task<ApiResult<string>> GetTextAsync(string relativeUri, CancellationToken cancellationToken = default)
+    public Task<ApiResult<Stream>> GetBodyStreamAsync(string relativeUri, CancellationToken cancellationToken = default)
     {
-        return _httpClient.GetTextAsync(relativeUri, cancellationToken);
+        return _httpClient.GetBodyStreamAsync(relativeUri, cancellationToken);
     }
 
     public Task<ApiResult> PostApiResultAsync(

@@ -14,25 +14,27 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.ImportExport;
 
 /// <summary>
 /// Calls the download route's handler directly, with no web host. The TMS endpoint serves
-/// <c>text/plain</c>, and this route has to pass it on as a <c>polish.txt</c> attachment on success, or
-/// return a problem on failure, either the API's own or our 502.
+/// <c>text/plain</c>, and this route has to stream it on as a <c>polish.txt</c> attachment on success,
+/// or return a problem on failure, either the API's own or our 502.
 /// </summary>
 public sealed class ImportExportEndpointsExtensionsTests
 {
     private const string BaseUrl = "https://localhost:5002/";
 
     [Fact]
-    public async Task DownloadTranslationFileAsync_OnSuccess_ReturnsThePolishTxtFileWithTheArtifactBytes()
+    public async Task DownloadTranslationFileAsync_OnSuccess_StreamsThePolishTxtFileWithTheArtifactBytes()
     {
+        // A stream and not a byte array: the route is public, so a full copy per request would let a
+        // crowd of players fill the frontend's memory (PERF-09, #715).
         const string body = "# polish.txt\n620756992||1001||Witaj w Śródziemiu!||NULL||NULL||1";
         ImportExportLoader loader = CreateLoader(HttpStatusCode.OK, body);
 
         IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, CancellationToken.None);
 
-        FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
+        FileStreamHttpResult file = result.ShouldBeOfType<FileStreamHttpResult>();
         file.FileDownloadName.ShouldBe(ImportExportLoader.DownloadFileName);
         file.ContentType.ShouldBe("text/plain");
-        file.FileContents.ToArray().ShouldBe(Encoding.UTF8.GetBytes(body));
+        (await ReadAllBytesAsync(file.FileStream)).ShouldBe(Encoding.UTF8.GetBytes(body));
     }
 
     [Fact]
@@ -43,10 +45,11 @@ public sealed class ImportExportEndpointsExtensionsTests
 
         IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, CancellationToken.None);
 
-        FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
+        FileStreamHttpResult file = result.ShouldBeOfType<FileStreamHttpResult>();
+        byte[] bytes = await ReadAllBytesAsync(file.FileStream);
         byte[] preamble = Encoding.UTF8.GetPreamble();
-        file.FileContents.Length.ShouldBeGreaterThan(preamble.Length);
-        file.FileContents[..preamble.Length].ToArray().ShouldNotBe(preamble);
+        bytes.Length.ShouldBeGreaterThan(preamble.Length);
+        bytes[..preamble.Length].ShouldNotBe(preamble);
     }
 
     [Fact]
@@ -118,6 +121,14 @@ public sealed class ImportExportEndpointsExtensionsTests
         problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status502BadGateway);
         problem.ProblemDetails.Title.ShouldBe("Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.");
         problem.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.TechnicalDetailExtensionKey);
+    }
+
+    private static async Task<byte[]> ReadAllBytesAsync(Stream stream)
+    {
+        await using Stream owned = stream;
+        using MemoryStream copy = new();
+        await owned.CopyToAsync(copy);
+        return copy.ToArray();
     }
 
     private static ImportExportLoader CreateLoader(HttpStatusCode statusCode, string body) =>

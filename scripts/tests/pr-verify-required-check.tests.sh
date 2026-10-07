@@ -11,7 +11,8 @@
 #      job-level `if:` and no `continue-on-error`. The steps up to the classifier (`id: diff`) carry
 #      no `if:`. Every later step has no `if:`, or skips only when its verdict (code or guards) is
 #      exactly 'false', and a guard script never waits on code. The workflow has no `paths` filter.
-#      The `gitleaks` required check gets the same start checks. Broken copies of the workflow
+#      The `gitleaks` required check gets the same start checks, its one job name is counted, and
+#      none of its steps may carry an `if:` or `continue-on-error`. Broken copies of the workflows
 #      prove that each check still fires.
 #   2. Behavior. It runs the job's own steps up to the classifier in a scratch git repo, with a
 #      deliberately broken classifier in place, the way the runner runs them. Then it replays every
@@ -303,14 +304,15 @@ shape_problems() {
         verdict="${condition#steps.diff.outputs.}"
         verdict="${verdict%% *}"
         # images can be false while code is true, so a step gated on it skips the gate on a code PR.
-        # A guard script gated on code skips on a PR that touches only that script (code=false).
+        # A guard script gated on code skips on a PR that touches only that script (code=false). Only a
+        # one-line run: is visible here; a multi-line `run: |` is not read by the reader.
         case "$verdict" in
             code)   gated=1 ;;
             guards) ;;
             *)      echo "step '${STEP_NAME[i]-#$i}' is gated on the '$verdict' verdict — the required job may use only code and guards" ;;
         esac
         case "$verdict:${STEP_RUN[i]-}" in
-            code:./scripts/*) echo "step '${STEP_NAME[i]-#$i}' runs a guard script but is gated on code — it would skip on a PR that changes only that script" ;;
+            code:*scripts/*) echo "step '${STEP_NAME[i]-#$i}' runs a guard script but is gated on code — it would skip on a PR that changes only that script" ;;
         esac
     done
     if [ "$gated" -eq 0 ]; then
@@ -337,11 +339,17 @@ mutate() {
     printf '%s' "$out"
 }
 
-# insert_after <name> <exact line> <new line> → path of a copy with <new line> after the first match.
-insert_after() {
-    local out="$TMP_ROOT/$1.yml"
-    awk -v anchor="$2" -v added="$3" '{ print } !done && $0 == anchor { print added; done = 1 }' "$WORKFLOW" > "$out"
+# insert_after_in <workflow> <name> <exact line> <new line> → path of a copy of <workflow> with
+# <new line> after the first match.
+insert_after_in() {
+    local out="$TMP_ROOT/$2.yml"
+    awk -v anchor="$3" -v added="$4" '{ print } !done && $0 == anchor { print added; done = 1 }' "$1" > "$out"
     printf '%s' "$out"
+}
+
+# insert_after <name> <exact line> <new line> → the same, on pr-verify.yml.
+insert_after() {
+    insert_after_in "$WORKFLOW" "$@"
 }
 
 # expect_required_name_lines <none|found> <description> <workflow>...
@@ -528,6 +536,9 @@ expect_shape_problem 'the .NET steps gated on the images verdict' "is gated on t
 # shellcheck disable=SC2016 # an awk program, not shell
 expect_shape_problem 'a guard script gated on the code verdict' 'runs a guard script but is gated on code' \
     "$(mutate guard-on-code '!done && $0 == "        if: steps.diff.outputs.guards != " Q "false" Q { print "        if: steps.diff.outputs.code != " Q "false" Q; done = 1; next } { print }')"
+# shellcheck disable=SC2016 # an awk program, not shell
+expect_shape_problem 'a guard script run through bash, gated on the code verdict' 'runs a guard script but is gated on code' \
+    "$(mutate guard-via-bash-on-code '$0 == "      - name: Frontend markup guard" { g = 1 } g && $0 == "        if: steps.diff.outputs.guards != " Q "false" Q { print "        if: steps.diff.outputs.code != " Q "false" Q; next } g && $0 == "        run: ./scripts/check-ssr-purity.sh" { print "        run: bash ./scripts/check-ssr-purity.sh"; g = 0; next } { print }')"
 
 echo
 echo '── the reader does not lose a key to YAML syntax ──────────────────────────────────────────'
@@ -588,20 +599,68 @@ expect_required_name_lines found 'the same job indented by four spaces, name quo
 # The main ruleset requires three checks (read 2026-10-07): the job above, `gitleaks`, and
 # GitGuardian, which is a GitHub app and runs no workflow. A new required check joins this list.
 echo
-echo '── the other required check a workflow runs, gitleaks, always starts too ───────────────────'
+echo '── the other required check a workflow runs, gitleaks, always starts and does its work ─────'
 GITLEAKS_WORKFLOW="$REPO_ROOT/.github/workflows/gitleaks.yml"
-problems_gitleaks="$(start_problems "$GITLEAKS_WORKFLOW" gitleaks)"
+
+# unclassified_problems <workflow> <check name> → start_problems, plus any step-level if: or
+# continue-on-error. A required job with no classifier has no reason to skip a step, and either one
+# lets it report success without its work: no scan on some PRs, or a found secret that stays green.
+unclassified_problems() {
+    start_problems "$1" "$2"
+    [ -n "$REQ_JOB" ] || return
+    local i
+    for ((i = 0; i < STEP_COUNT; i++)); do
+        if [ -n "${STEP_IF[i]-}" ]; then
+            echo "step '${STEP_NAME[i]-#$i}' has an if: — a required job with no classifier must run every step"
+        fi
+        if [ -n "${STEP_COE[i]-}" ]; then
+            echo "step '${STEP_NAME[i]-#$i}' has continue-on-error — its failure would not turn the check red"
+        fi
+    done
+}
+
+# expect_unclassified_problem <description> <expected text> <workflow>
+expect_unclassified_problem() {
+    local problems
+    problems="$(unclassified_problems "$3" gitleaks)"
+    if printf '%s' "$problems" | grep -qF -- "$2"; then
+        pass "$1"
+    else
+        fail "$1" "expected a problem containing: $2"$'\n'"got: ${problems:-<none>}"
+    fi
+}
+
+# gitleaks_job_name_lines <workflow>... → job-level `name: gitleaks` lines. A step of that name has a
+# dash before it, and the action's `uses:` line has no `name:`, so neither counts.
+gitleaks_job_name_lines() {
+    grep -nE "^[[:space:]]+name:[[:space:]]*[\"']?gitleaks[\"']?[[:space:]]*(#.*)?$" "$@" /dev/null || true
+}
+
+problems_gitleaks="$(unclassified_problems "$GITLEAKS_WORKFLOW" gitleaks)"
 if [ -z "$problems_gitleaks" ]; then
-    pass "gitleaks.yml: 'gitleaks' has no needs:, no job-level if: and no paths filter"
+    pass "gitleaks.yml: 'gitleaks' has no needs:, no if:, no continue-on-error and no paths filter"
 else
-    fail "gitleaks.yml: 'gitleaks' has no needs:, no job-level if: and no paths filter" "$problems_gitleaks"
+    fail "gitleaks.yml: 'gitleaks' has no needs:, no if:, no continue-on-error and no paths filter" "$problems_gitleaks"
 fi
-awk '{ print } $0 == "    name: gitleaks" { print "    if: github.actor != " Q "dependabot[bot]" Q }' Q="'" "$GITLEAKS_WORKFLOW" > "$TMP_ROOT/gitleaks-if.yml"
-problems_gitleaks="$(start_problems "$TMP_ROOT/gitleaks-if.yml" gitleaks)"
-if printf '%s' "$problems_gitleaks" | grep -qF 'job-level if:'; then
-    pass 'a job-level if: on the gitleaks job is caught'
+expect_unclassified_problem 'a job-level if: on the gitleaks job is caught' 'job-level if:' \
+    "$(insert_after_in "$GITLEAKS_WORKFLOW" gitleaks-job-if '    name: gitleaks' "    if: github.actor != 'dependabot[bot]'")"
+expect_unclassified_problem 'an if: on the scan step is caught' "step 'gitleaks' has an if:" \
+    "$(insert_after_in "$GITLEAKS_WORKFLOW" gitleaks-step-if '      - name: gitleaks' "        if: github.actor != 'dependabot[bot]'")"
+expect_unclassified_problem 'continue-on-error on the scan step is caught' "step 'gitleaks' has continue-on-error" \
+    "$(insert_after_in "$GITLEAKS_WORKFLOW" gitleaks-step-coe '      - name: gitleaks' '        continue-on-error: true')"
+
+gitleaks_names="$(gitleaks_job_name_lines "$REPO_ROOT"/.github/workflows/*.y*ml | grep -c .)"
+if [ "$gitleaks_names" = 1 ]; then
+    pass "exactly one job in all workflows is named 'gitleaks'"
 else
-    fail 'a job-level if: on the gitleaks job is caught' "got: ${problems_gitleaks:-<none>}"
+    fail "exactly one job in all workflows is named 'gitleaks'" "found $gitleaks_names"
+fi
+printf 'jobs:\n  shadow:\n    name: gitleaks\n    needs: build\n' > "$TMP_ROOT/gitleaks-shadow.yml"
+gitleaks_names="$(gitleaks_job_name_lines "$REPO_ROOT"/.github/workflows/*.y*ml "$TMP_ROOT/gitleaks-shadow.yml" | grep -c .)"
+if [ "$gitleaks_names" = 2 ]; then
+    pass "a second job named 'gitleaks' in another workflow is counted"
+else
+    fail "a second job named 'gitleaks' in another workflow is counted" "found $gitleaks_names"
 fi
 
 load_required_job "$WORKFLOW"

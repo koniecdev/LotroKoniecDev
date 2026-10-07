@@ -1,4 +1,5 @@
 using System.Text;
+using LotroKoniecDev.Application.Features.TranslationFileSyncing;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
@@ -13,6 +14,8 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.TranslationFiles;
 
@@ -184,6 +187,57 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
             .ShouldBe([$"{Language}-{hash}.txt"]);
     }
 
+    [Fact]
+    public async Task OpenAsync_WithNoDirectoryConfigured_ShouldUseAPrivateFolderPerProcessAndRemoveItOnDispose()
+    {
+        // Arrange: the deployed setup. A fixed folder in a shared temp folder could be created first by
+        // another local user, who could then place a file there under a valid ETag.
+        await SeedApprovedAsync(gossipId: 1, polish: "Alfa");
+        await RebuildAsync();
+        string hash = await CurrentHashAsync();
+        TranslationFileDiskCache first = CreateCacheWithoutConfiguredDirectory();
+        TranslationFileDiskCache second = CreateCacheWithoutConfiguredDirectory();
+
+        // Act
+        string firstFolder;
+        string secondFolder;
+        await using (Stream firstContent = (await first.OpenAsync(Language, hash, CancellationToken.None))!.Content)
+        await using (Stream secondContent = (await second.OpenAsync(Language, hash, CancellationToken.None))!.Content)
+        {
+            firstFolder = Path.GetDirectoryName(((FileStream)firstContent).Name)!;
+            secondFolder = Path.GetDirectoryName(((FileStream)secondContent).Name)!;
+        }
+
+        first.Dispose();
+        second.Dispose();
+
+        // Assert
+        Path.GetFileName(firstFolder).ShouldStartWith("lotro-translation-files-");
+        firstFolder.ShouldNotBe(secondFolder);
+        Directory.Exists(firstFolder).ShouldBeFalse();
+        Directory.Exists(secondFolder).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task OpenAsync_WhenTheStoredHashIsLowerCase_ShouldServeTheCopyLikeThePatcherWouldAcceptIt()
+    {
+        // Arrange: the patcher compares the hash without regard to case, so the copy must too.
+        await SeedApprovedAsync(gossipId: 1, polish: "Alfa");
+        await RebuildAsync();
+        string lowerCaseHash = (await CurrentHashAsync()).ToLowerInvariant();
+        await OverwriteStoredHashAsync(lowerCaseHash);
+
+        // Act
+        TranslationFileCopy? copy = await DiskCache().OpenAsync(Language, lowerCaseHash, CancellationToken.None);
+
+        // Assert
+        copy.ShouldNotBeNull();
+        await using Stream content = copy.Content;
+        copy.ContentHash.ShouldBe(lowerCaseHash);
+        string body = await new StreamReader(content, Encoding.UTF8).ReadToEndAsync();
+        TranslationFileContentIntegrity.Matches(body, $"\"{lowerCaseHash}\"").ShouldBeTrue();
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("../../etc/passwd")]
@@ -191,10 +245,11 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
     [InlineData("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0")]
     [InlineData("G123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF")]
     [InlineData("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF012345678/ABCDEF")]
-    public async Task OpenAsync_WithSomethingOtherThanAHexSha256_ShouldThrow(string contentHash)
+    public async Task OpenAsync_WithSomethingOtherThanAHexSha256_ShouldThrowAsAFaultInOurOwnData(string contentHash)
     {
-        // Act + Assert: the hash becomes a file name, so it can never carry a path.
-        await Should.ThrowAsync<ArgumentException>(
+        // Act + Assert: the hash becomes a file name, so it can never carry a path. It always comes
+        // from the stored file, so a bad one is our fault and must not turn into the client's 400.
+        await Should.ThrowAsync<InvalidOperationException>(
             () => DiskCache().OpenAsync(Language, contentHash, CancellationToken.None));
     }
 
@@ -211,6 +266,13 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
 
     private ITranslationFileDiskCache DiskCache()
         => _factory.Services.GetRequiredService<ITranslationFileDiskCache>();
+
+    private TranslationFileDiskCache CreateCacheWithoutConfiguredDirectory()
+        => new(
+            _factory.Services.GetRequiredService<IServiceScopeFactory>(),
+            _factory.Services.GetRequiredService<IHostApplicationLifetime>(),
+            Microsoft.Extensions.Options.Options.Create(new TranslationFileDiskCacheSettings()),
+            NullLogger<TranslationFileDiskCache>.Instance);
 
     private async Task<string> CurrentHashAsync()
     {

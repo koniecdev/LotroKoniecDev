@@ -357,6 +357,26 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Get_WhenTheStoredHashIsMalformed_ShouldAnswer500NotBlameTheClient()
+    {
+        // Arrange: a fault in our own data, not in the request.
+        await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
+        await RebuildAsync();
+        using (IServiceScope scope = _factory.Services.CreateScope())
+        {
+            ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+            await dbContext.Database.ExecuteSqlAsync(
+                $"UPDATE translation.\"TranslationArtifacts\" SET \"ContentHash\" = {"not-a-content-hash"}");
+        }
+
+        // Act
+        HttpResponseMessage response = await _factory.CreateClient().GetAsync(Route);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+    }
+
+    [Fact]
     public async Task Get_WhenTheDiskCopyWasDeleted_ShouldWriteItAgainFromTheDatabase()
     {
         // Arrange: something cleared the temp folder after the copy was written.

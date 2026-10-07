@@ -331,8 +331,7 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
 
         Guid userId = await UserIdOfAsync(user.Email);
         await ConfirmAsync(userId, newEmail, EmailChangeEmailSpy.LastVerificationToken!);
-        await EmailChangeEmailSpy.WaitForRevertOfferCaptureAsync();
-        await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync();
+        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync();
 
         return (user, newEmail, userId);
     }

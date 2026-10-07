@@ -6,12 +6,14 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Primitives;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using OpenIddict.Abstractions;
 
@@ -621,7 +623,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(secondNewEmail);
 
         // The plain notice still goes out; the one carrying a link does not.
-        await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync();
+        (await WaitForDispatchOfChangeToAsync(secondNewEmail)).ShouldBe(1);
         EmailChangeEmailSpy.LastNoticeRecipient.ShouldBe(secondNewEmail);
         EmailChangeEmailSpy.RevertOfferCallCount.ShouldBe(0);
 
@@ -652,9 +654,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(attackerSecondEmail);
 
         // Whatever the second change handed the attacker, they fire it at once - before the owner has
-        // even opened their mail. The notice comes last, so waiting for it covers the undo link too.
-        await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync();
-        EmailChangeEmailSpy.LastNoticeRecipient.ShouldBe(attackerSecondEmail);
+        // even opened their mail.
+        (await WaitForDispatchOfChangeToAsync(attackerSecondEmail)).ShouldBe(1);
         string? attackerRevertToken = EmailChangeEmailSpy.LastRevertToken;
         if (attackerRevertToken is not null)
         {
@@ -963,13 +964,30 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         Guid userId = await UserIdOfAsync(user.Email);
 
         await ConfirmAsync(userId, newEmail, token);
-        await EmailChangeEmailSpy.WaitForRevertOfferCaptureAsync();
-        await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync();
+        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync();
 
         EmailChangeEmailSpy.LastRevertOfferRecipient.ShouldBe(user.Email);
         EmailChangeEmailSpy.LastNoticeRecipient.ShouldBe(newEmail);
 
         return (user, newEmail, userId);
+    }
+
+    /// <summary>
+    /// Waits until every mail of the change to this address is sent, and returns how many inbox rows that
+    /// delivery has (0 when the time runs out). A test that checks for a missing mail needs this, because
+    /// waiting for one of the other mails would rely on the order they are sent in.
+    /// </summary>
+    private async Task<int> WaitForDispatchOfChangeToAsync(string newEmail)
+    {
+        OutboxMessage? row = await OutboxAssertions.WaitForOutboxRowAsync(
+            Factory,
+            message => message.Type == nameof(EmailChangeCompleted)
+                       && string.Equals(
+                           JsonSerializer.Deserialize<EmailChangeCompleted>(message.Payload)!.NewEmail,
+                           newEmail,
+                           StringComparison.Ordinal));
+
+        return row is null ? 0 : await OutboxAssertions.WaitForInboxRowsAsync(Factory, row.Id);
     }
 
     private async Task ConfirmAsync(Guid userId, string newEmail, string token)

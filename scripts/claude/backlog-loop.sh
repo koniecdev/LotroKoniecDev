@@ -66,6 +66,13 @@ case "$PARALLEL" in
     ''|*[!0-9]*|0) echo "-j needs a positive number, got '$PARALLEL'" >&2; exit 1 ;;
 esac
 
+# A Claude Code session kills its background commands after two hours, and nothing cleans up then
+# (#969). Claude Code sets CLAUDECODE in every command its Bash tool runs.
+if [ -n "${CLAUDECODE:-}" ]; then
+    echo "backlog-loop: run the loop in a plain terminal with scripts/claude/start-loop.sh, never from a Claude Code session (#969)" >&2
+    exit 1
+fi
+
 # The loop scripts run from THIS checkout, while every worker session reads its /work-ticket prompt
 # from origin/main. A checkout on an old branch would run old loop code, and before ADR-0060 that
 # code merged PRs by itself. So the loop starts only when scripts/claude/ matches origin/main.
@@ -96,6 +103,7 @@ LOCK_OWNER="$LOCK/pid"
 # Without its parent the mkdir below fails as if another conductor held the lock.
 mkdir -p "$(dirname "$LOCK")"
 
+# start-loop.sh repeats this test before it moves the loop checkout; change both together.
 lock_owner_alive() {
     local pid
     pid="$(cat "$LOCK_OWNER" 2>/dev/null || true)"
@@ -159,10 +167,11 @@ stop_jobs() {
 }
 
 # Every wait here is a background sleep + `wait`, so a stop signal runs its trap at once instead
-# of after the nap (a usage-limit nap is an hour).
+# of after the nap (a usage-limit nap is an hour). The sleep writes nowhere: a nap left behind by a
+# conductor killed with SIGKILL must not keep the launcher's console copy, and its terminal, busy.
 nap() {
     local timer
-    sleep "$1" &
+    sleep "$1" > /dev/null 2>&1 &
     timer=$!
     wait "$timer" 2>/dev/null || true
 }

@@ -12,7 +12,9 @@
 #   * whichever copy of the launcher you start, the copy on origin/main does the run,
 #   * a loop checkout deleted by hand is made again; one with local changes, or a folder there that
 #     is not this repository's checkout, is refused and left as it is,
-#   * a lock whose process number now belongs to another program does not stop a run,
+#   * a lock whose process number now belongs to another program does not stop a run, and a worker
+#     of the last run that still salvages keeps the loop checkout where it is,
+#   * without caffeinate (Linux), and with CDPATH exported, the run still works,
 #   * the console is copied to logs/claude-loop/console-<timestamp>.log in the main checkout,
 #   * Ctrl-C, a closed terminal, or TERM to the whole group stops the run, and each worker salvages
 #     its work first: the copy of the console outlives the stop, so a worker that writes its
@@ -30,8 +32,12 @@ export REAL_SLEEP
 
 TMP_ROOT="$(cd "$(mktemp -d)" && pwd -P)"
 cleanup() {
-    # A failed case can leave a fake worker or a fake loop running; never leave one behind.
+    # A failed case can leave a launcher, a fake worker or a fake loop running; never leave one
+    # behind. Each launcher leads a process group of its own, and its console copy ignores TERM.
     local leftover
+    while read -r leftover; do
+        kill -KILL -- -"$leftover" 2>/dev/null || true
+    done < <(cat "$TMP_ROOT/groups" 2>/dev/null || true)
     while read -r leftover; do
         kill "$leftover" 2>/dev/null || true
     done < <(cat "$TMP_ROOT/state/pids" "$TMP_ROOT/fake-loop-pid" 2>/dev/null || true)
@@ -165,23 +171,30 @@ reset_state() {
     : > "$STATE/started"
 }
 
-# run_launcher <expected-exit> <description> <launcher> <args...> — runs from a folder outside
-# the repository, and gives up after 60 seconds instead of hanging the suite.
+# run_launcher <expected-exit> <description> <launcher> <args...> — runs from $RUN_FROM, by default
+# a folder outside the repository, in a process group of its own, and gives up after 60 seconds
+# instead of hanging the suite.
 run_launcher() {
     local expected="$1" description="$2" launcher="$3" rc=0 pid tenths=0
     shift 3
-    (cd "$ELSEWHERE" && exec "$launcher" "$@") > "$TMP_ROOT/launcher.out" 2>&1 &
+    set -m
+    (cd "${RUN_FROM:-$ELSEWHERE}" && exec "$launcher" "$@") < /dev/null > "$TMP_ROOT/launcher.out" 2>&1 &
     pid=$!
+    set +m
+    echo "$pid" >> "$TMP_ROOT/groups"
     while kill -0 "$pid" 2>/dev/null; do
         if [ "$tenths" -ge 600 ]; then
-            kill -TERM "$pid" 2>/dev/null || true
+            # The console copy ignores TERM, so the whole group gets KILL after a short grace.
+            kill -TERM -- -"$pid" 2>/dev/null || true
+            "$REAL_SLEEP" 2
+            kill -KILL -- -"$pid" 2>/dev/null || true
             wait "$pid" 2>/dev/null || true
             fail "$description — the launcher was still running after 60s" "$(tail -20 "$TMP_ROOT/launcher.out")"
         fi
         "$REAL_SLEEP" 0.1
         tenths=$((tenths + 1))
     done
-    wait "$pid" || rc=$?
+    { wait "$pid" || rc=$?; } 2>/dev/null
     LAST_OUTPUT="$(cat "$TMP_ROOT/launcher.out")"
     if [ "$rc" -ne "$expected" ]; then
         fail "$description — expected exit $expected, got $rc" "$LAST_OUTPUT"
@@ -353,6 +366,8 @@ pass "launcher: runs from any folder while the main checkout is on another branc
 reset_state
 awk '/^log="/ { print "echo \"the stale launcher did the run\"" } { print }' "$LAUNCHER" > "$TMP_ROOT/stale"
 cat "$TMP_ROOT/stale" > "$LAUNCHER"
+# Without the line, the check below would pass whether or not the copy hands over.
+grep -qF "the stale launcher did the run" "$LAUNCHER" || fail "the stale copy got no marker line: the awk anchor no longer matches"
 run_launcher 0 "launcher: a stale copy" "$LAUNCHER" 8
 git -C "$FAKE_REPO" checkout -q -- scripts/claude/start-loop.sh
 expect_started "8"
@@ -381,6 +396,57 @@ run_launcher 0 "launcher: a deleted loop checkout" "$LAUNCHER" 20
 expect_started "20"
 [ "$(loop_head)" = "$(origin_main)" ] || fail "the loop checkout should be made again on origin/main" "$LAST_OUTPUT"
 pass "launcher: a loop checkout deleted by hand is made again"
+
+# A worker of the last run still salvages from the loop checkout after its conductor dropped the
+# lock. The checkout must not move under it, even though origin/main has moved.
+reset_state
+mkdir -p "$TMP_ROOT/other-state" "$TMP_ROOT/other-run"
+STATE="$TMP_ROOT/other-state" FAKE_WORK_SEC=30 "$LOOP_CHECKOUT/scripts/claude/work-ticket.sh" 98 "$TMP_ROOT/other-run" \
+    > /dev/null 2>&1 &
+ending_worker=$!
+echo "$ending_worker" > "$TMP_ROOT/fake-loop-pid"
+for _ in $(seq 1 50); do [ -s "$TMP_ROOT/other-state/started" ] && break; "$REAL_SLEEP" 0.1; done
+head_before="$(loop_head)"
+move_origin_main merged-3.txt
+run_launcher 1 "launcher: workers still ending" "$LAUNCHER" 23
+kill "$ending_worker" 2>/dev/null || true
+wait "$ending_worker" 2>/dev/null || true
+rm -f "$TMP_ROOT/fake-loop-pid"
+expect_in_output "workers of the last run are still ending"
+expect_started ""
+[ "$(loop_head)" = "$head_before" ] || fail "the loop checkout moved under a worker that still ran from it"
+pass "launcher: a worker of the last run that still salvages keeps the loop checkout where it is"
+
+# Linux has no caffeinate, so that path runs the conductor by itself. Every caffeinate on PATH is
+# hidden: a folder that holds one is replaced by a folder of links to everything else in it.
+reset_state
+no_caffeinate_path=""
+farm=0
+IFS=: read -r -a path_dirs <<< "$PATH"
+for dir in "${path_dirs[@]}"; do
+    if [ -e "$dir/caffeinate" ]; then
+        farm=$((farm + 1))
+        mkdir -p "$TMP_ROOT/path-$farm"
+        find "$dir" -mindepth 1 -maxdepth 1 ! -name caffeinate \
+            -exec sh -c 'ln -s "$@" "$0"' "$TMP_ROOT/path-$farm/" {} + 2>/dev/null || true
+        dir="$TMP_ROOT/path-$farm"
+    fi
+    no_caffeinate_path="$no_caffeinate_path${no_caffeinate_path:+:}$dir"
+done
+PATH="$no_caffeinate_path" command -v caffeinate >/dev/null && fail "caffeinate should be hidden for this case"
+PATH="$no_caffeinate_path" run_launcher 0 "launcher: no caffeinate" "$LAUNCHER" 24
+expect_started "24"
+[ ! -e "$STATE/caffeinate" ] || fail "no caffeinate should have run" "$(cat "$STATE/caffeinate")"
+pass "launcher: without caffeinate the conductor runs by itself"
+
+# With CDPATH exported, `cd` to a relative folder can print it, and the launcher started by a
+# relative path from the main checkout must not mistake that output for its own folder. Started
+# through `bash`, it keeps the relative path as $0, as it does when typed in zsh; bash's own exec
+# would hand it the full path.
+reset_state
+RUN_FROM="$FAKE_REPO" CDPATH=".:$TMP_ROOT" run_launcher 0 "launcher: CDPATH" bash scripts/claude/start-loop.sh 25
+expect_started "25"
+pass "launcher: an exported CDPATH does not confuse a launcher started by a relative path"
 
 # ── What is refused ────────────────────────────────────────────────────────────────────────────
 reset_state
@@ -432,9 +498,10 @@ stop_case() {
     # and perl puts them back to that.
     set -m
     (cd "$ELSEWHERE" && FAKE_WORK_SEC=60 exec perl -e '$SIG{$_} = "DEFAULT" for qw(INT HUP TERM); exec @ARGV or die "exec: $!\n"' \
-        "$LAUNCHER" -j 2 11 12) > "$TMP_ROOT/stop.out" 2>&1 &
+        "$LAUNCHER" -j 2 11 12) < /dev/null > "$TMP_ROOT/stop.out" 2>&1 &
     launcher_pid=$!
     set +m
+    echo "$launcher_pid" >> "$TMP_ROOT/groups"
     for _ in $(seq 1 100); do [ "$(wc -l < "$STATE/started" | tr -d ' ')" -ge 2 ] && break; "$REAL_SLEEP" 0.1; done
     if [ "$(wc -l < "$STATE/started" | tr -d ' ')" -lt 2 ]; then
         kill -TERM -- -"$launcher_pid" 2>/dev/null || true

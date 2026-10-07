@@ -56,10 +56,12 @@ hands the run over to the copy on `origin/main`, so any copy that exists will do
 - `<MAIN>/scripts/claude/start-loop.sh`;
 - if the main checkout is on a branch older than the launcher, the copy in the loop's own checkout,
   `<MAIN>-loop/scripts/claude/start-loop.sh` (it is on `origin/main` after every run);
-- if neither exists yet, give the one-time setup first —
-  `git -C <MAIN> fetch origin main && git -C <MAIN> worktree add --force --detach <MAIN>-loop origin/main`
-  (or, when `<MAIN>-loop` exists, `git -C <MAIN>-loop checkout --detach origin/main`) — and then the
-  line with the `-loop` copy.
+- if neither exists yet, give the one-time setup first, and then the line with the `-loop` copy.
+  When `<MAIN>-loop` does not exist:
+  `git -C <MAIN> fetch origin main && git -C <MAIN> worktree add --force --detach <MAIN>-loop origin/main`.
+  When it exists, check first that `git -C <MAIN>-loop status --short` prints nothing (the loop
+  checkout must stay clean), then:
+  `git -C <MAIN> fetch origin main && git -C <MAIN>-loop checkout --detach origin/main`.
 
 Never print a path inside `.claude/worktrees/`: the loop removes those folders.
 
@@ -85,10 +87,12 @@ Then stop. **Do not run the command** — not in the background, not in the fore
    The names carry the start time, so they sort by name; a plain `console-*.log` glob fails in zsh
    when nothing matches. None → say that no run started with `start-loop.sh` was found, and stop.
 2. Its `[conductor] run <folder>` line names the run folder, which holds one `ticket-<n>.meta` per
-   ticket (and `ticket-<n>.json` / `.stderr` for each session). A console copy without that line is
-   a start the conductor refused — a wrong argument, or another loop that took the lock first:
-   relay its last lines and stop. (The launcher's own refusals come before it makes a console copy,
-   so the owner already saw them in the terminal.)
+   ticket (and `ticket-<n>.json` / `.stderr` for each session). A console copy without that line
+   belongs to a run that is still starting when a conductor runs (the lock check in section 1):
+   say so and stop. With no conductor running, it is a start the conductor refused — a wrong
+   argument, or another loop that took the lock first: relay its last lines and stop. (The
+   launcher's own refusals come before it makes a console copy, so the owner already saw them in
+   the terminal.)
 3. Check that it is the last run: the newest run folder
    (`ls <MAIN>/logs/claude-loop | grep '^[0-9]' | sort | tail -1`) should be the one the console
    copy names. A newer one is a run started with `backlog-loop.sh` directly, which keeps no console
@@ -125,8 +129,10 @@ Then stop. **Do not run the command** — not in the background, not in the fore
      and naming the ticket in the next run resumes it,
    - tickets **stopped**, failed or timed out, with a one-line cause each (dig into
      `ticket-<n>.json` or `.stderr` only when the console line isn't enough),
-   - the total cost: the `done:` line has it; for a run without one, add up `total_cost_usd` over the
-     run folder's `ticket-*.json` (`jq -s '[.[].total_cost_usd // 0] | add'`),
+   - the total cost: the `done:` line has it. For a run without one, add up `total_cost_usd` over
+     the run folder's result files, one file at a time, so that a file cut short by a stop only
+     drops its own share:
+     `find <run folder> -name 'ticket-*.json' -exec jq -r '.total_cost_usd // 0' {} \; 2>/dev/null | awk '{ s += $1 } END { printf "%.2f\n", s }'`,
    - the next step: review each PR, assign yourself to approve it, then `/merge-train`.
 
 ## Guardrails

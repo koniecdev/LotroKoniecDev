@@ -986,9 +986,11 @@ them yourself when the request matches, without waiting for the user to type the
 - User is **settling an architecture/modeling choice** → **`/adr`** first, then implement.
 - Any **DAT binary format work** → hand off to the **`dat-format-expert`** agent.
 - User says **"kontynuuj pracę w pętli" / "continue the loop" / "work through the backlog" /
-  "jazda dalej"** (any keep-grinding-tickets phrasing) → invoke **`/backlog`**, which prints the
-  one terminal command (`scripts/claude/start-loop.sh <numbers>`) for the owner to run — one fresh
-  headless `claude -p` process and one worktree per ticket; it opens PRs and never merges. NEVER
+  "jazda dalej"** (any keep-grinding-tickets phrasing) → invoke **`/backlog <numbers>`** with the
+  tickets the owner names (ask once which ones when none are named: `/backlog` with no arguments
+  only reports the last run). It prints the one terminal command
+  (`scripts/claude/start-loop.sh <numbers>`) for the owner to run — one fresh headless `claude -p`
+  process and one worktree per ticket; it opens PRs and never merges. NEVER
   start the loop from a session, in the background or not: Claude Code kills a background command
   after two hours, with no cleanup (#969). NEVER grind tickets inline in the current session and
   never spawn per-ticket subagents from it — both balloon one context, the exact anti-pattern Loop

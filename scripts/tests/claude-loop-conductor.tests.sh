@@ -57,6 +57,9 @@ git -C "$FAKE_REPO" push -q origin main
 # The fakes below differ from origin/main by design; the one case that tests that guard turns
 # this back off.
 export LOOP_ALLOW_LOCAL_SCRIPTS=1
+# A developer may run this suite from a Claude Code session, whose CLAUDECODE the conductor refuses
+# (#969); one case sets it on purpose.
+unset CLAUDECODE
 
 cases=0
 LAST_OUTPUT=""
@@ -293,6 +296,11 @@ expect_started "73 74"
 expect_in_output "done: 2 PR opened"
 
 reset_state
+CLAUDECODE=1 run_conductor 1 "conductor: a start from inside a Claude Code session is refused" -j 1 1
+expect_in_output "never from a Claude Code session"
+[ "$(started)" = "" ] || fail "a refused run must start nothing" "$(started)"
+
+reset_state
 run_conductor 1 "conductor: -j 0 is refused" -j 0 1
 run_conductor 1 "conductor: -j with a word is refused" -j many 1
 [ "$(started)" = "" ] || fail "a refused run must start nothing" "$(started)"
@@ -418,6 +426,29 @@ if alive "$nap_timer"; then
     fail "the nap timer outlived the conductor"
 fi
 cases=$((cases + 1)); printf '✓ conductor: TERM ends a usage-limit nap at once\n'
+
+# SIGKILL runs no trap, so the nap timer outlives the conductor. It must not keep the conductor's
+# output open: the launcher's console copy, and the terminal with it, waits for every writer.
+reset_state
+touch "$STATE/slow-naps"
+echo 6 > "$STATE/rc-97"
+"$CONDUCTOR" -j 1 97 2>&1 | cat > "$TMP_ROOT/killed.out" &
+reader=$!
+for _ in $(seq 1 100); do grep -q "usage limit — sleeping" "$TMP_ROOT/killed.out" && break; "$REAL_SLEEP" 0.1; done
+for _ in $(seq 1 100); do [ -s "$STATE/nap-pids" ] && alive "$(tail -1 "$STATE/nap-pids")" && break; "$REAL_SLEEP" 0.1; done
+nap_timer="$(tail -1 "$STATE/nap-pids" 2>/dev/null || true)"
+if [ -z "$nap_timer" ] || ! alive "$nap_timer"; then
+    kill "$(cat "$FAKE_REPO/.claude/backlog-loop.lock/pid" 2>/dev/null)" 2>/dev/null || true
+    fail "the conductor never started its usage-limit nap" "$(cat "$TMP_ROOT/killed.out")"
+fi
+kill -KILL "$(cat "$FAKE_REPO/.claude/backlog-loop.lock/pid")"
+for _ in $(seq 1 50); do kill -0 "$reader" 2>/dev/null || break; "$REAL_SLEEP" 0.1; done
+reader_open=0
+kill -0 "$reader" 2>/dev/null && reader_open=1
+kill "$nap_timer" 2>/dev/null || true
+wait "$reader" 2>/dev/null || true
+[ "$reader_open" -eq 0 ] || fail "the output stayed open after the conductor was killed: its nap timer still held it"
+cases=$((cases + 1)); printf '✓ conductor: a nap left behind by a SIGKILLed conductor does not keep its output open\n'
 
 # A worker that ended on its own gets no signal from a stop that comes before the conductor's next
 # check (#992). The check nap really waits here, so #71 is still on the conductor's list when the

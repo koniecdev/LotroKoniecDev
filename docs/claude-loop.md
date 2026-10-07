@@ -98,10 +98,11 @@ only there, and `/backlog` gives you the command instead of running it.
 
 `start-loop.sh` does what you would otherwise do by hand before each run:
 
-- It refuses inside a Claude Code session (the session sets `CLAUDECODE` in every command it runs),
-  and it refuses arguments without ticket numbers and without `-n N` above zero, because the
-  conductor would then take every ready ticket. It refuses while a loop runs (the lock's owner is
-  alive and is `backlog-loop.sh`). All of this comes before it touches anything.
+- It refuses inside a Claude Code session (the session sets `CLAUDECODE` in every command it runs;
+  the conductor and the worker refuse it too), and it refuses arguments without ticket numbers and
+  without `-n N` above zero, because the conductor would then take every ready ticket. It refuses
+  while a loop runs (the lock's owner is alive and is `backlog-loop.sh`), and while a worker of the
+  last run still salvages from the loop checkout. All of this comes before it touches anything.
 - It runs the conductor from its own detached checkout next to the main one,
   `<main checkout>-loop`. It creates that checkout when it is missing (also when its folder was
   deleted by hand and git still lists it), refuses when it has local changes or is not a checkout
@@ -457,9 +458,13 @@ later conductor run, both runs' totals count the part of the session before the 
   checkout.
 - **"start-loop: a loop is already running (pid N)"** — the same lock test as the conductor's: a
   live conductor owns the lock. Wait for it, or stop it with Ctrl-C in its terminal.
-- **"start-loop: run this in a plain terminal, never from a Claude Code session"** — the launcher
-  saw `CLAUDECODE`, which Claude Code sets in every command it runs. Open a plain terminal. Only if
-  that terminal inherited the variable by mistake: `env -u CLAUDECODE <the same command>`.
+- **"… run this in a plain terminal, never from a Claude Code session"** (`start-loop.sh`,
+  `backlog-loop.sh` and `work-ticket.sh` all check) — the script saw `CLAUDECODE`, which Claude Code
+  sets in every command it runs. Run the command in a new terminal window, not in one that a Claude
+  Code session started.
+- **"start-loop: workers of the last run are still ending"** — the conductor has stopped, but a
+  worker still salvages its work from the loop checkout, so the launcher does not move it. Wait a
+  minute, or watch the terminal of the last run until its prompt comes back.
 - **"start-loop: name the tickets, or -n N with N above zero"** — the arguments named no ticket and
   no count, and the conductor would have taken every ready ticket. To work through the whole
   backlog on purpose, give `-n` a number large enough.

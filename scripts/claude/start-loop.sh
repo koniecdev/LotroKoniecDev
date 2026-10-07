@@ -39,7 +39,6 @@ esac
 # Claude Code sets CLAUDECODE in every command its Bash tool runs.
 if [ -n "${CLAUDECODE:-}" ]; then
     echo "start-loop: run this in a plain terminal, never from a Claude Code session (#969)" >&2
-    echo "start-loop: only if this terminal inherited CLAUDECODE by mistake: env -u CLAUDECODE $0 …" >&2
     exit 1
 fi
 
@@ -65,7 +64,8 @@ if [ "$tickets" -eq 0 ] && [ "$((10#$count))" -eq 0 ]; then
     exit 1
 fi
 
-real_dir() { (cd "$1" && pwd -P); }
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here.
+real_dir() { (CDPATH='' cd -- "$1" && pwd -P); }
 
 # A symlink, such as a wrapper in ~/.local/bin, must lead back to the repository it points into.
 self="$0"
@@ -99,6 +99,15 @@ if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null \
     echo "start-loop: a loop is already running (pid $lock_pid) — one at a time" >&2
     exit 1
 fi
+# The conductor drops its lock as soon as it has told its workers to stop, and each worker may take
+# some seconds more to salvage. They run from the loop checkout, so it must not move yet. Only a
+# bash that runs the script counts, not an editor or a search that names the file.
+processes="$(ps -A -o command= 2>/dev/null || true)"
+case "$processes" in
+    *"bash $LOOP_CHECKOUT/scripts/claude/work-ticket.sh "*)
+        echo "start-loop: workers of the last run are still ending — try again in a minute" >&2
+        exit 1 ;;
+esac
 
 git -C "$MAIN_ROOT" fetch --quiet origin main
 if [ ! -e "$LOOP_CHECKOUT" ]; then
@@ -137,11 +146,13 @@ printf 'start-loop: loop code %s\nstart-loop: console copy in %s\n' \
     "$(git -C "$LOOP_CHECKOUT" log --oneline -1 | cut -c1-80)" "$log" | tee -a "$log"
 
 cd "$LOOP_CHECKOUT"
-# caffeinate keeps macOS awake for the whole run; other systems run the loop as it is.
+# The full path makes every script under it, which works out its own folder from that path, safe
+# from CDPATH. caffeinate keeps macOS awake for the whole run; other systems run the loop as it is.
+conductor="$LOOP_CHECKOUT/scripts/claude/backlog-loop.sh"
 if command -v caffeinate >/dev/null 2>&1; then
-    set -- caffeinate -is scripts/claude/backlog-loop.sh "$@"
+    set -- caffeinate -is "$conductor" "$@"
 else
-    set -- scripts/claude/backlog-loop.sh "$@"
+    set -- "$conductor" "$@"
 fi
 # The copy ignores Ctrl-C, a closed terminal and TERM (a logout sends it to every process), and
 # ends only when every writer has closed the pipe. If it ended first, a worker that writes its

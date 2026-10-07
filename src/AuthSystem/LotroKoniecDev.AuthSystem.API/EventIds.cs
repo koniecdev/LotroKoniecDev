@@ -139,12 +139,15 @@ internal static class EventIds
     public const int DeletionCancelledRescheduled = 2381;
     public const int DeletionCancelledAddressMissing = 2382;
 
-    // Refused refresh (2390-2399)
-    public const int RefreshRefusedNoSubject = 2390;
-    public const int RefreshRefusedUserGone = 2391;
-    public const int RefreshRefusedDeletionScheduled = 2392;
-    public const int RefreshRefusedLockedOut = 2393;
-    public const int RefreshRefusedStaleSecurityStamp = 2394;
+    // Refused code exchange or refresh (2390-2399). 2390-2394 were the refresh warnings of #944. The code
+    // exchange shares them since #977, so each number still means the same case.
+    public const int TokenGrantRefusedNoSubject = 2390;
+    public const int TokenGrantRefusedUserGone = 2391;
+    public const int TokenGrantRefusedDeletionScheduled = 2392;
+    public const int TokenGrantRefusedLockedOut = 2393;
+    public const int TokenGrantRefusedStaleSecurityStamp = 2394;
+    public const int TokenGrantRefusedTokenExpired = 2395;
+    public const int TokenGrantRefusedByOpenIddict = 2396;
 
     // Change E-mail request / confirm / revert (2500-2519)
     public const int EmailChangeRequested = 2500;

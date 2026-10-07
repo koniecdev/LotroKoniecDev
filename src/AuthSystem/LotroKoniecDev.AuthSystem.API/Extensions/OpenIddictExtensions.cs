@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Server;
 using OpenIddict.Server.AspNetCore;
+using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.Authorization;
@@ -96,6 +97,12 @@ internal static class OpenIddictExtensions
                     OpenIddictServerAspNetCoreHandlers.ExtractGetOrPostRequest<OpenIddictServerEvents.ExtractIntrospectionRequestContext>.Descriptor);
                 options.AddEventHandler(
                     OpenIddictServerAspNetCoreHandlers.ExtractPostRequest<OpenIddictServerEvents.ExtractIntrospectionRequestContext>.Descriptor);
+
+                // OpenIddict refuses an expired, used or revoked code or refresh token before the token
+                // endpoint runs, and its own log line does not name the user (#977).
+                options.AddEventHandler(OpenIddictTokenRefusals.NoteTokenUser.Descriptor);
+                options.AddEventHandler(OpenIddictTokenRefusals.NoteLifetimeChecked.Descriptor);
+                options.AddEventHandler(OpenIddictTokenRefusals.WarnWhenRefused.Descriptor);
             })
             .AddValidation(options =>
             {

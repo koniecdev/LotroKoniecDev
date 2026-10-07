@@ -1,14 +1,15 @@
 namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 
 /// <summary>
-/// Where <see cref="TranslationFileDiskCache"/> keeps its copies (ADR-0064). Only one API process may
-/// use a directory, because each process removes the copies it no longer needs. The deployed stacks run
-/// one process per container, so the default in the container's temp folder is enough. Test hosts set
-/// their own directory.
+/// Where <see cref="TranslationFileDiskCache"/> keeps its copies (ADR-0064). Left empty, which is the
+/// deployed setup, each API process makes its own private folder in the temp folder. A configured
+/// folder is used as it is, so it must belong to one API process alone: each process removes the
+/// copies it does not need, and any file placed there with the right name is served. Test hosts set
+/// one so they can look inside it.
 /// </summary>
 internal sealed class TranslationFileDiskCacheSettings
 {
     public const string ConfigurationSection = "TranslationFileDiskCache";
 
-    public string Directory { get; init; } = Path.Combine(Path.GetTempPath(), "lotro-translation-files");
+    public string? Directory { get; init; }
 }

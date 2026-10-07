@@ -51,17 +51,19 @@ A gate lets one write run. A request that finds no copy waits at the gate. Insid
    any open handle that can write, so a response served from the writer's handle would lock every
    other download out of the file.
 
-The write runs on the host's lifetime token, not on the caller's. The CLI gives up after 10 seconds
+The write runs on the host's lifetime, not on the caller's token. The CLI gives up after 10 seconds
 (`InfrastructureDependencyInjection.CreateHttpClient`), and waking a suspended Neon database alone can
 take about 30. A write tied to its caller would be thrown away, and every waiter after it would load
-the whole file again.
+the whole file again. The token is `ApplicationStopped`, not `ApplicationStopping`: a deploy first
+lets running requests finish, and a write cut at the start of that drain would turn each waiting
+download into a 500.
 
 ### 3. A file name is a promise
 
 A copy gets its final name only after the SHA-256 of the bytes on disk equals the stored hash. So a
-file with that name always holds exactly the bytes the ETag promises, and a copy left from before a
-restart can be served as it is. If the stored hash does not match the stored content, the write throws
-and logs an error, instead of serving a file the patcher would refuse.
+file with that name always holds exactly the bytes the ETag promises. The comparison ignores case, as
+the patcher's does. If the stored hash does not match the stored content, or is not a hex SHA-256 at
+all, the request fails with a 500 and an error log, instead of serving a file the patcher would refuse.
 
 The contract with the patcher does not change: the ETag is still the strong, hex SHA-256 of the UTF-8
 body with no BOM (AUDIT-SEC-01, #391). The `Content-Type` is still `text/plain; charset=utf-8`.
@@ -71,17 +73,24 @@ body with no BOM (AUDIT-SEC-01, #391). The `Content-Type` is still `text/plain; 
 If a rebuild lands between the hash lookup and the copy, the cache hands out the newer copy, and the
 endpoint tags the response with the newer hash. Body and tag always match.
 
-### 5. Old copies are removed, and one process owns a directory
+### 5. Each process owns a private folder, and old copies are removed
 
-After each write, the cache deletes every other file for that language, including a temporary file a
-crash left behind. A download still reading an old copy keeps it until it ends: the files are opened
-with `FileShare.Delete`, and an open handle outlives its name. Because each process deletes what it
-does not need, a directory belongs to one process. This is the same single-instance assumption the
-rebuild already makes (ADR-0021 §5).
-
-The directory is `TranslationFileDiskCache:Directory`, by default `lotro-translation-files` in the
-temp folder. In a container that is the container's own writable layer. It is not a volume on
+By default each API process makes its own folder in the temp folder with
+`Directory.CreateTempSubdirectory`, on its first write, and deletes it when the host stops. The name
+is random and, on Linux and macOS, only the owner can enter the folder. A fixed name in a shared
+`/tmp` would let another local user create the folder first and place a file there, or a link to the
+API's own secrets, under the public ETag, and the API would serve it to anyone. It also keeps two API
+processes on one machine (the main checkout and a worktree, for example) from deleting each other's
+files. In a container the folder lives in the container's own writable layer. It is not a volume on
 purpose: the copy can always be written again, and the database stays the only source.
+
+`TranslationFileDiskCache:Directory` can name a folder instead. It is used as it is, so it must belong
+to one API process alone. The integration tests set it so they can look inside.
+
+After each write, the cache deletes every other file for that language in its folder, including a
+temporary file a failed write left behind. A download still reading an old copy keeps it until it
+ends: the files are opened with `FileShare.Delete`, and an open handle outlives its name. This is the
+same single-instance assumption the rebuild already makes (ADR-0021 §5).
 
 ### 6. No separate concurrency limiter, and no guessed number
 
@@ -127,7 +136,8 @@ one rebuild plus one load, about 500 MB at full size. That is bounded and does n
 
 - Memory for a full download no longer grows with the file, so a crowd of players costs about the
   same as one.
-- The database sends the content once per content hash per container, not once per player.
+- While the disk accepts the write, the database sends the content once per content hash per
+  process, not once per player.
 - The 304 path is unchanged: it still reads only the hash.
 - The patcher's integrity check and the CLI's decoding see exactly the same bytes and headers.
 
@@ -138,7 +148,14 @@ one rebuild plus one load, about 500 MB at full size. That is bounded and does n
   it already does when the server is slow (spec 0001).
 - The container keeps one copy on disk, about 82 MB at full size, and briefly a second one during a
   write. If the disk is full, the write fails and full downloads answer 500 until there is space; the
-  304 path keeps working.
+  304 path keeps working. Before this change a full disk did not stop downloads.
+- Nothing remembers a failed write. While writes keep failing, every full download loads the content
+  from the database again, one at a time behind the gate, and then answers 500. Memory stays bounded,
+  and the database does the same work per download as before this change. A waiting client that gives
+  up leaves the queue. A memory of recent failures was left out: it is one more piece of state for a
+  fault that needs an operator anyway.
+- A process that crashes leaves its private folder behind. In a container it is gone with the next
+  deploy, which creates a new container.
 - The one load per hash still holds the whole content in memory once, about 250 MB at full size. It is
   bounded and never runs twice at the same time.
 - A second API process in the same container would need its own directory.

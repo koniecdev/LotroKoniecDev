@@ -15,10 +15,12 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 /// Only one copy is written at a time. Everyone else waits for it and then reads the same file. A file
 /// gets its final name only after it is fully on disk and its SHA-256 matches the stored hash, so a
 /// file with that name always holds exactly the bytes the ETag promises (AUDIT-SEC-01, #391).
-/// Like the projector's gate, this assumes one API process per directory.
+/// Like the projector's gate, this assumes one API process per directory. Without a configured
+/// directory each process makes its own private one and removes it when the host stops.
 /// </summary>
-internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCache
+internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCache, IDisposable
 {
+    private const string PrivateDirectoryPrefix = "lotro-translation-files-";
     private const string CopyExtension = ".txt";
     private const string TemporaryExtension = ".tmp";
     private const int WriteBufferSize = 64 * 1024;
@@ -29,10 +31,16 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
     private static readonly UTF8Encoding Utf8WithoutBom = new(encoderShouldEmitUTF8Identifier: false);
 
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly CancellationToken _applicationStopping;
-    private readonly string _directory;
+    private readonly CancellationToken _applicationStopped;
+    private readonly string? _configuredDirectory;
     private readonly ILogger<TranslationFileDiskCache> _logger;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
+
+    /// <summary>
+    /// Set only inside the write gate. A read outside it sees either no directory yet, which means no
+    /// copy yet, or a complete one.
+    /// </summary>
+    private string? _directory;
 
     public TranslationFileDiskCache(
         IServiceScopeFactory scopeFactory,
@@ -41,8 +49,9 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
         ILogger<TranslationFileDiskCache> logger)
     {
         _scopeFactory = scopeFactory;
-        _applicationStopping = applicationLifetime.ApplicationStopping;
-        _directory = settings.Value.Directory;
+        _applicationStopped = applicationLifetime.ApplicationStopped;
+        _configuredDirectory = settings.Value.Directory;
+        _directory = _configuredDirectory;
         _logger = logger;
     }
 
@@ -56,14 +65,32 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
         await _writeGate.WaitAsync(cancellationToken);
         try
         {
-            // Only the wait follows the caller's token. The write itself runs on the host's token: the
-            // CLI gives up after a few seconds, so a slow first write cut short by its own caller would
-            // make the next waiter load the whole file from the database again.
-            return await OpenOrWriteCopyAsync(language, contentHash, _applicationStopping);
+            // Only the wait follows the caller's token. The CLI gives up after a few seconds, so a slow
+            // first write cut short by its own caller would make the next waiter load the whole file
+            // from the database again. The write also outlives the start of a shutdown: it stops only
+            // once the host has stopped, after the server has let running requests finish.
+            return await OpenOrWriteCopyAsync(language, contentHash, _applicationStopped);
         }
         finally
         {
             _writeGate.Release();
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_configuredDirectory is not null || _directory is null)
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(_directory, recursive: true);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // It sits in the temp folder, which the OS, or a new container on the next deploy, clears.
         }
     }
 
@@ -92,7 +119,8 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
             return null;
         }
 
-        if (TryOpenCopy(language, currentHash) is { } current)
+        if (!string.Equals(currentHash, contentHash, StringComparison.Ordinal)
+            && TryOpenCopy(language, currentHash) is { } current)
         {
             return current;
         }
@@ -109,9 +137,9 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
 
     private async Task<TranslationFileCopy> WriteCopyAsync(string language, StoredFile stored, CancellationToken cancellationToken)
     {
-        string copyPath = CopyPath(language, stored.ContentHash);
-        Directory.CreateDirectory(_directory);
-        string temporaryPath = Path.Combine(_directory, $"{language}-{Guid.NewGuid():N}{TemporaryExtension}");
+        string copyFileName = CopyFileName(language, stored.ContentHash);
+        string directory = PrepareDirectory();
+        string temporaryPath = Path.Combine(directory, $"{language}-{Guid.NewGuid():N}{TemporaryExtension}");
         long byteCount;
 
         try
@@ -132,7 +160,9 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
                 file.Flush(flushToDisk: true);
                 file.Position = 0;
                 string writtenHash = Convert.ToHexString(await SHA256.HashDataAsync(file, cancellationToken));
-                if (!string.Equals(writtenHash, stored.ContentHash, StringComparison.Ordinal))
+
+                // Case-insensitive, like the patcher's own check (TranslationFileContentIntegrity).
+                if (!string.Equals(writtenHash, stored.ContentHash, StringComparison.OrdinalIgnoreCase))
                 {
                     throw new InvalidOperationException(
                         $"The stored translation file for '{language}' does not hash to its stored ETag {stored.ContentHash}; the copy on disk hashes to {writtenHash}.");
@@ -141,7 +171,7 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
                 byteCount = file.Length;
             }
 
-            File.Move(temporaryPath, copyPath, overwrite: true);
+            File.Move(temporaryPath, Path.Combine(directory, copyFileName), overwrite: true);
         }
         catch
         {
@@ -150,21 +180,51 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
         }
 
         LogCopyWritten(_logger, language, stored.ContentHash, byteCount);
-        RemoveOtherCopies(language, Path.GetFileName(copyPath));
+        RemoveOtherCopies(directory, language, copyFileName);
 
         // The response reads from a new read-only handle, not from the writer's. On Windows every
         // reader would have to share write access with a handle that can write, so the writer's handle
         // would lock all other downloads out of the file until the first one ends.
         return TryOpenCopy(language, stored.ContentHash)
-            ?? throw new IOException($"The translation file copy '{Path.GetFileName(copyPath)}' was gone right after it was written.");
+            ?? throw new IOException($"The translation file copy '{copyFileName}' was gone right after it was written.");
+    }
+
+    /// <summary>
+    /// A configured directory is used as it is. Otherwise the process makes its own:
+    /// <see cref="Directory.CreateTempSubdirectory"/> gives it a random name and, on Linux and macOS,
+    /// access for its owner only. So no other local user can place a file there in advance that would
+    /// then be served under a valid ETag. Called only inside the write gate.
+    /// </summary>
+    private string PrepareDirectory()
+    {
+        if (_configuredDirectory is not null)
+        {
+            Directory.CreateDirectory(_configuredDirectory);
+            return _configuredDirectory;
+        }
+
+        if (_directory is { } existing && Directory.Exists(existing))
+        {
+            return existing;
+        }
+
+        string created = Directory.CreateTempSubdirectory(PrivateDirectoryPrefix).FullName;
+        Volatile.Write(ref _directory, created);
+        return created;
     }
 
     private TranslationFileCopy? TryOpenCopy(string language, string contentHash)
     {
+        string copyFileName = CopyFileName(language, contentHash);
+        if (Volatile.Read(ref _directory) is not { } directory)
+        {
+            return null;
+        }
+
         try
         {
             // FileShare.Delete lets a later write remove this copy while a download still reads it.
-            FileStream file = new(CopyPath(language, contentHash), new FileStreamOptions
+            FileStream file = new(Path.Combine(directory, copyFileName), new FileStreamOptions
             {
                 Mode = FileMode.Open,
                 Access = FileAccess.Read,
@@ -186,16 +246,16 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
     /// ends, because the handle stays valid after the name is gone. A failure here never fails the
     /// download: the next write tries again.
     /// </summary>
-    private void RemoveOtherCopies(string language, string keptFileName)
+    private void RemoveOtherCopies(string directory, string language, string keptFileName)
     {
         string[] paths;
         try
         {
-            paths = Directory.GetFiles(_directory, $"{language}-*");
+            paths = Directory.GetFiles(directory, $"{language}-*");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            LogCopyRemovalFailed(_logger, exception, _directory);
+            LogCopyRemovalFailed(_logger, exception, directory);
             return;
         }
 
@@ -230,9 +290,12 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
     }
 
     /// <summary>
-    /// Both parts become a file name, so both are checked here, where every path is built.
+    /// Both parts become a file name, so both are checked here, where every name is built. The
+    /// language is a constant of the endpoint, so a bad one is a bug in the caller. The hash always
+    /// comes from the stored file, so a bad one is a fault in our own data: it must end in a 500, never
+    /// in the 400 that an <see cref="ArgumentException"/> becomes.
     /// </summary>
-    private string CopyPath(string language, string contentHash)
+    private static string CopyFileName(string language, string contentHash)
     {
         if (language.Length == 0 || !language.All(char.IsAsciiLetter))
         {
@@ -241,10 +304,10 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
 
         if (contentHash.Length != PrecomputedTranslationFile.ContentHashLength || !contentHash.All(char.IsAsciiHexDigit))
         {
-            throw new ArgumentException("A content hash is a hex SHA-256.", nameof(contentHash));
+            throw new InvalidOperationException($"The stored content hash '{contentHash}' is not a hex SHA-256.");
         }
 
-        return Path.Combine(_directory, $"{language}-{contentHash}{CopyExtension}");
+        return $"{language}-{contentHash}{CopyExtension}";
     }
 
     private sealed record StoredFile(string Content, string ContentHash);

@@ -191,12 +191,13 @@ internal static class ApiDependencyInjection
             services.AddHostedService<TranslationFileFormatUpgradeService>();
 
             // A full download streams a copy on the API's own disk, written once per content hash
-            // (PERF-09, ADR-0064). It is a singleton because its gate lets one write run at a time.
+            // (PERF-09, ADR-0064). It is a singleton because its gate lets one write run at a time, and
+            // the container disposes it at shutdown, which removes its private folder.
             services.AddOptions<TranslationFileDiskCacheSettings>()
                 .BindConfiguration(TranslationFileDiskCacheSettings.ConfigurationSection)
                 .Validate(
-                    settings => Path.IsPathFullyQualified(settings.Directory),
-                    $"{TranslationFileDiskCacheSettings.ConfigurationSection}:{nameof(TranslationFileDiskCacheSettings.Directory)} must be an absolute path.")
+                    settings => settings.Directory is null || Path.IsPathFullyQualified(settings.Directory),
+                    $"{TranslationFileDiskCacheSettings.ConfigurationSection}:{nameof(TranslationFileDiskCacheSettings.Directory)} must be an absolute path, or left out.")
                 .ValidateOnStart();
             services.AddSingleton<ITranslationFileDiskCache, TranslationFileDiskCache>();
 

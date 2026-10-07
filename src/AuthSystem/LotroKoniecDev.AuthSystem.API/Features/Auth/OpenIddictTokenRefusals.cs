@@ -74,11 +74,6 @@ internal static partial class OpenIddictTokenRefusals
 
         public async ValueTask HandleAsync(ProcessErrorContext context)
         {
-            if (context.EndpointType is not OpenIddictServerEndpointType.Token)
-            {
-                return;
-            }
-
             TokenUserNote? note = context.Transaction.GetProperty<TokenUserNote>(NoteKey)
                 ?? await NoteFromStoredTokenAsync(context.Request, context.CancellationToken);
 
@@ -131,7 +126,7 @@ internal static partial class OpenIddictTokenRefusals
 
                 return new TokenUserNote(grant, userId, Expired: false);
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 LogStoredTokenLookupFailed(_logger, exception, grant.Step);
                 return null;

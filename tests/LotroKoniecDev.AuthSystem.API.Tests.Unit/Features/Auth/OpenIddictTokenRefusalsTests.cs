@@ -1,4 +1,6 @@
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
+using LotroKoniecDev.Tests.Shared;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -24,12 +26,7 @@ public sealed class OpenIddictTokenRefusalsTests
         // Arrange
         _tokenManager.FindByReferenceIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("The database is unreachable."));
-        OpenIddictServerEvents.ProcessErrorContext context = RefusedTokenRequest(new OpenIddictRequest
-        {
-            GrantType = grantType,
-            Code = "stored-code-id",
-            RefreshToken = "stored-refresh-token-id"
-        });
+        OpenIddictServerEvents.ProcessErrorContext context = RefusedTokenRequest(grantType);
         OpenIddictTokenRefusals.WarnWhenRefused handler = new(_tokenManager, NullLogger<TokenEndpoint>.Instance);
 
         // Act
@@ -39,11 +36,40 @@ public sealed class OpenIddictTokenRefusalsTests
         await act.ShouldNotThrowAsync();
     }
 
-    private static OpenIddictServerEvents.ProcessErrorContext RefusedTokenRequest(OpenIddictRequest request) =>
+    [Theory]
+    [InlineData(GrantTypes.RefreshToken, "Refresh")]
+    [InlineData(GrantTypes.AuthorizationCode, "Code exchange")]
+    public async Task WarnWhenRefused_WhenTheStoredTokenCannotBeRead_ShouldWarnWithTheFailure(
+        string grantType,
+        string expectedStep)
+    {
+        // Arrange
+        InvalidOperationException failure = new("The database is unreachable.");
+        _tokenManager.FindByReferenceIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).ThrowsAsync(failure);
+        using CapturingLoggerFactory loggerFactory = new();
+        OpenIddictTokenRefusals.WarnWhenRefused handler = new(_tokenManager, new Logger<TokenEndpoint>(loggerFactory));
+
+        // Act
+        await handler.HandleAsync(RefusedTokenRequest(grantType));
+
+        // Assert
+        CapturingLoggerFactory.LogEntry warning = loggerFactory.Entries.ShouldHaveSingleItem();
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.EventId.Id.ShouldBe(EventIds.TokenGrantRefusalUserLookupFailed);
+        warning.Message.ShouldBe($"{expectedStep} refused by OpenIddict, and the stored token could not be read to name its user");
+        warning.Exception.ShouldBeSameAs(failure);
+    }
+
+    private static OpenIddictServerEvents.ProcessErrorContext RefusedTokenRequest(string grantType) =>
         new(new OpenIddictServerTransaction
         {
             EndpointType = OpenIddictServerEndpointType.Token,
-            Request = request,
+            Request = new OpenIddictRequest
+            {
+                GrantType = grantType,
+                Code = "stored-code-id",
+                RefreshToken = "stored-refresh-token-id"
+            },
             Options = new OpenIddictServerOptions(),
             Logger = NullLogger.Instance
         })

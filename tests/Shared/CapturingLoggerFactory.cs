@@ -9,7 +9,7 @@ namespace LotroKoniecDev.Tests.Shared;
 /// answers 401 or 403 whether or not the warning about it was written (#854). A test that could not read
 /// the warning would pass with the warning gone. A test that captures a whole host's log filters on the
 /// category too: libraries reuse event ids (Npgsql's 1300 and 1301 are the TMS API's refused-call ids).
-/// Linked into both API integration suites.
+/// Linked into both API integration suites and the auth API unit suite.
 /// </summary>
 internal sealed class CapturingLoggerFactory : ILoggerFactory
 {

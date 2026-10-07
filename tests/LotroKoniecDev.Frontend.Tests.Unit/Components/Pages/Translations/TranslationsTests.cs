@@ -288,8 +288,8 @@ public sealed class TranslationsTests : BunitContext
     [InlineData(122, "122 tłumaczenia")]
     public void Render_WhenApprovedCountIsInTheQuery_UsesThePolishPluralForTheCount(int approved, string expected)
     {
-        // The auth API's 429 page has a copy of this rule (#1032), so both copies are pinned on the numbers
-        // a short "2 to 4" rule gets wrong.
+        // The auth API has its own copy of this rule (PolishPlural, #1032), so both copies are pinned on the
+        // numbers a short "2 to 4" rule gets wrong.
         StubPage(AdminPageOf(Row(canEdit: true, canApprove: true)));
         Navigation().NavigateTo($"/translations?approved={approved}");
 

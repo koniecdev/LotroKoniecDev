@@ -209,8 +209,7 @@ variable that does not appear there does nothing, whatever this table says.
   hostnames.
 
 Purely optional tuning knobs with safe defaults are omitted (e.g. `Import:*`,
-`TranslationFileRebuild:DebounceWindow` = 2 s (ADR-0021), `TranslationFileDiskCache:Directory` (both compose stacks pin `/tmp/lotro-translation-files`; unset, it
-is a private folder per process in the temp folder — ADR-0064), `Email:TimeoutSeconds`/`MaxSendAttempts`,
+`TranslationFileRebuild:DebounceWindow` = 2 s (ADR-0021), `Email:TimeoutSeconds`/`MaxSendAttempts`,
 `RabbitMq:Port` = 5672, `RabbitMq:VirtualHost` = `/`, `AllowedHosts` = `*`).
 `OpenIddict:AccessTokenLifetimeMinutes` used to sit in that list at 60; it is listed in the table
 below instead, because it turned out to be the delay on every session revocation in the system rather
@@ -279,6 +278,7 @@ staging from prod in Grafana, because both boxes run `ASPNETCORE_ENVIRONMENT=Pro
 | `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | The same key and rule as auth-api's `HealthCheck__Key` (ADR-0058, #853): the full `/health` runs the database check only for a request that sends it in `X-LOTRO-Health-Key`, and answers 404 to anyone else. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | `http://localhost:4317` / `grpc` (launchSettings) | — (empty: no sink today) | optional | plain | Empty endpoint = export disabled. |
 | `Bootstrap__Enabled` | `false` | `false` | optional | plain | One-time DB seed of the first export (spec 0001). Off by default. |
+| `TranslationFileDiskCache__Directory` | — (unset → a private folder per process in the temp folder) | `/tmp/lotro-translation-files` (set in `compose.hetzner.yaml`) | optional | plain | Where full downloads of the translation file are served from (ADR-0064). Fixed in the containers so a crash restart reuses and sweeps the one copy (about 82 MB at full size) instead of leaving one behind. It must belong to this one process; an empty value stops the boot. |
 | `Bootstrap__GameVersion` / `Bootstrap__ExportedTextPath` / `Bootstrap__PolishTextPath` | — / — / `/app/translations/polish.txt` | as needed | optional | plain | Only consulted when `Bootstrap__Enabled=true`. |
 
 ### frontend

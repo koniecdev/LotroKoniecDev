@@ -199,11 +199,11 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
       Bootstrap__Enabled: "false"
+      Bootstrap__PolishTextPath: "/app/translations/polish.txt"
       # One fixed folder for the disk copy of the translation file (ADR-0064 §5). A restart keeps the
       # container's disk, so a fixed folder is reused and swept instead of leaving a copy behind per
       # crash. Only this process runs in the container, so no other user can place a file there.
       TranslationFileDiskCache__Directory: /tmp/lotro-translation-files
-      Bootstrap__PolishTextPath: "/app/translations/polish.txt"
     volumes:
       - ./translations:/app/translations:ro
       # Local-parity TLS trust: the entrypoint installs this CA into the OS store so .NET trusts the

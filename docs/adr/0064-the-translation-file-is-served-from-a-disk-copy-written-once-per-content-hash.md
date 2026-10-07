@@ -73,7 +73,7 @@ body with no BOM (AUDIT-SEC-01, #391). The `Content-Type` is still `text/plain; 
 If a rebuild lands between the hash lookup and the copy, the cache hands out the newer copy, and the
 endpoint tags the response with the newer hash. Body and tag always match.
 
-### 5. Each process owns a private folder, and old copies are removed
+### 5. One folder per process, fixed in the containers, and old copies are removed
 
 By default each API process makes its own folder in the temp folder with
 `Directory.CreateTempSubdirectory`, on its first write, and deletes it when the host stops. The name

@@ -3,9 +3,9 @@
 # Offline self-test for scripts/ci/classify-changes.sh — the classifier that decides whether a PR
 # runs the .NET gate, the bash guards, the image build, or nothing at all.
 #
-# It runs UNCONDITIONALLY in the `changes` job, before the classifier is trusted to classify
-# anything: a classifier that mis-classifies real source as inert would silently skip the build and
-# the tests, and no other check would notice. The false-green half of the table below is therefore
+# It runs UNCONDITIONALLY in the required "Pull Request Verification" job, before the classifier is
+# trusted to classify anything: a classifier that mis-classifies real source as inert would silently
+# skip the build and the tests, and no other check would notice. The false-green half of the table below is therefore
 # the point of this file — the "skips the right things" half only guards the CI bill.
 #
 # Pure bash + git-free: every case feeds a path list on stdin through the --files seam.

@@ -8,11 +8,20 @@ name: Pull Request Verification
 # Non-.NET-only PRs (and the former docs-only deadlock): the main ruleset REQUIRES the "Pull
 # Request Verification" check, but a workflow filtered out by `on.paths-ignore` never reports it —
 # so such a PR could never merge (the old workaround was smuggling a build-relevant file into the
-# PR). The workflow therefore ALWAYS triggers and the heavy job self-skips via the `changes` gate
-# below when nothing in the PR can affect the .NET build/tests/SSR guard: a job skipped by `if:`
-# reports success to required status checks — GitHub's documented pattern for combining required
-# checks with path filtering. CI (main) keeps its own paths-ignore on purpose: a docs-only push
-# must keep triggering no CI and therefore no CD (audit 0001 M2).
+# PR). The workflow therefore ALWAYS triggers, and the required job decides inside itself which of
+# its steps the PR needs. CI (main) keeps its own paths-ignore on purpose: a docs-only push must
+# keep triggering no CI and therefore no CD (audit 0001 M2).
+#
+# The required job classifies the changed paths in its own first steps (#791). It used to wait for
+# a separate `changes` job and skip itself with a job-level `if:`. GitHub counts a skipped job as a
+# passed required check, and a job is also skipped when a job it needs fails or never starts. So a
+# classifier bug, a runner problem or a spending limit turned the check green with no build and no
+# tests. Now the required job has no `needs:` and no job-level `if:`: it always starts, a failed
+# classification makes it red, and an inert-only PR reports success from a job that really ran.
+# Every later step runs unless its verdict is exactly 'false', so a missing or garbled verdict runs
+# the gate instead of skipping it. scripts/tests/pr-verify-required-check.tests.sh pins this shape
+# and replays the job against deliberately broken classifiers. Any new required check follows the
+# same rule (CLAUDE.md, "Required PR checks always report").
 #
 # What runs is decided by scripts/ci/classify-changes.sh, which returns THREE independent verdicts —
 # `code` (the .NET gate: restore + Release build + unit + integration tests), `guards` (the cheap
@@ -22,9 +31,9 @@ name: Pull Request Verification
 # whole .NET gate, so PR #497 — .claude/ + docs + two loop scripts, not one line of C# — paid for a
 # full Release build and both test suites. Now such a PR runs the guard steps only, in seconds, and
 # the .NET steps are skipped by their step-level `if:` — the job (and therefore the required check)
-# still reports. The classifier's self-test runs UNCONDITIONALLY in `changes`, before any verdict is
-# trusted: a classifier that mis-classifies real source as inert would skip the build silently, and
-# nothing else in the pipeline would notice.
+# still reports. The classifier's self-test runs UNCONDITIONALLY in the required job, before any
+# verdict is trusted: a classifier that mis-classifies real source as inert would skip the build
+# silently, and nothing else in the pipeline would notice.
 #
 # Container images (CI-01 / #403): the shipped images used to be built for the first time in cd.yml,
 # AFTER the merge — so a Dependabot base-image digest bump could land on main without the image ever
@@ -46,20 +55,21 @@ permissions:
   contents: read
 
 jobs:
-  changes:
-    name: Detect build-relevant changes
+  build:
+    name: Pull Request Verification
+    # Never add `needs:` or a job-level `if:` here (#791, see the header): either one lets a
+    # failure somewhere else skip this job, and the ruleset counts a skipped job as passed.
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 20
     outputs:
-      code: ${{ steps.diff.outputs.code }}
-      guards: ${{ steps.diff.outputs.guards }}
       images: ${{ steps.diff.outputs.images }}
+
     steps:
-      # fetch-depth: 2 brings the PR merge commit plus both parents, so HEAD^1 (the base tip)
-      # is diffable without full history.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # fetch-depth: 2 brings the PR merge commit plus both parents, so the classifier and the
+          # migration-safety guard can diff against HEAD^1 (the base tip).
           fetch-depth: 2
           persist-credentials: false
 
@@ -70,29 +80,17 @@ jobs:
 
       # Three verdicts (code / guards / images) from the PR's own diff. No untrusted input reaches
       # it — pure git against the checked-out merge commit. Fails OPEN (everything true) if the diff
-      # cannot be computed: a redundant build beats a false green.
+      # cannot be computed: a redundant build beats a false green. A classifier that crashes fails
+      # this step, and so the whole required check.
       - name: Classify changed paths
         id: diff
         run: ./scripts/ci/classify-changes.sh HEAD^1
 
-  build:
-    name: Pull Request Verification
-    needs: changes
-    # Inert-only PR ⇒ skipped, and a skipped job satisfies the required "Pull Request Verification"
-    # status check (see the header comment). A guards-only PR still runs the job — the bash gates
-    # below execute unconditionally, while every .NET step carries `if: …outputs.code == 'true'`.
-    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.guards == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # fetch-depth: 2 brings the PR merge commit plus both parents, so the migration-safety
-          # guard can diff newly-added files against HEAD^1 (the base tip).
-          fetch-depth: 2
-          persist-credentials: false
+      # Proof that the job around it still fails closed: no `needs:`, no job-level `if:`, the
+      # classification first and unconditional, and every later step skipped only by an explicit
+      # 'false'. It also replays the steps above against broken classifiers. Runs on every PR.
+      - name: Required-check shape self-test
+        run: ./scripts/tests/pr-verify-required-check.tests.sh
 
       # Fast, dependency-free gate: the Frontend must stay Static SSR, and must not carry an
       # inline <script> our CSP would block (#670). Runs before the .NET setup so a stray
@@ -100,26 +98,31 @@ jobs:
       # The self-test runs FIRST: a guard that never fires passes a clean tree just as happily
       # as a correct one, so its own cases are what prove it still catches anything.
       - name: Frontend markup guard self-test
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/check-ssr-purity.tests.sh
 
       - name: Frontend markup guard
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/check-ssr-purity.sh
 
       # Leg 2 of the post-deploy smoke decides whether a bad frontend rolls the box back, and
       # nothing else in CI executes smoke.sh. These cases pin its CSP ladder (#670).
       - name: Smoke CSP ladder self-test
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/smoke-csp.tests.sh
 
       # Same shape, the other client invariant: no hardcoded API paths, in the Frontend and in
       # the CLI alike. There is no gateway (ADR-0041), so a client resolves every entry point by
       # rel — a compiled-in "/api/v1/..." only fails at runtime, and this catches it in seconds.
       - name: Client hypermedia guard
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/check-client-hypermedia.sh
 
       # Build-cache analog of the SSR gate: every Dockerfile must COPY the full transitive
       # .csproj closure it restores. `dotnet restore` SKIPS a missing project file and still
       # exits 0, so a stale COPY list degrades the restore layer silently and stays green.
       - name: Docker restore-graph guard
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/check-dockerfile-restore-graph.sh
 
       # Schema analog of the SSR gate (ADR-0023 / MIGR-03): a newly-added destructive
@@ -127,9 +130,11 @@ jobs:
       # (MIGRATION-SAFETY: acknowledged). The self-test runs first so the guard itself
       # can never rot green.
       - name: Migration-safety guard self-test
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/check-migration-safety.tests.sh
 
       - name: Migration-safety guard
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/check-migration-safety.sh HEAD^1
 
       # The backlog loop's issue-provenance gate (ADR-0026) is what keeps attacker-authored text
@@ -137,12 +142,14 @@ jobs:
       # It runs on the maintainer's machine, never in CI — this offline self-test is the only thing
       # that stops it rotting green.
       - name: Backlog-loop provenance gate self-test
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/claude-loop-provenance.tests.sh
 
       # The loop's conductor runs several tickets at once and must stop at the PR (ADR-0060). Its
       # scheduling breaks silently (a lost queue, a missed slot count, workers left running), and
       # it too runs only on the maintainer's machine — this offline self-test pins it.
       - name: Backlog-loop conductor self-test
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/claude-loop-conductor.tests.sh
 
       # The Hetzner rollout script (HETZ-04) runs on a PROD box, driven by CD over ssh, and its real
@@ -150,12 +157,14 @@ jobs:
       # behavior CD leans on — above all that a pulled image which is not the digest CD attested
       # aborts the roll before any container starts.
       - name: Hetzner deploy script self-test
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/hetzner-deploy.tests.sh
 
       # The other half of the box scripts (OBS-01 / #708): bootstrap.sh's swap leg mutates
       # persistent host state (a swapfile, /etc/fstab, a sysctl drop-in), so its idempotence is
       # what this proves — the reason swap was kept out of bootstrap for a year.
       - name: Hetzner bootstrap swap self-test
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/hetzner-bootstrap-swap.tests.sh
 
       # The bootstrap's firewall leg (#808): the DOCKER-USER rules are what stands between the
@@ -163,6 +172,7 @@ jobs:
       # suite runs the rules script it writes and pins the rule set, the --noflush load that keeps
       # ufw's and Docker's own rules alive, and the no-op second pass.
       - name: Hetzner bootstrap DOCKER-USER self-test
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/hetzner-bootstrap-docker-user.tests.sh
 
       # The prod-promotion N-1 gate (#534) runs inside CD's prod leg, where its real inputs (the
@@ -172,6 +182,7 @@ jobs:
       # serving, and a baseline the box contradicts widens to the older commit instead of trusting a
       # deployment record that names the workflow run rather than the rolled artifact.
       - name: Prod-baseline resolution self-test
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/resolve-prod-baseline.tests.sh
 
       # The verdict mapping is its own gate: n1-compat.sh's exit 1 (schema proven incompatible) and
@@ -179,6 +190,7 @@ jobs:
       # runbook tells the approver not to retry a RED. Collapsing them would send them to split a
       # healthy batch — or to the image_tag dispatch, which skips the gate entirely.
       - name: N-1 promotion gate verdict self-test
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/n1-promotion-gate.tests.sh
 
       # The proof the gate maps. Its two failures mean opposite things, and only the run itself can
@@ -187,18 +199,19 @@ jobs:
       # blocked every promotion under the message "your migrations break prod". Stubs `dotnet`, so
       # the whole control flow runs here without Docker, .NET or a schema.
       - name: N-1 proof classification self-test
+        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/n1-compat.tests.sh
 
       # Everything below is the .NET gate: it runs only when the PR can actually affect it. A PR
       # that merely edits a script CI executes (or a Dockerfile) stops here, green, in seconds.
       - name: Setup .NET
-        if: needs.changes.outputs.code == 'true'
+        if: steps.diff.outputs.code != 'false'
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.100'
 
       - name: Cache NuGet packages
-        if: needs.changes.outputs.code == 'true'
+        if: steps.diff.outputs.code != 'false'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.nuget/packages
@@ -207,12 +220,12 @@ jobs:
             nuget-${{ runner.os }}-
 
       - name: Restore
-        if: needs.changes.outputs.code == 'true'
+        if: steps.diff.outputs.code != 'false'
         run: dotnet restore
 
       # TreatWarningsAsErrors is repo-wide — a single warning fails this build.
       - name: Build
-        if: needs.changes.outputs.code == 'true'
+        if: steps.diff.outputs.code != 'false'
         run: dotnet build --configuration Release --no-restore
 
       # Solution-wide `dotnet test` can't host the patcher's x86 native-interop suite
@@ -222,7 +235,7 @@ jobs:
       # excluded by name. The same name-based selection scopes the coverage report (CI-04):
       # only the suites that actually run here feed it — E2E projects never do.
       - name: Run Unit Tests
-        if: needs.changes.outputs.code == 'true'
+        if: steps.diff.outputs.code != 'false'
         run: |
           set -euo pipefail
           found=0
@@ -241,7 +254,7 @@ jobs:
       # Real PostgreSQL via Testcontainers (currently AuthSystem.API.Tests.Integration;
       # the TranslationSystem.API suite joins by the same convention when M2-15 lands).
       - name: Run Integration Tests
-        if: needs.changes.outputs.code == 'true'
+        if: steps.diff.outputs.code != 'false'
         run: |
           set -euo pipefail
           found=0
@@ -263,7 +276,7 @@ jobs:
       # This report is a map of where tests are thin and where the Stryker scope could expand.
       # No step here fails because of a coverage number.
       - name: Coverage report (report-only, never a gate)
-        if: needs.changes.outputs.code == 'true'
+        if: steps.diff.outputs.code != 'false'
         run: |
           set -euo pipefail
           dotnet tool restore
@@ -274,7 +287,7 @@ jobs:
           cat coverage-report/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload coverage report
-        if: needs.changes.outputs.code == 'true'
+        if: steps.diff.outputs.code != 'false'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-report-pr-${{ github.event.pull_request.number }}-${{ github.run_number }}
@@ -287,10 +300,14 @@ jobs:
   # goes red BEFORE the merge, not in cd.yml after it. Skipped by `if:` (never `on.paths`) for the
   # same required-check reason as the .NET job above. Nothing is pushed and no registry credentials
   # are involved, so the job also works on Dependabot PRs (read-only token, zero secrets).
+  # It reads the images verdict from the required job, so it starts only after that job ends (#791).
+  # A Dockerfile-only PR waits for the guard steps alone, seconds; a PR that also changes code waits
+  # for the whole .NET gate. That is the price of having no helper job: when classification fails,
+  # this job is skipped too, but the required check above is red, so the PR cannot merge anyway.
   images:
     name: Build & scan image (${{ matrix.image }})
-    needs: changes
-    if: needs.changes.outputs.images == 'true'
+    needs: build
+    if: needs.build.outputs.images != 'false'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:

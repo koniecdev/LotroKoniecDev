@@ -630,10 +630,11 @@ expect_unclassified_problem() {
     fi
 }
 
-# gitleaks_job_name_lines <workflow>... → job-level `name: gitleaks` lines. A step of that name has a
-# dash before it, and the action's `uses:` line has no `name:`, so neither counts.
+# gitleaks_job_name_lines <workflow>... → job-level `name: gitleaks` lines, and lines that hold nothing
+# but `gitleaks` (a name written on the line after `name:`, or as a block scalar). A step of that
+# name has a dash before it, and the action's `uses:` line holds more, so neither counts.
 gitleaks_job_name_lines() {
-    grep -nE "^[[:space:]]+name:[[:space:]]*[\"']?gitleaks[\"']?[[:space:]]*(#.*)?$" "$@" /dev/null || true
+    grep -nE "^[[:space:]]+(name:[[:space:]]*)?[\"']?gitleaks[\"']?[[:space:]]*(#.*)?$" "$@" /dev/null || true
 }
 
 problems_gitleaks="$(unclassified_problems "$GITLEAKS_WORKFLOW" gitleaks)"
@@ -661,6 +662,13 @@ if [ "$gitleaks_names" = 2 ]; then
     pass "a second job named 'gitleaks' in another workflow is counted"
 else
     fail "a second job named 'gitleaks' in another workflow is counted" "found $gitleaks_names"
+fi
+printf 'jobs:\n  shadow:\n    name: >-\n      gitleaks\n    needs: build\n' > "$TMP_ROOT/gitleaks-shadow-folded.yml"
+gitleaks_names="$(gitleaks_job_name_lines "$REPO_ROOT"/.github/workflows/*.y*ml "$TMP_ROOT/gitleaks-shadow-folded.yml" | grep -c .)"
+if [ "$gitleaks_names" = 2 ]; then
+    pass "a second job whose 'gitleaks' name sits on the line after name: is counted"
+else
+    fail "a second job whose 'gitleaks' name sits on the line after name: is counted" "found $gitleaks_names"
 fi
 
 load_required_job "$WORKFLOW"

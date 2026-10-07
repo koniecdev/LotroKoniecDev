@@ -46,7 +46,10 @@ A gate lets one write run. A request that finds no copy waits at the gate. Insid
 2. reads the current hash, which is cheap, and uses that copy if it exists, because a rebuild may
    have replaced the file after the request read its hash;
 3. only then loads the content, writes it to a temporary file, flushes it to disk, hashes the bytes on
-   disk, and renames the file to its final name.
+   disk, closes the file and renames it to its final name;
+4. opens the copy again, read-only, for the response. On Windows a reader must share write access with
+   any open handle that can write, so a response served from the writer's handle would lock every
+   other download out of the file.
 
 The write runs on the host's lifetime token, not on the caller's. The CLI gives up after 10 seconds
 (`InfrastructureDependencyInjection.CreateHttpClient`), and waking a suspended Neon database alone can
@@ -89,6 +92,12 @@ the file, so there is no per-request memory left to size a limit by.
 
 A cap on the number of downloads running at once could still matter for bandwidth. That is a
 different question, and the load test in #716 answers it. This ADR does not pick a number for it.
+
+Two costs per download remain, and neither is memory that grows with the file. Response compression
+is on for `text/plain`, so a client that sends `Accept-Encoding` (a browser) gets the file compressed
+on the fly, which costs CPU per download. The CLI sends no `Accept-Encoding`, so the update-day crowd
+does not pay it. And the rebuild and the first load after it use separate gates, so the worst peak is
+one rebuild plus one load, about 500 MB at full size. That is bounded and does not grow with the crowd.
 
 ## Rejected alternatives
 

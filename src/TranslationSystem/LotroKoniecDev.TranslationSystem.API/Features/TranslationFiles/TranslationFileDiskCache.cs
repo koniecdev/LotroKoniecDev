@@ -112,54 +112,58 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
         string copyPath = CopyPath(language, stored.ContentHash);
         Directory.CreateDirectory(_directory);
         string temporaryPath = Path.Combine(_directory, $"{language}-{Guid.NewGuid():N}{TemporaryExtension}");
-
-        // FileShare.Delete lets the file be renamed below while this handle stays open. The handle is
-        // what the response reads from, so a later write that removes this copy cannot pull it away
-        // from a download that is still running.
-        FileStream file = new(temporaryPath, new FileStreamOptions
-        {
-            Mode = FileMode.CreateNew,
-            Access = FileAccess.ReadWrite,
-            Share = FileShare.Read | FileShare.Delete,
-            Options = FileOptions.Asynchronous,
-        });
+        long byteCount;
 
         try
         {
-            await using (StreamWriter writer = new(file, Utf8WithoutBom, WriteBufferSize, leaveOpen: true))
+            await using (FileStream file = new(temporaryPath, new FileStreamOptions
             {
-                await writer.WriteAsync(stored.Content.AsMemory(), cancellationToken);
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.ReadWrite,
+                Share = FileShare.None,
+                Options = FileOptions.Asynchronous,
+            }))
+            {
+                await using (StreamWriter writer = new(file, Utf8WithoutBom, WriteBufferSize, leaveOpen: true))
+                {
+                    await writer.WriteAsync(stored.Content.AsMemory(), cancellationToken);
+                }
+
+                file.Flush(flushToDisk: true);
+                file.Position = 0;
+                string writtenHash = Convert.ToHexString(await SHA256.HashDataAsync(file, cancellationToken));
+                if (!string.Equals(writtenHash, stored.ContentHash, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"The stored translation file for '{language}' does not hash to its stored ETag {stored.ContentHash}; the copy on disk hashes to {writtenHash}.");
+                }
+
+                byteCount = file.Length;
             }
 
-            file.Flush(flushToDisk: true);
-            file.Position = 0;
-            string writtenHash = Convert.ToHexString(await SHA256.HashDataAsync(file, cancellationToken));
-            if (!string.Equals(writtenHash, stored.ContentHash, StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException(
-                    $"The stored translation file for '{language}' does not hash to its stored ETag {stored.ContentHash}; the copy on disk hashes to {writtenHash}.");
-            }
-
-            file.Position = 0;
             File.Move(temporaryPath, copyPath, overwrite: true);
         }
         catch
         {
-            await file.DisposeAsync();
             DeleteIfPresent(temporaryPath);
             throw;
         }
 
-        LogCopyWritten(_logger, language, stored.ContentHash, file.Length);
+        LogCopyWritten(_logger, language, stored.ContentHash, byteCount);
         RemoveOtherCopies(language, Path.GetFileName(copyPath));
 
-        return new TranslationFileCopy(file, stored.ContentHash);
+        // The response reads from a new read-only handle, not from the writer's. On Windows every
+        // reader would have to share write access with a handle that can write, so the writer's handle
+        // would lock all other downloads out of the file until the first one ends.
+        return TryOpenCopy(language, stored.ContentHash)
+            ?? throw new IOException($"The translation file copy '{Path.GetFileName(copyPath)}' was gone right after it was written.");
     }
 
     private TranslationFileCopy? TryOpenCopy(string language, string contentHash)
     {
         try
         {
+            // FileShare.Delete lets a later write remove this copy while a download still reads it.
             FileStream file = new(CopyPath(language, contentHash), new FileStreamOptions
             {
                 Mode = FileMode.Open,
@@ -179,11 +183,23 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
     /// <summary>
     /// Removes every older copy of the language, and any half-written file a crash left behind, so the
     /// directory never holds more than one copy. A download still reading an old copy keeps it until it
-    /// ends, because the handle stays valid after the name is gone.
+    /// ends, because the handle stays valid after the name is gone. A failure here never fails the
+    /// download: the next write tries again.
     /// </summary>
     private void RemoveOtherCopies(string language, string keptFileName)
     {
-        foreach (string path in Directory.EnumerateFiles(_directory, $"{language}-*"))
+        string[] paths;
+        try
+        {
+            paths = Directory.GetFiles(_directory, $"{language}-*");
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            LogCopyRemovalFailed(_logger, exception, _directory);
+            return;
+        }
+
+        foreach (string path in paths)
         {
             if (string.Equals(Path.GetFileName(path), keptFileName, StringComparison.Ordinal))
             {
@@ -196,7 +212,7 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
-                LogCopyRemovalFailed(_logger, exception, Path.GetFileName(path));
+                LogCopyRemovalFailed(_logger, exception, path);
             }
         }
     }
@@ -236,6 +252,6 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
     [LoggerMessage(EventId = EventIds.TranslationFileCopyWritten, Level = LogLevel.Information, Message = "Wrote the disk copy of the translation file for '{Language}' ({ContentHash}, {ByteCount} bytes)")]
     private static partial void LogCopyWritten(ILogger logger, string language, string contentHash, long byteCount);
 
-    [LoggerMessage(EventId = EventIds.TranslationFileCopyRemovalFailed, Level = LogLevel.Warning, Message = "Could not remove the old translation file copy '{FileName}'; the next write tries again")]
-    private static partial void LogCopyRemovalFailed(ILogger logger, Exception exception, string fileName);
+    [LoggerMessage(EventId = EventIds.TranslationFileCopyRemovalFailed, Level = LogLevel.Warning, Message = "Could not remove old translation file copies at '{Path}'; the next write tries again")]
+    private static partial void LogCopyRemovalFailed(ILogger logger, Exception exception, string path);
 }

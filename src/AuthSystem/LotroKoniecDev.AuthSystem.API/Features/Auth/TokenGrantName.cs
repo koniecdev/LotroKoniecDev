@@ -6,11 +6,13 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 /// The words a refusal warning uses for the step and for the token it carried. The code exchange and the
 /// refresh share one set of warnings (#977), so each warning takes these names.
 /// </summary>
-internal sealed record TokenGrantName(string Step, string Token)
+internal sealed record TokenGrantName(string Step, string Token, string TokenType)
 {
-    public static TokenGrantName CodeExchange { get; } = new("Code exchange", "authorization code");
+    public static TokenGrantName CodeExchange { get; } =
+        new("Code exchange", "authorization code", TokenTypeIdentifiers.Private.AuthorizationCode);
 
-    public static TokenGrantName Refresh { get; } = new("Refresh", "refresh token");
+    public static TokenGrantName Refresh { get; } =
+        new("Refresh", "refresh token", TokenTypeIdentifiers.RefreshToken);
 
     /// <summary>
     /// Null for every other token type: only a code or a refresh token belongs to a user's sign-in.

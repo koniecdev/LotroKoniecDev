@@ -148,6 +148,7 @@ internal static class EventIds
     public const int TokenGrantRefusedStaleSecurityStamp = 2394;
     public const int TokenGrantRefusedTokenExpired = 2395;
     public const int TokenGrantRefusedByOpenIddict = 2396;
+    public const int TokenGrantRefusalUserLookupFailed = 2397;
 
     // Change E-mail request / confirm / revert (2500-2519)
     public const int EmailChangeRequested = 2500;

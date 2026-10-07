@@ -257,6 +257,70 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
         warning.Message.ShouldBe($"Code exchange refused for user {userId.Value}: the authorization code has expired");
     }
 
+    [Fact]
+    public async Task AuthorizationCodeGrant_WhenTheStoredCodeCannotBeRead_ShouldWarnWithTheUserFromTheTokenRow()
+    {
+        // Arrange: each host seals codes with keys of its own, so this host finds the shared code row but
+        // cannot read it, as after a change of the encryption key
+        (RegisterRequest user, IdentityId userId) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        (string code, string codeVerifier) = await ObtainAuthorizationCodeAsync(Factory, user.Email);
+        using CapturingLoggerFactory loggerFactory = new();
+        await using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
+        using HttpClient client = host.CreateClient();
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAsync(client, code, codeVerifier);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        CapturingLoggerFactory.LogEntry warning = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.EventId.Id.ShouldBe(EventIds.TokenGrantRefusedByOpenIddict);
+        warning.Message.ShouldBe($"Code exchange refused for user {userId.Value} by OpenIddict: The specified token is invalid.");
+    }
+
+    [Fact]
+    public async Task RefreshTokenGrant_WhenTheTokenSentIsACode_ShouldNotWarn()
+    {
+        // Arrange: OpenIddict refuses a stored token of the wrong type without using it, so the warning
+        // does not name the user of that row either
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        using CapturingLoggerFactory loggerFactory = new();
+        await using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
+        using HttpClient client = host.CreateClient();
+        (string code, _) = await ObtainAuthorizationCodeAsync(host, user.Email);
+
+        // Act
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(client, code);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        TokenEndpointEntries(loggerFactory).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task AuthorizationCodeGrant_WhenTheCodeSentIsARefreshToken_ShouldNotWarn()
+    {
+        // Arrange: OpenIddict refuses a stored token of the wrong type without using it, so the warning
+        // does not name the user of that row either
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        using CapturingLoggerFactory loggerFactory = new();
+        await using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
+        using HttpClient client = host.CreateClient();
+        string refreshToken = await GetRefreshTokenAsync(client, user.Email, Password);
+        (_, string codeVerifier) = GeneratePkce();
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAsync(client, refreshToken, codeVerifier);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        TokenEndpointEntries(loggerFactory).ShouldBeEmpty();
+    }
+
     private static async Task EndAsync(SessionEnd end, IServiceProvider services, string userId)
     {
         await using AsyncServiceScope scope = services.CreateAsyncScope();

@@ -37,7 +37,8 @@ internal static partial class OpenIddictTokenRefusals
                 && TokenGrantName.ForTokenType(principal.GetTokenType()) is TokenGrantName grant
                 && principal.GetClaim(Claims.Subject) is { Length: > 0 } userId)
             {
-                bool expired = principal.GetExpirationDate() is DateTimeOffset expiresAt
+                bool expired = !context.DisableLifetimeValidation
+                    && principal.GetExpirationDate() is DateTimeOffset expiresAt
                     && expiresAt + context.TokenValidationParameters.ClockSkew < context.Options.TimeProvider.GetUtcNow();
 
                 context.Transaction.SetProperty(NoteKey, new TokenUserNote(grant, userId, expired));
@@ -65,6 +66,7 @@ internal static partial class OpenIddictTokenRefusals
 
         public static OpenIddictServerHandlerDescriptor Descriptor { get; } =
             OpenIddictServerHandlerDescriptor.CreateBuilder<ProcessErrorContext>()
+                .AddFilter<OpenIddictServerHandlerFilters.RequireTokenRequest>()
                 .UseScopedHandler<WarnWhenRefused>()
                 .SetOrder(OpenIddictServerHandlers.AttachErrorParameters.Descriptor.Order + 1000)
                 .SetType(OpenIddictServerHandlerType.Custom)
@@ -78,7 +80,7 @@ internal static partial class OpenIddictTokenRefusals
             }
 
             TokenUserNote? note = context.Transaction.GetProperty<TokenUserNote>(NoteKey)
-                ?? await NoteFromStoredRefreshTokenAsync(context.Request, context.CancellationToken);
+                ?? await NoteFromStoredTokenAsync(context.Request, context.CancellationToken);
 
             if (note is null)
             {
@@ -96,25 +98,44 @@ internal static partial class OpenIddictTokenRefusals
         }
 
         /// <summary>
-        /// A refresh token is stored as a row, and the row names its user even when OpenIddict refused the
-        /// token before reading it, for example after the encryption key changed. Codes are not stored
-        /// that way, so an unreadable code names no one.
+        /// Codes and refresh tokens are stored as rows, and a row names its user even when OpenIddict refused
+        /// the token before reading it: after the encryption key changed, or for a request that failed an
+        /// earlier check. A row of another token type names no one, the same way OpenIddict refuses to use
+        /// it. A failed lookup must not turn OpenIddict's refusal into a server error, so it only logs.
         /// </summary>
-        private async ValueTask<TokenUserNote?> NoteFromStoredRefreshTokenAsync(
+        private async ValueTask<TokenUserNote?> NoteFromStoredTokenAsync(
             OpenIddictRequest? request,
             CancellationToken cancellationToken)
         {
-            if (request is null
-                || !request.IsRefreshTokenGrantType()
-                || request.RefreshToken is not { Length: > 0 } refreshToken
-                || await _tokenManager.FindByReferenceIdAsync(refreshToken, cancellationToken) is not { } token
-                || !await _tokenManager.HasTypeAsync(token, TokenTypeIdentifiers.RefreshToken, cancellationToken)
-                || await _tokenManager.GetSubjectAsync(token, cancellationToken) is not { Length: > 0 } userId)
+            (TokenGrantName Grant, string? ReferenceId)? presented = request switch
+            {
+                null => null,
+                _ when request.IsAuthorizationCodeGrantType() => (TokenGrantName.CodeExchange, request.Code),
+                _ when request.IsRefreshTokenGrantType() => (TokenGrantName.Refresh, request.RefreshToken),
+                _ => null
+            };
+
+            if (presented is not ({ } grant, { Length: > 0 } referenceId))
             {
                 return null;
             }
 
-            return new TokenUserNote(TokenGrantName.Refresh, userId, Expired: false);
+            try
+            {
+                if (await _tokenManager.FindByReferenceIdAsync(referenceId, cancellationToken) is not { } token
+                    || !await _tokenManager.HasTypeAsync(token, grant.TokenType, cancellationToken)
+                    || await _tokenManager.GetSubjectAsync(token, cancellationToken) is not { Length: > 0 } userId)
+                {
+                    return null;
+                }
+
+                return new TokenUserNote(grant, userId, Expired: false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                LogStoredTokenLookupFailed(_logger, exception, grant.Step);
+                return null;
+            }
         }
 
         [LoggerMessage(EventId = EventIds.TokenGrantRefusedTokenExpired, Level = LogLevel.Warning, Message = "{Step} refused for user {UserId}: the {Token} has expired")]
@@ -122,6 +143,9 @@ internal static partial class OpenIddictTokenRefusals
 
         [LoggerMessage(EventId = EventIds.TokenGrantRefusedByOpenIddict, Level = LogLevel.Warning, Message = "{Step} refused for user {UserId} by OpenIddict: {Reason}")]
         private static partial void LogRefusedByOpenIddict(ILogger logger, string step, string userId, string? reason);
+
+        [LoggerMessage(EventId = EventIds.TokenGrantRefusalUserLookupFailed, Level = LogLevel.Warning, Message = "{Step} refused by OpenIddict, and the stored token could not be read to name its user")]
+        private static partial void LogStoredTokenLookupFailed(ILogger logger, Exception exception, string step);
     }
 
     private sealed record TokenUserNote(TokenGrantName Grant, string UserId, bool Expired);

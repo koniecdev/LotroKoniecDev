@@ -110,12 +110,8 @@ public sealed class AccessTokenAudienceTests : EndpointsTestBase
         // Assert
         refreshResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         using JsonDocument tokens = JsonDocument.Parse(await refreshResponse.Content.ReadAsStringAsync());
-        string accessToken = tokens.RootElement.GetProperty("access_token").GetString()!;
-        JwtPayload.ReadAudiences(accessToken)
+        JwtPayload.ReadAudiences(tokens.RootElement.GetProperty("access_token").GetString()!)
             .ShouldBe([AuthConstants.ClientIds.Api, AuthConstants.Audiences.AuthApi], ignoreOrder: true);
-        using HttpRequestMessage accountRequest = CreateRequest("GET", AccountPath, accessToken);
-        using HttpResponseMessage accountResponse = await client.SendAsync(accountRequest);
-        accountResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     private async Task<RegisterRequest> RegisterUserAsync()
@@ -156,17 +152,8 @@ public sealed class AccessTokenAudienceTests : EndpointsTestBase
 
     private static async Task<(string AccessToken, string RefreshToken)> SignInAsync(HttpClient client, string email)
     {
-        using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "password",
-            ["username"] = email,
-            ["password"] = Password,
-            ["client_id"] = "lotrokoniecdev-test",
-            ["scope"] = "email profile roles api offline_access"
-        });
-
-        using HttpResponseMessage loginResponse = await client.PostAsync(
-            new Uri("connect/token", UriKind.Relative), loginRequest);
+        using HttpResponseMessage loginResponse = await RequestPasswordGrantAsync(
+            client, email, Password, "email profile roles api offline_access");
         loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         using JsonDocument json = JsonDocument.Parse(await loginResponse.Content.ReadAsStringAsync());

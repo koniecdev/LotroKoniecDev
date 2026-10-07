@@ -91,7 +91,10 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
         string scope = "email profile roles api") =>
         RequestPasswordGrantAsync(ApiClient.Http, email, password, scope);
 
-    private static async Task<HttpResponseMessage> RequestPasswordGrantAsync(
+    /// <summary>
+    /// Takes the client of the host that will check the tokens. Tokens are sealed with each host's own keys.
+    /// </summary>
+    protected static async Task<HttpResponseMessage> RequestPasswordGrantAsync(
         HttpClient client,
         string email,
         string password,

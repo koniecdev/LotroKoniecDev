@@ -244,9 +244,8 @@ rozmowę („dlaczego rozdzieliliście rejestrację od profilu domenowego").
   `:233`, `AuthorizeEndpoint.cs:105`), wstawiane jako claimy `role`.
 - **scopes**: z requestu klienta (`request.GetScopes()`), ograniczone permissionami klienta seedowanymi
   w bazie. `SetResources(UserTokenAudiences.All)` ustawia `aud` na `lotrokoniecdev-api` (`tms-api`) i
-  `lotrokoniecdev-auth-api` (`auth-api`). Refresh ustawia tę listę od nowa: inaczej sesja zostałaby przy
-  liście z refresh tokena, a ten się przesuwa, więc sesja sprzed zmiany listy nigdy by jej nie dostała
-  (#1023).
+  `lotrokoniecdev-auth-api` (`auth-api`). Wymiana kodu i refresh ustawiają tę listę od nowa, a nie
+  biorą jej z kodu czy refresh tokena — powód jest w `UserTokenAudiences` (#1023).
 
 Role seedowane (`DatabaseSeederExtensions.cs:37`): **`Admin`** i **`Translator`**.
 

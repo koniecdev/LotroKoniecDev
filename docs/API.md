@@ -77,6 +77,12 @@ OAuth clients seeded at startup (`DatabaseSeederExtensions.cs:111`):
 | `lotrokoniecdev-api` | confidential | client credentials | service-to-service; secret from config |
 | `lotrokoniecdev-test` | public | password, refresh | seeded only in `Testing` |
 
+Each access token names the APIs it is for in `aud`. A user's token names both: `lotrokoniecdev-api`
+(`tms-api`) and `lotrokoniecdev-auth-api` (the bearer endpoints of `auth-api`), because the website
+sends the same token to both. The sign-in, the code exchange and every refresh set this list
+(`UserTokenAudiences`). The service's client credentials token names `lotrokoniecdev-api` only
+(#1023).
+
 Token lifetimes (`OpenIddictSettings.cs`): access **5 min** (ADR-0049), refresh **9 h**. Every refresh
 issues a new refresh token with the full 9 h, so the clock starts again at each use. The 9 h is the
 frontend cookie's 8-hour idle timeout plus a margin, because the token lives in that cookie (#1014).
@@ -346,9 +352,11 @@ makes itself is **400** `invalid_grant` (#903): a code or refresh token that is 
 wrong credentials on the Testing-only password grant, and that grant's `account_deletion_scheduled`
 answer, which is in `error_description`. OpenIddict's own checks can answer other codes, for example
 **401** `invalid_client` for a wrong client secret or **400** `unsupported_grant_type`.
-`connect/userinfo` answers a token that names no user, such as a service's client credentials token
-or the token of an account that no longer exists, with **401** and `error="invalid_token"` in the
-`WWW-Authenticate` header (#955). A 429 from the rate limiter and a 500 from an unhandled exception
+Every endpoint of `auth-api` that takes a bearer token (`connect/userinfo` and the `auth/*` rows
+marked "bearer token" below) takes only a token whose `aud` names `lotrokoniecdev-auth-api`. Any
+other token, the service's client credentials token too, gets **401** and `error="invalid_token"` in
+the `WWW-Authenticate` header (#1023). `connect/userinfo` answers the token of an account that no
+longer exists the same way (#955). A 429 from the rate limiter and a 500 from an unhandled exception
 still come from the shared pipeline as `ProblemDetails` (#917).
 
 The login/consent UI is server-rendered Razor Pages: `/Account/Login`, `/Account/Register`,

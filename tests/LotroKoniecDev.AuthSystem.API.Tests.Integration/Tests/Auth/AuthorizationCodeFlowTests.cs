@@ -7,10 +7,13 @@ using System.Web;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using OpenIddict.Abstractions;
+using OpenIddict.Server;
+using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -535,6 +538,27 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     }
 
     [Fact]
+    public async Task AuthorizationCodeExchange_ShouldNameBothApis_WhenTheCodeWasIssuedWithoutTheAuthApi()
+    {
+        // Arrange: a code from /connect/authorize just before #1023 was deployed, redeemed just after it.
+        // Codes are sealed with each host's own keys, so the code and the exchange use the same host.
+        const string password = "TestPass1!";
+        string email = await RegisterUserAsync(password);
+        await using WebApplicationFactory<Program> host = CreateHostThatIssuesCodesWithoutTheAuthApi();
+        (string authorizationCode, string codeVerifier, _) = await ObtainAuthorizationCodeForAsync(host, email, password);
+        using HttpClient client = host.CreateClient();
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAuthorizationCodeAsync(client, authorizationCode, codeVerifier);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using JsonDocument tokens = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JwtPayload.ReadAudiences(tokens.RootElement.GetProperty("access_token").GetString()!)
+            .ShouldBe([AuthConstants.ClientIds.Api, AuthConstants.Audiences.AuthApi], ignoreOrder: true);
+    }
+
+    [Fact]
     public async Task AuthorizationCodeExchange_ShouldKeepTheSecurityStampOutOfTheAccessAndIdentityTokens()
     {
         // Arrange: access tokens are not encrypted and the stamp is server-side state, so it must stay
@@ -831,12 +855,16 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         return (authorizationCode, codeVerifier, authCookies, email);
     }
 
-    private async Task<(string Code, string CodeVerifier, List<string> AuthCookies)>
-        ObtainAuthorizationCodeForAsync(string email, string password)
+    private Task<(string Code, string CodeVerifier, List<string> AuthCookies)>
+        ObtainAuthorizationCodeForAsync(string email, string password) =>
+        ObtainAuthorizationCodeForAsync(Factory, email, password);
+
+    private static async Task<(string Code, string CodeVerifier, List<string> AuthCookies)>
+        ObtainAuthorizationCodeForAsync(WebApplicationFactory<Program> host, string email, string password)
     {
         // A client of its own, like a browser on another device, so two sign-ins in one test never share
         // the antiforgery cookie that the login page hands out only once per browser
-        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions
+        using HttpClient browser = host.CreateClient(new WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false,
             HandleCookies = false
@@ -1033,7 +1061,13 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         return $"{segments[0]}.{Base64Url.EncodeToString(Encoding.UTF8.GetBytes(payload))}.{segments[2]}";
     }
 
-    private async Task<HttpResponseMessage> ExchangeAuthorizationCodeAsync(string authorizationCode, string codeVerifier)
+    private Task<HttpResponseMessage> ExchangeAuthorizationCodeAsync(string authorizationCode, string codeVerifier) =>
+        ExchangeAuthorizationCodeAsync(ApiClient.Http, authorizationCode, codeVerifier);
+
+    private static async Task<HttpResponseMessage> ExchangeAuthorizationCodeAsync(
+        HttpClient client,
+        string authorizationCode,
+        string codeVerifier)
     {
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
@@ -1044,8 +1078,35 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
             ["code_verifier"] = codeVerifier
         });
 
-        return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
+        return await client.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
     }
+
+    /// <summary>
+    /// Issues codes the way the server did before #1023: they name the translation API alone. The code
+    /// exchange is left alone, because that is the code under test.
+    /// </summary>
+    private WebApplicationFactory<Program> CreateHostThatIssuesCodesWithoutTheAuthApi() =>
+        Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                // A second relay on this database could take a row another test waits for.
+                AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
+
+                // Runs before OpenIddict builds any token from the principal.
+                services.AddOpenIddict().AddServer(options =>
+                    options.AddEventHandler<OpenIddictServerEvents.ProcessSignInContext>(handler =>
+                        handler
+                            .UseInlineHandler(context =>
+                            {
+                                if (context.EndpointType is OpenIddictServerEndpointType.Authorization)
+                                {
+                                    context.Principal?.SetResources(AuthConstants.ClientIds.Api);
+                                }
+
+                                return ValueTask.CompletedTask;
+                            })
+                            .SetOrder(int.MinValue)));
+            }));
 
     private static string BuildAuthorizeUrl(string codeChallenge) =>
         $"connect/authorize?response_type=code" +

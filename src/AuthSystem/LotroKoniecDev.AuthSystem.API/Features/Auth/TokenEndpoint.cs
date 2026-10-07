@@ -93,6 +93,9 @@ internal sealed partial class TokenEndpoint : IEndpoint
             return Refuse(AuthorizationCodeNoLongerValid);
         }
 
+        // Set again, not kept from the code. UserTokenAudiences says why.
+        result.Principal.SetResources(UserTokenAudiences.All);
+
         return Results.SignIn(
             result.Principal,
             authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
@@ -209,9 +212,7 @@ internal sealed partial class TokenEndpoint : IEndpoint
         IList<string> roles = await userManager.GetRolesAsync(user);
         identity.SetClaims(Claims.Role, [.. roles]);
 
-        // The principal comes from the refresh token, so without this line a session keeps the audiences
-        // it started with. Refresh tokens slide, so a session from before a change to the list would never
-        // get the new one (#1023).
+        // Set again, not kept from the refresh token. UserTokenAudiences says why.
         identity.SetResources(UserTokenAudiences.All);
 
         identity.SetDestinations(UserClaimDestinations.Select);

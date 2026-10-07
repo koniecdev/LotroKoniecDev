@@ -83,7 +83,7 @@ public sealed class DiscoveryHateoasTests : EndpointsTestBase
     /// an anonymous caller gets, and the account link is not offered to it (ADR-0040).
     /// </summary>
     [Fact]
-    public async Task Discovery_ShouldAnswerAServiceTokenWithTheAnonymousLinks()
+    public async Task Discovery_ShouldReturnAnonymousLinks_WhenTheTokenWasIssuedToAService()
     {
         // Arrange
         string accessToken = await GetClientCredentialsAccessTokenAsync();

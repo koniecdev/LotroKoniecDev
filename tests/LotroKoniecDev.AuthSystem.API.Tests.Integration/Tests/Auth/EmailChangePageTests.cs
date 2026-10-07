@@ -2,8 +2,10 @@ using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Primitives;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
@@ -22,6 +24,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 public sealed partial class EmailChangePageTests : EndpointsTestBase
 {
     private const string Password = "TestPass1!";
+    private const string UsedLinkCookieName = ".lotrokoniecdev.used-link.email-change";
 
     public EmailChangePageTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
@@ -105,13 +108,16 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ConfirmPage_PostTwice_ShouldRefuseTheSecondTime()
+    public async Task ConfirmPage_PostTheUsedLinkFromAnotherBrowser_ShouldCallItDead()
     {
+        // Only the browser that used the link holds its marker (#941). Anywhere else a used link is dead.
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
         await ConfirmAsync(userId, newEmail, token);
+        using HttpClient otherBrowser = Factory.CreateClient();
 
         HttpResponseMessage replay = await PostToPageAsync(
+            otherBrowser,
             "/Account/ConfirmEmailChange",
             ConfirmUrl(userId, newEmail, token),
             new Dictionary<string, string>
@@ -181,6 +187,149 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         html.ShouldContain("Od teraz logujesz się nowym adresem.");
         html.ShouldNotContain("Link wygasł lub jest nieprawidłowy");
         html.ShouldNotContain("data-testid=\"confirm-email-change-form\"");
+    }
+
+    [Fact]
+    public async Task ConfirmPage_Post_ShouldLeaveTheUsedLinkMarkerInThisBrowser()
+    {
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToPageAsync(
+            browser,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            ConfirmForm(userId, newEmail, token));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        response.Headers.GetValues("Set-Cookie").ShouldContain(cookie => cookie.StartsWith(UsedLinkCookieName + "=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ConfirmPage_GetTheUsedLinkAgainInTheSameBrowser_ShouldShowTheChangeAsDone()
+    {
+        // #941: Back from the done view loads the link again. Its button would send the used link, and the
+        // page would call it dead although the change worked.
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        await ConfirmAsync(userId, newEmail, token);
+
+        HttpResponseMessage back = await ApiClient.Http.GetAsync(new Uri(ConfirmUrl(userId, newEmail, token), UriKind.Relative));
+
+        back.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await back.Content.ReadAsStringAsync();
+        html.ShouldContain("data-testid=\"confirm-email-change-success\"");
+        html.ShouldNotContain("data-testid=\"confirm-email-change-form\"");
+        html.ShouldNotContain("Link wygasł lub jest nieprawidłowy");
+    }
+
+    [Fact]
+    public async Task ConfirmPage_PostTheUsedLinkAgainInTheSameBrowser_ShouldRedirectToTheDoneView()
+    {
+        // A form the browser brings back from its cache can send the used link once more. The link asks for
+        // no input, so the second answer is the first one.
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        (await PostToPageAsync(browser, "/Account/ConfirmEmailChange", ConfirmUrl(userId, newEmail, token), ConfirmForm(userId, newEmail, token)))
+            .StatusCode.ShouldBe(HttpStatusCode.Redirect);
+
+        // The used link now opens the done view, which has no form, so the antiforgery token comes from the
+        // form of another link.
+        HttpResponseMessage replay = await PostToPageAsync(
+            browser,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, "another-token"),
+            ConfirmForm(userId, newEmail, token));
+
+        replay.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        replay.Headers.Location!.OriginalString.ShouldBe("/Account/ConfirmEmailChange?handler=Done");
+    }
+
+    [Fact]
+    public async Task ConfirmPage_GetALinkThisBrowserDidNotUse_ShouldShowTheForm()
+    {
+        // The marker names one link. Another link opened in the same browser still gets its form.
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        await ConfirmAsync(userId, newEmail, token);
+
+        HttpResponseMessage response = await ApiClient.Http.GetAsync(
+            new Uri(ConfirmUrl(userId, newEmail, token + "x"), UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("data-testid=\"confirm-email-change-form\"");
+        html.ShouldNotContain("data-testid=\"confirm-email-change-success\"");
+    }
+
+    /// <summary>
+    /// Only a done confirm may leave the marker. A marker after a refusal would make Back say the address
+    /// was changed when it was not, which is worse than the dead link of #941.
+    /// </summary>
+    [Theory]
+    [InlineData(ConfirmRefusal.DeadLink)]
+    [InlineData(ConfirmRefusal.AddressTaken)]
+    [InlineData(ConfirmRefusal.DeletionScheduled)]
+    public async Task ConfirmPage_PostThatIsRefused_ShouldLeaveNoUsedLinkMarker(ConfirmRefusal refusal)
+    {
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        string sentToken = refusal is ConfirmRefusal.DeadLink ? token + "x" : token;
+        if (refusal is ConfirmRefusal.AddressTaken)
+        {
+            await SeedUserOnAsync(newEmail);
+        }
+
+        if (refusal is ConfirmRefusal.DeletionScheduled)
+        {
+            await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, user.Email);
+        }
+
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToPageAsync(
+            browser, "/Account/ConfirmEmailChange", ConfirmUrl(userId, newEmail, sentToken), ConfirmForm(userId, newEmail, sentToken));
+        HttpResponseMessage back = await browser.GetAsync(new Uri(ConfirmUrl(userId, newEmail, sentToken), UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await back.Content.ReadAsStringAsync()).ShouldNotContain("data-testid=\"confirm-email-change-success\"");
+        response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies);
+        (cookies ?? []).ShouldNotContain(cookie => cookie.StartsWith(UsedLinkCookieName + "=", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The marker only matters once the link's values pass their shape check, so a broken link stays a
+    /// broken link even in the browser that used its token.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConfirmPage_AMalformedLinkWhoseTokenThisBrowserUsed_ShouldStillCallTheLinkInvalid(bool viaPost)
+    {
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        await ConfirmAsync(userId, newEmail, token);
+        string malformedUrl = $"/Account/ConfirmEmailChange?userId=not-a-guid&email={Uri.EscapeDataString(newEmail)}"
+                              + $"&token={Uri.EscapeDataString(token)}";
+
+        HttpResponseMessage response = viaPost
+            ? await PostToPageAsync(
+                "/Account/ConfirmEmailChange",
+                ConfirmUrl(userId, newEmail, "another-token"),
+                new Dictionary<string, string>
+                {
+                    ["UserId"] = "not-a-guid",
+                    ["Email"] = newEmail,
+                    ["Token"] = token
+                })
+            : await ApiClient.Http.GetAsync(new Uri(malformedUrl, UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Link wygasł lub jest nieprawidłowy");
+        html.ShouldNotContain("data-testid=\"confirm-email-change-success\"");
     }
 
     /// <summary>
@@ -555,10 +704,11 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task RevertPage_PostTwice_ShouldRefuseTheSecondTime()
+    public async Task RevertPage_PostTheUsedLinkFromAnotherBrowser_ShouldCallItDead()
     {
         // The token carries no security stamp, so what makes it single-use is that a successful revert
-        // rotates the revert stamp and disarms the chain.
+        // rotates the revert stamp and disarms the chain. Only the browser that used the link holds the
+        // cookie that sends it on to the password form (#941).
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
         string revertToken = EmailChangeEmailSpy.LastRevertToken!;
 
@@ -566,8 +716,10 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             "/Account/RevertEmailChange",
             RevertUrl(userId, user.Email, newEmail, revertToken),
             RevertForm(userId, user.Email, newEmail, revertToken));
+        using HttpClient otherBrowser = Factory.CreateClient();
 
         HttpResponseMessage replay = await PostToPageAsync(
+            otherBrowser,
             "/Account/RevertEmailChange",
             RevertUrl(userId, user.Email, newEmail, revertToken),
             RevertForm(userId, user.Email, newEmail, revertToken));
@@ -578,6 +730,145 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             "Linku cofającego zmianę adresu można użyć tylko raz i działa on przez 14 dni od zmiany adresu. "
             + "Jeśli nadal nie masz dostępu do konta, skontaktuj się z nami.");
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
+    }
+
+    [Fact]
+    public async Task RevertPage_GetTheUsedLinkAgainInTheSameBrowser_ShouldSendItOnToTheSamePasswordForm()
+    {
+        // #941: Back from the password form loads the used undo link again. Its button would call the link
+        // dead, although the undo worked and the password form was one step away.
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        HttpResponseMessage reverted = await PostToPageAsync(
+            browser,
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, revertToken),
+            RevertForm(userId, user.Email, newEmail, revertToken));
+        reverted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+
+        HttpResponseMessage back = await browser.GetAsync(
+            new Uri(RevertUrl(userId, user.Email, newEmail, revertToken), UriKind.Relative));
+
+        back.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        back.Headers.Location.ShouldBe(reverted.Headers.Location);
+    }
+
+    [Fact]
+    public async Task RevertPage_PostTheUsedLinkAgainInTheSameBrowser_ShouldSendItOnToTheSamePasswordForm()
+    {
+        // A form the browser brings back from its cache can send the used link once more. The link asks for
+        // no input, so the second answer is the first one, and the undo does not run twice.
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        HttpResponseMessage reverted = await PostToPageAsync(
+            browser,
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, revertToken),
+            RevertForm(userId, user.Email, newEmail, revertToken));
+        reverted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+
+        // The used link now redirects, so the antiforgery token comes from the form of another link.
+        HttpResponseMessage replay = await PostToPageAsync(
+            browser,
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, "another-token"),
+            RevertForm(userId, user.Email, newEmail, revertToken));
+
+        replay.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        replay.Headers.Location.ShouldBe(reverted.Headers.Location);
+    }
+
+    [Fact]
+    public async Task RevertPage_GetTheUsedLinkAfterThePasswordWasSet_ShouldEndOnThePasswordDoneView()
+    {
+        // Back twice from the password done view: first the password form, then the undo link. The undo
+        // link sends the browser on to the password form, and the reset's own marker shows it as done.
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        HttpResponseMessage reverted = await PostToPageAsync(
+            browser,
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, revertToken),
+            RevertForm(userId, user.Email, newEmail, revertToken));
+        string resetLink = reverted.Headers.Location!.OriginalString;
+        Dictionary<string, StringValues> resetLinkValues = QueryHelpers.ParseQuery(resetLink[resetLink.IndexOf('?', StringComparison.Ordinal)..]);
+        (await PostToPageAsync(
+                browser,
+                "/Account/ResetPassword",
+                resetLink,
+                new Dictionary<string, string>
+                {
+                    ["Email"] = resetLinkValues["email"].ToString(),
+                    ["Token"] = resetLinkValues["token"].ToString(),
+                    ["NewPassword"] = "NewPass99!",
+                    ["ConfirmPassword"] = "NewPass99!"
+                }))
+            .Headers.Location!.OriginalString.ShouldBe("/Account/ResetPassword?handler=Done");
+
+        HttpResponseMessage back = await browser.GetAsync(
+            new Uri(RevertUrl(userId, user.Email, newEmail, revertToken), UriKind.Relative));
+        HttpResponseMessage landing = await browser.GetAsync(back.Headers.Location!);
+
+        back.Headers.Location!.OriginalString.ShouldBe(resetLink);
+        landing.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await landing.Content.ReadAsStringAsync();
+        html.ShouldContain("data-testid=\"reset-password-success\"");
+        html.ShouldNotContain("data-testid=\"reset-password-submit\"");
+    }
+
+    [Fact]
+    public async Task RevertPage_GetTheUsedLinkFromAnotherBrowser_ShouldShowTheFormAndNoPasswordForm()
+    {
+        // The password form carries a live reset token. Only the browser that used the undo link may be sent
+        // there again.
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        await PostToPageAsync(
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, revertToken),
+            RevertForm(userId, user.Email, newEmail, revertToken));
+        using HttpClient otherBrowser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await otherBrowser.GetAsync(
+            new Uri(RevertUrl(userId, user.Email, newEmail, revertToken), UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("data-testid=\"revert-email-change-form\"");
+    }
+
+    /// <summary>
+    /// Only a done undo may leave the cookie. After a refusal it would send the visitor to a password form
+    /// for an account whose password still works.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RevertPage_PostThatIsRefused_ShouldLeaveNoNextStepCookie(bool previousAddressTaken)
+    {
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+        string revertToken = previousAddressTaken ? EmailChangeEmailSpy.LastRevertToken! : "not-a-real-token";
+        if (previousAddressTaken)
+        {
+            await SeedUserOnAsync(user.Email);
+        }
+
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToPageAsync(
+            browser,
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, revertToken),
+            RevertForm(userId, user.Email, newEmail, revertToken));
+        HttpResponseMessage back = await browser.GetAsync(
+            new Uri(RevertUrl(userId, user.Email, newEmail, revertToken), UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        back.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies);
+        (cookies ?? []).ShouldNotContain(cookie => cookie.StartsWith(".lotrokoniecdev.used-link.", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -618,6 +909,13 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         ApplicationUser untouched = await LoadUserByIdAsync(userId);
         untouched.Email.ShouldBe(newEmail);
         untouched.PasswordHash.ShouldNotBeNull();
+    }
+
+    public enum ConfirmRefusal
+    {
+        DeadLink,
+        AddressTaken,
+        DeletionScheduled
     }
 
     /// <summary>
@@ -685,6 +983,14 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
+
+    private static Dictionary<string, string> ConfirmForm(Guid userId, string newEmail, string token) =>
+        new()
+        {
+            ["UserId"] = userId.ToString(),
+            ["Email"] = newEmail,
+            ["Token"] = token
+        };
 
     private static Dictionary<string, string> RevertForm(Guid userId, string from, string to, string token) =>
         new()

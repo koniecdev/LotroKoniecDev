@@ -19,13 +19,16 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 internal sealed partial class RevertEmailChangeModel : PageModel
 {
     private readonly ICommandHandler<RevertEmailChange.Command, Result<RevertEmailChange.RevertedEmailChange>> _handler;
+    private readonly UsedLinkNextStepCookie _nextStepCookie;
     private readonly ILogger<RevertEmailChangeModel> _logger;
 
     public RevertEmailChangeModel(
         ICommandHandler<RevertEmailChange.Command, Result<RevertEmailChange.RevertedEmailChange>> handler,
+        UsedLinkNextStepCookie nextStepCookie,
         ILogger<RevertEmailChangeModel> logger)
     {
         _handler = handler;
+        _nextStepCookie = nextStepCookie;
         _logger = logger;
     }
 
@@ -53,7 +56,7 @@ internal sealed partial class RevertEmailChangeModel : PageModel
     /// </summary>
     public bool CanRetry { get; set; }
 
-    public void OnGet(string? userId = null, string? from = null, string? to = null, string? token = null)
+    public IActionResult OnGet(string? userId = null, string? from = null, string? to = null, string? token = null)
     {
         UserId = userId ?? string.Empty;
         From = from ?? string.Empty;
@@ -63,7 +66,11 @@ internal sealed partial class RevertEmailChangeModel : PageModel
         if (!HasEveryValue())
         {
             ShowInvalidLink();
+            return Page();
         }
+
+        // Back from the password form loads this used link again. Its button would call it dead (#941).
+        return RedirectToNextStepIfUsedHere() ?? Page();
     }
 
     public async Task<IActionResult> OnPostAsync()
@@ -72,6 +79,13 @@ internal sealed partial class RevertEmailChangeModel : PageModel
         {
             ShowInvalidLink();
             return Page();
+        }
+
+        // A form the browser brought back from its cache can still send a link this browser already used.
+        // The link asks for no input, so this answer is the same as the first one (#941).
+        if (RedirectToNextStepIfUsedHere() is { } redirect)
+        {
+            return redirect;
         }
 
         RevertEmailChange.Command command = new(
@@ -95,12 +109,18 @@ internal sealed partial class RevertEmailChangeModel : PageModel
 
         // The password is gone now, so the only way back into the account is the reset flow. Same
         // ending as cancelling a scheduled deletion.
-        return RedirectToPage("/Account/ResetPassword", new
-        {
-            email = commandResult.Value.RestoredEmail,
-            token = commandResult.Value.PasswordResetToken
-        });
+        PasswordResetStep nextStep = new(commandResult.Value.RestoredEmail, commandResult.Value.PasswordResetToken);
+        _nextStepCookie.Remember(HttpContext, UsedLinkFlow.EmailChangeRevert, Token, nextStep);
+        return RedirectToPasswordReset(nextStep);
     }
+
+    private IActionResult? RedirectToNextStepIfUsedHere() =>
+        _nextStepCookie.NextStepFor(Request, UsedLinkFlow.EmailChangeRevert, Token) is { } nextStep
+            ? RedirectToPasswordReset(nextStep)
+            : null;
+
+    private RedirectToPageResult RedirectToPasswordReset(PasswordResetStep nextStep) =>
+        RedirectToPage("/Account/ResetPassword", new { email = nextStep.Email, token = nextStep.Token });
 
     /// <summary>
     /// Only a dead link is called dead (#869). A taken previous address is a different problem with a

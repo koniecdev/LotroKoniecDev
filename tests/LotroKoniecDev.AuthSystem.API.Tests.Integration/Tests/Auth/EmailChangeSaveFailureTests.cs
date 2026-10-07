@@ -439,6 +439,47 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
     }
 
+    /// <summary>
+    /// The retry state means nothing changed yet. A used-link marker here would make Back say the address
+    /// was changed, so only a done confirm may leave one (#941).
+    /// </summary>
+    [Fact]
+    public async Task ConfirmPage_Post_ShouldLeaveNoUsedLinkMarker_WhenAnotherSaveOfTheAccountLandsFirst()
+    {
+        // Arrange
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        Guid userId = await UserIdOfAsync(user.Email);
+        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
+
+        CompetitorCommitsFirstInterceptor interceptor = new(
+            newEmail, RaceMoment.BeforeTheUpdate, () => RecordAFailedLoginAsync(userId));
+        await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
+        using HttpClient client = host.CreateClient();
+
+        string token = await CreateTokenAsync(
+            host.Services,
+            userId,
+            EmailChangeTokenProvider.ProviderName,
+            EmailChangeTokenProvider.PurposeFor(newEmail));
+
+        // Act
+        using HttpResponseMessage response = await PostToPageAsync(
+            client,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            ConfirmForm(userId, newEmail, token));
+
+        // Assert
+        interceptor.CompetitorCommitted.ShouldBeTrue();
+        response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies);
+        (cookies ?? []).ShouldNotContain(cookie => cookie.StartsWith(".lotrokoniecdev.used-link.", StringComparison.Ordinal));
+        using HttpResponseMessage back = await client.GetAsync(new Uri(ConfirmUrl(userId, newEmail, token), UriKind.Relative));
+        string html = await back.Content.ReadAsStringAsync();
+        html.ShouldContain("data-testid=\"confirm-email-change-form\"");
+        html.ShouldNotContain("data-testid=\"confirm-email-change-success\"");
+    }
+
     [Fact]
     public async Task ConfirmPage_PostAgain_ShouldMoveTheAddress_AfterAnotherSaveOfTheAccountLandedFirst()
     {

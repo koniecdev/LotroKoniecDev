@@ -57,6 +57,13 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
         if (!HasUsableLinkValues())
         {
             ShowInvalidLink("Link potwierdzający zmianę adresu jest nieprawidłowy.");
+            return;
+        }
+
+        // Back from the done view loads this link again. Its button would send the used link (#941).
+        if (UsedLinkCookie.EmailChangeConfirm.WasUsedHere(Request, Token))
+        {
+            IsCompleted = true;
         }
     }
 
@@ -78,6 +85,13 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
             return Page();
         }
 
+        // A form the browser brought back from its cache can still send a link this browser already used.
+        // The link asks for no input, so this answer is the same as the first one (#941).
+        if (UsedLinkCookie.EmailChangeConfirm.WasUsedHere(Request, Token))
+        {
+            return RedirectToPage("/Account/ConfirmEmailChange", "Done");
+        }
+
         ConfirmEmailChange.Command command = new(
             UserId,
             Email,
@@ -95,6 +109,7 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
 
         LogEmailChangeConfirmedViaUi(_logger, Email.MaskEmail());
 
+        UsedLinkCookie.EmailChangeConfirm.Remember(HttpContext, Token);
         return RedirectToPage("/Account/ConfirmEmailChange", "Done");
     }
 

@@ -56,6 +56,11 @@ internal sealed partial class ResetPasswordModel : PageModel
     {
         Email = email ?? string.Empty;
         Token = token ?? string.Empty;
+
+        // Back from the done view loads this link again. Its button would send the used link (#941). The
+        // answer rests on this browser's own cookie, so it says nothing about whether the address has an
+        // account, and it needs no time floor.
+        IsCompleted = UsedLinkCookie.PasswordReset.WasUsedHere(Request, Token);
     }
 
     /// <summary>
@@ -87,7 +92,16 @@ internal sealed partial class ResetPasswordModel : PageModel
         // returns before it. So every answer waits for the floor (ADR-0059).
         await _responseTimeFloor.HoldAsync(ResponseTimeFloors.AccountLookup, ResetAsync);
 
-        return IsCompleted ? RedirectToPage("/Account/ResetPassword", "Done") : Page();
+        if (!IsCompleted)
+        {
+            return Page();
+        }
+
+        // The POST deliberately does not read this cookie: a second send of the used link carries a
+        // password the user typed again, maybe a different one, and "Twoje nowe hasło jest aktywne"
+        // would then be false (ADR-0063).
+        UsedLinkCookie.PasswordReset.Remember(HttpContext, Token);
+        return RedirectToPage("/Account/ResetPassword", "Done");
     }
 
     private async Task ResetAsync()

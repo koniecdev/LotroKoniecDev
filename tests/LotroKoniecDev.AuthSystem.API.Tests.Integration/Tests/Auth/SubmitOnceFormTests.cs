@@ -36,6 +36,30 @@ public sealed partial class SubmitOnceFormTests : EndpointsTestBase
         html.ShouldContain(ScriptTag);
     }
 
+    /// <summary>
+    /// A marked form that the browser brings back from its cache after it was sent asks for a fresh GET, so
+    /// the server can answer for the used link (#941, ADR-0063). Every page behind a one-time link leaves a
+    /// used-link cookie and carries the mark. The login form leaves none, so a fresh GET would show it again.
+    /// </summary>
+    [Theory]
+    [InlineData("/Account/ConfirmEmailChange?userId=00000000-0000-0000-0000-000000000001&email=c%40d.pl&token=z", true)]
+    [InlineData("/Account/ResetPassword?email=a%40b.pl&token=z", true)]
+    [InlineData("/Account/RevertEmailChange?userId=00000000-0000-0000-0000-000000000001&from=a%40b.pl&to=c%40d.pl&token=z", true)]
+    [InlineData("/Account/CancelDeletion?email=a%40b.pl&token=z", true)]
+    [InlineData("/Account/Login", false)]
+    public async Task FormPage_ShouldAskForAFreshPageWhenRestoredFromTheCache_OnlyBehindAOneTimeLink(
+        string path, bool expectsTheMark)
+    {
+        // Act
+        using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(path, UriKind.Relative));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        FormTag().Matches(html).ShouldHaveSingleItem().Value.Contains("data-recheck-when-restored", StringComparison.Ordinal)
+            .ShouldBe(expectsTheMark);
+    }
+
     [Fact]
     public async Task SubmitOnceScript_ShouldBeServedFromThisOrigin()
     {

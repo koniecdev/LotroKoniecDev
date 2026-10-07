@@ -32,6 +32,14 @@
         // although no request is running any more.
         window.addEventListener('pageshow', function (event) {
             if (!event.persisted) { return; }
+            // The link this form sent may be used up by now, and only the server knows whether this browser
+            // used it. A fresh GET lets the page show "done" instead of a button that calls the link dead
+            // (#941). replace, not reload: when this page answered a POST, a reload would send it again.
+            // The fragment goes, because a replace to the same address with a fragment only scrolls.
+            if (sent && form.hasAttribute('data-recheck-when-restored')) {
+                window.location.replace(window.location.href.split('#')[0]);
+                return;
+            }
             sent = false;
             if (!btn) { return; }
             btn.disabled = false;

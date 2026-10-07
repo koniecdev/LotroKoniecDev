@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.TranslationSystem.Contracts.Discovery;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Auth;
@@ -100,6 +101,40 @@ public sealed class AuthorizationDefaultsTests
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateTokenSignedWithUnknownKey());
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task GetProtectedResource_WithATokenThatNamesBothApis_ShouldReturn200()
+    {
+        // Arrange: the website sends one token to both APIs, so it names the auth API too (#1023)
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TranslationSystemApiFactory.CreateAccessTokenForAudiences(
+                TranslationSystemApiFactory.TestAudience,
+                AuthConstants.Audiences.AuthApi));
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task GetProtectedResource_WithATokenThatNamesOnlyTheAuthApi_ShouldReturn401()
+    {
+        // Arrange
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TranslationSystemApiFactory.CreateAccessTokenForAudiences(AuthConstants.Audiences.AuthApi));
 
         // Act
         HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");

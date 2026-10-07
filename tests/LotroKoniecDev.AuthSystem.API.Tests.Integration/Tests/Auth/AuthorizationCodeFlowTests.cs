@@ -18,6 +18,7 @@ using Microsoft.EntityFrameworkCore;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.SharedKernel.Authorization;
 using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
@@ -498,6 +499,39 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task AuthorizationCodeExchange_ShouldIssueTheWebsiteAnAccessTokenThatNamesBothApis()
+    {
+        // Arrange: the website sends this one token to the translation API and to this API's account
+        // endpoints, and each of them takes only a token that names it (#1023)
+        (string authorizationCode, string codeVerifier, _, _) = await ObtainAuthorizationCodeAsync();
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAuthorizationCodeAsync(authorizationCode, codeVerifier);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using JsonDocument tokens = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JwtPayload.ReadAudiences(tokens.RootElement.GetProperty("access_token").GetString()!)
+            .ShouldBe([AuthConstants.ClientIds.Api, AuthConstants.Audiences.AuthApi], ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task RefreshTokenGrant_ShouldIssueTheWebsiteAnAccessTokenThatNamesBothApis()
+    {
+        // Arrange
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
+
+        // Act
+        using HttpResponseMessage response = await RefreshAsync(session.RefreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using JsonDocument tokens = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JwtPayload.ReadAudiences(tokens.RootElement.GetProperty("access_token").GetString()!)
+            .ShouldBe([AuthConstants.ClientIds.Api, AuthConstants.Audiences.AuthApi], ignoreOrder: true);
     }
 
     [Fact]

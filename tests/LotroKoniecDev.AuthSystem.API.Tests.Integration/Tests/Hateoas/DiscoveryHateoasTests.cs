@@ -79,11 +79,11 @@ public sealed class DiscoveryHateoasTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The account endpoints refuse a service token with 403 (#966), so the account link is not offered
-    /// to one (ADR-0040).
+    /// A service token does not name this API, so this API does not take it (#1023). Its caller gets what
+    /// an anonymous caller gets, and the account link is not offered to it (ADR-0040).
     /// </summary>
     [Fact]
-    public async Task Discovery_ShouldNotAdvertiseTheAccount_WhenTheTokenWasIssuedToAService()
+    public async Task Discovery_ShouldAnswerAServiceTokenWithTheAnonymousLinks()
     {
         // Arrange
         string accessToken = await GetClientCredentialsAccessTokenAsync();
@@ -101,7 +101,7 @@ public sealed class DiscoveryHateoasTests : EndpointsTestBase
             stringResponse, ApiClient.JsonOptions)!;
 
         // Assert
-        response.Links.ShouldHaveSingleItem().Rel.ShouldBe(Rels.Self);
+        response.Links.Select(l => l.Rel).ShouldBe([Rels.Self, Rels.Register, Rels.ForgotPassword], ignoreOrder: true);
     }
 
     [Fact]

@@ -7,7 +7,6 @@ using OpenIddict.Server.AspNetCore;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
-using LotroKoniecDev.SharedKernel.Authorization;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
@@ -109,7 +108,7 @@ internal sealed class AuthorizeEndpoint : IEndpoint
         await SessionSecurityStamp.AddAsync(identity, user, userManager);
 
         identity.SetScopes(request.GetScopes());
-        identity.SetResources(AuthConstants.ClientIds.Api);
+        identity.SetResources(UserTokenAudiences.All);
 
         identity.SetDestinations(UserClaimDestinations.Select);
 

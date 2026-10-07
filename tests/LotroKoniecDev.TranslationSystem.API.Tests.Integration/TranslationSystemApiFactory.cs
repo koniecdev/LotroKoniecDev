@@ -170,6 +170,12 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         string email = TestUserEmail)
         => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), role, scope, subject, displayName, email);
 
+    /// <summary>
+    /// The website's token names the auth API next to this one (#1023).
+    /// </summary>
+    public static string CreateAccessTokenForAudiences(params string[] audiences)
+        => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), audiences: audiences);
+
     public static string CreateExpiredAccessToken()
         => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(-20));
 
@@ -185,14 +191,15 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         string scope = AuthConstants.Scopes.Api,
         Guid? subject = null,
         string displayName = TestUserDisplayName,
-        string email = TestUserEmail)
+        string email = TestUserEmail,
+        string[]? audiences = null)
     {
         JsonWebTokenHandler handler = new();
 
         SecurityTokenDescriptor descriptor = new()
         {
             Issuer = TestIssuer,
-            Audience = TestAudience,
+            Audience = audiences is null ? TestAudience : null,
             IssuedAt = expires.AddMinutes(-30),
             NotBefore = expires.AddMinutes(-30),
             Expires = expires,
@@ -206,6 +213,11 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
                 ["scope"] = scope
             }
         };
+
+        foreach (string audience in audiences ?? [])
+        {
+            descriptor.Audiences.Add(audience);
+        }
 
         return handler.CreateToken(descriptor);
     }

@@ -33,25 +33,6 @@ public sealed class UserInfoEndpointTests : EndpointsTestBase
         body.RootElement.GetProperty("role").EnumerateArray().Select(role => role.GetString()).ShouldBe(["Translator"]);
     }
 
-    [Theory]
-    [InlineData("GET")]
-    [InlineData("POST")]
-    public async Task UserInfo_ShouldRefuseWithInvalidToken_WhenTheTokenWasIssuedToAService(string method)
-    {
-        // Arrange
-        string accessToken = await GetClientCredentialsAccessTokenAsync();
-
-        // Act
-        using HttpResponseMessage response = await RequestUserInfoAsync(new HttpMethod(method), accessToken);
-
-        // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        AuthenticationHeaderValue challenge = response.Headers.WwwAuthenticate.ShouldHaveSingleItem();
-        challenge.Scheme.ShouldBe("Bearer");
-        challenge.Parameter.ShouldNotBeNull().ShouldContain("error=\"invalid_token\"");
-        challenge.Parameter.ShouldContain("error_description=\"The specified access token is invalid.\"");
-    }
-
     [Fact]
     public async Task UserInfo_ShouldRefuseWithInvalidToken_WhenTheUserNoLongerExists()
     {

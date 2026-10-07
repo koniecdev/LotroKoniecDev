@@ -209,6 +209,11 @@ internal sealed partial class TokenEndpoint : IEndpoint
         IList<string> roles = await userManager.GetRolesAsync(user);
         identity.SetClaims(Claims.Role, [.. roles]);
 
+        // The principal comes from the refresh token, so without this line a session keeps the audiences
+        // it started with. Refresh tokens slide, so a session from before a change to the list would never
+        // get the new one (#1023).
+        identity.SetResources(UserTokenAudiences.All);
+
         identity.SetDestinations(UserClaimDestinations.Select);
 
         return Results.SignIn(
@@ -260,7 +265,7 @@ internal sealed partial class TokenEndpoint : IEndpoint
         await SessionSecurityStamp.AddAsync(identity, user, userManager);
 
         identity.SetScopes(request.GetScopes());
-        identity.SetResources(AuthConstants.ClientIds.Api);
+        identity.SetResources(UserTokenAudiences.All);
 
         identity.SetDestinations(UserClaimDestinations.Select);
 

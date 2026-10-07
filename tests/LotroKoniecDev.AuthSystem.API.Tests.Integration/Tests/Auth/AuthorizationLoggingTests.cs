@@ -19,8 +19,9 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 /// connection, and then the connection's own address (ADR-0054, amended by #854). Each test boots a
 /// derived host whose logger factory captures what the host logged. In Testing <c>UseForwardedHeaders</c>
 /// trusts every peer, so <c>X-Forwarded-For</c> plays the connection address Caddy resolves:
-/// <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses are visitors. The one 403 here is a
-/// service token at an account endpoint (#966).
+/// <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses are visitors. A service token does not
+/// name this API, so it is refused during authentication too (#1023). No endpoint here answers a token
+/// with 403 today, so <c>AuthorizationLoggingMiddlewareTests</c> pins the 403 warning.
 /// </summary>
 public sealed class AuthorizationLoggingTests : EndpointsTestBase
 {
@@ -78,7 +79,7 @@ public sealed class AuthorizationLoggingTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task GetAccountData_WithAServiceToken_ShouldWarnAboutTheForbiddenCall()
+    public async Task GetAccountData_WithAServiceToken_ShouldWarnAboutTheUnauthorizedCall()
     {
         // Arrange: the token comes from this host, because each host signs with its own keys
         using CapturingLoggerFactory loggerFactory = new();
@@ -96,12 +97,11 @@ public sealed class AuthorizationLoggingTests : EndpointsTestBase
         using HttpResponseMessage response = await client.SendAsync(request);
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         CapturingLoggerFactory.LogEntry warning = MiddlewareEntries(loggerFactory).ShouldHaveSingleItem();
         warning.Level.ShouldBe(LogLevel.Warning);
-        warning.EventId.Id.ShouldBe(EventIds.ForbiddenAccessAttempt);
-        warning.Message.ShouldBe(
-            $"Forbidden access attempt: GET /{AccountPath} from 203.0.113.95 via 203.0.113.95 by {AuthConstants.ClientIds.Api}");
+        warning.EventId.Id.ShouldBe(EventIds.UnauthorizedAccessAttempt);
+        warning.Message.ShouldBe($"Unauthorized access attempt: GET /{AccountPath} from 203.0.113.95 via 203.0.113.95");
     }
 
     [Theory]

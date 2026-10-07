@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 
 namespace LotroKoniecDev.Hateoas.ExceptionHandlers;
 
@@ -14,16 +15,29 @@ namespace LotroKoniecDev.Hateoas.ExceptionHandlers;
 /// It is registered after <c>AddProblemDetails()</c>, so the default writer keeps the Accept types it
 /// supports and this one is tried last and always accepts.
 /// </para>
+/// <para>
+/// It runs <see cref="ProblemDetailsOptions.CustomizeProblemDetails"/> like the default writer does, so
+/// what an app adds there reaches every client, whatever it accepts (#912).
+/// </para>
 /// </summary>
 internal sealed class FallbackProblemDetailsWriter : IProblemDetailsWriter
 {
     private const string ContentType = "application/problem+json";
+
+    private readonly ProblemDetailsOptions _options;
+
+    public FallbackProblemDetailsWriter(IOptions<ProblemDetailsOptions> options)
+    {
+        _options = options.Value;
+    }
 
     public bool CanWrite(ProblemDetailsContext context) => true;
 
     public ValueTask WriteAsync(ProblemDetailsContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+
+        _options.CustomizeProblemDetails?.Invoke(context);
 
         return new ValueTask(context.HttpContext.Response.WriteAsJsonAsync(
             context.ProblemDetails,

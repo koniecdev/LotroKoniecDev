@@ -74,11 +74,15 @@ internal static class OpenIddictExtensions
                         .AddEphemeralEncryptionKey();
                 }
 
+                // The status-code pages switch: OpenIddict leaves a refused sign-in or sign-out link to the
+                // app's error pages instead of writing its own English plain text (#912). It touches only
+                // authorize and logout.
                 OpenIddictServerAspNetCoreBuilder aspNetCoreBuilder = options.UseAspNetCore()
                     .EnableTokenEndpointPassthrough()
                     .EnableAuthorizationEndpointPassthrough()
                     .EnableUserInfoEndpointPassthrough()
-                    .EnableEndSessionEndpointPassthrough();
+                    .EnableEndSessionEndpointPassthrough()
+                    .EnableStatusCodePagesIntegration();
 
                 if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
                 {

@@ -8,7 +8,8 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
 /// OpenIddict refuses an expired, used or revoked code or refresh token before <see cref="TokenEndpoint"/>
-/// runs. Its own log line names the token, not the user (#977). These handlers note the token's user while
+/// runs, and so does any other request it refuses after reading the token, such as a wrong code_verifier.
+/// Its own log line names the token, not the user (#977). These handlers note the token's user while
 /// OpenIddict checks the token, and write one warning when OpenIddict then refuses the request. They never
 /// change the answer to the client.
 /// </summary>
@@ -42,9 +43,10 @@ internal static partial class OpenIddictTokenRefusals
     }
 
     /// <summary>
-    /// Runs just after OpenIddict's expiry check. Nothing else runs between the two notes, so a refusal
-    /// that comes before this one means the token has expired. OpenIddict's answer cannot tell: it says
-    /// "no longer valid" for an expired token and for a revoked one alike.
+    /// Runs just after OpenIddict's expiry check. Nothing else runs between the two notes (a unit test
+    /// checks this after every OpenIddict update), so a refusal that comes before this one means the token
+    /// has expired. OpenIddict's answer cannot tell: it says "no longer valid" for an expired token and for
+    /// a revoked one alike.
     /// </summary>
     internal sealed class NoteLifetimeChecked : IOpenIddictServerHandler<ValidateTokenContext>
     {

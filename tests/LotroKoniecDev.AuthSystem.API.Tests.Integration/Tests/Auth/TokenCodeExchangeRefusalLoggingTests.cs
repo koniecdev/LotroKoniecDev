@@ -7,9 +7,11 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
+using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
@@ -32,8 +34,6 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
     private const string Password = "TestPass1!";
     private const string WebClientId = "lotrokoniecdev-web";
     private const string RedirectUri = AuthSystemApiFactory.TestFrontendAppRoot + "/callback";
-
-    private static readonly TimeSpan AuthorizationCodeLifetime = TimeSpan.FromMinutes(5);
 
     public TokenCodeExchangeRefusalLoggingTests(AuthSystemApiFactory appFactory) : base(appFactory)
     {
@@ -83,21 +83,11 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
     [Fact]
     public async Task AuthorizationCodeGrant_WhenTheCodeNamesNoUser_ShouldWarnWithoutAUserId()
     {
-        // Arrange: OpenIddict never signs in a principal without a subject, so the subject is taken out of
-        // the code only, after OpenIddict has built that code's principal
+        // Arrange
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         using CapturingLoggerFactory loggerFactory = new();
-        await using WebApplicationFactory<Program> host = CreateHost(
-            loggerFactory,
-            server => server.AddEventHandler<OpenIddictServerEvents.ProcessSignInContext>(handler =>
-                handler
-                    .UseInlineHandler(context =>
-                    {
-                        context.AuthorizationCodePrincipal?.RemoveClaims(OpenIddictConstants.Claims.Subject);
-                        return ValueTask.CompletedTask;
-                    })
-                    .SetOrder(OpenIddictServerHandlers.PrepareAuthorizationCodePrincipal.Descriptor.Order + 1)));
+        await using WebApplicationFactory<Program> host = CreateHost(loggerFactory, RemoveSubjectFromTheCode);
         using HttpClient client = host.CreateClient();
         (string code, string codeVerifier) = await ObtainAuthorizationCodeAsync(host, user.Email);
 
@@ -110,6 +100,56 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
         warning.Level.ShouldBe(LogLevel.Warning);
         warning.EventId.Id.ShouldBe(EventIds.TokenGrantRefusedNoSubject);
         warning.Message.ShouldBe("Code exchange refused: no user id could be read from the authorization code");
+    }
+
+    [Fact]
+    public async Task AuthorizationCodeGrant_WhenTheCodeNamesNoUser_ShouldGiveTheSameAnswerAsEveryOtherAccountCase()
+    {
+        // Arrange
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        using CapturingLoggerFactory loggerFactory = new();
+        await using WebApplicationFactory<Program> host = CreateHost(loggerFactory, RemoveSubjectFromTheCode);
+        using HttpClient client = host.CreateClient();
+        (string code, string codeVerifier) = await ObtainAuthorizationCodeAsync(host, user.Email);
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAsync(client, code, codeVerifier);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The authorization code is no longer valid.");
+    }
+
+    [Fact]
+    public async Task AuthorizationCodeGrant_WhenAllSessionsWereRevokedAfterAuthorize_ShouldWarnWithTheUserAndOpenIddictsReason()
+    {
+        // Arrange: a password reset, signing out everywhere and a scheduled deletion all revoke through the
+        // session revoker, and that revokes a code still waiting to be exchanged too
+        (RegisterRequest user, IdentityId userId) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        using CapturingLoggerFactory loggerFactory = new();
+        await using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
+        using HttpClient client = host.CreateClient();
+        (string code, string codeVerifier) = await ObtainAuthorizationCodeAsync(host, user.Email);
+
+        await using (AsyncServiceScope scope = host.Services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IUserSessionRevoker>().RevokeAllAsync(userId.Value.ToString());
+        }
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAsync(client, code, codeVerifier);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        CapturingLoggerFactory.LogEntry warning = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.EventId.Id.ShouldBe(EventIds.TokenGrantRefusedByOpenIddict);
+        warning.Message.ShouldBe(
+            $"Code exchange refused for user {userId.Value} by OpenIddict: The specified authorization code is no longer valid.");
     }
 
     [Fact]
@@ -196,7 +236,9 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
         using HttpClient client = host.CreateClient();
         (string code, string codeVerifier) = await ObtainAuthorizationCodeAsync(host, user.Email);
 
-        clock.Advance(AuthorizationCodeLifetime + TimeSpan.FromSeconds(1));
+        clock.Advance(
+            host.Services.GetRequiredService<IOptions<OpenIddictServerOptions>>().Value.AuthorizationCodeLifetime!.Value
+            + TimeSpan.FromSeconds(1));
 
         // Act
         using HttpResponseMessage response = await ExchangeAsync(client, code, codeVerifier);
@@ -295,6 +337,20 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
 
         return await client.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
     }
+
+    /// <summary>
+    /// OpenIddict never signs in a principal without a subject, so the subject is taken out of the code only,
+    /// after OpenIddict has built that code's principal.
+    /// </summary>
+    private static void RemoveSubjectFromTheCode(OpenIddictServerBuilder server) =>
+        server.AddEventHandler<OpenIddictServerEvents.ProcessSignInContext>(handler =>
+            handler
+                .UseInlineHandler(context =>
+                {
+                    context.AuthorizationCodePrincipal?.RemoveClaims(OpenIddictConstants.Claims.Subject);
+                    return ValueTask.CompletedTask;
+                })
+                .SetOrder(OpenIddictServerHandlers.PrepareAuthorizationCodePrincipal.Descriptor.Order + 1));
 
     private static List<CapturingLoggerFactory.LogEntry> TokenEndpointEntries(CapturingLoggerFactory loggerFactory) =>
         loggerFactory.Entries

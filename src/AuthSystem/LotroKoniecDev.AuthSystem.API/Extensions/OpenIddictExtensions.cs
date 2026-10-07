@@ -98,8 +98,7 @@ internal static class OpenIddictExtensions
                 options.AddEventHandler(
                     OpenIddictServerAspNetCoreHandlers.ExtractPostRequest<OpenIddictServerEvents.ExtractIntrospectionRequestContext>.Descriptor);
 
-                // OpenIddict refuses an expired, used or revoked code or refresh token before the token
-                // endpoint runs, and its own log line does not name the user (#977).
+                // Warnings for the refusals OpenIddict makes itself (#977).
                 options.AddEventHandler(OpenIddictTokenRefusals.NoteTokenUser.Descriptor);
                 options.AddEventHandler(OpenIddictTokenRefusals.NoteLifetimeChecked.Descriptor);
                 options.AddEventHandler(OpenIddictTokenRefusals.WarnWhenRefused.Descriptor);

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
@@ -27,8 +28,6 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
 {
     private const string Password = "TestPass1!";
-
-    private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromHours(9);
 
     public TokenRefreshRefusalLoggingTests(AuthSystemApiFactory appFactory) : base(appFactory)
     {
@@ -232,7 +231,7 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
         using HttpClient client = host.CreateClient();
         string refreshToken = await GetRefreshTokenAsync(client, user.Email, Password);
 
-        clock.Advance(RefreshTokenLifetime + TimeSpan.FromSeconds(1));
+        clock.Advance(OpenIddictOptionsOf(host).RefreshTokenLifetime!.Value + TimeSpan.FromSeconds(1));
 
         // Act
         using HttpResponseMessage response = await RequestRefreshGrantAsync(client, refreshToken);
@@ -248,7 +247,8 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
     [Fact]
     public async Task RefreshTokenGrant_WhenAUsedTokenIsSentAgainAfterTheReuseWindow_ShouldWarnWithTheUserAndOpenIddictsReason()
     {
-        // Arrange: OpenIddict accepts a used refresh token again for 30 seconds, then refuses it
+        // Arrange: OpenIddict accepts a used refresh token again for 30 seconds, then refuses it. It dates
+        // the first use with the real clock, so the stopped clock moves well past that window.
         (RegisterRequest user, IdentityId userId) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         FakeTimeProvider clock = new(DateTimeOffset.UtcNow);
@@ -262,7 +262,7 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
             firstRefresh.StatusCode.ShouldBe(HttpStatusCode.OK);
         }
 
-        clock.Advance(TimeSpan.FromMinutes(1));
+        clock.Advance(TimeSpan.FromHours(1));
 
         // Act
         using HttpResponseMessage response = await RequestRefreshGrantAsync(client, refreshToken);
@@ -335,6 +335,9 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
                 throw new ArgumentOutOfRangeException(nameof(change), change, null);
         }
     }
+
+    private static OpenIddictServerOptions OpenIddictOptionsOf(WebApplicationFactory<Program> host) =>
+        host.Services.GetRequiredService<IOptions<OpenIddictServerOptions>>().Value;
 
     private static List<CapturingLoggerFactory.LogEntry> TokenEndpointEntries(CapturingLoggerFactory loggerFactory) =>
         loggerFactory.Entries

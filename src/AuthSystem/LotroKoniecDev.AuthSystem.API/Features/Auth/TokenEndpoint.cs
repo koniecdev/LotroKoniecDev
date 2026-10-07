@@ -146,8 +146,8 @@ internal sealed partial class TokenEndpoint : IEndpoint
     }
 
     /// <summary>
-    /// A refresh token that expired, was already used or was revoked never gets here: OpenIddict refuses
-    /// it first, and <see cref="OpenIddictTokenRefusals"/> writes the warning for it (#977).
+    /// A refresh token that expired, was revoked, or was used more than 30 seconds ago never gets here:
+    /// OpenIddict refuses it first, and <see cref="OpenIddictTokenRefusals"/> writes the warning (#977).
     /// </summary>
     private static async Task<IResult> HandleRefreshTokenGrantAsync(
         HttpContext httpContext,

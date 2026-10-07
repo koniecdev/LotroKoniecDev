@@ -20,4 +20,5 @@ internal static class EventIds
     public const int PwnedPasswordsUnexpectedStatus = 3300;
     public const int PwnedPasswordsUnreachable = 3301;
     public const int PwnedPasswordsTimedOut = 3302;
+    public const int PwnedPasswordsUnreadableAnswer = 3303;
 }

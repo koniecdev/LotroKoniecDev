@@ -38,7 +38,10 @@ internal static class PwnedPasswordsDependencyInjection
                     client.DefaultRequestHeaders.UserAgent.ParseAdd("LotroKoniecDev-AuthSystem/1.0");
                 })
                 .ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler)
-                .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
+                .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
+                // The factory's own handlers log every request URL at Information, and this URL ends in
+                // the hash prefix. The checker's warnings say everything an operator needs (ADR-0065).
+                .RemoveAllLoggers();
 
             return services;
         }

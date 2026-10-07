@@ -1963,7 +1963,7 @@ form works for `up` too. It does not.
 - `.github/workflows/*` pushes need the koniecdev token.
 - **auth-api calls Have I Been Pwned when a password is set** (registration, password change, reset;
   ADR-0065). It needs outbound HTTPS to `api.pwnedpasswords.com`. When that call fails, the password is
-  accepted unchecked and auth-api logs warning `3300`, `3301` or `3302`. A run of those warnings means
+  accepted unchecked and auth-api logs warning `3300`, `3301`, `3302` or `3303`. A run of those warnings means
   the breach check is off in practice: look at the box's outbound network first.
 
 ## History — the Azure era

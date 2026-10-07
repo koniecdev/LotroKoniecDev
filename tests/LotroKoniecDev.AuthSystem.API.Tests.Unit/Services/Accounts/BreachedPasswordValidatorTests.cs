@@ -65,6 +65,29 @@ public sealed class BreachedPasswordValidatorTests
         result.Succeeded.ShouldBeTrue();
     }
 
+    /// <summary>
+    /// The built-in validator refuses these with an error that names the rule, so this one stays out of
+    /// the way instead of adding the vaguer breach message on top.
+    /// </summary>
+    [Theory]
+    [InlineData("abc")]
+    [InlineData("password")]
+    [InlineData("PASSWORD1!")]
+    [InlineData("Password1")]
+    public async Task ValidateAsync_WhenThePasswordBreaksThePolicy_SucceedsAndLeavesItToTheBuiltInRules(string password)
+    {
+        // Arrange: a checker that calls everything breached
+        _pwnedPasswordChecker.CheckAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(PwnedPasswordVerdict.Breached);
+        BreachedPasswordValidator validator = new(_pwnedPasswordChecker);
+
+        // Act
+        IdentityResult result = await validator.ValidateAsync(_userManager, new ApplicationUser(), password);
+
+        // Assert
+        result.Succeeded.ShouldBeTrue();
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

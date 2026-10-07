@@ -17,10 +17,11 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// Runs on every cookie validation (<c>OnValidatePrincipal</c>).
 /// First it reads any "dead session" marker a previous 401 left behind and signs the cookie out
 /// properly. A cookie with no expiry, no usable access token or a blank refresh token is signed out too.
-/// Otherwise it refreshes the access token shortly before it expires, using the stored refresh token.
-/// When the token is still valid by the local clock, it also checks the token's signature against the
-/// cached OIDC keys, so a key that was rotated upstream signs the user out cleanly instead of letting a
-/// token that is already dead reach the API.
+/// Otherwise it refreshes the access token shortly before it expires, at the time
+/// <see cref="AccessTokenRefreshSchedule"/> sets, using the stored refresh token. When the token is still
+/// valid by the local clock, it also checks the token's signature against the cached OIDC keys, so a key
+/// that was rotated upstream signs the user out cleanly instead of letting a token that is already dead
+/// reach the API.
 /// Every rejection sets the one-time "session expired" notice and revokes the session's refresh token
 /// (#1027). The one exception is a browser that left during the renewal, which comes back with the same
 /// token. On the user's own sign-out (<c>/auth/logout</c> and <c>/auth/local-signout</c>) it only clears the
@@ -32,14 +33,7 @@ internal sealed class CookieTokenRefresher
     private const string AccessTokenName = "access_token";
     private const string RefreshTokenName = "refresh_token";
     private const string IdTokenName = "id_token";
-    private const string ExpiresAtName = "expires_at";
     private const string SubjectClaimType = "sub";
-
-    /// <summary>
-    /// Refresh a little before the token really expires, so a call already on its way cannot arrive with
-    /// a token that still looks valid here but is already refused by the server.
-    /// </summary>
-    private static readonly TimeSpan RefreshSkew = TimeSpan.FromSeconds(60);
 
     private static readonly SearchValues<char> Base64UrlCharacters = SearchValues.Create(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_");
@@ -98,7 +92,8 @@ internal sealed class CookieTokenRefresher
         // again, the API refuses a blank access token on every call, and a blank refresh token cannot renew
         // anything. The first sign-in refuses all three as well. These checks end a session that got past
         // the sign-in, such as one that started before those rules.
-        if (!TryGetExpiresAt(context.Properties, out DateTimeOffset expiresAt))
+        if (!AccessTokenRefreshSchedule.TryGetMoment(
+                context.Properties, AccessTokenRefreshSchedule.ExpiresAtName, out DateTimeOffset expiresAt))
         {
             LogNoUsableExpiry(_logger, null);
             await RejectAsync(context);
@@ -165,7 +160,7 @@ internal sealed class CookieTokenRefresher
     {
         AuthenticationProperties properties = context.Properties;
 
-        if (DateTimeOffset.UtcNow + RefreshSkew < expiresAt)
+        if (!AccessTokenRefreshSchedule.IsDue(properties, expiresAt, DateTimeOffset.UtcNow))
         {
             return RefreshOutcome.Unchanged;
         }
@@ -252,10 +247,11 @@ internal sealed class CookieTokenRefresher
             properties.UpdateTokenValue(IdTokenName, tokenResponse.IdToken);
         }
 
-        DateTimeOffset newExpiresAt = DateTimeOffset.UtcNow.AddSeconds(tokenResponse.ExpiresIn.Value);
+        DateTimeOffset receivedAt = DateTimeOffset.UtcNow;
         properties.UpdateTokenValue(
-            ExpiresAtName,
-            newExpiresAt.ToString("o", CultureInfo.InvariantCulture));
+            AccessTokenRefreshSchedule.ExpiresAtName,
+            receivedAt.AddSeconds(tokenResponse.ExpiresIn.Value).ToString("o", CultureInfo.InvariantCulture));
+        AccessTokenRefreshSchedule.Schedule(properties, receivedAt);
 
         context.ShouldRenew = true;
         return RefreshOutcome.Refreshed;
@@ -382,13 +378,6 @@ internal sealed class CookieTokenRefresher
             await _deadSessionRegistry.ConsumeAsync(subject, CancellationToken.None);
         }
     }
-
-    private static bool TryGetExpiresAt(AuthenticationProperties properties, out DateTimeOffset expiresAt) =>
-        DateTimeOffset.TryParse(
-            properties.GetTokenValue(ExpiresAtName),
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-            out expiresAt);
 
     private static string? GetSubject(CookieValidatePrincipalContext context)
     {

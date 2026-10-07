@@ -54,6 +54,14 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     /// </summary>
     public SqlCommandRecorder WriteContextSqlRecorder { get; } = new();
 
+    /// <summary>
+    /// This host's own folder for the disk copies of the translation file (ADR-0064). Each process
+    /// removes the copies it does not need, so two suites sharing one folder, from two worktrees for
+    /// example, would delete each other's files.
+    /// </summary>
+    public string TranslationFileCopiesDirectory { get; } =
+        Path.Combine(Path.GetTempPath(), "lotro-translation-files-tests", Guid.NewGuid().ToString("N"));
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -68,6 +76,7 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
                 // Short debounce so the background artifact rebuild (PERF-04) converges fast; the
                 // polling assertions stay meaningful while the suite stays quick.
                 { "TranslationFileRebuild:DebounceWindow", "00:00:00.050" },
+                { "TranslationFileDiskCache:Directory", TranslationFileCopiesDirectory },
             });
         });
 
@@ -110,6 +119,8 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     /// break assertions such as the "no artifact yet" 404.
     /// Clearing the counter cache (AUDIT-EF-04, #354) is part of it for the same reason: a cached
     /// snapshot survives the TRUNCATE and would carry the previous test's counters into the next one.
+    /// The disk copies of the translation file go too, so every test starts with a download that
+    /// writes its copy from the database.
     /// </summary>
     public async Task ResetDatabaseAsync(string truncateSql)
     {
@@ -118,9 +129,19 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         HybridCache hybridCache = Services.GetRequiredService<HybridCache>();
         await hybridCache.RemoveAsync([GetPublicProgress.CounterCacheKey, GetTranslationStats.CounterCacheKey]);
 
+        DeleteTranslationFileCopies();
+
         using IServiceScope scope = Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         await dbContext.Database.ExecuteSqlRawAsync(truncateSql);
+    }
+
+    public void DeleteTranslationFileCopies()
+    {
+        if (Directory.Exists(TranslationFileCopiesDirectory))
+        {
+            Directory.Delete(TranslationFileCopiesDirectory, recursive: true);
+        }
     }
 
     private async Task WaitForArtifactRebuildQuiesceAsync()
@@ -214,5 +235,6 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     public new async Task DisposeAsync()
     {
         await _postgresContainer.DisposeAsync();
+        DeleteTranslationFileCopies();
     }
 }

@@ -1,4 +1,3 @@
-using System.Text;
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.Messaging;
@@ -20,7 +19,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 /// (PERF-04, ADR-0021), so a download can lag a commit by a moment.
 /// The 304 decision needs only the hash (PERF-01, #286). PostgreSQL stores the multi-MB
 /// <c>Content</c> column out of line, so a revalidation that never reads it costs the same whatever
-/// the artifact size. The content is fetched only when the client's ETag no longer matches.
+/// the artifact size. When the client's ETag no longer matches, the body is streamed from a copy on
+/// the API's own disk, written once per content hash (PERF-09, #715, ADR-0064). So a crowd of stale
+/// clients does not load the content from the database once each.
 /// The ETag is also the integrity hash (AUDIT-SEC-01, #391): the patcher computes the hex SHA-256 of
 /// the downloaded UTF-8 body and refuses the file when it differs. So the hash algorithm and the
 /// strong-ETag format are a contract between the two contexts. Change them only together with the
@@ -30,11 +31,16 @@ internal sealed class GetTranslationFile : IEndpoint
 {
     private const string SupportedLanguage = SupportedLanguages.Polish;
 
+    /// <summary>
+    /// The CLI decodes the body by this charset.
+    /// </summary>
+    private const string TextPlainUtf8 = "text/plain; charset=utf-8";
+
     internal sealed record HashQuery(string Lang) : IQuery<Result<string>>;
 
-    internal sealed record Query(string Lang) : IQuery<Result<TranslationFileResult>>;
+    internal sealed record Query(string Lang, string ContentHash) : IQuery<Result<TranslationFileResult>>;
 
-    internal sealed record TranslationFileResult(string Content, string ETag);
+    internal sealed record TranslationFileResult(Stream Content, string ETag);
 
     internal sealed class HashHandler : IQueryHandler<HashQuery, Result<string>>
     {
@@ -65,11 +71,11 @@ internal sealed class GetTranslationFile : IEndpoint
 
     internal sealed class Handler : IQueryHandler<Query, Result<TranslationFileResult>>
     {
-        private readonly IApplicationReadDbContext _readDbContext;
+        private readonly ITranslationFileDiskCache _diskCache;
 
-        public Handler(IApplicationReadDbContext readDbContext)
+        public Handler(ITranslationFileDiskCache diskCache)
         {
-            _readDbContext = readDbContext;
+            _diskCache = diskCache;
         }
 
         public async ValueTask<Result<TranslationFileResult>> Handle(Query query, CancellationToken cancellationToken)
@@ -79,14 +85,11 @@ internal sealed class GetTranslationFile : IEndpoint
                 return Result.Failure<TranslationFileResult>(validationError);
             }
 
-            TranslationFileResult? result = await _readDbContext.PrecomputedTranslationFiles
-                .Where(file => file.Language == SupportedLanguage)
-                .Select(file => new TranslationFileResult(file.Content, file.ContentHash))
-                .FirstOrDefaultAsync(cancellationToken);
+            TranslationFileCopy? copy = await _diskCache.OpenAsync(SupportedLanguage, query.ContentHash, cancellationToken);
 
-            return result is null
+            return copy is null
                 ? Result.Failure<TranslationFileResult>(NotFound())
-                : Result.Success(result);
+                : Result.Success(new TranslationFileResult(copy.Content, copy.ContentHash));
         }
     }
 
@@ -120,17 +123,18 @@ internal sealed class GetTranslationFile : IEndpoint
                     return Results.StatusCode(StatusCodes.Status304NotModified);
                 }
 
-                Result<TranslationFileResult> result = await handler.Handle(new Query(lang), cancellationToken);
+                Result<TranslationFileResult> result = await handler.Handle(
+                    new Query(lang, hashResult.Value), cancellationToken);
 
                 if (result.IsFailure)
                 {
                     return Results.Problem(result.Error.ToProblemDetails());
                 }
 
-                // The ETag comes from the same row read as the content, so even if a rebuild lands
-                // between the hash lookup and this read, the client still gets a matching tag and body.
+                // The ETag names the copy that is actually sent. If a rebuild lands between the hash
+                // lookup and this read, the client gets the newer body with the newer tag.
                 SetRevalidationHeaders(httpContext, new EntityTagHeaderValue($"\"{result.Value.ETag}\""));
-                return Results.Text(result.Value.Content, "text/plain", Encoding.UTF8);
+                return Results.Stream(result.Value.Content, TextPlainUtf8);
             })
             .WithName(nameof(GetTranslationFile))
             .WithTags("TranslationFiles")

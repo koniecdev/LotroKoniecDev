@@ -30,4 +30,8 @@ internal static class EventIds
     // GDPR (1500-1599)
     public const int GdprContributionExportRequested = 1500;
     public const int GdprContributionExportCompleted = 1501;
+
+    // Translation file downloads (1600-1699)
+    public const int TranslationFileCopyWritten = 1600;
+    public const int TranslationFileCopyRemovalFailed = 1601;
 }

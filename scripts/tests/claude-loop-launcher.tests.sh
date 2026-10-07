@@ -26,7 +26,8 @@
 
 set -euo pipefail
 
-SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# With CDPATH set, `cd` to a relative folder may print it, and that text would end up here.
+SCRIPTS_DIR="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 REAL_SLEEP="$(command -v sleep)"
 export REAL_SLEEP
 

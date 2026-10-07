@@ -247,7 +247,7 @@ Lifted wholesale (OpenIddict + ASP.NET Identity). Pełna narracja: [auth-tutoria
 
 | # | Invariant | Reguła | Lokalizacja |
 |---|-----------|--------|-------------|
-| INV-11.1 | 🔵 Hasło: **8–128**, ≥1 cyfra/mała/wielka/specjalny | FluentValidation; Identity `RequiredLength=8` (⚠️ bez górnego limitu na poziomie Identity). | `PasswordValidationRules.cs:13-22`, `PersistenceDependencyInjection.cs:47` |
+| INV-11.1 | 🔵 Hasło: **8–128**, ≥1 cyfra/mała/wielka/specjalny | FluentValidation w handlerach API; Identity `RequiredLength=8` + `PasswordMaxLengthValidator` (≤128), więc limit trzyma też strona resetu hasła, która woła Identity bezpośrednio (#1046). Obie warstwy czytają `PasswordConstants`. | `PasswordConstants.cs`, `PasswordValidationRules.cs`, `PasswordMaxLengthValidator.cs`, `PersistenceDependencyInjection.cs` |
 | INV-11.2 | 🔵 **E-mail jest loginem** (ADR-0022): unikalny **case-insensitive** ≤ 250 regex; Username = **handle display-only**: unikalny (case-insensitive), `^[a-zA-Z0-9]+$` ≤ 150 | Walidator rejestracji + `UsernameConstants` + Identity `AllowedUserNameCharacters`; unikalność e-maila fizyczna przez **unikalny `EmailIndex`** na `NormalizedEmail`. | `RegisterUser.cs`, `UsernameConstants.cs`, `PersistenceDependencyInjection.cs`, `ApplicationUserConfiguration.cs` |
 | INV-11.3 | 🔵 Zgody privacy + data-processing + **terms-of-service** (LEGAL-03) **muszą być true** | Inaczej walidacja rejestracji odrzuca; akceptacja ToS + jej timestamp są persystowane i widoczne w data-exporcie. | `RegisterUser.cs:49-57`, `:116-117` |
 | INV-11.4 | 🔵 ⚠️ Nowy użytkownik dostaje rolę **`Translator`** | Self-register → `Translator`; seedowany admin → `Admin`. | `RegisterUser.cs:138-139`, `DatabaseSeederExtensions.cs:103` |

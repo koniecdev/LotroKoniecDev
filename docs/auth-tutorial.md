@@ -182,8 +182,9 @@ OpenIddict ma trzy części, wszystkie włączone w `OpenIddictExtensions.cs:17-
 
 ### 6.1 ASP.NET Core Identity (baza userów)
 `AddIdentityCore<ApplicationUser>` (`PersistenceDependencyInjection.cs:41`). `ApplicationUser`
-rozszerza `IdentityUser<Guid>` o zgody RODO (`ApplicationUser.cs`). Reguły (`:44-51`):
-- hasło: digit + lowercase + uppercase + non-alphanumeric, `RequiredLength = 8`;
+rozszerza `IdentityUser<Guid>` o zgody RODO (`ApplicationUser.cs`). Reguły (`:43-54`):
+- hasło: digit + lowercase + uppercase + non-alphanumeric, `RequiredLength = 8`, a maksimum 128
+  dokłada `PasswordMaxLengthValidator` (Identity nie ma takiej opcji; #1046);
 - `User.RequireUniqueEmail = true`;
 - `SignIn.RequireConfirmedEmail = true` — **bez potwierdzenia maila nie zalogujesz się**;
 - lockout: `MaxFailedAccessAttempts = 5`, `DefaultLockoutTimeSpan = 5 min`.

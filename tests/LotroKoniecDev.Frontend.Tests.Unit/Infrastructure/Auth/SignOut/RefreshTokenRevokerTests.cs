@@ -91,22 +91,51 @@ public sealed class RefreshTokenRevokerTests
     }
 
     /// <summary>
-    /// A session with no refresh token has nothing to revoke, so it must not cost the page a discovery read.
-    /// The read is not visible in the result, hence the check on the substitute.
+    /// A session with no refresh token has nothing to revoke. Even with the auth server down it must not
+    /// log a failed revoke, or every such session end would look like one.
     /// </summary>
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("\t\r\n")]
-    public async Task RevokeAsync_WithNoRealToken_ReadsNoDiscovery(string? blankToken)
+    public async Task RevokeAsync_WithNoRealTokenWhileDiscoveryIsDown_LogsNothing(string? blankToken)
     {
-        IConfigurationManager<OpenIdConnectConfiguration> configurationManager = DiscoveryNaming(RevocationEndpoint);
-        RefreshTokenRevoker revoker = CreateRevoker(new TokenRecordingHttpMessageHandler(), configurationManager);
+        IConfigurationManager<OpenIdConnectConfiguration> configurationManager =
+            Substitute.For<IConfigurationManager<OpenIdConnectConfiguration>>();
+        configurationManager.GetConfigurationAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<OpenIdConnectConfiguration>(new HttpRequestException("Connection refused.")));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        RefreshTokenRevoker revoker = CreateRevoker(
+            new TokenRecordingHttpMessageHandler(), configurationManager, loggerFactory: loggerFactory);
 
         await revoker.RevokeAsync(blankToken);
 
-        await configurationManager.DidNotReceive().GetConfigurationAsync(Arg.Any<CancellationToken>());
+        logs.Entries.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// A token client that throws before it returns a task, as a decorator might, must not stop the other
+    /// token's revoke either. The revoke is not visible in the result, hence the check on the substitute.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_WhenTheClientThrowsBeforeReturningATaskForOneToken_StillRevokesTheOther()
+    {
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        tokenEndpointClient
+            .RevokeRefreshTokenAsync(Arg.Any<Uri>(), "token-a", Arg.Any<CancellationToken>())
+            .Returns(_ => throw new InvalidOperationException("A decorator failed."));
+        RefreshTokenRevoker revoker = new(
+            tokenEndpointClient,
+            OidcOptionsWith(DiscoveryNaming(RevocationEndpoint)),
+            TimeProvider.System,
+            NullLogger<RefreshTokenRevoker>.Instance);
+
+        await revoker.RevokeAsync("token-a", "token-b");
+
+        await tokenEndpointClient.Received(1)
+            .RevokeRefreshTokenAsync(new Uri(RevocationEndpoint), "token-b", Arg.Any<CancellationToken>());
     }
 
     /// <summary>
@@ -369,15 +398,20 @@ public sealed class RefreshTokenRevokerTests
             Microsoft.Extensions.Options.Options.Create(CreateSettings()),
             factory.CreateLogger<TokenEndpointClient>());
 
+        return new RefreshTokenRevoker(
+            tokenEndpointClient,
+            OidcOptionsWith(configurationManager),
+            timeProvider ?? TimeProvider.System,
+            factory.CreateLogger<RefreshTokenRevoker>());
+    }
+
+    private static IOptionsMonitor<OpenIdConnectOptions> OidcOptionsWith(
+        IConfigurationManager<OpenIdConnectConfiguration>? configurationManager)
+    {
         IOptionsMonitor<OpenIdConnectOptions> optionsMonitor = Substitute.For<IOptionsMonitor<OpenIdConnectOptions>>();
         optionsMonitor.Get(OpenIdConnectDefaults.AuthenticationScheme)
             .Returns(new OpenIdConnectOptions { ConfigurationManager = configurationManager });
-
-        return new RefreshTokenRevoker(
-            tokenEndpointClient,
-            optionsMonitor,
-            timeProvider ?? TimeProvider.System,
-            factory.CreateLogger<RefreshTokenRevoker>());
+        return optionsMonitor;
     }
 
     /// <summary>

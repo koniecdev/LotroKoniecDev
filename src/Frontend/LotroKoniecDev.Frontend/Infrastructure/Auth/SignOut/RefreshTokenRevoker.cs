@@ -69,9 +69,10 @@ internal sealed class RefreshTokenRevoker
                 return;
             }
 
-            // Side by side, so a slow first revoke does not use up the time of the second one.
-            await Task.WhenAll(tokensToRevoke.Select(token =>
-                _tokenEndpointClient.RevokeRefreshTokenAsync(revocationEndpoint, token, timeLimit.Token)));
+            // Side by side, so a slow first revoke does not use up the time of the second one. The lambda is
+            // async, so a client that throws before it returns a task fails only its own revoke.
+            await Task.WhenAll(tokensToRevoke.Select(async token =>
+                await _tokenEndpointClient.RevokeRefreshTokenAsync(revocationEndpoint, token, timeLimit.Token)));
         }
         catch (Exception exception)
         {

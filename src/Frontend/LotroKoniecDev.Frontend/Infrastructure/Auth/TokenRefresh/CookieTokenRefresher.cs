@@ -97,7 +97,7 @@ internal sealed class CookieTokenRefresher
         // A session the renewal cannot manage is dead (#1026). With no expiry it is never renewed or checked
         // again, the API refuses a blank access token on every call, and a blank refresh token cannot renew
         // anything. The first sign-in refuses all three as well. These checks end a session that got past
-        // it, such as one that started before that rule.
+        // the sign-in, such as one that started before those rules.
         if (!TryGetExpiresAt(context.Properties, out DateTimeOffset expiresAt))
         {
             LogNoUsableExpiry(_logger, null);

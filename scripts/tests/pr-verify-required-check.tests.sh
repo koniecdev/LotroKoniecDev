@@ -20,7 +20,7 @@
 # The YAML reader understands the block style pr-verify.yml uses: two-space indent, one key per
 # line, a one-line `run:` for every step up to the classifier. Quoted keys are fine. A form it cannot
 # follow (a YAML anchor, alias or merge key, a job written on one line, a value that goes on in the
-# next line, no `on:` section) fails the test instead of being guessed at. Other workflows are
+# next line or starts there, no `on:` section) fails the test instead of being guessed at. Other workflows are
 # searched as plain text for the required name, so their layout does not matter.
 #
 # Pure bash + awk + git. CI-only (Linux runners), like classify-changes.sh, so no .ps1 twin.
@@ -84,23 +84,32 @@ function clean(v) {
     return trim(v)
 }
 function keyval(line) { KEY = line; sub(/:.*/, "", KEY); KEY = unquote(trim(KEY)); VAL = line; sub(/^[^:]*:/, "", VAL); VAL = clean(VAL) }
-BEGIN { block = -1; cont = -1 }
+BEGIN { block = -1; cont = -1; nested = -1 }
 # Every line passes here first. A block scalar (`run: |`) is skipped whole. A plain value that goes
 # on in a deeper line is one value in YAML, but the rules below would read only its first line, so
 # such a line is reported instead: `if: a` + `&& b`, or `run: x` + `|| true`, would hide from them.
+# The same holds for a value that starts on the line after its key (`if:` + `a && b`): only a
+# nested key or list item may follow a key with nothing after it.
 /^[ \t]*$/ || /^[ \t]*#/ { next }
 {
     indent = match($0, /[^ ]/) - 1
     if (block >= 0 && indent > block) { next }
     block = -1
     if (cont >= 0 && indent > cont) { print "X" US "line " NR " goes on with the value above it"; next }
-    rest = substr($0, indent + 1); keyindent = indent
-    if (rest ~ /^- /) { rest = substr(rest, 3); keyindent = indent + 2 }
+    rest = substr($0, indent + 1); keyindent = indent; item = 0
+    if (rest ~ /^- /) { rest = substr(rest, 3); keyindent = indent + 2; item = 1 }
+    iskey = (rest ~ /^[^:]*:([ \t]|$)/)
+    if (nested >= 0 && indent > nested && !iskey && !item) {
+        print "X" US "line " NR " is the value of the key above it, written on its own line"
+        nested = -1
+        next
+    }
+    nested = -1
     cont = keyindent
-    if (rest ~ /^[^:]*:([ \t]|$)/) {
+    if (iskey) {
         keyval(rest)
         if (VAL ~ /^[|>][-+0-9]*$/) { block = keyindent; cont = -1 }
-        else if (VAL == "") { cont = -1 }
+        else if (VAL == "") { cont = -1; nested = keyindent }
     }
 }
 /^[^ \t#]/ {
@@ -131,6 +140,11 @@ note_unreadable() {
     fi
     case "$3" in
         '*'* | '&'*) UNREADABLE="$UNREADABLE$1 uses a YAML alias or anchor in $2"$'\n' ;;
+    esac
+    # The checks below read an empty value as "no such key", so an empty one must not get that far.
+    case "$2" in
+        if | continue-on-error | needs | run | uses | id)
+            [ -n "$3" ] || UNREADABLE="$UNREADABLE$1 has an empty $2"$'\n' ;;
     esac
 }
 
@@ -486,6 +500,13 @@ expect_shape_problem 'a gate condition that goes on in the next line fails the t
     "$(insert_after if-continued "        if: steps.diff.outputs.code != 'false'" "          && github.actor != 'dependabot[bot]'")"
 expect_shape_problem 'a classifier self-test command that goes on in the next line fails the test' 'goes on with the value above it' \
     "$(insert_after run-continued '        run: ./scripts/tests/classify-changes.tests.sh' '          || true')"
+# shellcheck disable=SC2016 # an awk program, not shell
+expect_shape_problem 'a gate condition that starts on the line after if: fails the test' 'is the value of the key above it' \
+    "$(mutate if-next-line '$0 == "      - name: Build" { build = 1 } build && $0 == "        if: steps.diff.outputs.code != " Q "false" Q { print "        if:"; print "          steps.diff.outputs.code != " Q "false" Q " && github.actor != " Q "dependabot[bot]" Q; build = 0; next } { print }')"
+expect_shape_problem 'continue-on-error with its value on the next line fails the test' 'is the value of the key above it' \
+    "$(insert_after coe-next-line '      - name: Run Unit Tests' '        continue-on-error:\n          true')"
+expect_shape_problem 'an if: on the classifier self-test with its value on the next line fails the test' 'has an empty if' \
+    "$(insert_after self-test-if-next-line '      - name: Change-classifier self-test' "        if:\n          github.actor != 'dependabot[bot]'")"
 # shellcheck disable=SC2016 # an awk program, not shell
 expect_shape_problem 'a paths filter inside a one-line trigger' "carries a 'paths-ignore' filter" \
     "$(mutate flow-trigger '$0 == "  pull_request:" { print "  pull_request: {branches: [main], paths-ignore: [docs]}"; drop = 1; next } drop && $0 == "    branches: [\"main\"]" { drop = 0; next } { print }')"

@@ -59,6 +59,8 @@ public sealed class BreachedPasswordValidatorTests
         // Arrange: only a check made with the request's own token sees the breach
         using CancellationTokenSource requestAborted = new();
         _httpContextAccessor.HttpContext = new DefaultHttpContext { RequestAborted = requestAborted.Token };
+        _pwnedPasswordChecker.CheckAsync(Password, Arg.Any<CancellationToken>())
+            .Returns(PwnedPasswordVerdict.NotFound);
         _pwnedPasswordChecker.CheckAsync(Password, requestAborted.Token)
             .Returns(PwnedPasswordVerdict.Breached);
         BreachedPasswordValidator validator = CreateValidator();

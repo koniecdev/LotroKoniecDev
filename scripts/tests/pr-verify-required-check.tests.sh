@@ -97,6 +97,7 @@ BEGIN { block = -1; cont = -1; nested = -1 }
     block = -1
     if (cont >= 0 && indent > cont) { print "X" US "line " NR " goes on with the value above it"; next }
     rest = substr($0, indent + 1); keyindent = indent; item = 0
+    if (rest ~ /^-[ \t][ \t]/ || rest ~ /^-\t/) { print "X" US "line " NR " puts more than one space after a list dash"; next }
     if (rest ~ /^- /) { rest = substr(rest, 3); keyindent = indent + 2; item = 1 }
     iskey = (rest ~ /^[^:]*:([ \t]|$)/)
     if (nested >= 0 && indent > nested && !iskey && !item) {
@@ -232,6 +233,13 @@ shape_problems() {
     fi
     if [ "$REQ_NAME_COUNT" -gt 1 ]; then
         echo "$REQ_NAME_COUNT jobs are named '$REQUIRED_CHECK' — one that gets skipped reports the check as passed"
+    fi
+    # Plain text as well, so a second job the reader cannot see (other indentation, a block-scalar
+    # name) is still counted. The workflow's own top-level name is the one other line allowed.
+    local named
+    named="$(grep -nF -- "$REQUIRED_CHECK" "$1" | grep -Evc '^[0-9]+:([[:space:]]*#|name:)')"
+    if [ "$named" != 1 ]; then
+        echo "$named lines outside comments name '$REQUIRED_CHECK' — only the one job may carry it"
     fi
     local key i condition gated=0
     for key in $ON_FILTERS; do
@@ -484,6 +492,13 @@ expect_shape_problem 'no classification step at all' 'no step has id: diff' \
     "$(mutate no-diff '$0 == "        id: diff" { next } { print }')"
 expect_shape_problem 'a second job with the required name, which needs the first' "2 jobs are named '$REQUIRED_CHECK'" \
     "$(mutate second-job '{ print } END { print "  shadow:"; print "    name: Pull Request Verification"; print "    needs: build"; print "    if: failure()" }')"
+expect_shape_problem 'a second job indented differently, which the reader cannot see' "2 lines outside comments name '$REQUIRED_CHECK'" \
+    "$(mutate second-job-deeper '{ print } END { print "  shadow:"; print "      name: Pull Request Verification"; print "      needs: build"; print "      if: failure()"; print "      runs-on: ubuntu-24.04"; print "      steps:"; print "        - run: \"true\"" }')"
+expect_shape_problem 'a second job whose name is a block scalar' "2 lines outside comments name '$REQUIRED_CHECK'" \
+    "$(mutate second-job-folded-name '{ print } END { print "  shadow:"; print "    name: >-"; print "      Pull Request Verification"; print "    needs: build"; print "    if: failure()" }')"
+# shellcheck disable=SC2016 # an awk program, not shell
+expect_shape_problem 'extra spaces after a step dash fail the test' 'more than one space after a list dash' \
+    "$(mutate dash-spaces '$0 == "      - name: Run Unit Tests" { print "      -   name: Run Unit Tests"; next } { print }')"
 
 echo
 echo '── the reader does not lose a key to YAML syntax ──────────────────────────────────────────'

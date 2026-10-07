@@ -96,10 +96,11 @@ Then stop. **Do not run the command** — not in the background, not in the fore
    ended, build its roll-up from its `.meta` files, as for a stopped run below.
 4. **Still running** — the lock's owner is alive (the check in section 1), or a worker of this run
    still ends its session: `ps -Ao pid,command | grep '[w]ork-ticket.sh'` lists a process whose
-   command line ends with the run folder. The conductor removes its lock as soon as it has told its workers to stop, and
-   each worker may take another 20 seconds or so to salvage. Report the progress only — the tickets
-   started (`── start #<n>` lines), the ones finished (their `[loop] #<n>` outcome lines) and the
-   last few lines — and say the roll-up comes when the run ends. Stop.
+   command line ends with the run folder. The conductor removes its lock as soon as it has told its
+   workers to stop, and each worker may take another 20 seconds or so to salvage. Report the
+   progress only — the tickets started (`── start #<n>` lines), the ones finished (their
+   `[loop] #<n>` outcome lines) and the last few lines — and say the roll-up comes when the run
+   ends. Stop.
 5. **Ended.** Where the table comes from depends on how it ended:
    - The copy has a `[conductor] done:` line: the conductor printed its table above it. Use that
      table.

@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using Microsoft.AspNetCore.Authentication;
@@ -38,6 +39,9 @@ internal sealed class CookieTokenRefresher
     /// a token that still looks valid here but is already refused by the server.
     /// </summary>
     private static readonly TimeSpan RefreshSkew = TimeSpan.FromSeconds(60);
+
+    private static readonly SearchValues<char> Base64UrlCharacters = SearchValues.Create(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_");
 
     private readonly ITokenEndpointClient _tokenEndpointClient;
     private readonly IOptionsMonitor<OpenIdConnectOptions> _openIdConnectOptionsMonitor;
@@ -99,7 +103,8 @@ internal sealed class CookieTokenRefresher
         {
             // A token we just refreshed came from the identity provider over TLS on this very request,
             // so its signing key cannot have changed since. The signature check below would find nothing
-            // and could only fail wrongly against local keys that are a moment out of date.
+            // and could only fail wrongly against local keys that are a moment out of date. The refresh
+            // has already checked the token's shape instead (#1028).
             return;
         }
 
@@ -176,12 +181,43 @@ internal sealed class CookieTokenRefresher
             return RefreshOutcome.Stop;
         }
 
+        // A renewed token skips the signature check (see ValidateAsync), so its shape is the only check
+        // before this page sends it to the API (#1028). Our sign-in server signs access tokens and does not
+        // encrypt them, so a good one is always a compact JWS.
+        if (!IsCompactJws(tokenResponse.AccessToken))
+        {
+            LogMalformedAccessToken(_logger, null);
+            await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
+            return RefreshOutcome.Stop;
+        }
+
         if (tokenResponse.ExpiresIn is not { } expiresInSeconds || expiresInSeconds <= 0)
         {
             LogNoPositiveLifetime(
                 _logger,
                 tokenResponse.ExpiresIn?.ToString(CultureInfo.InvariantCulture) ?? "missing",
                 null);
+            await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
+            return RefreshOutcome.Stop;
+        }
+
+        // A broken refresh or ID token means the answer was damaged on the way, so none of it is trusted
+        // (#1028). The refresh token is opaque to us (RFC 6749 §1.5), so only its characters are checked:
+        // printable ASCII, as RFC 6749 Appendix A.17 allows.
+        if (!string.IsNullOrWhiteSpace(tokenResponse.RefreshToken)
+            && tokenResponse.RefreshToken.AsSpan().ContainsAnyExceptInRange(' ', '~'))
+        {
+            LogMalformedRefreshToken(_logger, null);
+            await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
+            return RefreshOutcome.Stop;
+        }
+
+        // Our sign-in server signs ID tokens and never encrypts them, so a good one is always a compact JWS.
+        // A broken one stored here would be the sign-out's hint. The sign-in server finds no session behind
+        // a broken hint, so this device's session would not end there (#931).
+        if (!string.IsNullOrWhiteSpace(tokenResponse.IdToken) && !IsCompactJws(tokenResponse.IdToken))
+        {
+            LogMalformedIdToken(_logger, null);
             await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
             return RefreshOutcome.Stop;
         }
@@ -284,6 +320,33 @@ internal sealed class CookieTokenRefresher
 
         cancellationToken.ThrowIfCancellationRequested();
         return result.IsValid;
+    }
+
+    /// <summary>
+    /// Three non-empty base64url parts joined by dots, and nothing else: no padding, no whitespace, no line
+    /// break. <see cref="JsonWebTokenHandler.CanReadToken"/> is not enough, because its pattern also accepts a
+    /// trailing line feed, and a request header cannot carry one. The header and the payload must also read
+    /// as JSON, and the header must name an algorithm (RFC 7515 §4.1.1). The signature is not checked here.
+    /// </summary>
+    private static bool IsCompactJws(string token)
+    {
+        string[] parts = token.Split('.', 4);
+        if (parts.Length != 3
+            || !parts.All(part => part.Length > 0 && !part.AsSpan().ContainsAnyExcept(Base64UrlCharacters)))
+        {
+            return false;
+        }
+
+        try
+        {
+            return !string.IsNullOrEmpty(new JsonWebToken(token).Alg);
+        }
+        catch (ArgumentException)
+        {
+            // The constructor throws when the header or the payload is not base64url-encoded JSON, or when
+            // alg is not a string.
+            return false;
+        }
     }
 
     /// <summary>
@@ -408,4 +471,22 @@ internal sealed class CookieTokenRefresher
             LogLevel.Warning,
             new EventId(6, nameof(LogNoPositiveLifetime)),
             "Refresh token grant returned a missing or non-positive expires_in; principal rejected. expires_in: {ExpiresIn}");
+
+    private static readonly Action<ILogger, Exception?> LogMalformedAccessToken =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(7, nameof(LogMalformedAccessToken)),
+            "Refresh token grant returned an access_token that is not a compact JWS; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogMalformedRefreshToken =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(8, nameof(LogMalformedRefreshToken)),
+            "Refresh token grant returned a refresh_token with characters outside printable ASCII; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogMalformedIdToken =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(9, nameof(LogMalformedIdToken)),
+            "Refresh token grant returned an id_token that is not a compact JWS; principal rejected.");
 }

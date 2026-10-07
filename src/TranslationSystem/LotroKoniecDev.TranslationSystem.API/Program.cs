@@ -272,9 +272,10 @@ try
                     Window = TimeSpan.FromMinutes(1)
                 }));
 
-        // 429 is the one rejection a caller can act on, so it says when to come back (#855). A fixed window
-        // reports its whole length here, not the time left in it, so the value is an upper bound: after
-        // that wait the caller's bucket is always full again. Rounding up keeps it an upper bound.
+        // 429 is the one rejection a caller can act on, so it names a wait (#855). A fixed window with no
+        // queue reports its whole length here, not the time left in it. So the value is an upper bound: by
+        // then the window has renewed (give or take the runtime's 100 ms renewal timer), and it may renew
+        // much sooner (#892). Rounding up keeps it an upper bound.
         options.OnRejected = (context, _) =>
         {
             if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))

@@ -128,9 +128,9 @@ Content-Type: multipart/form-data          # the import upload only
 ### 2.4 Rate limiting
 
 In non-dev/test, `tms-api` applies a **fixed-window 100 requests/minute per client** policy,
-`fixed-by-ip`, across the endpoint group; over-limit returns **429** (the `AddRateLimiter` block in its
-`Program.cs`). The limiter runs before authentication, so a call refused with 401 or 403 spends the
-bucket too (#829). `auth-api` rate-limits per client:
+`fixed-by-ip`, across the endpoint group; over-limit returns **429** with `Retry-After` (the
+`AddRateLimiter` block in its `Program.cs`). The limiter runs before authentication, so a call refused
+with 401 or 403 spends the bucket too (#829). `auth-api` rate-limits per client:
 the OpenIddict `/connect/*` endpoints, confirm-email, reset-password, cancel-deletion and the account
 GET carry the `auth-endpoint-limit` policy (10/min); `auth/register` carries `register-limit`, the
 same numbers keyed on the connection's own address; forgot-password and resend-confirmation carry
@@ -211,7 +211,11 @@ cancel; the third covers a permit spent without a schedule (a failed save, or a 
 because a fixed window never gives one back. A refusal is a 429 with `Auth.DeletionScheduleThrottled`.
 
 Every 429 from a limiter policy carries `Retry-After`, and a browser gets a Polish page explaining the
-wait instead of the framework's bare status text. The 429s from the budgets inside the handlers
+wait instead of the framework's bare status text. On both APIs `Retry-After` is the window length, so it
+is an upper bound: the window renews within that time (give or take a fraction of a second), and it may
+renew much sooner (#892). Callers that share a limit key, such as everyone behind one address, share
+one window, so a retry after the renewal can still be refused. The page names the same number as the
+longest wait. The 429s from the budgets inside the handlers
 (`Auth.PasswordConfirmationThrottled`, `Auth.EmailChangeRecipientThrottled`,
 `Auth.RegistrationMailboxThrottled`, `Auth.DeletionScheduleThrottled`) carry no `Retry-After`: their
 window is fixed, 15 minutes for the first three and one hour for the deletion schedule. The frontend

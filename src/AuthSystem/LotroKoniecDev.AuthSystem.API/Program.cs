@@ -424,7 +424,7 @@ try
         // The budget is per IP, so everyone behind one office router or one mobile carrier shares it. That
         // is deliberate: production issues no password grant (only the Testing host does), so this form is
         // the single place a password can be guessed, and the cost of a shared budget is bounded — the
-        // refusal is a Polish page that says when to come back, not a dead end.
+        // refusal is a Polish page that names the longest wait, not a dead end.
         options.AddPolicy(authPageRateLimitPolicy, httpContext =>
             HttpMethods.IsPost(httpContext.Request.Method)
                 ? RateLimitPartition.GetFixedWindowLimiter(
@@ -438,8 +438,10 @@ try
                     })
                 : RateLimitPartition.GetNoLimiter<string>(authPageViewPartition));
 
-        // 429 is the one rejection a caller can act on, so it says when to come back. Rounding up, because
-        // a remainder under a second would otherwise tell the caller to retry immediately.
+        // 429 is the one rejection a caller can act on, so it names a wait. Every policy here is a fixed
+        // window with no queue, and such a window reports its whole length, not the time left in it. So the
+        // value is an upper bound: by then the window has renewed (give or take the runtime's 100 ms renewal
+        // timer), and it may renew much sooner (#892). Rounding up keeps it an upper bound.
         // A browser gets a page instead of the problem-details JSON UseStatusCodePages writes: this is
         // now reachable from the login and register forms, and an English dead end there is no answer.
         options.OnRejected = async (context, cancellationToken) =>

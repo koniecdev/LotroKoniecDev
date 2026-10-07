@@ -11,8 +11,10 @@ namespace LotroKoniecDev.AuthSystem.API.Settings;
 /// (M6-06), the web client redirect URIs the seeder registers.
 /// Development and Testing create throwaway signing and encryption keys (see
 /// <c>OpenIddictExtensions</c>) and take localhost redirect URIs from their own configuration, so the
-/// production values are missing there on purpose and this check is skipped, like in
+/// production values are missing there on purpose and those checks are skipped, like in
 /// <see cref="CorsSettingsValidator"/> and the Data Protection keyring check.
+/// The access token lifetime is checked in every environment, because a lifetime that is too short
+/// breaks the sign-in the same way everywhere (#1025).
 /// </summary>
 internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictSettings>
 {
@@ -27,12 +29,21 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (_environment.IsDevelopment() || _environment.IsTesting())
+        List<string> errors = [];
+
+        if (options.AccessTokenLifetimeMinutes < MinimumAccessTokenLifetimeMinutes)
         {
-            return ValidateOptionsResult.Success;
+            errors.Add(
+                $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.AccessTokenLifetimeMinutes)} "
+                + $"is {options.AccessTokenLifetimeMinutes} in {_environment.EnvironmentName}, and it must be at least "
+                + $"{MinimumAccessTokenLifetimeMinutes}. A client renews a token a minute before it runs out, so a "
+                + "shorter token makes it renew the sign-in on every page.");
         }
 
-        List<string> errors = [];
+        if (_environment.IsDevelopment() || _environment.IsTesting())
+        {
+            return Result(errors);
+        }
 
         if (string.IsNullOrWhiteSpace(options.EncryptionKey.Key))
         {
@@ -133,12 +144,24 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
             }
         }
 
+        return Result(errors);
+    }
+
+    private const int MinimumApiClientSecretLength = 32;
+
+    /// <summary>
+    /// A client often renews a token a minute before it runs out, and the website does so for every token
+    /// that lives two minutes or more. A token that lives a minute or less looks "about to run out" as soon
+    /// as it arrives, so such a client renews it on every page (#1025).
+    /// </summary>
+    private const int MinimumAccessTokenLifetimeMinutes = 2;
+
+    private static ValidateOptionsResult Result(List<string> errors)
+    {
         return errors.Count > 0
             ? ValidateOptionsResult.Fail(errors)
             : ValidateOptionsResult.Success;
     }
-
-    private const int MinimumApiClientSecretLength = 32;
 
     private static bool BeAbsoluteHttpUrl(string value)
     {

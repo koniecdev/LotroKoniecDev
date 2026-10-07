@@ -101,9 +101,9 @@ public sealed class SignInTokenAnswerTests : IClassFixture<StagingFrontendFactor
     }
 
     /// <summary>
-    /// The rule refuses only what the renewal refuses. One second is the smallest lifetime it keeps, and a
-    /// number sent as a string is read by the handler like any other. A missing or empty refresh token is
-    /// allowed, because OAuth makes it optional.
+    /// The rule refuses only what the renewal refuses, for the values the handler passes on to it. One second
+    /// is the smallest lifetime it keeps, and a number sent as a string is read by the handler like any other.
+    /// A missing or empty refresh token is allowed, because OAuth makes it optional.
     /// </summary>
     [Theory]
     [InlineData("1", "the-refresh-token")]

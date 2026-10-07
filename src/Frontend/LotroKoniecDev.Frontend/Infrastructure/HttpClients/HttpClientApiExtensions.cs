@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.Frontend.Infrastructure.Errors;
@@ -46,7 +47,7 @@ internal static class HttpClientApiExtensions
             try
             {
                 using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
-                string content = await response.Content.ReadAsStringAsync(cancellationToken);
+                string content = await ReadBodyAsUtf8Async(response.Content, cancellationToken);
 
                 if (response.IsSuccessStatusCode)
                 {
@@ -100,7 +101,7 @@ internal static class HttpClientApiExtensions
                     return ApiResult.Success(ApiResponseHeaders.From(response.Headers));
                 }
 
-                string content = await response.Content.ReadAsStringAsync(cancellationToken);
+                string content = await ReadBodyAsUtf8Async(response.Content, cancellationToken);
                 return ApiResult.Failure<ApiResponseHeaders>(ParseProblemDetails(content, response));
             }
             catch (Exception ex) when (IsTransportFailure(ex))
@@ -199,7 +200,7 @@ internal static class HttpClientApiExtensions
         try
         {
             using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
-            string content = await response.Content.ReadAsStringAsync(cancellationToken);
+            string content = await ReadBodyAsUtf8Async(response.Content, cancellationToken);
 
             if (response.IsSuccessStatusCode)
             {
@@ -228,13 +229,27 @@ internal static class HttpClientApiExtensions
                 return ApiResult.Success();
             }
 
-            string content = await response.Content.ReadAsStringAsync(cancellationToken);
+            string content = await ReadBodyAsUtf8Async(response.Content, cancellationToken);
             return ApiResult.Failure(ParseProblemDetails(content, response));
         }
         catch (Exception ex) when (IsTransportFailure(ex))
         {
             return ApiResult.Failure(MapTransportFailureToProblemDetails(ex));
         }
+    }
+
+    /// <summary>
+    /// Reads the body as UTF-8 and never looks at the charset in <c>Content-Type</c>. Decoding by that
+    /// charset throws when .NET does not know the name, such as "utf8", or refuses it, such as "utf-7",
+    /// and the exception would escape the render (#972, the same cause as #943). Both APIs answer in
+    /// JSON, which is UTF-8 between services (RFC 8259 §8.1), and the translation file is UTF-8 too.
+    /// A UTF-8 byte order mark is dropped, as <c>ReadAsStringAsync</c> did.
+    /// </summary>
+    private static async Task<string> ReadBodyAsUtf8Async(HttpContent content, CancellationToken cancellationToken)
+    {
+        byte[] body = await content.ReadAsByteArrayAsync(cancellationToken);
+        int bomLength = body.AsSpan().StartsWith(Encoding.UTF8.Preamble) ? Encoding.UTF8.Preamble.Length : 0;
+        return Encoding.UTF8.GetString(body, bomLength, body.Length - bomLength);
     }
 
     /// <summary>

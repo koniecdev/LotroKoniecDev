@@ -257,11 +257,19 @@ internal static class ApiDependencyInjection
                         RoleClaimType = "role"
                     };
 
-                    // Read the signing keys from the JWKS endpoint.
+                    // Read the signing keys from the JWKS endpoint. The library reads these answers by the
+                    // charset they name, so a name .NET cannot use is dropped first (#972). A back-channel
+                    // handler set before this, which only tests do, is wrapped and not replaced.
                     options.ConfigurationManager = new ConfigurationManager<OpenIdConnectConfiguration>(
                         $"{settings.EffectiveAuthority.TrimEnd('/')}/.well-known/openid-configuration",
                         new OpenIdConnectConfigurationRetriever(),
-                        new HttpDocumentRetriever { RequireHttps = requireHttps });
+                        new HttpDocumentRetriever(new HttpClient(new UnknownCharsetDelegatingHandler
+                        {
+                            InnerHandler = options.BackchannelHttpHandler ?? new HttpClientHandler()
+                        }))
+                        {
+                            RequireHttps = requireHttps
+                        });
                 });
 
             services.AddAuthorizationPolicies();

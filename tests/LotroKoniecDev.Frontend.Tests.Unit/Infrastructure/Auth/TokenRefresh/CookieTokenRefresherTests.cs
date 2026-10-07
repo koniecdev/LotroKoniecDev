@@ -888,7 +888,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
 
     /// <summary>
     /// #1026: near expiry, a blank stored access token still ends the session. A refresh would hide the
-    /// broken cookie, and it would spend the refresh token on a session that is already dead.
+    /// broken cookie, and it would spend the refresh token on a session that is already dead. Not spending it
+    /// is invisible in the context, hence the check on the substitute.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenTheStoredAccessTokenIsBlankNearExpiry_RejectsWithoutRedeemingTheRefreshToken()
@@ -897,6 +898,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
         string refreshedAccessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
 
         IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
         CookieTokenRefresher refresher = CreateRefresher(
             trustedKeys: [signingKey],
             discoveryIssuer: DiscoveryIssuer,
@@ -905,7 +907,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
                 AccessToken = refreshedAccessToken,
                 RefreshToken = "rotated-refresh-token",
                 ExpiresIn = 300
-            });
+            },
+            tokenEndpointClient: tokenEndpointClient);
         CookieValidatePrincipalContext context = CreateContextWithStoredTokens(
             authenticationService,
             accessToken: "   ",
@@ -918,6 +921,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
         context.ShouldRenew.ShouldBeFalse();
         context.Properties.GetTokenValue(AccessTokenName).ShouldBe("   ");
         context.Properties.GetTokenValue(RefreshTokenName).ShouldBe("refresh-token");
+        await tokenEndpointClient.DidNotReceive().RefreshAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     /// <summary>

@@ -17,7 +17,7 @@ internal static class TokenRules
     /// <summary>
     /// A token with a lifetime of zero or less looks expired at once, so every page would renew it again.
     /// </summary>
-    public static bool IsPositiveLifetime([NotNullWhen(true)] int? expiresInSeconds) => expiresInSeconds > 0;
+    public static bool IsPositiveLifetime([NotNullWhen(true)] int? expiresInSeconds) => expiresInSeconds is > 0;
 
     /// <summary>
     /// Reads <c>expires_in</c> exactly the way the OIDC handler does before it stores <c>expires_at</c>. A

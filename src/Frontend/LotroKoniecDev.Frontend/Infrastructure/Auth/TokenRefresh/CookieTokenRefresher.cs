@@ -113,17 +113,18 @@ internal sealed class CookieTokenRefresher
             return;
         }
 
-        // A missing refresh token is allowed, because OAuth makes it optional. The session then ends at the
-        // first renewal, below.
-        string? storedRefreshToken = context.Properties.GetTokenValue(RefreshTokenName);
-        if (storedRefreshToken is not null && !TokenRules.IsUsable(storedRefreshToken))
+        // Only a stored but blank refresh token is broken. A missing one ends the session at the first
+        // renewal, below.
+        string? refreshToken = context.Properties.GetTokenValue(RefreshTokenName);
+        if (refreshToken is not null && !TokenRules.IsUsable(refreshToken))
         {
             LogBlankStoredRefreshToken(_logger, null);
             await RejectAsync(context);
             return;
         }
 
-        RefreshOutcome refreshOutcome = await TryRefreshIfNearExpiryAsync(context, expiresAt, cancellationToken);
+        RefreshOutcome refreshOutcome = await TryRefreshIfNearExpiryAsync(
+            context, expiresAt, refreshToken, cancellationToken);
         if (refreshOutcome is RefreshOutcome.Stop)
         {
             return;
@@ -159,6 +160,7 @@ internal sealed class CookieTokenRefresher
     private async Task<RefreshOutcome> TryRefreshIfNearExpiryAsync(
         CookieValidatePrincipalContext context,
         DateTimeOffset expiresAt,
+        string? refreshToken,
         CancellationToken cancellationToken)
     {
         AuthenticationProperties properties = context.Properties;
@@ -168,8 +170,7 @@ internal sealed class CookieTokenRefresher
             return RefreshOutcome.Unchanged;
         }
 
-        string? refreshToken = properties.GetTokenValue(RefreshTokenName);
-        if (!TokenRules.IsUsable(refreshToken))
+        if (refreshToken is null)
         {
             LogNoRefreshToken(_logger, null);
             await RejectAsync(context);
@@ -190,7 +191,6 @@ internal sealed class CookieTokenRefresher
             return RefreshOutcome.Stop;
         }
 
-        // The API would refuse a blank token on every call (#974). The first sign-in checks the same rules.
         if (!TokenRules.IsUsable(tokenResponse.AccessToken))
         {
             LogNoUsableAccessToken(_logger, null);
@@ -241,7 +241,7 @@ internal sealed class CookieTokenRefresher
 
         properties.UpdateTokenValue(AccessTokenName, tokenResponse.AccessToken);
 
-        // A blank value counts as no value, like an empty one, so the stored token stays (#974).
+        // An answer with no usable new token keeps the stored one (#974).
         if (TokenRules.IsUsable(tokenResponse.RefreshToken))
         {
             properties.UpdateTokenValue(RefreshTokenName, tokenResponse.RefreshToken);

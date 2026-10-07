@@ -7,8 +7,8 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// Decides when the website refreshes the access token: 60 seconds before it runs out, or after half of
 /// its lifetime when that comes later. A fixed 60 seconds would make a token that lives a minute or less
 /// look "about to run out" the moment it arrives, so every page would redeem the refresh token again
-/// (#1025). Only the moment the token arrives tells how long it lives, so the refresh time is worked out
-/// then and stored in the cookie next to <c>expires_at</c>.
+/// (#1025). The lifetime is known only when a token arrives, so the refresh time is worked out then and
+/// stored in the cookie next to <c>expires_at</c>.
 /// </summary>
 internal static class AccessTokenRefreshSchedule
 {
@@ -21,17 +21,8 @@ internal static class AccessTokenRefreshSchedule
     /// </summary>
     private static readonly TimeSpan MaximumLead = TimeSpan.FromSeconds(60);
 
-    /// <summary>
-    /// Stores the refresh time for the token whose <c>expires_at</c> is already in
-    /// <paramref name="properties"/>. Without a readable <c>expires_at</c> it stores nothing.
-    /// </summary>
-    internal static void Schedule(AuthenticationProperties properties, DateTimeOffset receivedAt)
+    internal static void Schedule(AuthenticationProperties properties, DateTimeOffset receivedAt, DateTimeOffset expiresAt)
     {
-        if (!TryGetMoment(properties, ExpiresAtName, out DateTimeOffset expiresAt))
-        {
-            return;
-        }
-
         StoreTokenValue(
             properties,
             RefreshAtName,
@@ -39,14 +30,17 @@ internal static class AccessTokenRefreshSchedule
     }
 
     /// <summary>
-    /// A cookie with no stored refresh time was written before #1025. It keeps the old rule, 60 seconds
-    /// before expiry, which is right for the five-minute tokens of that time.
+    /// A cookie with no readable refresh time was written before #1025. A refresh time later than the
+    /// expiry belongs to an older token, for example one that an older version of the website refreshed
+    /// without moving the refresh time. Both keep the old rule, 60 seconds before expiry, so a token is
+    /// never left to run out before it is refreshed.
     /// </summary>
     internal static bool IsDue(AuthenticationProperties properties, DateTimeOffset expiresAt, DateTimeOffset now)
     {
-        DateTimeOffset refreshAt = TryGetMoment(properties, RefreshAtName, out DateTimeOffset storedRefreshAt)
-            ? storedRefreshAt
-            : expiresAt - MaximumLead;
+        DateTimeOffset refreshAt =
+            TryGetMoment(properties, RefreshAtName, out DateTimeOffset storedRefreshAt) && storedRefreshAt <= expiresAt
+                ? storedRefreshAt
+                : expiresAt - MaximumLead;
 
         return now >= refreshAt;
     }

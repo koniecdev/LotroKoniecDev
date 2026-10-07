@@ -176,8 +176,7 @@ internal static class AuthenticationDependencyInjectionExtensions
         options.Events.OnRemoteFailure = OnRemoteFailureAsync;
         options.Events.OnAccessDenied = OnAccessDeniedAsync;
 
-        // SaveTokens stores only expires_at. The refresh time also needs the token's lifetime, which is
-        // known only now, as the first token arrives (#1025).
+        // SaveTokens stores only expires_at, so the first token gets its refresh time here (#1025).
         options.Events.OnTicketReceived = OnTicketReceivedAsync;
 
         // The code exchange, the userinfo call and the metadata and key fetch go through the handler's
@@ -208,12 +207,19 @@ internal static class AuthenticationDependencyInjectionExtensions
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// The handler raises this event after it has stored the tokens and called the userinfo endpoint. So
+    /// the lifetime measured here is short by the time of that call. That only moves the refresh a little
+    /// closer to the expiry, never past it. The clock is the one the handler used for <c>expires_at</c>.
+    /// </summary>
     private static Task OnTicketReceivedAsync(TicketReceivedContext context)
     {
-        if (context.Properties is { } properties)
+        if (context.Properties is { } properties
+            && AccessTokenRefreshSchedule.TryGetMoment(
+                properties, AccessTokenRefreshSchedule.ExpiresAtName, out DateTimeOffset expiresAt))
         {
             TimeProvider timeProvider = context.Options.TimeProvider ?? TimeProvider.System;
-            AccessTokenRefreshSchedule.Schedule(properties, timeProvider.GetUtcNow());
+            AccessTokenRefreshSchedule.Schedule(properties, timeProvider.GetUtcNow(), expiresAt);
         }
 
         return Task.CompletedTask;

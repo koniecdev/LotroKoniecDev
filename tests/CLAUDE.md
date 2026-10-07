@@ -26,7 +26,7 @@ Full project inventory (15 projects):
 | `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api unit (cold-start seed retry policy) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
 | `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |
-| `LotroKoniecDev.Frontend.Tests.Integration` | in-process Frontend host in Staging (`WebApplicationFactory`): startup checks such as the caller keys (#915) | nothing (no Docker); a temp keyring folder |
+| `LotroKoniecDev.Frontend.Tests.Integration` | in-process Frontend host in Staging (`WebApplicationFactory`): startup checks such as the caller keys (#915), and the real OIDC sign-in callback against a stubbed sign-in server (#1025) | nothing (no Docker); a temp keyring folder |
 | `LotroKoniecDev.TranslationSystem.E2E.Tests` | real-process TMS stack over HTTP | Docker (3 images) |
 | `LotroKoniecDev.Frontend.E2E.Tests` | Playwright browser stack | Docker (4 images + browser) |
 | `LotroKoniecDev.Tests.Infrastructure` | patcher real-infrastructure adapters | Windows to run |
@@ -68,7 +68,7 @@ per-project `stryker-config.json` after reviewing the baseline report.
   Used by `AuthSystem.API.Tests.Unit` for the response-time floor (ADR-0059), and by
   `AuthSystem.API.Tests.Integration` as OpenIddict's stopped clock, so the stored token dates can be
   compared exactly (#1014), and by `Frontend.Tests.Unit` for the time limit of the sign-out's own
-  revoke (#964)
+  revoke (#964), and by both Frontend suites for the access token's refresh time (#1025)
 - **Xunit.SkippableFact** — E2E tests that need Windows + a real DAT
 - **coverlet.collector** — code coverage
 - Versions: `Directory.Packages.props` is the single source of truth.

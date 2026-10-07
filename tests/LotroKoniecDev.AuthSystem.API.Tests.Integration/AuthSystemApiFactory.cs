@@ -18,6 +18,7 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
+using LotroKoniecDev.AuthSystem.Infrastructure.PwnedPasswords;
 using LotroKoniecDev.AuthSystem.Persistence;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.Tests.Shared;
@@ -54,6 +55,12 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
 
     /// <inheritdoc cref="DbCommandFailures"/>
     public DbCommitFailureInjector DbCommitFailures { get; } = new();
+
+    /// <summary>
+    /// Takes the place of the Have I Been Pwned client on this host and every host derived from it, so no
+    /// test reaches the internet. Every password is clean until a test says otherwise.
+    /// </summary>
+    public StubPwnedPasswordChecker PwnedPasswords { get; } = new();
 
     private WebApplicationFactory<Program>? _responseTimeFloorHost;
 
@@ -147,6 +154,7 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             services.AddScoped<CleanerService>();
 
             ReplaceSingleton<IResponseTimeFloor>(services, new NoResponseTimeFloor());
+            ReplaceSingleton<IPwnedPasswordChecker>(services, PwnedPasswords);
 
             services.AddSingleton<SpyPasswordHasher>();
             services.AddSingleton<IPasswordHasher<ApplicationUser>>(sp =>

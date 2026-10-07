@@ -246,6 +246,30 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     /// a dead end for a browser, so the fallback has to go to the frontend's login route, where the
     /// cookie we just issued completes the OIDC challenge without the user noticing.
     /// </summary>
+    /// <summary>
+    /// The breach check runs only where a password is set (ADR-0065). A password that shows up in a leak
+    /// after it was set must not lock its owner out.
+    /// </summary>
+    [Fact]
+    public async Task LoginPage_ShouldStillSignIn_WhenThePasswordAppearsInDataBreachesAfterItWasSet()
+    {
+        // Arrange
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        Factory.PwnedPasswords.MarkBreached(request.Password);
+
+        // Act
+        HttpResponseMessage response = await PostToLoginPageAsync(new Dictionary<string, string>
+        {
+            ["Email"] = request.Email,
+            ["Password"] = request.Password
+        });
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Found);
+        response.Headers.Location!.OriginalString.ShouldBe(ExpectedFrontendLoginUrl);
+    }
+
     [Fact]
     public async Task LoginPage_ShouldRedirectToTheFrontend_WhenThereIsNoReturnUrl()
     {

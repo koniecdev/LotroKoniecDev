@@ -113,6 +113,11 @@ internal sealed partial class ChangePassword : IApiEndpoint
                 return Result.Failure(AuthErrors.InvalidCurrentPassword);
             }
 
+            if (identityResult.IsBreachedPassword)
+            {
+                return Result.Failure(AuthErrors.PasswordFoundInBreaches);
+            }
+
             string errors = string.Join(", ", identityResult.Errors.Select(e => e.Description));
             LogPasswordChangeFailed(_logger, user.Id, errors);
 

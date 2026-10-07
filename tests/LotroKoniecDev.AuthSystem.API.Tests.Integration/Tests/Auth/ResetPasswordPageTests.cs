@@ -206,6 +206,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     [InlineData(ResetRefusal.PasswordRefusedByThePolicy)]
     [InlineData(ResetRefusal.UnknownAddress)]
     [InlineData(ResetRefusal.DeletionScheduled)]
+    [InlineData(ResetRefusal.PasswordFoundInBreaches)]
     public async Task ResetPasswordPage_PostThatIsRefused_ShouldLeaveNoUsedLinkMarker(ResetRefusal refusal)
     {
         (RegisterRequest registerRequest, _) =
@@ -214,6 +215,11 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         if (refusal is ResetRefusal.DeletionScheduled)
         {
             await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, registerRequest.Email);
+        }
+
+        if (refusal is ResetRefusal.PasswordFoundInBreaches)
+        {
+            Factory.PwnedPasswords.MarkBreached("NewPass99!");
         }
 
         string email = refusal is ResetRefusal.UnknownAddress ? Faker.Internet.Email() : registerRequest.Email;
@@ -349,6 +355,42 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         (await response.Content.ReadAsStringAsync()).ShouldContain("8–128 znaków");
     }
 
+    [Fact]
+    public async Task ResetPasswordPage_Post_ShouldKeepTheFormAndSayThePasswordLeaked_WhenItAppearsInDataBreaches()
+    {
+        // The link is good and stays good, so the form has to stay for another password (ADR-0065).
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        Factory.PwnedPasswords.MarkBreached("Password1!");
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToResetPasswordPageAsync(
+            browser, ResetForm(registerRequest.Email, resetToken, "Password1!"));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("To hasło pojawiło się w wyciekach danych, wybierz inne.");
+        html.ShouldContain("data-testid=\"reset-password-submit\"");
+    }
+
+    [Fact]
+    public async Task ResetPasswordPage_Post_ShouldAcceptAnotherPasswordOnTheSameLink_AfterABreachedOneWasRefused()
+    {
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        Factory.PwnedPasswords.MarkBreached("Password1!");
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        (await PostToResetPasswordPageAsync(browser, ResetForm(registerRequest.Email, resetToken, "Password1!")))
+            .StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        HttpResponseMessage response = await PostToResetPasswordPageAsync(
+            browser, ResetForm(registerRequest.Email, resetToken, "NewPass99!"));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+    }
+
     private async Task<bool> PasswordWorksAsync(string email, string password)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
@@ -379,7 +421,8 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         PasswordsDiffer,
         PasswordRefusedByThePolicy,
         UnknownAddress,
-        DeletionScheduled
+        DeletionScheduled,
+        PasswordFoundInBreaches
     }
 
     private static Dictionary<string, string> ResetForm(string email, string token, string newPassword) =>

@@ -78,6 +78,10 @@ jobs:
       - name: Backlog-loop conductor self-test
         run: ./scripts/tests/claude-loop-conductor.tests.sh
 
+      # Same launcher self-test as pr-verify (#969) — backstops direct pushes to main.
+      - name: Backlog-loop launcher self-test
+        run: ./scripts/tests/claude-loop-launcher.tests.sh
+
       # Same Hetzner rollout self-test as pr-verify (HETZ-04) — CD is triggered by THIS workflow
       # concluding success, so the script CD is about to run on a prod box gets checked here too.
       - name: Hetzner deploy script self-test

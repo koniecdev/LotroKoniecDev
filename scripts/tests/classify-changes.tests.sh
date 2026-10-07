@@ -77,6 +77,8 @@ echo '── guards only: the bash gates re-run, the .NET gate does not ──�
 expect 'code=false guards=true images=false' 'a script the provenance self-test executes' 'scripts/claude/work-ticket.sh'
 expect 'code=false guards=true images=false' 'the loop conductor, which its self-test runs' 'scripts/claude/backlog-loop.sh'
 expect 'code=false guards=true images=false' 'the conductor self-test'                   'scripts/tests/claude-loop-conductor.tests.sh'
+expect 'code=false guards=true images=false' 'the terminal launcher, which its self-test runs' 'scripts/claude/start-loop.sh'
+expect 'code=false guards=true images=false' 'the launcher self-test'                    'scripts/tests/claude-loop-launcher.tests.sh'
 expect 'code=false guards=true images=false' 'the provenance gate itself'                 'scripts/claude/issue-trust.sh'
 expect 'code=false guards=true images=false' 'the SSR-purity guard'                       'scripts/check-ssr-purity.sh'
 expect 'code=false guards=true images=false' 'the hypermedia guard'                       'scripts/check-client-hypermedia.sh'

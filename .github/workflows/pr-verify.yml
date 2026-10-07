@@ -154,6 +154,12 @@ jobs:
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/claude-loop-conductor.tests.sh
 
+      # The loop must run in a plain terminal: a Claude Code session kills a background command
+      # after two hours, with no cleanup (#969). The launcher that makes that one command also keeps
+      # the console copy alive on Ctrl-C, so a worker is not killed by SIGPIPE while it salvages.
+      - name: Backlog-loop launcher self-test
+        run: ./scripts/tests/claude-loop-launcher.tests.sh
+
       # The Hetzner rollout script (HETZ-04) runs on a PROD box, driven by CD over ssh, and its real
       # inputs (Docker daemon, GHCR, Neon) exist nowhere in CI. This suite stubs `docker` and pins the
       # behavior CD leans on — above all that a pulled image which is not the digest CD attested

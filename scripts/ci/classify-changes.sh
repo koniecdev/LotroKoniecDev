@@ -28,8 +28,8 @@
 # NEVER add a build input (.editorconfig, Directory.*.props/.targets, global.json, nuget.config,
 # a test fixture) to the inert list — that is a false green, the one failure mode that matters here.
 # The reverse mistake (a redundant build) only costs minutes. `scripts/tests/classify-changes.tests.sh`
-# pins both directions and runs UNCONDITIONALLY in the job that calls this script, so a classifier
-# that starts skipping real builds goes red before it is ever trusted.
+# pins both directions and runs UNCONDITIONALLY in the required pr-verify job, so a classifier that
+# starts skipping real builds goes red before it is ever trusted.
 #
 # Usage:
 #   classify-changes.sh <base-ref>   # classify `git diff --name-only <base-ref> HEAD`

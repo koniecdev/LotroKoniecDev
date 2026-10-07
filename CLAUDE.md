@@ -608,6 +608,22 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   references only once it sees `.razor` files — never during the `.csproj`-only restore — so
   `--no-restore` there silently emits a static-web-assets manifest with no `_framework/*` and every
   asset 404s at runtime. Never add the flag back to that `dotnet build`; `publish` keeps it.
+- **Required PR checks always report, and they decide inside themselves what to run (#791).**
+  The `main` ruleset requires "Pull Request Verification", and GitHub counts a **skipped** job as a
+  passed check. So never path-filter a required check (`on.paths` / `paths-ignore`): it never
+  reports and the PR deadlocks (#285). And never put it behind a helper job: when a job in its
+  `needs:` fails or never starts (a classifier bug, a runner problem, a spending limit), the
+  required job is skipped, and the PR merges with no build and no tests. The required job has no
+  `needs:` and no job-level `if:`. It classifies the diff in its own first steps. Every later step
+  has no `if:` at all, or exactly `steps.diff.outputs.<verdict> != 'false'`, so a step is skipped
+  only on an explicit `false`, and a missing or garbled verdict runs the gate. A non-required job
+  may take its verdict from a small classify job of its own (the image scan does, so it runs next
+  to the required job); the required job never waits on one. Exactly one job in all workflows
+  carries the required name: a second one that gets skipped would report the same check as passed.
+  `scripts/tests/pr-verify-required-check.tests.sh` pins all of this, gives the `gitleaks` job the
+  same start checks, and replays the job against deliberately broken classifiers. It runs in
+  pr-verify, in `actionlint.yml` (so a change that skips the whole required job still meets it) and
+  in `ci.yml` on main. A new required check joins that test.
 - **CI runs what the diff can actually break — nothing more (`scripts/ci/classify-changes.sh`).**
   Every PR gets three **independent** verdicts: `code` (restore + Release build + unit + integration
   tests), `guards` (the cheap bash gates CI *executes*: SSR purity, Dockerfile restore graph,
@@ -616,7 +632,7 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   for a full Release build and both suites. The failure mode that matters is the other direction:
   putting a **build input** (`.editorconfig`, `Directory.*.props`, `global.json`, a fixture) into the
   inert list buys a silent false green, so `scripts/tests/classify-changes.tests.sh` pins both
-  directions and runs **unconditionally** in the `changes` job, before any verdict is trusted.
+  directions and runs **unconditionally** in the required job, before any verdict is trusted.
   `ci.yml` (main) deliberately does **not** self-skip its .NET steps — CD is triggered by CI
   concluding success, so "CI was green" must keep meaning the build and both suites really ran; it
   filters cheap content with `paths-ignore` instead (no CI ⇒ no CD).

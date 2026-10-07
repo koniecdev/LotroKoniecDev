@@ -41,10 +41,17 @@ public sealed class ImportExportEndpointsExtensionsTests
     [Fact]
     public async Task DownloadTranslationFileAsync_OnSuccess_SendsTheBytesWithTheirLength()
     {
-        // The stream cannot report its length, so the route passes the TMS's one on. Without it the
-        // browser shows no progress for an 82 MB download.
+        // A body read off the connection cannot seek, so it cannot report its length, and the route
+        // passes the TMS's one on. Without it the browser shows no progress for an 82 MB download. A
+        // seekable stub would hide that, because the result then sets the length by itself.
         const string body = "620756992||1001||Witaj w Śródziemiu!||NULL||NULL||1";
-        ImportExportLoader loader = CreateLoader(HttpStatusCode.OK, body);
+        byte[] bytes = Encoding.UTF8.GetBytes(body);
+        ImportExportLoader loader = new(
+            StubDiscoveryCache.AdvertisingGet(Rels.TranslationFile),
+            CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, () => new StreamContent(new NonSeekableStream(bytes))
+            {
+                Headers = { ContentLength = bytes.Length }
+            })));
         DefaultHttpContext httpContext = new()
         {
             RequestServices = new ServiceCollection().AddLogging().BuildServiceProvider(),
@@ -54,10 +61,9 @@ public sealed class ImportExportEndpointsExtensionsTests
         IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, httpContext, CancellationToken.None);
         await result.ExecuteAsync(httpContext);
 
-        byte[] expected = Encoding.UTF8.GetBytes(body);
-        httpContext.Response.ContentLength.ShouldBe(expected.Length);
+        httpContext.Response.ContentLength.ShouldBe(bytes.Length);
         httpContext.Response.Headers.ContentDisposition.ToString().ShouldContain(ImportExportLoader.DownloadFileName);
-        ((MemoryStream)httpContext.Response.Body).ToArray().ShouldBe(expected);
+        ((MemoryStream)httpContext.Response.Body).ToArray().ShouldBe(bytes);
     }
 
     [Fact]
@@ -144,6 +150,58 @@ public sealed class ImportExportEndpointsExtensionsTests
         problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status502BadGateway);
         problem.ProblemDetails.Title.ShouldBe("Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.");
         problem.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.TechnicalDetailExtensionKey);
+    }
+
+    /// <summary>
+    /// Reads like a response body off the network: forward only, with no length of its own.
+    /// </summary>
+    private sealed class NonSeekableStream : Stream
+    {
+        private readonly MemoryStream _inner;
+
+        public NonSeekableStream(byte[] bytes)
+        {
+            _inner = new MemoryStream(bytes, writable: false);
+        }
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get { throw new NotSupportedException(); }
+            set { throw new NotSupportedException(); }
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+            => _inner.ReadAsync(buffer, cancellationToken);
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
     }
 
     private static async Task<byte[]> ReadAllBytesAsync(Stream stream)

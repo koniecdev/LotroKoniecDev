@@ -61,9 +61,9 @@ jobs:
     # in another job skips this one; with `if:`, the condition alone can skip it. The ruleset counts
     # a skipped job as passed. No other job in any workflow may carry this job's name either.
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    outputs:
-      images: ${{ steps.diff.outputs.images }}
+    # The .NET gate alone takes about 16 minutes; the classification and its two self-tests now run
+    # in this job too (#791), so the limit leaves room for a slow runner.
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -89,7 +89,8 @@ jobs:
 
       # Proof that the job around it still fails closed: no `needs:`, no job-level `if:`, the
       # classification first and unconditional, and every later step skipped only by an explicit
-      # 'false'. It also replays the steps above against broken classifiers. Runs on every PR.
+      # 'false'. It also replays the steps above against broken classifiers. Runs on every PR. A
+      # change that skips this whole job would skip this step too, so actionlint.yml runs it as well.
       - name: Required-check shape self-test
         run: ./scripts/tests/pr-verify-required-check.tests.sh
 
@@ -301,16 +302,32 @@ jobs:
   # goes red BEFORE the merge, not in cd.yml after it. Skipped by `if:`, never by `on.paths`: a
   # filtered-out workflow reports nothing at all. Nothing is pushed and no registry credentials
   # are involved, so the job also works on Dependabot PRs (read-only token, zero secrets).
-  # It reads the images verdict from the required job, so it starts only after that job ends (#791).
-  # A Dockerfile-only PR waits for the guard steps alone, seconds; a PR that also changes code waits
-  # for the whole .NET gate, so the scan may still run after the required check is green. That is
-  # the price of having no helper job. `!cancelled()` keeps the scan running when the required job
-  # fails (a red test, or a failed classification, which leaves the verdict empty and so runs it):
-  # the PR then still shows the image result next to the red check.
+  #
+  # Its verdict comes from its own small classify job, so the scan runs next to the required job and
+  # not after it. That helper is safe here and only here (#791): this job is not a required check,
+  # and the required job never waits for the helper. `!cancelled()` makes the scan run when the
+  # helper fails before it writes a verdict: an empty verdict is not 'false'.
+  image-changes:
+    name: Detect image changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      images: ${{ steps.diff.outputs.images }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Classify changed paths
+        id: diff
+        run: ./scripts/ci/classify-changes.sh HEAD^1
+
   images:
     name: Build & scan image (${{ matrix.image }})
-    needs: build
-    if: ${{ !cancelled() && needs.build.outputs.images != 'false' }}
+    needs: image-changes
+    if: ${{ !cancelled() && needs.image-changes.outputs.images != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:

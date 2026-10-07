@@ -102,6 +102,12 @@ jobs:
       - name: N-1 proof classification self-test
         run: ./scripts/tests/n1-compat.tests.sh
 
+      # The backstop for pr-verify's required-job shape (#791): on a PR it runs inside the job it
+      # guards and in actionlint.yml, neither of which is required, so a shape broken on merge
+      # still turns main red here.
+      - name: Required-check shape self-test
+        run: ./scripts/tests/pr-verify-required-check.tests.sh
+
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:

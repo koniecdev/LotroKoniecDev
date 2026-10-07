@@ -9,21 +9,24 @@
 #
 #   1. Shape. Exactly one job, in all workflows, carries that name. It has no `needs:`, no
 #      job-level `if:` and no `continue-on-error`. The steps up to the classifier (`id: diff`) carry
-#      no `if:`. Every later step has no `if:`, or skips only when its verdict is exactly 'false'.
-#      The workflow has no `paths` filter. Broken copies of the workflow prove that each check
-#      still fires.
+#      no `if:`. Every later step has no `if:`, or skips only when its verdict (code or guards) is
+#      exactly 'false', and a guard script never waits on code. The workflow has no `paths` filter.
+#      The `gitleaks` required check gets the same start checks. Broken copies of the workflow
+#      prove that each check still fires.
 #   2. Behavior. It runs the job's own steps up to the classifier in a scratch git repo, with a
 #      deliberately broken classifier in place, the way the runner runs them. Then it replays every
-#      later step's `if:` against the verdicts those steps wrote. A broken classifier must leave the
-#      job red, or make the whole .NET gate run. Green with the gate skipped is the bug.
+#      later step's `if:` against the verdicts the classifier wrote. A broken classifier must leave
+#      the job red, or make every gated step run. Green with the gate skipped is the bug.
 #
 # The YAML reader understands the block style pr-verify.yml uses: two-space indent, one key per
-# line, a one-line `run:` for every step up to the classifier. Quoted keys are fine. A form it cannot
-# follow (a YAML anchor, alias or merge key, a job written on one line, a value that goes on in the
-# next line or starts there, no `on:` section) fails the test instead of being guessed at. Other workflows are
-# searched as plain text for the required name, so their layout does not matter.
+# line, a one-line `run:` for every step up to the classifier. Quoted keys are fine. A form it
+# cannot follow (a YAML anchor, alias or merge key, a job written on one line, a value that goes on
+# in the next line or starts there, no `on:` section) fails the test instead of being guessed at.
+# The required name is also searched as plain text, so a second job with it is found in any layout.
 #
-# Pure bash + awk + git. CI-only (Linux runners), like classify-changes.sh, so no .ps1 twin.
+# It runs in pr-verify itself, in actionlint.yml (so a change that skips the whole required job
+# still meets it) and in ci.yml on main. Pure bash + awk + git. CI-only (Linux runners), like
+# classify-changes.sh, so no .ps1 twin.
 set -uo pipefail
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
@@ -31,7 +34,11 @@ WORKFLOW="$REPO_ROOT/.github/workflows/pr-verify.yml"
 REQUIRED_CHECK='Pull Request Verification'
 US=$'\037'
 
-TMP_ROOT="$(cd "$(mktemp -d)" && pwd -P)"
+# Two steps on purpose: `cd ""` succeeds, so a failed mktemp inside one $(cd …) would point the
+# cleanup below at the current directory.
+TMP_ROOT="$(mktemp -d)" || exit 1
+TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || exit 1
+[ -d "$TMP_ROOT" ] || exit 1
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
 # Isolate from the developer's git config (gpg signing, hooks, defaults).
@@ -149,17 +156,17 @@ note_unreadable() {
     esac
 }
 
-# Fills the REQ_* globals and the STEP_* arrays from the required job of <workflow>.
+# load_required_job <workflow> [<check name>] fills the REQ_* globals and the STEP_* arrays from the
+# job of <workflow> that carries <check name> (default: the one this file is about).
 load_required_job() {
-    local records kind f1 f2 f3 f4
+    local want="${2:-$REQUIRED_CHECK}" records kind f1 f2 f3 f4
     records="$(awk -v US="$US" -v Q="'" "$READER" "$1")"
 
     REQ_JOB=''
-    REQ_NAME_COUNT=0
     while IFS="$US" read -r kind f1 f2 f3 f4; do
-        if [ "$kind" = J ] && [ "$f2" = name ] && [ "$f3" = "$REQUIRED_CHECK" ]; then
-            [ -n "$REQ_JOB" ] || REQ_JOB="$f1"
-            REQ_NAME_COUNT=$((REQ_NAME_COUNT + 1))
+        if [ "$kind" = J ] && [ "$f2" = name ] && [ "$f3" = "$want" ]; then
+            REQ_JOB="$f1"
+            break
         fi
     done <<< "$records"
 
@@ -217,9 +224,19 @@ normalize_condition() {
 # verdict that is missing, empty or garbled runs the step.
 FAIL_CLOSED_CONDITION="^steps\.diff\.outputs\.[a-z]+ != 'false'$"
 
-# Prints every shape problem of <workflow>, one per line; prints nothing when the shape is right.
-shape_problems() {
-    load_required_job "$1"
+# required_name_lines <workflow>... → every line, outside comments, that names the required check,
+# except a workflow's own top-level `name:`. Plain text on purpose, so a second job with that name is
+# found whatever its indentation or YAML form. A name built by an expression (`${{ format(…) }}`) is
+# not: that would be deliberate hiding, and review is the guard for it. A line that names the check
+# for another reason (a workflow_run trigger, say) counts too: read the hit, then decide.
+required_name_lines() {
+    grep -nF -- "$REQUIRED_CHECK" "$@" /dev/null | grep -Ev '^[^:]+:[0-9]+:([[:space:]]*#|name:)' || true
+}
+
+# start_problems <workflow> <check name> → every reason the job carrying <check name> could be
+# skipped or report success without its steps, one per line; nothing when it always starts.
+start_problems() {
+    load_required_job "$1" "$2"
     if [ -n "$UNREADABLE" ]; then
         printf '%s' "$UNREADABLE" | sed 's/$/ — so this test cannot prove the shape/'
     fi
@@ -228,20 +245,10 @@ shape_problems() {
         *) echo "the reader found no on: section — so it cannot check the trigger for a paths filter" ;;
     esac
     if [ -z "$REQ_JOB" ]; then
-        echo "no job is named '$REQUIRED_CHECK' — the ruleset requires exactly that name"
+        echo "no job is named '$2' — the ruleset requires exactly that name"
         return
     fi
-    if [ "$REQ_NAME_COUNT" -gt 1 ]; then
-        echo "$REQ_NAME_COUNT jobs are named '$REQUIRED_CHECK' — one that gets skipped reports the check as passed"
-    fi
-    # Plain text as well, so a second job the reader cannot see (other indentation, a block-scalar
-    # name) is still counted. The workflow's own top-level name is the one other line allowed.
-    local named
-    named="$(grep -nF -- "$REQUIRED_CHECK" "$1" | grep -Evc '^[0-9]+:([[:space:]]*#|name:)')"
-    if [ "$named" != 1 ]; then
-        echo "$named lines outside comments name '$REQUIRED_CHECK' — only the one job may carry it"
-    fi
-    local key i condition gated=0
+    local key
     for key in $ON_FILTERS; do
         echo "on: carries a '$key' filter — a run filtered out never reports the required check (#285)"
     done
@@ -254,10 +261,22 @@ shape_problems() {
     case "$REQ_JOB_KEYS" in *' continue-on-error '*)
         echo "the required job has continue-on-error — a failed step would still report success" ;;
     esac
+}
+
+# Prints every shape problem of <workflow>, one per line; prints nothing when the shape is right.
+shape_problems() {
+    start_problems "$1" "$REQUIRED_CHECK"
+    [ -n "$REQ_JOB" ] || return
+    local named
+    named="$(required_name_lines "$1" | grep -c .)"
+    if [ "$named" != 1 ]; then
+        echo "$named lines outside comments name '$REQUIRED_CHECK' — only the one job may carry it, a skipped second one would report the check as passed"
+    fi
     if [ "$DIFF_IDX" -lt 0 ]; then
         echo "no step has id: diff — nothing classifies the PR inside the required job"
         return
     fi
+    local i condition verdict gated=0
     for ((i = 0; i < STEP_COUNT; i++)); do
         if [ -n "${STEP_COE[i]-}" ]; then
             echo "step '${STEP_NAME[i]-#$i}' has continue-on-error — its failure would not turn the check red"
@@ -279,8 +298,20 @@ shape_problems() {
         condition="$(normalize_condition "${STEP_IF[i]}")"
         if ! printf '%s' "$condition" | grep -Eq "$FAIL_CLOSED_CONDITION"; then
             echo "step '${STEP_NAME[i]-#$i}' has if: $condition — after the classification only steps.diff.outputs.<verdict> != 'false' is allowed, so a missing verdict runs the step"
+            continue
         fi
-        case "$condition" in *outputs.code*) gated=1 ;; esac
+        verdict="${condition#steps.diff.outputs.}"
+        verdict="${verdict%% *}"
+        # images can be false while code is true, so a step gated on it skips the gate on a code PR.
+        # A guard script gated on code skips on a PR that touches only that script (code=false).
+        case "$verdict" in
+            code)   gated=1 ;;
+            guards) ;;
+            *)      echo "step '${STEP_NAME[i]-#$i}' is gated on the '$verdict' verdict — the required job may use only code and guards" ;;
+        esac
+        case "$verdict:${STEP_RUN[i]-}" in
+            code:./scripts/*) echo "step '${STEP_NAME[i]-#$i}' runs a guard script but is gated on code — it would skip on a PR that changes only that script" ;;
+        esac
     done
     if [ "$gated" -eq 0 ]; then
         echo "no step after the classification is gated on the code verdict — the replay below would prove nothing"
@@ -313,19 +344,11 @@ insert_after() {
     printf '%s' "$out"
 }
 
-# required_name_outside <workflow>... → every line, outside comments, that names the required check.
-# Plain text on purpose: any indentation or YAML form of a second job with that name is caught. A
-# line that names it for another reason (a workflow_run trigger, say) fails too: read the hit, then
-# decide.
-required_name_outside() {
-    grep -nF -- "$REQUIRED_CHECK" "$@" /dev/null | grep -Ev '^[^:]+:[0-9]+:[[:space:]]*#' || true
-}
-
-# expect_required_name_outside <none|found> <description> <workflow>...
-expect_required_name_outside() {
+# expect_required_name_lines <none|found> <description> <workflow>...
+expect_required_name_lines() {
     local expected="$1" description="$2" hits
     shift 2
-    hits="$(required_name_outside "$@")"
+    hits="$(required_name_lines "$@")"
     if [ "$expected" = none ] && [ -z "$hits" ]; then
         pass "$description"
     elif [ "$expected" = found ] && [ -n "$hits" ]; then
@@ -400,14 +423,14 @@ output_value() {
 
 # replay <flavor> <changed path> → prints `red`, `gate-ran` or `gate-skipped`.
 # A PR that changes <changed path> runs the required job's steps up to the classifier, with the
-# <flavor> classifier in place, exactly as the runner runs a `run:` step (bash -e). A failed step ends
-# the job red. Otherwise every later step's if: is replayed against the verdicts those steps wrote.
+# <flavor> classifier in place, as the runner runs a `run:` step: bash -e, and a GITHUB_OUTPUT file
+# of its own for each step. A failed step ends the job red. Otherwise every later step's if: is
+# replayed against the verdicts the classifier step wrote. `gate-ran` means every gated step runs.
 replay() {
-    local flavor="$1" changed="$2" repo output log i rc condition verdict value gate_ran=1
-    repo="$(mktemp -d "$TMP_ROOT/replay.XXXXXX")"
-    output="$repo.github-output"
+    local flavor="$1" changed="$2" repo log i rc condition verdict value gate_ran=1
+    repo="$(mktemp -d "$TMP_ROOT/replay.XXXXXX")" || return 1
+    [ -d "$repo" ] || return 1
     log="$repo.log"
-    : > "$output"
 
     cp -R "$REPO_ROOT/scripts" "$repo/scripts"
     install_classifier "$flavor" "$repo/scripts/ci/classify-changes.sh" || return 1
@@ -421,8 +444,9 @@ replay() {
     git -C "$repo" commit -qm 'the PR'
 
     for ((i = 0; i <= DIFF_IDX; i++)); do
+        : > "$repo.output.$i"
         [ -n "${STEP_RUN[i]-}" ] || continue
-        (cd "$repo" && GITHUB_OUTPUT="$output" GITHUB_STEP_SUMMARY=/dev/null \
+        (cd "$repo" && GITHUB_OUTPUT="$repo.output.$i" GITHUB_STEP_SUMMARY=/dev/null \
             bash --noprofile --norc -e -c "${STEP_RUN[i]}") >> "$log" 2>&1
         rc=$?
         if [ "$rc" -ne 0 ]; then
@@ -432,11 +456,11 @@ replay() {
     done
 
     for ((i = DIFF_IDX + 1; i < STEP_COUNT; i++)); do
-        condition="$(normalize_condition "${STEP_IF[i]-}")"
-        case "$condition" in *outputs.code*) ;; *) continue ;; esac
+        [ -n "${STEP_IF[i]-}" ] || continue
+        condition="$(normalize_condition "${STEP_IF[i]}")"
         verdict="${condition#steps.diff.outputs.}"
         verdict="${verdict%% *}"
-        value="$(output_value "$verdict" "$output")"
+        value="$(output_value "$verdict" "$repo.output.$DIFF_IDX")"
         if [ "$value" = false ]; then
             gate_ran=0
         fi
@@ -490,7 +514,7 @@ expect_shape_problem 'the required job renamed' 'no job is named' \
 # shellcheck disable=SC2016 # an awk program, not shell
 expect_shape_problem 'no classification step at all' 'no step has id: diff' \
     "$(mutate no-diff '$0 == "        id: diff" { next } { print }')"
-expect_shape_problem 'a second job with the required name, which needs the first' "2 jobs are named '$REQUIRED_CHECK'" \
+expect_shape_problem 'a second job with the required name, which needs the first' "2 lines outside comments name '$REQUIRED_CHECK'" \
     "$(mutate second-job '{ print } END { print "  shadow:"; print "    name: Pull Request Verification"; print "    needs: build"; print "    if: failure()" }')"
 expect_shape_problem 'a second job indented differently, which the reader cannot see' "2 lines outside comments name '$REQUIRED_CHECK'" \
     "$(mutate second-job-deeper '{ print } END { print "  shadow:"; print "      name: Pull Request Verification"; print "      needs: build"; print "      if: failure()"; print "      runs-on: ubuntu-24.04"; print "      steps:"; print "        - run: \"true\"" }')"
@@ -499,6 +523,11 @@ expect_shape_problem 'a second job whose name is a block scalar' "2 lines outsid
 # shellcheck disable=SC2016 # an awk program, not shell
 expect_shape_problem 'extra spaces after a step dash fail the test' 'more than one space after a list dash' \
     "$(mutate dash-spaces '$0 == "      - name: Run Unit Tests" { print "      -   name: Run Unit Tests"; next } { print }')"
+expect_shape_problem 'the .NET steps gated on the images verdict' "is gated on the 'images' verdict" \
+    "$(mutate dotnet-on-images '{ gsub("steps[.]diff[.]outputs[.]code", "steps.diff.outputs.images"); print }')"
+# shellcheck disable=SC2016 # an awk program, not shell
+expect_shape_problem 'a guard script gated on the code verdict' 'runs a guard script but is gated on code' \
+    "$(mutate guard-on-code '!done && $0 == "        if: steps.diff.outputs.guards != " Q "false" Q { print "        if: steps.diff.outputs.code != " Q "false" Q; done = 1; next } { print }')"
 
 echo
 echo '── the reader does not lose a key to YAML syntax ──────────────────────────────────────────'
@@ -532,7 +561,7 @@ others=()
 while IFS= read -r file; do
     [ "$file" = "$WORKFLOW" ] || others+=("$file")
 done < <(find "$REPO_ROOT/.github/workflows" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)
-expect_required_name_outside none "the other ${#others[@]} workflow files never name '$REQUIRED_CHECK' outside a comment" "${others[@]}"
+expect_required_name_lines none "the other ${#others[@]} workflow files never name '$REQUIRED_CHECK' outside a comment" "${others[@]}"
 cat > "$TMP_ROOT/two-space-workflow.yml" <<EOF
 on:
   pull_request:
@@ -553,8 +582,27 @@ jobs:
         steps:
             - run: 'true'
 EOF
-expect_required_name_outside found 'a job of that name in another workflow is found'          "$TMP_ROOT/two-space-workflow.yml"
-expect_required_name_outside found 'the same job indented by four spaces, name quoted, is found' "$TMP_ROOT/four-space-workflow.yml"
+expect_required_name_lines found 'a job of that name in another workflow is found'          "$TMP_ROOT/two-space-workflow.yml"
+expect_required_name_lines found 'the same job indented by four spaces, name quoted, is found' "$TMP_ROOT/four-space-workflow.yml"
+
+# The main ruleset requires three checks (read 2026-10-07): the job above, `gitleaks`, and
+# GitGuardian, which is a GitHub app and runs no workflow. A new required check joins this list.
+echo
+echo '── the other required check a workflow runs, gitleaks, always starts too ───────────────────'
+GITLEAKS_WORKFLOW="$REPO_ROOT/.github/workflows/gitleaks.yml"
+problems_gitleaks="$(start_problems "$GITLEAKS_WORKFLOW" gitleaks)"
+if [ -z "$problems_gitleaks" ]; then
+    pass "gitleaks.yml: 'gitleaks' has no needs:, no job-level if: and no paths filter"
+else
+    fail "gitleaks.yml: 'gitleaks' has no needs:, no job-level if: and no paths filter" "$problems_gitleaks"
+fi
+awk '{ print } $0 == "    name: gitleaks" { print "    if: github.actor != " Q "dependabot[bot]" Q }' Q="'" "$GITLEAKS_WORKFLOW" > "$TMP_ROOT/gitleaks-if.yml"
+problems_gitleaks="$(start_problems "$TMP_ROOT/gitleaks-if.yml" gitleaks)"
+if printf '%s' "$problems_gitleaks" | grep -qF 'job-level if:'; then
+    pass 'a job-level if: on the gitleaks job is caught'
+else
+    fail 'a job-level if: on the gitleaks job is caught' "got: ${problems_gitleaks:-<none>}"
+fi
 
 load_required_job "$WORKFLOW"
 if [ -n "$problems" ] || [ "$DIFF_IDX" -lt 0 ]; then

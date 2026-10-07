@@ -57,3 +57,9 @@ jobs:
 
       - name: Run actionlint
         run: ./actionlint -color
+
+      # The shape self-test of pr-verify's required job (#791). pr-verify runs it inside the very job
+      # it guards, so a change that skips that whole job (a job-level `if:` that is false on its own
+      # PR) would skip the test with it. This job has no `needs:` and no `if:`, so the test still runs.
+      - name: Required-check shape self-test
+        run: ./scripts/tests/pr-verify-required-check.tests.sh

@@ -20,6 +20,13 @@ public sealed class SqlCommandRecorder : DbCommandInterceptor
 
     public IReadOnlyList<string> Commands => [.. _commands];
 
+    /// <summary>
+    /// Runs just before each command, so a test can act at the moment a given query starts, for
+    /// example cancel a caller's token while the translation file is being loaded (#715). A test that
+    /// sets it clears it when it ends, because the factory is shared by the whole collection.
+    /// </summary>
+    public Action<string>? BeforeCommand { get; set; }
+
     public void Clear() => _commands.Clear();
 
     public override InterceptionResult<DbDataReader> ReaderExecuting(
@@ -27,7 +34,7 @@ public sealed class SqlCommandRecorder : DbCommandInterceptor
         CommandEventData eventData,
         InterceptionResult<DbDataReader> result)
     {
-        _commands.Enqueue(command.CommandText);
+        Record(command.CommandText);
         return base.ReaderExecuting(command, eventData, result);
     }
 
@@ -37,7 +44,7 @@ public sealed class SqlCommandRecorder : DbCommandInterceptor
         InterceptionResult<DbDataReader> result,
         CancellationToken cancellationToken = default)
     {
-        _commands.Enqueue(command.CommandText);
+        Record(command.CommandText);
         return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
     }
 
@@ -46,7 +53,7 @@ public sealed class SqlCommandRecorder : DbCommandInterceptor
         CommandEventData eventData,
         InterceptionResult<int> result)
     {
-        _commands.Enqueue(command.CommandText);
+        Record(command.CommandText);
         return base.NonQueryExecuting(command, eventData, result);
     }
 
@@ -56,7 +63,13 @@ public sealed class SqlCommandRecorder : DbCommandInterceptor
         InterceptionResult<int> result,
         CancellationToken cancellationToken = default)
     {
-        _commands.Enqueue(command.CommandText);
+        Record(command.CommandText);
         return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+    }
+
+    private void Record(string commandText)
+    {
+        _commands.Enqueue(commandText);
+        BeforeCommand?.Invoke(commandText);
     }
 }

@@ -338,6 +338,25 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Get_FromTheDiskCopy_ShouldSendTheExactUtf8BytesTheETagHashes()
+    {
+        // Arrange: reading the body as a string would hide a BOM, so this test reads the raw bytes.
+        await SeedAsync(gossipId: 1, polish: "Zażółć gęślą jaźń 🐉", status: SeedStatus.Approved);
+        await RebuildAsync();
+        await _factory.CreateClient().GetAsync(Route);
+
+        // Act
+        HttpResponseMessage response = await _factory.CreateClient().GetAsync(Route);
+        byte[] body = await response.Content.ReadAsByteArrayAsync();
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        body.AsSpan().StartsWith(Encoding.UTF8.Preamble).ShouldBeFalse();
+        response.Content.Headers.ContentLength.ShouldBe(body.Length);
+        response.Headers.ETag!.Tag.ShouldBe($"\"{Convert.ToHexString(SHA256.HashData(body))}\"");
+    }
+
+    [Fact]
     public async Task Get_WhenTheDiskCopyWasDeleted_ShouldWriteItAgainFromTheDatabase()
     {
         // Arrange: something cleared the temp folder after the copy was written.

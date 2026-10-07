@@ -57,7 +57,11 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
         _submitterId = submitter.Id;
     }
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync()
+    {
+        _factory.ReadContextSqlRecorder.BeforeCommand = null;
+        return Task.CompletedTask;
+    }
 
     [Fact]
     public async Task OpenAsync_WithAHashARebuildReplaced_ShouldReturnTheCurrentCopy()
@@ -89,6 +93,95 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
 
         // Assert
         copy.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task OpenAsync_WhenTheStoredHashDoesNotMatchTheContent_ShouldThrowAndKeepNoFile()
+    {
+        // Arrange: the row's hash no longer describes its content, so the patcher would refuse the body.
+        await SeedApprovedAsync(gossipId: 1, polish: "Alfa");
+        await RebuildAsync();
+        await OverwriteStoredHashAsync(AnyHash);
+
+        // Act + Assert: a loud failure, and no file under a name that promises the wrong bytes.
+        await Should.ThrowAsync<InvalidOperationException>(
+            () => DiskCache().OpenAsync(Language, AnyHash, CancellationToken.None));
+        Directory.GetFiles(_factory.TranslationFileCopiesDirectory).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task OpenAsync_WhenTheCallerGaveUpBeforeTheWrite_ShouldThrowAndLeaveTheGateUsable()
+    {
+        // Arrange
+        await SeedApprovedAsync(gossipId: 1, polish: "Alfa");
+        await RebuildAsync();
+        string hash = await CurrentHashAsync();
+        _factory.ReadContextSqlRecorder.Clear();
+
+        // Act
+        Exception? cancelled = await Record.ExceptionAsync(
+            () => DiskCache().OpenAsync(Language, hash, new CancellationToken(canceled: true)));
+        TranslationFileCopy? copy = await DiskCache().OpenAsync(Language, hash, CancellationToken.None);
+
+        // Assert: the caller that gave up loaded nothing, and the next one still gets its copy.
+        cancelled.ShouldBeAssignableTo<OperationCanceledException>();
+        copy.ShouldNotBeNull();
+        await using Stream content = copy.Content;
+        copy.ContentHash.ShouldBe(hash);
+        _factory.ReadContextSqlRecorder.Commands
+            .Count(command => command.Contains("\"Content\""))
+            .ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task OpenAsync_WhenTheCallerCancelsDuringTheWrite_ShouldStillFinishTheCopy()
+    {
+        // Arrange: the caller gives up at the moment the content starts loading, as a CLI does after its
+        // 10 seconds on a slow first write.
+        await SeedApprovedAsync(gossipId: 1, polish: "Alfa");
+        await RebuildAsync();
+        string hash = await CurrentHashAsync();
+        using CancellationTokenSource caller = new();
+        _factory.ReadContextSqlRecorder.BeforeCommand = command =>
+        {
+            if (command.Contains("\"Content\""))
+            {
+                caller.Cancel();
+            }
+        };
+
+        // Act
+        TranslationFileCopy? copy = await DiskCache().OpenAsync(Language, hash, caller.Token);
+
+        // Assert: the write runs on the host's token, so the next waiter finds the copy instead of
+        // loading the whole file again.
+        caller.IsCancellationRequested.ShouldBeTrue();
+        copy.ShouldNotBeNull();
+        await using Stream content = copy.Content;
+        copy.ContentHash.ShouldBe(hash);
+        File.Exists(Path.Combine(_factory.TranslationFileCopiesDirectory, $"{Language}-{hash}.txt")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task OpenAsync_AfterACrashLeftFilesBehind_ShouldKeepOnlyTheNewCopy()
+    {
+        // Arrange: an older copy and a half-written temporary file from a process that died.
+        await SeedApprovedAsync(gossipId: 1, polish: "Alfa");
+        await RebuildAsync();
+        string hash = await CurrentHashAsync();
+        Directory.CreateDirectory(_factory.TranslationFileCopiesDirectory);
+        await File.WriteAllTextAsync(Path.Combine(_factory.TranslationFileCopiesDirectory, $"{Language}-{AnyHash}.txt"), "old");
+        await File.WriteAllTextAsync(Path.Combine(_factory.TranslationFileCopiesDirectory, $"{Language}-{Guid.NewGuid():N}.tmp"), "half");
+
+        // Act
+        TranslationFileCopy? copy = await DiskCache().OpenAsync(Language, hash, CancellationToken.None);
+
+        // Assert
+        copy.ShouldNotBeNull();
+        await using Stream content = copy.Content;
+        Directory.GetFiles(_factory.TranslationFileCopiesDirectory)
+            .Select(Path.GetFileName)
+            .ShouldBe([$"{Language}-{hash}.txt"]);
     }
 
     [Theory]
@@ -127,6 +220,14 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
             .Where(file => file.Language == Language)
             .Select(file => file.ContentHash)
             .SingleAsync();
+    }
+
+    private async Task OverwriteStoredHashAsync(string contentHash)
+    {
+        using IServiceScope scope = _factory.Services.CreateScope();
+        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+        await dbContext.Database.ExecuteSqlAsync(
+            $"UPDATE translation.\"TranslationArtifacts\" SET \"ContentHash\" = {contentHash}");
     }
 
     private async Task SeedApprovedAsync(int gossipId, string polish)

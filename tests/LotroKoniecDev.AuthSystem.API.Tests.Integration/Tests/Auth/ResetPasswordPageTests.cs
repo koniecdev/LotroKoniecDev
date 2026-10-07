@@ -304,7 +304,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ResetPasswordPage_Post_ShouldKeepTheFormAndNameTheRule_WhenThePasswordIsLongerThanTheMaximum()
+    public async Task ResetPasswordPage_Post_ShouldRefuseThePassword_WhenItIsLongerThanTheMaximum()
     {
         // #1046: the page calls Identity directly, so it never ran the API's 128-character rule. It took a
         // 500-character password and said the change worked.
@@ -338,6 +338,15 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
 
         response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         (await PasswordWorksAsync(registerRequest.Email, newPassword)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ResetPasswordPage_Get_ShouldListTheLengthRuleThePageApplies()
+    {
+        HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri("/Account/ResetPassword", UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("8–128 znaków");
     }
 
     private async Task<bool> PasswordWorksAsync(string email, string password)

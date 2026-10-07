@@ -102,6 +102,16 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task RegisterPage_ShouldListTheLengthRuleTheApiApplies_WhenAccessed()
+    {
+        // The handler refuses a password over 128 characters, so the rule list must say so too (#1046).
+        HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri("/Account/Register", UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("8–128 znaków");
+    }
+
+    [Fact]
     public async Task RegisterPage_ShouldRenderTermsConsentWithLink_WhenAccessed()
     {
         // Act

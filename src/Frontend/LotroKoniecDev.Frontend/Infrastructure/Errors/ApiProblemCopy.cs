@@ -63,8 +63,8 @@ internal static class ApiProblemCopy
     /// contradicts, which is the defect #703 exists to remove.
     /// <para>
     /// The wording is shared with the change-password hint, so the Frontend states the rules once. The
-    /// API states the same ones in <c>PasswordValidationRules</c> and in the Identity options; the
-    /// contexts share no code, so keep those in step by hand.
+    /// API states the same ones in <c>PasswordConstants</c>, <c>PasswordValidationRules</c> and the Identity
+    /// options; the contexts share no code, so keep those in step by hand.
     /// </para>
     /// </summary>
     internal const string PasswordRules =

@@ -383,7 +383,7 @@ cancellation link's landing page — LEGAL-01).
 
 `RegisterRequest`: `{ username, email, password, acceptedPrivacyPolicy, acceptedDataProcessingConsent,
 acceptedTermsOfService }`. All three consent flags **must be `true`** (the ToS flag landed with
-LEGAL-03; acceptance + timestamp are persisted and surface in the data export). Password rules (`PasswordValidationRules.cs`): **8–128** chars,
+LEGAL-03; acceptance + timestamp are persisted and surface in the data export). Password rules (`PasswordValidationRules.cs`, lengths in `PasswordConstants.cs`): **8–128** chars,
 ≥1 digit, ≥1 lowercase, ≥1 uppercase, ≥1 special. Email unique (case-insensitively, physical via the
 unique `EmailIndex`), ≤ 250, regex-validated — **the e-mail is the login identifier** (ADR-0022).
 Username is a **display-only handle**: unique (case-insensitively), `^[a-zA-Z0-9]+$` (letters + digits

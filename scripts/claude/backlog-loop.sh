@@ -144,10 +144,14 @@ RUNNING=""
 # list instead: bash takes a job off the running list in the same step in which it reaps it. The
 # worker does the same for its session (#983). Job control is off here, so bash never sees a job
 # stop, and a job is off that list only once it has ended.
+# The list is read with backquotes, not $(...), and count_running sets a variable: the main loop
+# must not lose a stop while it waits for its workers, and bash 5.2 loses one that arrives as it
+# starts to parse a $(...) (#1064, see job_running in work-ticket.sh).
 job_running() {
     local running
     [ -n "$1" ] || return 1
-    running="$(jobs -rp)"
+    # shellcheck disable=SC2006  # backquotes on purpose, see above
+    running=`jobs -rp`
     case $'\n'"$running"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac
     return 1
 }
@@ -198,10 +202,11 @@ stop_reason=""
 exit_code=0
 picker_empty=0
 
-running_count() {
-    local entry n=0
-    for entry in $RUNNING; do n=$((n + 1)); done
-    echo "$n"
+# Sets RUNNING_COUNT instead of printing it, for the reason in job_running.
+count_running() {
+    local entry
+    RUNNING_COUNT=0
+    for entry in $RUNNING; do RUNNING_COUNT=$((RUNNING_COUNT + 1)); done
 }
 
 # First word of a space-separated list, and the list without it.
@@ -220,6 +225,9 @@ next_ticket() {
     fi
     if [ "$MAX" -gt 0 ] && [ "$count" -ge "$MAX" ]; then return 0; fi
     if [ "$EXPLICIT_MODE" -eq 1 ]; then
+        # The list is empty for the whole end of a run, while the last tickets work: no $(...) then
+        # (see job_running).
+        [ -n "${QUEUE// /}" ] || return 0
         NEXT="$(head_of "$QUEUE")"; QUEUE="$(tail_of "$QUEUE")"
         return 0
     fi
@@ -233,7 +241,8 @@ dispatch() {
         count=$((count + 1))
         ATTEMPTED="$ATTEMPTED $ticket"
     fi
-    echo "[conductor] ── start #$ticket ($(( $(running_count) + 1 ))/$PARALLEL running) ──"
+    count_running
+    echo "[conductor] ── start #$ticket ($(( RUNNING_COUNT + 1 ))/$PARALLEL running) ──"
     "$SCRIPTS/work-ticket.sh" "$ticket" "$RUN_DIR" &
     RUNNING="$RUNNING $!:$ticket"
 }
@@ -289,7 +298,7 @@ while :; do
     reap_finished
 
     if [ "$stop" -eq 0 ] && [ "$limit_hold" -eq 0 ]; then
-        while [ "$(running_count)" -lt "$PARALLEL" ]; do
+        while count_running; [ "$RUNNING_COUNT" -lt "$PARALLEL" ]; do
             is_retry=0
             [ -n "${RETRY// /}" ] && is_retry=1
             next_ticket
@@ -303,7 +312,8 @@ while :; do
         done
     fi
 
-    if [ "$(running_count)" -eq 0 ]; then
+    count_running
+    if [ "$RUNNING_COUNT" -eq 0 ]; then
         if [ "$stop" -eq 1 ]; then
             break
         fi

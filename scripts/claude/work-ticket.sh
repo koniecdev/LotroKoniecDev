@@ -571,10 +571,17 @@ sleeper=""
 # Reads this shell's own job list. Bash takes the job off the running list in the same step in
 # which it reaps it. A stopped job is not on that list either, but with job control off (`set +m`)
 # bash never sees a job stop.
+# The list is read with backquotes, not $(...), and so is the clock in the poll loop of
+# run_session: a stop must reach this script while it waits for its session. Bash 5.2 runs a
+# waiting trap when it starts to parse a $(...). At that point it still expects the closing `)`,
+# so the trap's own text does not parse: the trap fails with "unexpected EOF while looking for
+# matching `)'", never runs, and the stop is lost (#1064). Bash parses a backquote in the child,
+# so the trap runs after the command.
 job_running() {
     local running
     [ -n "$1" ] || return 1
-    running="$(jobs -rp)"
+    # shellcheck disable=SC2006  # backquotes on purpose, see above
+    running=`jobs -rp`
     case $'\n'"$running"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac
     return 1
 }
@@ -712,7 +719,7 @@ and end with the STATUS: DONE or STATUS: BLOCKED block from /work-ticket, with n
 # run_session <output file> <prompt> [more claude arguments] — one headless run in the worktree;
 # sets claude_rc. The wall clock belongs to the ticket, so a resume gets only what is left of it.
 run_session() {
-    local out="$1" cmd=(claude -p "$2" "${session_flags[@]}" "${@:3}")
+    local out="$1" now cmd=(claude -p "$2" "${session_flags[@]}" "${@:3}")
     # No session starts without a watchdog that can tell when this script is gone.
     if ! open_lifeline; then
         ending=1
@@ -771,7 +778,9 @@ run_session() {
         sleeper=""
         # A session that ended in the nap is judged from its result, even past the limit (#991).
         session_running || break
-        if [ $(( $(date +%s) - start_epoch )) -ge $(( TIMEOUT_MIN * 60 )) ]; then
+        # shellcheck disable=SC2006  # backquotes on purpose, see job_running
+        now=`date +%s`
+        if [ $(( now - start_epoch )) -ge $(( TIMEOUT_MIN * 60 )) ]; then
             # A stop from here on changes nothing (see `ending`). Its trap would cut the stop below
             # short, and once the session has ended, nothing would end the command groups that this
             # stop has already found.

@@ -89,16 +89,26 @@ internal static class AuthEndpointsExtensions
     }
 
     /// <summary>
-    /// Signs out of the cookie only, for cases where the session at the auth server is already gone, for
-    /// example right after an account deletion was scheduled and the auth server locked the account and
-    /// revoked its tokens.
+    /// A sign-out with no end-session round trip, for cases where the session at the auth server is already
+    /// gone, for example right after an account deletion was scheduled and the auth server locked the
+    /// account and revoked its tokens.
     /// The normal <see cref="LogoutAsync"/> goes through the OIDC end-session endpoint and always ends on
     /// the registered post-logout URI, the home page. This one skips that pointless round trip and ends
     /// on the given local page instead, the "deletion scheduled" info page.
+    /// The auth server's own revoke is best effort, so the website still revokes its refresh token, like
+    /// every other place where it ends a session (#1027).
     /// </summary>
-    internal static async Task<IResult> LocalSignOutAsync(HttpContext context, string? returnUrl)
+    internal static async Task<IResult> LocalSignOutAsync(
+        HttpContext context,
+        string? returnUrl,
+        RefreshTokenRevoker refreshTokenRevoker)
     {
+        AuthenticateResult authentication =
+            await context.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        string? refreshToken = authentication.Properties?.GetTokenValue(RefreshTokenName);
+
         await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        await refreshTokenRevoker.RevokeAsync(refreshToken);
 
         string redirect = LocalReturnUrl.Sanitize(returnUrl) ?? "/";
         return Results.Redirect(redirect);
@@ -122,11 +132,7 @@ internal static class AuthEndpointsExtensions
         string? refreshToken = authentication.Properties?.GetTokenValue(RefreshTokenName);
 
         await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-
-        if (!string.IsNullOrWhiteSpace(refreshToken))
-        {
-            await refreshTokenRevoker.RevokeAsync(refreshToken);
-        }
+        await refreshTokenRevoker.RevokeAsync(refreshToken);
 
         string authority = authSystemOptions.Value.Authority.TrimEnd('/');
         string postLogoutRedirect = $"{context.Request.Scheme}://{context.Request.Host}";

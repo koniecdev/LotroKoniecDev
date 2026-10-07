@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
+using LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 using LotroKoniecDev.Frontend.Tests.Unit.Shared;
 using Microsoft.AspNetCore.Authentication;
@@ -12,6 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -23,11 +25,15 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Auth.TokenRefresh;
 public sealed class CookieTokenRefresherTests : IDisposable
 {
     private const string DiscoveryIssuer = "https://localhost:5003";
+    private const string RevocationEndpoint = "https://localhost:5003/connect/revoke";
     private const string Subject = "11111111-1111-1111-1111-111111111111";
     private const string AccessTokenName = "access_token";
     private const string RefreshTokenName = "refresh_token";
     private const string IdTokenName = "id_token";
     private const string ExpiresAtName = "expires_at";
+
+    /// <summary>A real-time guard, so a broken time limit fails the test instead of hanging the run.</summary>
+    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);
 
     private readonly List<RSA> _rsaInstances = [];
 
@@ -515,11 +521,14 @@ public sealed class CookieTokenRefresherTests : IDisposable
     /// <summary>
     /// #964: the sign-out revokes the stored refresh token. A refresh first would redeem it, and OpenIddict
     /// still accepts a redeemed token for its reuse window, so the token in a copied cookie would survive.
+    /// The local sign-out revokes it too, so the same holds there (#1027).
     /// </summary>
     [Theory]
     [InlineData("/auth/logout")]
     [InlineData("/AUTH/Logout")]
     [InlineData("/auth/logout/")]
+    [InlineData("/auth/local-signout")]
+    [InlineData("/auth/local-signout/")]
     public async Task ValidateAsync_OnTheSignOutRequestNearExpiry_KeepsTheStoredRefreshTokenUnredeemed(string path)
     {
         RsaSecurityKey signingKey = CreateRsaKey();
@@ -559,6 +568,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
     [InlineData("POST", "/auth/logoutx")]
     [InlineData("POST", "/auth/logout/extra")]
     [InlineData("POST", "/auth/login")]
+    [InlineData("POST", "/auth/local-signoutx")]
+    [InlineData("GET", "/auth/local-signout")]
     [InlineData("GET", "/auth/logout")]
     [InlineData("HEAD", "/auth/logout")]
     [InlineData("PUT", "/auth/logout")]
@@ -676,6 +687,342 @@ public sealed class CookieTokenRefresherTests : IDisposable
         context.Principal.ShouldNotBeNull();
     }
 
+    /// <summary>
+    /// #1027: deleting the cookie alone leaves its refresh token valid at the auth server for hours, so a copy
+    /// of the cookie could keep renewing. A key change upstream ends the session, so it revokes the token.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WithUnexpiredTokenSignedByRotatedKey_RevokesTheStoredRefreshToken()
+    {
+        RsaSecurityKey actualSigningKey = CreateRsaKey();
+        RsaSecurityKey trustedKey = CreateRsaKey();
+        string accessToken = MintAccessToken(actualSigningKey, tokenIssuer: DiscoveryIssuer);
+
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [trustedKey], discoveryIssuer: DiscoveryIssuer, tokenEndpointClient: tokenEndpointClient);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddHours(1),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        RevokedRefreshTokens(tokenEndpointClient).ShouldBe(["refresh-token"]);
+    }
+
+    /// <summary>
+    /// #1027: the 401 may come from the TMS API, which checks the access token alone and revokes nothing, so
+    /// the refresh token can still be valid. When the auth server has already revoked it, the revoke does no
+    /// harm: OpenIddict answers 200 for a token that is no longer valid. The session is ended for a real
+    /// reason here, so a browser that left does not stop the revoke.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ValidateAsync_WhenSessionMarkedDead_RevokesTheStoredRefreshToken(bool browserLeft)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
+        deadSessionRegistry.ConsumeAsync(Subject, Arg.Any<CancellationToken>()).Returns(true);
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            deadSessionRegistry: deadSessionRegistry,
+            tokenEndpointClient: tokenEndpointClient);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddHours(1),
+            refreshToken: "refresh-token",
+            requestAborted: new CancellationToken(canceled: browserLeft));
+
+        await refresher.ValidateAsync(context);
+
+        RevokedRefreshTokens(tokenEndpointClient).ShouldBe(["refresh-token"]);
+    }
+
+    /// <summary>
+    /// #1027: the auth server has already swapped the stored refresh token for the one in the answer. The
+    /// swapped one is still accepted for OpenIddict's reuse window, and the new one for hours, so both are
+    /// revoked. Revoking only the stored one leaves the new one valid (checked against OpenIddict 7.7.1).
+    /// </summary>
+    [Theory]
+    [InlineData(null, 300)]
+    [InlineData("   ", 300)]
+    [InlineData("refreshed-access-token", null)]
+    [InlineData("refreshed-access-token", 0)]
+    public async Task ValidateAsync_WhenRefreshAnswerIsUnusable_RevokesTheStoredAndTheReceivedRefreshToken(
+        string? refreshedAccessToken,
+        int? expiresIn)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse
+            {
+                AccessToken = refreshedAccessToken,
+                RefreshToken = "rotated-refresh-token",
+                ExpiresIn = expiresIn
+            },
+            tokenEndpointClient: tokenEndpointClient);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        RevokedRefreshTokens(tokenEndpointClient).ShouldBe(["refresh-token", "rotated-refresh-token"], ignoreOrder: true);
+    }
+
+    /// <summary>
+    /// An answer with no refresh token, a blank one or the stored one again leaves only the stored token to
+    /// revoke, and that one is revoked once.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("refresh-token")]
+    public async Task ValidateAsync_WhenUnusableRefreshAnswerCarriesNoNewRefreshToken_RevokesTheStoredOneOnce(
+        string? receivedRefreshToken)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse { AccessToken = null, RefreshToken = receivedRefreshToken, ExpiresIn = 300 },
+            tokenEndpointClient: tokenEndpointClient);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        RevokedRefreshTokens(tokenEndpointClient).ShouldBe(["refresh-token"]);
+    }
+
+    /// <summary>
+    /// #1027: a refused refresh is not always a dead token. A lockout, for one, revokes nothing, and the
+    /// token works again once the lockout ends.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenNearExpiryAndRefreshFails_RevokesTheStoredRefreshToken()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey], discoveryIssuer: DiscoveryIssuer, tokenEndpointClient: tokenEndpointClient);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        RevokedRefreshTokens(tokenEndpointClient).ShouldBe(["refresh-token"]);
+    }
+
+    /// <summary>
+    /// A browser that leaves during the refresh makes the token client answer null, but the token is not
+    /// dead. The browser never gets the deleted cookie and sends the same refresh token on its next request,
+    /// so a revoke here would sign out a user who only clicked a second link.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenTheBrowserLeavesDuringTheRefresh_KeepsTheStoredRefreshTokenAlive()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey], discoveryIssuer: DiscoveryIssuer, tokenEndpointClient: tokenEndpointClient);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token",
+            requestAborted: new CancellationToken(canceled: true));
+
+        await refresher.ValidateAsync(context);
+
+        RevokedRefreshTokens(tokenEndpointClient).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ValidateAsync_WhenNearExpiryWithoutRefreshToken_RevokesNothing()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey], discoveryIssuer: DiscoveryIssuer, tokenEndpointClient: tokenEndpointClient);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: null);
+
+        await refresher.ValidateAsync(context);
+
+        RevokedRefreshTokens(tokenEndpointClient).ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// The revoke runs only when a session ends, so a normal page load pays no extra call to the auth
+    /// server (#923, #940).
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenSessionAliveAndTrusted_RevokesNothing()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey], discoveryIssuer: DiscoveryIssuer, tokenEndpointClient: tokenEndpointClient);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddHours(1),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        RevokedRefreshTokens(tokenEndpointClient).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ValidateAsync_WhenRefreshSucceeds_RevokesNothing()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse
+            {
+                AccessToken = "refreshed-access-token",
+                RefreshToken = "rotated-refresh-token",
+                ExpiresIn = 300
+            },
+            tokenEndpointClient: tokenEndpointClient);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        RevokedRefreshTokens(tokenEndpointClient).ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// #1027: a stuck auth server never holds the page longer than the sign-out's own limit, even with two
+    /// tokens to revoke.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenTheAuthServerNeverAnswersTheRevokes_HoldsTheRequestNoLongerThanTheSignOutTimeLimit()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        TaskCompletionSource bothRevokesStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int startedRevokes = 0;
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        tokenEndpointClient
+            .RevokeRefreshTokenAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                if (Interlocked.Increment(ref startedRevokes) == 2)
+                {
+                    bothRevokesStarted.TrySetResult();
+                }
+
+                return WaitUntilCancelledAsync(call.ArgAt<CancellationToken>(2));
+            });
+        FakeTimeProvider time = new();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse { AccessToken = null, RefreshToken = "rotated-refresh-token", ExpiresIn = 300 },
+            tokenEndpointClient: tokenEndpointClient,
+            timeProvider: time);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token");
+
+        Task validation = refresher.ValidateAsync(context);
+        await bothRevokesStarted.Task.WaitAsync(TestTimeout);
+        time.Advance(RefreshTokenRevoker.TimeLimit - TimeSpan.FromTicks(1));
+        bool finishedBeforeTheLimit = validation.IsCompleted;
+        time.Advance(TimeSpan.FromTicks(1));
+        await validation.WaitAsync(TestTimeout);
+
+        finishedBeforeTheLimit.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The revoke is best effort: whatever it hits, the session still ends and no exception reaches the
+    /// cookie handler, which would turn it into an error page.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenTheRevokeThrows_StillEndsTheSession()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
+        deadSessionRegistry.ConsumeAsync(Subject, Arg.Any<CancellationToken>()).Returns(true);
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        tokenEndpointClient
+            .RevokeRefreshTokenAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new InvalidOperationException("A new handler failed.")));
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            deadSessionRegistry: deadSessionRegistry,
+            tokenEndpointClient: tokenEndpointClient);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            authenticationService,
+            expiresAt: DateTimeOffset.UtcNow.AddHours(1),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldBeNull();
+        await authenticationService.Received(1).SignOutAsync(
+            Arg.Any<HttpContext>(),
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            Arg.Any<AuthenticationProperties>());
+    }
+
     public void Dispose()
     {
         foreach (RSA rsa in _rsaInstances)
@@ -690,9 +1037,11 @@ public sealed class CookieTokenRefresherTests : IDisposable
         TokenResponse? refreshResult = null,
         IDeadSessionRegistry? deadSessionRegistry = null,
         ISessionExpiryNotice? sessionExpiryNotice = null,
-        ILogger<CookieTokenRefresher>? logger = null)
+        ILogger<CookieTokenRefresher>? logger = null,
+        ITokenEndpointClient? tokenEndpointClient = null,
+        TimeProvider? timeProvider = null)
     {
-        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        tokenEndpointClient ??= Substitute.For<ITokenEndpointClient>();
         if (refreshResult is not null)
         {
             tokenEndpointClient
@@ -700,7 +1049,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
                 .Returns(refreshResult);
         }
 
-        OpenIdConnectConfiguration configuration = new();
+        OpenIdConnectConfiguration configuration = new() { RevocationEndpoint = RevocationEndpoint };
         if (discoveryIssuer is not null)
         {
             configuration.Issuer = discoveryIssuer;
@@ -720,13 +1069,39 @@ public sealed class CookieTokenRefresherTests : IDisposable
             Substitute.For<IOptionsMonitor<OpenIdConnectOptions>>();
         optionsMonitor.Get(OpenIdConnectDefaults.AuthenticationScheme).Returns(openIdConnectOptions);
 
+        RefreshTokenRevoker refreshTokenRevoker = new(
+            tokenEndpointClient,
+            optionsMonitor,
+            timeProvider ?? TimeProvider.System,
+            NullLogger<RefreshTokenRevoker>.Instance);
+
         return new CookieTokenRefresher(
             tokenEndpointClient,
             optionsMonitor,
             deadSessionRegistry ?? Substitute.For<IDeadSessionRegistry>(),
             sessionExpiryNotice ?? Substitute.For<ISessionExpiryNotice>(),
+            refreshTokenRevoker,
             logger ?? NullLogger<CookieTokenRefresher>.Instance);
     }
+
+    /// <summary>
+    /// The refresh tokens sent to the auth server's revocation endpoint. A revoke is not visible in the
+    /// result, so the calls to the token client, the boundary to the auth server, are read instead.
+    /// </summary>
+    private static string[] RevokedRefreshTokens(ITokenEndpointClient tokenEndpointClient) =>
+        tokenEndpointClient.ReceivedCalls()
+            .Where(call => call.GetMethodInfo().Name == nameof(ITokenEndpointClient.RevokeRefreshTokenAsync))
+            .Where(call => Equals(call.GetArguments()[0], new Uri(RevocationEndpoint)))
+            .Select(call => call.GetArguments()[1])
+            .OfType<string>()
+            .ToArray();
+
+    /// <summary>
+    /// Like the real token client, a revoke cut off by its time limit returns quietly instead of throwing.
+    /// </summary>
+    private static async Task WaitUntilCancelledAsync(CancellationToken cancellationToken) =>
+        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
+            .ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
     private static CookieValidatePrincipalContext CreateContext(
         string accessToken,

@@ -194,17 +194,17 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
         LoggerMessage.Define<int>(
             LogLevel.Warning,
             new EventId(4, nameof(LogRevocationFailed)),
-            "Refresh token revocation at sign-out failed with status {StatusCode}.");
+            "Refresh token revocation failed with status {StatusCode}.");
 
     private static readonly Action<ILogger, int, string?, string?, Exception?> LogRevocationRefused =
         LoggerMessage.Define<int, string?, string?>(
             LogLevel.Warning,
             new EventId(5, nameof(LogRevocationRefused)),
-            "Refresh token revocation at sign-out failed with status {StatusCode}. Error: {Error}. Description: {ErrorDescription}");
+            "Refresh token revocation failed with status {StatusCode}. Error: {Error}. Description: {ErrorDescription}");
 
     private static readonly Action<ILogger, Exception> LogRevocationError =
         LoggerMessage.Define(
             LogLevel.Warning,
             new EventId(6, nameof(LogRevocationError)),
-            "Refresh token revocation at sign-out threw an exception.");
+            "Refresh token revocation threw an exception.");
 }

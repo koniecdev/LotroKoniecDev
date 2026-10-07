@@ -11,13 +11,16 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
 /// to the auth server's end-session page (#964). The browser may never get there: the tab closes, the
 /// network drops, or the auth server is restarting. Without this call, a copied website cookie could keep
 /// renewing itself.
+/// The cookie check does the same when the website ends a session on its own (#1027), because there the
+/// browser is never sent to the end-session page at all.
 /// The endpoint comes from the auth server's discovery document, never from a path of our own (#610).
 /// It is best effort: a failure is logged and never stops the sign-out.
 /// </summary>
 internal sealed class RefreshTokenRevoker
 {
     /// <summary>
-    /// The sign-out waits for this call, so a stuck auth server must not hold it for long.
+    /// The request that ends the session waits for this call, so a stuck auth server must not hold it for
+    /// long.
     /// </summary>
     internal static readonly TimeSpan TimeLimit = TimeSpan.FromSeconds(5);
 
@@ -41,9 +44,21 @@ internal sealed class RefreshTokenRevoker
     /// <summary>
     /// Takes no cancellation token on purpose. A browser that drops the sign-out request, for example by
     /// closing the tab, is exactly the case this revoke exists for, so the request's abort must not stop it.
+    /// A caller passes every token it holds: a missing, blank or repeated one is skipped. All of them share
+    /// one time limit, so two tokens never hold the request longer than one.
     /// </summary>
-    public async Task RevokeAsync(string refreshToken)
+    public async Task RevokeAsync(params IReadOnlyCollection<string?> refreshTokens)
     {
+        string[] tokensToRevoke = refreshTokens
+            .OfType<string>()
+            .Where(token => !string.IsNullOrWhiteSpace(token))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (tokensToRevoke.Length == 0)
+        {
+            return;
+        }
+
         using CancellationTokenSource timeLimit = new(TimeLimit, _timeProvider);
 
         try
@@ -54,7 +69,10 @@ internal sealed class RefreshTokenRevoker
                 return;
             }
 
-            await _tokenEndpointClient.RevokeRefreshTokenAsync(revocationEndpoint, refreshToken, timeLimit.Token);
+            // Side by side, so a slow first revoke does not use up the time of the second one. The lambda is
+            // async, so a client that throws before it returns a task fails only its own revoke.
+            await Task.WhenAll(tokensToRevoke.Select(async token =>
+                await _tokenEndpointClient.RevokeRefreshTokenAsync(revocationEndpoint, token, timeLimit.Token)));
         }
         catch (Exception exception)
         {
@@ -107,23 +125,23 @@ internal sealed class RefreshTokenRevoker
         LoggerMessage.Define(
             LogLevel.Warning,
             new EventId(1, nameof(LogDiscoveryUnavailable)),
-            "The auth server's discovery document could not be read at sign-out, so the refresh token was not revoked.");
+            "The auth server's discovery document could not be read, so no refresh token was revoked.");
 
     private static readonly Action<ILogger, Exception?> LogNoRevocationEndpoint =
         LoggerMessage.Define(
             LogLevel.Warning,
             new EventId(2, nameof(LogNoRevocationEndpoint)),
-            "The auth server's discovery document has no usable revocation endpoint, so the refresh token was not revoked at sign-out.");
+            "The auth server's discovery document has no usable revocation endpoint, so no refresh token was revoked.");
 
     private static readonly Action<ILogger, Exception?> LogNoConfigurationManager =
         LoggerMessage.Define(
             LogLevel.Warning,
             new EventId(3, nameof(LogNoConfigurationManager)),
-            "The OIDC handler has no configuration manager, so the refresh token was not revoked at sign-out.");
+            "The OIDC handler has no configuration manager, so no refresh token was revoked.");
 
     private static readonly Action<ILogger, Exception?> LogRevocationFailedUnexpectedly =
         LoggerMessage.Define(
             LogLevel.Warning,
             new EventId(4, nameof(LogRevocationFailedUnexpectedly)),
-            "Refresh token revocation at sign-out failed with an unexpected exception.");
+            "Refresh token revocation failed with an unexpected exception.");
 }

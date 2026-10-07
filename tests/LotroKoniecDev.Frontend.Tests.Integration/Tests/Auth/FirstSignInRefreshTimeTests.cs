@@ -76,8 +76,9 @@ public sealed class FirstSignInRefreshTimeTests : IClassFixture<StagingFrontendF
         // Act
         using HttpResponseMessage signedIn = await browser.SendAsync(callback);
 
-        // Assert
+        // Assert: a failed callback also answers 302, but to the error page
         signedIn.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        signedIn.Headers.Location.ShouldNotBeNull().OriginalString.ShouldBe("/");
         AuthenticationProperties properties = ReadSessionCookie(host, signedIn);
         ParseMoment(properties.GetTokenValue("expires_at")).ShouldBe(time.GetUtcNow().AddSeconds(expiresIn));
         ParseMoment(properties.GetTokenValue("refresh_at")).ShouldBe(time.GetUtcNow().AddSeconds(secondsUntilRefresh));

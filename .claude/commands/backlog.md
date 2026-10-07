@@ -28,11 +28,14 @@ assigning themselves (GitHub does not let an author approve their own PR), and m
 batch with `/merge-train`, which refuses any PR that is not approved that way.
 
 Both sections below need the main checkout. Every log, the lock and the ticket worktrees live there,
-whichever checkout this session runs in:
+whichever checkout this session runs in. Find it once, then write its path out in every later
+command: a variable does not survive from one Bash call to the next.
 
 ```bash
-MAIN="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+dirname "$(git rev-parse --path-format=absolute --git-common-dir)"
 ```
+
+Below, `<MAIN>` stands for that path.
 
 ## 1. With arguments — print the terminal command
 
@@ -43,13 +46,24 @@ Map `$ARGUMENTS` onto the launcher's arguments:
 - `-n N`, or "the next N" → `-n N` (the next N ready tickets from the picker)
 - `-j N` passes through (default 3 at once; `-j 1` runs them one by one)
 
-Write out one line in a `bash` block, with the launcher's full path so that it works from any
-folder: `<MAIN>/scripts/claude/start-loop.sh <arguments>`, with `<MAIN>` written out, not as a
-variable. If that file does not exist (the main checkout is on a branch older than the launcher),
-use the copy in this session's checkout (`git rev-parse --show-toplevel`): whichever copy runs, it
-hands the run over to the copy on `origin/main`.
+Without ticket numbers and without `-n N` (N above zero), the loop would take every ready ticket,
+so the launcher refuses that: ask which tickets instead of printing a line.
 
-Before you print it, check one thing: a loop that already runs. When `$MAIN/.claude/backlog-loop.lock/pid`
+Write out one line in a `bash` block, with the launcher's full path so that it works from any
+folder: `<MAIN>/scripts/claude/start-loop.sh <arguments>`. Whichever copy of the launcher runs, it
+hands the run over to the copy on `origin/main`, so any copy that exists will do:
+
+- `<MAIN>/scripts/claude/start-loop.sh`;
+- if the main checkout is on a branch older than the launcher, the copy in the loop's own checkout,
+  `<MAIN>-loop/scripts/claude/start-loop.sh` (it is on `origin/main` after every run);
+- if neither exists yet, give the one-time setup first —
+  `git -C <MAIN> fetch origin main && git -C <MAIN> worktree add --detach <MAIN>-loop origin/main`
+  (or, when `<MAIN>-loop` exists, `git -C <MAIN>-loop checkout --detach origin/main`) — and then the
+  line with the `-loop` copy.
+
+Never print a path inside `.claude/worktrees/`: the loop removes those folders.
+
+Before you print it, check one thing: a loop that already runs. When `<MAIN>/.claude/backlog-loop.lock/pid`
 names a live process whose command line contains `backlog-loop.sh`, say so — the launcher would
 refuse, and `/backlog` with no arguments shows its progress.
 
@@ -67,26 +81,36 @@ Then stop. **Do not run the command** — not in the background, not in the fore
 
 ## 2. No arguments — the roll-up of the last run
 
-1. Find the newest console copy: `ls -t "$MAIN"/logs/claude-loop/console-*.log | head -1`. None →
-   say that no run started with `start-loop.sh` was found, and stop.
+1. Find the newest console copy: `ls <MAIN>/logs/claude-loop | grep '^console-' | sort | tail -1`.
+   The names carry the start time, so they sort by name; a plain `console-*.log` glob fails in zsh
+   when nothing matches. None → say that no run started with `start-loop.sh` was found, and stop.
 2. Its `[conductor] run <folder>` line names the run folder, which holds one `ticket-<n>.meta` per
    ticket (and `ticket-<n>.json` / `.stderr` for each session). A console copy without that line is
    a start the conductor refused — a wrong argument, or another loop that took the lock first:
    relay its last lines and stop. (The launcher's own refusals come before it makes a console copy,
    so the owner already saw them in the terminal.)
-3. **Still running** — the lock's owner is alive (the check in section 1): report the progress only —
-   the tickets started (`── start #<n>` lines), the ones finished (their `[loop] #<n>` outcome lines)
-   and the last few lines — and say the roll-up comes when the run ends. Stop.
-4. **Ended.** Where the table comes from depends on how it ended:
-   - The copy ends with the `[conductor] done:` line: the conductor printed its table above it. Use
-     that table.
+3. Check that it is the last run: the newest run folder
+   (`ls <MAIN>/logs/claude-loop | grep '^[0-9]' | sort | tail -1`) should be the one the console
+   copy names. A newer one is a run started with `backlog-loop.sh` directly, which keeps no console
+   copy: say so, and build the roll-up of that run from its `.meta` files, as for a stopped run
+   below.
+4. **Still running** — the lock's owner is alive (the check in section 1), or a worker of this run
+   still ends its session: `pgrep -fl work-ticket.sh` lists a process whose command line ends with
+   the run folder. The conductor removes its lock as soon as it has told its workers to stop, and
+   each worker may take another 20 seconds or so to salvage. Report the progress only — the tickets
+   started (`── start #<n>` lines), the ones finished (their `[loop] #<n>` outcome lines) and the
+   last few lines — and say the roll-up comes when the run ends. Stop.
+5. **Ended.** Where the table comes from depends on how it ended:
+   - The copy has a `[conductor] done:` line: the conductor printed its table above it. Use that
+     table.
    - No `done:` line: the run was stopped (Ctrl-C, a closed terminal) or killed. A stopped conductor
      prints no table, so build one row per ticket from the `.meta` files: `key=value` lines, and the
      last line of a key wins (`issue`, `outcome`, `pr`, `resumes`, `worktree`, `session`). A `.meta`
      with no `outcome=` line belongs to a worker that was killed hard (SIGKILL, power loss): its
      worktree may still hold work, it has no resume marker, and the next run will skip that ticket —
-     list it as one that needs the owner.
-5. Report:
+     list it as one that needs the owner. A ticket the run line names (`· tickets: …`) with no
+     `.meta` at all never started: list it as **not started**, since those are the ones to run again.
+6. Report:
    - the **PRs opened** — ticket, PR, checks, CodeQL alerts. This is the owner's review queue. The
      table shows the checks as they stood when the run ended, so read them again now:
      `gh pr checks <pr>`, and the open alerts with

@@ -192,7 +192,7 @@ gh pr create --fill --body "Closes #<n>"               # PR title mirrors the ti
 # Start it in a plain TERMINAL, never from a Claude Code session: a background command there is
 # killed after two hours, with no cleanup (#969). The launcher runs the conductor from its own
 # checkout moved to origin/main, under caffeinate, and copies the console to logs/claude-loop/.
-scripts/claude/start-loop.sh 123 130 131               # exactly these tickets (the normal use), from any folder
+scripts/claude/start-loop.sh 123 130 131               # exactly these tickets (the normal use); full path from any other folder
 scripts/claude/start-loop.sh -j 1 123 130              # one at a time
 scripts/claude/start-loop.sh -n 3                      # the next 3 ready tickets
 scripts/claude/next-ticket.sh                          # print the next READY ticket (priority + deps + no open PR)

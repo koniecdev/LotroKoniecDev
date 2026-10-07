@@ -59,7 +59,7 @@ produces PRs, and the one merge path is `/merge-train` over PRs the owner approv
 ## Usage
 
 Start a run in a plain terminal, from any folder (by the script's full path when you are not in the
-repository):
+repository; a symlink to it, say in `~/.local/bin`, works too):
 
 ```bash
 scripts/claude/start-loop.sh 123 130 131    # exactly these tickets, up to 3 at once (the normal use)
@@ -98,20 +98,23 @@ only there, and `/backlog` gives you the command instead of running it.
 
 `start-loop.sh` does what you would otherwise do by hand before each run:
 
-- It refuses while a loop runs (the lock's owner is alive and is `backlog-loop.sh`), before it
-  touches anything.
+- It refuses inside a Claude Code session (the session sets `CLAUDECODE` in every command it runs),
+  and it refuses arguments without ticket numbers and without `-n N` above zero, because the
+  conductor would then take every ready ticket. It refuses while a loop runs (the lock's owner is
+  alive and is `backlog-loop.sh`). All of this comes before it touches anything.
 - It runs the conductor from its own detached checkout next to the main one,
-  `<main checkout>-loop`. It creates that checkout when it is missing, refuses when it has local
-  changes or is not a checkout of this repository, and moves it to `origin/main`. So the main
+  `<main checkout>-loop`. It creates that checkout when it is missing (also when its folder was
+  deleted by hand and git still lists it), refuses when it has local changes or is not a checkout
+  of this repository, and moves it to `origin/main`. So the main
   checkout may sit on any branch, with any loop code in it, and you may keep working there. The
   logs, the lock and the ticket worktrees still live under the main checkout.
 - It then hands over to its own copy in that checkout: whichever copy you start, the code that runs
   is the reviewed code on `origin/main`.
 - It runs the conductor under `caffeinate -is` when `caffeinate` exists, because a Mac must not
   sleep in the middle of a run, and copies the console to `logs/claude-loop/console-<timestamp>.log`
-  in the main checkout. The copy ignores Ctrl-C and a closed terminal: if it ended first, a worker
-  that writes its cleanup lines into the closed pipe would be killed by SIGPIPE before it salvaged
-  anything.
+  in the main checkout. The copy ignores Ctrl-C, a closed terminal and TERM (a logout sends TERM to
+  every process), and ends only when every writer is done: if it ended first, a worker that writes
+  its cleanup lines into the closed pipe would be killed by SIGPIPE before it salvaged anything.
 
 Ctrl-C, or closing the terminal, stops the run as **stopped** below describes. `/backlog` with no
 arguments then reads the newest console copy and the run's `ticket-<n>.meta` files, and writes the
@@ -119,7 +122,8 @@ roll-up. A worker killed with SIGKILL (a power cut, `kill -9`) still leaves its 
 resume marker, and the loop skips that ticket until you clean the worktree up (see Troubleshooting).
 
 **Cron (optional):** prefer a run you start yourself — cron on a sleeping laptop silently skips. If
-the machine is awake at night anyway:
+the machine is awake at night anyway, add the entry below. Cron starts with a short `PATH`
+(`/usr/bin:/bin`), so put a `PATH=` line with the folders of `gh`, `claude` and `jq` above it:
 
 ```
 0 1 * * * ~/RiderProjects/LotroKoniecDev/scripts/claude/start-loop.sh -n 6 >> ~/RiderProjects/LotroKoniecDev/logs/claude-loop/cron.log 2>&1
@@ -450,6 +454,12 @@ later conductor run, both runs' totals count the part of the session before the 
   checkout.
 - **"start-loop: a loop is already running (pid N)"** — the same lock test as the conductor's: a
   live conductor owns the lock. Wait for it, or stop it with Ctrl-C in its terminal.
+- **"start-loop: run this in a plain terminal, never from a Claude Code session"** — the launcher
+  saw `CLAUDECODE`, which Claude Code sets in every command it runs. Open a plain terminal. Only if
+  that terminal inherited the variable by mistake: `env -u CLAUDECODE <the same command>`.
+- **"start-loop: name the tickets, or -n N with N above zero"** — the arguments named no ticket and
+  no count, and the conductor would have taken every ready ticket. To work through the whole
+  backlog on purpose, give `-n` a number large enough.
 - **A run started from a Claude Code session died at exactly two hours** — that is the Bash tool's
   background limit (see "Start it in a terminal"). Its tickets' worktrees have no resume marker,
   so the loop skips them: clean each one up as below, then start the run again with

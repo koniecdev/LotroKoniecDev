@@ -4,19 +4,23 @@
 # The loop runs for hours, so it must run in a plain terminal, never from a Claude Code session,
 # whose background commands are killed after two hours at most. The launcher is what makes that
 # one command. This suite pins its contract:
-#   * no arguments start nothing, and neither does a loop that is already running,
+#   * nothing starts without arguments, inside a Claude Code session, while a loop runs, or when
+#     the arguments would take every ready ticket (`-j N` alone, `-n 0`),
 #   * the loop runs from its own checkout next to the main one, moved to origin/main first, so it
-#     runs from any folder while the main checkout is on any branch, with any loop code there,
+#     runs from any folder (here: from inside another repository), through a symlink, while the
+#     main checkout is on any branch, with any loop code there,
 #   * whichever copy of the launcher you start, the copy on origin/main does the run,
-#   * a loop checkout with local changes, or a folder there that is not this repository's checkout,
-#     is refused and left as it is,
+#   * a loop checkout deleted by hand is made again; one with local changes, or a folder there that
+#     is not this repository's checkout, is refused and left as it is,
+#   * a lock whose process number now belongs to another program does not stop a run,
 #   * the console is copied to logs/claude-loop/console-<timestamp>.log in the main checkout,
-#   * Ctrl-C, or a closed terminal, stops the run, and each worker salvages its work first: the
-#     copy of the console outlives the stop, so a worker that writes its cleanup lines is not
-#     killed by SIGPIPE.
+#   * Ctrl-C, a closed terminal, or TERM to the whole group stops the run, and each worker salvages
+#     its work first: the copy of the console outlives the stop, so a worker that writes its
+#     cleanup lines is not killed by SIGPIPE.
 #
-# The real launcher drives the real conductor. `work-ticket.sh` is a fake, and `gh`, `sleep`,
-# `osascript` and `caffeinate` are stubbed, so the suite is offline and runs in seconds.
+# The real launcher drives the real conductor. `work-ticket.sh` and `next-ticket.sh` are fakes, and
+# `gh`, `sleep`, `osascript` and `caffeinate` are stubbed, so the suite is offline and runs in
+# seconds. It needs perl, which macOS and Ubuntu both ship.
 
 set -euo pipefail
 
@@ -39,14 +43,19 @@ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export GIT_AUTHOR_NAME=launcher-tests GIT_AUTHOR_EMAIL=tests@localhost
 export GIT_COMMITTER_NAME=launcher-tests GIT_COMMITTER_EMAIL=tests@localhost
 # The launcher's own run is under test: its guard must pass because the loop checkout is on
-# origin/main, not because the caller switched it off.
-unset LOOP_ALLOW_LOCAL_SCRIPTS
+# origin/main, not because the caller switched it off. A developer may run this suite from a
+# Claude Code session, whose CLAUDECODE the launcher refuses; one case sets it on purpose.
+unset LOOP_ALLOW_LOCAL_SCRIPTS CLAUDECODE
 
 FAKE_REPO="$TMP_ROOT/fake-repo"
 LOOP_CHECKOUT="$TMP_ROOT/fake-repo-loop"
 LAUNCHER="$FAKE_REPO/scripts/claude/start-loop.sh"
 export STATE="$TMP_ROOT/state"
-mkdir -p "$FAKE_REPO/scripts/claude" "$TMP_ROOT/bin" "$TMP_ROOT/elsewhere"
+mkdir -p "$FAKE_REPO/scripts/claude" "$TMP_ROOT/bin" "$TMP_ROOT/links"
+# Every case starts the launcher from inside another repository, so a launcher that falls back to
+# the folder it is started in would work on the wrong one.
+ELSEWHERE="$TMP_ROOT/elsewhere"
+git init -q -b main "$ELSEWHERE"
 cp "$SCRIPTS_DIR/claude/start-loop.sh" "$SCRIPTS_DIR/claude/backlog-loop.sh" "$FAKE_REPO/scripts/claude/"
 
 # ── Fakes ──────────────────────────────────────────────────────────────────────────────────────
@@ -80,9 +89,23 @@ echo "$ticket" >> "$STATE/started"
 echo "$0" > "$STATE/copy-$ticket"
 "$REAL_SLEEP" "${FAKE_WORK_SEC:-0.3}" &
 sleeper=$!
-wait "$sleeper"
+# A signal to the whole group ends this sleep as well. Like the real worker, which waits with errexit
+# off, the fake must not exit on that before its stop handler runs.
+wait "$sleeper" || true
 sleeper=""
 printf 'issue=%s\noutcome=pr-opened\npr=%s\n' "$ticket" "$((ticket + 1000))" > "$run_dir/ticket-$ticket.meta"
+FAKE
+
+# The fake picker serves $STATE/backlog in order and honors --exclude, like the real one.
+cat > "$FAKE_REPO/scripts/claude/next-ticket.sh" <<'FAKE'
+#!/usr/bin/env bash
+exclude=" ${2:-} "
+for n in $(cat "$STATE/backlog" 2>/dev/null); do
+    case "$exclude" in *" $n "*) continue ;; esac
+    echo "$n"
+    exit 0
+done
+exit 1
 FAKE
 chmod +x "$FAKE_REPO/scripts/claude/"*.sh
 
@@ -147,7 +170,7 @@ reset_state() {
 run_launcher() {
     local expected="$1" description="$2" launcher="$3" rc=0 pid tenths=0
     shift 3
-    (cd "$TMP_ROOT/elsewhere" && exec "$launcher" "$@") > "$TMP_ROOT/launcher.out" 2>&1 &
+    (cd "$ELSEWHERE" && exec "$launcher" "$@") > "$TMP_ROOT/launcher.out" 2>&1 &
     pid=$!
     while kill -0 "$pid" 2>/dev/null; do
         if [ "$tenths" -ge 600 ]; then
@@ -163,6 +186,7 @@ run_launcher() {
     if [ "$rc" -ne "$expected" ]; then
         fail "$description — expected exit $expected, got $rc" "$LAST_OUTPUT"
     fi
+    [ ! -e "$ELSEWHERE-loop" ] || fail "$description — a loop checkout was made for the folder the launcher started in" "$LAST_OUTPUT"
 }
 
 started() { tr '\n' ' ' < "$STATE/started" | sed 's/ $//'; }
@@ -188,14 +212,6 @@ move_origin_main() {
     git -C "$TMP_ROOT/pusher" push -q origin HEAD:main
 }
 
-# A process that has exited but was never reaped still answers `kill -0`; such a zombie is dead
-# for these tests.
-alive() {
-    kill -0 "$1" 2>/dev/null || return 1
-    case "$(ps -o stat= -p "$1" 2>/dev/null)" in Z*|"") return 1 ;; esac
-    return 0
-}
-
 group_empty() {
     ps -A -o pgid= -o stat= | awk -v group="$1" '$1 == group && $2 !~ /^Z/ { left = 1 } END { exit left }'
 }
@@ -206,6 +222,23 @@ run_launcher 1 "launcher: no arguments" "$LAUNCHER"
 expect_in_output "usage: start-loop.sh"
 [ ! -e "$LOOP_CHECKOUT" ] || fail "a launcher without arguments must not make the loop checkout"
 pass "launcher: no arguments print the usage and start nothing"
+
+reset_state
+run_launcher 1 "launcher: -j alone" "$LAUNCHER" -j 2
+expect_in_output "without either the loop would take every ready ticket"
+run_launcher 1 "launcher: -n 0" "$LAUNCHER" -n 0
+expect_in_output "without either the loop would take every ready ticket"
+[ ! -e "$LOOP_CHECKOUT" ] || fail "a refused launch must not make the loop checkout"
+expect_started ""
+pass "launcher: arguments that would take every ready ticket (-j alone, -n 0) are refused"
+
+# A Bash tool command of a Claude Code session dies at the tool's time limit (#969).
+reset_state
+CLAUDECODE=1 run_launcher 1 "launcher: inside a Claude Code session" "$LAUNCHER" 5
+expect_in_output "never from a Claude Code session"
+[ ! -e "$LOOP_CHECKOUT" ] || fail "a refused launch must not make the loop checkout"
+expect_started ""
+pass "launcher: a start from inside a Claude Code session is refused"
 
 # A live conductor runs from the loop checkout; moving it would change the files under it.
 reset_state
@@ -253,11 +286,39 @@ grep -q "scripts/claude/backlog-loop.sh -j 1 5 6" "$STATE/caffeinate" \
 [ "$(console_logs | wc -l | tr -d ' ')" = "1" ] || fail "one console copy expected" "$(console_logs)"
 console="$(console_logs)"
 grep -qF "[conductor] run $FAKE_REPO/logs/claude-loop/" "$console" || fail "the console copy should name the run folder" "$(cat "$console")"
-grep -qF "done: 2 PR opened" "$console" || fail "the console copy should end with the roll-up" "$(cat "$console")"
+grep -qF "done: 2 PR opened" "$console" || fail "the console copy should hold the roll-up" "$(cat "$console")"
 grep -qF "start-loop: loop code" "$console" || fail "the console copy should name the loop code" "$(cat "$console")"
 expect_in_output "done: 2 PR opened"
 [ ! -d "$FAKE_REPO/.claude/backlog-loop.lock" ] || fail "the lock outlived the run"
 pass "launcher: the first run makes the loop checkout on origin/main, runs from there and copies the console"
+
+# The lock's process number now belongs to a program that is not a conductor.
+reset_state
+mkdir -p "$FAKE_REPO/.claude/backlog-loop.lock"
+"$REAL_SLEEP" 30 &
+stranger=$!
+echo "$stranger" > "$TMP_ROOT/fake-loop-pid"
+echo "$stranger" > "$FAKE_REPO/.claude/backlog-loop.lock/pid"
+run_launcher 0 "launcher: a lock with a reused process number" "$LAUNCHER" 15
+kill "$stranger" 2>/dev/null || true
+wait "$stranger" 2>/dev/null || true
+rm -f "$TMP_ROOT/fake-loop-pid"
+expect_started "15"
+expect_in_output "stale lock (owner gone)"
+pass "launcher: a lock whose process number now belongs to another program does not stop a run"
+
+reset_state
+echo "16 17" > "$STATE/backlog"
+run_launcher 0 "launcher: -n 1" "$LAUNCHER" -n 1
+expect_started "16"
+pass "launcher: -n N runs the next N ready tickets"
+
+# A wrapper in ~/.local/bin is often a symlink.
+reset_state
+ln -s "$LAUNCHER" "$TMP_ROOT/links/backlog"
+run_launcher 0 "launcher: through a symlink" "$TMP_ROOT/links/backlog" 18
+expect_started "18"
+pass "launcher: a symlink to the launcher runs the loop of the repository it points into"
 
 # The main checkout sits on a branch with other loop code, and origin/main has moved since the last
 # run. The conductor refuses loop code that differs from origin/main, so this run works only from a
@@ -299,6 +360,14 @@ expect_in_output "the launcher from the new main did the run"
 [ "$(loop_head)" = "$(origin_main)" ] || fail "the loop checkout should sit on the newer origin/main" "$LAST_OUTPUT"
 pass "launcher: the loop checkout's own copy moves its checkout and hands over to the newer launcher"
 
+# Deleted by hand, while git still lists it as a worktree.
+reset_state
+rm -rf "$LOOP_CHECKOUT"
+run_launcher 0 "launcher: a deleted loop checkout" "$LAUNCHER" 20
+expect_started "20"
+[ "$(loop_head)" = "$(origin_main)" ] || fail "the loop checkout should be made again on origin/main" "$LAST_OUTPUT"
+pass "launcher: a loop checkout deleted by hand is made again"
+
 # ── What is refused ────────────────────────────────────────────────────────────────────────────
 reset_state
 echo "half done" > "$LOOP_CHECKOUT/notes.txt"
@@ -324,15 +393,32 @@ expect_started ""
 rm -rf "$LOOP_CHECKOUT"
 pass "launcher: a folder at the loop checkout's path that is not this repository's checkout is refused"
 
+# origin/main from before the launcher existed.
+reset_state
+git -C "$TMP_ROOT/pusher" rm -q scripts/claude/start-loop.sh
+git -C "$TMP_ROOT/pusher" commit -qm "no launcher yet"
+git -C "$TMP_ROOT/pusher" push -q origin HEAD:main
+run_launcher 1 "launcher: origin/main without a launcher" "$LAUNCHER" 21
+expect_in_output "origin/main has no scripts/claude/start-loop.sh to hand over to"
+expect_started ""
+git -C "$TMP_ROOT/pusher" revert --no-edit HEAD >/dev/null
+git -C "$TMP_ROOT/pusher" push -q origin HEAD:main
+pass "launcher: an origin/main without a launcher to hand over to is refused"
+
 # ── Stopping a run ─────────────────────────────────────────────────────────────────────────────
 # stop_case <signal> <description> — starts a two-ticket run in a process group of its own, as a
 # terminal does, waits until both workers work, and sends the signal to the whole group, as Ctrl-C
-# (INT) or a closed terminal (HUP) does.
+# (INT), a closed terminal (HUP) or `kill -- -<group>` (TERM) does.
 stop_case() {
     local signal="$1" description="$2" launcher_pid console
     reset_state
+    # A shell starts its background jobs with INT ignored, and bash can never trap a signal that was
+    # ignored when it started. So when this suite itself runs in the background, a launcher started
+    # from here would never see the Ctrl-C. A terminal starts it with every signal at its default,
+    # and perl puts them back to that.
     set -m
-    (cd "$TMP_ROOT/elsewhere" && FAKE_WORK_SEC=60 exec "$LAUNCHER" -j 2 11 12) > "$TMP_ROOT/stop.out" 2>&1 &
+    (cd "$ELSEWHERE" && FAKE_WORK_SEC=60 exec perl -e '$SIG{$_} = "DEFAULT" for qw(INT HUP TERM); exec @ARGV or die "exec: $!\n"' \
+        "$LAUNCHER" -j 2 11 12) > "$TMP_ROOT/stop.out" 2>&1 &
     launcher_pid=$!
     set +m
     for _ in $(seq 1 100); do [ "$(wc -l < "$STATE/started" | tr -d ' ')" -ge 2 ] && break; "$REAL_SLEEP" 0.1; done
@@ -363,5 +449,6 @@ stop_case() {
 
 stop_case INT "launcher: Ctrl-C stops the run, every worker salvages, and the console copy keeps it all"
 stop_case HUP "launcher: a closed terminal stops the run, every worker salvages, and the console copy keeps it all"
+stop_case TERM "launcher: TERM to the whole group stops the run, every worker salvages, and the console copy keeps it all"
 
 printf 'All %d launcher case(s) passed.\n' "$cases"

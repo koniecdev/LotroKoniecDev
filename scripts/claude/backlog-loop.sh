@@ -11,6 +11,10 @@
 # After a usage limit it waits for the running tickets, naps, and runs the limited tickets again;
 # work-ticket.sh then resumes each one's session in the worktree it kept (#934).
 #
+# Start a real run with scripts/claude/start-loop.sh, in a plain terminal: a Claude Code session
+# kills its background commands after two hours (#969). Running this script directly is for a
+# checkout that is up to date with main.
+#
 # Usage:
 #   scripts/claude/backlog-loop.sh 123 130 131      # exactly these tickets (the normal use)
 #   scripts/claude/backlog-loop.sh -j 1 123 130     # one at a time

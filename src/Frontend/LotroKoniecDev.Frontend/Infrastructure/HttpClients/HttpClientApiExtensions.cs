@@ -39,11 +39,12 @@ internal static class HttpClientApiExtensions
 
         /// <summary>
         /// For a body too large to hold in memory, which is the ready-made translation file (PERF-09,
-        /// #715). Only the headers are awaited, so the time limit of the resilience pipeline covers the
-        /// answer and not the download. On success the caller owns the stream, reads the bytes exactly as
-        /// they came off the wire, and disposes it, which also ends the response.
+        /// #715). Only the headers are awaited here. Without <see cref="HttpCompletionOption.ResponseHeadersRead"/>
+        /// the client would first copy the whole body into memory. On success the caller owns the stream,
+        /// reads the bytes exactly as they came off the wire, and disposes it, which also ends the
+        /// response.
         /// </summary>
-        public async Task<ApiResult<Stream>> GetBodyStreamAsync(
+        public async Task<ApiResult<ApiBodyStream>> GetBodyStreamAsync(
             string uri,
             CancellationToken cancellationToken = default)
         {
@@ -58,16 +59,17 @@ internal static class HttpClientApiExtensions
                 if (response.IsSuccessStatusCode)
                 {
                     Stream body = await response.Content.ReadAsStreamAsync(cancellationToken);
+                    ApiBodyStream download = new(body, response.Content.Headers.ContentLength);
                     response = null;
-                    return ApiResult.Success(body);
+                    return ApiResult.Success(download);
                 }
 
                 string content = await ReadBodyAsUtf8Async(response.Content, cancellationToken);
-                return ApiResult.Failure<Stream>(ParseProblemDetails(content, response));
+                return ApiResult.Failure<ApiBodyStream>(ParseProblemDetails(content, response));
             }
             catch (Exception ex) when (IsTransportFailure(ex))
             {
-                return ApiResult.Failure<Stream>(MapTransportFailureToProblemDetails(ex));
+                return ApiResult.Failure<ApiBodyStream>(MapTransportFailureToProblemDetails(ex));
             }
             finally
             {

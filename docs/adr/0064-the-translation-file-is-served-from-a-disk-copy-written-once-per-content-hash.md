@@ -123,12 +123,15 @@ frontend, is public. It fetched the whole file from the TMS API, decoded it into
 it into a byte array again, so it held about three copies of the file for every request, in a
 container on the same box. That is the same fault in a second place, so it is fixed here as well.
 
-The route now asks the TMS client for the body as a stream (`GetBodyStreamAsync`) and passes it to the
-browser with `Results.Stream`. Only the headers wait for the client's 10-second limit; before, the whole
-82 MB had to arrive inside it. The bytes reach the browser exactly as the TMS sent them, which are the
-bytes its ETag hashes, so the old decode-and-encode step that dropped a BOM is gone: the TMS sends
-none, and its tests pin that. The browser no longer gets a `Content-Length` for this download, so it
-cannot show how much is left.
+The route now asks the TMS client for the body as a stream (`GetBodyStreamAsync`, which waits only
+for the headers) and passes it to the browser with `Results.Stream`. The bytes reach the browser
+exactly as the TMS sent them, which are the bytes its ETag hashes, so the old decode-and-encode step
+that dropped a BOM is gone: the TMS sends none, and its tests pin that. The TMS's `Content-Length` is
+passed on, so the browser still shows its progress, and Kestrel aborts a body that ends short of it.
+
+One thing changes for the visitor. If the TMS breaks off in the middle of the body, the headers have
+already gone out, so the browser shows a failed download instead of the Polish error page it got when
+the whole file was read first. Once a body is streamed, that cannot be avoided.
 
 ## Rejected alternatives
 

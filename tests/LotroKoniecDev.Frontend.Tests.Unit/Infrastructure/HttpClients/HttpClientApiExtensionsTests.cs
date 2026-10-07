@@ -56,11 +56,42 @@ public sealed class HttpClientApiExtensionsTests
         const string body = "# polish.txt\n620756992||1001||Witaj||NULL||NULL||1";
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
 
-        ApiResult<Stream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
 
         result.IsSuccess.ShouldBeTrue();
-        await using Stream stream = result.Value;
+        await using Stream stream = result.Value.Content;
         (await new StreamReader(stream, Encoding.UTF8).ReadToEndAsync()).ShouldBe(body);
+    }
+
+    [Fact]
+    public async Task GetBodyStreamAsync_OnSuccess_LeavesTheBodyOnTheConnectionAndKeepsItsLength()
+    {
+        // Without ResponseHeadersRead the client copies the whole body into memory before it returns,
+        // about 82 MB per request on a public route (PERF-09, #715). A StringContent is in memory
+        // already, so only a content that notices being buffered can tell the two apart.
+        byte[] body = Encoding.UTF8.GetBytes("620756992||1001||Witaj||NULL||NULL||1");
+        TrackingContent content = new(body);
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, () => content));
+
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
+
+        result.IsSuccess.ShouldBeTrue();
+        await using Stream stream = result.Value.Content;
+        content.WasBuffered.ShouldBeFalse();
+        result.Value.Length.ShouldBe(body.Length);
+    }
+
+    [Fact]
+    public async Task GetBodyStreamAsync_WhenApiReturnsProblem_DisposesTheResponse()
+    {
+        // Nobody else gets the response on this path, so a leak here would hold a connection open.
+        TrackingContent content = new(Encoding.UTF8.GetBytes("""{ "title": "Brak pliku tłumaczenia", "status": 404 }"""));
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.NotFound, () => content));
+
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
+
+        result.IsFailure.ShouldBeTrue();
+        content.WasDisposed.ShouldBeTrue();
     }
 
     [Fact]
@@ -70,7 +101,7 @@ public sealed class HttpClientApiExtensionsTests
             HttpStatusCode.NotFound,
             """{ "title": "Brak pliku tłumaczenia", "status": 404 }"""));
 
-        ApiResult<Stream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(404);
@@ -82,7 +113,7 @@ public sealed class HttpClientApiExtensionsTests
         HttpClient httpClient = CreateClient(
             StubHttpMessageHandler.Throw(new HttpRequestException("connection refused")));
 
-        ApiResult<Stream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(503);
@@ -93,7 +124,7 @@ public sealed class HttpClientApiExtensionsTests
     {
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.Throw(new TimeoutRejectedException()));
 
-        ApiResult<Stream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(504);
@@ -242,7 +273,7 @@ public sealed class HttpClientApiExtensionsTests
     {
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(statusCode, ""));
 
-        ApiResult<Stream> result = await httpClient.GetBodyStreamAsync("translation-files/pl");
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("translation-files/pl");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(StatusCodes.Status502BadGateway);
@@ -461,10 +492,10 @@ public sealed class HttpClientApiExtensionsTests
             HttpStatusCode.OK,
             BytesBody(sent, charset)));
 
-        ApiResult<Stream> result = await httpClient.GetBodyStreamAsync("translation-files/pl");
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("translation-files/pl");
 
         result.IsSuccess.ShouldBeTrue();
-        await using Stream stream = result.Value;
+        await using Stream stream = result.Value.Content;
         using MemoryStream received = new();
         await stream.CopyToAsync(received);
         received.ToArray().ShouldBe(sent);
@@ -480,7 +511,7 @@ public sealed class HttpClientApiExtensionsTests
             HttpStatusCode.NotFound,
             Utf8Body("""{ "title": "Brak pliku tłumaczenia", "status": 404 }""", charset, withBom: false)));
 
-        ApiResult<Stream> result = await httpClient.GetBodyStreamAsync("translation-files/pl");
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("translation-files/pl");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(404);
@@ -578,5 +609,44 @@ public sealed class HttpClientApiExtensionsTests
         {
             BaseAddress = new Uri("https://localhost:5002/")
         };
+    }
+
+    /// <summary>
+    /// A body that records whether the client copied it into memory, and whether it was disposed.
+    /// Reading it as a stream does not count as a copy.
+    /// </summary>
+    private sealed class TrackingContent : HttpContent
+    {
+        private readonly byte[] _body;
+
+        public TrackingContent(byte[] body)
+        {
+            _body = body;
+        }
+
+        public bool WasBuffered { get; private set; }
+
+        public bool WasDisposed { get; private set; }
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        {
+            WasBuffered = true;
+            return stream.WriteAsync(_body).AsTask();
+        }
+
+        protected override Task<Stream> CreateContentReadStreamAsync()
+            => Task.FromResult<Stream>(new MemoryStream(_body, writable: false));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = _body.Length;
+            return true;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            WasDisposed = true;
+            base.Dispose(disposing);
+        }
     }
 }

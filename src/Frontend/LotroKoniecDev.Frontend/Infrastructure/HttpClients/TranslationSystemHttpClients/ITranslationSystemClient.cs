@@ -22,7 +22,7 @@ internal interface ITranslationSystemClient
     /// Fetches the ready-made translation file as a stream, so the caller can pass it on to the browser
     /// without holding the whole file in memory. The caller disposes the stream.
     /// </summary>
-    Task<ApiResult<Stream>> GetBodyStreamAsync(
+    Task<ApiResult<ApiBodyStream>> GetBodyStreamAsync(
         string relativeUri,
         CancellationToken cancellationToken = default);
 

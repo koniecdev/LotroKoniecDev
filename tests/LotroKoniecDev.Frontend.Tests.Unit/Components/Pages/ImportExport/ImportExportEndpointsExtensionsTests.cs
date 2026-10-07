@@ -8,6 +8,7 @@ using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.ImportExport;
@@ -29,7 +30,7 @@ public sealed class ImportExportEndpointsExtensionsTests
         const string body = "# polish.txt\n620756992||1001||Witaj w Śródziemiu!||NULL||NULL||1";
         ImportExportLoader loader = CreateLoader(HttpStatusCode.OK, body);
 
-        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, CancellationToken.None);
+        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, new DefaultHttpContext(), CancellationToken.None);
 
         FileStreamHttpResult file = result.ShouldBeOfType<FileStreamHttpResult>();
         file.FileDownloadName.ShouldBe(ImportExportLoader.DownloadFileName);
@@ -38,12 +39,34 @@ public sealed class ImportExportEndpointsExtensionsTests
     }
 
     [Fact]
+    public async Task DownloadTranslationFileAsync_OnSuccess_SendsTheBytesWithTheirLength()
+    {
+        // The stream cannot report its length, so the route passes the TMS's one on. Without it the
+        // browser shows no progress for an 82 MB download.
+        const string body = "620756992||1001||Witaj w Śródziemiu!||NULL||NULL||1";
+        ImportExportLoader loader = CreateLoader(HttpStatusCode.OK, body);
+        DefaultHttpContext httpContext = new()
+        {
+            RequestServices = new ServiceCollection().AddLogging().BuildServiceProvider(),
+            Response = { Body = new MemoryStream() }
+        };
+
+        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, httpContext, CancellationToken.None);
+        await result.ExecuteAsync(httpContext);
+
+        byte[] expected = Encoding.UTF8.GetBytes(body);
+        httpContext.Response.ContentLength.ShouldBe(expected.Length);
+        httpContext.Response.Headers.ContentDisposition.ToString().ShouldContain(ImportExportLoader.DownloadFileName);
+        ((MemoryStream)httpContext.Response.Body).ToArray().ShouldBe(expected);
+    }
+
+    [Fact]
     public async Task DownloadTranslationFileAsync_OnSuccess_DoesNotPrependAByteOrderMark()
     {
         // The patcher parser int.Parses the first field, so a leading BOM would break it.
         ImportExportLoader loader = CreateLoader(HttpStatusCode.OK, "620756992||1001||Witaj||NULL||NULL||1");
 
-        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, CancellationToken.None);
+        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, new DefaultHttpContext(), CancellationToken.None);
 
         FileStreamHttpResult file = result.ShouldBeOfType<FileStreamHttpResult>();
         byte[] bytes = await ReadAllBytesAsync(file.FileStream);
@@ -59,7 +82,7 @@ public sealed class ImportExportEndpointsExtensionsTests
             HttpStatusCode.NotFound,
             """{ "title": "Brak pliku tłumaczenia", "status": 404 }""");
 
-        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, CancellationToken.None);
+        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, new DefaultHttpContext(), CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(404);
@@ -81,7 +104,7 @@ public sealed class ImportExportEndpointsExtensionsTests
             }
             """);
 
-        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, CancellationToken.None);
+        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, new DefaultHttpContext(), CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(404);
@@ -100,7 +123,7 @@ public sealed class ImportExportEndpointsExtensionsTests
             StubDiscoveryCache.AdvertisingGet(Rels.TranslationFile),
             CreateClient(StubHttpMessageHandler.Throw(new HttpRequestException("connection refused"))));
 
-        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, CancellationToken.None);
+        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, new DefaultHttpContext(), CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status503ServiceUnavailable);
@@ -115,7 +138,7 @@ public sealed class ImportExportEndpointsExtensionsTests
             HttpStatusCode.BadGateway,
             "<html><head><title>502 Bad Gateway</title></head><body></body></html>");
 
-        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, CancellationToken.None);
+        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, new DefaultHttpContext(), CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status502BadGateway);

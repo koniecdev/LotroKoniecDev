@@ -37,9 +37,10 @@ internal static class ImportExportEndpointsExtensions
     internal static async Task<IResult> DownloadTranslationFileAsync(
         ImportExportLoader loader,
         ILoggerFactory loggerFactory,
+        HttpContext httpContext,
         CancellationToken cancellationToken)
     {
-        ApiResult<Stream> result = await loader.DownloadTranslationFileAsync(cancellationToken);
+        ApiResult<ApiBodyStream> result = await loader.DownloadTranslationFileAsync(cancellationToken);
 
         if (result.IsFailure)
         {
@@ -53,8 +54,11 @@ internal static class ImportExportEndpointsExtensions
         // The bytes go to the browser exactly as the TMS sent them, without being held here: the route
         // is public, and a full copy per request would let a crowd of players fill this container's
         // memory (PERF-09, #715). Those bytes are what the TMS hashes into its ETag, UTF-8 with no BOM.
+        // The stream cannot report its own length, so the TMS's length is passed on by hand. It gives
+        // the browser its progress bar, and Kestrel aborts a body that ends short of it.
+        httpContext.Response.ContentLength = result.Value.Length;
         return Results.Stream(
-            result.Value,
+            result.Value.Content,
             contentType: "text/plain",
             fileDownloadName: ImportExportLoader.DownloadFileName);
     }

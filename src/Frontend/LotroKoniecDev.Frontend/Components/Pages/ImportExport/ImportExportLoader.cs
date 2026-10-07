@@ -92,14 +92,14 @@ internal sealed class ImportExportLoader
             cancellationToken);
     }
 
-    public async Task<ApiResult<Stream>> DownloadTranslationFileAsync(CancellationToken cancellationToken = default)
+    public async Task<ApiResult<ApiBodyStream>> DownloadTranslationFileAsync(CancellationToken cancellationToken = default)
     {
         ApiResult<string> href = await _discoveryCache.ResolveTranslationSystemHrefAsync(
             Rels.TranslationFile,
             cancellationToken);
         if (href.IsFailure)
         {
-            return ApiResult.Failure<Stream>(href.ProblemDetails!);
+            return ApiResult.Failure<ApiBodyStream>(href.ProblemDetails!);
         }
 
         return await _client.GetBodyStreamAsync(href.Value, cancellationToken);

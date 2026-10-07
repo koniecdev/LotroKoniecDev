@@ -102,10 +102,12 @@ fi
 # The conductor drops its lock as soon as it has told its workers to stop, and each worker may take
 # some seconds more to salvage. They run from the loop checkout, so it must not move yet. Only a
 # bash that runs the script counts, not an editor or a search that names the file.
-processes="$(ps -A -o command= 2>/dev/null || true)"
+processes="$(ps -A -o pid=,command= 2>/dev/null || true)"
 case "$processes" in
     *"bash $LOOP_CHECKOUT/scripts/claude/work-ticket.sh "*)
-        echo "start-loop: workers of the last run are still ending — try again in a minute" >&2
+        echo "start-loop: workers from $LOOP_CHECKOUT are still running:" >&2
+        printf '%s\n' "$processes" | grep -F "bash $LOOP_CHECKOUT/scripts/claude/work-ticket.sh " >&2 || true
+        echo "start-loop: wait until they end, or stop each one with kill <pid> (it salvages its work first)" >&2
         exit 1 ;;
 esac
 

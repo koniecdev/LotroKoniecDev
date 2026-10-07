@@ -412,7 +412,8 @@ run_launcher 1 "launcher: workers still ending" "$LAUNCHER" 23
 kill "$ending_worker" 2>/dev/null || true
 wait "$ending_worker" 2>/dev/null || true
 rm -f "$TMP_ROOT/fake-loop-pid"
-expect_in_output "workers of the last run are still ending"
+expect_in_output "are still running:"
+expect_in_output "$LOOP_CHECKOUT/scripts/claude/work-ticket.sh 98 "
 expect_started ""
 [ "$(loop_head)" = "$head_before" ] || fail "the loop checkout moved under a worker that still ran from it"
 pass "launcher: a worker of the last run that still salvages keeps the loop checkout where it is"

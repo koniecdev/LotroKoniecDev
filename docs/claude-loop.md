@@ -458,13 +458,15 @@ later conductor run, both runs' totals count the part of the session before the 
   checkout.
 - **"start-loop: a loop is already running (pid N)"** — the same lock test as the conductor's: a
   live conductor owns the lock. Wait for it, or stop it with Ctrl-C in its terminal.
-- **"… run this in a plain terminal, never from a Claude Code session"** (`start-loop.sh`,
-  `backlog-loop.sh` and `work-ticket.sh` all check) — the script saw `CLAUDECODE`, which Claude Code
+- **"… never from a Claude Code session (#969)"** (`start-loop.sh`, `backlog-loop.sh` and
+  `work-ticket.sh` all check) — the script saw `CLAUDECODE`, which Claude Code
   sets in every command it runs. Run the command in a new terminal window, not in one that a Claude
   Code session started.
-- **"start-loop: workers of the last run are still ending"** — the conductor has stopped, but a
-  worker still salvages its work from the loop checkout, so the launcher does not move it. Wait a
-  minute, or watch the terminal of the last run until its prompt comes back.
+- **"start-loop: workers from … are still running"** — a worker still runs from the loop
+  checkout, so the launcher does not move it, and it lists each one with its process number. After
+  a normal stop they only salvage and end within seconds. If they go on, their conductor was killed
+  with SIGKILL and they still work their tickets (up to `LOOP_TICKET_TIMEOUT_MIN`): wait for them,
+  or stop each one with a plain `kill <pid>`, which lets it salvage first.
 - **"start-loop: name the tickets, or -n N with N above zero"** — the arguments named no ticket and
   no count, and the conductor would have taken every ready ticket. To work through the whole
   backlog on purpose, give `-n` a number large enough.

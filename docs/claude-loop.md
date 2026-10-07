@@ -449,6 +449,9 @@ later conductor run, both runs' totals count the part of the session before the 
   loop checkout (`<main checkout>-loop`). The launcher lists them and moves nothing. That checkout
   is the loop's alone: keep what you need, then `git -C <main checkout>-loop checkout -- .` or
   remove the untracked files.
+- **"start-loop: … is not inside a checkout of the repository"** or **"… has no backlog-loop.sh"**
+  — you started a *copy* of the launcher that lives outside the repository. Start the one in the
+  repository, or make your wrapper a symlink to it (or a script that `exec`s it by its full path).
 - **"start-loop: … is not a checkout of this repository"** — a folder that is not this
   repository's worktree sits where the loop checkout belongs. Move it away; the next start makes the
   checkout.

@@ -82,6 +82,11 @@ if ! common_dir="$(git -C "$SELF_DIR" rev-parse --path-format=absolute --git-com
     echo "start-loop: $SELF_DIR is not inside a checkout of the repository" >&2
     exit 1
 fi
+# A copy that sits in some other repository would fetch there and make a loop checkout for it.
+if [ ! -x "$SELF_DIR/backlog-loop.sh" ]; then
+    echo "start-loop: $SELF_DIR has no backlog-loop.sh — run the launcher inside the repository, or a symlink to it" >&2
+    exit 1
+fi
 COMMON_DIR="$(real_dir "$common_dir")"
 MAIN_ROOT="$(dirname "$COMMON_DIR")"
 LOOP_CHECKOUT="$MAIN_ROOT-loop"

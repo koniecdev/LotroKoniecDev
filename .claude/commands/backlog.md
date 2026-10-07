@@ -57,7 +57,7 @@ hands the run over to the copy on `origin/main`, so any copy that exists will do
 - if the main checkout is on a branch older than the launcher, the copy in the loop's own checkout,
   `<MAIN>-loop/scripts/claude/start-loop.sh` (it is on `origin/main` after every run);
 - if neither exists yet, give the one-time setup first —
-  `git -C <MAIN> fetch origin main && git -C <MAIN> worktree add --detach <MAIN>-loop origin/main`
+  `git -C <MAIN> fetch origin main && git -C <MAIN> worktree add --force --detach <MAIN>-loop origin/main`
   (or, when `<MAIN>-loop` exists, `git -C <MAIN>-loop checkout --detach origin/main`) — and then the
   line with the `-loop` copy.
 
@@ -92,11 +92,11 @@ Then stop. **Do not run the command** — not in the background, not in the fore
 3. Check that it is the last run: the newest run folder
    (`ls <MAIN>/logs/claude-loop | grep '^[0-9]' | sort | tail -1`) should be the one the console
    copy names. A newer one is a run started with `backlog-loop.sh` directly, which keeps no console
-   copy: say so, and build the roll-up of that run from its `.meta` files, as for a stopped run
-   below.
+   copy: say so, and go on with that run folder. Step 4 decides whether it still runs; once it has
+   ended, build its roll-up from its `.meta` files, as for a stopped run below.
 4. **Still running** — the lock's owner is alive (the check in section 1), or a worker of this run
-   still ends its session: `pgrep -fl work-ticket.sh` lists a process whose command line ends with
-   the run folder. The conductor removes its lock as soon as it has told its workers to stop, and
+   still ends its session: `ps -Ao pid,command | grep '[w]ork-ticket.sh'` lists a process whose
+   command line ends with the run folder. The conductor removes its lock as soon as it has told its workers to stop, and
    each worker may take another 20 seconds or so to salvage. Report the progress only — the tickets
    started (`── start #<n>` lines), the ones finished (their `[loop] #<n>` outcome lines) and the
    last few lines — and say the roll-up comes when the run ends. Stop.

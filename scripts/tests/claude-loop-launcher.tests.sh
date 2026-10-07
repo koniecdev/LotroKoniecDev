@@ -320,6 +320,20 @@ run_launcher 0 "launcher: through a symlink" "$TMP_ROOT/links/backlog" 18
 expect_started "18"
 pass "launcher: a symlink to the launcher runs the loop of the repository it points into"
 
+# A copy instead of a symlink, as the first wrapper in ~/.local/bin was: outside any repository, and
+# inside another one.
+reset_state
+mkdir -p "$TMP_ROOT/loose" "$ELSEWHERE/tools"
+cp "$LAUNCHER" "$TMP_ROOT/loose/start-loop.sh"
+cp "$LAUNCHER" "$ELSEWHERE/tools/start-loop.sh"
+run_launcher 1 "launcher: a copy outside any repository" "$TMP_ROOT/loose/start-loop.sh" 22
+expect_in_output "is not inside a checkout of the repository"
+run_launcher 1 "launcher: a copy inside another repository" "$ELSEWHERE/tools/start-loop.sh" 22
+expect_in_output "has no backlog-loop.sh"
+rm -rf "$TMP_ROOT/loose" "$ELSEWHERE/tools"
+expect_started ""
+pass "launcher: a copy of the launcher outside the repository is refused before it touches anything"
+
 # The main checkout sits on a branch with other loop code, and origin/main has moved since the last
 # run. The conductor refuses loop code that differs from origin/main, so this run works only from a
 # loop checkout that was moved.

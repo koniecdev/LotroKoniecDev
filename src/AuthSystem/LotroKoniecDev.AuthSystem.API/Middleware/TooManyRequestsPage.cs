@@ -46,10 +46,9 @@ internal static class TooManyRequestsPage
         }
 
         int minutes = (int)Math.Ceiling(retryAfter.TotalMinutes);
-        string unit = minutes == 1 ? "minutę" : minutes < 5 ? "minuty" : "minut";
 
         return "Spróbuj ponownie później. Limit odnowi się najpóźniej za "
-            + minutes.ToString(CultureInfo.InvariantCulture) + " " + unit + ".";
+            + minutes.ToString(CultureInfo.InvariantCulture) + " " + MinutesPlural(minutes) + ".";
     }
 
     internal static string BuildHtml(TimeSpan retryAfter, string? nonce) =>
@@ -59,4 +58,22 @@ internal static class TooManyRequestsPage
             "Wysłano zbyt wiele żądań z tego połączenia. " + BuildWaitSentence(retryAfter),
             "Limit chroni konta przed zgadywaniem haseł i skrzynki przed zalewem wiadomości.",
             BrowserErrorPage.BackToLoginLink);
+
+    /// <summary>
+    /// Polish uses "minuty" after every number that ends in 2, 3 or 4, except 12, 13 and 14 (#1032).
+    /// The frontend's <c>TranslationsPlural</c> uses the same rule.
+    /// </summary>
+    private static string MinutesPlural(int count)
+    {
+        if (count == 1)
+        {
+            return "minutę";
+        }
+
+        int lastTwo = count % 100;
+        int last = count % 10;
+        return last is >= 2 and <= 4 && lastTwo is < 12 or > 14
+            ? "minuty"
+            : "minut";
+    }
 }

@@ -28,6 +28,7 @@ public abstract class AsyncLifetimeTestBase : IAsyncLifetime
         AccountDeletionEmailSpy.Reset();
         EmailChangeEmailSpy.Reset();
         DisarmDatabaseFailures();
+        Factory.PwnedPasswords.Reset();
 
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         CleanerService cleaner = scope.ServiceProvider.GetRequiredService<CleanerService>();
@@ -41,6 +42,7 @@ public abstract class AsyncLifetimeTestBase : IAsyncLifetime
     public virtual Task DisposeAsync()
     {
         DisarmDatabaseFailures();
+        Factory.PwnedPasswords.Reset();
         return Task.CompletedTask;
     }
 

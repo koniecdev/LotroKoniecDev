@@ -3,6 +3,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json.Serialization;
 using System.Text.Unicode;
 using FluentValidation;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.WebEncoders;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
@@ -24,6 +25,7 @@ using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
+using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
 using LotroKoniecDev.Hateoas;
 using LotroKoniecDev.SharedKernel.Messaging;
@@ -107,6 +109,11 @@ internal static class ApiDependencyInjection
             services.AddScoped<IAccountDeletionSchedule, AccountDeletionSchedule>();
             services.AddScoped<IAccountDeletionFinalizer, AccountDeletionFinalizer>();
             services.AddHostedService<AccountDeletionFinalizerHostedService>();
+
+            // A second password validator next to Identity's own rules. It must be added after
+            // AddIdentityCore, which uses TryAdd for the built-in one: added first, it would replace those
+            // rules instead of joining them (ADR-0065).
+            services.AddScoped<IPasswordValidator<ApplicationUser>, BreachedPasswordValidator>();
 
             services.AddScoped<IUserSessionRevoker, UserSessionRevoker>();
             services.AddSingleton<SignInSessionTicketStore>();

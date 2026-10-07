@@ -182,6 +182,10 @@ internal static class ApiProblemCopy
                 "Podaj obecne hasło, aby pobrać swoje dane.",
             ["Auth.PasswordChangeFailed"] =
                 "Nie udało się zmienić hasła. Nowe hasło musi spełniać wymagania: " + PasswordRules,
+            // The password change reaches it here. Registration and reset show the same sentence on the auth
+            // server's own pages (ADR-0065).
+            ["Auth.PasswordFoundInBreaches"] =
+                "To hasło pojawiło się w wyciekach danych, wybierz inne.",
             ["Auth.InvalidPasswordResetToken"] =
                 "Link do zmiany hasła jest nieprawidłowy lub wygasł. Poproś o nowy.",
             ["Auth.PasswordResetFailed"] =

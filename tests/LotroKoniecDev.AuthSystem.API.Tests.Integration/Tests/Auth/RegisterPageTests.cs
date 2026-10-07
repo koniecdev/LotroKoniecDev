@@ -64,6 +64,25 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task RegisterPage_ShouldSayThePasswordLeakedAndCreateNoAccount_WhenItAppearsInDataBreaches()
+    {
+        // Arrange
+        AccountConfirmationEmailSpy.Reset();
+        RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
+        Factory.PwnedPasswords.MarkBreached(request.Password);
+
+        // Act
+        HttpResponseMessage response = await PostToRegisterPageAsync(BuildForm(request, request.Password));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("To hasło pojawiło się w wyciekach danych, wybierz inne.");
+        html.ShouldNotContain("Konto zostało utworzone");
+    }
+
+    [Fact]
     public async Task RegisterPage_ShouldShowError_WhenPrivacyPolicyNotAccepted()
     {
         // Arrange

@@ -134,6 +134,7 @@ public sealed class ApiProblemCopyTests
     [InlineData("TranslationEntity.CannotApproveWithoutTranslation", 422, "Nie można zatwierdzić pustego tłumaczenia — najpierw wpisz polski tekst.")]
     [InlineData("Translations.Validation", 400, "Tłumaczenie nie może być puste i nie może przekraczać dozwolonej długości.")]
     [InlineData("Auth.InvalidCurrentPassword", 400, "Aktualne hasło jest nieprawidłowe.")]
+    [InlineData("Auth.PasswordFoundInBreaches", 400, "To hasło pojawiło się w wyciekach danych, wybierz inne.")]
     [InlineData("Auth.PasswordConfirmationThrottled", 429, "Zbyt wiele prób potwierdzenia hasła. Odczekaj kwadrans i spróbuj ponownie.")]
     [InlineData("Auth.RegistrationMailboxThrottled", 429, "Na tę skrzynkę pocztową założono ostatnio zbyt wiele kont. Odczekaj kwadrans i spróbuj ponownie.")]
     [InlineData("Auth.EmailChangeRecipientThrottled", 429, "Na tę skrzynkę pocztową wysłano niedawno zbyt wiele linków do zmiany adresu e-mail. Odczekaj kwadrans i spróbuj ponownie.")]
@@ -178,6 +179,7 @@ public sealed class ApiProblemCopyTests
 
     [Theory]
     [InlineData("Auth.InvalidCurrentPassword", 400, "The current password is incorrect.")]
+    [InlineData("Auth.PasswordFoundInBreaches", 400, "This password appears in known data breaches. Choose a different one.")]
     [InlineData("Translations.Validation", 400, "'Translated Text' must not be empty.")]
     [InlineData("GameVersionEntity.LotroNotationVersion.AlreadyTaken", 422, "The lotronotationversion value '48.0' is already taken.")]
     [InlineData("Import.EmptyUpload", 422, "The upload contains no translatable rows.")]

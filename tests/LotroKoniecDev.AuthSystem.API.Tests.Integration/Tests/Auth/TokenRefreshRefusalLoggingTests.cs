@@ -7,12 +7,14 @@ using Microsoft.Extensions.Time.Testing;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.Tests.Shared;
 using OpenIddict.Abstractions;
+using OpenIddict.Core;
 using OpenIddict.Server;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
@@ -247,8 +249,7 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
     [Fact]
     public async Task RefreshTokenGrant_WhenAUsedTokenIsSentAgainAfterTheReuseWindow_ShouldWarnWithTheUserAndOpenIddictsReason()
     {
-        // Arrange: OpenIddict accepts a used refresh token again for 30 seconds, then refuses it. It dates
-        // the first use with the real clock, so the stopped clock moves well past that window.
+        // Arrange: OpenIddict accepts a used refresh token again for a short window, then refuses it
         (RegisterRequest user, IdentityId userId) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         FakeTimeProvider clock = new(DateTimeOffset.UtcNow);
@@ -262,7 +263,7 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
             firstRefresh.StatusCode.ShouldBe(HttpStatusCode.OK);
         }
 
-        clock.Advance(TimeSpan.FromHours(1));
+        clock.Advance(OpenIddictOptionsOf(host).RefreshTokenReuseLeeway!.Value + TimeSpan.FromSeconds(1));
 
         // Act
         using HttpResponseMessage response = await RequestRefreshGrantAsync(client, refreshToken);
@@ -292,6 +293,59 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        TokenEndpointEntries(loggerFactory).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RefreshTokenGrant_WhenTheStoredTokenCannotBeRead_ShouldWarnWithTheUserFromTheTokenRow()
+    {
+        // Arrange: each host seals tokens with keys of its own, so this host finds the shared token row but
+        // cannot read it, as after a change of the encryption key
+        (RegisterRequest user, IdentityId userId) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        string refreshToken = await GetRefreshTokenAsync(user.Email, Password);
+        using CapturingLoggerFactory loggerFactory = new();
+        await using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
+        using HttpClient client = host.CreateClient();
+
+        // Act
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(client, refreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        CapturingLoggerFactory.LogEntry warning = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.EventId.Id.ShouldBe(EventIds.TokenGrantRefusedByOpenIddict);
+        warning.Message.ShouldBe($"Refresh refused for user {userId.Value} by OpenIddict: The specified token is invalid.");
+    }
+
+    [Fact]
+    public async Task Revoke_WhenOpenIddictRefusesAnotherClientsRefreshToken_ShouldNotWarnAboutTheTokenEndpoint()
+    {
+        // Arrange: the revocation endpoint reads the same refresh token, and OpenIddict refuses to let another
+        // client revoke it. That is not a refused sign-in step. OpenIddict still answers 200 there, as
+        // RFC 7009 asks, so the token row shows the refusal.
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        using CapturingLoggerFactory loggerFactory = new();
+        await using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
+        using HttpClient client = host.CreateClient();
+        string refreshToken = await GetRefreshTokenAsync(client, user.Email, Password);
+
+        using FormUrlEncodedContent revokeRequest = new(new Dictionary<string, string>
+        {
+            ["token"] = refreshToken,
+            ["token_type_hint"] = "refresh_token",
+            ["client_id"] = "lotrokoniecdev-web"
+        });
+
+        // Act
+        using HttpResponseMessage response =
+            await client.PostAsync(new Uri("connect/revoke", UriKind.Relative), revokeRequest);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Valid);
         TokenEndpointEntries(loggerFactory).ShouldBeEmpty();
     }
 
@@ -345,7 +399,8 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
             .ToList();
 
     /// <summary>
-    /// With <paramref name="openIddictClock"/>, only OpenIddict runs on that clock.
+    /// With <paramref name="openIddictClock"/>, only OpenIddict runs on that clock: the server checks
+    /// tokens with it, and the core dates a token's first use with it.
     /// </summary>
     private WebApplicationFactory<Program> CreateHost(
         CapturingLoggerFactory loggerFactory,
@@ -367,6 +422,7 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
                 if (openIddictClock is not null)
                 {
                     services.Configure<OpenIddictServerOptions>(options => options.TimeProvider = openIddictClock);
+                    services.Configure<OpenIddictCoreOptions>(options => options.TimeProvider = openIddictClock);
                 }
             }));
 }

@@ -18,6 +18,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.Tests.Shared;
 using OpenIddict.Abstractions;
+using OpenIddict.Core;
 using OpenIddict.Server;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
@@ -46,6 +47,12 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
         LockedOut,
         DeletionScheduledAndLockedOut,
         SecurityStampChanged
+    }
+
+    public enum SessionEnd
+    {
+        AllSessionsRevoked,
+        OnlyAuthorizationsRevoked
     }
 
     [Theory]
@@ -123,11 +130,16 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
         body.RootElement.GetProperty("error_description").GetString().ShouldBe("The authorization code is no longer valid.");
     }
 
-    [Fact]
-    public async Task AuthorizationCodeGrant_WhenAllSessionsWereRevokedAfterAuthorize_ShouldWarnWithTheUserAndOpenIddictsReason()
+    [Theory]
+    [InlineData(SessionEnd.AllSessionsRevoked, "The specified authorization code is no longer valid.")]
+    [InlineData(SessionEnd.OnlyAuthorizationsRevoked, "The authorization associated with the authorization code is no longer valid.")]
+    public async Task AuthorizationCodeGrant_WhenTheSessionWasRevokedAfterAuthorize_ShouldWarnWithTheUserAndOpenIddictsReason(
+        SessionEnd end,
+        string expectedReason)
     {
         // Arrange: a password reset, signing out everywhere and a scheduled deletion all revoke through the
-        // session revoker, and that revokes a code still waiting to be exchanged too
+        // session revoker, and that revokes a code still waiting to be exchanged too; a revoke whose token
+        // step failed leaves only the authorizations revoked
         (RegisterRequest user, IdentityId userId) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         using CapturingLoggerFactory loggerFactory = new();
@@ -135,10 +147,7 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
         using HttpClient client = host.CreateClient();
         (string code, string codeVerifier) = await ObtainAuthorizationCodeAsync(host, user.Email);
 
-        await using (AsyncServiceScope scope = host.Services.CreateAsyncScope())
-        {
-            await scope.ServiceProvider.GetRequiredService<IUserSessionRevoker>().RevokeAllAsync(userId.Value.ToString());
-        }
+        await EndAsync(end, host.Services, userId.Value.ToString());
 
         // Act
         using HttpResponseMessage response = await ExchangeAsync(client, code, codeVerifier);
@@ -148,8 +157,7 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
         CapturingLoggerFactory.LogEntry warning = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
         warning.Level.ShouldBe(LogLevel.Warning);
         warning.EventId.Id.ShouldBe(EventIds.TokenGrantRefusedByOpenIddict);
-        warning.Message.ShouldBe(
-            $"Code exchange refused for user {userId.Value} by OpenIddict: The specified authorization code is no longer valid.");
+        warning.Message.ShouldBe($"Code exchange refused for user {userId.Value} by OpenIddict: {expectedReason}");
     }
 
     [Fact]
@@ -236,9 +244,7 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
         using HttpClient client = host.CreateClient();
         (string code, string codeVerifier) = await ObtainAuthorizationCodeAsync(host, user.Email);
 
-        clock.Advance(
-            host.Services.GetRequiredService<IOptions<OpenIddictServerOptions>>().Value.AuthorizationCodeLifetime!.Value
-            + TimeSpan.FromSeconds(1));
+        clock.Advance(OpenIddictOptionsOf(host).AuthorizationCodeLifetime!.Value + TimeSpan.FromSeconds(1));
 
         // Act
         using HttpResponseMessage response = await ExchangeAsync(client, code, codeVerifier);
@@ -249,6 +255,22 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
         warning.Level.ShouldBe(LogLevel.Warning);
         warning.EventId.Id.ShouldBe(EventIds.TokenGrantRefusedTokenExpired);
         warning.Message.ShouldBe($"Code exchange refused for user {userId.Value}: the authorization code has expired");
+    }
+
+    private static async Task EndAsync(SessionEnd end, IServiceProvider services, string userId)
+    {
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+        switch (end)
+        {
+            case SessionEnd.AllSessionsRevoked:
+                await scope.ServiceProvider.GetRequiredService<IUserSessionRevoker>().RevokeAllAsync(userId);
+                break;
+            case SessionEnd.OnlyAuthorizationsRevoked:
+                await scope.ServiceProvider.GetRequiredService<IOpenIddictAuthorizationManager>().RevokeBySubjectAsync(userId);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(end), end, null);
+        }
     }
 
     private async Task ApplyAsync(AccountChange change, string email)
@@ -352,13 +374,17 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
                 })
                 .SetOrder(OpenIddictServerHandlers.PrepareAuthorizationCodePrincipal.Descriptor.Order + 1));
 
+    private static OpenIddictServerOptions OpenIddictOptionsOf(WebApplicationFactory<Program> host) =>
+        host.Services.GetRequiredService<IOptions<OpenIddictServerOptions>>().Value;
+
     private static List<CapturingLoggerFactory.LogEntry> TokenEndpointEntries(CapturingLoggerFactory loggerFactory) =>
         loggerFactory.Entries
             .Where(entry => entry.Category == typeof(TokenEndpoint).FullName)
             .ToList();
 
     /// <summary>
-    /// With <paramref name="openIddictClock"/>, only OpenIddict runs on that clock.
+    /// With <paramref name="openIddictClock"/>, only OpenIddict runs on that clock: the server checks
+    /// tokens with it, and the core dates a token's first use with it.
     /// </summary>
     private WebApplicationFactory<Program> CreateHost(
         CapturingLoggerFactory loggerFactory,
@@ -380,6 +406,7 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
                 if (openIddictClock is not null)
                 {
                     services.Configure<OpenIddictServerOptions>(options => options.TimeProvider = openIddictClock);
+                    services.Configure<OpenIddictCoreOptions>(options => options.TimeProvider = openIddictClock);
                 }
             }));
 

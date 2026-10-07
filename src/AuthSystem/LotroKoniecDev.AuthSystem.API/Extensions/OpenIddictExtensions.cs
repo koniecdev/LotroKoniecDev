@@ -100,7 +100,6 @@ internal static class OpenIddictExtensions
 
                 // Warnings for the refusals OpenIddict makes itself (#977).
                 options.AddEventHandler(OpenIddictTokenRefusals.NoteTokenUser.Descriptor);
-                options.AddEventHandler(OpenIddictTokenRefusals.NoteLifetimeChecked.Descriptor);
                 options.AddEventHandler(OpenIddictTokenRefusals.WarnWhenRefused.Descriptor);
             })
             .AddValidation(options =>

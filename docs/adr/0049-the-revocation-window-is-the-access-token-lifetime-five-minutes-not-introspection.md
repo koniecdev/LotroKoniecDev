@@ -1,7 +1,7 @@
 # ADR-0049: The revocation window is the access-token lifetime — five minutes, not introspection
 
-**Status:** Accepted (amended 2026-09-27 by #848 — a refresh now also checks the security stamp, see
-the amendment below)
+**Status:** Accepted (amended 2026-09-27 by #848 — a refresh now also checks the security stamp; and
+2026-10-07 by #1025 — the lifetime has a floor of two minutes; see the amendments below)
 **Date:** 2026-08-21
 **Decision-makers:** Solo maintainer
 **Related:** #686 (SEC-08, the defect), #701 (QA-FE-24 S03 TC06/TC07, where a tester hit it), ADR-0048 (the e-mail-change undo this protects), ADR-0041 (no API gateway), ADR-0031 (deletion grace period), `OpenIddictSettings`, `IUserSessionRevoker`, `SecurityStampCookieValidator`, `CookieTokenRefresher`, `DeadSessionRegistry`
@@ -153,3 +153,20 @@ five minutes. Two side effects are accepted:
 - A rollback to a build before this change copies the stamp into access tokens at the next refresh,
   because the older code sends unknown claims to the access token. Those tokens only reach the
   frontend's encrypted cookie and the TMS, and the next deploy stops it.
+
+## Amendment (2026-10-07, #1025): the lifetime has a floor of two minutes
+
+The auth API now refuses to start when `AccessTokenLifetimeMinutes` is below 2, in every
+environment (`OpenIddictSettingsValidator`). A client that renews a token a minute before it runs out
+renews a token of a minute or less on every page. The website did exactly that until #1025, and with
+rotating refresh tokens two pages that load at once could redeem the same refresh token. A value of 0
+or less hands out tokens that are already dead.
+
+The reopen trigger above still holds. The window can go down to 2, 3 or 4 minutes with a change to
+`appsettings.json` only. Going below 2 minutes means changing this floor first, after checking how
+early every client renews.
+
+The Consequences above say the frontend needed no change. That stays true for the five-minute
+decision. Separately, #1025 made the website refresh at the smaller of 60 seconds and half the token's
+lifetime before expiry, so a one-minute token is refreshed after 30 seconds and not on every page. The
+server floor does not count on that.

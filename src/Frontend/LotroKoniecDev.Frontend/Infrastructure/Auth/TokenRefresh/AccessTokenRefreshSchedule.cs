@@ -30,10 +30,10 @@ internal static class AccessTokenRefreshSchedule
     }
 
     /// <summary>
-    /// A cookie with no readable refresh time was written before #1025. A refresh time later than the
-    /// expiry belongs to an older token, for example one that an older version of the website refreshed
-    /// without moving the refresh time. Both keep the old rule, 60 seconds before expiry, so a token is
-    /// never left to run out before it is refreshed.
+    /// A cookie with no refresh time was written before #1025. This code never writes a refresh time that
+    /// cannot be read or that is later than the expiry, so such a value is ignored: trusting it could let
+    /// the token run out before it is refreshed. All three cases keep the old rule, 60 seconds before
+    /// expiry.
     /// </summary>
     internal static bool IsDue(AuthenticationProperties properties, DateTimeOffset expiresAt, DateTimeOffset now)
     {

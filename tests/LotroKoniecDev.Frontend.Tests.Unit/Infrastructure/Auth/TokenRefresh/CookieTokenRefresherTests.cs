@@ -725,8 +725,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
     }
 
     /// <summary>
-    /// #1025: a refresh time later than the expiry belongs to an older token, for example after an older
-    /// version of the website refreshed without moving it. Trusting it would let the token run out first.
+    /// #1025: this code never writes a refresh time later than the expiry. If one is there anyway, trusting
+    /// it would let the token run out before it is refreshed, so the last-minute rule applies.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenTheStoredRefreshTimeIsLaterThanTheExpiry_RefreshesInTheLastMinute()

@@ -176,6 +176,9 @@ internal static class AuthenticationDependencyInjectionExtensions
         options.Events.OnRemoteFailure = OnRemoteFailureAsync;
         options.Events.OnAccessDenied = OnAccessDeniedAsync;
 
+        // SaveTokens stores only expires_at, so the first token gets its refresh time here (#1025).
+        options.Events.OnTicketReceived = OnTicketReceivedAsync;
+
         // The code exchange, the userinfo call and the metadata and key fetch go through the handler's
         // own back-channel client, not through the typed clients, so the visitor's address rides on it
         // too (ADR-0054). Like the typed clients, it follows no redirect (#899) and keeps no cookies
@@ -201,6 +204,24 @@ internal static class AuthenticationDependencyInjectionExtensions
 
         context.Response.Redirect(ErrorPath);
         context.HandleResponse();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The handler raises this event after it has stored the tokens and called the userinfo endpoint. So
+    /// the lifetime measured here is short by the time of that call. That only moves the refresh a little
+    /// closer to the expiry, never past it. The clock is the one the handler used for <c>expires_at</c>.
+    /// </summary>
+    private static Task OnTicketReceivedAsync(TicketReceivedContext context)
+    {
+        if (context.Properties is { } properties
+            && AccessTokenRefreshSchedule.TryGetMoment(
+                properties, AccessTokenRefreshSchedule.ExpiresAtName, out DateTimeOffset expiresAt))
+        {
+            TimeProvider timeProvider = context.Options.TimeProvider ?? TimeProvider.System;
+            AccessTokenRefreshSchedule.Schedule(properties, timeProvider.GetUtcNow(), expiresAt);
+        }
+
         return Task.CompletedTask;
     }
 

@@ -17,6 +17,8 @@ internal sealed class OpenIddictSettings
     /// How long an access token stays valid. It is also how long any revocation takes to bite: the
     /// TMS validates JWTs on its own, so a token keeps working until it expires even after
     /// RevokeAllAsync has killed it in the database. Five minutes is the agreed window (ADR-0049).
+    /// The service refuses to start below 2 minutes (#1025): a client that renews a token a minute before
+    /// it runs out would renew a shorter token on every page.
     /// </summary>
     public int AccessTokenLifetimeMinutes { get; init; } = 5;
 

@@ -1,8 +1,10 @@
+using System.Security.Claims;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Settings;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.DataProtection;
@@ -96,6 +98,44 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         chain[^1].ShouldBeOfType<SocketsHttpHandler>().UseCookies.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// #1026: a refused sign-in ends on the error page, and the remote-failure log is the only place that
+    /// says why. The full sign-in, with no session at the end, is proved in the Frontend integration suite.
+    /// </summary>
+    [Theory]
+    [InlineData(null, "300", "missing, empty or blank access_token")]
+    [InlineData("   ", "300", "missing, empty or blank access_token")]
+    [InlineData("the-access-token", null, "expires_in: missing or unreadable")]
+    [InlineData("the-access-token", "soon", "expires_in: missing or unreadable")]
+    [InlineData("the-access-token", "0", "expires_in: 0")]
+    [InlineData("the-access-token", "-5", "expires_in: -5")]
+    public async Task AddFrontendAuthentication_TokenResponseReceived_FailsAnUnusableAnswerWithTheReason(
+        string? accessToken,
+        string? expiresIn,
+        string expectedReason)
+    {
+        OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
+        TokenResponseReceivedContext context = CreateTokenResponseReceivedContext(options, accessToken, expiresIn);
+
+        await options.Events.TokenResponseReceived(context);
+
+        context.Result.ShouldNotBeNull().Failure.ShouldNotBeNull().Message.ShouldContain(expectedReason);
+    }
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData("300")]
+    public async Task AddFrontendAuthentication_TokenResponseReceived_LetsAUsableAnswerThrough(string expiresIn)
+    {
+        OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
+        TokenResponseReceivedContext context = CreateTokenResponseReceivedContext(
+            options, "the-access-token", expiresIn);
+
+        await options.Events.TokenResponseReceived(context);
+
+        context.Result.ShouldBeNull();
+    }
+
     [Theory]
     [InlineData("Production")]
     [InlineData("Staging")]
@@ -127,6 +167,27 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         CookieAuthenticationOptions options = ResolveConfiguredCookieOptions("Development");
 
         options.Cookie.SecurePolicy.ShouldBe(CookieSecurePolicy.SameAsRequest);
+    }
+
+    private static TokenResponseReceivedContext CreateTokenResponseReceivedContext(
+        OpenIdConnectOptions options,
+        string? accessToken,
+        string? expiresIn)
+    {
+        AuthenticationScheme scheme = new(
+            OpenIdConnectDefaults.AuthenticationScheme,
+            displayName: null,
+            handlerType: typeof(OpenIdConnectHandler));
+
+        return new TokenResponseReceivedContext(
+            new DefaultHttpContext(),
+            scheme,
+            options,
+            new ClaimsPrincipal(),
+            new AuthenticationProperties())
+        {
+            TokenEndpointResponse = new OpenIdConnectMessage { AccessToken = accessToken, ExpiresIn = expiresIn }
+        };
     }
 
     private static OpenIdConnectOptions ResolveConfiguredOidcOptions()

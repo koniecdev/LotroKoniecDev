@@ -31,6 +31,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
     private const string RefreshTokenName = "refresh_token";
     private const string IdTokenName = "id_token";
     private const string ExpiresAtName = "expires_at";
+    private const string FarFutureExpiresAt = "2999-01-01T00:00:00.0000000+00:00";
 
     /// <summary>
     /// The base64url of <c>{"alg":"RS256"}</c>. The fixtures below are joined from parts, so no line holds a
@@ -816,6 +817,178 @@ public sealed class CookieTokenRefresherTests : IDisposable
         storedExpiresAt.ShouldBeInRange(before.AddSeconds(expiresIn), after.AddSeconds(expiresIn));
     }
 
+    /// <summary>
+    /// #1026: with no expiry the session would never be renewed or checked again, for the whole life of the
+    /// cookie, so it ends on the next request. The token is fresh and trusted, so the expiry is the only
+    /// reason.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("soon")]
+    public async Task ValidateAsync_WhenTheCookieHasNoUsableExpiry_RejectsPrincipalAndSignsOut(string? expiresAt)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        ISessionExpiryNotice sessionExpiryNotice = Substitute.For<ISessionExpiryNotice>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            sessionExpiryNotice: sessionExpiryNotice);
+        CookieValidatePrincipalContext context = CreateContextWithStoredTokens(
+            authenticationService, accessToken, expiresAt, refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldBeNull();
+        await authenticationService.Received(1).SignOutAsync(
+            Arg.Any<HttpContext>(),
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            Arg.Any<AuthenticationProperties>());
+        sessionExpiryNotice.Received(1).Raise();
+    }
+
+    /// <summary>
+    /// #1026: the API refuses a blank token on every call, so the session ends on the next request, before
+    /// a page loses a call to the API. Far from expiry the refresh never runs, so it cannot catch it.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("\t\r\n")]
+    public async Task ValidateAsync_WhenTheStoredAccessTokenIsBlank_RejectsPrincipalAndSignsOut(string? accessToken)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        ISessionExpiryNotice sessionExpiryNotice = Substitute.For<ISessionExpiryNotice>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            sessionExpiryNotice: sessionExpiryNotice);
+        CookieValidatePrincipalContext context = CreateContextWithStoredTokens(
+            authenticationService,
+            accessToken,
+            DateTimeOffset.UtcNow.AddHours(1).ToString("o", CultureInfo.InvariantCulture),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldBeNull();
+        await authenticationService.Received(1).SignOutAsync(
+            Arg.Any<HttpContext>(),
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            Arg.Any<AuthenticationProperties>());
+        sessionExpiryNotice.Received(1).Raise();
+    }
+
+    /// <summary>
+    /// #1026: near expiry, a blank stored access token still ends the session. A refresh would hide the
+    /// broken cookie, and it would spend the refresh token on a session that is already dead.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenTheStoredAccessTokenIsBlankNearExpiry_RejectsWithoutRedeemingTheRefreshToken()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string refreshedAccessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse
+            {
+                AccessToken = refreshedAccessToken,
+                RefreshToken = "rotated-refresh-token",
+                ExpiresIn = 300
+            });
+        CookieValidatePrincipalContext context = CreateContextWithStoredTokens(
+            authenticationService,
+            accessToken: "   ",
+            DateTimeOffset.UtcNow.AddSeconds(30).ToString("o", CultureInfo.InvariantCulture),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldBeNull();
+        context.ShouldRenew.ShouldBeFalse();
+        context.Properties.GetTokenValue(AccessTokenName).ShouldBe("   ");
+        context.Properties.GetTokenValue(RefreshTokenName).ShouldBe("refresh-token");
+    }
+
+    /// <summary>
+    /// #1026: a blank stored refresh token counts as none. It is never sent to the sign-in server, which
+    /// could only answer with an error. Not sending it is invisible in the context, hence the check on the
+    /// substitute.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("\t\r\n")]
+    public async Task ValidateAsync_WhenNearExpiryWithABlankRefreshToken_RejectsWithoutCallingTheTokenEndpoint(
+        string blankRefreshToken)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            tokenEndpointClient: tokenEndpointClient);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            authenticationService,
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: blankRefreshToken);
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldBeNull();
+        await authenticationService.Received(1).SignOutAsync(
+            Arg.Any<HttpContext>(),
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            Arg.Any<AuthenticationProperties>());
+        await tokenEndpointClient.DidNotReceive().RefreshAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// #1026: such a cookie means something on the sign-in path was broken, so the reason is a warning.
+    /// </summary>
+    [Theory]
+    [InlineData("the-access-token", null, "missing or unreadable expires_at")]
+    [InlineData("the-access-token", "soon", "missing or unreadable expires_at")]
+    [InlineData(null, FarFutureExpiresAt, "missing, empty or blank access_token")]
+    [InlineData("   ", FarFutureExpiresAt, "missing, empty or blank access_token")]
+    public async Task ValidateAsync_WhenTheCookieIsUnusable_LogsOneWarningWithTheReason(
+        string? accessToken,
+        string? expiresAt,
+        string expectedReason)
+    {
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [CreateRsaKey()],
+            discoveryIssuer: DiscoveryIssuer,
+            logger: loggerFactory.CreateLogger<CookieTokenRefresher>());
+        CookieValidatePrincipalContext context = CreateContextWithStoredTokens(
+            Substitute.For<IAuthenticationService>(),
+            accessToken,
+            expiresAt,
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldContain(expectedReason);
+    }
+
     [Fact]
     public async Task ValidateAsync_WhenSessionMarkedDead_RejectsPrincipalAndSignsOut()
     {
@@ -1526,6 +1699,28 @@ public sealed class CookieTokenRefresherTests : IDisposable
         CancellationToken requestAborted = default,
         string method = "GET")
     {
+        return CreateContextWithStoredTokens(
+            authenticationService,
+            accessToken,
+            expiresAt.ToString("o", CultureInfo.InvariantCulture),
+            refreshToken,
+            idToken,
+            path,
+            requestAborted,
+            method);
+    }
+
+    /// <summary>A null token is left out of the cookie; any other value is stored as it is.</summary>
+    private static CookieValidatePrincipalContext CreateContextWithStoredTokens(
+        IAuthenticationService authenticationService,
+        string? accessToken,
+        string? expiresAt,
+        string? refreshToken = null,
+        string? idToken = null,
+        string path = "/",
+        CancellationToken requestAborted = default,
+        string method = "GET")
+    {
         ServiceCollection services = new();
         services.AddSingleton(authenticationService);
 
@@ -1541,15 +1736,17 @@ public sealed class CookieTokenRefresherTests : IDisposable
             [new Claim("sub", Subject)],
             CookieAuthenticationDefaults.AuthenticationScheme));
 
-        List<AuthenticationToken> tokens =
-        [
-            new AuthenticationToken { Name = AccessTokenName, Value = accessToken },
-            new AuthenticationToken
-            {
-                Name = ExpiresAtName,
-                Value = expiresAt.ToString("o", CultureInfo.InvariantCulture)
-            }
-        ];
+        List<AuthenticationToken> tokens = [];
+
+        if (accessToken is not null)
+        {
+            tokens.Add(new AuthenticationToken { Name = AccessTokenName, Value = accessToken });
+        }
+
+        if (expiresAt is not null)
+        {
+            tokens.Add(new AuthenticationToken { Name = ExpiresAtName, Value = expiresAt });
+        }
 
         if (refreshToken is not null)
         {

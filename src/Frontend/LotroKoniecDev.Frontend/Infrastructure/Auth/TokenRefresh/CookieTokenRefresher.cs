@@ -16,8 +16,8 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// <summary>
 /// Runs on every cookie validation (<c>OnValidatePrincipal</c>).
 /// First it reads any "dead session" marker a previous 401 left behind and signs the cookie out
-/// properly. Otherwise it refreshes the access token shortly before it expires, using the stored
-/// refresh token. When the token is still valid by the local clock, it also checks the token's
+/// properly. A cookie with no expiry or no usable access token is signed out too. Otherwise it refreshes
+/// the access token shortly before it expires, using the stored refresh token. When the token is still valid by the local clock, it also checks the token's
 /// signature against the cached OIDC keys, so a key that was rotated upstream signs the user out
 /// cleanly instead of letting a token that is already dead reach the API.
 /// Every rejection sets the one-time "session expired" notice and revokes the session's refresh token
@@ -93,7 +93,25 @@ internal sealed class CookieTokenRefresher
             return;
         }
 
-        RefreshOutcome refreshOutcome = await TryRefreshIfNearExpiryAsync(context, cancellationToken);
+        // A session the renewal cannot manage is dead (#1026). With no expiry it is never renewed or checked
+        // again, and the API refuses a blank access token on every call. The first sign-in refuses both as
+        // well. This check ends a session that got past it, such as one that started before that rule.
+        if (!TryGetExpiresAt(context.Properties, out DateTimeOffset expiresAt))
+        {
+            LogNoUsableExpiry(_logger, null);
+            await RejectAsync(context);
+            return;
+        }
+
+        string? accessToken = context.Properties.GetTokenValue(AccessTokenName);
+        if (!TokenRules.IsUsable(accessToken))
+        {
+            LogNoStoredAccessToken(_logger, null);
+            await RejectAsync(context);
+            return;
+        }
+
+        RefreshOutcome refreshOutcome = await TryRefreshIfNearExpiryAsync(context, expiresAt, cancellationToken);
         if (refreshOutcome is RefreshOutcome.Stop)
         {
             return;
@@ -113,7 +131,7 @@ internal sealed class CookieTokenRefresher
         // signature against the cached OIDC keys, with no call to the API.
         // Lifetime and audience are deliberately not checked here: the window above handles expiry, and
         // this frontend is not the token's audience.
-        if (!await IsAccessTokenCryptographicallyValidAsync(context, cancellationToken))
+        if (!await IsAccessTokenCryptographicallyValidAsync(accessToken, cancellationToken))
         {
             LogProactiveInvalidToken(_logger, null);
             await RejectAsync(context);
@@ -121,35 +139,27 @@ internal sealed class CookieTokenRefresher
     }
 
     /// <returns>
-    /// <see cref="RefreshOutcome.Stop"/> when validation must stop, because there was no expiry claim or
-    /// the principal was already rejected. <see cref="RefreshOutcome.Refreshed"/> when a new token was
-    /// just fetched, so the caller skips the signature check. Otherwise
-    /// <see cref="RefreshOutcome.Unchanged"/>, and the token that is still valid should be checked.
+    /// <see cref="RefreshOutcome.Stop"/> when the principal was already rejected.
+    /// <see cref="RefreshOutcome.Refreshed"/> when a new token was just fetched, so the caller skips the
+    /// signature check. Otherwise <see cref="RefreshOutcome.Unchanged"/>, and the token that is still valid
+    /// should be checked.
     /// </returns>
     private async Task<RefreshOutcome> TryRefreshIfNearExpiryAsync(
         CookieValidatePrincipalContext context,
+        DateTimeOffset expiresAt,
         CancellationToken cancellationToken)
     {
         AuthenticationProperties properties = context.Properties;
-
-        string? expiresAtRaw = properties.GetTokenValue(ExpiresAtName);
-        if (string.IsNullOrEmpty(expiresAtRaw)
-            || !DateTimeOffset.TryParse(
-                expiresAtRaw,
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                out DateTimeOffset expiresAt))
-        {
-            return RefreshOutcome.Stop;
-        }
 
         if (DateTimeOffset.UtcNow + RefreshSkew < expiresAt)
         {
             return RefreshOutcome.Unchanged;
         }
 
+        // A blank refresh token counts as none (#1026). Sending it would only earn an error from the
+        // sign-in server.
         string? refreshToken = properties.GetTokenValue(RefreshTokenName);
-        if (string.IsNullOrEmpty(refreshToken))
+        if (!TokenRules.IsUsable(refreshToken))
         {
             LogNoRefreshToken(_logger, null);
             await RejectAsync(context);
@@ -170,11 +180,8 @@ internal sealed class CookieTokenRefresher
             return RefreshOutcome.Stop;
         }
 
-        // Our own sign-in server always sends an access token and a positive lifetime. So an answer without
-        // them means that something between us and the server is broken (#974). The API would refuse a blank
-        // token on every call. A token with no lifetime looks expired at once, so every page would redeem
-        // the refresh token again.
-        if (string.IsNullOrWhiteSpace(tokenResponse.AccessToken))
+        // The API would refuse a blank token on every call (#974). The first sign-in checks the same rules.
+        if (!TokenRules.IsUsable(tokenResponse.AccessToken))
         {
             LogNoUsableAccessToken(_logger, null);
             await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
@@ -191,7 +198,7 @@ internal sealed class CookieTokenRefresher
             return RefreshOutcome.Stop;
         }
 
-        if (tokenResponse.ExpiresIn is not { } expiresInSeconds || expiresInSeconds <= 0)
+        if (!TokenRules.IsPositiveLifetime(tokenResponse.ExpiresIn))
         {
             LogNoPositiveLifetime(
                 _logger,
@@ -225,17 +232,17 @@ internal sealed class CookieTokenRefresher
         properties.UpdateTokenValue(AccessTokenName, tokenResponse.AccessToken);
 
         // A blank value counts as no value, like an empty one, so the stored token stays (#974).
-        if (!string.IsNullOrWhiteSpace(tokenResponse.RefreshToken))
+        if (TokenRules.IsUsable(tokenResponse.RefreshToken))
         {
             properties.UpdateTokenValue(RefreshTokenName, tokenResponse.RefreshToken);
         }
 
-        if (!string.IsNullOrWhiteSpace(tokenResponse.IdToken))
+        if (TokenRules.IsUsable(tokenResponse.IdToken))
         {
             properties.UpdateTokenValue(IdTokenName, tokenResponse.IdToken);
         }
 
-        DateTimeOffset newExpiresAt = DateTimeOffset.UtcNow.AddSeconds(expiresInSeconds);
+        DateTimeOffset newExpiresAt = DateTimeOffset.UtcNow.AddSeconds(tokenResponse.ExpiresIn.Value);
         properties.UpdateTokenValue(
             ExpiresAtName,
             newExpiresAt.ToString("o", CultureInfo.InvariantCulture));
@@ -245,16 +252,9 @@ internal sealed class CookieTokenRefresher
     }
 
     private async Task<bool> IsAccessTokenCryptographicallyValidAsync(
-        CookieValidatePrincipalContext context,
+        string accessToken,
         CancellationToken cancellationToken)
     {
-        string? accessToken = context.Properties.GetTokenValue(AccessTokenName);
-        if (string.IsNullOrWhiteSpace(accessToken))
-        {
-            // There is no token to check. Leave the decision to the refresh path, which already ran.
-            return true;
-        }
-
         OpenIdConnectOptions oidcOptions = _openIdConnectOptionsMonitor.Get(
             OpenIdConnectDefaults.AuthenticationScheme);
         if (oidcOptions.ConfigurationManager is null)
@@ -373,6 +373,13 @@ internal sealed class CookieTokenRefresher
         }
     }
 
+    private static bool TryGetExpiresAt(AuthenticationProperties properties, out DateTimeOffset expiresAt) =>
+        DateTimeOffset.TryParse(
+            properties.GetTokenValue(ExpiresAtName),
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+            out expiresAt);
+
     private static string? GetSubject(CookieValidatePrincipalContext context)
     {
         string? subject = context.Principal?.FindFirst(SubjectClaimType)?.Value;
@@ -418,8 +425,7 @@ internal sealed class CookieTokenRefresher
     private enum RefreshOutcome
     {
         /// <summary>
-        /// Validation must stop: there was no usable <c>expires_at</c> claim, or the refresh attempt has
-        /// already rejected the principal.
+        /// Validation must stop: the refresh attempt has already rejected the principal.
         /// </summary>
         Stop,
 
@@ -440,7 +446,7 @@ internal sealed class CookieTokenRefresher
         LoggerMessage.Define(
             LogLevel.Information,
             new EventId(1, nameof(LogNoRefreshToken)),
-            "Cookie has no refresh_token; principal rejected.");
+            "Cookie has a missing, empty or blank refresh_token; principal rejected.");
 
     private static readonly Action<ILogger, Exception?> LogRefreshFailed =
         LoggerMessage.Define(
@@ -489,4 +495,16 @@ internal sealed class CookieTokenRefresher
             LogLevel.Warning,
             new EventId(9, nameof(LogMalformedIdToken)),
             "Refresh token grant returned an id_token that is not a compact JWS; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogNoUsableExpiry =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(10, nameof(LogNoUsableExpiry)),
+            "Cookie has a missing or unreadable expires_at; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogNoStoredAccessToken =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(11, nameof(LogNoStoredAccessToken)),
+            "Cookie has a missing, empty or blank access_token; principal rejected.");
 }

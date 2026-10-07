@@ -268,6 +268,7 @@ public sealed class PwnedPasswordCheckerTests : IDisposable
     [InlineData(OtherSuffix + ":1\r\n" + HashSuffix + "0:7", PwnedPasswordVerdict.NotFound)]
     [InlineData(OtherSuffix + ":1\r\n0" + HashSuffix + ":7", PwnedPasswordVerdict.NotFound)]
     [InlineData(HashSuffix + ":1", PwnedPasswordVerdict.Breached)]
+    [InlineData("\uFEFF" + HashSuffix + ":1\r\n" + OtherSuffix + ":2", PwnedPasswordVerdict.Breached)]
     [InlineData(HashSuffix + ":1\r\n", PwnedPasswordVerdict.Breached)]
     [InlineData(HashSuffix + ": 12 ", PwnedPasswordVerdict.Breached)]
     [InlineData(HashSuffix + ":10434004", PwnedPasswordVerdict.Breached)]

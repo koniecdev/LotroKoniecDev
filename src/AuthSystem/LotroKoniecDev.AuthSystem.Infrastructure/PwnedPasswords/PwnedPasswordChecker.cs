@@ -74,7 +74,8 @@ internal sealed partial class PwnedPasswordChecker : IPwnedPasswordChecker
     {
         bool answerHoldsHashLines = false;
 
-        foreach (ReadOnlySpan<char> line in rangeBody.AsSpan().EnumerateLines())
+        // A byte order mark in front of the first line would hide that line's suffix from the match.
+        foreach (ReadOnlySpan<char> line in rangeBody.AsSpan().TrimStart('\uFEFF').EnumerateLines())
         {
             int separator = line.IndexOf(':');
 

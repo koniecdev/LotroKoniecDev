@@ -4,9 +4,10 @@
 **Date:** 2026-10-07
 **Decision-makers:** Solo maintainer (ticket #694)
 **Related:** AuthSystem.Infrastructure (`PwnedPasswords/`), AuthSystem.API (`Services/Accounts/BreachedPasswordValidator.cs`,
-`Features/Auth/{RegisterUser,ChangePassword,ResetPassword}`, `Pages/Account/{Register,ResetPassword}`,
-`Program.cs`), Frontend (`Infrastructure/Errors/ApiProblemCopy.cs`); ADR-0044 (the Frontend's Polish
-error copy), ADR-0059 (the time floor on the reset answer); tickets #694, #1045
+`Features/Auth/{RegisterUser,ChangePassword,ResetPassword}`, `Pages/Account/{Register,ResetPassword}`),
+Frontend (`Infrastructure/Errors/ApiProblemCopy.cs`); ADR-0044 (the Frontend's Polish error copy),
+ADR-0053 (the password-confirmation budget), ADR-0059 (the time floor on the reset answer); tickets
+#694, #1045, #1046
 
 ## Context
 
@@ -57,16 +58,23 @@ its one error.
 `PwnedPasswordChecker` hashes the password with SHA-1 (UTF-8), sends the first five hex characters to
 the range endpoint with `Add-Padding: true`, and looks for the other 35 in the answer. A matching line
 counts only with a count above zero, because padding lines carry 0. The answer is read as bytes and
-decoded as UTF-8, whatever charset it names (#1036).
+decoded as UTF-8, whatever charset it names (#1036), and a byte order mark in front is dropped.
 
 A real answer always holds hundreds of `SUFFIX:COUNT` lines. A successful answer with none, such as a
 proxy's error page, says nothing about the password, so it counts as `Unavailable`, not as clean.
 
 The prefix is safe at Have I Been Pwned, which cannot tie it to anyone. In our own logs and traces it
 would sit next to the request and the account it belongs to, and 20 bits of an unsalted SHA-1 cut a
-cracking dictionary about a million times. So the client has no request logging
-(`RemoveAllLoggers`), and the trace pipeline drops its requests (`PwnedPasswordsTelemetry` in the
-filter of `AddHttpClientInstrumentation`). The HTTP metrics carry the host, never the path.
+cracking dictionary about a million times. Nothing else may travel with it either. So:
+
+- The client has no request logging (`RemoveAllLoggers`). The factory's own handlers would log every
+  URL at Information.
+- Its handler has no activity propagator (`ActivityHeadersPropagator = null`). By default .NET adds
+  `traceparent` and `baggage` to every request, which would hand Have I Been Pwned the trace id our
+  own logs carry next to the user. Without a propagator the runtime adds no trace handler at all, so
+  no header goes out and no span records the URL. A probe on .NET 10 with the OpenTelemetry SDK
+  showed both before the change and neither after. `RangeApiRequestTests` pins it with the real
+  handler. The HTTP metrics carry the host, never the path.
 
 ### 3. The client is narrow
 
@@ -78,8 +86,12 @@ person on the form wait longer for an answer the policy can do without.
 
 When the service is down, slow, answers with anything but success, or answers with no hash line, the
 verdict is `Unavailable`. The validator accepts the password and the checker logs a warning (event ids
-3300–3303). The rest of
-the password policy still applies.
+3300–3303). The rest of the password policy still applies. A refusal is logged too, at Information
+(event id 2740), so an operator can tell a check that works from one that never runs.
+
+The call stops when the visitor's request is aborted (`HttpContext.RequestAborted`), so a visitor who
+gave up does not keep a registration's transaction open for the whole time limit. The admin seed runs
+outside a request and waits.
 
 A fail-closed check would make registration, password change and password reset depend on the uptime
 of a service we do not run. During an outage of Have I Been Pwned or of the network path to it, nobody
@@ -123,6 +135,9 @@ danych, wybierz inne." A refused reset keeps the form, because the link is still
 - **Registration holds its database transaction during the call.** The validator runs inside
   `CreateAsync`, after the address and username lookups. At worst that is 3 seconds with one pooled
   connection and no row locks. Registration is rate limited.
+- **A refused new password on the password change spends a confirmation permit.** The current password
+  was checked first, and ADR-0053 §2 spends a permit on every attempt, a correct password included. A
+  person who picks ten breached passwords in a quarter of an hour waits fifteen minutes.
 - **SHA-1 appears in the code.** It is what the range API is keyed by. It is never stored and never used
   to verify a password.
 - **The admin seed is checked too.** In Development, an `AdminUser:Password` from a breach list now stops
@@ -166,22 +181,22 @@ Tests replace the checker in the container instead.
 ## Implementation Notes
 
 - `IPwnedPasswordChecker`, `PwnedPasswordVerdict`, `PwnedPasswordChecker` and
-  `PwnedPasswordsDependencyInjection` and `PwnedPasswordsTelemetry` live in
-  `AuthSystem.Infrastructure/PwnedPasswords/`.
+  `PwnedPasswordsDependencyInjection` live in `AuthSystem.Infrastructure/PwnedPasswords/`.
   `BreachedPasswordValidator` lives in `AuthSystem.API/Services/Accounts/`, because it needs
   `ApplicationUser`, and `IdentityResult.IsBreachedPassword` maps its error in the handlers and the
   reset page.
 - Tests: `PwnedPasswordCheckerTests` (what is sent, padding lines, unreadable answers, errors, timeout,
-  the cache), `PwnedPasswordsDependencyInjectionTests` (the registered client, its time limit and its
-  silent logging), `PwnedPasswordsTelemetryTests` and `BreachedPasswordValidatorTests` (unit); the
-  register, change-password and reset endpoint and page tests, a login page test that a password
-  breached after it was set still signs in, and `HttpClientTracingTests` for the real host's trace
-  filter (integration, with `StubPwnedPasswordChecker`).
+  the cache), `PwnedPasswordsDependencyInjectionTests` (the registered client, its time limit, its
+  handler and its silent logging) and `BreachedPasswordValidatorTests` (unit); `RangeApiRequestTests`
+  (the real handler against a loopback listener: no trace or baggage header), the register,
+  change-password and reset endpoint and page tests, the admin seed, and a login page test that a
+  password breached after it was set still signs in (integration, with `StubPwnedPasswordChecker`).
 
 ## References
 
 - #694 — the ticket.
 - #1045 — the parked prompt for a password that leaks after it was set.
+- #1046 — the reset page skips the API's 128-character maximum (older than this ADR).
 - https://haveibeenpwned.com/API/v3#PwnedPasswords — the range API, its padding and its terms.
 - ADR-0056 — the admin is seeded without a password on deployed boxes.
 - #1036 — an unknown charset in an answer must not throw.

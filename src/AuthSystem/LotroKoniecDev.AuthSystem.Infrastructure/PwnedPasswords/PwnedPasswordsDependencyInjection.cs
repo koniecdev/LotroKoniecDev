@@ -51,11 +51,17 @@ internal static class PwnedPasswordsDependencyInjection
     /// No redirects, so a request cannot be walked off the one host we chose, and no cookies, because one
     /// handler serves every request and the API needs none. The pooled connection lifetime is what keeps
     /// DNS fresh now that the handler is never rotated.
+    /// <para>
+    /// No activity propagator either. Without it the handler sends no <c>traceparent</c> and no
+    /// <c>baggage</c>, so the range API gets no id that ties the call to our request, and no span records
+    /// a URL that ends in the hash prefix (ADR-0065).
+    /// </para>
     /// </summary>
     internal static SocketsHttpHandler CreatePrimaryHandler() => new()
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(15),
         AllowAutoRedirect = false,
-        UseCookies = false
+        UseCookies = false,
+        ActivityHeadersPropagator = null
     };
 }

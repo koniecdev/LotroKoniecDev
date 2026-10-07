@@ -15,8 +15,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 /// Only one copy is written at a time. Everyone else waits for it and then reads the same file. A file
 /// gets its final name only after it is fully on disk and its SHA-256 matches the stored hash, so a
 /// file with that name always holds exactly the bytes the ETag promises (AUDIT-SEC-01, #391).
-/// Like the projector's gate, this assumes one API process per directory. Without a configured
-/// directory each process makes its own private one and removes it when the host stops.
+/// Like the projector's gate, this assumes one API process per directory. The containers configure a
+/// fixed one; without it each process makes its own private one and removes it when the host stops.
 /// </summary>
 internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCache, IDisposable
 {
@@ -307,7 +307,8 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
             throw new InvalidOperationException($"The stored content hash '{contentHash}' is not a hex SHA-256.");
         }
 
-        return $"{language}-{contentHash}{CopyExtension}";
+        // Hashes compare without regard to case, so one hash must always give one file name.
+        return $"{language}-{contentHash.ToUpperInvariant()}{CopyExtension}";
     }
 
     private sealed record StoredFile(string Content, string ContentHash);

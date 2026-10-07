@@ -85,7 +85,13 @@ files. In a container the folder lives in the container's own writable layer. It
 purpose: the copy can always be written again, and the database stays the only source.
 
 `TranslationFileDiskCache:Directory` can name a folder instead. It is used as it is, so it must belong
-to one API process alone. The integration tests set it so they can look inside.
+to one API process alone. Both container stacks (`compose.hetzner.yaml`, `compose.prod.yaml`) set it
+to `/tmp/lotro-translation-files`. A container runs one process as one user, so nobody else can place
+a file there. And Docker restarts a crashed container with its disk intact, so a fixed folder is
+reused and swept, where a new private folder per start would leave one full-size copy behind per
+crash, and a crash loop would fill the disk the whole box shares. It also lets a restarted API serve
+the copy from before the restart without loading it again: a file only ever gets its final name once
+its bytes match the hash (§3). The integration tests set their own folder so they can look inside.
 
 After each write, the cache deletes every other file for that language in its folder, including a
 temporary file a failed write left behind. A download still reading an old copy keeps it until it
@@ -154,11 +160,11 @@ one rebuild plus one load, about 500 MB at full size. That is bounded and does n
   and the database does the same work per download as before this change. A waiting client that gives
   up leaves the queue. A memory of recent failures was left out: it is one more piece of state for a
   fault that needs an operator anyway.
-- A process that crashes leaves its private folder behind. In a container it is gone with the next
-  deploy, which creates a new container.
+- Outside a container, a process that crashes leaves its private folder in the temp folder, for the
+  OS to clear.
 - The one load per hash still holds the whole content in memory once, about 250 MB at full size. It is
   bounded and never runs twice at the same time.
-- A second API process in the same container would need its own directory.
+- A second API process in the same container would need its own directory, since the stacks set one.
 
 ### Follow-up
 

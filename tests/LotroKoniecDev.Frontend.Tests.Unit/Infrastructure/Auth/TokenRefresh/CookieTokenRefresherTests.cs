@@ -1031,6 +1031,113 @@ public sealed class CookieTokenRefresherTests : IDisposable
     }
 
     /// <summary>
+    /// #1025: a refresh time that cannot be read counts as none, so the token is refreshed in its last 60
+    /// seconds, and the refresh stores a readable one in its place.
+    /// </summary>
+    [Theory]
+    [InlineData("not-a-date")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task ValidateAsync_InTheLastMinuteWithAnUnreadableStoredRefreshTime_RefreshesAndStoresAReadableOne(
+        string storedRefreshAt)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+        FakeTimeProvider time = new(Start);
+
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse
+            {
+                AccessToken = RefreshedJws,
+                RefreshToken = "rotated-refresh-token",
+                ExpiresIn = 300
+            },
+            timeProvider: time);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: Start.AddSeconds(30),
+            refreshToken: "refresh-token",
+            rawRefreshAt: storedRefreshAt);
+
+        await refresher.ValidateAsync(context);
+
+        context.Properties.GetTokenValue(RefreshTokenName).ShouldBe("rotated-refresh-token");
+        DateTimeOffset.Parse(context.Properties.GetTokenValue(RefreshAtName).ShouldNotBeNull(), CultureInfo.InvariantCulture)
+            .ShouldBe(Start.AddSeconds(240));
+    }
+
+    /// <summary>
+    /// An unreadable refresh time must not make the token due on every page either.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_BeforeTheLastMinuteWithAnUnreadableStoredRefreshTime_KeepsTheToken()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+        FakeTimeProvider time = new(Start);
+
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse
+            {
+                AccessToken = RefreshedJws,
+                RefreshToken = "rotated-refresh-token",
+                ExpiresIn = 300
+            },
+            timeProvider: time);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: Start.AddSeconds(90),
+            refreshToken: "refresh-token",
+            rawRefreshAt: "not-a-date");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldNotBeNull();
+        context.ShouldRenew.ShouldBeFalse();
+        context.Properties.GetTokenValue(RefreshTokenName).ShouldBe("refresh-token");
+    }
+
+    /// <summary>
+    /// #1025: a refresh time later than the expiry belongs to an older token, for example after an older
+    /// version of the website refreshed without moving it. Trusting it would let the token run out first.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenTheStoredRefreshTimeIsLaterThanTheExpiry_RefreshesInTheLastMinute()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+        FakeTimeProvider time = new(Start);
+
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshResult: new TokenResponse
+            {
+                AccessToken = RefreshedJws,
+                RefreshToken = "rotated-refresh-token",
+                ExpiresIn = 300
+            },
+            timeProvider: time);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: Start.AddSeconds(30),
+            refreshToken: "refresh-token",
+            refreshAt: Start.AddSeconds(45));
+
+        await refresher.ValidateAsync(context);
+
+        context.ShouldRenew.ShouldBeTrue();
+        context.Properties.GetTokenValue(RefreshTokenName).ShouldBe("rotated-refresh-token");
+    }
+
+    /// <summary>
     /// A cookie written before #1025 has no stored refresh time. It keeps the old rule and is refreshed in
     /// the last 60 seconds of its token, so the sessions that are already open carry on.
     /// </summary>
@@ -2074,7 +2181,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
         string path = "/",
         CancellationToken requestAborted = default,
         string method = "GET",
-        DateTimeOffset? refreshAt = null)
+        DateTimeOffset? refreshAt = null,
+        string? rawRefreshAt = null)
     {
         return CreateContextWithStoredTokens(
             authenticationService,
@@ -2085,7 +2193,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
             path,
             requestAborted,
             method,
-            refreshAt?.ToString("o", CultureInfo.InvariantCulture));
+            rawRefreshAt ?? refreshAt?.ToString("o", CultureInfo.InvariantCulture));
     }
 
     /// <summary>A null token is left out of the cookie; any other value is stored as it is.</summary>

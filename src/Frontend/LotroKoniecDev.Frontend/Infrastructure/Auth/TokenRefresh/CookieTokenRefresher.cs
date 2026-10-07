@@ -251,10 +251,11 @@ internal sealed class CookieTokenRefresher
         }
 
         DateTimeOffset receivedAt = _timeProvider.GetUtcNow();
+        DateTimeOffset newExpiresAt = receivedAt.AddSeconds(tokenResponse.ExpiresIn.Value);
         properties.UpdateTokenValue(
             AccessTokenRefreshSchedule.ExpiresAtName,
-            receivedAt.AddSeconds(tokenResponse.ExpiresIn.Value).ToString("o", CultureInfo.InvariantCulture));
-        AccessTokenRefreshSchedule.Schedule(properties, receivedAt);
+            newExpiresAt.ToString("o", CultureInfo.InvariantCulture));
+        AccessTokenRefreshSchedule.Schedule(properties, receivedAt, newExpiresAt);
 
         context.ShouldRenew = true;
         return RefreshOutcome.Refreshed;

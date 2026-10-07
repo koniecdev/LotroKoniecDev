@@ -19,8 +19,9 @@
 #
 # The YAML reader understands the block style pr-verify.yml uses: two-space indent, one key per
 # line, a one-line `run:` for every step up to the classifier. Quoted keys are fine. A form it cannot
-# follow (a YAML anchor, alias or merge key, a job written on one line, no `on:` section) fails the
-# test instead of being guessed at.
+# follow (a YAML anchor, alias or merge key, a job written on one line, a value that goes on in the
+# next line, no `on:` section) fails the test instead of being guessed at. Other workflows are
+# searched as plain text for the required name, so their layout does not matter.
 #
 # Pure bash + awk + git. CI-only (Linux runners), like classify-changes.sh, so no .ps1 twin.
 set -uo pipefail
@@ -83,13 +84,31 @@ function clean(v) {
     return trim(v)
 }
 function keyval(line) { KEY = line; sub(/:.*/, "", KEY); KEY = unquote(trim(KEY)); VAL = line; sub(/^[^:]*:/, "", VAL); VAL = clean(VAL) }
-BEGIN { PATHS = "^[ \t]+[\"" Q "]?paths(-ignore)?[\"" Q "]?:" }
+BEGIN { block = -1; cont = -1 }
+# Every line passes here first. A block scalar (`run: |`) is skipped whole. A plain value that goes
+# on in a deeper line is one value in YAML, but the rules below would read only its first line, so
+# such a line is reported instead: `if: a` + `&& b`, or `run: x` + `|| true`, would hide from them.
+/^[ \t]*$/ || /^[ \t]*#/ { next }
+{
+    indent = match($0, /[^ ]/) - 1
+    if (block >= 0 && indent > block) { next }
+    block = -1
+    if (cont >= 0 && indent > cont) { print "X" US "line " NR " goes on with the value above it"; next }
+    rest = substr($0, indent + 1); keyindent = indent
+    if (rest ~ /^- /) { rest = substr(rest, 3); keyindent = indent + 2 }
+    cont = keyindent
+    if (rest ~ /^[^:]*:([ \t]|$)/) {
+        keyval(rest)
+        if (VAL ~ /^[|>][-+0-9]*$/) { block = keyindent; cont = -1 }
+        else if (VAL == "") { cont = -1 }
+    }
+}
 /^[^ \t#]/ {
     keyval($0); section = KEY; job = ""; insteps = 0; print "SEC" US section
-    if (section == "on" && VAL ~ /paths/) { print "ON" US "paths" }
+    if (section == "on" && VAL ~ /paths/) { print "ON" US (VAL ~ /paths-ignore/ ? "paths-ignore" : "paths") }
     next
 }
-section == "on" && $0 ~ PATHS { keyval($0); print "ON" US KEY; next }
+section == "on" && /paths/ { print "ON" US ($0 ~ /paths-ignore/ ? "paths-ignore" : "paths"); next }
 section != "jobs" { next }
 /^  [^ \t#]/ { keyval(substr($0, 3)); job = KEY; step = -1; insteps = 0; if (VAL != "") { print "X" US "job " job " is written on one line" }; next }
 job == "" { next }
@@ -272,26 +291,25 @@ insert_after() {
     printf '%s' "$out"
 }
 
-# jobs_named_required <workflow>... → how many jobs in these files carry the required name.
-jobs_named_required() {
-    local file count total=0
-    for file in "$@"; do
-        count="$(awk -v US="$US" -v Q="'" "$READER" "$file" \
-            | awk -F "$US" -v want="$REQUIRED_CHECK" '$1 == "J" && $3 == "name" && $4 == want { n++ } END { print n + 0 }')"
-        total=$((total + count))
-    done
-    printf '%s' "$total"
+# required_name_outside <workflow>... → every line, outside comments, that names the required check.
+# Plain text on purpose: any indentation or YAML form of a second job with that name is caught. A
+# line that names it for another reason (a workflow_run trigger, say) fails too: read the hit, then
+# decide.
+required_name_outside() {
+    grep -nF -- "$REQUIRED_CHECK" "$@" /dev/null | grep -Ev '^[^:]+:[0-9]+:[[:space:]]*#' || true
 }
 
-# expect_jobs_named_required <expected count> <description> <workflow>...
-expect_jobs_named_required() {
-    local expected="$1" description="$2" actual
+# expect_required_name_outside <none|found> <description> <workflow>...
+expect_required_name_outside() {
+    local expected="$1" description="$2" hits
     shift 2
-    actual="$(jobs_named_required "$@")"
-    if [ "$actual" = "$expected" ]; then
+    hits="$(required_name_outside "$@")"
+    if [ "$expected" = none ] && [ -z "$hits" ]; then
+        pass "$description"
+    elif [ "$expected" = found ] && [ -n "$hits" ]; then
         pass "$description"
     else
-        fail "$description" "expected $expected job(s) named '$REQUIRED_CHECK', found $actual"
+        fail "$description" "expected: $expected"$'\n'"hits: ${hits:-<none>}"
     fi
 }
 
@@ -464,16 +482,22 @@ expect_shape_problem 'a merge key that could carry needs: fails the test' 'canno
     "$(insert_after merge-key "    name: $REQUIRED_CHECK" '    <<: *gate')"
 expect_shape_problem 'an alias for a step condition fails the test' 'uses a YAML alias or anchor in if' \
     "$(insert_after alias-if '      - name: Build' '        if: *only-on-code')"
+expect_shape_problem 'a gate condition that goes on in the next line fails the test' 'goes on with the value above it' \
+    "$(insert_after if-continued "        if: steps.diff.outputs.code != 'false'" "          && github.actor != 'dependabot[bot]'")"
+expect_shape_problem 'a classifier self-test command that goes on in the next line fails the test' 'goes on with the value above it' \
+    "$(insert_after run-continued '        run: ./scripts/tests/classify-changes.tests.sh' '          || true')"
+# shellcheck disable=SC2016 # an awk program, not shell
+expect_shape_problem 'a paths filter inside a one-line trigger' "carries a 'paths-ignore' filter" \
+    "$(mutate flow-trigger '$0 == "  pull_request:" { print "  pull_request: {branches: [main], paths-ignore: [docs]}"; drop = 1; next } drop && $0 == "    branches: [\"main\"]" { drop = 0; next } { print }')"
 
 echo
-echo '── exactly one job in all workflows carries the required name ─────────────────────────────'
-workflows=()
+echo '── no other workflow carries the required name ───────────────────────────────────────────'
+others=()
 while IFS= read -r file; do
-    workflows+=("$file")
+    [ "$file" = "$WORKFLOW" ] || others+=("$file")
 done < <(find "$REPO_ROOT/.github/workflows" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)
-expect_jobs_named_required 1 "the ${#workflows[@]} workflow files name one job '$REQUIRED_CHECK'" "${workflows[@]}"
-cat > "$TMP_ROOT/another-workflow.yml" <<EOF
-name: Another workflow
+expect_required_name_outside none "the other ${#others[@]} workflow files never name '$REQUIRED_CHECK' outside a comment" "${others[@]}"
+cat > "$TMP_ROOT/two-space-workflow.yml" <<EOF
 on:
   pull_request:
 jobs:
@@ -483,7 +507,18 @@ jobs:
     steps:
       - run: 'true'
 EOF
-expect_jobs_named_required 2 'a job of that name in another workflow is counted' "${workflows[@]}" "$TMP_ROOT/another-workflow.yml"
+cat > "$TMP_ROOT/four-space-workflow.yml" <<EOF
+on:
+    pull_request:
+jobs:
+    shadow:
+        name: "$REQUIRED_CHECK"
+        runs-on: ubuntu-24.04
+        steps:
+            - run: 'true'
+EOF
+expect_required_name_outside found 'a job of that name in another workflow is found'          "$TMP_ROOT/two-space-workflow.yml"
+expect_required_name_outside found 'the same job indented by four spaces, name quoted, is found' "$TMP_ROOT/four-space-workflow.yml"
 
 load_required_job "$WORKFLOW"
 if [ -n "$problems" ] || [ "$DIFF_IDX" -lt 0 ]; then

@@ -176,6 +176,64 @@ public sealed class AuthEndpointsExtensionsTests
         authApi.LastRequestBody.ShouldNotBeNull().ShouldContain($"token={RefreshToken}");
     }
 
+    /// <summary>
+    /// A visitor with no cookie, or with an expired or unreadable one, has no token to read. The sign-out
+    /// still ends on the local page, and the revoke sends nothing.
+    /// </summary>
+    [Theory]
+    [InlineData("no cookie")]
+    [InlineData("expired or unreadable cookie")]
+    public async Task LocalSignOutAsync_WhenThereIsNoSession_RevokesNothingAndStillRedirects(string session)
+    {
+        StubHttpMessageHandler authApi = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        authenticationService.AuthenticateAsync(Arg.Any<HttpContext>(), Arg.Any<string?>())
+            .Returns(session == "no cookie" ? AuthenticateResult.NoResult() : AuthenticateResult.Fail("No principal."));
+        HttpContext context = CreateContextWith(authenticationService);
+
+        IResult result = await AuthEndpointsExtensions.LocalSignOutAsync(
+            context, "/account/deletion-scheduled", CreateRevoker(authApi));
+
+        authApi.LastRequest.ShouldBeNull();
+        result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldBe("/account/deletion-scheduled");
+    }
+
+    /// <summary>
+    /// Through the real cookie handler and its token check, like the logout above. The check skips this
+    /// request, so no refresh redeems the stored token before the sign-out reads it, and that stored token is
+    /// the one revoked, exactly once (#1027).
+    /// </summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task LocalSignOutAsync_ThroughTheRealCookieCheckWhenDroppedOrNearExpiry_RevokesOnlyTheStoredRefreshToken(
+        bool browserDroppedTheRequest,
+        bool accessTokenNearItsEnd)
+    {
+        RecordingAuthApi authApi = new();
+        await using ServiceProvider provider = BuildRealAuthentication(authApi);
+        await using AsyncServiceScope scope = provider.CreateAsyncScope();
+        HttpContext context = CreateSignOutRequest(
+            scope.ServiceProvider,
+            accessTokenExpiresAt: accessTokenNearItsEnd
+                ? DateTimeOffset.UtcNow.AddSeconds(30)
+                : DateTimeOffset.UtcNow.AddMinutes(4),
+            path: AuthenticationDependencyInjectionExtensions.LocalSignOutPath);
+        if (browserDroppedTheRequest)
+        {
+            context.RequestAborted = new CancellationToken(canceled: true);
+        }
+
+        await AuthEndpointsExtensions.LocalSignOutAsync(
+            context,
+            "/account/deletion-scheduled",
+            scope.ServiceProvider.GetRequiredService<RefreshTokenRevoker>());
+
+        authApi.Requests.ShouldHaveSingleItem().ShouldBe($"{RevocationEndpoint} token={RefreshToken}");
+    }
+
     [Fact]
     public async Task LocalSignOutAsync_WhenTheRevokeFails_StillSignsOutAndRedirects()
     {
@@ -363,7 +421,10 @@ public sealed class AuthEndpointsExtensionsTests
     /// A sign-out POST that carries a real, protected session cookie. Its access token is not a signed
     /// token, so any check of it would end the session.
     /// </summary>
-    private static HttpContext CreateSignOutRequest(IServiceProvider requestServices, DateTimeOffset accessTokenExpiresAt)
+    private static HttpContext CreateSignOutRequest(
+        IServiceProvider requestServices,
+        DateTimeOffset accessTokenExpiresAt,
+        string path = AuthenticationDependencyInjectionExtensions.LogoutPath)
     {
         AuthenticationProperties properties = new();
         properties.StoreTokens(
@@ -389,7 +450,7 @@ public sealed class AuthEndpointsExtensionsTests
         context.Request.Method = HttpMethods.Post;
         context.Request.Scheme = "https";
         context.Request.Host = new HostString("app.lotro.test");
-        context.Request.Path = AuthenticationDependencyInjectionExtensions.LogoutPath;
+        context.Request.Path = path;
         context.Request.Headers.Cookie = $"{cookieOptions.Cookie.Name}={protectedTicket}";
         return context;
     }

@@ -66,11 +66,12 @@ emailed link (auth-side page, already shipped).
   "Przejdź dalej" POST button to the **new local-only sign-out endpoint** with
   `returnUrl=/account/deletion-scheduled?until=<iso>`. (TKS auto-submits that form with an inline
   script; our CSP is locked to `script-src 'self'`, so the explicit button replaces the script.)
-- **Local sign-out** `POST /auth/local-signout` in `AuthEndpointsExtensions`: cookie sign-out only
-  + redirect to a validated local `returnUrl`. Needed because the upstream session is already dead
-  (tokens revoked, account locked) — RP-initiated end-session would bounce through a dead auth
-  session. The upstream revoke is best effort, so the website also revokes its own refresh token,
-  server to server, within the sign-out's 5 s limit (#1027).
+- **Local sign-out** `POST /auth/local-signout` in `AuthEndpointsExtensions`: cookie sign-out with no
+  end-session round trip + redirect to a validated local `returnUrl`. Needed because the upstream
+  session is already dead (tokens revoked, account locked) — RP-initiated end-session would bounce
+  through a dead auth session. The upstream revoke is best effort, so the website also revokes its
+  own refresh token, server to server, within the sign-out's 5 s limit, and the cookie check skips
+  this request like the logout, so no refresh spends that token first (#1027).
 - **`/account/deletion-scheduled` page** (anonymous): parses the tamperable `until` query
   defensively, shows the finalization date in Europe/Warsaw or the generic 14-day phrasing,
   explains lockout / cancel-by-email / password-reset-after-cancel.

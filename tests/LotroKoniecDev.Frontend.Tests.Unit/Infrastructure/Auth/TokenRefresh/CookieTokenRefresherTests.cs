@@ -521,11 +521,14 @@ public sealed class CookieTokenRefresherTests : IDisposable
     /// <summary>
     /// #964: the sign-out revokes the stored refresh token. A refresh first would redeem it, and OpenIddict
     /// still accepts a redeemed token for its reuse window, so the token in a copied cookie would survive.
+    /// The local sign-out revokes it too, so the same holds there (#1027).
     /// </summary>
     [Theory]
     [InlineData("/auth/logout")]
     [InlineData("/AUTH/Logout")]
     [InlineData("/auth/logout/")]
+    [InlineData("/auth/local-signout")]
+    [InlineData("/auth/local-signout/")]
     public async Task ValidateAsync_OnTheSignOutRequestNearExpiry_KeepsTheStoredRefreshTokenUnredeemed(string path)
     {
         RsaSecurityKey signingKey = CreateRsaKey();
@@ -565,6 +568,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
     [InlineData("POST", "/auth/logoutx")]
     [InlineData("POST", "/auth/logout/extra")]
     [InlineData("POST", "/auth/login")]
+    [InlineData("POST", "/auth/local-signoutx")]
+    [InlineData("GET", "/auth/local-signout")]
     [InlineData("GET", "/auth/logout")]
     [InlineData("HEAD", "/auth/logout")]
     [InlineData("PUT", "/auth/logout")]

@@ -21,8 +21,9 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// cleanly instead of letting a token that is already dead reach the API.
 /// Every rejection sets the one-time "session expired" notice and revokes the session's refresh token
 /// (#1027). The one exception is a browser that left during the renewal, which comes back with the same
-/// token. On the user's own <c>/auth/logout</c> it only clears the marker and checks nothing else, so it
-/// never sets the notice there, and the logout revokes the token itself (#964).
+/// token. On the user's own sign-out (<c>/auth/logout</c> and <c>/auth/local-signout</c>) it only clears the
+/// marker and checks nothing else, so it never sets the notice there, and the sign-out revokes the token
+/// itself (#964, #1027).
 /// </summary>
 internal sealed class CookieTokenRefresher
 {
@@ -63,10 +64,10 @@ internal sealed class CookieTokenRefresher
 
     public async Task ValidateAsync(CookieValidatePrincipalContext context)
     {
-        // The sign-out ends the session itself and revokes the stored refresh token (#964). A refresh
-        // here would redeem that token first, and OpenIddict still accepts a redeemed token for a short
-        // reuse window, so the revoke would miss the token a copied cookie holds. A failed refresh would
-        // even throw the token away. So the sign-out request is not checked at all.
+        // Both sign-outs end the session themselves and revoke the stored refresh token (#964, #1027). A
+        // refresh here would redeem that token first, and OpenIddict still accepts a redeemed token for a
+        // short reuse window, so the revoke would miss the token a copied cookie holds. A failed refresh
+        // would even throw the token away. So a sign-out request is not checked at all.
         if (IsSignOutRequest(context.HttpContext.Request))
         {
             await ClearDeadSessionMarkerAsync(context);
@@ -286,13 +287,16 @@ internal sealed class CookieTokenRefresher
     }
 
     /// <summary>
-    /// The same requests routing sends to the logout handler: POST only, so a GET to the same path, which
-    /// ends on the 405 page, is still checked like any other request.
+    /// The same requests routing sends to the two sign-out handlers: POST only, so a GET to the same path,
+    /// which ends on the 405 page, is still checked like any other request.
     /// </summary>
     private static bool IsSignOutRequest(HttpRequest request) =>
         HttpMethods.IsPost(request.Method)
-        && request.Path.StartsWithSegments(AuthenticationDependencyInjectionExtensions.LogoutPath, out PathString remaining)
-        && (!remaining.HasValue || remaining == "/");
+        && (IsPath(request.Path, AuthenticationDependencyInjectionExtensions.LogoutPath)
+            || IsPath(request.Path, AuthenticationDependencyInjectionExtensions.LocalSignOutPath));
+
+    private static bool IsPath(PathString path, string target) =>
+        path.StartsWithSegments(target, out PathString remaining) && (!remaining.HasValue || remaining == "/");
 
     /// <summary>
     /// A marker left behind would end the user's next sign-in, as long as it lives. It does not use the

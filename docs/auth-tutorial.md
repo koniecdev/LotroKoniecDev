@@ -335,7 +335,7 @@ zaszyfrowanej sesji po stronie serwera (`SaveTokens = true`).
 - `MapInboundClaims = false`, `NameClaimType = "name"`, `RoleClaimType = "role"`;
 - `CallbackPath` / `SignedOutCallbackPath` z konfiguracji; scope'y z `settings.Scopes`;
 - `OnValidatePrincipal = CookieTokenRefresher.ValidateAsync` — odświeża wygasający access token z
-  refresh tokena na każdym żądaniu poza `POST /auth/logout` (§8.4);
+  refresh tokena na każdym żądaniu poza `POST /auth/logout` i `POST /auth/local-signout` (§8.4);
 - `OnRemoteFailure` / `OnAccessDenied` → dedykowane strony błędów (trace ID zachowany).
 
 ### 8.3 Login / logout flow
@@ -353,8 +353,9 @@ zaszyfrowanej sesji po stronie serwera (`SaveTokens = true`).
 bliski wygaśnięcia, wymienia refresh token na nowy w `connect/token` (przez `ITokenEndpointClient`) i
 aktualizuje sesję. Rolling refresh ⇒ stary refresh token unieważniony, nowy zapisany. Odrzucony
 refresh kończy sesję od razu. 401 z API zostawia znacznik w `DeadSessionRegistry`, a następne żądanie
-kończy po nim sesję (czysty re-login). Na `POST /auth/logout` refresher niczego nie sprawdza i tylko
-czyści ten znacznik, żeby wylogowanie rewokowało bieżący, nie zużyty refresh token (§10.3, #964).
+kończy po nim sesję (czysty re-login). Na `POST /auth/logout` i `POST /auth/local-signout` refresher
+niczego nie sprawdza i tylko czyści ten znacznik, żeby wylogowanie rewokowało bieżący, nie zużyty
+refresh token (§10.3, #964, #1027).
 Gdy strona sama kończy sesję (zły podpis tokena, znacznik martwej sesji, odrzucony albo nieużyteczny
 refresh), rewokuje też refresh token z cookie przez `RefreshTokenRevoker` (#1027): samo usunięcie
 cookie zostawiłoby go ważnym na serwerze przez godziny. Przy nieużytecznej odpowiedzi refreshu rewokuje

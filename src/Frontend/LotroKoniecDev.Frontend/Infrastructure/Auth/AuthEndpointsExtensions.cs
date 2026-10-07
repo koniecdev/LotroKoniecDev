@@ -89,9 +89,9 @@ internal static class AuthEndpointsExtensions
     }
 
     /// <summary>
-    /// Signs out of the cookie only, for cases where the session at the auth server is already gone, for
-    /// example right after an account deletion was scheduled and the auth server locked the account and
-    /// revoked its tokens.
+    /// A sign-out with no end-session round trip, for cases where the session at the auth server is already
+    /// gone, for example right after an account deletion was scheduled and the auth server locked the
+    /// account and revoked its tokens.
     /// The normal <see cref="LogoutAsync"/> goes through the OIDC end-session endpoint and always ends on
     /// the registered post-logout URI, the home page. This one skips that pointless round trip and ends
     /// on the given local page instead, the "deletion scheduled" info page.

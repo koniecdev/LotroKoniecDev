@@ -215,7 +215,8 @@ public sealed class OpenIddictSettingsValidatorTests
             apiClientSecret: string.Empty,
             issuer: string.Empty,
             redirectUris: [],
-            postLogoutRedirectUris: []);
+            postLogoutRedirectUris: [],
+            accessTokenLifetimeMinutes: 0);
 
         ValidateOptionsResult result = validator.Validate(name: null, settings);
 
@@ -227,6 +228,58 @@ public sealed class OpenIddictSettingsValidatorTests
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:Issuer", StringComparison.Ordinal));
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:WebClient:RedirectUris", StringComparison.Ordinal));
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:WebClient:PostLogoutRedirectUris", StringComparison.Ordinal));
+        result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:AccessTokenLifetimeMinutes", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// #1025: a client renews a token a minute before it runs out, so a token that lives a minute or less
+    /// makes it renew the sign-in on every page, and zero or less hands out tokens that are already dead.
+    /// That breaks every environment alike, so Development and Testing are checked too.
+    /// </summary>
+    [Theory]
+    [InlineData(Production, 1)]
+    [InlineData(Production, 0)]
+    [InlineData(Production, -1)]
+    [InlineData(Production, int.MinValue)]
+    [InlineData(Staging, 1)]
+    [InlineData(Development, 1)]
+    [InlineData(Development, 0)]
+    [InlineData(Testing, 1)]
+    [InlineData(Testing, -5)]
+    public void Validate_AccessTokenLifetimeUnderTwoMinutes_FailsNamingTheKeyAndEnvironment(
+        string environmentName,
+        int accessTokenLifetimeMinutes)
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(environmentName);
+        OpenIddictSettings settings = SettingsWith(accessTokenLifetimeMinutes: accessTokenLifetimeMinutes);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        string failure = result.Failures.ShouldHaveSingleItem();
+        failure.ShouldContain("OpenIddict:AccessTokenLifetimeMinutes", Case.Sensitive);
+        failure.ShouldContain(environmentName, Case.Sensitive);
+        failure.ShouldContain("at least 2", Case.Sensitive);
+    }
+
+    [Theory]
+    [InlineData(Production, 2)]
+    [InlineData(Production, 5)]
+    [InlineData(Staging, 2)]
+    [InlineData(Development, 2)]
+    [InlineData(Testing, 2)]
+    [InlineData(Testing, int.MaxValue)]
+    public void Validate_AccessTokenLifetimeOfAtLeastTwoMinutes_Succeeds(
+        string environmentName,
+        int accessTokenLifetimeMinutes)
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(environmentName);
+        OpenIddictSettings settings = SettingsWith(accessTokenLifetimeMinutes: accessTokenLifetimeMinutes);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Succeeded.ShouldBeTrue();
     }
 
     [Theory]
@@ -314,10 +367,12 @@ public sealed class OpenIddictSettingsValidatorTests
         string? apiClientSecret = ValidApiClientSecret,
         string? issuer = ValidIssuer,
         string[]? redirectUris = null,
-        string[]? postLogoutRedirectUris = null) => new()
+        string[]? postLogoutRedirectUris = null,
+        int accessTokenLifetimeMinutes = 5) => new()
         {
             Issuer = issuer!,
             ApiClientSecret = apiClientSecret!,
+            AccessTokenLifetimeMinutes = accessTokenLifetimeMinutes,
             EncryptionKey = new EncryptionKeySettings { Key = encryptionKey! },
             SigningKey = new SigningKeySettings { RsaPrivateKeyXml = signingKeyXml! },
             WebClient = new WebClientSettings

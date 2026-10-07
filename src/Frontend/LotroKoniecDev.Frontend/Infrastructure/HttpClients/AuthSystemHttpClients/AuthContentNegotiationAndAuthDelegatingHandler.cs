@@ -9,8 +9,8 @@ namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClien
 /// <summary>
 /// Asks the auth API for the link-carrying representation, by sending
 /// <see cref="MediaTypes.HateoasJson"/> in <c>Accept</c>, and passes on the logged-in translator's
-/// access token. The auth server validates its own tokens, so the same token that works for TMS calls
-/// works for the account endpoints.
+/// access token. The token names both APIs (#1023), so the same token that works for TMS calls works for
+/// the account endpoints.
 /// A <c>401</c> on a logged-in call marks the session dead, so the next <c>OnValidatePrincipal</c> signs
 /// it out cleanly. That is the fallback behind the signature check we do ourselves, and the TMS handler
 /// works the same way.

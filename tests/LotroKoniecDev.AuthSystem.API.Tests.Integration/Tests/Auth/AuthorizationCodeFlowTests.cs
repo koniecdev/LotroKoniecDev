@@ -1092,20 +1092,9 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
                 // A second relay on this database could take a row another test waits for.
                 AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
 
-                // Runs before OpenIddict builds any token from the principal.
-                services.AddOpenIddict().AddServer(options =>
-                    options.AddEventHandler<OpenIddictServerEvents.ProcessSignInContext>(handler =>
-                        handler
-                            .UseInlineHandler(context =>
-                            {
-                                if (context.EndpointType is OpenIddictServerEndpointType.Authorization)
-                                {
-                                    context.Principal?.SetResources(AuthConstants.ClientIds.Api);
-                                }
-
-                                return ValueTask.CompletedTask;
-                            })
-                            .SetOrder(int.MinValue)));
+                services.OverrideSignInAudiences(
+                    context => context.EndpointType is OpenIddictServerEndpointType.Authorization,
+                    AuthConstants.ClientIds.Api);
             }));
 
     private static string BuildAuthorizeUrl(string codeChallenge) =>

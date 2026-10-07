@@ -13,9 +13,9 @@ using Microsoft.Extensions.Logging;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Middleware;
 
 /// <summary>
-/// No endpoint of the auth API refuses a signed-in caller with 403 today, so the integration suite cannot
-/// reach the 403 warning. This pins its wording here (#854); the TMS integration suite proves the same line
-/// end to end. The rule that a refused call with no real endpoint is not warned is pinned here too: the
+/// No real token gets a 403 from the auth API today, so the integration suite reaches the 403 warning only
+/// through a test host that gives a client token this API's audience (#1023). This pins its wording here
+/// too (#854); the TMS integration suite proves the same line end to end. The rule that a refused call with no real endpoint is not warned is pinned here too: the
 /// integration suite proved it with a GET to connect/introspect until #900 made that call a 400.
 /// </summary>
 public sealed class AuthorizationLoggingMiddlewareTests

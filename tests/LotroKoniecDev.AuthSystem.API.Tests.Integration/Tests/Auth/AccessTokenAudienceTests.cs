@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using OpenIddict.Abstractions;
-using OpenIddict.Server;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
@@ -134,20 +133,9 @@ public sealed class AccessTokenAudienceTests : EndpointsTestBase
                 // A second relay on this database could take a row another test waits for.
                 AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
 
-                // Runs before OpenIddict builds any token from the principal.
-                services.AddOpenIddict().AddServer(options =>
-                    options.AddEventHandler<OpenIddictServerEvents.ProcessSignInContext>(handler =>
-                        handler
-                            .UseInlineHandler(context =>
-                            {
-                                if (!context.Request.IsRefreshTokenGrantType())
-                                {
-                                    context.Principal?.SetResources(AuthConstants.ClientIds.Api);
-                                }
-
-                                return ValueTask.CompletedTask;
-                            })
-                            .SetOrder(int.MinValue)));
+                services.OverrideSignInAudiences(
+                    context => context.Request.IsPasswordGrantType(),
+                    AuthConstants.ClientIds.Api);
             }));
 
     private static async Task<(string AccessToken, string RefreshToken)> SignInAsync(HttpClient client, string email)

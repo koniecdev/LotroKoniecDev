@@ -12,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -29,6 +30,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
     private const string IdTokenName = "id_token";
     private const string ExpiresAtName = "expires_at";
     private const string RefreshAtName = "refresh_at";
+
+    private static readonly DateTimeOffset Start = new(2026, 10, 7, 12, 0, 0, TimeSpan.Zero);
 
     private readonly List<RSA> _rsaInstances = [];
 
@@ -460,25 +463,23 @@ public sealed class CookieTokenRefresherTests : IDisposable
     {
         RsaSecurityKey signingKey = CreateRsaKey();
         string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+        FakeTimeProvider time = new(Start);
 
         CookieTokenRefresher refresher = CreateRefresher(
             trustedKeys: [signingKey],
             discoveryIssuer: DiscoveryIssuer,
-            refreshResult: new TokenResponse { AccessToken = "refreshed-access-token", ExpiresIn = expiresIn });
+            refreshResult: new TokenResponse { AccessToken = "refreshed-access-token", ExpiresIn = expiresIn },
+            timeProvider: time);
         CookieValidatePrincipalContext context = CreateContext(
             accessToken,
             Substitute.For<IAuthenticationService>(),
-            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            expiresAt: Start.AddSeconds(30),
             refreshToken: "refresh-token");
 
-        DateTimeOffset before = DateTimeOffset.UtcNow;
         await refresher.ValidateAsync(context);
-        DateTimeOffset after = DateTimeOffset.UtcNow;
 
-        TimeSpan untilRefresh = TimeSpan.FromSeconds(expiresIn - expectedLeadSeconds);
-        DateTimeOffset storedRefreshAt = DateTimeOffset.Parse(
-            context.Properties.GetTokenValue(RefreshAtName).ShouldNotBeNull(), CultureInfo.InvariantCulture);
-        storedRefreshAt.ShouldBeInRange(before + untilRefresh, after + untilRefresh);
+        DateTimeOffset.Parse(context.Properties.GetTokenValue(RefreshAtName).ShouldNotBeNull(), CultureInfo.InvariantCulture)
+            .ShouldBe(Start.AddSeconds(expiresIn - expectedLeadSeconds));
     }
 
     /// <summary>
@@ -527,6 +528,62 @@ public sealed class CookieTokenRefresherTests : IDisposable
         nextPage.Principal.ShouldNotBeNull();
         nextPage.ShouldRenew.ShouldBeFalse();
         nextPage.Properties.GetTokenValue(AccessTokenName).ShouldBe(firstRefreshedAccessToken);
+        nextPage.Properties.GetTokenValue(RefreshTokenName).ShouldBe("first-rotated-refresh-token");
+    }
+
+    /// <summary>
+    /// #1025: every session since the first sign-in already carries a refresh time, so each refresh has to
+    /// move it forward. A refresh time left in the past would make every later page refresh again.
+    /// </summary>
+    [Theory]
+    [InlineData(60, 30)]
+    [InlineData(300, 240)]
+    public async Task ValidateAsync_WhenARefreshReplacesAStoredRefreshTime_MovesItForwardAndTheNextPageKeepsTheToken(
+        int expiresIn,
+        int secondsUntilRefresh)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+        string firstRefreshedAccessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+        FakeTimeProvider time = new(Start);
+
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        tokenEndpointClient
+            .RefreshAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(
+                new TokenResponse
+                {
+                    AccessToken = firstRefreshedAccessToken,
+                    RefreshToken = "first-rotated-refresh-token",
+                    ExpiresIn = expiresIn
+                },
+                new TokenResponse
+                {
+                    AccessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer),
+                    RefreshToken = "second-rotated-refresh-token",
+                    ExpiresIn = expiresIn
+                });
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            tokenEndpointClient: tokenEndpointClient,
+            timeProvider: time);
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        CookieValidatePrincipalContext refreshingPage = CreateContext(
+            accessToken,
+            authenticationService,
+            expiresAt: Start.AddSeconds(25),
+            refreshToken: "refresh-token",
+            refreshAt: Start.AddSeconds(-5));
+        await refresher.ValidateAsync(refreshingPage);
+
+        time.Advance(TimeSpan.FromSeconds(secondsUntilRefresh - 1));
+        CookieValidatePrincipalContext nextPage = CreateContext(refreshingPage.Properties, authenticationService);
+        await refresher.ValidateAsync(nextPage);
+
+        DateTimeOffset.Parse(nextPage.Properties.GetTokenValue(RefreshAtName).ShouldNotBeNull(), CultureInfo.InvariantCulture)
+            .ShouldBe(Start.AddSeconds(secondsUntilRefresh));
+        nextPage.ShouldRenew.ShouldBeFalse();
         nextPage.Properties.GetTokenValue(RefreshTokenName).ShouldBe("first-rotated-refresh-token");
     }
 
@@ -885,7 +942,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
         IDeadSessionRegistry? deadSessionRegistry = null,
         ISessionExpiryNotice? sessionExpiryNotice = null,
         ILogger<CookieTokenRefresher>? logger = null,
-        ITokenEndpointClient? tokenEndpointClient = null)
+        ITokenEndpointClient? tokenEndpointClient = null,
+        TimeProvider? timeProvider = null)
     {
         if (tokenEndpointClient is null)
         {
@@ -923,6 +981,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
             optionsMonitor,
             deadSessionRegistry ?? Substitute.For<IDeadSessionRegistry>(),
             sessionExpiryNotice ?? Substitute.For<ISessionExpiryNotice>(),
+            timeProvider ?? TimeProvider.System,
             logger ?? NullLogger<CookieTokenRefresher>.Instance);
     }
 

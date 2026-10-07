@@ -15,9 +15,10 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// Runs on every cookie validation (<c>OnValidatePrincipal</c>).
 /// First it reads any "dead session" marker a previous 401 left behind and signs the cookie out
 /// properly. Otherwise it refreshes the access token shortly before it expires, at the time
-/// <see cref="AccessTokenRefreshSchedule"/> sets, using the stored refresh token. When the token is still valid by the local clock, it also checks the token's
-/// signature against the cached OIDC keys, so a key that was rotated upstream signs the user out
-/// cleanly instead of letting a token that is already dead reach the API.
+/// <see cref="AccessTokenRefreshSchedule"/> sets, using the stored refresh token. When the token is
+/// still valid by the local clock, it also checks the token's signature against the cached OIDC keys,
+/// so a key that was rotated upstream signs the user out cleanly instead of letting a token that is
+/// already dead reach the API.
 /// Every rejection sets the one-time "session expired" notice. On the user's own <c>/auth/logout</c> it
 /// only clears the marker and checks nothing else, so it never sets the notice there (#964).
 /// </summary>
@@ -32,6 +33,7 @@ internal sealed class CookieTokenRefresher
     private readonly IOptionsMonitor<OpenIdConnectOptions> _openIdConnectOptionsMonitor;
     private readonly IDeadSessionRegistry _deadSessionRegistry;
     private readonly ISessionExpiryNotice _sessionExpiryNotice;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<CookieTokenRefresher> _logger;
 
     public CookieTokenRefresher(
@@ -39,12 +41,14 @@ internal sealed class CookieTokenRefresher
         IOptionsMonitor<OpenIdConnectOptions> openIdConnectOptionsMonitor,
         IDeadSessionRegistry deadSessionRegistry,
         ISessionExpiryNotice sessionExpiryNotice,
+        TimeProvider timeProvider,
         ILogger<CookieTokenRefresher> logger)
     {
         _tokenEndpointClient = tokenEndpointClient;
         _openIdConnectOptionsMonitor = openIdConnectOptionsMonitor;
         _deadSessionRegistry = deadSessionRegistry;
         _sessionExpiryNotice = sessionExpiryNotice;
+        _timeProvider = timeProvider;
         _logger = logger;
     }
 
@@ -119,7 +123,7 @@ internal sealed class CookieTokenRefresher
             return RefreshOutcome.Stop;
         }
 
-        if (!AccessTokenRefreshSchedule.IsDue(properties, expiresAt, DateTimeOffset.UtcNow))
+        if (!AccessTokenRefreshSchedule.IsDue(properties, expiresAt, _timeProvider.GetUtcNow()))
         {
             return RefreshOutcome.Unchanged;
         }
@@ -176,7 +180,7 @@ internal sealed class CookieTokenRefresher
             properties.UpdateTokenValue(IdTokenName, tokenResponse.IdToken);
         }
 
-        DateTimeOffset receivedAt = DateTimeOffset.UtcNow;
+        DateTimeOffset receivedAt = _timeProvider.GetUtcNow();
         properties.UpdateTokenValue(
             AccessTokenRefreshSchedule.ExpiresAtName,
             receivedAt.AddSeconds(expiresInSeconds).ToString("o", CultureInfo.InvariantCulture));

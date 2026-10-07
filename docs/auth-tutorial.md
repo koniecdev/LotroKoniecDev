@@ -355,6 +355,13 @@ aktualizuje sesję. Rolling refresh ⇒ stary refresh token unieważniony, nowy 
 refresh kończy sesję od razu. 401 z API zostawia znacznik w `DeadSessionRegistry`, a następne żądanie
 kończy po nim sesję (czysty re-login). Na `POST /auth/logout` refresher niczego nie sprawdza i tylko
 czyści ten znacznik, żeby wylogowanie rewokowało bieżący, nie zużyty refresh token (§10.3, #964).
+Gdy strona sama kończy sesję (zły podpis tokena, znacznik martwej sesji, odrzucony albo nieużyteczny
+refresh), rewokuje też refresh token z cookie przez `RefreshTokenRevoker` (#1027): samo usunięcie
+cookie zostawiłoby go ważnym na serwerze przez godziny. Przy nieużytecznej odpowiedzi refreshu rewokuje
+także nowy token z tej odpowiedzi, bo serwer już wymienił stary na nowy. Oba wywołania mają jeden limit
+5 s, ten sam co przy wylogowaniu. Wyjątek: przeglądarka zerwała żądanie w trakcie refreshu. Wtedy błąd
+nic nie mówi o tokenie, przeglądarka nie dostaje usuniętego cookie i wróci z tym samym tokenem, więc
+token zostaje ważny.
 
 ### 8.5 Wywołania do API z tokenem
 `TranslationContentNegotiationAndAuthDelegatingHandler` dokłada `Authorization: Bearer <access>` (z

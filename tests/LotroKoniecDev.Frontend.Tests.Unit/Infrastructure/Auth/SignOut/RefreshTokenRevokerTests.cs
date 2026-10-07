@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
+using System.Web;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
@@ -22,8 +24,9 @@ using NSubstitute;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Auth.SignOut;
 
 /// <summary>
-/// #964. The discovery document and the auth API are the boundaries: the first is a substitute
-/// configuration manager, the second a stub transport under the real token client.
+/// #964, and #1027 for more than one token. The discovery document and the auth API are the boundaries:
+/// the first is a substitute configuration manager, the second a stub transport under the real token
+/// client.
 /// </summary>
 public sealed class RefreshTokenRevokerTests
 {
@@ -48,6 +51,77 @@ public sealed class RefreshTokenRevokerTests
 
         transport.LastRequest.ShouldNotBeNull().RequestUri.ShouldBe(new Uri(RevocationEndpoint));
         transport.LastRequestBody.ShouldNotBeNull().ShouldContain($"token={RefreshToken}");
+    }
+
+    /// <summary>
+    /// #1027: a renewal answer the website throws away carries a new refresh token, and the auth server has
+    /// already swapped the stored one for it. Both are still accepted there, so both are revoked.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_WithTwoTokens_RevokesEachOnceAtTheRevocationEndpoint()
+    {
+        TokenRecordingHttpMessageHandler transport = new();
+        RefreshTokenRevoker revoker = CreateRevoker(transport, DiscoveryNaming(RevocationEndpoint));
+
+        await revoker.RevokeAsync("the-stored-refresh-token", "the-received-refresh-token");
+
+        transport.Requests.ShouldBe(
+            [
+                $"{RevocationEndpoint} token=the-stored-refresh-token",
+                $"{RevocationEndpoint} token=the-received-refresh-token"
+            ],
+            ignoreOrder: true);
+    }
+
+    /// <summary>
+    /// A caller passes every token it holds. A missing or blank one is no token, and a renewal answer may
+    /// repeat the stored token, so each real token is revoked once.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_WithMissingBlankAndRepeatedTokens_RevokesEachRealTokenOnce()
+    {
+        TokenRecordingHttpMessageHandler transport = new();
+        RefreshTokenRevoker revoker = CreateRevoker(transport, DiscoveryNaming(RevocationEndpoint));
+
+        await revoker.RevokeAsync(null, string.Empty, "   ", "\t\r\n", "token-a", "token-a", "token-b");
+
+        transport.Requests.ShouldBe(
+            [$"{RevocationEndpoint} token=token-a", $"{RevocationEndpoint} token=token-b"],
+            ignoreOrder: true);
+    }
+
+    /// <summary>
+    /// A session with no refresh token has nothing to revoke, so it must not cost the page a discovery read.
+    /// The read is not visible in the result, hence the check on the substitute.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t\r\n")]
+    public async Task RevokeAsync_WithNoRealToken_ReadsNoDiscovery(string? blankToken)
+    {
+        IConfigurationManager<OpenIdConnectConfiguration> configurationManager = DiscoveryNaming(RevocationEndpoint);
+        RefreshTokenRevoker revoker = CreateRevoker(new TokenRecordingHttpMessageHandler(), configurationManager);
+
+        await revoker.RevokeAsync(blankToken);
+
+        await configurationManager.DidNotReceive().GetConfigurationAsync(Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The token client catches only the failures it expects. One revoke that fails in another way must not
+    /// stop the other token from being revoked.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_WhenOneOfTwoRevokesThrowsAnUnexpectedException_StillRevokesTheOther()
+    {
+        TokenRecordingHttpMessageHandler transport = new(failingToken: "token-a");
+        RefreshTokenRevoker revoker = CreateRevoker(transport, DiscoveryNaming(RevocationEndpoint));
+
+        await revoker.RevokeAsync("token-a", "token-b");
+
+        transport.Requests.ShouldBe([$"{RevocationEndpoint} token=token-b"]);
     }
 
     public static TheoryData<Exception> DiscoveryFailures() => new()
@@ -76,7 +150,7 @@ public sealed class RefreshTokenRevokerTests
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldBe(
-            "The auth server's discovery document could not be read at sign-out, so the refresh token was not revoked.");
+            "The auth server's discovery document could not be read, so no refresh token was revoked.");
     }
 
     [Theory]
@@ -102,7 +176,7 @@ public sealed class RefreshTokenRevokerTests
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldBe(
-            "The auth server's discovery document has no usable revocation endpoint, so the refresh token was not revoked at sign-out.");
+            "The auth server's discovery document has no usable revocation endpoint, so no refresh token was revoked.");
     }
 
     [Fact]
@@ -119,7 +193,7 @@ public sealed class RefreshTokenRevokerTests
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldBe(
-            "The OIDC handler has no configuration manager, so the refresh token was not revoked at sign-out.");
+            "The OIDC handler has no configuration manager, so no refresh token was revoked.");
     }
 
     /// <summary>
@@ -139,7 +213,7 @@ public sealed class RefreshTokenRevokerTests
 
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
-        entry.Message.ShouldBe("Refresh token revocation at sign-out failed with an unexpected exception.");
+        entry.Message.ShouldBe("Refresh token revocation failed with an unexpected exception.");
     }
 
     [Fact]
@@ -166,7 +240,7 @@ public sealed class RefreshTokenRevokerTests
 
         transport.LastRequest.ShouldBeNull();
         logs.Entries.ShouldHaveSingleItem().Message
-            .ShouldBe("Refresh token revocation at sign-out failed with an unexpected exception.");
+            .ShouldBe("Refresh token revocation failed with an unexpected exception.");
     }
 
     /// <summary>
@@ -204,12 +278,33 @@ public sealed class RefreshTokenRevokerTests
         RefreshTokenRevoker revoker = CreateRevoker(transport, DiscoveryNaming(RevocationEndpoint), time, loggerFactory);
 
         Task revoke = revoker.RevokeAsync(RefreshToken);
-        await transport.RequestStarted.Task.WaitAsync(TestTimeout);
+        await transport.AllRequestsStarted.Task.WaitAsync(TestTimeout);
         time.Advance(RefreshTokenRevoker.TimeLimit);
         await revoke.WaitAsync(TestTimeout);
 
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
-        entry.Message.ShouldBe("Refresh token revocation at sign-out threw an exception.");
+        entry.Message.ShouldBe("Refresh token revocation threw an exception.");
+    }
+
+    /// <summary>
+    /// #1027: two tokens never hold the request longer than one. Both revokes are sent at once and share
+    /// the one time limit, so neither waits for the other.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_WhenTheAuthApiNeverAnswersEitherOfTwoRevokes_GivesUpOnBothAtOneTimeLimit()
+    {
+        HangingHttpMessageHandler transport = new(expectedRequests: 2);
+        FakeTimeProvider time = new();
+        RefreshTokenRevoker revoker = CreateRevoker(transport, DiscoveryNaming(RevocationEndpoint), time);
+
+        Task revoke = revoker.RevokeAsync("the-stored-refresh-token", "the-received-refresh-token");
+        await transport.AllRequestsStarted.Task.WaitAsync(TestTimeout);
+        time.Advance(RefreshTokenRevoker.TimeLimit - TimeSpan.FromTicks(1));
+        bool finishedBeforeTheLimit = revoke.IsCompleted;
+        time.Advance(TimeSpan.FromTicks(1));
+        await revoke.WaitAsync(TestTimeout);
+
+        finishedBeforeTheLimit.ShouldBeFalse();
     }
 
     /// <summary>
@@ -331,15 +426,60 @@ public sealed class RefreshTokenRevokerTests
 
     private sealed class HangingHttpMessageHandler : HttpMessageHandler
     {
-        public TaskCompletionSource RequestStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly int _expectedRequests;
+        private int _startedRequests;
+
+        public HangingHttpMessageHandler(int expectedRequests = 1)
+        {
+            _expectedRequests = expectedRequests;
+        }
+
+        /// <summary>Completes once the expected number of requests are all waiting at the same time.</summary>
+        public TaskCompletionSource AllRequestsStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            RequestStarted.TrySetResult();
+            if (Interlocked.Increment(ref _startedRequests) == _expectedRequests)
+            {
+                AllRequestsStarted.TrySetResult();
+            }
+
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new UnreachableException();
+        }
+    }
+
+    /// <summary>
+    /// Records every call as "address token" and answers each with 200. Calls may arrive at once. A call
+    /// for the failing token throws an exception the token client does not expect, and is not recorded.
+    /// </summary>
+    private sealed class TokenRecordingHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly ConcurrentQueue<string> _requests = new();
+        private readonly string? _failingToken;
+
+        public TokenRecordingHttpMessageHandler(string? failingToken = null)
+        {
+            _failingToken = failingToken;
+        }
+
+        public IReadOnlyCollection<string> Requests => _requests;
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
+            string token = HttpUtility.ParseQueryString(body)["token"] ?? string.Empty;
+            if (token == _failingToken)
+            {
+                throw new InvalidOperationException("A new handler failed.");
+            }
+
+            _requests.Enqueue($"{request.RequestUri} token={token}");
+            return new HttpResponseMessage(HttpStatusCode.OK);
         }
     }
 

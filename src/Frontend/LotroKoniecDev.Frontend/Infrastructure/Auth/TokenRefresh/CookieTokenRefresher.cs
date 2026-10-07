@@ -8,6 +8,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
+using LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
 
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 
@@ -18,8 +19,10 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// refresh token. When the token is still valid by the local clock, it also checks the token's
 /// signature against the cached OIDC keys, so a key that was rotated upstream signs the user out
 /// cleanly instead of letting a token that is already dead reach the API.
-/// Every rejection sets the one-time "session expired" notice. On the user's own <c>/auth/logout</c> it
-/// only clears the marker and checks nothing else, so it never sets the notice there (#964).
+/// Every rejection sets the one-time "session expired" notice and revokes the session's refresh token
+/// (#1027). The one exception is a browser that left during the renewal, which comes back with the same
+/// token. On the user's own <c>/auth/logout</c> it only clears the marker and checks nothing else, so it
+/// never sets the notice there, and the logout revokes the token itself (#964).
 /// </summary>
 internal sealed class CookieTokenRefresher
 {
@@ -39,6 +42,7 @@ internal sealed class CookieTokenRefresher
     private readonly IOptionsMonitor<OpenIdConnectOptions> _openIdConnectOptionsMonitor;
     private readonly IDeadSessionRegistry _deadSessionRegistry;
     private readonly ISessionExpiryNotice _sessionExpiryNotice;
+    private readonly RefreshTokenRevoker _refreshTokenRevoker;
     private readonly ILogger<CookieTokenRefresher> _logger;
 
     public CookieTokenRefresher(
@@ -46,12 +50,14 @@ internal sealed class CookieTokenRefresher
         IOptionsMonitor<OpenIdConnectOptions> openIdConnectOptionsMonitor,
         IDeadSessionRegistry deadSessionRegistry,
         ISessionExpiryNotice sessionExpiryNotice,
+        RefreshTokenRevoker refreshTokenRevoker,
         ILogger<CookieTokenRefresher> logger)
     {
         _tokenEndpointClient = tokenEndpointClient;
         _openIdConnectOptionsMonitor = openIdConnectOptionsMonitor;
         _deadSessionRegistry = deadSessionRegistry;
         _sessionExpiryNotice = sessionExpiryNotice;
+        _refreshTokenRevoker = refreshTokenRevoker;
         _logger = logger;
     }
 
@@ -150,7 +156,11 @@ internal sealed class CookieTokenRefresher
         if (tokenResponse is null)
         {
             LogRefreshFailed(_logger, null);
-            await RejectAsync(context);
+
+            // When the browser left during the refresh, the failure says nothing about the token. The browser
+            // never gets the deleted cookie and sends the same refresh token on its next request, so that
+            // token must stay alive.
+            await RejectAsync(context, revokeStoredRefreshToken: !cancellationToken.IsCancellationRequested);
             return RefreshOutcome.Stop;
         }
 
@@ -161,7 +171,7 @@ internal sealed class CookieTokenRefresher
         if (string.IsNullOrWhiteSpace(tokenResponse.AccessToken))
         {
             LogNoUsableAccessToken(_logger, null);
-            await RejectAsync(context);
+            await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
             return RefreshOutcome.Stop;
         }
 
@@ -171,7 +181,7 @@ internal sealed class CookieTokenRefresher
                 _logger,
                 tokenResponse.ExpiresIn?.ToString(CultureInfo.InvariantCulture) ?? "missing",
                 null);
-            await RejectAsync(context);
+            await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
             return RefreshOutcome.Stop;
         }
 
@@ -302,14 +312,36 @@ internal sealed class CookieTokenRefresher
         return string.IsNullOrWhiteSpace(subject) ? null : subject;
     }
 
-    private async Task RejectAsync(CookieValidatePrincipalContext context)
+    /// <summary>
+    /// Deleting the cookie is not enough: the refresh token it carries stays valid at the auth server for
+    /// hours, and a copy of the cookie could keep renewing with it (#1027). So the token is revoked too,
+    /// within the sign-out's time limit.
+    /// </summary>
+    /// <param name="receivedRefreshToken">
+    /// The refresh token of a renewal answer the website throws away. The auth server has already swapped
+    /// the stored token for this one, so both are revoked.
+    /// </param>
+    /// <param name="revokeStoredRefreshToken">
+    /// <see langword="false"/> only when the browser left during the renewal: it never gets the deleted
+    /// cookie and sends the stored token again.
+    /// </param>
+    private async Task RejectAsync(
+        CookieValidatePrincipalContext context,
+        string? receivedRefreshToken = null,
+        bool revokeStoredRefreshToken = true)
     {
+        string? storedRefreshToken = revokeStoredRefreshToken
+            ? context.Properties.GetTokenValue(RefreshTokenName)
+            : null;
+
         // Set the one-time notice before signing out, so it is written while the response has not
         // started. A user's own /auth/logout signs out directly and not through this path, so it never
         // sets the notice. That is the rule: it is not shown to people who logged out themselves.
         _sessionExpiryNotice.Raise();
         context.RejectPrincipal();
         await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+
+        await _refreshTokenRevoker.RevokeAsync(storedRefreshToken, receivedRefreshToken);
     }
 
     /// <summary>

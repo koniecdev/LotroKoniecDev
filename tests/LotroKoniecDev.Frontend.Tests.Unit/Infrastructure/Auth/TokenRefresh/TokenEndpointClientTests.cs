@@ -461,7 +461,7 @@ public sealed class TokenEndpointClientTests
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldBe(
-            $"Refresh token revocation at sign-out failed with status {(int)statusCode}. Error: {error}. Description: {errorDescription}");
+            $"Refresh token revocation failed with status {(int)statusCode}. Error: {error}. Description: {errorDescription}");
     }
 
     [Theory]
@@ -482,7 +482,7 @@ public sealed class TokenEndpointClientTests
 
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
-        entry.Message.ShouldBe($"Refresh token revocation at sign-out failed with status {(int)statusCode}.");
+        entry.Message.ShouldBe($"Refresh token revocation failed with status {(int)statusCode}.");
     }
 
     /// <summary>
@@ -501,7 +501,7 @@ public sealed class TokenEndpointClientTests
         await client.RevokeRefreshTokenAsync(RevocationEndpoint, RefreshToken);
 
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
-        entry.Message.ShouldBe("Refresh token revocation at sign-out failed with status 307.");
+        entry.Message.ShouldBe("Refresh token revocation failed with status 307.");
     }
 
     public static TheoryData<Exception> TransportFailures() => new()
@@ -527,7 +527,7 @@ public sealed class TokenEndpointClientTests
 
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
-        entry.Message.ShouldBe("Refresh token revocation at sign-out threw an exception.");
+        entry.Message.ShouldBe("Refresh token revocation threw an exception.");
     }
 
     [Theory]

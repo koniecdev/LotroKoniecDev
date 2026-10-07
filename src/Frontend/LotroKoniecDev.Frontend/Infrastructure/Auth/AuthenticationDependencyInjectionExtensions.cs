@@ -53,9 +53,10 @@ internal static class AuthenticationDependencyInjectionExtensions
             services.AddScoped<RefreshTokenRevoker>();
             services.TryAddSingleton(TimeProvider.System);
 
-            // The refresh grant, the sign-out's revoke and the OIDC back-channel below carry the visitor's
-            // address to the auth API the same way the typed account client does (ADR-0054). The revoke
-            // follows a link from the discovery document, so the origin check comes first (#830).
+            // The refresh grant, the revoke (at sign-out and when the cookie check ends a session, #1027) and
+            // the OIDC back-channel below carry the visitor's address to the auth API the same way the typed
+            // account client does (ADR-0054). The revoke follows a link from the discovery document, so the
+            // origin check comes first (#830).
             services.AddHttpContextAccessor();
             services.AddHttpClient<ITokenEndpointClient, TokenEndpointClient>((sp, client) =>
                 {

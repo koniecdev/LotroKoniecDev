@@ -75,7 +75,7 @@ TLS-terminating ingress:
 | Service | Image (`ghcr.io/koniecdev/…`) | Listens | Health | Persists |
 |---|---|---|---|---|
 | **auth-api** | `lotrokoniecdev-auth-api` | `:8080` (HTTP) | `/health` (deep: DB + SMTP + broker; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | Data Protection keyring → `/keys` |
-| **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (deep: DB; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | translation artifacts (read-only mount) |
+| **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (deep: DB; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | translation artifacts (read-only mount); a throwaway copy of the served translation file in the container's `/tmp/lotro-translation-files` (about 82 MB at full size, written again when missing — ADR-0064) |
 | **frontend** | `lotrokoniecdev-frontend` | `:8080` (HTTP) | — | Data Protection keyring → `/keys` |
 | **migrator** | `lotrokoniecdev-migrator` | one-shot (exits 0) | exit code | — |
 | _ingress_ | **Caddy** (the boxes take its tag and digest from one place, the `x-caddy-image` anchor in `compose.hetzner.yaml`; `compose.prod.yaml`, the laptop parity stack, mirrors it; the anchor's comment says why and how Dependabot moves both; 2.11.6 crashes, #988) | `:80`, `:443` | — | ACME certs + config volumes |
@@ -209,7 +209,8 @@ variable that does not appear there does nothing, whatever this table says.
   hostnames.
 
 Purely optional tuning knobs with safe defaults are omitted (e.g. `Import:*`,
-`TranslationFileRebuild:DebounceWindow` = 2 s (ADR-0021), `Email:TimeoutSeconds`/`MaxSendAttempts`,
+`TranslationFileRebuild:DebounceWindow` = 2 s (ADR-0021), `TranslationFileDiskCache:Directory` =
+`lotro-translation-files` in the temp folder (ADR-0064), `Email:TimeoutSeconds`/`MaxSendAttempts`,
 `RabbitMq:Port` = 5672, `RabbitMq:VirtualHost` = `/`, `AllowedHosts` = `*`).
 `OpenIddict:AccessTokenLifetimeMinutes` used to sit in that list at 60; it is listed in the table
 below instead, because it turned out to be the delay on every session revocation in the system rather

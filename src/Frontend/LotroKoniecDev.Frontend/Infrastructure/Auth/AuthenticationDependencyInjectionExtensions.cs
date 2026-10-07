@@ -229,6 +229,14 @@ internal static class AuthenticationDependencyInjectionExtensions
             context.Fail(
                 "The sign-in token answer has a missing, unreadable or non-positive expires_in. expires_in: "
                 + (expiresInSeconds?.ToString(CultureInfo.InvariantCulture) ?? "missing or unreadable"));
+            return Task.CompletedTask;
+        }
+
+        // The handler skips only an empty refresh token, so it would store a blank one, and the cookie check
+        // ends such a session on the next request. A missing one is allowed, because OAuth makes it optional.
+        if (!string.IsNullOrEmpty(answer.RefreshToken) && !TokenRules.IsUsable(answer.RefreshToken))
+        {
+            context.Fail("The sign-in token answer has a blank refresh_token.");
         }
 
         return Task.CompletedTask;

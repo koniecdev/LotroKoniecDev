@@ -109,27 +109,39 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     [InlineData("the-access-token", "soon", "expires_in: missing or unreadable")]
     [InlineData("the-access-token", "0", "expires_in: 0")]
     [InlineData("the-access-token", "-5", "expires_in: -5")]
+    [InlineData("the-access-token", "300", "blank refresh_token", " ")]
+    [InlineData("the-access-token", "300", "blank refresh_token", "\t\r\n")]
     public async Task AddFrontendAuthentication_TokenResponseReceived_FailsAnUnusableAnswerWithTheReason(
         string? accessToken,
         string? expiresIn,
-        string expectedReason)
+        string expectedReason,
+        string? refreshToken = "the-refresh-token")
     {
         OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
-        TokenResponseReceivedContext context = CreateTokenResponseReceivedContext(options, accessToken, expiresIn);
+        TokenResponseReceivedContext context = CreateTokenResponseReceivedContext(
+            options, accessToken, expiresIn, refreshToken);
 
         await options.Events.TokenResponseReceived(context);
 
         context.Result.ShouldNotBeNull().Failure.ShouldNotBeNull().Message.ShouldContain(expectedReason);
     }
 
+    /// <summary>
+    /// A missing or empty refresh token is allowed: OAuth makes it optional, and the handler stores no empty
+    /// one.
+    /// </summary>
     [Theory]
-    [InlineData("1")]
-    [InlineData("300")]
-    public async Task AddFrontendAuthentication_TokenResponseReceived_LetsAUsableAnswerThrough(string expiresIn)
+    [InlineData("1", "the-refresh-token")]
+    [InlineData("300", "the-refresh-token")]
+    [InlineData("300", null)]
+    [InlineData("300", "")]
+    public async Task AddFrontendAuthentication_TokenResponseReceived_LetsAUsableAnswerThrough(
+        string expiresIn,
+        string? refreshToken)
     {
         OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
         TokenResponseReceivedContext context = CreateTokenResponseReceivedContext(
-            options, "the-access-token", expiresIn);
+            options, "the-access-token", expiresIn, refreshToken);
 
         await options.Events.TokenResponseReceived(context);
 
@@ -172,7 +184,8 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     private static TokenResponseReceivedContext CreateTokenResponseReceivedContext(
         OpenIdConnectOptions options,
         string? accessToken,
-        string? expiresIn)
+        string? expiresIn,
+        string? refreshToken)
     {
         AuthenticationScheme scheme = new(
             OpenIdConnectDefaults.AuthenticationScheme,
@@ -186,7 +199,12 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
             new ClaimsPrincipal(),
             new AuthenticationProperties())
         {
-            TokenEndpointResponse = new OpenIdConnectMessage { AccessToken = accessToken, ExpiresIn = expiresIn }
+            TokenEndpointResponse = new OpenIdConnectMessage
+            {
+                AccessToken = accessToken,
+                ExpiresIn = expiresIn,
+                RefreshToken = refreshToken
+            }
         };
     }
 

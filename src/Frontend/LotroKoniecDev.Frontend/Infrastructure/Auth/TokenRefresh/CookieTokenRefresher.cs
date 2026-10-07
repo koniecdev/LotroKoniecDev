@@ -16,10 +16,11 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// <summary>
 /// Runs on every cookie validation (<c>OnValidatePrincipal</c>).
 /// First it reads any "dead session" marker a previous 401 left behind and signs the cookie out
-/// properly. A cookie with no expiry or no usable access token is signed out too. Otherwise it refreshes
-/// the access token shortly before it expires, using the stored refresh token. When the token is still valid by the local clock, it also checks the token's
-/// signature against the cached OIDC keys, so a key that was rotated upstream signs the user out
-/// cleanly instead of letting a token that is already dead reach the API.
+/// properly. A cookie with no expiry, no usable access token or a blank refresh token is signed out too.
+/// Otherwise it refreshes the access token shortly before it expires, using the stored refresh token.
+/// When the token is still valid by the local clock, it also checks the token's signature against the
+/// cached OIDC keys, so a key that was rotated upstream signs the user out cleanly instead of letting a
+/// token that is already dead reach the API.
 /// Every rejection sets the one-time "session expired" notice and revokes the session's refresh token
 /// (#1027). The one exception is a browser that left during the renewal, which comes back with the same
 /// token. On the user's own sign-out (<c>/auth/logout</c> and <c>/auth/local-signout</c>) it only clears the
@@ -94,8 +95,9 @@ internal sealed class CookieTokenRefresher
         }
 
         // A session the renewal cannot manage is dead (#1026). With no expiry it is never renewed or checked
-        // again, and the API refuses a blank access token on every call. The first sign-in refuses both as
-        // well. This check ends a session that got past it, such as one that started before that rule.
+        // again, the API refuses a blank access token on every call, and a blank refresh token cannot renew
+        // anything. The first sign-in refuses all three as well. These checks end a session that got past
+        // it, such as one that started before that rule.
         if (!TryGetExpiresAt(context.Properties, out DateTimeOffset expiresAt))
         {
             LogNoUsableExpiry(_logger, null);
@@ -107,6 +109,16 @@ internal sealed class CookieTokenRefresher
         if (!TokenRules.IsUsable(accessToken))
         {
             LogNoStoredAccessToken(_logger, null);
+            await RejectAsync(context);
+            return;
+        }
+
+        // A missing refresh token is allowed, because OAuth makes it optional. The session then ends at the
+        // first renewal, below.
+        string? storedRefreshToken = context.Properties.GetTokenValue(RefreshTokenName);
+        if (storedRefreshToken is not null && !TokenRules.IsUsable(storedRefreshToken))
+        {
+            LogBlankStoredRefreshToken(_logger, null);
             await RejectAsync(context);
             return;
         }
@@ -156,8 +168,6 @@ internal sealed class CookieTokenRefresher
             return RefreshOutcome.Unchanged;
         }
 
-        // A blank refresh token counts as none (#1026). Sending it would only earn an error from the
-        // sign-in server.
         string? refreshToken = properties.GetTokenValue(RefreshTokenName);
         if (!TokenRules.IsUsable(refreshToken))
         {
@@ -446,7 +456,7 @@ internal sealed class CookieTokenRefresher
         LoggerMessage.Define(
             LogLevel.Information,
             new EventId(1, nameof(LogNoRefreshToken)),
-            "Cookie has a missing, empty or blank refresh_token; principal rejected.");
+            "Cookie has no refresh_token; principal rejected.");
 
     private static readonly Action<ILogger, Exception?> LogRefreshFailed =
         LoggerMessage.Define(
@@ -507,4 +517,10 @@ internal sealed class CookieTokenRefresher
             LogLevel.Warning,
             new EventId(11, nameof(LogNoStoredAccessToken)),
             "Cookie has a missing, empty or blank access_token; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogBlankStoredRefreshToken =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(9, nameof(LogBlankStoredRefreshToken)),
+            "Cookie has an empty or blank refresh_token; principal rejected.");
 }

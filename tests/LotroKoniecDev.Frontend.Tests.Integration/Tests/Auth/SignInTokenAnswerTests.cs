@@ -38,6 +38,10 @@ public sealed class SignInTokenAnswerTests : IClassFixture<StagingFrontendFactor
         _signingKey = new RsaSecurityKey(_rsa) { KeyId = Guid.NewGuid().ToString("N") };
     }
 
+    /// <summary>
+    /// The framework's own protocol check already refuses a missing or empty access token, so only the blank
+    /// rows depend on the new rule. All four stay, because together they pin the whole outcome.
+    /// </summary>
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -79,19 +83,41 @@ public sealed class SignInTokenAnswerTests : IClassFixture<StagingFrontendFactor
     }
 
     /// <summary>
-    /// The rule refuses only what the renewal refuses. One second is the smallest lifetime it keeps, and a
-    /// number sent as a string is read by the handler like any other.
+    /// The handler would store a blank refresh token, and the cookie check ends such a session on the next
+    /// request.
     /// </summary>
     [Theory]
-    [InlineData("1")]
-    [InlineData("300")]
-    [InlineData("2147483647")]
-    [InlineData("\"300\"")]
-    public async Task SignIn_WhenTheAnswerHasAnAccessTokenAndAPositiveLifetime_ShouldStartTheSession(
-        string expiresInJson)
+    [InlineData(" ")]
+    [InlineData("\t\r\n")]
+    public async Task SignIn_WhenTheAnswerHasABlankRefreshToken_ShouldEndOnTheErrorPageWithNoSession(
+        string refreshToken)
     {
         // Act
-        SignInResult result = await SignInAsync("the-access-token", expiresInJson);
+        SignInResult result = await SignInAsync("the-access-token", expiresInJson: "300", refreshToken);
+
+        // Assert
+        result.Location.ShouldBe(ErrorPath);
+        result.SessionCookieIssued.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The rule refuses only what the renewal refuses. One second is the smallest lifetime it keeps, and a
+    /// number sent as a string is read by the handler like any other. A missing or empty refresh token is
+    /// allowed, because OAuth makes it optional.
+    /// </summary>
+    [Theory]
+    [InlineData("1", "the-refresh-token")]
+    [InlineData("300", "the-refresh-token")]
+    [InlineData("2147483647", "the-refresh-token")]
+    [InlineData("\"300\"", "the-refresh-token")]
+    [InlineData("300", null)]
+    [InlineData("300", "")]
+    public async Task SignIn_WhenTheAnswerHasAnAccessTokenAndAPositiveLifetime_ShouldStartTheSession(
+        string expiresInJson,
+        string? refreshToken)
+    {
+        // Act
+        SignInResult result = await SignInAsync("the-access-token", expiresInJson, refreshToken);
 
         // Assert
         result.Location.ShouldBe("/");
@@ -103,35 +129,42 @@ public sealed class SignInTokenAnswerTests : IClassFixture<StagingFrontendFactor
         _rsa.Dispose();
     }
 
-    private async Task<SignInResult> SignInAsync(string? accessToken, string? expiresInJson)
+    private async Task<SignInResult> SignInAsync(
+        string? accessToken,
+        string? expiresInJson,
+        string? refreshToken = "the-refresh-token")
     {
-        FakeTokenEndpoint tokenEndpoint = new(this, accessToken, expiresInJson);
+        FakeTokenEndpoint tokenEndpoint = new(this, accessToken, expiresInJson, refreshToken);
         using WebApplicationFactory<Program> host = CreateHost(tokenEndpoint);
         using HttpClient browser = host.CreateClient(new WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false,
             BaseAddress = new Uri("https://localhost")
         });
-        tokenEndpoint.ClientId = host.Services
+        OpenIdConnectOptions openIdConnectOptions = host.Services
             .GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>()
-            .Get(OpenIdConnectDefaults.AuthenticationScheme)
-            .ClientId;
+            .Get(OpenIdConnectDefaults.AuthenticationScheme);
+        tokenEndpoint.ClientId = openIdConnectOptions.ClientId;
         string sessionCookieName = host.Services
             .GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>()
             .Get(CookieAuthenticationDefaults.AuthenticationScheme)
             .Cookie.Name!;
 
         using HttpResponseMessage challenge = await browser.GetAsync(new Uri("/auth/login", UriKind.Relative));
-        Dictionary<string, StringValues> authorizeQuery = QueryHelpers.ParseQuery(challenge.Headers.Location!.Query);
+        Uri authorizeUri = challenge.Headers.Location
+            ?? throw new InvalidOperationException($"The login answered {challenge.StatusCode} with no redirect.");
+        Dictionary<string, StringValues> authorizeQuery = QueryHelpers.ParseQuery(authorizeUri.Query);
         tokenEndpoint.Nonce = authorizeQuery["nonce"].ToString();
         string state = authorizeQuery["state"].ToString();
 
         using HttpResponseMessage callback = await browser.GetAsync(
-            new Uri($"/callback?code=the-code&state={Uri.EscapeDataString(state)}", UriKind.Relative));
+            new Uri(
+                $"{openIdConnectOptions.CallbackPath}?code=the-code&state={Uri.EscapeDataString(state)}",
+                UriKind.Relative));
 
         bool sessionCookieIssued = callback.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies)
             && cookies.Any(cookie => cookie.StartsWith(sessionCookieName, StringComparison.Ordinal));
-        return new SignInResult(callback.Headers.Location!.OriginalString, sessionCookieIssued);
+        return new SignInResult(callback.Headers.Location?.OriginalString, sessionCookieIssued);
     }
 
     private WebApplicationFactory<Program> CreateHost(FakeTokenEndpoint tokenEndpoint)
@@ -173,11 +206,11 @@ public sealed class SignInTokenAnswerTests : IClassFixture<StagingFrontendFactor
         return new JsonWebTokenHandler().CreateToken(descriptor);
     }
 
-    private sealed record SignInResult(string Location, bool SessionCookieIssued);
+    private sealed record SignInResult(string? Location, bool SessionCookieIssued);
 
     /// <summary>
-    /// Answers the code exchange with the token answer under test. A null access token or lifetime leaves
-    /// that field out of the answer; the lifetime is raw JSON, so a test can send a number or a string.
+    /// Answers the code exchange with the token answer under test. A null token or lifetime leaves that field
+    /// out of the answer. The lifetime is raw JSON, so a test can send a number or a string.
     /// </summary>
     private sealed class FakeTokenEndpoint : HttpMessageHandler
     {
@@ -186,12 +219,18 @@ public sealed class SignInTokenAnswerTests : IClassFixture<StagingFrontendFactor
         private readonly SignInTokenAnswerTests _tests;
         private readonly string? _accessToken;
         private readonly string? _expiresInJson;
+        private readonly string? _refreshToken;
 
-        public FakeTokenEndpoint(SignInTokenAnswerTests tests, string? accessToken, string? expiresInJson)
+        public FakeTokenEndpoint(
+            SignInTokenAnswerTests tests,
+            string? accessToken,
+            string? expiresInJson,
+            string? refreshToken)
         {
             _tests = tests;
             _accessToken = accessToken;
             _expiresInJson = expiresInJson;
+            _refreshToken = refreshToken;
         }
 
         public string? ClientId { get; set; }
@@ -210,12 +249,16 @@ public sealed class SignInTokenAnswerTests : IClassFixture<StagingFrontendFactor
             JsonObject answer = new()
             {
                 ["token_type"] = "Bearer",
-                ["refresh_token"] = "the-refresh-token",
                 ["id_token"] = _tests.MintIdToken(ClientId!, Nonce!)
             };
             if (_accessToken is not null)
             {
                 answer["access_token"] = _accessToken;
+            }
+
+            if (_refreshToken is not null)
+            {
+                answer["refresh_token"] = _refreshToken;
             }
 
             if (_expiresInJson is not null)

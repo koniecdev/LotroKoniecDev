@@ -921,8 +921,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
     }
 
     /// <summary>
-    /// #1026: a blank stored refresh token counts as none. It is never sent to the sign-in server, which
-    /// could only answer with an error. Not sending it is invisible in the context, hence the check on the
+    /// #1026: near expiry too, a blank stored refresh token is never sent to the sign-in server, which could
+    /// only answer with an error. Not sending it is invisible in the context, hence the check on the
     /// substitute.
     /// </summary>
     [Theory]
@@ -958,6 +958,125 @@ public sealed class CookieTokenRefresherTests : IDisposable
     }
 
     /// <summary>
+    /// #1026: a blank stored refresh token can renew nothing, so the session ends on the next request, even
+    /// far from expiry. An empty one is stored the same way, since only the sign-in handler skips it.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("\t\r\n")]
+    public async Task ValidateAsync_WhenTheStoredRefreshTokenIsBlankFarFromExpiry_RejectsPrincipalAndSignsOut(
+        string blankRefreshToken)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        ISessionExpiryNotice sessionExpiryNotice = Substitute.For<ISessionExpiryNotice>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            sessionExpiryNotice: sessionExpiryNotice);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            authenticationService,
+            expiresAt: DateTimeOffset.UtcNow.AddHours(1),
+            refreshToken: blankRefreshToken);
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldBeNull();
+        await authenticationService.Received(1).SignOutAsync(
+            Arg.Any<HttpContext>(),
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            Arg.Any<AuthenticationProperties>());
+        sessionExpiryNotice.Received(1).Raise();
+    }
+
+    /// <summary>
+    /// #1026: a missing refresh token is not a broken cookie, because OAuth makes it optional. Such a
+    /// session lives until its first renewal.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenTheCookieHasNoRefreshTokenFarFromExpiry_KeepsPrincipal()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        CookieTokenRefresher refresher = CreateRefresher(trustedKeys: [signingKey], discoveryIssuer: DiscoveryIssuer);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddHours(1),
+            refreshToken: null);
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// #1026: the dead-session marker is read before the cookie's own checks. Otherwise it would outlive this
+    /// session and end the user's next sign-in on its first request.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenMarkedDeadAndTheCookieHasNoExpiry_ConsumesTheMarkerFirst()
+    {
+        IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
+        deadSessionRegistry.ConsumeAsync(Subject, Arg.Any<CancellationToken>()).Returns(true);
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [CreateRsaKey()],
+            discoveryIssuer: DiscoveryIssuer,
+            deadSessionRegistry: deadSessionRegistry,
+            logger: loggerFactory.CreateLogger<CookieTokenRefresher>());
+        CookieValidatePrincipalContext context = CreateContextWithStoredTokens(
+            Substitute.For<IAuthenticationService>(),
+            accessToken: "the-access-token",
+            expiresAt: null,
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldBeNull();
+        logs.Entries.ShouldHaveSingleItem().Message.ShouldContain("marked dead by a prior 401");
+    }
+
+    /// <summary>
+    /// #1026: the sign-out still reads a broken cookie, so it can revoke the refresh token (#964). Ending the
+    /// session here first would skip that revoke and show the "session expired" notice to a user who signed
+    /// out. The notice is not visible in the context, hence the check on the substitute.
+    /// </summary>
+    [Theory]
+    [InlineData("the-access-token", null, "refresh-token")]
+    [InlineData("   ", FarFutureExpiresAt, "refresh-token")]
+    [InlineData("the-access-token", FarFutureExpiresAt, "   ")]
+    public async Task ValidateAsync_OnTheSignOutRequestWithAnUnusableCookie_KeepsTheSessionForTheSignOut(
+        string accessToken,
+        string? expiresAt,
+        string refreshToken)
+    {
+        ISessionExpiryNotice sessionExpiryNotice = Substitute.For<ISessionExpiryNotice>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [CreateRsaKey()],
+            discoveryIssuer: DiscoveryIssuer,
+            sessionExpiryNotice: sessionExpiryNotice);
+        CookieValidatePrincipalContext context = CreateContextWithStoredTokens(
+            Substitute.For<IAuthenticationService>(),
+            accessToken,
+            expiresAt,
+            refreshToken,
+            path: "/auth/logout",
+            method: "POST");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldNotBeNull();
+        sessionExpiryNotice.DidNotReceive().Raise();
+    }
+
+    /// <summary>
     /// #1026: such a cookie means something on the sign-in path was broken, so the reason is a warning.
     /// </summary>
     [Theory]
@@ -965,10 +1084,12 @@ public sealed class CookieTokenRefresherTests : IDisposable
     [InlineData("the-access-token", "soon", "missing or unreadable expires_at")]
     [InlineData(null, FarFutureExpiresAt, "missing, empty or blank access_token")]
     [InlineData("   ", FarFutureExpiresAt, "missing, empty or blank access_token")]
+    [InlineData("the-access-token", FarFutureExpiresAt, "empty or blank refresh_token", "   ")]
     public async Task ValidateAsync_WhenTheCookieIsUnusable_LogsOneWarningWithTheReason(
         string? accessToken,
         string? expiresAt,
-        string expectedReason)
+        string expectedReason,
+        string refreshToken = "refresh-token")
     {
         using CapturingLoggerProvider logs = new();
         using LoggerFactory loggerFactory = new([logs]);
@@ -980,7 +1101,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
             Substitute.For<IAuthenticationService>(),
             accessToken,
             expiresAt,
-            refreshToken: "refresh-token");
+            refreshToken);
 
         await refresher.ValidateAsync(context);
 

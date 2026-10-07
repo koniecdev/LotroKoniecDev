@@ -36,8 +36,8 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
             errors.Add(
                 $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.AccessTokenLifetimeMinutes)} "
                 + $"is {options.AccessTokenLifetimeMinutes} in {_environment.EnvironmentName}, and it must be at least "
-                + $"{MinimumAccessTokenLifetimeMinutes}. A client renews a token a minute before it runs out, so a "
-                + "shorter token makes it renew the sign-in on every page.");
+                + $"{MinimumAccessTokenLifetimeMinutes}. A client that renews a token a minute before it runs out "
+                + "would renew a shorter token on every page.");
         }
 
         if (_environment.IsDevelopment() || _environment.IsTesting())
@@ -150,9 +150,10 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
     private const int MinimumApiClientSecretLength = 32;
 
     /// <summary>
-    /// A client often renews a token a minute before it runs out, and the website does so for every token
+    /// Many clients renew a token a minute before it runs out, and the website does so for every token
     /// that lives two minutes or more. A token that lives a minute or less looks "about to run out" as soon
-    /// as it arrives, so such a client renews it on every page (#1025).
+    /// as it arrives, so such a client renews it on every page (#1025). The website copes with it, but the
+    /// server should not depend on that.
     /// </summary>
     private const int MinimumAccessTokenLifetimeMinutes = 2;
 

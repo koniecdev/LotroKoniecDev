@@ -19,10 +19,10 @@ internal interface ITranslationSystemClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Fetches an endpoint that returns plain text instead of JSON, which is the ready-made translation
-    /// file, so the caller can pass it to the browser as a download.
+    /// Fetches the ready-made translation file as a stream, so the caller can pass it on to the browser
+    /// without holding the whole file in memory. The caller disposes the stream.
     /// </summary>
-    Task<ApiResult<string>> GetTextAsync(
+    Task<ApiResult<ApiBodyStream>> GetBodyStreamAsync(
         string relativeUri,
         CancellationToken cancellationToken = default);
 

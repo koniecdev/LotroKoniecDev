@@ -49,42 +49,85 @@ public sealed class HttpClientApiExtensionsTests
     }
 
     [Fact]
-    public async Task GetTextAsync_OnSuccess_ReturnsTheRawBodyWithoutJsonParsing()
+    public async Task GetBodyStreamAsync_OnSuccess_ReturnsTheBodyWithoutJsonParsing()
     {
         // The body is a plain text file and not JSON, so it has to come back unchanged. The JSON helpers
-        // would throw on it. That is the whole difference between GetTextAsync and GetApiResultAsync.
+        // would throw on it.
         const string body = "# polish.txt\n620756992||1001||Witaj||NULL||NULL||1";
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
 
-        ApiResult<string> result = await httpClient.GetTextAsync("api/v1/translation-files/pl");
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
 
         result.IsSuccess.ShouldBeTrue();
-        result.Value.ShouldBe(body);
+        await using Stream stream = result.Value.Content;
+        (await new StreamReader(stream, Encoding.UTF8).ReadToEndAsync()).ShouldBe(body);
     }
 
     [Fact]
-    public async Task GetTextAsync_WhenApiReturnsProblem_MapsToFailureWithProblemDetails()
+    public async Task GetBodyStreamAsync_OnSuccess_LeavesTheBodyOnTheConnectionAndKeepsItsLength()
+    {
+        // Without ResponseHeadersRead the client copies the whole body into memory before it returns,
+        // about 82 MB per request on a public route (PERF-09, #715). A StringContent is in memory
+        // already, so only a content that notices being buffered can tell the two apart.
+        byte[] body = Encoding.UTF8.GetBytes("620756992||1001||Witaj||NULL||NULL||1");
+        TrackingContent content = new(body);
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, () => content));
+
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
+
+        result.IsSuccess.ShouldBeTrue();
+        await using Stream stream = result.Value.Content;
+        content.WasBuffered.ShouldBeFalse();
+        result.Value.Length.ShouldBe(body.Length);
+    }
+
+    [Fact]
+    public async Task GetBodyStreamAsync_WhenApiReturnsProblem_DisposesTheResponse()
+    {
+        // Nobody else gets the response on this path, so a leak here would hold a connection open.
+        TrackingContent content = new(Encoding.UTF8.GetBytes("""{ "title": "Brak pliku tłumaczenia", "status": 404 }"""));
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.NotFound, () => content));
+
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
+
+        result.IsFailure.ShouldBeTrue();
+        content.WasDisposed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GetBodyStreamAsync_WhenApiReturnsProblem_MapsToFailureWithProblemDetails()
     {
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.NotFound,
             """{ "title": "Brak pliku tłumaczenia", "status": 404 }"""));
 
-        ApiResult<string> result = await httpClient.GetTextAsync("api/v1/translation-files/pl");
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(404);
     }
 
     [Fact]
-    public async Task GetTextAsync_WhenTransportFails_MapsToServiceUnavailableProblem()
+    public async Task GetBodyStreamAsync_WhenTransportFails_MapsToServiceUnavailableProblem()
     {
         HttpClient httpClient = CreateClient(
             StubHttpMessageHandler.Throw(new HttpRequestException("connection refused")));
 
-        ApiResult<string> result = await httpClient.GetTextAsync("api/v1/translation-files/pl");
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(503);
+    }
+
+    [Fact]
+    public async Task GetBodyStreamAsync_WhenRequestTimesOut_MapsToGatewayTimeoutProblem()
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.Throw(new TimeoutRejectedException()));
+
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("api/v1/translation-files/pl");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(504);
     }
 
     [Fact]
@@ -226,11 +269,11 @@ public sealed class HttpClientApiExtensionsTests
     [Theory]
     [InlineData(HttpStatusCode.Found)]
     [InlineData(HttpStatusCode.TemporaryRedirect)]
-    public async Task GetTextAsync_WhenTheApiAnswersWithARedirect_MapsToBadGatewayProblem(HttpStatusCode statusCode)
+    public async Task GetBodyStreamAsync_WhenTheApiAnswersWithARedirect_MapsToBadGatewayProblem(HttpStatusCode statusCode)
     {
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(statusCode, ""));
 
-        ApiResult<string> result = await httpClient.GetTextAsync("translation-files/pl");
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("translation-files/pl");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(StatusCodes.Status502BadGateway);
@@ -439,30 +482,36 @@ public sealed class HttpClientApiExtensionsTests
 
     [Theory]
     [MemberData(nameof(AnyCharsetWithAndWithoutBom))]
-    public async Task GetTextAsync_WhenTheAnswerNamesAnyCharset_ReturnsTheUtf8TextWithoutTheBom(string? charset, bool withBom)
+    public async Task GetBodyStreamAsync_WhenTheAnswerNamesAnyCharset_ReturnsTheBytesUnchanged(string? charset, bool withBom)
     {
+        // The bytes are passed on, never decoded, so no charset can break the download (#1036), and the
+        // browser gets exactly what the TMS hashed into its ETag.
         const string body = "620756992||1001||Zażółć gęślą jaźń||NULL||NULL||1";
+        byte[] sent = withBom ? [.. Encoding.UTF8.Preamble, .. Encoding.UTF8.GetBytes(body)] : Encoding.UTF8.GetBytes(body);
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
-            Utf8Body(body, charset, withBom)));
+            BytesBody(sent, charset)));
 
-        ApiResult<string> result = await httpClient.GetTextAsync("translation-files/pl");
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("translation-files/pl");
 
         result.IsSuccess.ShouldBeTrue();
-        result.Value.ShouldBe(body);
+        await using Stream stream = result.Value.Content;
+        using MemoryStream received = new();
+        await stream.CopyToAsync(received);
+        received.ToArray().ShouldBe(sent);
     }
 
     [Theory]
     [InlineData("utf8")]
     [InlineData("bogus")]
     [InlineData("utf-7")]
-    public async Task GetTextAsync_WhenTheErrorAnswerNamesAnUnknownCharset_ReadsTheProblem(string charset)
+    public async Task GetBodyStreamAsync_WhenTheErrorAnswerNamesAnUnknownCharset_ReadsTheProblem(string charset)
     {
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.NotFound,
             Utf8Body("""{ "title": "Brak pliku tłumaczenia", "status": 404 }""", charset, withBom: false)));
 
-        ApiResult<string> result = await httpClient.GetTextAsync("translation-files/pl");
+        ApiResult<ApiBodyStream> result = await httpClient.GetBodyStreamAsync("translation-files/pl");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(404);
@@ -560,5 +609,44 @@ public sealed class HttpClientApiExtensionsTests
         {
             BaseAddress = new Uri("https://localhost:5002/")
         };
+    }
+
+    /// <summary>
+    /// A body that records whether the client copied it into memory, and whether it was disposed.
+    /// Reading it as a stream does not count as a copy.
+    /// </summary>
+    private sealed class TrackingContent : HttpContent
+    {
+        private readonly byte[] _body;
+
+        public TrackingContent(byte[] body)
+        {
+            _body = body;
+        }
+
+        public bool WasBuffered { get; private set; }
+
+        public bool WasDisposed { get; private set; }
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        {
+            WasBuffered = true;
+            return stream.WriteAsync(_body).AsTask();
+        }
+
+        protected override Task<Stream> CreateContentReadStreamAsync()
+            => Task.FromResult<Stream>(new MemoryStream(_body, writable: false));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = _body.Length;
+            return true;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            WasDisposed = true;
+            base.Dispose(disposing);
+        }
     }
 }

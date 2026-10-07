@@ -251,6 +251,10 @@ services:
       # files every metric and trace the box emits under the other environment.
       OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-}
       Bootstrap__Enabled: "false"
+      # One fixed folder for the disk copy of the translation file (ADR-0064 §5). A restart keeps the
+      # container's disk, so a fixed folder is reused and swept instead of leaving a copy behind per
+      # crash. Only this process runs in the container, so no other user can place a file there.
+      TranslationFileDiskCache__Directory: /tmp/lotro-translation-files
     depends_on:
       migrator:
         condition: service_completed_successfully

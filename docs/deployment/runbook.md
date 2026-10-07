@@ -75,7 +75,7 @@ TLS-terminating ingress:
 | Service | Image (`ghcr.io/koniecdev/…`) | Listens | Health | Persists |
 |---|---|---|---|---|
 | **auth-api** | `lotrokoniecdev-auth-api` | `:8080` (HTTP) | `/health` (deep: DB + SMTP + broker; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | Data Protection keyring → `/keys` |
-| **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (deep: DB; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | translation artifacts (read-only mount) |
+| **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (deep: DB; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | translation artifacts (read-only mount); a throwaway copy of the served translation file in the container's `/tmp/lotro-translation-files` (about 82 MB at full size, written again when missing — ADR-0064) |
 | **frontend** | `lotrokoniecdev-frontend` | `:8080` (HTTP) | — | Data Protection keyring → `/keys` |
 | **migrator** | `lotrokoniecdev-migrator` | one-shot (exits 0) | exit code | — |
 | _ingress_ | **Caddy** (the boxes take its tag and digest from one place, the `x-caddy-image` anchor in `compose.hetzner.yaml`; `compose.prod.yaml`, the laptop parity stack, mirrors it; the anchor's comment says why and how Dependabot moves both; 2.11.6 crashes, #988) | `:80`, `:443` | — | ACME certs + config volumes |
@@ -278,6 +278,7 @@ staging from prod in Grafana, because both boxes run `ASPNETCORE_ENVIRONMENT=Pro
 | `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | The same key and rule as auth-api's `HealthCheck__Key` (ADR-0058, #853): the full `/health` runs the database check only for a request that sends it in `X-LOTRO-Health-Key`, and answers 404 to anyone else. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | `http://localhost:4317` / `grpc` (launchSettings) | — (empty: no sink today) | optional | plain | Empty endpoint = export disabled. |
 | `Bootstrap__Enabled` | `false` | `false` | optional | plain | One-time DB seed of the first export (spec 0001). Off by default. |
+| `TranslationFileDiskCache__Directory` | — (unset → a private folder per process in the temp folder) | `/tmp/lotro-translation-files` (set in `compose.hetzner.yaml`) | optional | plain | Where full downloads of the translation file are served from (ADR-0064). Fixed in the containers so a crash restart reuses and sweeps the one copy (about 82 MB at full size) instead of leaving one behind. It must belong to this one process; an empty value stops the boot. |
 | `Bootstrap__GameVersion` / `Bootstrap__ExportedTextPath` / `Bootstrap__PolishTextPath` | — / — / `/app/translations/polish.txt` | as needed | optional | plain | Only consulted when `Bootstrap__Enabled=true`. |
 
 ### frontend

@@ -37,28 +37,43 @@ internal static class HttpClientApiExtensions
             return await SendForApiResultAsync<T>(httpClient, request, cancellationToken);
         }
 
-        public async Task<ApiResult<string>> GetTextAsync(
+        /// <summary>
+        /// For a body too large to hold in memory, which is the ready-made translation file (PERF-09,
+        /// #715). Only the headers are awaited here. Without <see cref="HttpCompletionOption.ResponseHeadersRead"/>
+        /// the client would first copy the whole body into memory. On success the caller owns the stream,
+        /// reads the bytes exactly as they came off the wire, and disposes it, which also ends the
+        /// response.
+        /// </summary>
+        public async Task<ApiResult<ApiBodyStream>> GetBodyStreamAsync(
             string uri,
             CancellationToken cancellationToken = default)
         {
             using HttpRequestMessage request = new(
                 HttpMethod.Get,
                 new Uri(uri, UriKind.RelativeOrAbsolute));
+            HttpResponseMessage? response = null;
             try
             {
-                using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
-                string content = await ReadBodyAsUtf8Async(response.Content, cancellationToken);
+                response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
                 if (response.IsSuccessStatusCode)
                 {
-                    return ApiResult.Success(content);
+                    Stream body = await response.Content.ReadAsStreamAsync(cancellationToken);
+                    ApiBodyStream download = new(body, response.Content.Headers.ContentLength);
+                    response = null;
+                    return ApiResult.Success(download);
                 }
 
-                return ApiResult.Failure<string>(ParseProblemDetails(content, response));
+                string content = await ReadBodyAsUtf8Async(response.Content, cancellationToken);
+                return ApiResult.Failure<ApiBodyStream>(ParseProblemDetails(content, response));
             }
             catch (Exception ex) when (IsTransportFailure(ex))
             {
-                return ApiResult.Failure<string>(MapTransportFailureToProblemDetails(ex));
+                return ApiResult.Failure<ApiBodyStream>(MapTransportFailureToProblemDetails(ex));
+            }
+            finally
+            {
+                response?.Dispose();
             }
         }
 

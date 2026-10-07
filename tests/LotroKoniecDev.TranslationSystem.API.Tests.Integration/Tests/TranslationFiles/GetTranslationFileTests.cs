@@ -244,6 +244,184 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Get_FullDownload_ShouldDeclareUtf8PlainText()
+    {
+        // Arrange
+        await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
+        await RebuildAsync();
+
+        // Act
+        HttpResponseMessage response = await _factory.CreateClient().GetAsync(Route);
+
+        // Assert: the CLI decodes the body by this charset, so it must survive the switch from a
+        // string body to a streamed file.
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Content.Headers.ContentType.ShouldNotBeNull();
+        response.Content.Headers.ContentType.MediaType.ShouldBe("text/plain");
+        response.Content.Headers.ContentType.CharSet.ShouldBe("utf-8");
+    }
+
+    [Fact]
+    public async Task Get_SecondFullDownload_ShouldServeTheDiskCopyWithoutReadingTheContentColumn()
+    {
+        // Arrange: the first full download writes the disk copy.
+        await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
+        await RebuildAsync();
+        EntityTagHeaderValue etag = (await _factory.CreateClient().GetAsync(Route)).Headers.ETag!;
+
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.IfNoneMatch.Add(new EntityTagHeaderValue("\"stale-tag\""));
+        _factory.ReadContextSqlRecorder.Clear();
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync(Route);
+        string body = await response.Content.ReadAsStringAsync();
+
+        // Assert: PERF-09/#715. A stale client gets the full body without the multi-MB column being
+        // read from the database again.
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Headers.ETag.ShouldBe(etag);
+        body.ShouldContain($"{FileId}||1||Alfa||NULL||NULL||1");
+        IReadOnlyList<string> commands = _factory.ReadContextSqlRecorder.Commands;
+        commands.ShouldContain(command => command.Contains("\"ContentHash\""));
+        commands.ShouldAllBe(command => !command.Contains("\"Content\""));
+    }
+
+    [Fact]
+    public async Task Get_BurstOfConcurrentMisses_ShouldReadTheContentColumnOnceAndServeOneBody()
+    {
+        // Arrange: a fresh artifact and no disk copy yet, the update-day shape. Every client's ETag
+        // went stale at once.
+        const int burstSize = 24;
+        await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
+        await SeedAsync(gossipId: 2, polish: "Beta", status: SeedStatus.Approved);
+        await RebuildAsync();
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.IfNoneMatch.Add(new EntityTagHeaderValue("\"stale-tag\""));
+        _factory.ReadContextSqlRecorder.Clear();
+
+        // Act
+        HttpResponseMessage[] responses = await Task.WhenAll(
+            Enumerable.Range(0, burstSize).Select(_ => client.GetAsync(Route)));
+        string[] bodies = await Task.WhenAll(responses.Select(response => response.Content.ReadAsStringAsync()));
+
+        // Assert: the content is loaded from the database once for the whole burst, so the API's
+        // memory does not grow with the number of players. Every one of them gets the same body under
+        // a tag the patcher accepts.
+        responses.ShouldAllBe(response => response.StatusCode == HttpStatusCode.OK);
+        responses.Select(response => response.Headers.ETag!.Tag).Distinct().Count().ShouldBe(1);
+        bodies.Distinct().Count().ShouldBe(1);
+        TranslationFileContentIntegrity.Matches(bodies[0], responses[0].Headers.ETag!.ToString()).ShouldBeTrue();
+        _factory.ReadContextSqlRecorder.Commands
+            .Count(command => command.Contains("\"Content\""))
+            .ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Get_FromTheDiskCopy_ShouldStillPassThePatcherIntegrityCheck()
+    {
+        // Arrange: Polish letters and a surrogate pair, where a different encoder would change the
+        // bytes. The first download writes the copy and the second one reads it back.
+        await SeedAsync(gossipId: 1, polish: "Zażółć gęślą jaźń 🐉", status: SeedStatus.Approved);
+        await RebuildAsync();
+        await _factory.CreateClient().GetAsync(Route);
+
+        // Act
+        HttpResponseMessage response = await _factory.CreateClient().GetAsync(Route);
+        string body = await response.Content.ReadAsStringAsync();
+
+        // Assert: same check as the patcher runs on a download (AUDIT-SEC-01, #391).
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        body.ShouldContain("Zażółć gęślą jaźń 🐉");
+        response.Headers.ETag!.IsWeak.ShouldBeFalse();
+        TranslationFileContentIntegrity.Matches(body, response.Headers.ETag.ToString()).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Get_FromTheDiskCopy_ShouldSendTheExactUtf8BytesTheETagHashes()
+    {
+        // Arrange: reading the body as a string would hide a BOM, so this test reads the raw bytes.
+        await SeedAsync(gossipId: 1, polish: "Zażółć gęślą jaźń 🐉", status: SeedStatus.Approved);
+        await RebuildAsync();
+        await _factory.CreateClient().GetAsync(Route);
+
+        // Act
+        HttpResponseMessage response = await _factory.CreateClient().GetAsync(Route);
+        byte[] body = await response.Content.ReadAsByteArrayAsync();
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        body.AsSpan().StartsWith(Encoding.UTF8.Preamble).ShouldBeFalse();
+        response.Content.Headers.ContentLength.ShouldBe(body.Length);
+        response.Headers.ETag!.Tag.ShouldBe($"\"{Convert.ToHexString(SHA256.HashData(body))}\"");
+    }
+
+    [Fact]
+    public async Task Get_WhenTheStoredHashIsMalformed_ShouldAnswer500NotBlameTheClient()
+    {
+        // Arrange: a fault in our own data, not in the request.
+        await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
+        await RebuildAsync();
+        using (IServiceScope scope = _factory.Services.CreateScope())
+        {
+            ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+            await dbContext.Database.ExecuteSqlAsync(
+                $"UPDATE translation.\"TranslationArtifacts\" SET \"ContentHash\" = {"not-a-content-hash"}");
+        }
+
+        // Act
+        HttpResponseMessage response = await _factory.CreateClient().GetAsync(Route);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+    }
+
+    [Fact]
+    public async Task Get_WhenTheDiskCopyWasDeleted_ShouldWriteItAgainFromTheDatabase()
+    {
+        // Arrange: something cleared the temp folder after the copy was written.
+        await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
+        await RebuildAsync();
+        HttpResponseMessage first = await _factory.CreateClient().GetAsync(Route);
+        string firstBody = await first.Content.ReadAsStringAsync();
+        _factory.DeleteTranslationFileCopies();
+        _factory.ReadContextSqlRecorder.Clear();
+
+        // Act
+        HttpResponseMessage second = await _factory.CreateClient().GetAsync(Route);
+        string secondBody = await second.Content.ReadAsStringAsync();
+
+        // Assert
+        second.StatusCode.ShouldBe(HttpStatusCode.OK);
+        second.Headers.ETag.ShouldBe(first.Headers.ETag);
+        secondBody.ShouldBe(firstBody);
+        _factory.ReadContextSqlRecorder.Commands
+            .Count(command => command.Contains("\"Content\""))
+            .ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Get_AfterARebuild_ShouldKeepOnlyTheNewCopyOnDisk()
+    {
+        // Arrange: at target scale every copy is tens of MB, so old ones must not pile up per rebuild.
+        await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
+        await RebuildAsync();
+        await _factory.CreateClient().GetAsync(Route);
+        await SeedAsync(gossipId: 2, polish: "Beta", status: SeedStatus.Approved);
+        await RebuildAsync();
+
+        // Act
+        HttpResponseMessage response = await _factory.CreateClient().GetAsync(Route);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string currentHash = response.Headers.ETag!.Tag.Trim('"');
+        string[] copies = Directory.GetFiles(_factory.TranslationFileCopiesDirectory);
+        copies.Length.ShouldBe(1);
+        Path.GetFileName(copies[0]).ShouldContain(currentHash);
+    }
+
+    [Fact]
     public async Task Get_AfterApprovingAnotherRow_ShouldAppearInNextDownloadWithNewETag()
     {
         // Arrange: first artifact has only Alfa.

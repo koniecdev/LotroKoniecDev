@@ -108,6 +108,7 @@ internal static partial class OpenIddictTokenRefusals
                 || !request.IsRefreshTokenGrantType()
                 || request.RefreshToken is not { Length: > 0 } refreshToken
                 || await _tokenManager.FindByReferenceIdAsync(refreshToken, cancellationToken) is not { } token
+                || !await _tokenManager.HasTypeAsync(token, TokenTypeIdentifiers.RefreshToken, cancellationToken)
                 || await _tokenManager.GetSubjectAsync(token, cancellationToken) is not { Length: > 0 } userId)
             {
                 return null;

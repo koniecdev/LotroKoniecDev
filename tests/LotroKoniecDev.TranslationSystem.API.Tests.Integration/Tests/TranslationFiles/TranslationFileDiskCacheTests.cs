@@ -195,8 +195,8 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa");
         await RebuildAsync();
         string hash = await CurrentHashAsync();
-        TranslationFileDiskCache first = CreateCacheWithoutConfiguredDirectory();
-        TranslationFileDiskCache second = CreateCacheWithoutConfiguredDirectory();
+        using TranslationFileDiskCache first = CreateCacheWithoutConfiguredDirectory();
+        using TranslationFileDiskCache second = CreateCacheWithoutConfiguredDirectory();
 
         // Act
         string firstFolder;
@@ -208,11 +208,15 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
             secondFolder = Path.GetDirectoryName(((FileStream)secondContent).Name)!;
         }
 
+        // Windows keeps the temp folder per user, so the owner-only mode exists on Linux and macOS only.
+        bool ownerOnly = OperatingSystem.IsWindows()
+                         || File.GetUnixFileMode(firstFolder) == (UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         first.Dispose();
         second.Dispose();
 
         // Assert
         Path.GetFileName(firstFolder).ShouldStartWith("lotro-translation-files-");
+        ownerOnly.ShouldBeTrue();
         firstFolder.ShouldNotBe(secondFolder);
         Directory.Exists(firstFolder).ShouldBeFalse();
         Directory.Exists(secondFolder).ShouldBeFalse();

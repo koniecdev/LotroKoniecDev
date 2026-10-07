@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using NSubstitute;
 using LotroKoniecDev.AuthSystem.API.Services.Accounts;
+using LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Infrastructure.PwnedPasswords;
 
@@ -14,6 +16,8 @@ public sealed class BreachedPasswordValidatorTests
     private readonly UserManager<ApplicationUser> _userManager =
         Substitute.For<UserManager<ApplicationUser>>(
             Substitute.For<IUserStore<ApplicationUser>>(), null, null, null, null, null, null, null, null);
+    private readonly HttpContextAccessor _httpContextAccessor = new();
+    private readonly CapturingLogger<BreachedPasswordValidator> _logger = new();
 
     [Fact]
     public async Task ValidateAsync_WhenThePasswordIsInABreach_FailsWithTheBreachCode()
@@ -21,7 +25,7 @@ public sealed class BreachedPasswordValidatorTests
         // Arrange
         _pwnedPasswordChecker.CheckAsync(Password, Arg.Any<CancellationToken>())
             .Returns(PwnedPasswordVerdict.Breached);
-        BreachedPasswordValidator validator = new(_pwnedPasswordChecker);
+        BreachedPasswordValidator validator = CreateValidator();
 
         // Act
         IdentityResult result = await validator.ValidateAsync(_userManager, new ApplicationUser(), Password);
@@ -31,13 +35,48 @@ public sealed class BreachedPasswordValidatorTests
         result.Errors.ShouldHaveSingleItem().Code.ShouldBe(BreachedPasswordValidator.ErrorCode);
     }
 
+    /// <summary>
+    /// Without this line an operator cannot tell a check that refuses passwords from one that never runs.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenThePasswordIsInABreach_LogsTheRefusal()
+    {
+        // Arrange
+        _pwnedPasswordChecker.CheckAsync(Password, Arg.Any<CancellationToken>())
+            .Returns(PwnedPasswordVerdict.Breached);
+        BreachedPasswordValidator validator = CreateValidator();
+
+        // Act
+        await validator.ValidateAsync(_userManager, new ApplicationUser(), Password);
+
+        // Assert
+        _logger.Entries.ShouldHaveSingleItem().EventId.ShouldBe(EventIds.PasswordRefusedAsBreached);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_DuringARequest_ChecksWithTheRequestsAbortToken()
+    {
+        // Arrange: only a check made with the request's own token sees the breach
+        using CancellationTokenSource requestAborted = new();
+        _httpContextAccessor.HttpContext = new DefaultHttpContext { RequestAborted = requestAborted.Token };
+        _pwnedPasswordChecker.CheckAsync(Password, requestAborted.Token)
+            .Returns(PwnedPasswordVerdict.Breached);
+        BreachedPasswordValidator validator = CreateValidator();
+
+        // Act
+        IdentityResult result = await validator.ValidateAsync(_userManager, new ApplicationUser(), Password);
+
+        // Assert
+        result.Succeeded.ShouldBeFalse();
+    }
+
     [Fact]
     public async Task ValidateAsync_WhenThePasswordIsInNoKnownBreach_Succeeds()
     {
         // Arrange
         _pwnedPasswordChecker.CheckAsync(Password, Arg.Any<CancellationToken>())
             .Returns(PwnedPasswordVerdict.NotFound);
-        BreachedPasswordValidator validator = new(_pwnedPasswordChecker);
+        BreachedPasswordValidator validator = CreateValidator();
 
         // Act
         IdentityResult result = await validator.ValidateAsync(_userManager, new ApplicationUser(), Password);
@@ -56,7 +95,7 @@ public sealed class BreachedPasswordValidatorTests
         // Arrange
         _pwnedPasswordChecker.CheckAsync(Password, Arg.Any<CancellationToken>())
             .Returns(PwnedPasswordVerdict.Unavailable);
-        BreachedPasswordValidator validator = new(_pwnedPasswordChecker);
+        BreachedPasswordValidator validator = CreateValidator();
 
         // Act
         IdentityResult result = await validator.ValidateAsync(_userManager, new ApplicationUser(), Password);
@@ -79,7 +118,7 @@ public sealed class BreachedPasswordValidatorTests
         // Arrange: a checker that calls everything breached
         _pwnedPasswordChecker.CheckAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(PwnedPasswordVerdict.Breached);
-        BreachedPasswordValidator validator = new(_pwnedPasswordChecker);
+        BreachedPasswordValidator validator = CreateValidator();
 
         // Act
         IdentityResult result = await validator.ValidateAsync(_userManager, new ApplicationUser(), password);
@@ -96,7 +135,7 @@ public sealed class BreachedPasswordValidatorTests
         // Arrange: even a checker that calls everything breached must not be what refuses an empty password
         _pwnedPasswordChecker.CheckAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(PwnedPasswordVerdict.Breached);
-        BreachedPasswordValidator validator = new(_pwnedPasswordChecker);
+        BreachedPasswordValidator validator = CreateValidator();
 
         // Act
         IdentityResult result = await validator.ValidateAsync(_userManager, new ApplicationUser(), password);
@@ -104,4 +143,7 @@ public sealed class BreachedPasswordValidatorTests
         // Assert
         result.Succeeded.ShouldBeTrue();
     }
+
+    private BreachedPasswordValidator CreateValidator() =>
+        new(_pwnedPasswordChecker, _httpContextAccessor, _logger);
 }

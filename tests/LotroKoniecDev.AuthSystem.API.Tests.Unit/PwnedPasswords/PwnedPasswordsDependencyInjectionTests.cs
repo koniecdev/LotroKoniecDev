@@ -90,6 +90,14 @@ public sealed class PwnedPasswordsDependencyInjectionTests
         handler.UseCookies.ShouldBeFalse();
     }
 
+    [Fact]
+    public void CreatePrimaryHandler_WhenCreated_PropagatesNoTraceContext()
+    {
+        using SocketsHttpHandler handler = PwnedPasswordsDependencyInjection.CreatePrimaryHandler();
+
+        handler.ActivityHeadersPropagator.ShouldBeNull();
+    }
+
     private static ServiceProvider BuildProvider(StubRangeApiHandler rangeApi, CapturingLoggerProvider logs)
     {
         ServiceCollection services = new();

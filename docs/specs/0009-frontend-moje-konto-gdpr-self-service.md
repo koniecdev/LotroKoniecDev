@@ -69,7 +69,8 @@ emailed link (auth-side page, already shipped).
 - **Local sign-out** `POST /auth/local-signout` in `AuthEndpointsExtensions`: cookie sign-out only
   + redirect to a validated local `returnUrl`. Needed because the upstream session is already dead
   (tokens revoked, account locked) — RP-initiated end-session would bounce through a dead auth
-  session.
+  session. The upstream revoke is best effort, so the website also revokes its own refresh token,
+  server to server, within the sign-out's 5 s limit (#1027).
 - **`/account/deletion-scheduled` page** (anonymous): parses the tamperable `until` query
   defensively, shows the finalization date in Europe/Warsaw or the generic 14-day phrasing,
   explains lockout / cancel-by-email / password-reset-after-cancel.
@@ -127,7 +128,8 @@ emailed link (auth-side page, already shipped).
   for the password), `POST /account/export/download` (authorized file download, antiforgery-checked —
   #690), `GET/POST /account/delete` (authorized page + SSR form), `GET
   /account/deletion-scheduled?until=<iso>` (anonymous page), `GET/POST /account/change-password`
-  (authorized page + SSR form), `POST /auth/local-signout` (cookie-only sign-out, local returnUrl).
+  (authorized page + SSR form), `POST /auth/local-signout` (cookie-only sign-out plus the website's own
+  refresh token revoke — #1027, local returnUrl).
 - **Upstream:** `GET {auth}/` discovery → `GET {auth}/auth/account/data-export` (the account
   representation) → `POST {auth}/auth/account/data-export` (the password-gated export, #690) /
   `POST {auth}/auth/account/delete` (204 + `X-Deletion-Scheduled-At`/`X-Deletion-Finalizes-At`) /

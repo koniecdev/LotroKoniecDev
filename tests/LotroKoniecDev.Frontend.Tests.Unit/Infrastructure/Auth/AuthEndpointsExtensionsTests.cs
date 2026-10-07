@@ -124,11 +124,12 @@ public sealed class AuthEndpointsExtensionsTests
     public async Task LocalSignOutAsync_SignsOutTheCookieAndRedirectsToTheLocalReturnUrl()
     {
         IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
-        HttpContext context = CreateContextWith(authenticationService);
+        HttpContext context = CreateSignedInContext(authenticationService, RefreshToken);
 
         IResult result = await AuthEndpointsExtensions.LocalSignOutAsync(
             context,
-            "/account/deletion-scheduled?until=2026-07-25T10%3A00%3A00Z");
+            "/account/deletion-scheduled?until=2026-07-25T10%3A00%3A00Z",
+            CreateRevoker(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty)));
 
         RedirectHttpResult redirect = result.ShouldBeOfType<RedirectHttpResult>();
         redirect.Url.ShouldBe("/account/deletion-scheduled?until=2026-07-25T10%3A00%3A00Z");
@@ -150,12 +151,47 @@ public sealed class AuthEndpointsExtensionsTests
     [InlineData(null)]
     public async Task LocalSignOutAsync_WhenReturnUrlIsNotLocal_RedirectsHome(string? returnUrl)
     {
-        HttpContext context = CreateContextWith(Substitute.For<IAuthenticationService>());
+        HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken);
 
-        IResult result = await AuthEndpointsExtensions.LocalSignOutAsync(context, returnUrl);
+        IResult result = await AuthEndpointsExtensions.LocalSignOutAsync(
+            context, returnUrl, CreateRevoker(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty)));
 
         RedirectHttpResult redirect = result.ShouldBeOfType<RedirectHttpResult>();
         redirect.Url.ShouldBe("/");
+    }
+
+    /// <summary>
+    /// #1027: the auth server revokes the account's tokens when it schedules the deletion, but only as best
+    /// effort, so the website revokes the refresh token it held as well.
+    /// </summary>
+    [Fact]
+    public async Task LocalSignOutAsync_WhenTheCookieHoldsARefreshToken_RevokesItAtTheDiscoveredEndpoint()
+    {
+        StubHttpMessageHandler authApi = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
+        HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken);
+
+        await AuthEndpointsExtensions.LocalSignOutAsync(context, "/account/deletion-scheduled", CreateRevoker(authApi));
+
+        authApi.LastRequest.ShouldNotBeNull().RequestUri.ShouldBe(new Uri(RevocationEndpoint));
+        authApi.LastRequestBody.ShouldNotBeNull().ShouldContain($"token={RefreshToken}");
+    }
+
+    [Fact]
+    public async Task LocalSignOutAsync_WhenTheRevokeFails_StillSignsOutAndRedirects()
+    {
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        HttpContext context = CreateSignedInContext(authenticationService, RefreshToken);
+
+        IResult result = await AuthEndpointsExtensions.LocalSignOutAsync(
+            context,
+            "/account/deletion-scheduled",
+            CreateRevoker(StubHttpMessageHandler.Throw(new InvalidOperationException("A new handler failed."))));
+
+        result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldBe("/account/deletion-scheduled");
+        await authenticationService.Received(1).SignOutAsync(
+            context,
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            Arg.Any<AuthenticationProperties?>());
     }
 
     [Fact]

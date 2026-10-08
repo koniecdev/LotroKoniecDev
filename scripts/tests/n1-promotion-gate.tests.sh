@@ -123,4 +123,13 @@ GATE_AS=scripts/ci/n1-promotion-gate.sh run_gate CDPATH=".:$TMP_ROOT" BASELINE_S
 grep -qx "$BASELINE" "$ARGS_FILE" || fail 'the proof must run with the baseline' "$(cat "$ARGS_FILE")"
 pass 'an exported CDPATH does not confuse a gate started by a relative path'
 
+# BASH_ENV makes the folder lookup's `cd -- …` fail, which a real disk will not do on demand.
+CASE='own tree not found'
+printf 'cd() { if [ "${1:-}" = "--" ]; then return 1; fi; builtin cd "$@"; }\n' > "$TMP_ROOT/lookup-fails.bash"
+run_gate BASH_ENV="$TMP_ROOT/lookup-fails.bash" BASELINE_SHA="$BASELINE" STUB_N1_EXIT=0
+[ "$LAST_STATUS" -eq 2 ] || fail 'a gate that cannot find the proof must block as unjudged, never as RED' "status $LAST_STATUS"
+[ ! -s "$ARGS_FILE" ] || fail 'the proof must not run' "$(cat "$ARGS_FILE")"
+grep -q 'UNJUDGED' <<<"$LAST_OUTPUT" || fail 'the operator must be told the batch is unjudged'
+pass 'a gate that cannot find its own tree blocks with exit 2, not the RED exit 1'
+
 printf '\nAll %d n1-promotion-gate case(s) passed.\n' "$cases"

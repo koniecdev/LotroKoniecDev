@@ -312,4 +312,13 @@ grep -q 'GREEN' <<<"$LAST_OUTPUT" || fail 'the green verdict should be stated'
 [ -n "$(invocations_for test 'TranslationSystem')" ] || fail 'both suites must actually run'
 pass 'an exported CDPATH does not confuse a proof started by a relative path'
 
+# BASH_ENV makes the folder lookup's `cd -- …` fail, which a real disk will not do on demand.
+CASE='own tree not found'
+printf 'cd() { if [ "${1:-}" = "--" ]; then return 1; fi; builtin cd "$@"; }\n' > "$TMP_ROOT/lookup-fails.bash"
+run_proof BASH_ENV="$TMP_ROOT/lookup-fails.bash"
+[ "$LAST_STATUS" -eq 2 ] || fail 'a proof that cannot find its own tree proved nothing — exit 2, never RED' "status $LAST_STATUS"
+[ ! -s "$STUB_LOG" ] || fail 'the proof must stop at the lookup, before any dotnet call'
+grep -q 'cannot find the checkout' <<<"$LAST_OUTPUT" || fail 'the proof must say why it stopped'
+pass 'a proof that cannot find its own tree exits 2, not the RED exit 1'
+
 printf '\nAll %d n1-compat case(s) passed.\n' "$cases"

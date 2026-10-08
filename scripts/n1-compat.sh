@@ -62,8 +62,11 @@ SEAM_CALL_SITES=(
 DESIGN_TIME_CONNECTION='Host=localhost;Database=design_time_only;Username=postgres;Password=unused'
 
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
-repo_root="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
-cd "$repo_root"
+# Exit 2, never the RED exit 1: a proof that cannot find its own tree has proven nothing.
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)" && cd "$repo_root" || {
+  echo "ERROR: n1-compat.sh cannot find the checkout it lives in, so the proof could not run." >&2
+  exit 2
+}
 
 say() {
   echo "$1"

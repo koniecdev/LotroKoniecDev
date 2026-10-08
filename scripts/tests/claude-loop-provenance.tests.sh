@@ -470,6 +470,15 @@ rm -f "$GH_FIXTURES/comments-16.json"
 run_case 2 "issue-trust: unreadable comments are refused (fail-closed)" "$TRUST" 16
 expect_in_output "comments of issue #16"
 
+# The gate must not judge a ticket from the caller's folder when it cannot find its own checkout.
+# BASH_ENV makes the folder lookup's `cd -- …` fail, which a real disk will not do on demand.
+printf 'cd() { if [ "${1:-}" = "--" ]; then return 1; fi; builtin cd "$@"; }\n' > "$TMP_ROOT/lookup-fails.bash"
+reset_fixtures
+fixture_issue 26 maintainer OWNER
+run_case 2 "issue-trust: a checkout it cannot find is refused (fail-closed)" \
+    env BASH_ENV="$TMP_ROOT/lookup-fails.bash" "$TRUST" 26
+expect_in_output "cannot find the checkout"
+
 # Knobs.
 reset_fixtures
 fixture_issue 17 outsider NONE

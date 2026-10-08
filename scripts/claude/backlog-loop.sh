@@ -39,7 +39,8 @@
 # blocked-ticket triage is on GitHub: `gh issue list --label loop-blocked`.
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+REPO_ROOT="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 SCRIPTS="$REPO_ROOT/scripts/claude"
 MAIN_ROOT="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"

@@ -12,7 +12,8 @@
 # Pure bash + git-free: every case feeds a path list on stdin through the --files seam.
 set -uo pipefail
 
-SCRIPTS_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+SCRIPTS_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 CLASSIFY="$SCRIPTS_DIR/ci/classify-changes.sh"
 
 failures=0

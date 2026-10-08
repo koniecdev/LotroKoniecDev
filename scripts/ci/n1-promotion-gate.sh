@@ -25,13 +25,17 @@
 # them in the guards job). CI-only, Linux runners — no .ps1 twin, same as classify-changes.sh.
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
-
 say() {
     echo "$1"
     if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
         echo "$1" >> "$GITHUB_STEP_SUMMARY"
     fi
+}
+
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)" || {
+    say "::error::N-1 promotion gate: cannot find its own checkout, so the proof could not run. This batch is UNJUDGED — not proven bad (fail closed)."
+    exit 2
 }
 
 if [ -z "${BASELINE_SHA:-}" ]; then

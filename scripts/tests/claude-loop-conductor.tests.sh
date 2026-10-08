@@ -25,7 +25,8 @@
 
 set -euo pipefail
 
-SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+SCRIPTS_DIR="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 REAL_SLEEP="$(command -v sleep)"
 export REAL_SLEEP
 
@@ -285,6 +286,19 @@ reset_state
 run_conductor 0 "conductor: -j 1 runs one at a time, in the given order" -j 1 7 3 9
 [ "$(max_concurrency)" = "1" ] || fail "expected 1 at once, saw $(max_concurrency)" "$LAST_OUTPUT"
 expect_started "7 3 9"
+
+# With CDPATH exported, `cd` to a relative folder can print it, and the conductor started by a
+# relative path must not take that output for its own folder (#1048). Started through `bash`, it
+# keeps the relative path as $0; bash's own exec would hand it the full path.
+relative_conductor="$TMP_ROOT/relative-conductor.sh"
+printf '#!/usr/bin/env bash\ncd "%s" && CDPATH=".:%s" exec bash scripts/claude/backlog-loop.sh "$@"\n' \
+    "$FAKE_REPO" "$TMP_ROOT" > "$relative_conductor"
+chmod +x "$relative_conductor"
+reset_state
+CONDUCTOR="$relative_conductor" \
+    run_conductor 0 "conductor: an exported CDPATH does not confuse a conductor started by a relative path" -j 1 26
+expect_started "26"
+expect_in_output "done: 1 PR opened"
 
 # Before #992 the conductor kept a worker on its list while its number answered a probe, so a
 # number reused at once held the slot for good and hid that worker's result.

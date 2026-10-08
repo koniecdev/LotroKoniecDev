@@ -30,7 +30,8 @@
 # classify-changes.sh, so no .ps1 twin.
 set -uo pipefail
 
-REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+REPO_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 WORKFLOW="$REPO_ROOT/.github/workflows/pr-verify.yml"
 REQUIRED_CHECK='Pull Request Verification'
 US=$'\037'

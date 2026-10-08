@@ -11,7 +11,8 @@
 
 set -euo pipefail
 
-SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+SCRIPTS_DIR="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
@@ -149,6 +150,18 @@ chmod +x "$sh_runner"
 RUNNER="$sh_runner"
 LABEL="sh"
 run_suite
+
+# With CDPATH exported, `cd` to a relative folder can print it, and the guard started by a relative
+# path must not take that output for the repository root (#1048). The failing case proves that the
+# guard still reads the files.
+cdpath_runner="$TMP_ROOT/run-sh-cdpath.sh"
+printf '#!/usr/bin/env bash\ncd "$1" && CDPATH=".:%s" exec bash scripts/check-ssr-purity.sh\n' "$TMP_ROOT" > "$cdpath_runner"
+chmod +x "$cdpath_runner"
+RUNNER="$cdpath_runner"
+LABEL="sh, CDPATH"
+run_case 0 "a clean tree passes when the guard is started by a relative path" App.razor '<p>ok</p>'
+run_case 1 "an inline script still fails when the guard is started by a relative path" \
+    App.razor '<script>alert(1)</script>'
 
 if command -v pwsh >/dev/null 2>&1; then
     ps1_runner="$TMP_ROOT/run-ps1.sh"

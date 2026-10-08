@@ -26,7 +26,8 @@
 #        LOOP_TRUST_GATE)
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname "$0")" && pwd)"
 # Resolve `gh`'s repository from this checkout, not from the caller's cwd (see issue-trust.sh).
 cd "$SCRIPT_DIR/../.."
 # Worktrees live under the MAIN checkout, even when this runs from a worktree (see work-ticket.sh).

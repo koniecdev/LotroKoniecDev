@@ -139,7 +139,7 @@ internal static class EventIds
     public const int DeletionCancelledRescheduled = 2381;
     public const int DeletionCancelledAddressMissing = 2382;
 
-    // Refused code exchange or refresh (2390-2399). 2390-2394 were the refresh warnings of #944. The code
+    // Refused code exchange or refresh (2390-2399). 2390-2394 were the refresh log lines of #944. The code
     // exchange shares them since #977, so each number still means the same case.
     public const int TokenGrantRefusedNoSubject = 2390;
     public const int TokenGrantRefusedUserGone = 2391;

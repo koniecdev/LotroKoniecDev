@@ -56,7 +56,7 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
     [InlineData(AccountChange.LockedOut, EventIds.TokenGrantRefusedLockedOut, "the account is locked out")]
     [InlineData(AccountChange.DeletionScheduledAndLockedOut, EventIds.TokenGrantRefusedDeletionScheduled, "account deletion is scheduled")]
     [InlineData(AccountChange.SecurityStampChanged, EventIds.TokenGrantRefusedStaleSecurityStamp, "the security stamp in the token is not current")]
-    public async Task RefreshTokenGrant_WhenTheAccountChangedAfterSignIn_ShouldWarnWithTheCase(
+    public async Task RefreshTokenGrant_WhenTheAccountChangedAfterSignIn_ShouldLogTheCaseAsInformation(
         AccountChange change,
         int expectedEventId,
         string expectedCase)
@@ -76,14 +76,14 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        CapturingLoggerFactory.LogEntry warning = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
-        warning.Level.ShouldBe(LogLevel.Warning);
-        warning.EventId.Id.ShouldBe(expectedEventId);
-        warning.Message.ShouldBe($"Refresh refused for user {userId.Value}: {expectedCase}");
+        CapturingLoggerFactory.LogEntry entry = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Information);
+        entry.EventId.Id.ShouldBe(expectedEventId);
+        entry.Message.ShouldBe($"Refresh refused for user {userId.Value}: {expectedCase}");
     }
 
     [Fact]
-    public async Task RefreshTokenGrant_WhenTheTokenCarriesNoSecurityStamp_ShouldWarnThatTheStampIsNotCurrent()
+    public async Task RefreshTokenGrant_WhenTheTokenCarriesNoSecurityStamp_ShouldLogThatTheStampIsNotCurrentAsInformation()
     {
         // Arrange: a token from before #848 carries no stamp, and the stamp check refuses it as well
         (RegisterRequest user, IdentityId userId) = await UserFactory.RegisterRandomUserWithRequestAsync(
@@ -107,10 +107,10 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        CapturingLoggerFactory.LogEntry warning = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
-        warning.Level.ShouldBe(LogLevel.Warning);
-        warning.EventId.Id.ShouldBe(EventIds.TokenGrantRefusedStaleSecurityStamp);
-        warning.Message.ShouldBe($"Refresh refused for user {userId.Value}: the security stamp in the token is not current");
+        CapturingLoggerFactory.LogEntry entry = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Information);
+        entry.EventId.Id.ShouldBe(EventIds.TokenGrantRefusedStaleSecurityStamp);
+        entry.Message.ShouldBe($"Refresh refused for user {userId.Value}: the security stamp in the token is not current");
     }
 
     [Fact]
@@ -146,7 +146,7 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task RefreshTokenGrant_WhenTheAccountIsUnchanged_ShouldNotWarn()
+    public async Task RefreshTokenGrant_WhenTheAccountIsUnchanged_ShouldLogNothing()
     {
         // Arrange
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
@@ -200,7 +200,7 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
         SessionEnd end,
         string expectedDescription)
     {
-        // Arrange: the warning is for the server's log only, so the client still gets OpenIddict's answer
+        // Arrange: the log line is for the server only, so the client still gets OpenIddict's answer
         (RegisterRequest user, IdentityId userId) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         using CapturingLoggerFactory loggerFactory = new();
@@ -221,9 +221,9 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task RefreshTokenGrant_WhenTheTokenHasExpired_ShouldWarnThatItExpired()
+    public async Task RefreshTokenGrant_WhenTheTokenHasExpired_ShouldLogThatItExpiredAsInformation()
     {
-        // Arrange: OpenIddict says "no longer valid" for an expired token too, so the warning must not
+        // Arrange: OpenIddict says "no longer valid" for an expired token too, so the log line must not
         // read like a revoke
         (RegisterRequest user, IdentityId userId) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
@@ -240,10 +240,10 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        CapturingLoggerFactory.LogEntry warning = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
-        warning.Level.ShouldBe(LogLevel.Warning);
-        warning.EventId.Id.ShouldBe(EventIds.TokenGrantRefusedTokenExpired);
-        warning.Message.ShouldBe($"Refresh refused for user {userId.Value}: the refresh token has expired");
+        CapturingLoggerFactory.LogEntry entry = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Information);
+        entry.EventId.Id.ShouldBe(EventIds.TokenGrantRefusedTokenExpired);
+        entry.Message.ShouldBe($"Refresh refused for user {userId.Value}: the refresh token has expired");
     }
 
     [Fact]
@@ -280,7 +280,7 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
     [Theory]
     [InlineData("not-a-refresh-token")]
     [InlineData("x5ccrEJ8dfJXiYSyBg2rdMHGfHHGJAiMR4ixtWsVQ1Y")]
-    public async Task RefreshTokenGrant_WhenTheTokenIsUnknown_ShouldNotWarn(string refreshToken)
+    public async Task RefreshTokenGrant_WhenTheTokenIsUnknown_ShouldLogNothing(string refreshToken)
     {
         // Arrange: no token row and no readable token, so there is no user to name and OpenIddict's own
         // line is the whole story
@@ -320,7 +320,7 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task Revoke_WhenOpenIddictRefusesAnotherClientsRefreshToken_ShouldNotWarnAboutTheTokenEndpoint()
+    public async Task Revoke_WhenOpenIddictRefusesAnotherClientsRefreshToken_ShouldLogNothingForTheTokenEndpoint()
     {
         // Arrange: the revocation endpoint reads the same refresh token, and OpenIddict refuses to let another
         // client revoke it. That is not a refused sign-in step. OpenIddict still answers 200 there, as

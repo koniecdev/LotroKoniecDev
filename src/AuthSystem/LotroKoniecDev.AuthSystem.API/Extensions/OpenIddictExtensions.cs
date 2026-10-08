@@ -98,9 +98,9 @@ internal static class OpenIddictExtensions
                 options.AddEventHandler(
                     OpenIddictServerAspNetCoreHandlers.ExtractPostRequest<OpenIddictServerEvents.ExtractIntrospectionRequestContext>.Descriptor);
 
-                // Warnings for the refusals OpenIddict makes itself (#977).
+                // Log lines for the refusals OpenIddict makes itself (#977).
                 options.AddEventHandler(OpenIddictTokenRefusals.NoteTokenUser.Descriptor);
-                options.AddEventHandler(OpenIddictTokenRefusals.WarnWhenRefused.Descriptor);
+                options.AddEventHandler(OpenIddictTokenRefusals.LogWhenRefused.Descriptor);
             })
             .AddValidation(options =>
             {

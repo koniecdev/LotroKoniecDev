@@ -10,7 +10,7 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 /// OpenIddict refuses an expired, used or revoked code or refresh token before <see cref="TokenEndpoint"/>
 /// runs, and so does any other request it refuses after reading the token, such as a wrong code_verifier.
 /// Its own log line names the token, not the user (#977). These handlers note the token's user while
-/// OpenIddict checks the token, and write one warning when OpenIddict then refuses the request. They never
+/// OpenIddict checks the token, and write one log line when OpenIddict then refuses the request. They never
 /// change the answer to the client.
 /// </summary>
 internal static partial class OpenIddictTokenRefusals
@@ -50,15 +50,15 @@ internal static partial class OpenIddictTokenRefusals
 
     /// <summary>
     /// OpenIddict raises this event only for a request it refuses itself. A refusal of our own goes out
-    /// through <see cref="TokenEndpoint"/>, which already wrote its warning. The warning goes under the
+    /// through <see cref="TokenEndpoint"/>, which already wrote its log line. This line goes under the
     /// token endpoint's log category, so every refused code exchange and refresh sits in one place.
     /// </summary>
-    internal sealed partial class WarnWhenRefused : IOpenIddictServerHandler<ProcessErrorContext>
+    internal sealed partial class LogWhenRefused : IOpenIddictServerHandler<ProcessErrorContext>
     {
         private readonly IOpenIddictTokenManager _tokenManager;
         private readonly ILogger<TokenEndpoint> _logger;
 
-        public WarnWhenRefused(IOpenIddictTokenManager tokenManager, ILogger<TokenEndpoint> logger)
+        public LogWhenRefused(IOpenIddictTokenManager tokenManager, ILogger<TokenEndpoint> logger)
         {
             _tokenManager = tokenManager;
             _logger = logger;
@@ -67,7 +67,7 @@ internal static partial class OpenIddictTokenRefusals
         public static OpenIddictServerHandlerDescriptor Descriptor { get; } =
             OpenIddictServerHandlerDescriptor.CreateBuilder<ProcessErrorContext>()
                 .AddFilter<OpenIddictServerHandlerFilters.RequireTokenRequest>()
-                .UseScopedHandler<WarnWhenRefused>()
+                .UseScopedHandler<LogWhenRefused>()
                 .SetOrder(OpenIddictServerHandlers.AttachErrorParameters.Descriptor.Order + 1000)
                 .SetType(OpenIddictServerHandlerType.Custom)
                 .Build();
@@ -133,9 +133,13 @@ internal static partial class OpenIddictTokenRefusals
             }
         }
 
-        [LoggerMessage(EventId = EventIds.TokenGrantRefusedTokenExpired, Level = LogLevel.Warning, Message = "{Step} refused for user {UserId}: the {Token} has expired")]
+        // Information: a token runs out when the user has been away for a while, which is normal
+        // (CLAUDE.md, #977).
+        [LoggerMessage(EventId = EventIds.TokenGrantRefusedTokenExpired, Level = LogLevel.Information, Message = "{Step} refused for user {UserId}: the {Token} has expired")]
         private static partial void LogTokenExpired(ILogger logger, string step, string userId, string token);
 
+        // A Warning, although a revoked token is normal: the same line covers a reused refresh token and a
+        // wrong code_verifier, and both can mean a stolen token (CLAUDE.md, #977).
         [LoggerMessage(EventId = EventIds.TokenGrantRefusedByOpenIddict, Level = LogLevel.Warning, Message = "{Step} refused for user {UserId} by OpenIddict: {Reason}")]
         private static partial void LogRefusedByOpenIddict(ILogger logger, string step, string userId, string? reason);
 

@@ -3,8 +3,8 @@ using static OpenIddict.Abstractions.OpenIddictConstants;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// The words a refusal warning uses for the step and for the token it carried. The code exchange and the
-/// refresh share one set of warnings (#977), so each warning takes these names.
+/// The words a refusal log line uses for the step and for the token it carried. The code exchange and the
+/// refresh share one set of log lines (#977), so each line takes these names.
 /// </summary>
 internal sealed record TokenGrantName(string Step, string Token, string TokenType)
 {

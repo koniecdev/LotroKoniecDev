@@ -11,8 +11,9 @@ using static OpenIddict.Abstractions.OpenIddictConstants;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Features.Auth;
 
 /// <summary>
-/// The warning for a refusal OpenIddict makes itself only writes to the log (#977). When it cannot read the
-/// stored token to name the user, OpenIddict's refusal must still go out as a refusal, not as a server error.
+/// The handler that logs a refusal OpenIddict makes itself only writes to the log (#977). When it cannot
+/// read the stored token to name the user, OpenIddict's refusal must still go out as a refusal, not as a
+/// server error.
 /// </summary>
 public sealed class OpenIddictTokenRefusalsTests
 {
@@ -21,13 +22,13 @@ public sealed class OpenIddictTokenRefusalsTests
     [Theory]
     [InlineData(GrantTypes.RefreshToken)]
     [InlineData(GrantTypes.AuthorizationCode)]
-    public async Task WarnWhenRefused_WhenTheStoredTokenCannotBeRead_ShouldNotThrow(string grantType)
+    public async Task LogWhenRefused_WhenTheStoredTokenCannotBeRead_ShouldNotThrow(string grantType)
     {
         // Arrange
         _tokenManager.FindByReferenceIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("The database is unreachable."));
         OpenIddictServerEvents.ProcessErrorContext context = RefusedTokenRequest(grantType);
-        OpenIddictTokenRefusals.WarnWhenRefused handler = new(_tokenManager, NullLogger<TokenEndpoint>.Instance);
+        OpenIddictTokenRefusals.LogWhenRefused handler = new(_tokenManager, NullLogger<TokenEndpoint>.Instance);
 
         // Act
         Func<Task> act = async () => await handler.HandleAsync(context);
@@ -39,7 +40,7 @@ public sealed class OpenIddictTokenRefusalsTests
     [Theory]
     [InlineData(GrantTypes.RefreshToken, "Refresh")]
     [InlineData(GrantTypes.AuthorizationCode, "Code exchange")]
-    public async Task WarnWhenRefused_WhenTheStoredTokenCannotBeRead_ShouldWarnWithTheFailure(
+    public async Task LogWhenRefused_WhenTheStoredTokenCannotBeRead_ShouldWarnWithTheFailure(
         string grantType,
         string expectedStep)
     {
@@ -47,7 +48,7 @@ public sealed class OpenIddictTokenRefusalsTests
         InvalidOperationException failure = new("The database is unreachable.");
         _tokenManager.FindByReferenceIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).ThrowsAsync(failure);
         using CapturingLoggerFactory loggerFactory = new();
-        OpenIddictTokenRefusals.WarnWhenRefused handler = new(_tokenManager, new Logger<TokenEndpoint>(loggerFactory));
+        OpenIddictTokenRefusals.LogWhenRefused handler = new(_tokenManager, new Logger<TokenEndpoint>(loggerFactory));
 
         // Act
         await handler.HandleAsync(RefusedTokenRequest(grantType));

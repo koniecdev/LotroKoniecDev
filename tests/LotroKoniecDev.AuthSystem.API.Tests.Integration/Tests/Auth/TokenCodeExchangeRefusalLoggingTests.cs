@@ -25,7 +25,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
 /// #977: the code exchange runs the same account checks as the refresh, and each refusal writes the same
-/// warning, naming the step as a code exchange. The client still gets one answer for every case, which
+/// log line, naming the step as a code exchange. The client still gets one answer for every case, which
 /// <see cref="AuthorizationCodeFlowTests"/> pins. OpenIddict refuses a used, expired or wrongly proven code
 /// before the handler runs, and that refusal names the user too. Every test signs in and exchanges the
 /// code on the host whose log it reads.
@@ -61,7 +61,7 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
     [InlineData(AccountChange.LockedOut, EventIds.TokenGrantRefusedLockedOut, "the account is locked out")]
     [InlineData(AccountChange.DeletionScheduledAndLockedOut, EventIds.TokenGrantRefusedDeletionScheduled, "account deletion is scheduled")]
     [InlineData(AccountChange.SecurityStampChanged, EventIds.TokenGrantRefusedStaleSecurityStamp, "the security stamp in the token is not current")]
-    public async Task AuthorizationCodeGrant_WhenTheAccountChangedAfterAuthorize_ShouldWarnWithTheCase(
+    public async Task AuthorizationCodeGrant_WhenTheAccountChangedAfterAuthorize_ShouldLogTheCaseAsInformation(
         AccountChange change,
         int expectedEventId,
         string expectedCase)
@@ -81,10 +81,10 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        CapturingLoggerFactory.LogEntry warning = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
-        warning.Level.ShouldBe(LogLevel.Warning);
-        warning.EventId.Id.ShouldBe(expectedEventId);
-        warning.Message.ShouldBe($"Code exchange refused for user {userId.Value}: {expectedCase}");
+        CapturingLoggerFactory.LogEntry entry = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Information);
+        entry.EventId.Id.ShouldBe(expectedEventId);
+        entry.Message.ShouldBe($"Code exchange refused for user {userId.Value}: {expectedCase}");
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
     }
 
     [Fact]
-    public async Task AuthorizationCodeGrant_WhenTheAccountIsUnchanged_ShouldNotWarn()
+    public async Task AuthorizationCodeGrant_WhenTheAccountIsUnchanged_ShouldLogNothing()
     {
         // Arrange
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
@@ -232,9 +232,9 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
     }
 
     [Fact]
-    public async Task AuthorizationCodeGrant_WhenTheCodeHasExpired_ShouldWarnThatItExpired()
+    public async Task AuthorizationCodeGrant_WhenTheCodeHasExpired_ShouldLogThatItExpiredAsInformation()
     {
-        // Arrange: OpenIddict says "no longer valid" for an expired code too, so the warning must not
+        // Arrange: OpenIddict says "no longer valid" for an expired code too, so the log line must not
         // read like a revoke
         (RegisterRequest user, IdentityId userId) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
@@ -251,10 +251,10 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        CapturingLoggerFactory.LogEntry warning = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
-        warning.Level.ShouldBe(LogLevel.Warning);
-        warning.EventId.Id.ShouldBe(EventIds.TokenGrantRefusedTokenExpired);
-        warning.Message.ShouldBe($"Code exchange refused for user {userId.Value}: the authorization code has expired");
+        CapturingLoggerFactory.LogEntry entry = TokenEndpointEntries(loggerFactory).ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Information);
+        entry.EventId.Id.ShouldBe(EventIds.TokenGrantRefusedTokenExpired);
+        entry.Message.ShouldBe($"Code exchange refused for user {userId.Value}: the authorization code has expired");
     }
 
     [Fact]
@@ -281,9 +281,9 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
     }
 
     [Fact]
-    public async Task RefreshTokenGrant_WhenTheTokenSentIsACode_ShouldNotWarn()
+    public async Task RefreshTokenGrant_WhenTheTokenSentIsACode_ShouldLogNothing()
     {
-        // Arrange: OpenIddict refuses a stored token of the wrong type without using it, so the warning
+        // Arrange: OpenIddict refuses a stored token of the wrong type without using it, so the log
         // does not name the user of that row either
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
@@ -301,9 +301,9 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
     }
 
     [Fact]
-    public async Task AuthorizationCodeGrant_WhenTheCodeSentIsARefreshToken_ShouldNotWarn()
+    public async Task AuthorizationCodeGrant_WhenTheCodeSentIsARefreshToken_ShouldLogNothing()
     {
-        // Arrange: OpenIddict refuses a stored token of the wrong type without using it, so the warning
+        // Arrange: OpenIddict refuses a stored token of the wrong type without using it, so the log
         // does not name the user of that row either
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);

@@ -147,7 +147,7 @@ internal sealed partial class TokenEndpoint : IEndpoint
 
     /// <summary>
     /// A refresh token that expired, was revoked, or was used more than 30 seconds ago never gets here:
-    /// OpenIddict refuses it first, and <see cref="OpenIddictTokenRefusals"/> writes the warning (#977).
+    /// OpenIddict refuses it first, and <see cref="OpenIddictTokenRefusals"/> writes the log line (#977).
     /// </summary>
     private static async Task<IResult> HandleRefreshTokenGrantAsync(
         HttpContext httpContext,
@@ -188,7 +188,7 @@ internal sealed partial class TokenEndpoint : IEndpoint
     /// <summary>
     /// The account checks that every code exchange and every refresh repeats, because the account can
     /// change after the token was issued. Null means refused. The caller sends the same answer for every
-    /// case, so a client learns nothing about the account; only the warning here names the case (#944).
+    /// case, so a client learns nothing about the account; only the log line here names the case (#944).
     /// Both grants share this one check, so they cannot drift apart (#977).
     /// </summary>
     private static async Task<ApplicationUser?> FindUserStillAllowedAsync(
@@ -215,7 +215,7 @@ internal sealed partial class TokenEndpoint : IEndpoint
         // Tokens are revoked when a GDPR deletion is scheduled, but that revocation is only best effort.
         // These checks make sure a locked account, or one waiting for deletion, can never trade a token
         // for a working access token. A scheduled deletion also locks the account, so it is checked first
-        // to get the more exact warning.
+        // to get the more exact log line.
         if (user.DeletionScheduledAt is not null)
         {
             LogRefusedDeletionScheduled(logger, grant.Step, userId);
@@ -315,15 +315,17 @@ internal sealed partial class TokenEndpoint : IEndpoint
     [LoggerMessage(EventId = EventIds.TokenGrantRefusedNoSubject, Level = LogLevel.Warning, Message = "{Step} refused: no user id could be read from the {Token}")]
     private static partial void LogRefusedNoSubject(ILogger logger, string step, string token);
 
-    [LoggerMessage(EventId = EventIds.TokenGrantRefusedUserGone, Level = LogLevel.Warning, Message = "{Step} refused for user {UserId}: the account no longer exists")]
+    // Information, not Warning: each case below is the normal result of a change to the account. A token
+    // with no user id, above, should never happen (CLAUDE.md, #977).
+    [LoggerMessage(EventId = EventIds.TokenGrantRefusedUserGone, Level = LogLevel.Information, Message = "{Step} refused for user {UserId}: the account no longer exists")]
     private static partial void LogRefusedUserGone(ILogger logger, string step, string userId);
 
-    [LoggerMessage(EventId = EventIds.TokenGrantRefusedDeletionScheduled, Level = LogLevel.Warning, Message = "{Step} refused for user {UserId}: account deletion is scheduled")]
+    [LoggerMessage(EventId = EventIds.TokenGrantRefusedDeletionScheduled, Level = LogLevel.Information, Message = "{Step} refused for user {UserId}: account deletion is scheduled")]
     private static partial void LogRefusedDeletionScheduled(ILogger logger, string step, string userId);
 
-    [LoggerMessage(EventId = EventIds.TokenGrantRefusedLockedOut, Level = LogLevel.Warning, Message = "{Step} refused for user {UserId}: the account is locked out")]
+    [LoggerMessage(EventId = EventIds.TokenGrantRefusedLockedOut, Level = LogLevel.Information, Message = "{Step} refused for user {UserId}: the account is locked out")]
     private static partial void LogRefusedLockedOut(ILogger logger, string step, string userId);
 
-    [LoggerMessage(EventId = EventIds.TokenGrantRefusedStaleSecurityStamp, Level = LogLevel.Warning, Message = "{Step} refused for user {UserId}: the security stamp in the token is not current")]
+    [LoggerMessage(EventId = EventIds.TokenGrantRefusedStaleSecurityStamp, Level = LogLevel.Information, Message = "{Step} refused for user {UserId}: the security stamp in the token is not current")]
     private static partial void LogRefusedStaleSecurityStamp(ILogger logger, string step, string userId);
 }

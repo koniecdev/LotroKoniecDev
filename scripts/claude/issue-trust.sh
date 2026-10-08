@@ -48,7 +48,8 @@ done
 # Resolve the repository from the checkout this script lives in, never from the caller's cwd —
 # `gh api repos/{owner}/{repo}` otherwise picks up whatever remote the current directory happens
 # to have, and a security gate must not depend on where it was invoked from.
-cd "$(cd "$(dirname "$0")/../.." && pwd)"
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+cd "$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
 
 # Normalize both allowlists once: strip whitespace, upper-case the associations (GitHub returns
 # them upper-case), and drop empty entries so a trailing comma can never match an empty value.

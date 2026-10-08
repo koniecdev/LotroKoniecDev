@@ -61,7 +61,8 @@ SEAM_CALL_SITES=(
 # syntactically valid connection string (same mechanism as Dockerfile.migrator / apply-migrations.sh).
 DESIGN_TIME_CONNECTION='Host=localhost;Database=design_time_only;Username=postgres;Password=unused'
 
-repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
 say() {

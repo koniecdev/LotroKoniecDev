@@ -27,7 +27,8 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+REPO_ROOT="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 
 SEEN=""
 MISSING_ON_DISK=""

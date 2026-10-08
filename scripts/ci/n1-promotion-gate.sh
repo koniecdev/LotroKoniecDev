@@ -25,7 +25,8 @@
 # them in the guards job). CI-only, Linux runners — no .ps1 twin, same as classify-changes.sh.
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
 
 say() {
     echo "$1"

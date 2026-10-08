@@ -20,7 +20,8 @@
 
 set -euo pipefail
 
-GATE_SH="$(cd "$(dirname "$0")/.." && pwd)/ci/n1-promotion-gate.sh"
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+GATE_SH="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)/ci/n1-promotion-gate.sh"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
@@ -59,13 +60,14 @@ exit "${STUB_N1_EXIT:-0}"
 STUB
 chmod +x "$FIXTURE/scripts/n1-compat.sh"
 
+# A case can start the gate by another path through $GATE_AS, such as one without the leading ./
 run_gate() {
     : > "$ARGS_FILE"
     LAST_STATUS=0
     LAST_OUTPUT="$( (cd "$FIXTURE" && env \
         GITHUB_STEP_SUMMARY="$TMP_ROOT/step_summary" \
         N1_ARGS_FILE="$ARGS_FILE" \
-        "$@" ./scripts/ci/n1-promotion-gate.sh) 2>&1 )" || LAST_STATUS=$?
+        "$@" "${GATE_AS:-./scripts/ci/n1-promotion-gate.sh}") 2>&1 )" || LAST_STATUS=$?
 }
 
 BASELINE='1f09af59d1bc0394da22452c4e6f89c6758e0ea4'
@@ -112,5 +114,13 @@ CASE='step summary'
 run_gate BASELINE_SHA="$BASELINE" STUB_N1_EXIT=2
 grep -q 'UNJUDGED' "$TMP_ROOT/step_summary" || fail 'the approver reads the summary — the block must land there too'
 pass 'a blocked promotion writes its verdict to the job summary'
+
+# With CDPATH exported, `cd` to a relative folder can print it. A path that starts with ./ never
+# goes through CDPATH, so this case leaves it out (#1048).
+CASE='relative path with CDPATH'
+GATE_AS=scripts/ci/n1-promotion-gate.sh run_gate CDPATH=".:$TMP_ROOT" BASELINE_SHA="$BASELINE" STUB_N1_EXIT=0
+[ "$LAST_STATUS" -eq 0 ] || fail 'the gate must find the proof next to itself' "status $LAST_STATUS"
+grep -qx "$BASELINE" "$ARGS_FILE" || fail 'the proof must run with the baseline' "$(cat "$ARGS_FILE")"
+pass 'an exported CDPATH does not confuse a gate started by a relative path'
 
 printf '\nAll %d n1-promotion-gate case(s) passed.\n' "$cases"

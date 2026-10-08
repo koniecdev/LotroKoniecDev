@@ -20,7 +20,8 @@
 
 set -euo pipefail
 
-SCRIPT_SH="$(cd "$(dirname "$0")/.." && pwd)/n1-compat.sh"
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+SCRIPT_SH="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)/n1-compat.sh"
 TMP_ROOT="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
@@ -148,6 +149,7 @@ exit 0
 STUB
 chmod +x "$STUB_BIN/dotnet"
 
+# A case can start the proof by another path through $PROOF_AS, such as one without the leading ./
 run_proof() {
     : > "$STUB_LOG"
     : > "$TMP_ROOT/step_summary"
@@ -157,7 +159,7 @@ run_proof() {
         GITHUB_STEP_SUMMARY="$TMP_ROOT/step_summary" \
         N1_STUB_LOG="$STUB_LOG" \
         N1_FIXTURE_ROOT="$FIXTURE" \
-        "$@" ./scripts/n1-compat.sh HEAD) 2>&1 )" || LAST_STATUS=$?
+        "$@" "${PROOF_AS:-./scripts/n1-compat.sh}" HEAD) 2>&1 )" || LAST_STATUS=$?
 }
 
 # Every dotnet invocation of one phase against one suite, e.g. `dotnet test` on the Auth suite.
@@ -298,5 +300,16 @@ CASE='step summary'
 run_proof STUB_RESTORE_FAIL_MATCH='AuthSystem'
 grep -q 'UNJUDGED' "$TMP_ROOT/step_summary" || fail 'the approver reads the summary — the verdict must land there too'
 pass 'a blocked proof writes its verdict to the job summary'
+
+# With CDPATH exported, `cd` to a relative folder can print it. Before #1048, the proof then failed
+# on its first `cd` with exit 1, which reads as a RED schema verdict. A path that starts with ./
+# never goes through CDPATH, so this case leaves it out.
+CASE='relative path with CDPATH'
+PROOF_AS=scripts/n1-compat.sh run_proof CDPATH=".:$TMP_ROOT"
+[ "$LAST_STATUS" -eq 0 ] || fail 'the proof must find its own tree' "status $LAST_STATUS"
+grep -q 'GREEN' <<<"$LAST_OUTPUT" || fail 'the green verdict should be stated'
+[ -n "$(invocations_for test 'AuthSystem')" ] || fail 'both suites must actually run'
+[ -n "$(invocations_for test 'TranslationSystem')" ] || fail 'both suites must actually run'
+pass 'an exported CDPATH does not confuse a proof started by a relative path'
 
 printf '\nAll %d n1-compat case(s) passed.\n' "$cases"

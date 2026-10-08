@@ -22,7 +22,8 @@
 
 set -euo pipefail
 
-SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+SCRIPTS_DIR="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 TRUST="$SCRIPTS_DIR/claude/issue-trust.sh"
 
 TMP_ROOT="$(mktemp -d)"
@@ -393,6 +394,12 @@ expect_stdout() {
         || fail "stdout should be '$1' but was '$LAST_STDOUT'" "$LAST_OUTPUT"
 }
 
+# from_fake_repo [NAME=value...] <script> <args...> — starts a script of the fake repository by its
+# relative path, with CDPATH exported. `cd` to a relative folder can then print it, and the script
+# must not take that output for its own folder (#1048). Started through `env`, the script keeps
+# the relative path as $0; bash's own exec would hand it the full path.
+from_fake_repo() { (cd "$FAKE_REPO" && CDPATH=".:$TMP_ROOT" exec env "$@"); }
+
 # ── issue-trust.sh: the policy ─────────────────────────────────────────────────────────────────
 for association in OWNER MEMBER COLLABORATOR; do
     reset_fixtures
@@ -491,6 +498,12 @@ fixture_issue 21 ghost null
 run_case 1 "issue-trust: a trailing comma in the allowlist admits no empty association" \
     env LOOP_TRUSTED_ASSOCIATIONS=OWNER, "$TRUST" 21
 
+reset_fixtures
+fixture_issue 25 maintainer OWNER
+run_case 0 "issue-trust: an exported CDPATH does not confuse a gate started by a relative path" \
+    from_fake_repo scripts/claude/issue-trust.sh 25
+expect_in_output "trusted"
+
 run_case 2 "issue-trust: a non-numeric issue argument is a usage error" "$TRUST" "42; rm -rf /"
 
 # The shape guard must sit above the escape hatch — an env var must not be able to switch it off.
@@ -520,6 +533,13 @@ reset_fixtures
 fixture_list 31:priority-high
 fixture_issue 31 maintainer OWNER
 run_case 0 "next-ticket: a maintainer-authored issue is still returned" picker
+expect_stdout "31"
+
+reset_fixtures
+fixture_list 31:priority-high
+fixture_issue 31 maintainer OWNER
+run_case 0 "next-ticket: an exported CDPATH does not confuse a picker started by a relative path" \
+    from_fake_repo LOOP_SKIP_ISSUES= LOOP_SKIP_TITLES= scripts/claude/next-ticket.sh
 expect_stdout "31"
 
 # Priority must not outrank provenance: the attacker's `priority-critical` ticket sorts first and loses.
@@ -740,6 +760,15 @@ grep -qx "docker image rm lotrokoniecdev-auth:fe-e2e-ticket-70-hash" "$TMP_ROOT/
 [ -f "$FAKE_REPO/dirty.txt" ] || fail "the main checkout's work in progress is gone"
 cases=$((cases + 1)); printf '✓ work-ticket: the main checkout is untouched and the finished worktree is removed\n'
 cases=$((cases + 1)); printf '✓ work-ticket: a summary that talks about rate limits is not a usage limit\n'
+
+reset_fixtures
+fixture_issue 160 maintainer OWNER
+fixture_pr_view 7160 OPEN 160-fixture
+run_case 0 "work-ticket: an exported CDPATH does not confuse a worker started by a relative path" \
+    from_fake_repo CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" scripts/claude/work-ticket.sh 160 "$TMP_ROOT/run"
+expect_in_output "PR #7160 opened"
+[ "$(cat "$TMP_ROOT/session-cwd")" = "$(cd "$FAKE_REPO" && pwd -P)/.claude/worktrees/ticket-160" ] \
+    || fail "the session should run in .claude/worktrees/ticket-160" "$(cat "$TMP_ROOT/session-cwd")"
 
 reset_fixtures
 fixture_issue 71 maintainer OWNER

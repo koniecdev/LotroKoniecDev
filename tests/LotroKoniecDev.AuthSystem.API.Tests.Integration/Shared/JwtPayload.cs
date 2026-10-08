@@ -21,4 +21,20 @@ internal static class JwtPayload
         JsonDocument.Parse(payload).Dispose();
         return payload;
     }
+
+    /// <summary>
+    /// A JWT carries one audience as a string and more than one as an array. This reads either as a list.
+    /// </summary>
+    public static IReadOnlyList<string> ReadAudiences(string jwt)
+    {
+        using JsonDocument payload = JsonDocument.Parse(Read(jwt));
+        JsonElement audience = payload.RootElement.GetProperty("aud");
+
+        return audience.ValueKind switch
+        {
+            JsonValueKind.String => [audience.GetString()!],
+            JsonValueKind.Array => audience.EnumerateArray().Select(element => element.GetString()!).ToList(),
+            _ => throw new ArgumentException($"The \"aud\" claim is a {audience.ValueKind}.", nameof(jwt))
+        };
+    }
 }

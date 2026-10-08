@@ -65,11 +65,13 @@ Claimy. U nas access token niesie m.in. (`TokenEndpoint.cs:229-234`):
   "role": ["Translator"],
   "scope": "openid email profile roles api offline_access",
   "iss": "https://localhost:5003/",
-  "aud": "lotrokoniecdev-api",
+  "aud": ["lotrokoniecdev-api", "lotrokoniecdev-auth-api"],
   "exp": 1718800000
 }
 ```
-Kluczowe: `sub` to `IdentityId`, `role` napędza autoryzację w `tms-api`. **`MapInboundClaims` jest
+Kluczowe: `sub` to `IdentityId`, `role` napędza autoryzację w `tms-api`. `aud` wymienia oba API, bo
+strona wysyła ten sam token do `tms-api` i do endpointów konta w `auth-api`, a każde z nich przyjmuje
+tylko token, który je wymienia (#1023). **`MapInboundClaims` jest
 wyłączony** po obu stronach (`ApiDependencyInjection.cs:228`), więc claimy zostają surowymi typami
 OpenIddict (`sub`/`name`/`email`/`role`), a nie mapują się na długie `ClaimTypes.*`.
 
@@ -241,7 +243,9 @@ rozmowę („dlaczego rozdzieliliście rejestrację od profilu domenowego").
 - **roles**: z `userManager.GetRolesAsync(user)` przy wydawaniu tokena (`TokenEndpoint.cs:178`,
   `:233`, `AuthorizeEndpoint.cs:105`), wstawiane jako claimy `role`.
 - **scopes**: z requestu klienta (`request.GetScopes()`), ograniczone permissionami klienta seedowanymi
-  w bazie. `SetResources(AuthConstants.ClientIds.Api)` ustawia `aud` na `lotrokoniecdev-api`.
+  w bazie. `SetResources(UserTokenAudiences.All)` ustawia `aud` na `lotrokoniecdev-api` (`tms-api`) i
+  `lotrokoniecdev-auth-api` (`auth-api`). Wymiana kodu i refresh ustawiają tę listę od nowa, a nie
+  biorą jej z kodu czy refresh tokena — powód jest w `UserTokenAudiences` (#1023).
 
 Role seedowane (`DatabaseSeederExtensions.cs:37`): **`Admin`** i **`Translator`**.
 
@@ -379,10 +383,13 @@ buduje `ClaimsIdentity` z `sub = client_id`, scope'ami z requestu i `aud = lotro
 stronie `tms-api` taki token przechodzi policy `RequireServiceScope` (scope `service`) — gdyby slice
 tego wymagał (dziś żaden nie wymaga, ale infrastruktura jest gotowa).
 
-W samym `auth-api` taki token nie wejdzie na endpointy konta (`auth/*` z logowaniem). Domyślna policy
-tego API to `UserTokenPolicy`: `sub` musi być GUID-em usera, więc token usługi dostaje 403, zanim ruszy
-handler (#966). Wyjątkiem jest `connect/userinfo`, który ma własną policy i odpowiada `invalid_token`
-(#955).
+W samym `auth-api` taki token nie wejdzie na żaden endpoint z bearerem (`auth/*` z logowaniem i
+`connect/userinfo`). Walidacja OpenIddict w `auth-api` przyjmuje tylko token z audience
+`lotrokoniecdev-auth-api` (`AddAudiences` w `OpenIddictExtensions.cs`), a token usługi ma tylko
+`lotrokoniecdev-api`, więc dostaje 401 `invalid_token`, zanim ruszy jakakolwiek policy (#1023). Za tym
+stoją jeszcze dwie warstwy, na wypadek gdyby token klienta kiedyś wymienił `auth-api`: domyślna policy
+`UserTokenPolicy` (`sub` musi być GUID-em usera, inaczej 403 — #966) i własne sprawdzenie w
+`connect/userinfo` (`invalid_token` — #955).
 
 ---
 

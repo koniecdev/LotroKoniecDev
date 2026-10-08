@@ -32,7 +32,13 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
     /// <summary>
     /// A token issued to the API client itself. Its subject is the client id, not a user id.
     /// </summary>
-    protected async Task<string> GetClientCredentialsAccessTokenAsync()
+    protected Task<string> GetClientCredentialsAccessTokenAsync() =>
+        GetClientCredentialsAccessTokenAsync(ApiClient.Http);
+
+    /// <summary>
+    /// Takes the client of the host that will check the token. Tokens are signed with each host's own keys.
+    /// </summary>
+    protected static async Task<string> GetClientCredentialsAccessTokenAsync(HttpClient client)
     {
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
@@ -43,7 +49,7 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
         });
 
         using HttpResponseMessage tokenResponse =
-            await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
+            await client.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
 
         tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -91,7 +97,10 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
         string scope = "email profile roles api") =>
         RequestPasswordGrantAsync(ApiClient.Http, email, password, scope);
 
-    private static async Task<HttpResponseMessage> RequestPasswordGrantAsync(
+    /// <summary>
+    /// Takes the client of the host that will check the tokens. Tokens are sealed with each host's own keys.
+    /// </summary>
+    protected static async Task<HttpResponseMessage> RequestPasswordGrantAsync(
         HttpClient client,
         string email,
         string password,

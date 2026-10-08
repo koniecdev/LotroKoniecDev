@@ -6,7 +6,9 @@ using LotroKoniecDev.AuthSystem.API.Common;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Common;
 
 /// <summary>
-/// A service token is valid but names no account, so the account endpoints must refuse it (#966).
+/// A token issued to a client names no account, so the account endpoints must refuse it (#966). A
+/// service token does not name this API, so the audience check refuses it first (#1023). This policy is
+/// the second layer.
 /// </summary>
 public sealed class UserTokenPolicyTests
 {

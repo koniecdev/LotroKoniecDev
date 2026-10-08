@@ -56,8 +56,9 @@ internal sealed class UserInfoEndpoint : IEndpoint
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
     {
-        // Any valid token, not the default UserTokenPolicy. A service token must reach the handler, which
-        // answers it with invalid_token, the error an OpenID Connect client reads here (#955).
+        // Any valid token that names this API (#1023), not the default UserTokenPolicy. A token issued to a
+        // client must reach the handler, which answers it with invalid_token, the error an OpenID Connect
+        // client reads here (#955).
         endpointRouteBuilder.MapMethods("connect/userinfo", [HttpMethods.Get, HttpMethods.Post], HandleAsync)
             .RequireAuthorization(policy => policy.RequireAuthenticatedUser());
     }

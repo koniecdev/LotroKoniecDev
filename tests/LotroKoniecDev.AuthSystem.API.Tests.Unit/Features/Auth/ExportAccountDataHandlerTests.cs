@@ -11,8 +11,9 @@ using Shouldly;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Features.Auth;
 
 /// <summary>
-/// The default policy keeps a service token away from this handler (#966). The handler still never hands
-/// a non-GUID id to Identity, which throws on one, so the crash cannot come back through another caller.
+/// The audience check (#1023) and then the default policy (#966) keep a service token away from this
+/// handler. The handler still never hands a non-GUID id to Identity, which throws on one, so the crash
+/// cannot come back through another caller.
 /// </summary>
 public sealed class ExportAccountDataHandlerTests
 {

@@ -5,7 +5,9 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.Middleware;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.SharedKernel.Authorization;
@@ -20,7 +22,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 /// derived host whose logger factory captures what the host logged. In Testing <c>UseForwardedHeaders</c>
 /// trusts every peer, so <c>X-Forwarded-For</c> plays the connection address Caddy resolves:
 /// <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses are visitors. The one 403 here is a
-/// service token at an account endpoint (#966).
+/// client token at an account endpoint (#966). A real service token does not name this API (#1023), so
+/// that test gives it this API's audience.
 /// </summary>
 public sealed class AuthorizationLoggingTests : EndpointsTestBase
 {
@@ -78,11 +81,17 @@ public sealed class AuthorizationLoggingTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task GetAccountData_WithAServiceToken_ShouldWarnAboutTheForbiddenCall()
+    public async Task GetAccountData_WithAClientTokenThatNamesThisApi_ShouldWarnAboutTheForbiddenCall()
     {
-        // Arrange: the token comes from this host, because each host signs with its own keys
+        // Arrange: the token comes from this host, because each host signs with its own keys. A real service
+        // token does not name this API (#1023), so the host gives it this API's audience, and only the
+        // policy is left to refuse it.
         using CapturingLoggerFactory loggerFactory = new();
-        using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
+        using WebApplicationFactory<Program> host = CreateHost(loggerFactory, services =>
+            services.OverrideSignInAudiences(
+                context => context.Request.IsClientCredentialsGrantType(),
+                AuthConstants.ClientIds.Api,
+                AuthConstants.Audiences.AuthApi));
         using HttpClient client = host.CreateClient();
         using HttpRequestMessage tokenRequest = CreateClientCredentialsRequest(AuthSystemApiFactory.TestApiClientSecret, "203.0.113.95");
         using HttpResponseMessage tokenResponse = await client.SendAsync(tokenRequest);
@@ -191,7 +200,9 @@ public sealed class AuthorizationLoggingTests : EndpointsTestBase
         return request;
     }
 
-    private WebApplicationFactory<Program> CreateHost(CapturingLoggerFactory loggerFactory)
+    private WebApplicationFactory<Program> CreateHost(
+        CapturingLoggerFactory loggerFactory,
+        Action<IServiceCollection>? configureServices = null)
     {
         return Factory.WithWebHostBuilder(builder =>
         {
@@ -203,7 +214,11 @@ public sealed class AuthorizationLoggingTests : EndpointsTestBase
                 });
             });
 
-            builder.ConfigureTestServices(services => services.AddSingleton<ILoggerFactory>(loggerFactory));
+            builder.ConfigureTestServices(services =>
+            {
+                services.AddSingleton<ILoggerFactory>(loggerFactory);
+                configureServices?.Invoke(services);
+            });
         });
     }
 }

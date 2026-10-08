@@ -1,7 +1,13 @@
 using System.Net.Http.Headers;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using OpenIddict.Abstractions;
+using LotroKoniecDev.AuthSystem.API.BackgroundServices;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
+using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
@@ -33,16 +39,33 @@ public sealed class UserInfoEndpointTests : EndpointsTestBase
         body.RootElement.GetProperty("role").EnumerateArray().Select(role => role.GetString()).ShouldBe(["Translator"]);
     }
 
+    /// <summary>
+    /// A real service token does not name this API, so the audience check refuses it first (#1023). The host
+    /// here gives it this API's audience too, so the token reaches the handler, which must not hand the
+    /// client id to Identity (#955).
+    /// </summary>
     [Theory]
     [InlineData("GET")]
     [InlineData("POST")]
-    public async Task UserInfo_ShouldRefuseWithInvalidToken_WhenTheTokenWasIssuedToAService(string method)
+    public async Task UserInfo_ShouldRefuseWithInvalidToken_WhenAClientTokenNamesThisApi(string method)
     {
         // Arrange
-        string accessToken = await GetClientCredentialsAccessTokenAsync();
+        await using WebApplicationFactory<Program> host = Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                // A second relay on this database could take a row another test waits for.
+                AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
+
+                services.OverrideSignInAudiences(
+                    context => context.Request.IsClientCredentialsGrantType(),
+                    AuthConstants.ClientIds.Api,
+                    AuthConstants.Audiences.AuthApi);
+            }));
+        using HttpClient client = host.CreateClient();
+        string accessToken = await GetClientCredentialsAccessTokenAsync(client);
 
         // Act
-        using HttpResponseMessage response = await RequestUserInfoAsync(new HttpMethod(method), accessToken);
+        using HttpResponseMessage response = await RequestUserInfoAsync(client, new HttpMethod(method), accessToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
@@ -73,7 +96,13 @@ public sealed class UserInfoEndpointTests : EndpointsTestBase
         challenge.Parameter.ShouldContain("error_description=\"The specified access token is invalid.\"");
     }
 
-    private async Task<HttpResponseMessage> RequestUserInfoAsync(HttpMethod method, string accessToken)
+    private Task<HttpResponseMessage> RequestUserInfoAsync(HttpMethod method, string accessToken) =>
+        RequestUserInfoAsync(ApiClient.Http, method, accessToken);
+
+    private static async Task<HttpResponseMessage> RequestUserInfoAsync(
+        HttpClient client,
+        HttpMethod method,
+        string accessToken)
     {
         using HttpRequestMessage request = new(method, new Uri("connect/userinfo", UriKind.Relative));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -84,6 +113,6 @@ public sealed class UserInfoEndpointTests : EndpointsTestBase
             request.Content = new FormUrlEncodedContent([]);
         }
 
-        return await ApiClient.Http.SendAsync(request);
+        return await client.SendAsync(request);
     }
 }

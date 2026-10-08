@@ -101,6 +101,10 @@ internal static class OpenIddictExtensions
             {
                 options.UseLocalServer();
                 options.UseAspNetCore();
+
+                // A token must name this API. Without this line any token this server signed got in, a
+                // service token for the translation API too (#1023).
+                options.AddAudiences(AuthConstants.Audiences.AuthApi);
             });
 
         services.AddSingleton<IConfigureOptions<OpenIddictServerOptions>, ConfigureOpenIddictServerSettings>();

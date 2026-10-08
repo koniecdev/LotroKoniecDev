@@ -820,7 +820,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             ConfirmForm(userId, newEmail, token));
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        await EmailChangeEmailSpy.WaitForRevertOfferCaptureAsync();
+        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync();
 
         return (user, newEmail, userId);
     }

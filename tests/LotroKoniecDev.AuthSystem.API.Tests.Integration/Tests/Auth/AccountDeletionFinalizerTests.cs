@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -17,8 +18,10 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 using LotroKoniecDev.AuthSystem.Persistence.Sessions;
 using LotroKoniecDev.SharedKernel.Constants;
+using LotroKoniecDev.SharedKernel.IntegrationEvents;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.Tests.Shared;
@@ -845,15 +848,16 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldCleanUpAndCountTheAccount_WhenTheErasureSaveLandedButItsAnswerWasLost()
     {
-        // The save lands and its answer is lost. EF runs the save again with the old concurrency stamp,
-        // so Identity reports a conflict. The account is erased all the same, and no later run comes back
-        // to it, so this run has to finish the cleanup (#962).
+        // The save lands and its answer is lost. The save writes the account and its AccountErased message
+        // in one transaction (ADR-0065), so the commit is what lands. EF runs the transaction again, and
+        // the message already there or the old concurrency stamp makes it fail. The account is erased all
+        // the same, and no later run comes back to it, so this run has to finish the cleanup (#962).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
-        Factory.DbCommandFailures.FailNextAfterItRuns(
-            command => IsUpdateOfAccount(command, identityId.Value),
+        Factory.DbCommitFailures.FailNextCommitAfterItLands(
+            eventData => CommitsTheErasureOf(eventData, identityId.Value),
             CreateTransientFailure);
         using CapturingLoggerFactory loggerFactory = new();
 
@@ -861,7 +865,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         int finalizedCount = await RunFinalizerAsync(loggerFactory);
 
         // Assert
-        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        Factory.DbCommitFailures.FailuresInjected.ShouldBe(1);
         finalizedCount.ShouldBe(1);
 
         ApplicationUser user = await GetUserAsync(identityId.Value);
@@ -883,8 +887,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
-        Factory.DbCommandFailures.FailNextAfterItRuns(
-            command => IsUpdateOfAccount(command, identityId.Value),
+        Factory.DbCommitFailures.FailNextCommitAfterItLands(
+            eventData => CommitsTheErasureOf(eventData, identityId.Value),
             CreateTransientFailure);
         FailTheEmergencyLockOf(identityId.Value);
         using CapturingLoggerFactory loggerFactory = new();
@@ -893,7 +897,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         int finalizedCount = await RunFinalizerAsync(loggerFactory);
 
         // Assert
-        Factory.DbCommandFailures.FailuresInjected.ShouldBe(2);
+        Factory.DbCommitFailures.FailuresInjected.ShouldBe(1);
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
         finalizedCount.ShouldBe(1);
 
         ApplicationUser user = await GetUserAsync(identityId.Value);
@@ -1654,6 +1659,16 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     /// </summary>
     private static PostgresException CreateDataCorruption() =>
         new("simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.DataCorrupted);
+
+    /// <summary>
+    /// The anonymizing save: the account and its AccountErased message, committed together (ADR-0065).
+    /// </summary>
+    private static bool CommitsTheErasureOf(TransactionEndEventData eventData, Guid userId) =>
+        eventData.Context is not null
+        && eventData.Context.ChangeTracker.Entries<ApplicationUser>()
+            .Any(entry => entry.Entity.Id == userId && entry.State == EntityState.Modified)
+        && eventData.Context.ChangeTracker.Entries<OutboxMessage>()
+            .Any(entry => entry.Entity.Type == nameof(AccountErased) && entry.State == EntityState.Added);
 
     private static bool IsUpdateOfAccount(DbCommand command, Guid userId) =>
         command.CommandText.Contains($"UPDATE {DatabaseSchemas.Auth}.\"Users\"", StringComparison.Ordinal)

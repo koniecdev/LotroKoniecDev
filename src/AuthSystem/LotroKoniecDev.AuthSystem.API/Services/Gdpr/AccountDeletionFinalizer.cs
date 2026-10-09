@@ -103,11 +103,17 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
     }
 
     /// <summary>
-    /// Runs after the erasures, so it also covers the accounts this run erased. A failure only waits
-    /// for the next run, which goes over every erased account again (ADR-0065).
+    /// Runs after the erasures, so it also covers the accounts this run erased. A failure or a shutdown
+    /// only waits for the next run, which goes over every erased account again (ADR-0065). Unlike an
+    /// erasure, it has nothing to finish once started.
     /// </summary>
     private async Task ReconcileErasedAccountsAsync(CancellationToken cancellationToken)
     {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
         // A failed erasure can leave its AccountErased message tracked, and the reconciler saves through
         // this context. That message must never be saved for an account that is not erased.
         _dbContext.ChangeTracker.Clear();
@@ -120,7 +126,11 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
                 LogErasedAccountsReconciled(_logger, reconciliation.MessagesScrubbed, reconciliation.ErasuresAnnounced);
             }
         }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The host is stopping. The next run starts it again.
+        }
+        catch (Exception ex)
         {
             LogErasedAccountsReconcileFailed(_logger, ex);
         }

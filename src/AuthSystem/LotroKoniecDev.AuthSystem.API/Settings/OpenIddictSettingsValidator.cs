@@ -18,6 +18,16 @@ namespace LotroKoniecDev.AuthSystem.API.Settings;
 /// </summary>
 internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictSettings>
 {
+    private const int MinimumApiClientSecretLength = 32;
+
+    /// <summary>
+    /// Many clients renew a token a minute before it runs out, and the website does so for every token
+    /// that lives two minutes or more. A token that lives a minute or less looks "about to run out" as soon
+    /// as it arrives, so such a client renews it on every page (#1025). The website copes with a one-minute
+    /// token, which it refreshes after 30 seconds, but the server should not depend on that (ADR-0049).
+    /// </summary>
+    private const int MinimumAccessTokenLifetimeMinutes = 2;
+
     private readonly IWebHostEnvironment _environment;
 
     public OpenIddictSettingsValidator(IWebHostEnvironment environment)
@@ -146,16 +156,6 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
 
         return Result(errors);
     }
-
-    private const int MinimumApiClientSecretLength = 32;
-
-    /// <summary>
-    /// Many clients renew a token a minute before it runs out, and the website does so for every token
-    /// that lives two minutes or more. A token that lives a minute or less looks "about to run out" as soon
-    /// as it arrives, so such a client renews it on every page (#1025). The website copes with a one-minute
-    /// token, which it refreshes after 30 seconds, but the server should not depend on that (ADR-0049).
-    /// </summary>
-    private const int MinimumAccessTokenLifetimeMinutes = 2;
 
     private static ValidateOptionsResult Result(List<string> errors)
     {

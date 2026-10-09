@@ -124,10 +124,12 @@ at the #1071 gate.
   them is back (runbook, "Rolling back past ADR-0065").
 
 `ErasedAccounts.Rule` is the one definition of an erased account, used by the reconciler and by
-§6: the `anon-` address on the anonymization domain and no password. The address alone is not proof,
-because the registration form accepts any address, and a registered account always has a password.
-The deletion date is not part of it: the immediate deletion before two-phase deletion (#460) never
-wrote one.
+§6: the `anon-` address on the anonymization domain and no password. Neither half is proof alone. A
+cancelled deletion and an undone e-mail change clear a live account's password, and the registration
+form accepts any address. But no mail reaches the anonymization domain, so an account with that
+address can never confirm it, and only a confirmed account reaches those two flows. The deletion
+date is not part of the rule: the immediate deletion before two-phase deletion (#460) never wrote
+one.
 
 ### 6. A late e-mail change notice is not sent to an erased account
 

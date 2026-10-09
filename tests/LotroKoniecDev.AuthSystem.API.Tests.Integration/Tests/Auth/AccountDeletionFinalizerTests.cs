@@ -654,6 +654,30 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task Finalizer_ShouldSkipTheReconciliation_WhenTheHostStopsDuringTheRun()
+    {
+        // A shutdown lets the erasure finish (#981), but the reconciliation has nothing to finish, so the
+        // next run does it instead of this one failing on a cancelled token (ADR-0065).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        (_, IdentityId erasedEarlierId) = await RegisterAndScheduleDeletionAsync();
+        await AnonymizeAsAnEarlierVersionDidAsync(erasedEarlierId.Value);
+        using CancellationTokenSource shutdown = new();
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory, shutdown.CancelAsync, shutdown.Token);
+
+        // Assert
+        finalizedCount.ShouldBe(1);
+        (await CountAccountErasedMessagesAsync(identityId.Value)).ShouldBe(1);
+        (await CountAccountErasedMessagesAsync(erasedEarlierId.Value)).ShouldBe(0);
+        loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasedAccountsReconcileFailed);
+    }
+
+    [Fact]
     public async Task Finalizer_ShouldStillCountTheErasure_WhenTheReconciliationFails()
     {
         // The reconciliation runs after the erasures. Its failure only waits for the next run, which

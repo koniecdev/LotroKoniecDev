@@ -81,7 +81,7 @@ public sealed class OutboxMessageRoutingTests
         // The erasure reconciler finds an erased account's messages by this key (ADR-0065). A contract
         // that named its account another way would keep its personal data after the erasure.
         Type[] contracts = typeof(OutboxWriter).Assembly.GetTypes()
-            .Append(typeof(AccountErased))
+            .Concat(typeof(AccountErased).Assembly.GetTypes())
             .Where(type => OutboxMessageRouting.TryGetRoute(type.Name, out _))
             .ToArray();
 

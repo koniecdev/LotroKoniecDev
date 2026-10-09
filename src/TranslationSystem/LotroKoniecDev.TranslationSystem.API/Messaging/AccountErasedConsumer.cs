@@ -191,11 +191,11 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Handles one delivery. Every path ends in exactly one ack or reject: an exception leaving this
-    /// handler is swallowed by the client library, and the delivery would stay stuck until the channel
-    /// dies.
+    /// Handles one delivery. Every path ends in exactly one ack, nack or reject: an exception leaving
+    /// this handler is swallowed by the client library, and the delivery would stay stuck until the
+    /// channel dies. It is internal so the unit tests can drive the path for a channel that fails.
     /// </summary>
-    private async Task OnDeliveredAsync(
+    internal async Task OnDeliveredAsync(
         IChannel channel,
         BasicDeliverEventArgs delivery,
         CancellationToken stoppingToken)

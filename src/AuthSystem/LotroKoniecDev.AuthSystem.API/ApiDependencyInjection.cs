@@ -103,6 +103,7 @@ internal static class ApiDependencyInjection
             services.AddScoped<IEmailChangeEmailSender, EmailChangeEmailSender>();
 
             services.AddScoped<IAccountErasureService, AccountErasureService>();
+            services.AddScoped<IErasedAccountReconciler, ErasedAccountReconciler>();
             services.AddScoped<IAccountDeletionSchedule, AccountDeletionSchedule>();
             services.AddScoped<IAccountDeletionFinalizer, AccountDeletionFinalizer>();
             services.AddHostedService<AccountDeletionFinalizerHostedService>();

@@ -45,6 +45,26 @@ public sealed class EmailChangeCompletedProcessorTests
     }
 
     [Fact]
+    public async Task ProcessAsync_AccountErasedSinceTheChange_SucceedsWithoutSending()
+    {
+        // The relay was down until after the erasure: the notices would mail the addresses of a person
+        // whose account is gone (ADR-0065).
+        ApplicationUser user = CreateUser();
+        user.Email = "anon-0123456789abcdef0123456789abcdef@anonymized.local";
+        user.DisarmEmailChangeRevert();
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
+        EmailChangeCompletedProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(
+            new EmailChangeCompleted(user.Id, PreviousEmail, NewEmail), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        await _emailSender.DidNotReceiveWithAnyArgs()
+            .SendChangedNoticeWithRevertAsync(default, default!, default!, default!, default, default);
+        await _emailSender.DidNotReceiveWithAnyArgs().SendChangedNoticeAsync(default, default!, default!, default);
+    }
+
+    [Fact]
     public async Task ProcessAsync_ChangeCompleted_SendsTheRevertOfferToThePreviousAddressAndANoticeToTheNewOne()
     {
         ApplicationUser user = CreateUser();

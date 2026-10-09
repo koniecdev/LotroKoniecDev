@@ -3,9 +3,11 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.Constants;
+using LotroKoniecDev.SharedKernel.IntegrationEvents;
 using LotroKoniecDev.SharedKernel.Monads;
 
 namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
@@ -14,8 +16,9 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 /// The part of a GDPR account deletion that cannot be undone: anonymizing the auth data, locking the
 /// account for good and cleaning up what is left. The finalizer calls it once the grace period is over
 /// (see ADR-0031).
-/// Nothing has to be called in the other context: the TranslationSystem only stores IdentityId values
-/// as credit, and once the auth user is anonymized those values point at nobody.
+/// The TranslationSystem keeps its own copy of the person's name and address on the translator profile,
+/// so the anonymizing save also writes an <see cref="AccountErased"/> outbox message, and the TMS erases
+/// that copy when it arrives (ADR-0065).
 /// It is safe to run twice, because callers skip users whose e-mail already carries the anonymization
 /// marker.
 /// </summary>
@@ -30,6 +33,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IOpenIddictTokenManager _tokenManager;
     private readonly IOpenIddictAuthorizationManager _authorizationManager;
+    private readonly OutboxWriter _outboxWriter;
     private readonly ILogger<AccountErasureService> _logger;
 
     public AccountErasureService(
@@ -37,12 +41,14 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         UserManager<ApplicationUser> userManager,
         IOpenIddictTokenManager tokenManager,
         IOpenIddictAuthorizationManager authorizationManager,
+        OutboxWriter outboxWriter,
         ILogger<AccountErasureService> logger)
     {
         _dbContext = dbContext;
         _userManager = userManager;
         _tokenManager = tokenManager;
         _authorizationManager = authorizationManager;
+        _outboxWriter = outboxWriter;
         _logger = logger;
     }
 
@@ -57,6 +63,12 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         // Taken before this run changes the account. When the check after a failed lock fails too, this
         // is all the run knows about an earlier run's lock (#1018).
         bool lockedForGoodWhenRead = user.LockoutEnabled && user.LockoutEnd == DateTimeOffset.MaxValue;
+
+        // The TMS message is only added here, so it commits in the anonymizing save below. No run comes
+        // back to an account after that save, so a message written later and lost would leave the
+        // person's name in the TMS for good (ADR-0065). It stays outside the try: a type with no route
+        // is a programmer error that has to fail loudly, not pass for a failed save.
+        _outboxWriter.Enqueue(new AccountErased(user.Id));
 
         try
         {
@@ -128,6 +140,8 @@ internal sealed partial class AccountErasureService : IAccountErasureService
                 return afterFailedSave;
             }
         }
+
+        _outboxWriter.NotifyEnqueuedCommitted();
 
         LogAuthDataAnonymized(_logger, user.Id);
 

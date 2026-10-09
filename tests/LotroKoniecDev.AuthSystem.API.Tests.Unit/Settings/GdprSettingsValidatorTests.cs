@@ -79,7 +79,7 @@ public sealed class GdprSettingsValidatorTests
     }
 
     [Theory]
-    [InlineData("1.00:00:00", "1.00:00:00")]
+    [InlineData("14.00:00:00", "14.00:00:00")]
     [InlineData("14.00:00:00", "1.00:00:00")]
     [InlineData("29.00:00:00", "1.00:00:00")]
     [InlineData("15.00:00:00", "15.00:00:00")]
@@ -95,6 +95,26 @@ public sealed class GdprSettingsValidatorTests
         ValidateOptionsResult result = _validator.Validate(name: null, settings);
 
         result.Succeeded.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("00:01:00")]
+    [InlineData("1.00:00:00")]
+    [InlineData("13.23:59:59.9999999")]
+    public void Validate_GracePeriodShorterThanFourteenDays_FailsNamingTheSetting(string gracePeriod)
+    {
+        GdprSettings settings = new()
+        {
+            DeletionGracePeriod = Parse(gracePeriod),
+            DeletionFinalizationPollInterval = TimeSpan.FromMinutes(1)
+        };
+
+        ValidateOptionsResult result = _validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        result.Failures.ShouldContain(failure =>
+            failure.Contains("DeletionGracePeriod must be at least 14 days", StringComparison.Ordinal));
     }
 
     [Theory]

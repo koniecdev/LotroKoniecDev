@@ -4,6 +4,7 @@ using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
+using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.Monads;
 
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
@@ -89,6 +90,15 @@ internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProce
             return Result.Success();
         }
 
+        // A notice that arrives after the erasure, from a relay that was down that long, must not mail
+        // the person's addresses again. The account is gone for them, so sending again could never
+        // change anything (ADR-0065).
+        if (user.Email?.EndsWith(AnonymizationConstants.EmailDomain, StringComparison.Ordinal) == true)
+        {
+            LogAccountErased(_logger, message.IdentityUserId);
+            return Result.Success();
+        }
+
         // Only the change that armed the undo may carry its link. After A to B to C the armed target
         // is still A, so the B-to-C message sends no link at all — there is nothing to hand whoever
         // took the account over, and nothing for them to burn before the owner clicks (ADR-0048).
@@ -133,6 +143,12 @@ internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProce
         Level = LogLevel.Information,
         Message = "No undo link for user {UserId}: an earlier change in the chain already armed one")]
     private static partial void LogNoUndoArmed(ILogger logger, Guid userId);
+
+    [LoggerMessage(
+        EventId = EventIds.EmailChangeDispatchAccountErased,
+        Level = LogLevel.Information,
+        Message = "Skipping e-mail change notices for user {UserId}: the account has been erased")]
+    private static partial void LogAccountErased(ILogger logger, Guid userId);
 
     [LoggerMessage(
         EventId = EventIds.EmailChangeDispatchUserGone,

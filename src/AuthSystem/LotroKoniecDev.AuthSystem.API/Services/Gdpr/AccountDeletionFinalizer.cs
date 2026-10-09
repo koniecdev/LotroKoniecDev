@@ -21,6 +21,7 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
     private readonly AuthDbContext _dbContext;
     private readonly IAccountErasureService _accountErasureService;
     private readonly IAccountDeletionSchedule _deletionSchedule;
+    private readonly IErasedAccountReconciler _erasedAccountReconciler;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<AccountDeletionFinalizer> _logger;
 
@@ -28,12 +29,14 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
         AuthDbContext dbContext,
         IAccountErasureService accountErasureService,
         IAccountDeletionSchedule deletionSchedule,
+        IErasedAccountReconciler erasedAccountReconciler,
         TimeProvider timeProvider,
         ILogger<AccountDeletionFinalizer> logger)
     {
         _dbContext = dbContext;
         _accountErasureService = accountErasureService;
         _deletionSchedule = deletionSchedule;
+        _erasedAccountReconciler = erasedAccountReconciler;
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -94,7 +97,33 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
             finalizedCount++;
         }
 
+        await ReconcileErasedAccountsAsync(cancellationToken);
+
         return finalizedCount;
+    }
+
+    /// <summary>
+    /// Runs after the erasures, so it also covers the accounts this run erased. A failure only waits
+    /// for the next run, which goes over every erased account again (ADR-0065).
+    /// </summary>
+    private async Task ReconcileErasedAccountsAsync(CancellationToken cancellationToken)
+    {
+        // A failed erasure can leave its AccountErased message tracked, and the reconciler saves through
+        // this context. That message must never be saved for an account that is not erased.
+        _dbContext.ChangeTracker.Clear();
+
+        try
+        {
+            ErasedAccountReconciliation reconciliation = await _erasedAccountReconciler.ReconcileAsync(cancellationToken);
+            if (reconciliation.MessagesScrubbed > 0 || reconciliation.ErasuresAnnounced > 0)
+            {
+                LogErasedAccountsReconciled(_logger, reconciliation.MessagesScrubbed, reconciliation.ErasuresAnnounced);
+            }
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            LogErasedAccountsReconcileFailed(_logger, ex);
+        }
     }
 
     private IQueryable<ApplicationUser> DueUsers(DateTimeOffset now) =>
@@ -107,6 +136,12 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
 
     [LoggerMessage(EventId = EventIds.GdprDeletionFinalizerUserFailed, Level = LogLevel.Error, Message = "GDPR deletion finalization failed for user {UserId}: {Error}. Will retry on the next run.")]
     private static partial void LogFinalizationFailedForUser(ILogger logger, Guid userId, string error);
+
+    [LoggerMessage(EventId = EventIds.GdprErasedAccountsReconciled, Level = LogLevel.Information, Message = "GDPR erasure: cut {MessageCount} sent outbox message(s) of erased accounts down to the account id, and told the TMS about {AnnouncedCount} erased account(s) it had not heard of")]
+    private static partial void LogErasedAccountsReconciled(ILogger logger, int messageCount, int announcedCount);
+
+    [LoggerMessage(EventId = EventIds.GdprErasedAccountsReconcileFailed, Level = LogLevel.Error, Message = "GDPR erasure: bringing the outbox in line with the erased accounts failed. Their e-mail addresses stay in the outbox, or the TMS keeps their names, until the next run succeeds.")]
+    private static partial void LogErasedAccountsReconcileFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(EventId = EventIds.GdprDeletionFinalizerUserReadFailed, Level = LogLevel.Error, Message = "GDPR deletion finalization could not read user {UserId}. Will retry on the next run.")]
     private static partial void LogReadFailedForUser(ILogger logger, Exception exception, Guid userId);

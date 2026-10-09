@@ -23,7 +23,8 @@ internal sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outb
         builder.Property(message => message.Type)
             .HasMaxLength(OutboxMessage.TypeMaxLength);
 
-        // text on purpose, not jsonb. An outbox row must record exactly what went on the wire, and
+        // text on purpose, not jsonb. An outbox row must record exactly what went on the wire (until its
+        // account is erased: then only the account id stays, ADR-0065), and
         // jsonb stores a parsed document: it reorders keys, drops duplicates and whitespace, and
         // rewrites numbers, so reading it back would not give the same bytes. Any future hash or
         // signature over the payload depends on that.

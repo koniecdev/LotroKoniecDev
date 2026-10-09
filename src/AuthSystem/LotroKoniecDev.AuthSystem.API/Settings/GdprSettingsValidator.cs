@@ -20,14 +20,14 @@ internal sealed class GdprSettingsValidator : IValidateOptions<GdprSettings>
             errors.Add("DeletionGracePeriod must be positive.");
         }
 
-        // The privacy policy promises this window. It also keeps the erasure complete: every token of
-        // the account is then older than the prune keeps a revoked token, so the copy of the name and
-        // address in a stored refresh token goes within a day, and no access token is still valid to
-        // write them back into the TMS profile the erasure just cleaned (ADR-0065).
+        // The floor is the token prune's retention, 14 days, which is also the window the privacy policy
+        // promises. Every token of the account is then older than the prune keeps a revoked token, so
+        // the copy of the name and address in a stored refresh token goes within a day of the erasure,
+        // and no access token is still valid to write them back into the TMS profile (ADR-0065).
         if (options.DeletionGracePeriod < OpenIddictPruneService.RetentionPeriod)
         {
             errors.Add(
-                $"DeletionGracePeriod must be at least {OpenIddictPruneService.RetentionPeriod.TotalDays:0} days, the window the privacy policy promises.");
+                $"DeletionGracePeriod must be at least {OpenIddictPruneService.RetentionPeriod.TotalDays:0} days: the token prune keeps a revoked token that long, and the privacy policy promises that window.");
         }
 
         if (options.DeletionFinalizationPollInterval < TimeSpan.FromMinutes(1))

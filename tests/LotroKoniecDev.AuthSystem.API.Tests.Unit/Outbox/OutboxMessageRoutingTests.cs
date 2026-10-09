@@ -76,6 +76,21 @@ public sealed class OutboxMessageRoutingTests
     }
 
     [Fact]
+    public void EveryRoutedContract_NamesItsAccountIdentityUserId()
+    {
+        // The erasure reconciler finds an erased account's messages by this key (ADR-0065). A contract
+        // that named its account another way would keep its personal data after the erasure.
+        Type[] contracts = typeof(OutboxWriter).Assembly.GetTypes()
+            .Append(typeof(AccountErased))
+            .Where(type => OutboxMessageRouting.TryGetRoute(type.Name, out _))
+            .ToArray();
+
+        contracts.Length.ShouldBe(7);
+        contracts.ShouldAllBe(type => type.GetProperty("IdentityUserId") != null
+                                      && type.GetProperty("IdentityUserId")!.PropertyType == typeof(Guid));
+    }
+
+    [Fact]
     public void EveryRoutingKey_MatchesTheQueueBindingPattern()
     {
         // The queue binds "email.#", so a key that does not start with "email." would publish into a

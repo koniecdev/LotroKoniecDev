@@ -55,6 +55,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     private readonly RabbitMqSettings _settings;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<AccountErasedConsumer> _logger;
+    private readonly TimeSpan[] _retryBackoffs;
 
     private IConnection? _connection;
     private IChannel? _channel;
@@ -69,10 +70,26 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
         IOptions<RabbitMqSettings> options,
         IServiceScopeFactory scopeFactory,
         ILogger<AccountErasedConsumer> logger)
+        : this(options, scopeFactory, logger, RetryBackoffs)
     {
+    }
+
+    /// <summary>
+    /// Lets a test shorten the pauses, so it can run the database-failure path past the delivery limit in
+    /// seconds. The container only sees the public constructor.
+    /// </summary>
+    internal AccountErasedConsumer(
+        IOptions<RabbitMqSettings> options,
+        IServiceScopeFactory scopeFactory,
+        ILogger<AccountErasedConsumer> logger,
+        TimeSpan[] retryBackoffs)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(retryBackoffs.Length);
+
         _settings = options.Value;
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _retryBackoffs = retryBackoffs;
     }
 
     /// <summary>
@@ -213,13 +230,13 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
             }
 
             _failedAttemptsInARow++;
-            int rung = Math.Min(_failedAttemptsInARow - 1, RetryBackoffs.Length - 1);
+            int rung = Math.Min(_failedAttemptsInARow - 1, _retryBackoffs.Length - 1);
 
             // Once the pauses stop growing, the outage is long enough for a person to look.
-            LogLevel level = rung == RetryBackoffs.Length - 1 ? LogLevel.Error : LogLevel.Warning;
-            LogEraseFailed(_logger, level, failure, message.IdentityUserId, messageId, _failedAttemptsInARow, RetryBackoffs[rung].TotalMinutes);
+            LogLevel level = rung == _retryBackoffs.Length - 1 ? LogLevel.Error : LogLevel.Warning;
+            LogEraseFailed(_logger, level, failure, message.IdentityUserId, messageId, _failedAttemptsInARow, _retryBackoffs[rung].TotalMinutes);
 
-            await Task.Delay(RetryBackoffs[rung], stoppingToken);
+            await Task.Delay(_retryBackoffs[rung], stoppingToken);
             await channel.BasicNackAsync(delivery.DeliveryTag, multiple: false, requeue: true, cancellationToken: stoppingToken);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -271,7 +288,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     {
         try
         {
-            await Task.Delay(RetryBackoffs[0], stoppingToken);
+            await Task.Delay(_retryBackoffs[0], stoppingToken);
             await channel.BasicRejectAsync(deliveryTag, requeue: true, cancellationToken: stoppingToken);
         }
         catch (OperationCanceledException)

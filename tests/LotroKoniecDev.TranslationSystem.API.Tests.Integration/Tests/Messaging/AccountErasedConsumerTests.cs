@@ -36,6 +36,7 @@ public sealed class AccountErasedConsumerTests : IClassFixture<BrokeredTranslati
 
     public async Task InitializeAsync()
     {
+        _factory.ErasureFailures.FailNext(0);
         await _factory.ResetDatabaseAsync("TRUNCATE translation.\"Translators\" CASCADE;");
 
         _connection = await _factory.ConnectToBrokerAsync(CancellationToken.None);
@@ -76,6 +77,27 @@ public sealed class AccountErasedConsumerTests : IClassFixture<BrokeredTranslati
             translatorId, translator => translator.DisplayName.Value == Translator.ErasedDisplayName);
         profile.DisplayName.Value.ShouldBe("Usunięte konto");
         profile.Email.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task AccountErased_WhileTheDatabaseFailsLongerThanTheDeliveryLimit_ShouldBeRetriedUntilItErasesTheProfile()
+    {
+        // Arrange: more failures in a row than the broker allows rejects. A database outage must never
+        // park an erasure, or the person's name would stay in the TMS for good (ADR-0065 §4).
+        Guid identity = Guid.NewGuid();
+        TranslatorId translatorId = await SeedTranslatorAsync(identity);
+        Guid messageId = Guid.NewGuid();
+        _factory.ErasureFailures.FailNext(AccountEventsTopology.ErasedDeliveryLimit + 2);
+
+        // Act
+        await PublishAsync(nameof(AccountErased), JsonSerializer.Serialize(new AccountErased(identity)), messageId);
+
+        // Assert
+        Translator profile = await WaitForProfileAsync(
+            translatorId, translator => translator.DisplayName.Value == Translator.ErasedDisplayName);
+        profile.DisplayName.Value.ShouldBe("Usunięte konto");
+        _factory.ErasureFailures.Remaining.ShouldBe(0);
+        (await WaitForDeadLetterAsync(messageId, TimeSpan.FromSeconds(2))).ShouldBeFalse();
     }
 
     [Fact]
@@ -159,9 +181,9 @@ public sealed class AccountErasedConsumerTests : IClassFixture<BrokeredTranslati
         }
     }
 
-    private async Task<bool> WaitForDeadLetterAsync(Guid messageId)
+    private async Task<bool> WaitForDeadLetterAsync(Guid messageId, TimeSpan? waitLimit = null)
     {
-        DateTimeOffset deadline = DateTimeOffset.UtcNow + WaitLimit;
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + (waitLimit ?? WaitLimit);
 
         while (DateTimeOffset.UtcNow <= deadline)
         {

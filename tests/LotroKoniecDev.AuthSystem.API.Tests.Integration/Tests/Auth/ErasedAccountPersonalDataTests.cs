@@ -214,6 +214,24 @@ public sealed class ErasedAccountPersonalDataTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task Reconcile_ForAnAccountDeletedAtOnceBeforeTwoPhaseDeletion_ShouldCleanItAndTellTheTranslationSystem()
+    {
+        // Before #460 a deletion anonymized the account at once and wrote no deletion date.
+        (RegisterRequest registerRequest, IdentityId identityId) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
+        await EnqueueAsync(new EmailChangeCompleted(identityId.Value, registerRequest.Email, "nowy@shire.me"));
+        await MarkEverySentAsync();
+        await AnonymizeByHandAsync(identityId.Value, deletionScheduledAt: null);
+
+        // Act
+        ErasedAccountReconciliation reconciliation = await ReconcileAsync();
+
+        // Assert
+        reconciliation.ShouldBe(new ErasedAccountReconciliation(MessagesScrubbed: 1, ErasuresAnnounced: 1));
+        (await ReadMessagesAsync(nameof(EmailChangeCompleted))).ShouldHaveSingleItem().Payload.ShouldNotContain(registerRequest.Email);
+    }
+
+    [Fact]
     public async Task Reconcile_ForALiveAccountOnTheAnonymizationDomain_ShouldTouchNothing()
     {
         // Arrange: the registration form accepts any address, so a live account can carry the marker
@@ -371,10 +389,14 @@ public sealed class ErasedAccountPersonalDataTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The shape an account had after an erasure by an earlier version: the marker address, no
-    /// password and a deletion date, written straight to the row and not through the erasure.
+    /// The shape an account had after an erasure by an earlier version: the marker address and no
+    /// password, written straight to the row and not through the erasure. A two-phase deletion also
+    /// left a deletion date, and the immediate deletion before #460 left none.
     /// </summary>
-    private async Task AnonymizeByHandAsync(Guid userId)
+    private Task AnonymizeByHandAsync(Guid userId) =>
+        AnonymizeByHandAsync(userId, DateTimeOffset.UtcNow.AddDays(-20));
+
+    private async Task AnonymizeByHandAsync(Guid userId, DateTimeOffset? deletionScheduledAt)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
@@ -383,7 +405,7 @@ public sealed class ErasedAccountPersonalDataTests : EndpointsTestBase
         user.Email = anonymizedEmail;
         user.NormalizedEmail = anonymizedEmail.ToUpperInvariant();
         user.PasswordHash = null;
-        user.DeletionScheduledAt = DateTimeOffset.UtcNow.AddDays(-20);
+        user.DeletionScheduledAt = deletionScheduledAt;
         await db.SaveChangesAsync();
     }
 

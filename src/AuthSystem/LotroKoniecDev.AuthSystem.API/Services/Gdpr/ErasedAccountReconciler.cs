@@ -6,7 +6,6 @@ using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Outbox;
-using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.IntegrationEvents;
 
 namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
@@ -14,13 +13,9 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 /// <summary>
 /// Keeps the outbox in line with the erased accounts (ADR-0065). It works on every erased account, not
 /// only the ones a run has just erased, so it also catches a message the relay sent after the erasure,
-/// and every account an earlier version erased.
+/// and every account an earlier version erased. <see cref="ErasedAccounts"/> says which accounts those
+/// are.
 /// </summary>
-/// <remarks>
-/// An account counts as erased only with everything the erasure writes: the <c>anon-</c> address on the
-/// anonymization domain, no password and a deletion date. The address alone is not proof, because the
-/// registration form accepts any address on that domain.
-/// </remarks>
 internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
 {
     /// <summary>
@@ -77,8 +72,8 @@ internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
         const string payload = nameof(OutboxMessage.Payload);
         const string processedOn = nameof(OutboxMessage.ProcessedOn);
 
-        // MATERIALIZED keeps the jsonb cast behind its validity check: the planner may not move it into
-        // a condition that runs on a row the check has not passed.
+        // The CASE keeps the jsonb cast behind its validity check, so a row that is not JSON gets a null
+        // body and matches nothing. MATERIALIZED makes each payload parse once, in one place.
         string sql = $"""
             WITH sent AS MATERIALIZED (
                 SELECT "{id}" AS id,
@@ -105,9 +100,10 @@ internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
     /// <summary>
     /// Writes an <see cref="AccountErased"/> for every erased account that has none, so the TMS erases
     /// its copy of the person's name and address. The erasure writes the message in its own save, so
-    /// this only finds accounts erased before ADR-0065. Keeping it a check in every run, and not a
-    /// one-off migration, means a release rolled back to one that cannot route the message never meets
-    /// these rows.
+    /// this only finds accounts erased before ADR-0065. It is a check in every run and not a one-off
+    /// migration, so the rows only appear once this release runs. A release rolled back to one that
+    /// cannot route the type still meets them: its relay marks them failed and leaves them, and they
+    /// go out once a release that routes them is back (runbook, "Rolling back past ADR-0065").
     /// </summary>
     private async Task<int> AnnounceUnannouncedErasuresAsync(CancellationToken cancellationToken)
     {
@@ -136,9 +132,5 @@ internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
     }
 
     private IQueryable<ApplicationUser> ErasedAccounts() =>
-        _dbContext.Users.Where(account =>
-            account.Email!.StartsWith(AnonymizationConstants.EmailPrefix)
-            && account.Email.EndsWith(AnonymizationConstants.EmailDomain)
-            && account.PasswordHash == null
-            && account.DeletionScheduledAt != null);
+        _dbContext.Users.Where(Gdpr.ErasedAccounts.Rule);
 }

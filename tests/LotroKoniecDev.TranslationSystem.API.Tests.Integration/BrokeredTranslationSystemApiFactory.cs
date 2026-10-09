@@ -3,9 +3,14 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using Testcontainers.RabbitMq;
+using LotroKoniecDev.SharedKernel.Messaging;
+using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.Tests.Shared;
+using LotroKoniecDev.TranslationSystem.API.Features.Translators;
 using LotroKoniecDev.TranslationSystem.API.Messaging;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration;
@@ -16,12 +21,18 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration;
 /// a RabbitMQ container and the real <see cref="AccountErasedConsumer"/> runs again. It is the only
 /// host where the TMS half of an erasure, broker to consumer to database, runs in one process
 /// (ADR-0065).
+/// Two seams make the database-failure path testable in seconds: <see cref="ErasureFailures"/> fails
+/// the next erasures the way an outage would, and the consumer pauses 50 ms instead of up to 15 minutes.
 /// </summary>
 #pragma warning disable CA1515
 public sealed class BrokeredTranslationSystemApiFactory : TranslationSystemApiFactory
 #pragma warning restore CA1515
 {
+    private static readonly TimeSpan[] ShortRetryBackoffs = [TimeSpan.FromMilliseconds(50)];
+
     private readonly RabbitMqContainer _broker = new RabbitMqBuilder(RabbitMqImage.Name).Build();
+
+    public ErasureFailures ErasureFailures { get; } = new();
 
     private Uri BrokerUri
     {
@@ -59,7 +70,19 @@ public sealed class BrokeredTranslationSystemApiFactory : TranslationSystemApiFa
 
         builder.ConfigureTestServices(services =>
         {
-            services.AddHostedService<AccountErasedConsumer>();
+            services.AddHostedService(serviceProvider => new AccountErasedConsumer(
+                serviceProvider.GetRequiredService<IOptions<RabbitMqSettings>>(),
+                serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+                serviceProvider.GetRequiredService<ILogger<AccountErasedConsumer>>(),
+                ShortRetryBackoffs));
+
+            ServiceDescriptor handler = services.Single(descriptor =>
+                descriptor.ServiceType == typeof(ICommandHandler<EraseTranslatorProfile.Command, Result>));
+            services.Remove(handler);
+            services.AddScoped<ICommandHandler<EraseTranslatorProfile.Command, Result>>(serviceProvider =>
+                new FailingEraseHandler(
+                    ActivatorUtilities.CreateInstance<EraseTranslatorProfile.Handler>(serviceProvider),
+                    ErasureFailures));
         });
     }
 

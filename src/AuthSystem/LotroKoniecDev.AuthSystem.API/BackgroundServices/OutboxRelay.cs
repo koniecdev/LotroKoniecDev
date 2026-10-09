@@ -147,7 +147,8 @@ internal sealed partial class OutboxRelay : BackgroundService
     /// <summary>
     /// Publishes one row and saves the result at once. Marking each message instead of a whole batch
     /// shortens the window in which a crash makes us publish an already published message again after
-    /// a restart. The outbox is at-least-once either way, and consumers drop duplicates by message id.
+    /// a restart. The outbox is at-least-once either way. The e-mail consumer drops duplicates by message
+    /// id, and the TMS consumer's work is the same when done twice (ADR-0065).
     /// </summary>
     private async Task<bool> PublishOneAsync(
         AuthDbContext db,

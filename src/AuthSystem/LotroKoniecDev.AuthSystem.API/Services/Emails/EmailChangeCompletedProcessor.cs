@@ -2,9 +2,9 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Accounts;
+using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
-using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.Monads;
 
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
@@ -93,7 +93,7 @@ internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProce
         // A notice that arrives after the erasure, from a relay that was down that long, must not mail
         // the person's addresses again. The account is gone for them, so sending again could never
         // change anything (ADR-0065).
-        if (user.Email?.EndsWith(AnonymizationConstants.EmailDomain, StringComparison.Ordinal) == true)
+        if (ErasedAccounts.Includes(user))
         {
             LogAccountErased(_logger, message.IdentityUserId);
             return Result.Success();

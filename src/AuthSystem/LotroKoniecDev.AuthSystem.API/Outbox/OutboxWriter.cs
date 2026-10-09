@@ -5,7 +5,8 @@ using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 namespace LotroKoniecDev.AuthSystem.API.Outbox;
 
 /// <summary>
-/// The only way a feature slice writes an e-mail message to the outbox. It serializes the payload,
+/// The only way code writes a message to the outbox: e-mail work, and the account events the TMS reads
+/// (ADR-0065). It serializes the payload,
 /// sets the row's <c>Type</c> to the contract's type name, so no writer can mistype the string that
 /// both the registry and the routing table look up, and it carries the wake-up call after the commit.
 /// Putting the whole ADR-0035 §2 pattern in one injected component means no future writer can rebuild

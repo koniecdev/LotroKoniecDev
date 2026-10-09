@@ -11,7 +11,7 @@ SharedKernel (`IntegrationEvents/AccountErased.cs`, `AccountEvents.cs`); Transla
 (`Messaging/AccountErasedConsumer.cs`, `AccountEventsTopology.cs`,
 `Features/Translators/EraseTranslatorProfile.cs`); TranslationSystem.Domain (`Translator.Erase`);
 amends ADR-0004 §1, ADR-0031 and ADR-0037 §6; builds on ADR-0035, ADR-0036, ADR-0038, ADR-0048;
-follow-ups #1085, #1086
+follow-ups #1085, #1086, #1087
 
 ## Context
 
@@ -118,13 +118,16 @@ at the #1071 gate.
   the outbox, so a cut row changes nothing for the consumer. A row that is not JSON is skipped
   (`pg_input_is_valid` behind a materialized CTE), so one bad row cannot stop every later run.
 - **It writes an `AccountErased` for every erased account that has none.** That covers the accounts
-  erased before this ADR. It is a check in every run and not a one-off migration on purpose: a
-  migration would put rows of a type the previous release cannot route into the database, and a
-  rolled-back relay would fail them on every pass.
+  erased before this ADR. It is a check in every run and not a one-off migration, so the rows appear
+  only once this release runs, and the migration history carries no data. A release rolled back past
+  this ADR still meets them: its relay marks them failed and keeps them until a release that routes
+  them is back (runbook, "Rolling back past ADR-0065").
 
-An account counts as erased only with everything the erasure writes: the `anon-` address on the
-anonymization domain, no password and a deletion date. The address alone is not proof, because the
-registration form accepts any address.
+`ErasedAccounts.Rule` is the one definition of an erased account, used by the reconciler and by
+§6: the `anon-` address on the anonymization domain and no password. The address alone is not proof,
+because the registration form accepts any address, and a registered account always has a password.
+The deletion date is not part of it: the immediate deletion before two-phase deletion (#460) never
+wrote one.
 
 ### 6. A late e-mail change notice is not sent to an erased account
 
@@ -166,6 +169,8 @@ and no access token (five minutes) is still valid to write the name back into th
   already, so this adds little today, but both are tracked in #1086.
 - A parked e-mail change message in `emails.send.dlq` still keeps both addresses until a person
   removes it (#1085).
+- A TMS consumer that cannot erase shows only in the logs: one Error line every 15 minutes once the
+  pauses stop growing. No alert or health check watches it or the parking queues yet (#1087).
 - Each finalizer run reads every sent outbox row once. That is a few thousand small rows at this
   project's size, read once a day by a run that wakes the database anyway.
 - Sent payloads of erased accounts are no longer byte-for-byte what went on the wire.
@@ -186,12 +191,17 @@ and no access token (five minutes) is still valid to write the name back into th
 
 - Auth integration: `ErasedAccountPersonalDataTests` (the text-column scan; one `AccountErased` per
   erasure, sent to `lotro.accounts`; sent messages cut, unsent left alone, live accounts untouched,
-  accounts erased before the fix cleaned and announced once, a non-JSON row skipped, a second run
-  changes nothing). The scan fails with `OutboxMessages.Payload` when the reconciliation is switched
-  off.
+  accounts erased before the fix cleaned and announced once, with or without a deletion date, a
+  non-JSON row skipped, a second run changes nothing). The scan fails with `OutboxMessages.Payload`
+  when the reconciliation is switched off. `AccountDeletionFinalizerTests` count the `AccountErased`
+  rows on every failure path of the erasure (0 after a cancel or a failed save, 1 after a retry,
+  another run's erasure or a lost commit answer), and pin that the reconciliation never saves the
+  message a failed erasure left tracked.
 - TMS integration: `EraseTranslatorProfileTests` (the database and the editor's author name),
-  `Messaging/AccountErasedConsumerTests` (an event published like the relay erases the profile;
-  poison is parked), `Messaging/AccountEventsTopologyTests` (against RabbitMQ 4.3.4: a nack never
-  parks, a reject parks at the limit).
-- Unit: `Translator.Erase`, the routing table, the consumer's pauses and payload checks, the late
-  e-mail change notice, the grace-period rule.
+  `Messaging/AccountErasedConsumerTests` (an event published like the relay erases the profile; a
+  database that fails more times than the delivery limit still ends in an erased profile and an empty
+  parking queue; poison is parked), `Messaging/AccountEventsTopologyTests` (against RabbitMQ 4.3.4: a
+  nack never parks, a reject parks at the limit).
+- Unit: `Translator.Erase`, the routing table and the `IdentityUserId` key of every routed contract,
+  the consumer's pauses and payload checks, the TMS broker settings, the late e-mail change notice,
+  the grace-period rule.

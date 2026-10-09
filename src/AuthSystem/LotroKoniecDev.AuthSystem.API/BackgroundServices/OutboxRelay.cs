@@ -91,45 +91,43 @@ internal sealed partial class OutboxRelay : BackgroundService
     }
 
     /// <summary>
-    /// Works through every pending row, <see cref="BatchSize"/> at a time. It returns <c>false</c> when
-    /// any row failed, whether the broker refused it, nothing is bound to its key, or the database
-    /// failed. The caller then waits instead of fetching the same failing rows again at once.
+    /// Works through every pending row once, <see cref="BatchSize"/> at a time. It returns <c>false</c>
+    /// when any row failed, whether the broker refused it, nothing is bound to its key, or the database
+    /// failed. The caller then waits instead of trying the same failing rows again at once.
     /// </summary>
+    /// <remarks>
+    /// A row that failed is skipped for the rest of the pass, so the next batch reaches the rows behind
+    /// it. Rows that keep failing, such as <c>AccountErased</c> while no TMS queue is bound yet
+    /// (ADR-0065), would otherwise fill every batch from the front and hold back all newer e-mail.
+    /// </remarks>
     private async Task<bool> ProcessPendingAsync(CancellationToken stoppingToken)
     {
         try
         {
+            List<Guid> failedThisPass = [];
+
             while (true)
             {
                 await using AsyncServiceScope scope = _scopeFactory.CreateAsyncScope();
                 AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
 
                 List<OutboxMessage> batch = await db.OutboxMessages
-                    .Where(message => message.ProcessedOn == null)
+                    .Where(message => message.ProcessedOn == null && !failedThisPass.Contains(message.Id))
                     .OrderBy(message => message.OccurredOn)
                     .Take(BatchSize)
                     .ToListAsync(stoppingToken);
 
-                if (batch.Count == 0)
-                {
-                    return true;
-                }
-
-                bool anyFailed = false;
-
                 foreach (OutboxMessage message in batch)
                 {
-                    anyFailed |= !await PublishOneAsync(db, message, stoppingToken);
-                }
-
-                if (anyFailed)
-                {
-                    return false;
+                    if (!await PublishOneAsync(db, message, stoppingToken))
+                    {
+                        failedThisPass.Add(message.Id);
+                    }
                 }
 
                 if (batch.Count < BatchSize)
                 {
-                    return true;
+                    return failedThisPass.Count == 0;
                 }
             }
         }

@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Options;
-using LotroKoniecDev.AuthSystem.API.Services.Maintenance;
 
 namespace LotroKoniecDev.AuthSystem.API.Settings;
 
@@ -11,6 +10,13 @@ internal sealed class GdprSettingsValidator : IValidateOptions<GdprSettings>
     /// </summary>
     private static readonly TimeSpan MaxErasureDelay = TimeSpan.FromDays(30);
 
+    private readonly IOptions<OpenIddictSettings> _openIddictSettings;
+
+    public GdprSettingsValidator(IOptions<OpenIddictSettings> openIddictSettings)
+    {
+        _openIddictSettings = openIddictSettings;
+    }
+
     public ValidateOptionsResult Validate(string? name, GdprSettings options)
     {
         List<string> errors = [];
@@ -20,14 +26,15 @@ internal sealed class GdprSettingsValidator : IValidateOptions<GdprSettings>
             errors.Add("DeletionGracePeriod must be positive.");
         }
 
-        // The floor is the token prune's retention, 14 days, which is also the window the privacy policy
-        // promises. Every token of the account is then older than the prune keeps a revoked token, so
-        // the copy of the name and address in a stored refresh token goes within a day of the erasure,
-        // and no access token is still valid to write them back into the TMS profile (ADR-0065).
-        if (options.DeletionGracePeriod < OpenIddictPruneService.RetentionPeriod)
+        // An access token stays valid on the TMS until it expires, and the TMS copies its name and
+        // address into the translator profile. Signing in stops when the deletion is scheduled, so a
+        // grace period longer than one token's life means no token is left to write them back after
+        // the erasure (ADR-0065). QA may still shorten the period to watch a real erasure (ADR-0031).
+        TimeSpan accessTokenLifetime = TimeSpan.FromMinutes(_openIddictSettings.Value.AccessTokenLifetimeMinutes);
+        if (options.DeletionGracePeriod <= accessTokenLifetime)
         {
             errors.Add(
-                $"DeletionGracePeriod must be at least {OpenIddictPruneService.RetentionPeriod.TotalDays:0} days: the token prune keeps a revoked token that long, and the privacy policy promises that window.");
+                $"DeletionGracePeriod must be longer than OpenIddict:AccessTokenLifetimeMinutes ({accessTokenLifetime.TotalMinutes:0} minutes), so no access token is still valid at the erasure.");
         }
 
         if (options.DeletionFinalizationPollInterval < TimeSpan.FromMinutes(1))

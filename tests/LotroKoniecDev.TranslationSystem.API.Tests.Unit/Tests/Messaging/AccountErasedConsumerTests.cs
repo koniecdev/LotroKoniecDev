@@ -5,6 +5,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using LotroKoniecDev.SharedKernel.BuildingBlocks;
+using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.IntegrationEvents;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
@@ -106,10 +108,102 @@ public sealed class AccountErasedConsumerTests
         await Should.NotThrowAsync(() => consumer.OnDeliveredAsync(channel, Delivery(), CancellationToken.None));
     }
 
-    private static AccountErasedConsumer CreateConsumer()
+    [Fact]
+    public async Task OnDeliveredAsync_WhenTheDatabaseIsUnavailable_ShouldReturnTheMessageWithANack()
     {
+        // Arrange
+        IChannel channel = Substitute.For<IChannel>();
+        AccountErasedConsumer consumer = CreateConsumer(new StubEraseHandler(() => throw new TimeoutException("database down")));
+
+        // Act
+        await consumer.OnDeliveredAsync(channel, Delivery(), CancellationToken.None);
+
+        // Assert: a nack, which the delivery limit does not count, so an outage never parks an erasure.
+        await channel.Received(1).BasicNackAsync(DeliveryTag, false, true, Arg.Any<CancellationToken>());
+        await channel.DidNotReceiveWithAnyArgs().BasicRejectAsync(default, default, default);
+    }
+
+    [Fact]
+    public async Task OnDeliveredAsync_WhenTheErasureFailsForAnotherReason_ShouldReturnTheMessageWithAReject()
+    {
+        // Arrange: a bug fails the same way every time, so it has to reach the delivery limit and park.
+        IChannel channel = Substitute.For<IChannel>();
+        AccountErasedConsumer consumer = CreateConsumer(new StubEraseHandler(() => throw new InvalidOperationException("bug")));
+
+        // Act
+        await consumer.OnDeliveredAsync(channel, Delivery(), CancellationToken.None);
+
+        // Assert
+        await channel.Received(1).BasicRejectAsync(DeliveryTag, true, Arg.Any<CancellationToken>());
+        await channel.DidNotReceiveWithAnyArgs().BasicNackAsync(default, default, default, default);
+    }
+
+    [Fact]
+    public async Task OnDeliveredAsync_WhenTheCommandIsRefused_ShouldParkTheMessageAtOnce()
+    {
+        // Arrange: sending a refused command again can never change the answer.
+        IChannel channel = Substitute.For<IChannel>();
+        AccountErasedConsumer consumer = CreateConsumer(new StubEraseHandler(
+            () => Result.Failure(new Error("Translators.Validation", "refused", TypeOfError.Validation))));
+
+        // Act
+        await consumer.OnDeliveredAsync(channel, Delivery(), CancellationToken.None);
+
+        // Assert
+        await channel.Received(1).BasicRejectAsync(DeliveryTag, false, Arg.Any<CancellationToken>());
+        await channel.DidNotReceiveWithAnyArgs().BasicAckAsync(default, default, default);
+    }
+
+    [Fact]
+    public async Task OnDeliveredAsync_WhenTheProfileIsErased_ShouldAck()
+    {
+        // Arrange
+        IChannel channel = Substitute.For<IChannel>();
+        AccountErasedConsumer consumer = CreateConsumer();
+
+        // Act
+        await consumer.OnDeliveredAsync(channel, Delivery(), CancellationToken.None);
+
+        // Assert
+        await channel.Received(1).BasicAckAsync(DeliveryTag, false, Arg.Any<CancellationToken>());
+    }
+
+    public static TheoryData<Exception> DatabaseOutages() => new()
+    {
+        new TimeoutException("timed out"),
+        new System.Net.Sockets.SocketException(),
+        new Npgsql.NpgsqlException("connection lost", new TimeoutException()),
+        new Microsoft.EntityFrameworkCore.Storage.RetryLimitExceededException("retries spent", new InvalidOperationException()),
+        new Microsoft.EntityFrameworkCore.DbUpdateException("save failed", new TimeoutException())
+    };
+
+    [Theory]
+    [MemberData(nameof(DatabaseOutages))]
+    public void IsDatabaseUnavailable_ForAnOutage_ReturnsTrue(Exception exception)
+    {
+        AccountErasedConsumer.IsDatabaseUnavailable(exception).ShouldBeTrue();
+    }
+
+    public static TheoryData<Exception> OtherFailures() => new()
+    {
+        new InvalidOperationException("bug"),
+        new ArgumentException("bad argument"),
+        new Microsoft.EntityFrameworkCore.DbUpdateException("constraint", new InvalidOperationException()),
+        new Npgsql.NpgsqlException("syntax error")
+    };
+
+    [Theory]
+    [MemberData(nameof(OtherFailures))]
+    public void IsDatabaseUnavailable_ForAnotherFailure_ReturnsFalse(Exception exception)
+    {
+        AccountErasedConsumer.IsDatabaseUnavailable(exception).ShouldBeFalse();
+    }
+
+    private static AccountErasedConsumer CreateConsumer(StubEraseHandler? handler = null)
+    {
+        StubEraseHandler eraseHandler = handler ?? new StubEraseHandler(Result.Success);
         ServiceProvider services = new ServiceCollection()
-            .AddScoped<ICommandHandler<EraseTranslatorProfile.Command, Result>, SucceedingEraseHandler>()
+            .AddScoped<ICommandHandler<EraseTranslatorProfile.Command, Result>>(_ => eraseHandler)
             .BuildServiceProvider();
 
         return new AccountErasedConsumer(
@@ -121,7 +215,8 @@ public sealed class AccountErasedConsumerTests
             }),
             services.GetRequiredService<IServiceScopeFactory>(),
             NullLogger<AccountErasedConsumer>.Instance,
-            [TimeSpan.Zero]);
+            [TimeSpan.Zero],
+            TimeSpan.FromMinutes(1));
     }
 
     private static BasicDeliverEventArgs Delivery()
@@ -144,11 +239,18 @@ public sealed class AccountErasedConsumerTests
     }
 
     /// <summary>
-    /// The erasure succeeds, so the only failure in these tests is the channel's.
+    /// Answers every erasure the way the test says: success by default, or a refusal or an exception.
     /// </summary>
-    private sealed class SucceedingEraseHandler : ICommandHandler<EraseTranslatorProfile.Command, Result>
+    private sealed class StubEraseHandler : ICommandHandler<EraseTranslatorProfile.Command, Result>
     {
+        private readonly Func<Result> _answer;
+
+        public StubEraseHandler(Func<Result> answer)
+        {
+            _answer = answer;
+        }
+
         public ValueTask<Result> Handle(EraseTranslatorProfile.Command command, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(Result.Success());
+            ValueTask.FromResult(_answer());
     }
 }

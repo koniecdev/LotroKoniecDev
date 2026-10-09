@@ -1,9 +1,9 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Npgsql;
 using NpgsqlTypes;
 using LotroKoniecDev.AuthSystem.API.Outbox;
-using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 using LotroKoniecDev.SharedKernel.IntegrationEvents;
@@ -32,23 +32,6 @@ internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
         _outboxWriter = outboxWriter;
     }
 
-    public async Task<ErasedAccountReconciliation> ReconcileAsync(CancellationToken cancellationToken)
-    {
-        List<Guid> erasedAccountIds = await ErasedAccounts()
-            .Select(account => account.Id)
-            .ToListAsync(cancellationToken);
-
-        if (erasedAccountIds.Count == 0)
-        {
-            return new ErasedAccountReconciliation(MessagesScrubbed: 0, ErasuresAnnounced: 0);
-        }
-
-        int scrubbed = await ScrubSentMessagesAsync(erasedAccountIds, cancellationToken);
-        int announced = await AnnounceUnannouncedErasuresAsync(cancellationToken);
-
-        return new ErasedAccountReconciliation(scrubbed, announced);
-    }
-
     /// <summary>
     /// Cuts every sent message of an erased account down to <c>{"IdentityUserId": …}</c>. An e-mail
     /// change message carries both addresses, and the outbox keeps every row it has sent (ADR-0037 §6),
@@ -63,23 +46,36 @@ internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
     /// The payload is <c>text</c>. A row that is not JSON is skipped instead of failing the whole
     /// statement, so one bad row cannot stop every later run.
     /// </remarks>
-    private async Task<int> ScrubSentMessagesAsync(List<Guid> erasedAccountIds, CancellationToken cancellationToken)
+    public async Task<int> ScrubSentMessagesAsync(CancellationToken cancellationToken)
     {
+        List<Guid> erasedAccountIds = await ErasedAccountIdsAsync(cancellationToken);
+        if (erasedAccountIds.Count == 0)
+        {
+            return 0;
+        }
+
         IEntityType outboxType = _dbContext.Model.FindEntityType(typeof(OutboxMessage))
                                  ?? throw new InvalidOperationException($"{nameof(OutboxMessage)} is not in the model.");
-        string outbox = $"\"{outboxType.GetSchema()}\".\"{outboxType.GetTableName()}\"";
-        const string id = nameof(OutboxMessage.Id);
-        const string payload = nameof(OutboxMessage.Payload);
-        const string processedOn = nameof(OutboxMessage.ProcessedOn);
+        string tableName = outboxType.GetTableName()
+                           ?? throw new InvalidOperationException($"{nameof(OutboxMessage)} is not mapped to a table.");
+        StoreObjectIdentifier table = StoreObjectIdentifier.Table(tableName, outboxType.GetSchema());
+        string outbox = $"\"{outboxType.GetSchema()}\".\"{tableName}\"";
+        string id = ColumnOf(outboxType, table, nameof(OutboxMessage.Id));
+        string type = ColumnOf(outboxType, table, nameof(OutboxMessage.Type));
+        string payload = ColumnOf(outboxType, table, nameof(OutboxMessage.Payload));
+        string processedOn = ColumnOf(outboxType, table, nameof(OutboxMessage.ProcessedOn));
 
-        // The CASE keeps the jsonb cast behind its validity check, so a row that is not JSON gets a null
-        // body and matches nothing. MATERIALIZED makes each payload parse once, in one place.
+        // The LIKE keeps the JSON parsing to the few rows that name an erased account; an AccountErased
+        // row holds only the id already. The CASE keeps the jsonb cast behind its validity check, so a
+        // row that is not JSON gets a null body and matches nothing.
         string sql = $"""
             WITH sent AS MATERIALIZED (
                 SELECT "{id}" AS id,
                        CASE WHEN pg_input_is_valid("{payload}", 'jsonb') THEN "{payload}"::jsonb END AS body
                 FROM {outbox}
                 WHERE "{processedOn}" IS NOT NULL
+                  AND "{type}" <> @accountErasedType
+                  AND "{payload}" LIKE ANY(@erasedAccountIdPatterns)
             )
             UPDATE {outbox} AS message
             SET "{payload}" = jsonb_build_object('{AccountIdKey}', sent.body -> '{AccountIdKey}')::text
@@ -89,12 +85,18 @@ internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
               AND sent.body <> jsonb_build_object('{AccountIdKey}', sent.body -> '{AccountIdKey}')
             """;
 
-        NpgsqlParameter erasedAccountIdsParameter = new("erasedAccountIds", NpgsqlDbType.Array | NpgsqlDbType.Text)
-        {
-            Value = erasedAccountIds.Select(accountId => accountId.ToString()).ToArray()
-        };
+        string[] erasedIdTexts = erasedAccountIds.Select(accountId => accountId.ToString()).ToArray();
+        NpgsqlParameter[] parameters =
+        [
+            new("accountErasedType", nameof(AccountErased)),
+            new("erasedAccountIdPatterns", NpgsqlDbType.Array | NpgsqlDbType.Text)
+            {
+                Value = erasedIdTexts.Select(idText => $"%{idText}%").ToArray()
+            },
+            new("erasedAccountIds", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = erasedIdTexts }
+        ];
 
-        return await _dbContext.Database.ExecuteSqlRawAsync(sql, [erasedAccountIdsParameter], cancellationToken);
+        return await _dbContext.Database.ExecuteSqlRawAsync(sql, parameters, cancellationToken);
     }
 
     /// <summary>
@@ -102,18 +104,36 @@ internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
     /// its copy of the person's name and address. The erasure writes the message in its own save, so
     /// this only finds accounts erased before ADR-0065. It is a check in every run and not a one-off
     /// migration, so the rows only appear once this release runs. A release rolled back to one that
-    /// cannot route the type still meets them: its relay marks them failed and leaves them, and they
+    /// cannot route the type still meets them: its relay marks them failed and keeps them, and they
     /// go out once a release that routes them is back (runbook, "Rolling back past ADR-0065").
     /// </summary>
-    private async Task<int> AnnounceUnannouncedErasuresAsync(CancellationToken cancellationToken)
+    public async Task<int> AnnounceUnannouncedErasuresAsync(CancellationToken cancellationToken)
     {
-        const string accountErasedType = nameof(AccountErased);
+        if (_dbContext.ChangeTracker.HasChanges())
+        {
+            throw new InvalidOperationException(
+                "The AuthDbContext still tracks changes. Clear it before the announcement, or they are saved with it.");
+        }
 
-        List<Guid> unannounced = await ErasedAccounts()
-            .Where(account => !_dbContext.OutboxMessages.Any(message =>
-                message.Type == accountErasedType && message.Payload.Contains(account.Id.ToString())))
-            .Select(account => account.Id)
+        List<Guid> erasedAccountIds = await ErasedAccountIdsAsync(cancellationToken);
+        if (erasedAccountIds.Count == 0)
+        {
+            return 0;
+        }
+
+        // One row per erased account, so this list stays as small as the list of erased accounts.
+        List<string> announcedPayloads = await _dbContext.OutboxMessages
+            .Where(message => message.Type == nameof(AccountErased))
+            .Select(message => message.Payload)
             .ToListAsync(cancellationToken);
+        HashSet<Guid> announced = announcedPayloads
+            .Select(ReadAccountId)
+            .OfType<Guid>()
+            .ToHashSet();
+
+        List<Guid> unannounced = erasedAccountIds
+            .Where(accountId => !announced.Contains(accountId))
+            .ToList();
 
         if (unannounced.Count == 0)
         {
@@ -131,6 +151,25 @@ internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
         return unannounced.Count;
     }
 
-    private IQueryable<ApplicationUser> ErasedAccounts() =>
-        _dbContext.Users.Where(Gdpr.ErasedAccounts.Rule);
+    private Task<List<Guid>> ErasedAccountIdsAsync(CancellationToken cancellationToken) =>
+        _dbContext.Users
+            .Where(ErasedAccounts.Rule)
+            .Select(account => account.Id)
+            .ToListAsync(cancellationToken);
+
+    private static string ColumnOf(IEntityType entityType, StoreObjectIdentifier table, string propertyName) =>
+        entityType.FindProperty(propertyName)?.GetColumnName(table)
+        ?? throw new InvalidOperationException($"{entityType.DisplayName()}.{propertyName} is not mapped to a column.");
+
+    private static Guid? ReadAccountId(string payload)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<AccountErased>(payload)?.IdentityUserId;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 }

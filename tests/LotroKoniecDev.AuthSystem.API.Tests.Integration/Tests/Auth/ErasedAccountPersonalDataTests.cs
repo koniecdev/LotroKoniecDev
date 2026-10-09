@@ -203,8 +203,8 @@ public sealed class ErasedAccountPersonalDataTests : EndpointsTestBase
         await AnonymizeByHandAsync(identityId.Value);
 
         // Act
-        ErasedAccountReconciliation first = await ReconcileAsync();
-        ErasedAccountReconciliation second = await ReconcileAsync();
+        Reconciliation first = await ReconcileAsync();
+        Reconciliation second = await ReconcileAsync();
 
         // Assert
         first.ErasuresAnnounced.ShouldBe(1);
@@ -224,10 +224,10 @@ public sealed class ErasedAccountPersonalDataTests : EndpointsTestBase
         await AnonymizeByHandAsync(identityId.Value, deletionScheduledAt: null);
 
         // Act
-        ErasedAccountReconciliation reconciliation = await ReconcileAsync();
+        Reconciliation reconciliation = await ReconcileAsync();
 
         // Assert
-        reconciliation.ShouldBe(new ErasedAccountReconciliation(MessagesScrubbed: 1, ErasuresAnnounced: 1));
+        reconciliation.ShouldBe(new Reconciliation(MessagesScrubbed: 1, ErasuresAnnounced: 1));
         (await ReadMessagesAsync(nameof(EmailChangeCompleted))).ShouldHaveSingleItem().Payload.ShouldNotContain(registerRequest.Email);
     }
 
@@ -245,10 +245,10 @@ public sealed class ErasedAccountPersonalDataTests : EndpointsTestBase
             $"{AnonymizationConstants.EmailPrefix}{Guid.NewGuid():N}{AnonymizationConstants.EmailDomain}");
 
         // Act
-        ErasedAccountReconciliation reconciliation = await ReconcileAsync();
+        Reconciliation reconciliation = await ReconcileAsync();
 
         // Assert
-        reconciliation.ShouldBe(new ErasedAccountReconciliation(MessagesScrubbed: 0, ErasuresAnnounced: 0));
+        reconciliation.ShouldBe(new Reconciliation(MessagesScrubbed: 0, ErasuresAnnounced: 0));
         (await ReadMessagesAsync(nameof(EmailChangeCompleted))).ShouldHaveSingleItem().Payload.ShouldContain("nowy@shire.me");
         (await ReadMessagesAsync(nameof(AccountErased))).ShouldBeEmpty();
     }
@@ -266,7 +266,7 @@ public sealed class ErasedAccountPersonalDataTests : EndpointsTestBase
         await AnonymizeByHandAsync(identityId.Value);
 
         // Act
-        ErasedAccountReconciliation reconciliation = await ReconcileAsync();
+        Reconciliation reconciliation = await ReconcileAsync();
 
         // Assert
         reconciliation.MessagesScrubbed.ShouldBe(1);
@@ -287,11 +287,11 @@ public sealed class ErasedAccountPersonalDataTests : EndpointsTestBase
         await EnqueueAsync(new EmailChangeCompleted(identityId.Value, registerRequest.Email, "nowy@shire.me"));
         await MarkEverySentAsync();
         await AnonymizeByHandAsync(identityId.Value);
-        ErasedAccountReconciliation first = await ReconcileAsync();
+        Reconciliation first = await ReconcileAsync();
         string afterFirst = (await ReadMessagesAsync(nameof(EmailChangeCompleted))).ShouldHaveSingleItem().Payload;
 
         // Act
-        ErasedAccountReconciliation second = await ReconcileAsync();
+        Reconciliation second = await ReconcileAsync();
 
         // Assert
         first.MessagesScrubbed.ShouldBe(1);
@@ -419,12 +419,19 @@ public sealed class ErasedAccountPersonalDataTests : EndpointsTestBase
         await db.SaveChangesAsync();
     }
 
-    private async Task<ErasedAccountReconciliation> ReconcileAsync()
+    /// <summary>
+    /// Both steps, in the order the finalizer runs them.
+    /// </summary>
+    private async Task<Reconciliation> ReconcileAsync()
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         IErasedAccountReconciler reconciler = scope.ServiceProvider.GetRequiredService<IErasedAccountReconciler>();
-        return await reconciler.ReconcileAsync(CancellationToken.None);
+        int scrubbed = await reconciler.ScrubSentMessagesAsync(CancellationToken.None);
+        int announced = await reconciler.AnnounceUnannouncedErasuresAsync(CancellationToken.None);
+        return new Reconciliation(scrubbed, announced);
     }
+
+    private sealed record Reconciliation(int MessagesScrubbed, int ErasuresAnnounced);
 
     private async Task<SpyMessagePublisher.PublishedMessage?> WaitForPublishedAsync(string type)
     {

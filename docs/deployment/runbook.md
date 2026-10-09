@@ -1402,12 +1402,14 @@ queue with the *default* delivery limit (20) and no DLX of its own, so a reject-
 
 ### The account events parking lot (`tms.account-erased.dlq`)
 
-Only a message tms-api can never handle lands here: an unknown type or an unreadable payload,
-rejected on first sight, or one that broke the consumer itself five times in a row. A database
-outage never parks a message: the consumer returns it with a nack, which does not count against the
-delivery limit, and tries again every 15 minutes at most until the database answers (ADR-0065). A
-parked message means a person's name may still be on a translator profile, so look at it the same
-day. Replay works as for `emails.send.dlq`, on the **`lotro.accounts`** exchange with the routing
+Only a message tms-api can never handle lands here: an unknown type, an unreadable payload or a
+command the handler refuses, parked on first sight, or one that failed for a reason other than the
+database five times in a row, which means a bug. A database outage never parks a message: the
+consumer returns it with a nack, which does not count against the delivery limit, and tries again
+every 15 minutes at most until the database answers (ADR-0065). A parked message means a person's
+name may still be on a translator profile, so look at it the same day. If you delete
+`tms.account-erased` to change its arguments, tms-api declares it again and attaches within a minute;
+no restart is needed. Replay works as for `emails.send.dlq`, on the **`lotro.accounts`** exchange with the routing
 key `account.erased` and the `type` property `AccountErased`. Erasing a profile twice is harmless,
 so a replay never needs a duplicate check.
 

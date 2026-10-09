@@ -1,5 +1,8 @@
+using System.Net.Sockets;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using LotroKoniecDev.SharedKernel.IntegrationEvents;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
@@ -20,13 +23,19 @@ namespace LotroKoniecDev.TranslationSystem.API.Messaging;
 /// <remarks>
 /// It needs no inbox. Erasing a profile twice gives the same profile as erasing it once, so a
 /// redelivered or republished message does no harm.
-/// A message we can never handle, of an unknown type or with an unreadable payload, goes straight to
-/// the dead-letter queue with <c>basic.reject</c>, as in the AuthSystem (ADR-0036).
-/// A database failure is different from the e-mail consumer's SMTP failure: giving up on it would leave
-/// the person's name in the TMS for good, and nothing would ever send the message again. So it goes back
-/// on the queue with <c>basic.nack</c> after a growing pause. Since RabbitMQ 4.3 a nack does not count
-/// against <see cref="AccountEventsTopology.ErasedDeliveryLimit"/>, so the message waits out an outage
-/// of any length and is never parked for it.
+/// A message is settled one of four ways:
+/// <list type="bullet">
+/// <item>Erased: <c>basic.ack</c>.</item>
+/// <item>One we can never handle (an unknown type, an unreadable payload, a command the handler
+/// refuses): <c>basic.reject</c> without requeue, so it goes straight to the dead-letter queue, as in
+/// the AuthSystem (ADR-0036).</item>
+/// <item>The database is unavailable: <c>basic.nack</c> after a growing pause. Giving up on it would
+/// leave the person's name in the TMS for good, and nothing would ever send the message again. Since
+/// RabbitMQ 4.3 a nack does not count against <see cref="AccountEventsTopology.ErasedDeliveryLimit"/>,
+/// so the message waits out an outage of any length.</item>
+/// <item>Any other exception, such as a bug: <c>basic.reject</c> with requeue, which counts, so a
+/// message that keeps failing for good ends in the dead-letter queue at the limit instead of looping.</item>
+/// </list>
 /// </remarks>
 internal sealed partial class AccountErasedConsumer : BackgroundService
 {
@@ -38,9 +47,9 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     ];
 
     /// <summary>
-    /// The pause before a message the database refused goes back on the queue, chosen by how many
-    /// attempts in a row have failed. The last entry repeats for as long as the outage lasts. Every
-    /// entry stays well under the broker's 30-minute consumer timeout, because the pause holds the
+    /// The pause before a message goes back on the queue after the database was unavailable, chosen by
+    /// how many attempts in a row have failed. The last entry repeats for as long as the outage lasts.
+    /// Every entry stays well under the broker's 30-minute consumer timeout, because the pause holds the
     /// delivery unacknowledged. It is internal so the unit tests can check that rule.
     /// </summary>
     internal static readonly TimeSpan[] RetryBackoffs =
@@ -52,10 +61,18 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
         TimeSpan.FromMinutes(15)
     ];
 
+    /// <summary>
+    /// How often the consumer checks that it is still attached. Automatic recovery brings back a lost
+    /// connection, but not a channel the broker closed or a subscription it cancelled, for example
+    /// after the queue was deleted to change its arguments.
+    /// </summary>
+    private static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(30);
+
     private readonly RabbitMqSettings _settings;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<AccountErasedConsumer> _logger;
     private readonly TimeSpan[] _retryBackoffs;
+    private readonly TimeSpan _watchInterval;
 
     private IConnection? _connection;
     private IChannel? _channel;
@@ -70,19 +87,20 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
         IOptions<RabbitMqSettings> options,
         IServiceScopeFactory scopeFactory,
         ILogger<AccountErasedConsumer> logger)
-        : this(options, scopeFactory, logger, RetryBackoffs)
+        : this(options, scopeFactory, logger, RetryBackoffs, WatchInterval)
     {
     }
 
     /// <summary>
-    /// Lets a test shorten the pauses, so it can run the database-failure path past the delivery limit in
-    /// seconds. The container only sees the public constructor.
+    /// Lets a test shorten the pauses and the watch, so it can run the slow paths in seconds. The
+    /// container only sees the public constructor.
     /// </summary>
     internal AccountErasedConsumer(
         IOptions<RabbitMqSettings> options,
         IServiceScopeFactory scopeFactory,
         ILogger<AccountErasedConsumer> logger,
-        TimeSpan[] retryBackoffs)
+        TimeSpan[] retryBackoffs,
+        TimeSpan watchInterval)
     {
         ArgumentOutOfRangeException.ThrowIfZero(retryBackoffs.Length);
 
@@ -90,6 +108,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
         _scopeFactory = scopeFactory;
         _logger = logger;
         _retryBackoffs = retryBackoffs;
+        _watchInterval = watchInterval;
     }
 
     /// <summary>
@@ -109,19 +128,46 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Says whether a failure means the database could not be reached, which only time can fix. EF has
+    /// already retried a transient error a few times when it gives up with
+    /// <see cref="RetryLimitExceededException"/>. Anything else is taken to fail the same way every
+    /// time. It is internal so the unit tests can check the line between the two.
+    /// </summary>
+    internal static bool IsDatabaseUnavailable(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is RetryLimitExceededException
+                or TimeoutException
+                or SocketException
+                or NpgsqlException { IsTransient: true })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
         {
-            await AttachConsumerWithRetryAsync(stoppingToken);
+            while (true)
+            {
+                AsyncEventingBasicConsumer consumer = await AttachConsumerWithRetryAsync(stoppingToken);
+                LogStarted(_logger, AccountEventsTopology.ErasedQueue);
 
-            LogStarted(_logger, AccountEventsTopology.ErasedQueue);
+                // The work happens in OnDeliveredAsync, on the client library's own loop. This only
+                // watches that the subscription is still there, and attaches again when it is not.
+                await WaitWhileAttachedAsync(consumer, stoppingToken);
 
-            // The work happens in OnDeliveredAsync, on the client library's own loop. This task only
-            // keeps the service, and with it the channel, alive until shutdown.
-            await Task.Delay(Timeout.Infinite, stoppingToken);
+                LogDetached(_logger, AccountEventsTopology.ErasedQueue);
+                await CloseAsync();
+            }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // The app is shutting down, which is not an error.
         }
@@ -134,10 +180,11 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     /// <summary>
     /// Connects, declares the topology and registers the consumer as one attempt. Any exception
     /// leaving <see cref="ExecuteAsync"/> would stop the whole host, and a broker problem must never
-    /// take the translation API down, so every failure is retried here after a pause. A failed attempt
-    /// disposes what it opened first, so no half-attached connection is left behind.
+    /// take the translation API down, so every failure is retried here after a pause, a timeout the
+    /// client reports as a cancellation included. A failed attempt disposes what it opened first, so no
+    /// half-attached connection is left behind.
     /// </summary>
-    private async Task AttachConsumerWithRetryAsync(CancellationToken stoppingToken)
+    private async Task<AsyncEventingBasicConsumer> AttachConsumerWithRetryAsync(CancellationToken stoppingToken)
     {
         int failedAttempts = 0;
 
@@ -177,9 +224,9 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
                     consumer: consumer,
                     cancellationToken: stoppingToken);
 
-                return;
+                return consumer;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
             {
                 await CloseAsync();
                 failedAttempts++;
@@ -191,10 +238,27 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     }
 
     /// <summary>
+    /// Returns once the consumer has been detached for two looks in a row. The first look gives
+    /// automatic recovery its chance after a lost connection.
+    /// </summary>
+    private async Task WaitWhileAttachedAsync(AsyncEventingBasicConsumer consumer, CancellationToken stoppingToken)
+    {
+        int detachedLooks = 0;
+
+        while (detachedLooks < 2)
+        {
+            await Task.Delay(_watchInterval, stoppingToken);
+
+            bool attached = _channel is { IsOpen: true } && consumer.IsRunning;
+            detachedLooks = attached ? 0 : detachedLooks + 1;
+        }
+    }
+
+    /// <summary>
     /// Handles one delivery. Every path ends in one ack, nack or reject, except a shutdown or a channel
     /// that refuses even the reject: then the broker puts the delivery back when the channel closes. No
     /// exception may leave this handler, because the client library swallows it and the delivery would
-    /// stay stuck until the channel dies. It is internal so the unit tests can drive a failing channel.
+    /// stay stuck until the channel dies. It is internal so the unit tests can drive each path.
     /// </summary>
     internal async Task OnDeliveredAsync(
         IChannel channel,
@@ -221,24 +285,28 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
                 return;
             }
 
-            Exception? failure = await TryEraseAsync(message, stoppingToken);
-            if (failure is null)
+            Result result;
+            try
             {
-                _failedAttemptsInARow = 0;
-                await channel.BasicAckAsync(delivery.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
-                LogProfileErased(_logger, message.IdentityUserId, messageId);
+                result = await EraseAsync(message, stoppingToken);
+            }
+            catch (Exception ex) when (IsDatabaseUnavailable(ex) && !stoppingToken.IsCancellationRequested)
+            {
+                await ReturnForLaterAsync(channel, delivery.DeliveryTag, message, messageId, ex, stoppingToken);
                 return;
             }
 
-            _failedAttemptsInARow++;
-            int rung = Math.Min(_failedAttemptsInARow - 1, _retryBackoffs.Length - 1);
+            _failedAttemptsInARow = 0;
 
-            // Once the pauses stop growing, the outage is long enough for a person to look.
-            LogLevel level = rung == _retryBackoffs.Length - 1 ? LogLevel.Error : LogLevel.Warning;
-            LogEraseFailed(_logger, level, failure, message.IdentityUserId, messageId, _failedAttemptsInARow, _retryBackoffs[rung].TotalMinutes);
+            if (result.IsFailure)
+            {
+                LogRefused(_logger, message.IdentityUserId, messageId, result.Error.Message);
+                await channel.BasicRejectAsync(delivery.DeliveryTag, requeue: false, cancellationToken: stoppingToken);
+                return;
+            }
 
-            await Task.Delay(_retryBackoffs[rung], stoppingToken);
-            await channel.BasicNackAsync(delivery.DeliveryTag, multiple: false, requeue: true, cancellationToken: stoppingToken);
+            await channel.BasicAckAsync(delivery.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
+            LogProfileErased(_logger, message.IdentityUserId, messageId);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -252,37 +320,43 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
         }
     }
 
-    /// <summary>
-    /// Returns <c>null</c> once the profile is erased, or the reason it could not be. The command fails
-    /// only on an empty id, which <see cref="TryDeserialize"/> has already refused, so in practice the
-    /// reason is a database error: worth another try.
-    /// </summary>
-    private async Task<Exception?> TryEraseAsync(AccountErased message, CancellationToken stoppingToken)
+    private async Task<Result> EraseAsync(AccountErased message, CancellationToken stoppingToken)
     {
-        try
-        {
-            await using AsyncServiceScope scope = _scopeFactory.CreateAsyncScope();
-            ICommandHandler<EraseTranslatorProfile.Command, Result> handler = scope.ServiceProvider
-                .GetRequiredService<ICommandHandler<EraseTranslatorProfile.Command, Result>>();
+        await using AsyncServiceScope scope = _scopeFactory.CreateAsyncScope();
+        ICommandHandler<EraseTranslatorProfile.Command, Result> handler = scope.ServiceProvider
+            .GetRequiredService<ICommandHandler<EraseTranslatorProfile.Command, Result>>();
 
-            Result result = await handler.Handle(
-                new EraseTranslatorProfile.Command(IdentityId.FromValue(message.IdentityUserId)),
-                stoppingToken);
-
-            return result.IsSuccess
-                ? null
-                : new InvalidOperationException(result.Error.Message);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
-        {
-            return ex;
-        }
+        return await handler.Handle(
+            new EraseTranslatorProfile.Command(IdentityId.FromValue(message.IdentityUserId)),
+            stoppingToken);
     }
 
     /// <summary>
-    /// Tries to put the delivery back after an unexpected exception. A reject, so a message that keeps
-    /// breaking the consumer itself ends in the dead-letter queue at the delivery limit instead of
-    /// looping. If even the reject fails, the channel is most likely dead, and the broker puts the
+    /// Pauses, then returns the message with a nack, which the delivery limit does not count.
+    /// </summary>
+    private async Task ReturnForLaterAsync(
+        IChannel channel,
+        ulong deliveryTag,
+        AccountErased message,
+        string? messageId,
+        Exception failure,
+        CancellationToken stoppingToken)
+    {
+        _failedAttemptsInARow++;
+        int rung = Math.Min(_failedAttemptsInARow - 1, _retryBackoffs.Length - 1);
+
+        // Once the pauses stop growing, the outage is long enough for a person to look.
+        LogLevel level = rung == _retryBackoffs.Length - 1 ? LogLevel.Error : LogLevel.Warning;
+        LogDatabaseUnavailable(_logger, level, failure, message.IdentityUserId, messageId, _failedAttemptsInARow, _retryBackoffs[rung].TotalMinutes);
+
+        await Task.Delay(_retryBackoffs[rung], stoppingToken);
+        await channel.BasicNackAsync(deliveryTag, multiple: false, requeue: true, cancellationToken: stoppingToken);
+    }
+
+    /// <summary>
+    /// Tries to put the delivery back after an exception that is not a database outage. A reject, so a
+    /// message that keeps failing for good ends in the dead-letter queue at the delivery limit instead
+    /// of looping. If even the reject fails, the channel is most likely dead, and the broker puts the
     /// unacknowledged delivery back when it closes.
     /// </summary>
     private async Task TryRequeueAsync(IChannel channel, ulong deliveryTag, CancellationToken stoppingToken)
@@ -342,6 +416,12 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     private static partial void LogStarted(ILogger logger, string queue);
 
     [LoggerMessage(
+        EventId = EventIds.AccountConsumerDetached,
+        Level = LogLevel.Warning,
+        Message = "The account event consumer is no longer attached to queue {Queue}: the broker closed its channel or cancelled its subscription. Attaching again.")]
+    private static partial void LogDetached(ILogger logger, string queue);
+
+    [LoggerMessage(
         EventId = EventIds.AccountConsumerConnectFailed,
         Level = LogLevel.Warning,
         Message = "Connecting the account event consumer to the broker failed; retrying in {DelaySeconds}s")]
@@ -366,14 +446,20 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     private static partial void LogPoisonMessage(ILogger logger, string? messageId);
 
     [LoggerMessage(
+        EventId = EventIds.AccountConsumerRefused,
+        Level = LogLevel.Error,
+        Message = "Rejecting message {MessageId} for user {UserId} into the dead-letter queue: erasing the translator profile was refused: {Reason}")]
+    private static partial void LogRefused(ILogger logger, Guid userId, string? messageId, string reason);
+
+    [LoggerMessage(
         EventId = EventIds.AccountConsumerEraseFailed,
-        Message = "Erasing the translator profile of user {UserId} (message {MessageId}) failed, attempt {Attempt} in a row; it goes back on the queue after {PauseMinutes} minute(s), and the person's name stays in the TMS until an attempt succeeds")]
-    private static partial void LogEraseFailed(ILogger logger, LogLevel level, Exception exception, Guid userId, string? messageId, int attempt, double pauseMinutes);
+        Message = "Erasing the translator profile of user {UserId} (message {MessageId}) failed because the database is unavailable, attempt {Attempt} in a row; it goes back on the queue after {PauseMinutes} minute(s), and the person's name stays in the TMS until an attempt succeeds")]
+    private static partial void LogDatabaseUnavailable(ILogger logger, LogLevel level, Exception exception, Guid userId, string? messageId, int attempt, double pauseMinutes);
 
     [LoggerMessage(
         EventId = EventIds.AccountConsumerUnexpectedError,
         Level = LogLevel.Error,
-        Message = "Unexpected error while handling account event {MessageId}")]
+        Message = "Unexpected error while handling account event {MessageId}; it goes back on the queue, and the broker parks it once it keeps failing")]
     private static partial void LogUnexpectedError(ILogger logger, Exception exception, string? messageId);
 
     [LoggerMessage(

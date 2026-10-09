@@ -10,7 +10,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 /// </summary>
 public sealed class GdprSettingsValidatorTests
 {
-    private readonly GdprSettingsValidator _validator = new();
+    private readonly GdprSettingsValidator _validator = new(
+        Microsoft.Extensions.Options.Options.Create(new OpenIddictSettings { Issuer = "https://auth.lotro-translator.test" }));
 
     [Fact]
     public void Validate_DefaultSettings_Succeeds()
@@ -79,7 +80,7 @@ public sealed class GdprSettingsValidatorTests
     }
 
     [Theory]
-    [InlineData("14.00:00:00", "14.00:00:00")]
+    [InlineData("1.00:00:00", "1.00:00:00")]
     [InlineData("14.00:00:00", "1.00:00:00")]
     [InlineData("29.00:00:00", "1.00:00:00")]
     [InlineData("15.00:00:00", "15.00:00:00")]
@@ -99,10 +100,10 @@ public sealed class GdprSettingsValidatorTests
 
     [Theory]
     [InlineData("00:01:00")]
-    [InlineData("1.00:00:00")]
-    [InlineData("13.23:59:59.9999999")]
-    public void Validate_GracePeriodShorterThanFourteenDays_FailsNamingTheSetting(string gracePeriod)
+    [InlineData("00:05:00")]
+    public void Validate_GracePeriodNoLongerThanAnAccessToken_FailsNamingTheSetting(string gracePeriod)
     {
+        // The default access token lives five minutes.
         GdprSettings settings = new()
         {
             DeletionGracePeriod = Parse(gracePeriod),
@@ -114,7 +115,22 @@ public sealed class GdprSettingsValidatorTests
         result.Failed.ShouldBeTrue();
         result.Failures.ShouldNotBeNull();
         result.Failures.ShouldContain(failure =>
-            failure.Contains("DeletionGracePeriod must be at least 14 days", StringComparison.Ordinal));
+            failure.Contains("DeletionGracePeriod must be longer than OpenIddict:AccessTokenLifetimeMinutes", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_ShortGracePeriodForQa_SucceedsOnceItOutlivesAnAccessToken()
+    {
+        // ADR-0031: QA shortens the grace period to watch a real erasure.
+        GdprSettings settings = new()
+        {
+            DeletionGracePeriod = Parse("00:30:00"),
+            DeletionFinalizationPollInterval = TimeSpan.FromMinutes(1)
+        };
+
+        ValidateOptionsResult result = _validator.Validate(name: null, settings);
+
+        result.Succeeded.ShouldBeTrue();
     }
 
     [Theory]

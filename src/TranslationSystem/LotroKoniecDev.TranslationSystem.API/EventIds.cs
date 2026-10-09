@@ -44,4 +44,6 @@ internal static class EventIds
     public const int AccountConsumerEraseFailed = 1705;
     public const int AccountConsumerUnexpectedError = 1706;
     public const int AccountConsumerTeardownWarning = 1707;
+    public const int AccountConsumerDetached = 1708;
+    public const int AccountConsumerRefused = 1709;
 }

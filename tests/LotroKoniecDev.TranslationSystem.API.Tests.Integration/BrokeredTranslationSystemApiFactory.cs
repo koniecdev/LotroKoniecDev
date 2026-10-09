@@ -21,8 +21,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration;
 /// a RabbitMQ container and the real <see cref="AccountErasedConsumer"/> runs again. It is the only
 /// host where the TMS half of an erasure, broker to consumer to database, runs in one process
 /// (ADR-0065).
-/// Two seams make the database-failure path testable in seconds: <see cref="ErasureFailures"/> fails
-/// the next erasures the way an outage would, and the consumer pauses 50 ms instead of up to 15 minutes.
+/// Two seams make the slow paths testable in seconds: <see cref="ErasureFailures"/> fails the next
+/// erasures, and the consumer pauses 50 ms instead of up to 15 minutes and checks its subscription
+/// every 200 ms instead of every 30 seconds.
 /// </summary>
 #pragma warning disable CA1515
 public sealed class BrokeredTranslationSystemApiFactory : TranslationSystemApiFactory
@@ -74,7 +75,8 @@ public sealed class BrokeredTranslationSystemApiFactory : TranslationSystemApiFa
                 serviceProvider.GetRequiredService<IOptions<RabbitMqSettings>>(),
                 serviceProvider.GetRequiredService<IServiceScopeFactory>(),
                 serviceProvider.GetRequiredService<ILogger<AccountErasedConsumer>>(),
-                ShortRetryBackoffs));
+                ShortRetryBackoffs,
+                TimeSpan.FromMilliseconds(200)));
 
             ServiceDescriptor handler = services.Single(descriptor =>
                 descriptor.ServiceType == typeof(ICommandHandler<EraseTranslatorProfile.Command, Result>));

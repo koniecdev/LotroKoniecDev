@@ -674,18 +674,21 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         finalizedCount.ShouldBe(1);
         (await CountAccountErasedMessagesAsync(identityId.Value)).ShouldBe(1);
         (await CountAccountErasedMessagesAsync(erasedEarlierId.Value)).ShouldBe(0);
-        loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasedAccountsReconcileFailed);
+        loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasedAccountMessagesScrubFailed
+                                                        || entry.EventId.Id == EventIds.GdprErasuresAnnounceFailed);
     }
 
     [Fact]
-    public async Task Finalizer_ShouldStillCountTheErasure_WhenTheReconciliationFails()
+    public async Task Finalizer_ShouldStillCountTheErasureAndAnnounce_WhenTheScrubFails()
     {
-        // The reconciliation runs after the erasures. Its failure only waits for the next run, which
-        // goes over every erased account again (ADR-0065).
+        // The two reconciliation steps fail on their own: a scrub that keeps failing must not keep the
+        // TMS from hearing about an earlier erasure (ADR-0065).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        (_, IdentityId erasedEarlierId) = await RegisterAndScheduleDeletionAsync();
+        await AnonymizeAsAnEarlierVersionDidAsync(erasedEarlierId.Value);
         Factory.DbCommandFailures.FailNext(
             command => command.CommandText.Contains("WITH sent AS MATERIALIZED", StringComparison.Ordinal),
             () => CreateFailure(ErasureSaveFailure.DatabaseError));
@@ -698,7 +701,9 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
         finalizedCount.ShouldBe(1);
         (await GetUserAsync(identityId.Value)).Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
-        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasedAccountsReconcileFailed);
+        (await CountAccountErasedMessagesAsync(erasedEarlierId.Value)).ShouldBe(1);
+        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasedAccountMessagesScrubFailed);
+        loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasuresAnnounceFailed);
     }
 
     [Fact]

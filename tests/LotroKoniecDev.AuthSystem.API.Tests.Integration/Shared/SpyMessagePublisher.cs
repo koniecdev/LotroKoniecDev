@@ -26,6 +26,12 @@ internal sealed class SpyMessagePublisher : IMessagePublisher
 
     public Exception? FailWith { get; set; }
 
+    /// <summary>
+    /// Refuses only the publishes it returns an exception for, the way a broker refuses a message whose
+    /// routing key no queue is bound to yet.
+    /// </summary>
+    public Func<PublishedMessage, Exception?>? FailWhen { get; set; }
+
     public async Task PublishAsync(
         string exchange,
         string routingKey,
@@ -41,6 +47,11 @@ internal sealed class SpyMessagePublisher : IMessagePublisher
         }
 
         PublishedMessage message = new(exchange, routingKey, type, payload, messageId);
+        if (FailWhen?.Invoke(message) is { } refusal)
+        {
+            throw refusal;
+        }
+
         _published.Enqueue(message);
 
         if (_deliverAsync is not null)
@@ -52,6 +63,7 @@ internal sealed class SpyMessagePublisher : IMessagePublisher
     public void Reset()
     {
         FailWith = null;
+        FailWhen = null;
         _published.Clear();
     }
 }

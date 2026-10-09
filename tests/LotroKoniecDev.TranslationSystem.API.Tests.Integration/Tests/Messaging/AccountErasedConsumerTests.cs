@@ -10,6 +10,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using RabbitMQ.Client;
+using RabbitMQ.Client.Exceptions;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Messaging;
 
@@ -101,6 +102,40 @@ public sealed class AccountErasedConsumerTests : IClassFixture<BrokeredTranslati
     }
 
     [Fact]
+    public async Task AccountErased_ThatFailsTheSameWayEveryTime_ShouldBeParkedAtTheDeliveryLimit()
+    {
+        // Arrange: a bug, not an outage. It must end in the parking queue for a person, not loop.
+        Guid identity = Guid.NewGuid();
+        await SeedTranslatorAsync(identity);
+        Guid messageId = Guid.NewGuid();
+        _factory.ErasureFailures.FailNext(int.MaxValue, () => new InvalidOperationException("simulated bug"));
+
+        // Act
+        await PublishAsync(nameof(AccountErased), JsonSerializer.Serialize(new AccountErased(identity)), messageId);
+
+        // Assert
+        (await WaitForDeadLetterAsync(messageId)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Consumer_AfterTheBrokerCancelledItsSubscription_ShouldAttachAgain()
+    {
+        // Arrange: deleting the queue, the documented way to change its arguments, cancels the
+        // subscription. Automatic recovery does not bring that back.
+        await Channel.QueueDeleteAsync(AccountEventsTopology.ErasedQueue);
+        Guid identity = Guid.NewGuid();
+        TranslatorId translatorId = await SeedTranslatorAsync(identity);
+
+        // Act: the publish is refused until the consumer has declared the queue again.
+        await PublishOnceTheQueueIsBackAsync(JsonSerializer.Serialize(new AccountErased(identity)));
+
+        // Assert
+        Translator profile = await WaitForProfileAsync(
+            translatorId, translator => translator.DisplayName.Value == Translator.ErasedDisplayName);
+        profile.DisplayName.Value.ShouldBe("Usunięte konto");
+    }
+
+    [Fact]
     public async Task Message_OfAnUnknownType_ShouldBeParkedInTheDeadLetterQueue()
     {
         // Arrange
@@ -158,6 +193,24 @@ public sealed class AccountErasedConsumerTests : IClassFixture<BrokeredTranslati
             mandatory: true,
             basicProperties: properties,
             body: Encoding.UTF8.GetBytes(payload));
+    }
+
+    private async Task PublishOnceTheQueueIsBackAsync(string payload)
+    {
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + WaitLimit;
+
+        while (true)
+        {
+            try
+            {
+                await PublishAsync(nameof(AccountErased), payload, Guid.NewGuid());
+                return;
+            }
+            catch (PublishException) when (DateTimeOffset.UtcNow < deadline)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100));
+            }
+        }
     }
 
     private async Task<Translator> WaitForProfileAsync(TranslatorId id, Func<Translator, bool> condition)

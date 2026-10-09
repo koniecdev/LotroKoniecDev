@@ -22,8 +22,8 @@ internal sealed class FailingEraseHandler : ICommandHandler<EraseTranslatorProfi
 
     public ValueTask<Result> Handle(EraseTranslatorProfile.Command command, CancellationToken cancellationToken)
     {
-        return _failures.TryTakeOne()
-            ? throw new InvalidOperationException("simulated database outage")
+        return _failures.TakeOne() is { } failure
+            ? throw failure
             : _inner.Handle(command, cancellationToken);
     }
 }

@@ -74,6 +74,11 @@ on a missing exchange. It does not declare the TMS queue. It publishes with `man
 confirmations, so an event published before the TMS queue exists comes back as an exception, and the
 outbox row stays for the next try. It is never dropped.
 
+Rows like that can fail for a long time, for example on a first rollout before the TMS has declared
+its queue, or after a rollback. So the relay now skips a row that failed for the rest of its pass and
+takes the next batch from behind it. Before this, 100 such rows at the head of the outbox filled every
+batch and held back every newer e-mail. This refines the batched drain of ADR-0035.
+
 ### 3. The TMS owns its queue and only checks the exchange
 
 `AccountEventsTopology` declares `tms.account-erased` (a quorum queue, like `emails.send`), its
@@ -94,34 +99,47 @@ was. An account that never opened the TMS has no profile, and that counts as don
 
 - **No inbox.** Erasing twice gives the same profile as erasing once, so a duplicate is harmless.
   ADR-0037 §5 (one inbox, one consumer) is untouched.
-- **Poison is rejected at once.** An unknown type or an unreadable payload goes to the parking queue
-  with `basic.reject`, as in ADR-0036.
-- **A database failure is returned with `basic.nack`.** The e-mail consumer gives up after five
-  retries, about 30 minutes, because an e-mail that late is worth little. An erasure that gives up is
-  worse: nothing would ever send it again. RabbitMQ 4.3 does not count a nack against the delivery
-  limit, so the consumer pauses (30 seconds growing to 15 minutes, each under the broker's 30-minute
-  consumer timeout) and returns the message, for as long as the outage lasts. Once the pauses stop
-  growing it logs at Error. The delivery limit still bounds a message that breaks the consumer
-  itself, because that path uses `basic.reject`.
+- **What can never work is parked at once.** An unknown type, an unreadable payload or a command the
+  handler refuses goes to the parking queue with `basic.reject` without requeue, as in ADR-0036.
+- **An unavailable database is waited out with `basic.nack`.** The e-mail consumer gives up after
+  five retries, about 30 minutes, because an e-mail that late is worth little. An erasure that gives
+  up is worse: nothing would ever send it again. RabbitMQ 4.3 does not count a nack against the
+  delivery limit, so the consumer pauses (30 seconds growing to 15 minutes, each under the broker's
+  30-minute consumer timeout) and returns the message, for as long as the outage lasts. Once the
+  pauses stop growing it logs at Error. "Unavailable" means a timeout, a socket error, a transient
+  Npgsql error or EF's `RetryLimitExceededException`, anywhere in the exception chain.
+- **Any other exception is retried with `basic.reject`, which counts.** That is a bug, not an
+  outage, and it fails the same way every time, so it ends in the parking queue at the delivery
+  limit instead of looping and blocking the erasures behind it.
+- **It attaches again when the broker drops it.** Automatic recovery brings back a lost connection,
+  but not a channel the broker closed or a subscription it cancelled, for example when the queue is
+  deleted to change its arguments. The consumer checks every 30 seconds and attaches again after two
+  checks in a row find it detached. A cancellation the client reports for its own timeout is retried
+  like any other failed attach; only the host's own stop ends the consumer.
 
 The owner chose the outbox over an HTTP call and the text „Usunięte konto” over a per-account marker
 at the #1071 gate.
 
 ### 5. Every finalizer run reconciles the outbox with the erased accounts
 
-`ErasedAccountReconciler` runs at the end of every finalizer run, over **all** erased accounts:
+`ErasedAccountReconciler` runs at the end of every finalizer run, over **all** erased accounts. Its two
+steps run and fail on their own, so a scrub that keeps failing never keeps the TMS from hearing about
+an earlier erasure. A shutdown skips both: the next run does them, and there is nothing to finish.
 
 - **It cuts every sent message of an erased account down to `{"IdentityUserId": …}`.** The row keeps
   its type, its times and the account id. One SQL statement does it. Unsent rows are left alone: the
   consumer would read a cut payload as poison, and deleting a row could race the relay. The next run
   cuts a row once the relay has sent it. Duplicate detection (ADR-0037) reads `InboxMessages`, never
-  the outbox, so a cut row changes nothing for the consumer. A row that is not JSON is skipped
-  (`pg_input_is_valid` behind a materialized CTE), so one bad row cannot stop every later run.
+  the outbox, so a cut row changes nothing for the consumer. A `LIKE` on the erased ids keeps the
+  JSON parsing to the few rows that name an erased account. A row that is not JSON is skipped
+  (`pg_input_is_valid` before the cast), so one bad row cannot stop every later run. Table and column
+  names come from the EF model, so a renamed column fails a test, not a production run.
 - **It writes an `AccountErased` for every erased account that has none.** That covers the accounts
   erased before this ADR. It is a check in every run and not a one-off migration, so the rows appear
   only once this release runs, and the migration history carries no data. A release rolled back past
   this ADR still meets them: its relay marks them failed and keeps them until a release that routes
-  them is back (runbook, "Rolling back past ADR-0065").
+  them is back (runbook, "Rolling back past ADR-0065"). It refuses to run on a context that still
+  tracks changes, so a message a failed erasure left behind is never saved with its own.
 
 `ErasedAccounts.Rule` is the one definition of an erased account, used by the reconciler and by
 §6: the `anon-` address on the anonymization domain and no password. Neither half is proof alone. A
@@ -129,7 +147,7 @@ cancelled deletion and an undone e-mail change clear a live account's password, 
 form accepts any address. But no mail reaches the anonymization domain, so an account with that
 address can never confirm it, and only a confirmed account reaches those two flows. The deletion
 date is not part of the rule: the immediate deletion before two-phase deletion (#460) never wrote
-one.
+one. `ErasedAccounts.Includes` is the same check for an account in memory, ordinal like the SQL `LIKE`.
 
 ### 6. A late e-mail change notice is not sent to an erased account
 
@@ -137,12 +155,17 @@ one.
 could only arrive that late after a relay outage of 14 days or more, but then it would mail the
 erased person's addresses again.
 
-### 7. The grace period is at least 14 days
+### 7. The grace period outlives an access token
 
-`GdprSettingsValidator` now refuses a `DeletionGracePeriod` shorter than the OpenIddict prune's
-14-day retention. The policy promises 14 days, and the shorter values broke two things this ADR relies
-on: every token of the account is old enough for the prune to delete it within a day of the erasure,
-and no access token (five minutes) is still valid to write the name back into the TMS profile.
+`GdprSettingsValidator` now refuses a `DeletionGracePeriod` that is not longer than
+`OpenIddict:AccessTokenLifetimeMinutes`. Signing in stops when the deletion is scheduled, but an
+access token issued just before still works on the TMS until it expires, and the TMS copies the token's
+name and address into the profile. A longer grace period means no token is left to write them back
+after the erasure. QA can still shorten the period to watch a real erasure, as ADR-0031 describes.
+
+With the default 14 days, every token of the account is also older than the OpenIddict prune's 14-day
+retention at the erasure, so the encrypted copy of the name and address in a stored refresh token goes
+within a day. A shorter QA grace period leaves those encrypted rows until the prune reaches them.
 
 ## Amendments to earlier decisions
 

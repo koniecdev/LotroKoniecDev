@@ -26,7 +26,14 @@ internal static class ErasedAccounts
         && account.Email.EndsWith(AnonymizationConstants.EmailDomain)
         && account.PasswordHash == null;
 
-    private static readonly Func<ApplicationUser, bool> CompiledRule = Rule.Compile();
-
-    public static bool Includes(ApplicationUser account) => CompiledRule(account);
+    /// <summary>
+    /// <see cref="Rule"/> for an account already in memory. It compares ordinally, as the SQL that
+    /// <see cref="Rule"/> becomes compares byte for byte. A compiled <see cref="Rule"/> would compare by
+    /// culture, which ignores characters such as a soft hyphen, so the two could disagree.
+    /// </summary>
+    public static bool Includes(ApplicationUser account) =>
+        account.Email is { } email
+        && email.StartsWith(AnonymizationConstants.EmailPrefix, StringComparison.Ordinal)
+        && email.EndsWith(AnonymizationConstants.EmailDomain, StringComparison.Ordinal)
+        && account.PasswordHash is null;
 }

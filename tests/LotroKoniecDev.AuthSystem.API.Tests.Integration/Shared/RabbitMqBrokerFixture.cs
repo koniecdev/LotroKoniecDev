@@ -1,5 +1,6 @@
 using DotNet.Testcontainers.Containers;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
+using LotroKoniecDev.Tests.Shared;
 using RabbitMQ.Client;
 using Testcontainers.RabbitMq;
 
@@ -13,12 +14,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 /// </summary>
 public sealed class RabbitMqBrokerFixture : IAsyncLifetime
 {
-    /// <summary>
-    /// Pinned to the exact version in compose.yaml, without the management UI, which a test does not
-    /// need. So the suite checks the topology against the same broker version the stack runs.
-    /// compose.yaml points back here: an upgrade has to change both.
-    /// </summary>
-    private readonly RabbitMqContainer _container = new RabbitMqBuilder("rabbitmq:4.3.4-alpine")
+    private readonly RabbitMqContainer _container = new RabbitMqBuilder(RabbitMqImage.Name)
         .Build();
 
     public async Task InitializeAsync()

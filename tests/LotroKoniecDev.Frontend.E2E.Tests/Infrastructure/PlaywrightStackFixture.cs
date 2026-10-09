@@ -35,14 +35,6 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     private const string MigratorRepository = "lotrokoniecdev-migrator";
     private const string MailpitImage = "axllent/mailpit:latest";
 
-    /// <summary>
-    /// Kept at the same version as the compose stacks and the integration suite's
-    /// RabbitMqBrokerFixture. The confirmation e-mail travels the outbox, broker and consumer pipeline,
-    /// so without a broker in this network Mailpit would never receive the link the register flow waits
-    /// for.
-    /// </summary>
-    private const string RabbitMqImage = "rabbitmq:4.3.4-alpine";
-
     private const int PlaywrightPort = 8080;
 
     /// <summary>
@@ -173,7 +165,9 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
 
     private async Task StartRabbitMqAsync()
     {
-        _rabbitMq = new ContainerBuilder(RabbitMqImage)
+        // The confirmation e-mail travels the outbox, broker and consumer pipeline, so without a broker in
+        // this network Mailpit would never receive the link the register flow waits for.
+        _rabbitMq = new ContainerBuilder(RabbitMqImage.Name)
             .WithNetwork(_network)
             .WithNetworkAliases("rabbitmq")
             .WithEnvironment("RABBITMQ_DEFAULT_USER", RabbitMqUsername)
@@ -266,6 +260,10 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
             .WithEnvironment("Auth__Issuer", AuthHttpsOrigin)
             .WithEnvironment("Auth__Authority", AuthHttpsOrigin)
             .WithEnvironment("Auth__Audience", Audience)
+            // The account event consumer of ADR-0065 reads the same broker as auth-api.
+            .WithEnvironment("RabbitMq__Host", "rabbitmq")
+            .WithEnvironment("RabbitMq__Username", RabbitMqUsername)
+            .WithEnvironment("RabbitMq__Password", RabbitMqPassword)
             .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__Path", "/certs/e2e.crt")
             .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__KeyPath", "/certs/e2e.key")
             .WithResourceMapping(Encoding.ASCII.GetBytes(_certPem), "/certs/e2e.crt")

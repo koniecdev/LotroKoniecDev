@@ -19,6 +19,11 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate
 /// </summary>
 public sealed class Translator : AggregateRoot<TranslatorId>
 {
+    /// <summary>
+    /// What the editor shows as the author once the account behind the profile is erased.
+    /// </summary>
+    public const string ErasedDisplayName = "Usunięte konto";
+
     public IdentityId IdentityId { get; }
     public DisplayName DisplayName { get; private set; }
     public Email? Email { get; private set; }
@@ -34,6 +39,17 @@ public sealed class Translator : AggregateRoot<TranslatorId>
 
         DisplayName = displayName;
         Email = email;
+    }
+
+    /// <summary>
+    /// Takes the person off the profile once the AuthSystem has erased their account (ADR-0065). The
+    /// profile and its translations stay, so the credit points at a profile that no longer says whose
+    /// it was. Doing it twice changes nothing.
+    /// </summary>
+    public void Erase()
+    {
+        DisplayName = DisplayName.Create(ErasedDisplayName).Value;
+        Email = null;
     }
 
     public static Result<Translator> Create(

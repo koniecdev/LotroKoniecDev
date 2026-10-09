@@ -28,6 +28,7 @@ using LotroKoniecDev.TranslationSystem.API.Hateoas.DiscoveryFactories;
 using LotroKoniecDev.TranslationSystem.API.Hateoas.GameVersionAggregateFactories;
 using LotroKoniecDev.TranslationSystem.API.Hateoas.PaginationLinkFactories;
 using LotroKoniecDev.TranslationSystem.API.Hateoas.TranslationAggregateFactories;
+using LotroKoniecDev.TranslationSystem.API.Messaging;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
@@ -158,6 +159,14 @@ internal static class ApiDependencyInjection
             services.AddScoped<
                 IQueryHandler<ExportMyContributionData.Query, Result<TranslatorDataExportResponse>>,
                 ExportMyContributionData.Handler>();
+
+            // The AuthSystem tells the TMS when it erases an account, and the consumer takes the person
+            // off the translator profile (ADR-0065).
+            services.AddScoped<IValidator<EraseTranslatorProfile.Command>, EraseTranslatorProfile.Validator>();
+            services.AddScoped<ICommandHandler<EraseTranslatorProfile.Command, Result>, EraseTranslatorProfile.Handler>();
+            services.AddSingleton<IValidator<RabbitMqSettings>, RabbitMqSettingsValidator>();
+            services.AddOptionsWithFluentValidation<RabbitMqSettings>(RabbitMqSettings.ConfigurationSection);
+            services.AddHostedService<AccountErasedConsumer>();
         }
 
         private void AddTranslationFilesFeature()

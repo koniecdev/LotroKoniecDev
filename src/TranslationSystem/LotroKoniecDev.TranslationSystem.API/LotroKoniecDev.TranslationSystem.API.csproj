@@ -17,6 +17,7 @@
              2.0.0 pulled transitively by Microsoft.AspNetCore.OpenApi; version lives in Directory.Packages.props. -->
         <PackageReference Include="Microsoft.OpenApi" />
         <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" />
+        <PackageReference Include="RabbitMQ.Client" />
         <PackageReference Include="Scalar.AspNetCore" />
         <PackageReference Include="Serilog" />
         <PackageReference Include="Serilog.AspNetCore" />

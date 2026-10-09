@@ -35,6 +35,7 @@
     <ItemGroup>
         <Compile Include="..\Shared\CapturingLoggerFactory.cs" Link="Shared\CapturingLoggerFactory.cs" />
         <Compile Include="..\Shared\PostgresImage.cs" Link="Shared\PostgresImage.cs" />
+        <Compile Include="..\Shared\RabbitMqImage.cs" Link="Shared\RabbitMqImage.cs" />
     </ItemGroup>
 
     <ItemGroup>

@@ -115,8 +115,8 @@ services:
     oom_score_adj: 0
 
   rabbitmq:
-    # Version pinned in lockstep with the dev compose.yaml and the integration suite's
-    # RabbitMqBrokerFixture (same image minus the management UI) — bump all three together, or the
+    # Version pinned in lockstep with the dev compose.yaml and the test brokers'
+    # tests/Shared/RabbitMqImage.cs (same image minus the management UI) — bump all three together, or the
     # suite keeps proving the dead-letter topology against a different broker generation than the
     # one this stack runs.
     image: rabbitmq:4.3.4-management-alpine
@@ -233,6 +233,12 @@ services:
       # The same health check key as auth-api's (ADR-0058, #853).
       HealthCheck__Key: ${HEALTH_CHECK_KEY:?HEALTH_CHECK_KEY must be set in /opt/lotro/.env — openssl rand -base64 32, one per box (ADR-0058)}
       ConnectionStrings__TranslationDatabase: ${ConnectionStrings__TranslationDatabase}
+      # The account events of ADR-0065: tms-api consumes AccountErased from the same broker and with
+      # the same user as auth-api. No depends_on edge to the broker, for auth-api's reason: the
+      # consumer connects with a backoff, and a broker outage must never block an app deploy.
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: rabbitmq
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:?generate one and add RABBITMQ_PASSWORD to the box .env (runbook → Secrets)}
       # Issuer = the public origin the tokens carry; Authority = where OIDC metadata + JWKS are
       # fetched. Both resolve to the in-stack Caddy via its network aliases below, serving the
       # real LE certificate — so back-channel and browser share one origin (M6-08 topology).

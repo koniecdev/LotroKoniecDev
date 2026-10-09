@@ -185,6 +185,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
         Guid messageId = Guid.CreateVersion7();
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
+            RabbitMqTopology.EmailsExchange,
             RabbitMqTopology.DeletionScheduledRoutingKey,
             nameof(AccountDeletionScheduled),
             JsonSerializer.Serialize(new AccountDeletionScheduled(identityId.Value)),
@@ -213,6 +214,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
         Guid messageId = Guid.CreateVersion7();
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
+            RabbitMqTopology.EmailsExchange,
             RabbitMqTopology.DeletionCancelledRoutingKey,
             nameof(AccountDeletionCancelled),
             JsonSerializer.Serialize(new AccountDeletionCancelled(identityId.Value)),
@@ -239,6 +241,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
         Guid messageId = Guid.CreateVersion7();
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
+            RabbitMqTopology.EmailsExchange,
             routingKey,
             messageType,
             poisonPayload,

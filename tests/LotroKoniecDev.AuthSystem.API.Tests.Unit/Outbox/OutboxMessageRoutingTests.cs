@@ -1,68 +1,78 @@
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
+using LotroKoniecDev.SharedKernel.IntegrationEvents;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Outbox;
 
 public sealed class OutboxMessageRoutingTests
 {
     [Fact]
-    public void TryGetRoutingKey_EmailConfirmationRequested_MapsToConfirmationRoutingKey()
+    public void TryGetRoute_EmailConfirmationRequested_MapsToTheEmailsExchangeAndConfirmationRoutingKey()
     {
-        bool found = OutboxMessageRouting.TryGetRoutingKey(
-            nameof(EmailConfirmationRequested), out string? routingKey);
+        bool found = OutboxMessageRouting.TryGetRoute(
+            nameof(EmailConfirmationRequested), out OutboxRoute? route);
 
         found.ShouldBeTrue();
-        routingKey.ShouldBe(RabbitMqTopology.EmailConfirmationRoutingKey);
+        route.ShouldBe(new OutboxRoute(RabbitMqTopology.EmailsExchange, RabbitMqTopology.EmailConfirmationRoutingKey));
     }
 
     [Fact]
-    public void TryGetRoutingKey_PasswordResetRequested_MapsToPasswordResetRoutingKey()
+    public void TryGetRoute_PasswordResetRequested_MapsToTheEmailsExchangeAndPasswordResetRoutingKey()
     {
-        bool found = OutboxMessageRouting.TryGetRoutingKey(
-            nameof(PasswordResetRequested), out string? routingKey);
+        bool found = OutboxMessageRouting.TryGetRoute(
+            nameof(PasswordResetRequested), out OutboxRoute? route);
 
         found.ShouldBeTrue();
-        routingKey.ShouldBe(RabbitMqTopology.PasswordResetRoutingKey);
+        route.ShouldBe(new OutboxRoute(RabbitMqTopology.EmailsExchange, RabbitMqTopology.PasswordResetRoutingKey));
     }
 
     [Fact]
-    public void TryGetRoutingKey_AccountDeletionScheduled_MapsToDeletionScheduledRoutingKey()
+    public void TryGetRoute_AccountDeletionScheduled_MapsToTheEmailsExchangeAndDeletionScheduledRoutingKey()
     {
-        bool found = OutboxMessageRouting.TryGetRoutingKey(
-            nameof(AccountDeletionScheduled), out string? routingKey);
+        bool found = OutboxMessageRouting.TryGetRoute(
+            nameof(AccountDeletionScheduled), out OutboxRoute? route);
 
         found.ShouldBeTrue();
-        routingKey.ShouldBe(RabbitMqTopology.DeletionScheduledRoutingKey);
+        route.ShouldBe(new OutboxRoute(RabbitMqTopology.EmailsExchange, RabbitMqTopology.DeletionScheduledRoutingKey));
     }
 
     [Fact]
-    public void TryGetRoutingKey_AccountDeletionCancelled_MapsToDeletionCancelledRoutingKey()
+    public void TryGetRoute_AccountDeletionCancelled_MapsToTheEmailsExchangeAndDeletionCancelledRoutingKey()
     {
-        bool found = OutboxMessageRouting.TryGetRoutingKey(
-            nameof(AccountDeletionCancelled), out string? routingKey);
+        bool found = OutboxMessageRouting.TryGetRoute(
+            nameof(AccountDeletionCancelled), out OutboxRoute? route);
 
         found.ShouldBeTrue();
-        routingKey.ShouldBe(RabbitMqTopology.DeletionCancelledRoutingKey);
+        route.ShouldBe(new OutboxRoute(RabbitMqTopology.EmailsExchange, RabbitMqTopology.DeletionCancelledRoutingKey));
     }
 
     [Fact]
-    public void TryGetRoutingKey_EmailChangeRequested_MapsToChangeRequestedRoutingKey()
+    public void TryGetRoute_EmailChangeRequested_MapsToTheEmailsExchangeAndChangeRequestedRoutingKey()
     {
-        bool found = OutboxMessageRouting.TryGetRoutingKey(
-            nameof(EmailChangeRequested), out string? routingKey);
+        bool found = OutboxMessageRouting.TryGetRoute(
+            nameof(EmailChangeRequested), out OutboxRoute? route);
 
         found.ShouldBeTrue();
-        routingKey.ShouldBe(RabbitMqTopology.EmailChangeRequestedRoutingKey);
+        route.ShouldBe(new OutboxRoute(RabbitMqTopology.EmailsExchange, RabbitMqTopology.EmailChangeRequestedRoutingKey));
     }
 
     [Fact]
-    public void TryGetRoutingKey_EmailChangeCompleted_MapsToChangeCompletedRoutingKey()
+    public void TryGetRoute_EmailChangeCompleted_MapsToTheEmailsExchangeAndChangeCompletedRoutingKey()
     {
-        bool found = OutboxMessageRouting.TryGetRoutingKey(
-            nameof(EmailChangeCompleted), out string? routingKey);
+        bool found = OutboxMessageRouting.TryGetRoute(
+            nameof(EmailChangeCompleted), out OutboxRoute? route);
 
         found.ShouldBeTrue();
-        routingKey.ShouldBe(RabbitMqTopology.EmailChangeCompletedRoutingKey);
+        route.ShouldBe(new OutboxRoute(RabbitMqTopology.EmailsExchange, RabbitMqTopology.EmailChangeCompletedRoutingKey));
+    }
+
+    [Fact]
+    public void TryGetRoute_AccountErased_MapsToTheAccountEventsExchange()
+    {
+        bool found = OutboxMessageRouting.TryGetRoute(nameof(AccountErased), out OutboxRoute? route);
+
+        found.ShouldBeTrue();
+        route.ShouldBe(new OutboxRoute("lotro.accounts", "account.erased"));
     }
 
     [Fact]
@@ -99,12 +109,14 @@ public sealed class OutboxMessageRoutingTests
     [InlineData("email.change-requested")]
     [InlineData("emailchangecompleted")]
     [InlineData("email.change-completed")]
+    [InlineData("accounterased")]
+    [InlineData("account.erased")]
     [InlineData("SomeFutureUnmappedEvent")]
-    public void TryGetRoutingKey_UnknownOrMiscasedType_ReturnsFalse(string type)
+    public void TryGetRoute_UnknownOrMiscasedType_ReturnsFalse(string type)
     {
-        bool found = OutboxMessageRouting.TryGetRoutingKey(type, out string? routingKey);
+        bool found = OutboxMessageRouting.TryGetRoute(type, out OutboxRoute? route);
 
         found.ShouldBeFalse();
-        routingKey.ShouldBeNull();
+        route.ShouldBeNull();
     }
 }

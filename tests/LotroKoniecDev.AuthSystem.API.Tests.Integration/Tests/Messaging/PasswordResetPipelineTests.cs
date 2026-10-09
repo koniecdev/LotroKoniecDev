@@ -133,6 +133,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         // Act: same payload, same type, same message id, over the real wire
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
+            RabbitMqTopology.EmailsExchange,
             RabbitMqTopology.PasswordResetRoutingKey,
             outboxRow.Type,
             outboxRow.Payload,
@@ -158,6 +159,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         Guid messageId = Guid.CreateVersion7();
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
+            RabbitMqTopology.EmailsExchange,
             RabbitMqTopology.PasswordResetRoutingKey,
             nameof(PasswordResetRequested),
             poisonPayload,
@@ -182,6 +184,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         string payload = JsonSerializer.Serialize(new PasswordResetRequested(Guid.CreateVersion7()));
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
+            RabbitMqTopology.EmailsExchange,
             RabbitMqTopology.PasswordResetRoutingKey,
             nameof(PasswordResetRequested),
             payload,

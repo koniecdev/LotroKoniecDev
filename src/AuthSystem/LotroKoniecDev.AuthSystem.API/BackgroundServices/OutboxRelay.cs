@@ -156,7 +156,7 @@ internal sealed partial class OutboxRelay : BackgroundService
     {
         bool published;
 
-        if (!OutboxMessageRouting.TryGetRoutingKey(message.Type, out string? routingKey))
+        if (!OutboxMessageRouting.TryGetRoute(message.Type, out OutboxRoute? route))
         {
             message.MarkFailed($"No routing key is mapped for outbox message type '{message.Type}'.");
             LogMessageUnroutable(_logger, message.Id, message.Type);
@@ -167,7 +167,7 @@ internal sealed partial class OutboxRelay : BackgroundService
             try
             {
                 await _messagePublisher.PublishAsync(
-                    routingKey, message.Type, message.Payload, message.Id, stoppingToken);
+                    route.Exchange, route.RoutingKey, message.Type, message.Payload, message.Id, stoppingToken);
                 message.MarkAsProcessed(_timeProvider.GetUtcNow());
                 published = true;
             }

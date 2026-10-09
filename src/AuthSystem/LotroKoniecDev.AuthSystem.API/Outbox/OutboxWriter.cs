@@ -39,7 +39,7 @@ internal sealed class OutboxWriter
         // then block the relay: OutboxMessageRouting fails that row loudly, but only later. Failing
         // the writer's own request shows the missing entry as soon as it is written.
         // It uses its own exception type, so a writer's catch block does not swallow it.
-        if (!OutboxMessageRouting.TryGetRoutingKey(type, out _))
+        if (!OutboxMessageRouting.TryGetRoute(type, out _))
         {
             throw new UnroutableOutboxMessageTypeException(type);
         }

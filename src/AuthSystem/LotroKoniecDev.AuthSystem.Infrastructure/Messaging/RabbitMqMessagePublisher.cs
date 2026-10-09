@@ -48,12 +48,14 @@ internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsy
     }
 
     public async Task PublishAsync(
+        string exchange,
         string routingKey,
         string type,
         string payload,
         Guid messageId,
         CancellationToken cancellationToken)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(exchange);
         ArgumentException.ThrowIfNullOrWhiteSpace(routingKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(type);
         ArgumentException.ThrowIfNullOrWhiteSpace(payload);
@@ -77,7 +79,7 @@ internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsy
         byte[] body = Encoding.UTF8.GetBytes(payload);
 
         await channel.BasicPublishAsync(
-            exchange: RabbitMqTopology.EmailsExchange,
+            exchange: exchange,
             routingKey: routingKey,
             mandatory: true,
             basicProperties: properties,

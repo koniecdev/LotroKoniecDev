@@ -117,6 +117,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         // Act: same payload, same type, same message id, over the real wire
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
+            RabbitMqTopology.EmailsExchange,
             RabbitMqTopology.EmailConfirmationRoutingKey,
             outboxRow.Type,
             outboxRow.Payload,
@@ -142,6 +143,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         Guid messageId = Guid.CreateVersion7();
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
+            RabbitMqTopology.EmailsExchange,
             RabbitMqTopology.EmailConfirmationRoutingKey,
             nameof(EmailConfirmationRequested),
             poisonPayload,
@@ -218,6 +220,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         string payload = JsonSerializer.Serialize(new EmailConfirmationRequested(Guid.CreateVersion7()));
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
+            RabbitMqTopology.EmailsExchange,
             RabbitMqTopology.EmailConfirmationRoutingKey,
             nameof(EmailConfirmationRequested),
             payload,

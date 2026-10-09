@@ -14,7 +14,9 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 /// Neither half is proof alone. The registration form accepts any address, so a live account can carry
 /// the marker address, but it keeps its password: no mail reaches that domain, so the account can never
 /// confirm it, and only a confirmed account reaches the two flows that clear a live password (a
-/// cancelled deletion and an undone e-mail change).
+/// cancelled deletion and an undone e-mail change). The one exception is the seeded admin, confirmed
+/// without a mail and seeded without a password (ADR-0056): never give it an address on the marker
+/// domain.
 /// </remarks>
 internal static class ErasedAccounts
 {

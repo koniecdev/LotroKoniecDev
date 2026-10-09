@@ -79,7 +79,7 @@ TLS-terminating ingress:
 | **frontend** | `lotrokoniecdev-frontend` | `:8080` (HTTP) | — | Data Protection keyring → `/keys` |
 | **migrator** | `lotrokoniecdev-migrator` | one-shot (exits 0) | exit code | — |
 | _ingress_ | **Caddy** (the boxes take its tag and digest from one place, the `x-caddy-image` anchor in `compose.hetzner.yaml`; `compose.prod.yaml`, the laptop parity stack, mirrors it; the anchor's comment says why and how Dependabot moves both; 2.11.6 crashes, #988) | `:80`, `:443` | — | ACME certs + config volumes |
-| _broker_ | **RabbitMQ** (`rabbitmq:4.3.4-management-alpine` — pinned, see the compose comment) | `:5672` in-stack (AMQP; auth-api only) | `rabbitmq-diagnostics ping` (container healthcheck) + the `rabbitmq` leg of auth's deep `/health` | broker state (users, quorum queues, parked dead letters) → `rabbitmq-data` volume |
+| _broker_ | **RabbitMQ** (`rabbitmq:4.3.4-management-alpine` — pinned, see the compose comment) | `:5672` in-stack (AMQP; auth-api, and tms-api for the account events of ADR-0065) | `rabbitmq-diagnostics ping` (container healthcheck) + the `rabbitmq` leg of auth's deep `/health` | broker state (users, quorum queues, parked dead letters) → `rabbitmq-data` volume |
 
 Container contract (ADR-0008 §2): each app serves **plain HTTP on `:8080`** and expects a
 TLS-terminating ingress in front; runs **non-root**; logs **structured JSON to stdout**; takes **all
@@ -278,6 +278,7 @@ staging from prod in Grafana, because both boxes run `ASPNETCORE_ENVIRONMENT=Pro
 | `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | The same key and rule as auth-api's `HealthCheck__Key` (ADR-0058, #853): the full `/health` runs the database check only for a request that sends it in `X-LOTRO-Health-Key`, and answers 404 to anyone else. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | `http://localhost:4317` / `grpc` (launchSettings) | — (empty: no sink today) | optional | plain | Empty endpoint = export disabled. |
 | `Bootstrap__Enabled` | `false` | `false` | optional | plain | One-time DB seed of the first export (spec 0001). Off by default. |
+| `RabbitMq__Host` / `RabbitMq__Username` / `RabbitMq__Password` | `localhost` / `rabbitmq` / `changeme` (appsettings.Development) | `rabbitmq` / `rabbitmq` / from `RABBITMQ_PASSWORD` | ✅ all | **secret** (Password) | The broker auth-api uses, with the same user: tms-api consumes the `AccountErased` events of ADR-0065 from its own queue `tms.account-erased`. Validated on start, but tms-api **boots and serves with the broker down**: the consumer retries its connection, and the AuthSystem's outbox keeps the event until it is delivered. |
 | `TranslationFileDiskCache__Directory` | — (unset → a private folder per process in the temp folder) | `/tmp/lotro-translation-files` (set in `compose.hetzner.yaml`) | optional | plain | Where full downloads of the translation file are served from (ADR-0064). Fixed in the containers so a crash restart reuses and sweeps the one copy (about 82 MB at full size) instead of leaving one behind. It must belong to this one process; an empty value stops the boot. |
 | `Bootstrap__GameVersion` / `Bootstrap__ExportedTextPath` / `Bootstrap__PolishTextPath` | — / — / `/app/translations/polish.txt` | as needed | optional | plain | Only consulted when `Bootstrap__Enabled=true`. |
 
@@ -356,7 +357,7 @@ which is why they are named volumes and not bind mounts.
 | `Email__Username` | auth-api | **Brevo** dashboard → SMTP & API → SMTP keys | The SMTP **login**, shaped `<id>@smtp-brevo.com` — **not** the Brevo account e-mail, which fails the handshake with `535`. |
 | `Email__Password` | auth-api | **Brevo** (owner pastes) | Generate a new SMTP key in Brevo. Shown **once** and never readable back — the copies in the box `.env` and in GitHub secrets are both write-only, so a lost key is re-generated, never recovered. |
 | The admin password | the admin `Users` row | **the admin's own password manager**, never a file on the box | Not a `.env` value any more (ADR-0056): the seeder creates the admin without one. The first password and every rotation go through the reset mail ([Admin account](#admin-account--first-sign-in-and-rotation)). A box `.env` that still has an `AUTH_ADMIN_PASSWORD` line predates #696: follow the migration steps there. |
-| `RABBITMQ_PASSWORD` (→ auth-api `RabbitMq__Password` **and** the broker's `RABBITMQ_DEFAULT_PASS`) | rabbitmq, auth-api | **box-local** — generate: `openssl rand -base64 24` | ⚠️ Same create-if-missing shape as the admin seed: the broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** (empty data volume), so editing `.env` later rotates what auth-api presents but **not** what the broker expects. Rotate in lockstep: `docker compose -f compose.hetzner.yaml exec rabbitmq rabbitmqctl change_password rabbitmq '<new>'` → update `.env` → `docker compose -f compose.hetzner.yaml up -d auth-api`. |
+| `RABBITMQ_PASSWORD` (→ auth-api and tms-api `RabbitMq__Password` **and** the broker's `RABBITMQ_DEFAULT_PASS`) | rabbitmq, auth-api, tms-api | **box-local** — generate: `openssl rand -base64 24` | ⚠️ Same create-if-missing shape as the admin seed: the broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** (empty data volume), so editing `.env` later rotates what the apps present but **not** what the broker expects. Rotate in lockstep: `docker compose -f compose.hetzner.yaml exec rabbitmq rabbitmqctl change_password rabbitmq '<new>'` → update `.env` → `docker compose -f compose.hetzner.yaml up -d auth-api tms-api`. Leave tms-api out and it keeps working until its next reconnect, then is refused for good while erasures wait unseen in its queue (ADR-0065). |
 | `FRONTEND_CALLER_KEY` (→ auth-api and tms-api `FrontendCaller__Key`, frontend `AuthSystem__CallerKey` **and** `TranslationSystem__CallerKey`) | auth-api, tms-api, frontend | **box-local** — generate: `openssl rand -base64 32`, one per environment (not one per API) | Lets the auth API and the TMS API rate-limit a frontend call on the visitor's forwarded address instead of on the frontend container (ADR-0054, #823). Put a new value into the box `.env` and redeploy: all three services read the same line, so they disagree only for the seconds of the restart, and a call in that window merely counts against the frontend's own bucket. **Required** — compose refuses to render without it (`deploy.sh` stops at its first gate and the rollback keeps the old release serving), and all three apps refuse to boot outside Development/Testing. Write the value **unquoted**: base64 needs no quotes, and a key with whitespace at either end stops all three apps at boot, because the APIs would compare it with a trimmed header and never match (#857). A line break or a non-ASCII character anywhere in the key (a multi-line value, a pasted non-breaking space) stops them at boot too, because such a key cannot reach the API in a header. So does a tab: it could reach the API, but it is refused to keep one simple rule (#877). A leaked key lets its holder dodge the three auth back-channel limits and the TMS API's one limit by inventing addresses and nothing more — rotate it. |
 | `HEALTH_CHECK_KEY` (→ auth-api and tms-api `HealthCheck__Key`) | auth-api, tms-api, **and on the prod box the daily health ping** | **box-local** — generate: `openssl rand -base64 32`, one per environment (not one per API) | Opens the full `/health` (ADR-0058, #853); without it both APIs answer 404 there and run no check. **Required** — compose refuses to render without it (`deploy.sh` stops at its first gate and the rollback keeps the old release serving), and both APIs refuse to boot outside Development/Testing. **Prod only: the same value is the `PROD_HEALTH_CHECK_KEY` repository secret** the daily health ping sends. Set or rotate it without the value ever reaching argv or the screen: `ssh deploy@<prod-box> "grep '^HEALTH_CHECK_KEY=' /opt/lotro/.env \| cut -d= -f2-" \| tr -d '"\r\n' \| gh secret set PROD_HEALTH_CHECK_KEY` (gh reads stdin when there is no `--body`; **never `--body -`**). The command copies the raw `.env` line, so write the value **unquoted** — base64 needs no quotes; `tr` drops double quotes, but single quotes would reach the secret and turn the ping red. Both APIs refuse to boot with a key that has whitespace at either end or anything but printable ASCII inside it (#853, #877). Rotate: new value into the prod `.env` → redeploy → that command. Between the two steps the ping gets 404 and goes red, so rotate outside its 06:40 UTC slot. A leaked key lets its holder run the database, SMTP and broker checks at will, and nothing more — rotate it. |
 | `OBS_PUSH_PASSWORD` (prod `/opt/obs/.env`) ↔ `OBS_PUSH_PASSWORD_HASH` (staging `/opt/lotro/.env`) | the prod agent (Alloy, `ship.agent.alloy`) ↔ the staging Caddy's ingest vhost | **box-local** — generate: `openssl rand -base64 24`; hash it with `docker run --rm -it caddy:2-alpine caddy hash-password` (prompts, never on argv) | One password, two forms, and the plaintext exists on the prod box only. Rotate hash-first: new hash into staging `.env` → `deploy.sh` (reloads Caddy) → new password into prod `.env` → `docker compose -f compose.observability.yaml up -d` in `/opt/obs`. **The window in between loses telemetry, it does not delay it** — a 401 is a permanent error for all three writers and each drops the batch — so pick a window you are willing to have a hole in, or give the vhost a second `basic_auth` account first so the two credentials overlap. **Single-quote the hash in `.env`**: bare *and* double-quoted both corrupt it, compose expands the salt after the third `$` to nothing, and `caddy validate` accepts the wreckage — prove it landed with the probe in "Bringing up the prod agent" step 3. |
@@ -1347,10 +1348,15 @@ restore drops connections and rewinds anything written after the restore point.
 
 Since the outbox/broker work (ADRs 0035–0037) each box runs a **single-node RabbitMQ container** in
 the stack (`rabbitmq` in `compose.hetzner.yaml` — pinned image, pinned `hostname`, named
-`rabbitmq-data` volume). Only **auth-api** talks to it: the outbox relay publishes committed rows to
-the `lotro.emails` exchange and the e-mail consumer consumes `emails.send`. Everything either side
-needs — exchanges, quorum queues, bindings, the dead-letter wiring — is **declared idempotently by
-the app on channel open**, so a fresh broker needs zero manual provisioning.
+`rabbitmq-data` volume). **auth-api** publishes committed outbox rows: e-mail work to the
+`lotro.emails` exchange, which its own e-mail consumer reads from `emails.send`, and the
+`AccountErased` event to the `lotro.accounts` exchange (ADR-0065). **tms-api** reads that event from
+its own queue `tms.account-erased` and takes the person's name and address off the translator
+profile. Both use the one broker user `rabbitmq`; #1086 tracks a least-privilege user for tms-api.
+Everything each side needs — exchanges, quorum queues, bindings, the dead-letter wiring — is
+**declared idempotently by the app on channel open**, so a fresh broker needs zero manual
+provisioning. auth-api declares `lotro.accounts`; tms-api only checks that it exists, so until
+auth-api has started once, the tms-api consumer keeps retrying its connection.
 
 The broker is deliberately a **soft dependency**:
 
@@ -1387,11 +1393,36 @@ queue with the *default* delivery limit (20) and no DLX of its own, so a reject-
    requeue true* (a nack is an "explicit return" — it does not tick the delivery count; a reject
    does).
 2. **Replay**: *Publish message* on the **`lotro.emails`** exchange with the message's preserved
-   routing key (e.g. `email.confirmation`), its original **`message_id` property** and body. The
-   inbox deduplicates on the message id (ADR-0037), so replaying an already-processed id is a safe
-   no-op.
+   routing key (e.g. `email.confirmation`), its original **`message_id` and `type` properties** and
+   body. The consumer picks its processor by `type` (ADR-0038), so a replay without it is parked
+   again at once. The inbox deduplicates on the message id (ADR-0037), so replaying an
+   already-processed id is a safe no-op.
 3. Only after the replay demonstrably processed (e-mail sent / inbox row present): remove the parked
    copy — *Get messages* with ack mode *Automatic ack*.
+
+### The account events parking lot (`tms.account-erased.dlq`)
+
+Only a message tms-api can never handle lands here: an unknown type, an unreadable payload or a
+command the handler refuses, parked on first sight, or one that failed for a reason other than the
+database five times in a row, which means a bug. A database error never parks a message, whatever
+its cause (an outage, a rotated password, a lost grant): the consumer returns it with a nack, which
+does not count against the delivery limit, and tries again every 15 minutes at most until the
+database answers (ADR-0065). A parked message means a person's
+name may still be on a translator profile, so look at it the same day. If you delete
+`tms.account-erased` to change its arguments, tms-api declares it again and attaches within a minute;
+no restart is needed. Replay works as for `emails.send.dlq`, on the **`lotro.accounts`** exchange with the routing
+key `account.erased` and the `type` property `AccountErased`. Erasing a profile twice is harmless,
+so a replay never needs a duplicate check.
+
+### Rolling back past ADR-0065
+
+A release from before ADR-0065 cannot route `AccountErased`. Its relay marks such a row failed
+("No routing key is mapped…", an Error line), moves on to the other rows and keeps the row for
+later. Nothing is lost: the row goes out once a release that routes it runs again. Two things to
+know: the first run of the deletion finalizer after ADR-0065 writes one such row for every account
+erased before it, and a run of 100 or more failing rows at the head of the outbox holds newer
+e-mail back on the old release. So roll forward rather than back once those rows exist, or roll
+back only long enough to fix forward.
 
 ### Traps
 
@@ -1400,8 +1431,8 @@ queue with the *default* delivery limit (20) and no DLX of its own, so a reject-
   is loud, not silent: compose interpolation fails (`${RABBITMQ_PASSWORD:?…}`) inside `deploy.sh`'s
   config-validation step, which aborts the deploy while the old release keeps serving.
 - **`RABBITMQ_DEFAULT_PASS` applies on first boot only** (empty data volume). Editing the box `.env`
-  later rotates what auth-api presents but **not** what the broker expects — rotate in lockstep via
-  `rabbitmqctl change_password` (exact commands: the
+  later rotates what auth-api and tms-api present but **not** what the broker expects — rotate in
+  lockstep via `rabbitmqctl change_password`, then restart **both** apps (exact commands: the
   [secrets table](#secret-material--source-of-truth-and-how-to-rotate)).
 - **Queue arguments are immutable.** Redeclaring `emails.send` with different `x-*` arguments fails
   the channel with `PRECONDITION_FAILED` (ADR-0036). Changing them on a live box means draining and

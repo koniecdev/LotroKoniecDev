@@ -1,3 +1,4 @@
+using LotroKoniecDev.SharedKernel.IntegrationEvents;
 using RabbitMQ.Client;
 
 namespace LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
@@ -96,6 +97,17 @@ public static class RabbitMqTopologyDeclaration
             queue: RabbitMqTopology.EmailQueue,
             exchange: RabbitMqTopology.EmailsExchange,
             routingKey: RabbitMqTopology.EmailBindingPattern,
+            arguments: null,
+            cancellationToken: cancellationToken);
+
+        // The account events exchange, so a publish to it never fails on a missing exchange. Its queues
+        // belong to the contexts that consume them (ADR-0065). Until one is bound, a mandatory publish
+        // comes back unroutable and the outbox row stays for the next try.
+        await channel.ExchangeDeclareAsync(
+            exchange: AccountEvents.Exchange,
+            type: ExchangeType.Topic,
+            durable: true,
+            autoDelete: false,
             arguments: null,
             cancellationToken: cancellationToken);
     }

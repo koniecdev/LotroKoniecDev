@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
@@ -16,6 +17,7 @@ using LotroKoniecDev.Tests.Shared;
 using LotroKoniecDev.TranslationSystem.API.Features.Progress;
 using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 using LotroKoniecDev.TranslationSystem.API.Features.Translations;
+using LotroKoniecDev.TranslationSystem.API.Messaging;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 
@@ -77,11 +79,20 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
                 // polling assertions stay meaningful while the suite stays quick.
                 { "TranslationFileRebuild:DebounceWindow", "00:00:00.050" },
                 { "TranslationFileDiskCache:Directory", TranslationFileCopiesDirectory },
+                // This suite has no broker, and the account event consumer is removed below. These values
+                // only have to satisfy RabbitMqSettingsValidator. BrokeredTranslationSystemApiFactory
+                // points them at a real broker.
+                { "RabbitMq:Host", "localhost" },
+                { "RabbitMq:Port", "59998" },
+                { "RabbitMq:Username", "rabbitmq" },
+                { "RabbitMq:Password", "changeme" },
             });
         });
 
         builder.ConfigureTestServices(services =>
         {
+            RemoveHostedService<AccountErasedConsumer>(services);
+
             // The AuthSystem is not running in these tests, so tokens are validated against a local
             // symmetric key instead of keys fetched from the JWKS endpoint.
             services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
@@ -223,7 +234,27 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         return handler.CreateToken(descriptor);
     }
 
-    public async Task InitializeAsync()
+    /// <summary>
+    /// Removes one hosted service. Strict on purpose: exactly one registration must exist, so a renamed
+    /// or doubled registration fails here instead of leaving a background service running in the suite.
+    /// </summary>
+    internal static void RemoveHostedService<THostedService>(IServiceCollection services)
+        where THostedService : IHostedService
+    {
+        List<ServiceDescriptor> descriptors = services
+            .Where(d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(THostedService))
+            .ToList();
+
+        if (descriptors.Count != 1)
+        {
+            throw new InvalidOperationException(
+                $"Expected exactly one hosted registration of {typeof(THostedService).Name}, found {descriptors.Count}.");
+        }
+
+        services.Remove(descriptors[0]);
+    }
+
+    public virtual async Task InitializeAsync()
     {
         await _postgresContainer.StartAsync();
 
@@ -245,7 +276,7 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         await writeDbContext.Database.MigrateAsync();
     }
 
-    public new async Task DisposeAsync()
+    public new virtual async Task DisposeAsync()
     {
         await _postgresContainer.DisposeAsync();
         DeleteTranslationFileCopies();

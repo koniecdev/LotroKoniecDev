@@ -53,7 +53,7 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
 
         // Act: first publish on a fresh instance also opens the connection and declares topology
         await _publisher.PublishAsync(
-            RabbitMqTopology.EmailConfirmationRoutingKey, MessageType, Payload, messageId, CancellationToken.None);
+            RabbitMqTopology.EmailsExchange, RabbitMqTopology.EmailConfirmationRoutingKey, MessageType, Payload, messageId, CancellationToken.None);
 
         // Assert: the broker took responsibility and the queue holds the exact wire message
         BasicGetResult delivery = (await GetFromEmailQueueAsync()).ShouldNotBeNull();
@@ -72,10 +72,12 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
         // sends the message as mandatory and tracks the confirmation, so the basic.return has to fail
         // this very call instead of the message quietly disappearing.
         Task publish = _publisher.PublishAsync(
-            "billing.invoice", MessageType, Payload, Guid.CreateVersion7(), CancellationToken.None);
+            RabbitMqTopology.EmailsExchange, "billing.invoice", MessageType, Payload, Guid.CreateVersion7(), CancellationToken.None);
 
         // Assert
-        await Should.ThrowAsync<PublishException>(publish);
+        MessageNotRoutedException refusal = await Should.ThrowAsync<MessageNotRoutedException>(publish);
+        refusal.RoutingKey.ShouldBe("billing.invoice");
+        refusal.InnerException.ShouldBeAssignableTo<PublishException>();
     }
 
     [Fact]
@@ -83,7 +85,7 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
     {
         // Arrange: a first publish so the long-lived connection and channel exist to be killed
         await _publisher.PublishAsync(
-            RabbitMqTopology.EmailConfirmationRoutingKey, MessageType, Payload, Guid.CreateVersion7(), CancellationToken.None);
+            RabbitMqTopology.EmailsExchange, RabbitMqTopology.EmailConfirmationRoutingKey, MessageType, Payload, Guid.CreateVersion7(), CancellationToken.None);
         (await GetFromEmailQueueAsync()).ShouldNotBeNull();
 
         await _broker.CloseAllConnectionsAsync();
@@ -107,7 +109,7 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
             try
             {
                 await _publisher.PublishAsync(
-                    RabbitMqTopology.EmailConfirmationRoutingKey, MessageType, Payload, messageId, CancellationToken.None);
+                    RabbitMqTopology.EmailsExchange, RabbitMqTopology.EmailConfirmationRoutingKey, MessageType, Payload, messageId, CancellationToken.None);
                 return;
             }
             catch (Exception) when (elapsed.Elapsed < DeliveryTimeout)

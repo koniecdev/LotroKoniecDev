@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.API.Outbox;
@@ -8,6 +9,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Outbox;
+using LotroKoniecDev.SharedKernel.IntegrationEvents;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
@@ -33,6 +35,15 @@ public sealed class OutboxRelayTests : EndpointsTestBase
     {
         await base.InitializeAsync();
         _messagePublisherSpy.Reset();
+    }
+
+    /// <summary>
+    /// A refusal left armed would fail the publishes of the next test class in the collection.
+    /// </summary>
+    public override Task DisposeAsync()
+    {
+        _messagePublisherSpy.Reset();
+        return base.DisposeAsync();
     }
 
     [Fact]
@@ -120,6 +131,54 @@ public sealed class OutboxRelayTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task Relay_ShouldStillPublishANewRow_WhenMoreThanABatchOfOlderRowsKeepsFailing()
+    {
+        // Arrange: more AccountErased rows than one batch, all refused because no TMS queue is bound yet
+        // (ADR-0065). They are older, so they fill every batch from the front.
+        _messagePublisherSpy.FailWhen = message => message.Type == nameof(AccountErased)
+            ? new MessageNotRoutedException(message.Exchange, message.RoutingKey)
+            : null;
+        await InsertOlderAccountErasedRowsAsync(count: 101);
+
+        // Act
+        (RegisterRequest _, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy);
+
+        // Assert
+        OutboxMessage? confirmation = await WaitForOutboxRowAsync(
+            row => row.Type == nameof(EmailConfirmationRequested)
+                   && row.Payload.Contains(identityId.Value.ToString(), StringComparison.OrdinalIgnoreCase)
+                   && row.ProcessedOn != null);
+        confirmation.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Relay_ShouldStopThePassAtTheFirstFailure_WhenTheBrokerIsDown()
+    {
+        // Arrange: a broker that is down refuses every row the same way, so trying the whole backlog
+        // would only cost one attempt and one save per row.
+        _messagePublisherSpy.FailWith = new InvalidOperationException("broker down");
+        Guid[] rowIds =
+        [
+            await InsertOutboxRowAsync(nameof(EmailConfirmationRequested)),
+            await InsertOutboxRowAsync(nameof(EmailConfirmationRequested)),
+            await InsertOutboxRowAsync(nameof(EmailConfirmationRequested))
+        ];
+
+        // Act
+        NotifyRelay();
+        OutboxMessage? firstFailure = await WaitForOutboxRowAsync(row => rowIds.Contains(row.Id) && row.Attempts > 0);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
+        // Assert: the relay now waits out its backoff, so the other rows were never tried in that pass.
+        firstFailure.ShouldNotBeNull();
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        int tried = await db.OutboxMessages.CountAsync(row => rowIds.Contains(row.Id) && row.Attempts > 0);
+        tried.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task Relay_ShouldMarkFailedWithoutPublishing_WhenTypeHasNoRoutingKey()
     {
         // Arrange
@@ -142,6 +201,22 @@ public sealed class OutboxRelayTests : EndpointsTestBase
     private void NotifyRelay()
     {
         Factory.Services.GetRequiredService<OutboxSignal>().Notify();
+    }
+
+    private async Task InsertOlderAccountErasedRowsAsync(int count)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+        for (int index = 0; index < count; index++)
+        {
+            db.OutboxMessages.Add(OutboxMessage.Create(
+                type: nameof(AccountErased),
+                payload: JsonSerializer.Serialize(new AccountErased(Guid.CreateVersion7())),
+                occurredOn: DateTimeOffset.UtcNow.AddHours(-1).AddSeconds(index)));
+        }
+
+        await db.SaveChangesAsync();
     }
 
     private async Task<Guid> InsertOutboxRowAsync(string type)

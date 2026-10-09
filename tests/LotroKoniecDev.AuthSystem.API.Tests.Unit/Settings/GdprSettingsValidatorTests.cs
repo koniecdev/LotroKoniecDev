@@ -10,7 +10,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 /// </summary>
 public sealed class GdprSettingsValidatorTests
 {
-    private readonly GdprSettingsValidator _validator = new();
+    private readonly GdprSettingsValidator _validator = new(
+        Microsoft.Extensions.Options.Options.Create(new OpenIddictSettings { Issuer = "https://auth.lotro-translator.test" }));
 
     [Fact]
     public void Validate_DefaultSettings_Succeeds()
@@ -90,6 +91,42 @@ public sealed class GdprSettingsValidatorTests
         {
             DeletionGracePeriod = Parse(gracePeriod),
             DeletionFinalizationPollInterval = Parse(pollInterval)
+        };
+
+        ValidateOptionsResult result = _validator.Validate(name: null, settings);
+
+        result.Succeeded.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("00:01:00")]
+    [InlineData("00:05:00")]
+    [InlineData("00:10:00")]
+    public void Validate_GracePeriodNoLongerThanAnAccessTokenIsAccepted_FailsNamingTheSetting(string gracePeriod)
+    {
+        // The default access token lives five minutes, and the TMS accepts it five more.
+        GdprSettings settings = new()
+        {
+            DeletionGracePeriod = Parse(gracePeriod),
+            DeletionFinalizationPollInterval = TimeSpan.FromMinutes(1)
+        };
+
+        ValidateOptionsResult result = _validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        result.Failures.ShouldContain(failure =>
+            failure.Contains("DeletionGracePeriod must be longer than 10 minutes", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_ShortGracePeriodForQa_SucceedsOnceItOutlivesAnAccessToken()
+    {
+        // ADR-0031: QA shortens the grace period to watch a real erasure.
+        GdprSettings settings = new()
+        {
+            DeletionGracePeriod = Parse("00:30:00"),
+            DeletionFinalizationPollInterval = TimeSpan.FromMinutes(1)
         };
 
         ValidateOptionsResult result = _validator.Validate(name: null, settings);

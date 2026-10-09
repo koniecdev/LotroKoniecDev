@@ -91,45 +91,52 @@ internal sealed partial class OutboxRelay : BackgroundService
     }
 
     /// <summary>
-    /// Works through every pending row, <see cref="BatchSize"/> at a time. It returns <c>false</c> when
-    /// any row failed, whether the broker refused it, nothing is bound to its key, or the database
-    /// failed. The caller then waits instead of fetching the same failing rows again at once.
+    /// Works through every pending row once, <see cref="BatchSize"/> at a time. It returns <c>false</c>
+    /// when any row failed, whether the broker refused it, nothing is bound to its key, or the database
+    /// failed. The caller then waits instead of trying the same failing rows again at once.
     /// </summary>
+    /// <remarks>
+    /// A row the broker refused on its own, because nothing is bound to its key or no route is mapped,
+    /// is skipped for the rest of the pass, so the next batch reaches the rows behind it. Rows like
+    /// that, such as <c>AccountErased</c> while no TMS queue is bound yet (ADR-0065), would otherwise
+    /// fill every batch from the front and hold back all newer e-mail. Any other failure ends the
+    /// pass at once: a broker that is down would refuse every row the same way, and trying them all
+    /// would cost one attempt and one save per row of the backlog.
+    /// </remarks>
     private async Task<bool> ProcessPendingAsync(CancellationToken stoppingToken)
     {
         try
         {
+            List<Guid> failedThisPass = [];
+
             while (true)
             {
                 await using AsyncServiceScope scope = _scopeFactory.CreateAsyncScope();
                 AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
 
                 List<OutboxMessage> batch = await db.OutboxMessages
-                    .Where(message => message.ProcessedOn == null)
+                    .Where(message => message.ProcessedOn == null && !failedThisPass.Contains(message.Id))
                     .OrderBy(message => message.OccurredOn)
                     .Take(BatchSize)
                     .ToListAsync(stoppingToken);
 
-                if (batch.Count == 0)
-                {
-                    return true;
-                }
-
-                bool anyFailed = false;
-
                 foreach (OutboxMessage message in batch)
                 {
-                    anyFailed |= !await PublishOneAsync(db, message, stoppingToken);
-                }
+                    PublishOutcome outcome = await PublishOneAsync(db, message, stoppingToken);
+                    if (outcome is PublishOutcome.BrokerFailed)
+                    {
+                        return false;
+                    }
 
-                if (anyFailed)
-                {
-                    return false;
+                    if (outcome is PublishOutcome.MessageRefused)
+                    {
+                        failedThisPass.Add(message.Id);
+                    }
                 }
 
                 if (batch.Count < BatchSize)
                 {
-                    return true;
+                    return failedThisPass.Count == 0;
                 }
             }
         }
@@ -147,29 +154,30 @@ internal sealed partial class OutboxRelay : BackgroundService
     /// <summary>
     /// Publishes one row and saves the result at once. Marking each message instead of a whole batch
     /// shortens the window in which a crash makes us publish an already published message again after
-    /// a restart. The outbox is at-least-once either way, and consumers drop duplicates by message id.
+    /// a restart. The outbox is at-least-once either way. The e-mail consumer drops duplicates by message
+    /// id, and the TMS consumer's work is the same when done twice (ADR-0065).
     /// </summary>
-    private async Task<bool> PublishOneAsync(
+    private async Task<PublishOutcome> PublishOneAsync(
         AuthDbContext db,
         OutboxMessage message,
         CancellationToken stoppingToken)
     {
-        bool published;
+        PublishOutcome outcome;
 
-        if (!OutboxMessageRouting.TryGetRoutingKey(message.Type, out string? routingKey))
+        if (!OutboxMessageRouting.TryGetRoute(message.Type, out OutboxRoute? route))
         {
             message.MarkFailed($"No routing key is mapped for outbox message type '{message.Type}'.");
             LogMessageUnroutable(_logger, message.Id, message.Type);
-            published = false;
+            outcome = PublishOutcome.MessageRefused;
         }
         else
         {
             try
             {
                 await _messagePublisher.PublishAsync(
-                    routingKey, message.Type, message.Payload, message.Id, stoppingToken);
+                    route.Exchange, route.RoutingKey, message.Type, message.Payload, message.Id, stoppingToken);
                 message.MarkAsProcessed(_timeProvider.GetUtcNow());
-                published = true;
+                outcome = PublishOutcome.Published;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -178,12 +186,12 @@ internal sealed partial class OutboxRelay : BackgroundService
                 string error = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
                 message.MarkFailed(error);
                 LogMessagePublishFailed(_logger, ex, message.Id, message.Type, message.Attempts);
-                published = false;
+                outcome = ex is MessageNotRoutedException ? PublishOutcome.MessageRefused : PublishOutcome.BrokerFailed;
             }
         }
 
         await db.SaveChangesAsync(stoppingToken);
-        return published;
+        return outcome;
     }
 
     [LoggerMessage(
@@ -208,4 +216,19 @@ internal sealed partial class OutboxRelay : BackgroundService
         Level = LogLevel.Error,
         Message = "Outbox message {MessageId} carries type {MessageType} with no mapped routing key; it stays unprocessed until a mapping ships.")]
     private static partial void LogMessageUnroutable(ILogger logger, Guid messageId, string messageType);
+
+    private enum PublishOutcome
+    {
+        Published,
+
+        /// <summary>
+        /// This one message cannot go: no route is mapped, or no queue is bound to its key.
+        /// </summary>
+        MessageRefused,
+
+        /// <summary>
+        /// The broker failed, so every other message would fail the same way.
+        /// </summary>
+        BrokerFailed
+    }
 }

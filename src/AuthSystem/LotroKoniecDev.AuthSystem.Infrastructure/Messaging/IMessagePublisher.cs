@@ -7,11 +7,16 @@ namespace LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 /// Failures come out as exceptions and not as a <c>Result</c>. A refused publish is an
 /// infrastructure fault, such as the broker being down, a key nothing is bound to, or a nack. It is
 /// not a business outcome, and the caller, the outbox relay, needs the transport detail to choose
-/// between retrying and recording the failure on the outbox row.
+/// between retrying and recording the failure on the outbox row. A key nothing is bound to comes out
+/// as <see cref="MessageNotRoutedException"/>, because it concerns that one message and not the broker.
 /// </remarks>
 public interface IMessagePublisher
 {
-    /// <param name="routingKey">A key from <see cref="RabbitMqTopology"/>.</param>
+    /// <param name="exchange">
+    /// The exchange the message goes to: <see cref="RabbitMqTopology.EmailsExchange"/> for e-mail work,
+    /// or the account events exchange the TranslationSystem binds to (ADR-0065).
+    /// </param>
+    /// <param name="routingKey">A key that a queue bound to <paramref name="exchange"/> listens for.</param>
     /// <param name="type">
     /// The name of the outbox row's payload contract. It travels as the AMQP <c>type</c> property, so
     /// the consumer can pick the processor that owns the payload (ADR-0038). It is kept apart from
@@ -24,6 +29,7 @@ public interface IMessagePublisher
     /// message it has already handled.
     /// </param>
     Task PublishAsync(
+        string exchange,
         string routingKey,
         string type,
         string payload,

@@ -171,6 +171,7 @@ internal static class EventIds
     public const int EmailChangeDispatchStaleRequest = 2521;
     public const int EmailChangeDispatchAddressMissing = 2522;
     public const int EmailChangeDispatchWarningFailed = 2523;
+    public const int EmailChangeDispatchAccountErased = 2524;
 
     // Middleware (2400-2499)
     public const int UnauthorizedAccessAttempt = 2400;
@@ -218,4 +219,8 @@ internal static class EventIds
     public const int GdprErasureUnneededLockoutFailed = 2733;
     public const int GdprErasureSaveCheckFailedAfterFailedLock = 2734;
     public const int GdprErasureLockoutFailedOnLockedAccount = 2735;
+    public const int GdprErasedAccountMessagesScrubbed = 2736;
+    public const int GdprErasedAccountMessagesScrubFailed = 2737;
+    public const int GdprErasuresAnnounced = 2738;
+    public const int GdprErasuresAnnounceFailed = 2739;
 }

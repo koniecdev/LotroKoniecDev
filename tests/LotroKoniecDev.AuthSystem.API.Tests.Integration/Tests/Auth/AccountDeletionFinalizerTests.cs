@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -17,8 +18,10 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 using LotroKoniecDev.AuthSystem.Persistence.Sessions;
 using LotroKoniecDev.SharedKernel.Constants;
+using LotroKoniecDev.SharedKernel.IntegrationEvents;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.Tests.Shared;
@@ -241,6 +244,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         ApplicationUser user = await GetUserAsync(identityId.Value);
         user.Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
         (await HasRolesAsync(identityId.Value)).ShouldBeFalse();
+        (await CountAccountErasedMessagesAsync(identityId.Value)).ShouldBe(1);
     }
 
     [Theory]
@@ -621,6 +625,85 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         ApplicationUser failing = await GetUserAsync(failingId.Value);
         failing.Email.ShouldBe(failingRequest.Email);
         failing.LockoutEnd.ShouldBe(DateTimeOffset.MaxValue);
+        (await CountAccountErasedMessagesAsync(failingId.Value)).ShouldBe(0);
+        (await CountAccountErasedMessagesAsync(otherId.Value)).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldNotSaveTheMessageOfAFailedErasure_WhenTheReconciliationSavesAfterIt()
+    {
+        // The last due account fails, so its AccountErased stays tracked. The reconciliation then saves
+        // through the same context for an account erased before ADR-0065. The failed account's message
+        // must not ride along: it would erase a live translator's name in the TMS.
+
+        // Arrange
+        (RegisterRequest failingRequest, IdentityId failingId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(failingId.Value, TimeSpan.FromDays(15));
+        (_, IdentityId erasedEarlierId) = await RegisterAndScheduleDeletionAsync();
+        await AnonymizeAsAnEarlierVersionDidAsync(erasedEarlierId.Value);
+        FailTheNextSaveOf(failingId.Value, ErasureSaveFailure.DatabaseError);
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync();
+
+        // Assert
+        finalizedCount.ShouldBe(0);
+        (await GetUserAsync(failingId.Value)).Email.ShouldBe(failingRequest.Email);
+        (await CountAccountErasedMessagesAsync(failingId.Value)).ShouldBe(0);
+        (await CountAccountErasedMessagesAsync(erasedEarlierId.Value)).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldSkipTheReconciliation_WhenTheHostStopsDuringTheRun()
+    {
+        // A shutdown lets the erasure finish (#981), but the reconciliation has nothing to finish, so the
+        // next run does it instead of this one failing on a cancelled token (ADR-0065).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        (_, IdentityId erasedEarlierId) = await RegisterAndScheduleDeletionAsync();
+        await AnonymizeAsAnEarlierVersionDidAsync(erasedEarlierId.Value);
+        using CancellationTokenSource shutdown = new();
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory, shutdown.CancelAsync, shutdown.Token);
+
+        // Assert
+        finalizedCount.ShouldBe(1);
+        (await CountAccountErasedMessagesAsync(identityId.Value)).ShouldBe(1);
+        (await CountAccountErasedMessagesAsync(erasedEarlierId.Value)).ShouldBe(0);
+        loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasedAccountMessagesScrubFailed
+                                                        || entry.EventId.Id == EventIds.GdprErasuresAnnounceFailed);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldStillCountTheErasureAndAnnounce_WhenTheScrubFails()
+    {
+        // The two reconciliation steps fail on their own: a scrub that keeps failing must not keep the
+        // TMS from hearing about an earlier erasure (ADR-0065).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        (_, IdentityId erasedEarlierId) = await RegisterAndScheduleDeletionAsync();
+        await AnonymizeAsAnEarlierVersionDidAsync(erasedEarlierId.Value);
+        Factory.DbCommandFailures.FailNext(
+            command => command.CommandText.Contains("WITH sent AS MATERIALIZED", StringComparison.Ordinal),
+            () => CreateFailure(ErasureSaveFailure.DatabaseError));
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory);
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        finalizedCount.ShouldBe(1);
+        (await GetUserAsync(identityId.Value)).Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
+        (await CountAccountErasedMessagesAsync(erasedEarlierId.Value)).ShouldBe(1);
+        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasedAccountMessagesScrubFailed);
+        loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasuresAnnounceFailed);
     }
 
     [Fact]
@@ -699,6 +782,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         user.Email.ShouldBe(registerRequest.Email);
         user.DeletionScheduledAt.ShouldBeNull();
         user.LockoutEnd.ShouldBeNull();
+        (await CountAccountErasedMessagesAsync(identityId.Value)).ShouldBe(0);
 
         loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockout);
         loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureNoLongerWaiting);
@@ -736,6 +820,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         ApplicationUser user = await GetUserAsync(identityId.Value);
         user.Email.ShouldBe(erasedByTheOtherRun.Email);
         user.ConcurrencyStamp.ShouldBe(erasedByTheOtherRun.ConcurrencyStamp);
+        (await CountAccountErasedMessagesAsync(identityId.Value)).ShouldBe(1);
 
         loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockout);
         loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureNoLongerWaiting);
@@ -845,15 +930,16 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldCleanUpAndCountTheAccount_WhenTheErasureSaveLandedButItsAnswerWasLost()
     {
-        // The save lands and its answer is lost. EF runs the save again with the old concurrency stamp,
-        // so Identity reports a conflict. The account is erased all the same, and no later run comes back
-        // to it, so this run has to finish the cleanup (#962).
+        // The save lands and its answer is lost. The save writes the account and its AccountErased message
+        // in one transaction (ADR-0065), so the commit is what lands. EF runs the transaction again, and
+        // the message already there or the old concurrency stamp makes it fail. The account is erased all
+        // the same, and no later run comes back to it, so this run has to finish the cleanup (#962).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
-        Factory.DbCommandFailures.FailNextAfterItRuns(
-            command => IsUpdateOfAccount(command, identityId.Value),
+        Factory.DbCommitFailures.FailNextCommitAfterItLands(
+            eventData => CommitsTheErasureOf(eventData, identityId.Value),
             CreateTransientFailure);
         using CapturingLoggerFactory loggerFactory = new();
 
@@ -861,12 +947,13 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         int finalizedCount = await RunFinalizerAsync(loggerFactory);
 
         // Assert
-        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        Factory.DbCommitFailures.FailuresInjected.ShouldBe(1);
         finalizedCount.ShouldBe(1);
 
         ApplicationUser user = await GetUserAsync(identityId.Value);
         user.Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
         (await HasRolesAsync(identityId.Value)).ShouldBeFalse();
+        (await CountAccountErasedMessagesAsync(identityId.Value)).ShouldBe(1);
 
         loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureSaveLandedAfterAll);
         loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureArtifactsCleaned);
@@ -883,8 +970,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
-        Factory.DbCommandFailures.FailNextAfterItRuns(
-            command => IsUpdateOfAccount(command, identityId.Value),
+        Factory.DbCommitFailures.FailNextCommitAfterItLands(
+            eventData => CommitsTheErasureOf(eventData, identityId.Value),
             CreateTransientFailure);
         FailTheEmergencyLockOf(identityId.Value);
         using CapturingLoggerFactory loggerFactory = new();
@@ -893,7 +980,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         int finalizedCount = await RunFinalizerAsync(loggerFactory);
 
         // Assert
-        Factory.DbCommandFailures.FailuresInjected.ShouldBe(2);
+        Factory.DbCommitFailures.FailuresInjected.ShouldBe(1);
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
         finalizedCount.ShouldBe(1);
 
         ApplicationUser user = await GetUserAsync(identityId.Value);
@@ -1654,6 +1742,40 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     /// </summary>
     private static PostgresException CreateDataCorruption() =>
         new("simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.DataCorrupted);
+
+    private async Task<int> CountAccountErasedMessagesAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        string id = userId.ToString();
+        return await db.OutboxMessages.CountAsync(message =>
+            message.Type == nameof(AccountErased) && message.Payload.Contains(id));
+    }
+
+    /// <summary>
+    /// What an erasure before ADR-0065 left: the marker address and no password, and no AccountErased.
+    /// </summary>
+    private async Task AnonymizeAsAnEarlierVersionDidAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        ApplicationUser user = await db.Users.SingleAsync(row => row.Id == userId);
+        string anonymizedEmail = $"{AnonymizationConstants.EmailPrefix}{Guid.NewGuid():N}{AnonymizationConstants.EmailDomain}";
+        user.Email = anonymizedEmail;
+        user.NormalizedEmail = anonymizedEmail.ToUpperInvariant();
+        user.PasswordHash = null;
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// The anonymizing save: the account and its AccountErased message, committed together (ADR-0065).
+    /// </summary>
+    private static bool CommitsTheErasureOf(TransactionEndEventData eventData, Guid userId) =>
+        eventData.Context is not null
+        && eventData.Context.ChangeTracker.Entries<ApplicationUser>()
+            .Any(entry => entry.Entity.Id == userId && entry.State == EntityState.Modified)
+        && eventData.Context.ChangeTracker.Entries<OutboxMessage>()
+            .Any(entry => entry.Entity.Type == nameof(AccountErased) && entry.State == EntityState.Added);
 
     private static bool IsUpdateOfAccount(DbCommand command, Guid userId) =>
         command.CommandText.Contains($"UPDATE {DatabaseSchemas.Auth}.\"Users\"", StringComparison.Ordinal)

@@ -5,7 +5,8 @@ using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 namespace LotroKoniecDev.AuthSystem.API.Outbox;
 
 /// <summary>
-/// The only way a feature slice writes an e-mail message to the outbox. It serializes the payload,
+/// The only way code writes a message to the outbox: e-mail work, and the account events the TMS reads
+/// (ADR-0065). It serializes the payload,
 /// sets the row's <c>Type</c> to the contract's type name, so no writer can mistype the string that
 /// both the registry and the routing table look up, and it carries the wake-up call after the commit.
 /// Putting the whole ADR-0035 §2 pattern in one injected component means no future writer can rebuild
@@ -39,7 +40,7 @@ internal sealed class OutboxWriter
         // then block the relay: OutboxMessageRouting fails that row loudly, but only later. Failing
         // the writer's own request shows the missing entry as soon as it is written.
         // It uses its own exception type, so a writer's catch block does not swallow it.
-        if (!OutboxMessageRouting.TryGetRoutingKey(type, out _))
+        if (!OutboxMessageRouting.TryGetRoute(type, out _))
         {
             throw new UnroutableOutboxMessageTypeException(type);
         }

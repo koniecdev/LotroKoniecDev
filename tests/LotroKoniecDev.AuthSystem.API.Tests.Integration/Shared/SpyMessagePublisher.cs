@@ -12,7 +12,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 /// </summary>
 internal sealed class SpyMessagePublisher : IMessagePublisher
 {
-    internal sealed record PublishedMessage(string RoutingKey, string Type, string Payload, Guid MessageId);
+    internal sealed record PublishedMessage(string Exchange, string RoutingKey, string Type, string Payload, Guid MessageId);
 
     private readonly ConcurrentQueue<PublishedMessage> _published = new();
     private readonly Func<PublishedMessage, Task>? _deliverAsync;
@@ -26,7 +26,14 @@ internal sealed class SpyMessagePublisher : IMessagePublisher
 
     public Exception? FailWith { get; set; }
 
+    /// <summary>
+    /// Refuses only the publishes it returns an exception for, the way a broker refuses a message whose
+    /// routing key no queue is bound to yet.
+    /// </summary>
+    public Func<PublishedMessage, Exception?>? FailWhen { get; set; }
+
     public async Task PublishAsync(
+        string exchange,
         string routingKey,
         string type,
         string payload,
@@ -39,7 +46,12 @@ internal sealed class SpyMessagePublisher : IMessagePublisher
             throw failure;
         }
 
-        PublishedMessage message = new(routingKey, type, payload, messageId);
+        PublishedMessage message = new(exchange, routingKey, type, payload, messageId);
+        if (FailWhen?.Invoke(message) is { } refusal)
+        {
+            throw refusal;
+        }
+
         _published.Enqueue(message);
 
         if (_deliverAsync is not null)
@@ -51,6 +63,7 @@ internal sealed class SpyMessagePublisher : IMessagePublisher
     public void Reset()
     {
         FailWith = null;
+        FailWhen = null;
         _published.Clear();
     }
 }

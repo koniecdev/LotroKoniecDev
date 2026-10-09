@@ -2,6 +2,7 @@ using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.ValueObjects;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 
 namespace LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.Tests.Aggregates.TranslatorAggregate;
 
@@ -75,6 +76,54 @@ public sealed class TranslatorTests
         translator.RefreshProfile(Name(), email: null);
 
         // Assert
+        translator.Email.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("aragorn@gondor.test")]
+    [InlineData(null)]
+    public void Erase_ShouldReplaceTheNameAndClearTheEmail(string? email)
+    {
+        // Arrange
+        Translator translator = Translator.Create(
+            Identity, Name(), email is null ? null : Mail(email), Provisioned).Value;
+
+        // Act
+        translator.Erase();
+
+        // Assert
+        translator.DisplayName.Value.ShouldBe("Usunięte konto");
+        translator.Email.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Erase_ShouldKeepTheIdentityAndTheProvisioningTime()
+    {
+        // Arrange
+        Translator translator = Translator.Create(Identity, Name(), Mail(), Provisioned).Value;
+        TranslatorId id = translator.Id;
+
+        // Act
+        translator.Erase();
+
+        // Assert: the translations stay credited to this profile, so its keys must not move.
+        translator.Id.ShouldBe(id);
+        translator.IdentityId.ShouldBe(Identity);
+        translator.ProvisionedAt.ShouldBe(Provisioned);
+    }
+
+    [Fact]
+    public void Erase_Twice_ShouldGiveTheSameProfileAsOnce()
+    {
+        // Arrange
+        Translator translator = Translator.Create(Identity, Name(), Mail(), Provisioned).Value;
+        translator.Erase();
+
+        // Act: a redelivered message erases the profile again.
+        translator.Erase();
+
+        // Assert
+        translator.DisplayName.Value.ShouldBe("Usunięte konto");
         translator.Email.ShouldBeNull();
     }
 }

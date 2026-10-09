@@ -34,4 +34,16 @@ internal static class EventIds
     // Translation file downloads (1600-1699)
     public const int TranslationFileCopyWritten = 1600;
     public const int TranslationFileCopyRemovalFailed = 1601;
+
+    // Account events from the AuthSystem (1700-1799)
+    public const int AccountConsumerStarted = 1700;
+    public const int AccountConsumerConnectFailed = 1701;
+    public const int TranslatorProfileErased = 1702;
+    public const int AccountConsumerUnknownMessageType = 1703;
+    public const int AccountConsumerPoisonMessage = 1704;
+    public const int AccountConsumerEraseFailed = 1705;
+    public const int AccountConsumerUnexpectedError = 1706;
+    public const int AccountConsumerTeardownWarning = 1707;
+    public const int AccountConsumerDetached = 1708;
+    public const int AccountConsumerRefused = 1709;
 }

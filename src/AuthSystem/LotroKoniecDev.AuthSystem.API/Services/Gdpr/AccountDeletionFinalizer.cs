@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.Constants;
@@ -21,6 +22,7 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
     private readonly AuthDbContext _dbContext;
     private readonly IAccountErasureService _accountErasureService;
     private readonly IAccountDeletionSchedule _deletionSchedule;
+    private readonly IErasedAccountReconciler _erasedAccountReconciler;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<AccountDeletionFinalizer> _logger;
 
@@ -28,12 +30,14 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
         AuthDbContext dbContext,
         IAccountErasureService accountErasureService,
         IAccountDeletionSchedule deletionSchedule,
+        IErasedAccountReconciler erasedAccountReconciler,
         TimeProvider timeProvider,
         ILogger<AccountDeletionFinalizer> logger)
     {
         _dbContext = dbContext;
         _accountErasureService = accountErasureService;
         _deletionSchedule = deletionSchedule;
+        _erasedAccountReconciler = erasedAccountReconciler;
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -94,7 +98,61 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
             finalizedCount++;
         }
 
+        await ReconcileErasedAccountsAsync(cancellationToken);
+
         return finalizedCount;
+    }
+
+    /// <summary>
+    /// Runs after the erasures, so it also covers the accounts this run erased. Its two steps fail on
+    /// their own, and a failure or a shutdown only waits for the next run, which goes over every erased
+    /// account again (ADR-0065). Unlike an erasure, it has nothing to finish once started. A contract
+    /// with no route is a programmer error and is never caught here (ADR-0038).
+    /// </summary>
+    private async Task ReconcileErasedAccountsAsync(CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        // A failed erasure can leave its AccountErased message tracked, and the announcement saves
+        // through this context. That message must never be saved for an account that is not erased.
+        _dbContext.ChangeTracker.Clear();
+
+        try
+        {
+            int scrubbed = await _erasedAccountReconciler.ScrubSentMessagesAsync(cancellationToken);
+            if (scrubbed > 0)
+            {
+                LogErasedAccountMessagesScrubbed(_logger, scrubbed);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex) when (ex is not UnroutableOutboxMessageTypeException)
+        {
+            LogErasedAccountMessagesScrubFailed(_logger, ex);
+        }
+
+        try
+        {
+            int announced = await _erasedAccountReconciler.AnnounceUnannouncedErasuresAsync(cancellationToken);
+            if (announced > 0)
+            {
+                LogErasuresAnnounced(_logger, announced);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The host is stopping. The next run starts it again.
+        }
+        catch (Exception ex) when (ex is not UnroutableOutboxMessageTypeException)
+        {
+            LogErasuresAnnounceFailed(_logger, ex);
+        }
     }
 
     private IQueryable<ApplicationUser> DueUsers(DateTimeOffset now) =>
@@ -107,6 +165,18 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
 
     [LoggerMessage(EventId = EventIds.GdprDeletionFinalizerUserFailed, Level = LogLevel.Error, Message = "GDPR deletion finalization failed for user {UserId}: {Error}. Will retry on the next run.")]
     private static partial void LogFinalizationFailedForUser(ILogger logger, Guid userId, string error);
+
+    [LoggerMessage(EventId = EventIds.GdprErasedAccountMessagesScrubbed, Level = LogLevel.Information, Message = "GDPR erasure: cut {MessageCount} sent outbox message(s) of erased accounts down to the account id")]
+    private static partial void LogErasedAccountMessagesScrubbed(ILogger logger, int messageCount);
+
+    [LoggerMessage(EventId = EventIds.GdprErasedAccountMessagesScrubFailed, Level = LogLevel.Error, Message = "GDPR erasure: cutting the sent outbox messages of erased accounts failed. Their e-mail addresses stay in the outbox until a later run succeeds.")]
+    private static partial void LogErasedAccountMessagesScrubFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = EventIds.GdprErasuresAnnounced, Level = LogLevel.Information, Message = "GDPR erasure: told the TMS about {AccountCount} erased account(s) it had not heard of")]
+    private static partial void LogErasuresAnnounced(ILogger logger, int accountCount);
+
+    [LoggerMessage(EventId = EventIds.GdprErasuresAnnounceFailed, Level = LogLevel.Error, Message = "GDPR erasure: telling the TMS about erased accounts failed. Their names stay in the TMS until a later run succeeds.")]
+    private static partial void LogErasuresAnnounceFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(EventId = EventIds.GdprDeletionFinalizerUserReadFailed, Level = LogLevel.Error, Message = "GDPR deletion finalization could not read user {UserId}. Will retry on the next run.")]
     private static partial void LogReadFailedForUser(ILogger logger, Exception exception, Guid userId);

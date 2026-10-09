@@ -685,22 +685,22 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   the spec, and never repeat the same explanation in a doc comment, an inline comment and a
   document at once.
 - Code & identifiers in **English**.
-- **Member order — every type, tests included** (golden template:
-  `TranslationSystem.Domain/Aggregates/GameVersionAggregate/Entities/GameVersion.cs`). Data comes
-  first: (1) constants, right under the type declaration, (2) fields, (3) properties. A constant,
-  field or property never sits below a constructor or a method. After the data:
-  - **A type with a static factory** (a domain class): (4) public/internal behavior methods,
-    (5) the `static` factory method(s) (`Create`), (6) private constructors (the domain ctor, then
-    the parameterless EF ctor), (7) private helper methods. The factory sits **after** the
-    behavior methods and **immediately before** the constructors, not at the top.
-  - **Any other type** (handler, service, validator, page model, test class): (4) constructor,
-    (5) public/internal methods, (6) private helper methods.
+- **Member order — one order for every type, tests included** (golden template:
+  `TranslationSystem.Domain/Aggregates/GameVersionAggregate/Entities/GameVersion.cs`). Top to
+  bottom: (1) constants, right under the type declaration, (2) fields, (3) properties,
+  (4) public/internal methods, (5) the `static` factory method(s) (`Create`), when the type has
+  one, (6) constructors (in a domain class: the domain ctor, then the parameterless EF ctor),
+  (7) private helper methods. A constant, field or property never sits below a constructor or a
+  method. Handlers, services, validators, page models and test classes follow the same order, so
+  adding a factory to a type later never moves its constructors.
 
-  Older code breaks this in about a hundred files. They are not swept (owner decision,
-  2026-10-09), but no new case is added: a member you add goes in its right place even when its
-  neighbours are wrong, and if it joins a group that sits in the wrong place, move the whole
-  group. Never copy a wrong placement from the code around it: #1055 put a second constant under
-  `OpenIddictSettingsValidator.Validate` because the first one already sat there.
+  Older code breaks this in many files: about a hundred have their constants, fields and
+  properties out of order, and most handlers and services put the constructor right after the
+  fields. They are not swept (owner decision, 2026-10-09), but no new case is added: a member you
+  add goes in its right place even when its neighbours are wrong, and if it joins a group that
+  sits in the wrong place, move the whole group. Never copy a wrong placement from the code around
+  it: #1055 put a second constant under `OpenIddictSettingsValidator.Validate` because the first
+  one already sat there.
 
 ## Anatomy of a feature slice
 

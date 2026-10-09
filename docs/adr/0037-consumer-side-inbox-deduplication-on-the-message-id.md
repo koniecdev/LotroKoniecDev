@@ -91,6 +91,12 @@ side effect of keeping rows forever: replaying an already-processed message from
 (ADR-0036 Decision 5) hits the inbox and acks without a duplicate e-mail, no matter how much
 later the replay happens.
 
+> **Amended by ADR-0065 (2026-10-09, #1071).** Sent rows are still kept, but not the personal data
+> in them. This section was written when every payload held only the account id; ADR-0048 later
+> added payloads with both addresses of an e-mail change. Every run of the deletion finalizer now
+> cuts each sent row of an erased account down to `{"IdentityUserId": …}`. The replay guarantee
+> above is unchanged, because it reads `InboxMessages`, never the outbox payload.
+
 ## Failure-ordering analysis: why "the database died on vacation" sends zero e-mails
 
 The nightmare scenario — Postgres down for hours, nobody watching, the user's mailbox filling

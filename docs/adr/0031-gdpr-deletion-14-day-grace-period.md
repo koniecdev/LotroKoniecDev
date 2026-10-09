@@ -72,6 +72,12 @@ TranslationSystem stores only opaque `IdentityId` attribution references
 anonymized — no TMS-side call is needed, so the erasure service is auth-local and the
 eventual-consistency failure mode TKS ticket #175 documented cannot occur.
 
+> **Withdrawn by ADR-0065 (2026-10-09, #1071).** The premise was wrong from the start: since
+> ADR-0004 the TMS keeps a `Translator` profile with the person's display name and e-mail, and
+> `SubmittedById`/`ApprovedById` point at that profile. The erasure now writes an `AccountErased`
+> outbox message in its anonymizing save, and the TMS erases the profile when it arrives. A TMS
+> database outage delays that erasure; the consumer never gives up on it.
+
 ## Amendment (2026-09-19, #685 — SEC-07): the window has to survive an e-mail change
 
 This ADR says the emailed cancel link is the only recovery path during the grace window, and it says

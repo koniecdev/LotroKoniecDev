@@ -83,7 +83,9 @@ a local TMS concern.
   **optional** `Email` value object, and an immutable `ProvisionedAt` timestamp (a mutable
   `LastSeenAt` was considered and dropped — see the 2026-06-24 amendment).
 - **Out of scope (lives in Auth, or is post-MVP):** addresses, phone numbers,
-  archival/anonymization, preferred language, per-language roles, statistics. CLAUDE.md is explicit
+  archival/anonymization, preferred language, per-language roles, statistics. *(Anonymization is in
+  scope since ADR-0065, #1071: `Translator.Erase()` takes the person off the profile when the
+  AuthSystem erases the account.)* CLAUDE.md is explicit
   — "our aggregates are far simpler than `Cat` — don't inflate them"; the same discipline applies to
   `Person`. The fat `Person` surface is deliberately **not** lifted.
 

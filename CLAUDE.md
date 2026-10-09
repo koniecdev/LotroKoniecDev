@@ -333,6 +333,15 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   `DomainErrors.*` factories / `Error.Validation(...)`. Guards (`Ensure`,
   `ArgumentNullException.ThrowIfNull`) are for **programmer** errors only. The API's
   `ExceptionHandlers/` are safety nets, not a control-flow mechanism.
+- **A Warning means someone should look (#977).** Log a Warning only for what should never happen
+  (a token with no user id, a failed database read) or may be an attack (a wrong password, a reused
+  refresh token, a wrong PKCE verifier). A refusal that is the normal result of what the user or an
+  admin did, or of time passing, is Information. Examples: an expired token, or a token refused
+  because the account was locked or deleted earlier. Production keeps Information, so nothing is
+  lost, and the warnings stay readable. Debug is too low, because production drops it. When one log
+  line covers both kinds, it is a Warning. A ticket that asks for "a warning" means "a log line":
+  pick the level by this rule. #944 shipped normal refusals as warnings, and #977 nearly did, because
+  the ticket said "warning".
 - **No mediator — slim SRP handlers (ADR-0001), repo-wide.** One use case = one record + one
   handler implementing the in-house `ICommandHandler<,>`/`IQueryHandler<,>`. Consumers inject the
   closed handler interface directly. Lifted KittySaver code is de-mediatorized on entry.

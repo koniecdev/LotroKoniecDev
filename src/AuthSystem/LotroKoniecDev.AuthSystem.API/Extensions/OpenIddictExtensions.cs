@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Server;
 using OpenIddict.Server.AspNetCore;
+using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.Authorization;
@@ -96,6 +97,10 @@ internal static class OpenIddictExtensions
                     OpenIddictServerAspNetCoreHandlers.ExtractGetOrPostRequest<OpenIddictServerEvents.ExtractIntrospectionRequestContext>.Descriptor);
                 options.AddEventHandler(
                     OpenIddictServerAspNetCoreHandlers.ExtractPostRequest<OpenIddictServerEvents.ExtractIntrospectionRequestContext>.Descriptor);
+
+                // Log lines for the refusals OpenIddict makes itself (#977).
+                options.AddEventHandler(OpenIddictTokenRefusals.NoteTokenUser.Descriptor);
+                options.AddEventHandler(OpenIddictTokenRefusals.LogWhenRefused.Descriptor);
             })
             .AddValidation(options =>
             {

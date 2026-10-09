@@ -41,7 +41,7 @@ internal sealed partial class TokenEndpoint : IEndpoint
 
         if (request.IsAuthorizationCodeGrantType())
         {
-            return await HandleAuthorizationCodeGrantAsync(httpContext, userManager, signInManager);
+            return await HandleAuthorizationCodeGrantAsync(httpContext, userManager, signInManager, logger);
         }
 
         // The password flow is only on in the Testing environment, for integration and E2E tests.
@@ -66,38 +66,35 @@ internal sealed partial class TokenEndpoint : IEndpoint
         throw new InvalidOperationException($"The grant type '{request.GrantType}' is enabled but not handled.");
     }
 
+    /// <summary>
+    /// The code carries the stamp read at /connect/authorize, and the account can change in the seconds
+    /// before the code is redeemed. A password reset, a lockout or a scheduled deletion must not hand out
+    /// tokens: the access token would still work for five minutes (#848, ADR-0049).
+    /// </summary>
     private static async Task<IResult> HandleAuthorizationCodeGrantAsync(
         HttpContext httpContext,
         UserManager<ApplicationUser> userManager,
-        SignInManager<ApplicationUser> signInManager)
+        SignInManager<ApplicationUser> signInManager,
+        ILogger<TokenEndpoint> logger)
     {
         AuthenticateResult result = await httpContext.AuthenticateAsync(
             OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
 
-        if (result is not { Succeeded: true })
+        ApplicationUser? user = await FindUserStillAllowedAsync(
+            result.Principal, TokenGrantName.CodeExchange, userManager, signInManager, logger);
+
+        if (user is null)
         {
             return Refuse(AuthorizationCodeNoLongerValid);
         }
 
-        // The code carries the stamp read at /connect/authorize, and the account can change in the
-        // seconds before the code is redeemed. A password reset, a lockout or a scheduled deletion must
-        // not hand out tokens: the access token would still work for five minutes (#848, ADR-0049).
-        string? userId = result.Principal.GetClaim(Claims.Subject);
-        ApplicationUser? user = string.IsNullOrEmpty(userId) ? null : await userManager.FindByIdAsync(userId);
-
-        if (user is null
-            || user.DeletionScheduledAt is not null
-            || await userManager.IsLockedOutAsync(user)
-            || !await SessionSecurityStamp.IsCurrentAsync(result.Principal, user, signInManager))
-        {
-            return Refuse(AuthorizationCodeNoLongerValid);
-        }
+        ClaimsPrincipal principal = result.Principal!;
 
         // Set again, not kept from the code. UserTokenAudiences says why.
-        result.Principal.SetResources(UserTokenAudiences.All);
+        principal.SetResources(UserTokenAudiences.All);
 
         return Results.SignIn(
-            result.Principal,
+            principal,
             authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
     }
 
@@ -149,9 +146,8 @@ internal sealed partial class TokenEndpoint : IEndpoint
     }
 
     /// <summary>
-    /// Every refusal here sends the client the same answer, so a client learns nothing about the account.
-    /// The warning before each one names the case (#944). A refresh token that was already revoked never
-    /// gets here: OpenIddict refuses it first, with its own answer and its own log line.
+    /// A refresh token that expired, was revoked, or was used more than 30 seconds ago never gets here:
+    /// OpenIddict refuses it first, and <see cref="OpenIddictTokenRefusals"/> writes the log line (#977).
     /// </summary>
     private static async Task<IResult> HandleRefreshTokenGrantAsync(
         HttpContext httpContext,
@@ -162,44 +158,11 @@ internal sealed partial class TokenEndpoint : IEndpoint
         AuthenticateResult authenticateResult = await httpContext.AuthenticateAsync(
             OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
 
-        string? userId = authenticateResult.Principal?.GetClaim(Claims.Subject);
-
-        if (string.IsNullOrEmpty(userId))
-        {
-            LogRefreshRefusedNoSubject(logger);
-            return Refuse(RefreshTokenNoLongerValid);
-        }
-
-        ApplicationUser? user = await userManager.FindByIdAsync(userId);
+        ApplicationUser? user = await FindUserStillAllowedAsync(
+            authenticateResult.Principal, TokenGrantName.Refresh, userManager, signInManager, logger);
 
         if (user is null)
         {
-            LogRefreshRefusedUserGone(logger, userId);
-            return Refuse(RefreshTokenNoLongerValid);
-        }
-
-        // Refresh tokens are revoked when a GDPR deletion is scheduled, but that revocation is only
-        // best effort. These checks make sure a locked account, or one waiting for deletion, can never
-        // refresh its way back to a working access token. A scheduled deletion also locks the account,
-        // so it is checked first to get the more exact warning.
-        if (user.DeletionScheduledAt is not null)
-        {
-            LogRefreshRefusedDeletionScheduled(logger, userId);
-            return Refuse(RefreshTokenNoLongerValid);
-        }
-
-        if (await userManager.IsLockedOutAsync(user))
-        {
-            LogRefreshRefusedLockedOut(logger, userId);
-            return Refuse(RefreshTokenNoLongerValid);
-        }
-
-        // Every flow that ends all sessions changes the stamp, and its token revocation is only best
-        // effort. Without this check a token the revoke missed works again as soon as the account is
-        // unlocked, for example when a scheduled deletion is cancelled (#848).
-        if (!await SessionSecurityStamp.IsCurrentAsync(authenticateResult.Principal!, user, signInManager))
-        {
-            LogRefreshRefusedStaleSecurityStamp(logger, userId);
             return Refuse(RefreshTokenNoLongerValid);
         }
 
@@ -220,6 +183,61 @@ internal sealed partial class TokenEndpoint : IEndpoint
         return Results.SignIn(
             new ClaimsPrincipal(identity),
             authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+    }
+
+    /// <summary>
+    /// The account checks that every code exchange and every refresh repeats, because the account can
+    /// change after the token was issued. Null means refused. The caller sends the same answer for every
+    /// case, so a client learns nothing about the account; only the log line here names the case (#944).
+    /// Both grants share this one check, so they cannot drift apart (#977).
+    /// </summary>
+    private static async Task<ApplicationUser?> FindUserStillAllowedAsync(
+        ClaimsPrincipal? principal,
+        TokenGrantName grant,
+        UserManager<ApplicationUser> userManager,
+        SignInManager<ApplicationUser> signInManager,
+        ILogger<TokenEndpoint> logger)
+    {
+        if (principal is null || principal.GetClaim(Claims.Subject) is not { Length: > 0 } userId)
+        {
+            LogRefusedNoSubject(logger, grant.Step, grant.Token);
+            return null;
+        }
+
+        ApplicationUser? user = await userManager.FindByIdAsync(userId);
+
+        if (user is null)
+        {
+            LogRefusedUserGone(logger, grant.Step, userId);
+            return null;
+        }
+
+        // Tokens are revoked when a GDPR deletion is scheduled, but that revocation is only best effort.
+        // These checks make sure a locked account, or one waiting for deletion, can never trade a token
+        // for a working access token. A scheduled deletion also locks the account, so it is checked first
+        // to get the more exact log line.
+        if (user.DeletionScheduledAt is not null)
+        {
+            LogRefusedDeletionScheduled(logger, grant.Step, userId);
+            return null;
+        }
+
+        if (await userManager.IsLockedOutAsync(user))
+        {
+            LogRefusedLockedOut(logger, grant.Step, userId);
+            return null;
+        }
+
+        // Every flow that ends all sessions changes the stamp, and its token revocation is only best
+        // effort. Without this check a token the revoke missed works again as soon as the account is
+        // unlocked, for example when a scheduled deletion is cancelled (#848).
+        if (!await SessionSecurityStamp.IsCurrentAsync(principal, user, signInManager))
+        {
+            LogRefusedStaleSecurityStamp(logger, grant.Step, userId);
+            return null;
+        }
+
+        return user;
     }
 
     private static IResult HandleClientCredentialsGrant(OpenIddictRequest request)
@@ -294,18 +312,20 @@ internal sealed partial class TokenEndpoint : IEndpoint
             .ExcludeFromDescription();
     }
 
-    [LoggerMessage(EventId = EventIds.RefreshRefusedNoSubject, Level = LogLevel.Warning, Message = "Refresh refused: no user id could be read from the refresh token")]
-    private static partial void LogRefreshRefusedNoSubject(ILogger logger);
+    [LoggerMessage(EventId = EventIds.TokenGrantRefusedNoSubject, Level = LogLevel.Warning, Message = "{Step} refused: no user id could be read from the {Token}")]
+    private static partial void LogRefusedNoSubject(ILogger logger, string step, string token);
 
-    [LoggerMessage(EventId = EventIds.RefreshRefusedUserGone, Level = LogLevel.Warning, Message = "Refresh refused for user {UserId}: the account no longer exists")]
-    private static partial void LogRefreshRefusedUserGone(ILogger logger, string userId);
+    // Information, not Warning: each case below is the normal result of a change to the account. A token
+    // with no user id, above, should never happen (CLAUDE.md, #977).
+    [LoggerMessage(EventId = EventIds.TokenGrantRefusedUserGone, Level = LogLevel.Information, Message = "{Step} refused for user {UserId}: the account no longer exists")]
+    private static partial void LogRefusedUserGone(ILogger logger, string step, string userId);
 
-    [LoggerMessage(EventId = EventIds.RefreshRefusedDeletionScheduled, Level = LogLevel.Warning, Message = "Refresh refused for user {UserId}: account deletion is scheduled")]
-    private static partial void LogRefreshRefusedDeletionScheduled(ILogger logger, string userId);
+    [LoggerMessage(EventId = EventIds.TokenGrantRefusedDeletionScheduled, Level = LogLevel.Information, Message = "{Step} refused for user {UserId}: account deletion is scheduled")]
+    private static partial void LogRefusedDeletionScheduled(ILogger logger, string step, string userId);
 
-    [LoggerMessage(EventId = EventIds.RefreshRefusedLockedOut, Level = LogLevel.Warning, Message = "Refresh refused for user {UserId}: the account is locked out")]
-    private static partial void LogRefreshRefusedLockedOut(ILogger logger, string userId);
+    [LoggerMessage(EventId = EventIds.TokenGrantRefusedLockedOut, Level = LogLevel.Information, Message = "{Step} refused for user {UserId}: the account is locked out")]
+    private static partial void LogRefusedLockedOut(ILogger logger, string step, string userId);
 
-    [LoggerMessage(EventId = EventIds.RefreshRefusedStaleSecurityStamp, Level = LogLevel.Warning, Message = "Refresh refused for user {UserId}: the security stamp in the token is not current")]
-    private static partial void LogRefreshRefusedStaleSecurityStamp(ILogger logger, string userId);
+    [LoggerMessage(EventId = EventIds.TokenGrantRefusedStaleSecurityStamp, Level = LogLevel.Information, Message = "{Step} refused for user {UserId}: the security stamp in the token is not current")]
+    private static partial void LogRefusedStaleSecurityStamp(ILogger logger, string step, string userId);
 }

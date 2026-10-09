@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using LotroKoniecDev.SharedKernel.Guards;
 using RabbitMQ.Client;
+using RabbitMQ.Client.Exceptions;
 
 namespace LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 
@@ -78,13 +79,20 @@ internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsy
 
         byte[] body = Encoding.UTF8.GetBytes(payload);
 
-        await channel.BasicPublishAsync(
-            exchange: exchange,
-            routingKey: routingKey,
-            mandatory: true,
-            basicProperties: properties,
-            body: body,
-            cancellationToken: cancellationToken);
+        try
+        {
+            await channel.BasicPublishAsync(
+                exchange: exchange,
+                routingKey: routingKey,
+                mandatory: true,
+                basicProperties: properties,
+                body: body,
+                cancellationToken: cancellationToken);
+        }
+        catch (PublishException ex) when (ex.IsReturn)
+        {
+            throw new MessageNotRoutedException(exchange, routingKey, ex);
+        }
 
         LogMessagePublished(_logger, messageId, routingKey);
     }

@@ -10,6 +10,12 @@ internal sealed class GdprSettingsValidator : IValidateOptions<GdprSettings>
     /// </summary>
     private static readonly TimeSpan MaxErasureDelay = TimeSpan.FromDays(30);
 
+    /// <summary>
+    /// The TMS validates tokens with the JWT handler's default skew, so it accepts a token this long
+    /// after it expires.
+    /// </summary>
+    private static readonly TimeSpan TmsClockSkew = TimeSpan.FromMinutes(5);
+
     private readonly IOptions<OpenIddictSettings> _openIddictSettings;
 
     public GdprSettingsValidator(IOptions<OpenIddictSettings> openIddictSettings)
@@ -26,15 +32,16 @@ internal sealed class GdprSettingsValidator : IValidateOptions<GdprSettings>
             errors.Add("DeletionGracePeriod must be positive.");
         }
 
-        // An access token stays valid on the TMS until it expires, and the TMS copies its name and
-        // address into the translator profile. Signing in stops when the deletion is scheduled, so a
-        // grace period longer than one token's life means no token is left to write them back after
+        // An access token stays valid on the TMS until it expires, plus the TMS's clock skew, and the TMS
+        // copies its name and address into the translator profile. Signing in stops when the deletion is
+        // scheduled, so a grace period longer than that means no token is left to write them back after
         // the erasure (ADR-0065). QA may still shorten the period to watch a real erasure (ADR-0031).
         TimeSpan accessTokenLifetime = TimeSpan.FromMinutes(_openIddictSettings.Value.AccessTokenLifetimeMinutes);
-        if (options.DeletionGracePeriod <= accessTokenLifetime)
+        TimeSpan tokenAcceptedFor = accessTokenLifetime + TmsClockSkew;
+        if (options.DeletionGracePeriod <= tokenAcceptedFor)
         {
             errors.Add(
-                $"DeletionGracePeriod must be longer than OpenIddict:AccessTokenLifetimeMinutes ({accessTokenLifetime.TotalMinutes:0} minutes), so no access token is still valid at the erasure.");
+                $"DeletionGracePeriod must be longer than {tokenAcceptedFor.TotalMinutes:0} minutes: OpenIddict:AccessTokenLifetimeMinutes plus the TMS clock skew, so no access token is still accepted at the erasure.");
         }
 
         if (options.DeletionFinalizationPollInterval < TimeSpan.FromMinutes(1))

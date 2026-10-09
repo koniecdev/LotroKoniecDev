@@ -136,7 +136,7 @@ public sealed class OutboxRelayTests : EndpointsTestBase
         // Arrange: more AccountErased rows than one batch, all refused because no TMS queue is bound yet
         // (ADR-0065). They are older, so they fill every batch from the front.
         _messagePublisherSpy.FailWhen = message => message.Type == nameof(AccountErased)
-            ? new InvalidOperationException("no queue is bound to account.erased")
+            ? new MessageNotRoutedException(message.Exchange, message.RoutingKey)
             : null;
         await InsertOlderAccountErasedRowsAsync(count: 101);
 
@@ -150,6 +150,32 @@ public sealed class OutboxRelayTests : EndpointsTestBase
                    && row.Payload.Contains(identityId.Value.ToString(), StringComparison.OrdinalIgnoreCase)
                    && row.ProcessedOn != null);
         confirmation.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Relay_ShouldStopThePassAtTheFirstFailure_WhenTheBrokerIsDown()
+    {
+        // Arrange: a broker that is down refuses every row the same way, so trying the whole backlog
+        // would only cost one attempt and one save per row.
+        _messagePublisherSpy.FailWith = new InvalidOperationException("broker down");
+        Guid[] rowIds =
+        [
+            await InsertOutboxRowAsync(nameof(EmailConfirmationRequested)),
+            await InsertOutboxRowAsync(nameof(EmailConfirmationRequested)),
+            await InsertOutboxRowAsync(nameof(EmailConfirmationRequested))
+        ];
+
+        // Act
+        NotifyRelay();
+        OutboxMessage? firstFailure = await WaitForOutboxRowAsync(row => rowIds.Contains(row.Id) && row.Attempts > 0);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
+        // Assert: the relay now waits out its backoff, so the other rows were never tried in that pass.
+        firstFailure.ShouldNotBeNull();
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        int tried = await db.OutboxMessages.CountAsync(row => rowIds.Contains(row.Id) && row.Attempts > 0);
+        tried.ShouldBe(1);
     }
 
     [Fact]

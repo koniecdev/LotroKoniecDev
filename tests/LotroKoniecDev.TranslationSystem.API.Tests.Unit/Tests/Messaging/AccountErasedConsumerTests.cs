@@ -173,6 +173,10 @@ public sealed class AccountErasedConsumerTests
         new TimeoutException("timed out"),
         new System.Net.Sockets.SocketException(),
         new Npgsql.NpgsqlException("connection lost", new TimeoutException()),
+        new Npgsql.PostgresException("password authentication failed", "FATAL", "FATAL", "28P01"),
+        new Npgsql.PostgresException("permission denied for table Translators", "ERROR", "ERROR", "42501"),
+        new Npgsql.PostgresException("relation does not exist", "ERROR", "ERROR", "42P01"),
+        new Microsoft.EntityFrameworkCore.DbUpdateException("save failed", new Npgsql.PostgresException("internal error", "ERROR", "ERROR", "XX000")),
         new Microsoft.EntityFrameworkCore.Storage.RetryLimitExceededException("retries spent", new InvalidOperationException()),
         new Microsoft.EntityFrameworkCore.DbUpdateException("save failed", new TimeoutException())
     };
@@ -188,8 +192,8 @@ public sealed class AccountErasedConsumerTests
     {
         new InvalidOperationException("bug"),
         new ArgumentException("bad argument"),
-        new Microsoft.EntityFrameworkCore.DbUpdateException("constraint", new InvalidOperationException()),
-        new Npgsql.NpgsqlException("syntax error")
+        new Microsoft.EntityFrameworkCore.DbUpdateException("lost update", new InvalidOperationException()),
+        new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException("another write changed the row")
     };
 
     [Theory]

@@ -75,9 +75,11 @@ confirmations, so an event published before the TMS queue exists comes back as a
 outbox row stays for the next try. It is never dropped.
 
 Rows like that can fail for a long time, for example on a first rollout before the TMS has declared
-its queue, or after a rollback. So the relay now skips a row that failed for the rest of its pass and
-takes the next batch from behind it. Before this, 100 such rows at the head of the outbox filled every
-batch and held back every newer e-mail. This refines the batched drain of ADR-0035.
+its queue, or after a rollback. So the publisher reports a returned message as
+`MessageNotRoutedException`, and the relay skips such a row for the rest of its pass and takes the next
+batch from behind it. Before this, 100 such rows at the head of the outbox filled every batch and held
+back every newer e-mail. Any other publish failure still ends the pass at once, because a broker that
+is down refuses every row the same way. This refines the batched drain of ADR-0035.
 
 ### 3. The TMS owns its queue and only checks the exchange
 
@@ -106,8 +108,11 @@ was. An account that never opened the TMS has no profile, and that counts as don
   up is worse: nothing would ever send it again. RabbitMQ 4.3 does not count a nack against the
   delivery limit, so the consumer pauses (30 seconds growing to 15 minutes, each under the broker's
   30-minute consumer timeout) and returns the message, for as long as the outage lasts. Once the
-  pauses stop growing it logs at Error. "Unavailable" means a timeout, a socket error, a transient
-  Npgsql error or EF's `RetryLimitExceededException`, anywhere in the exception chain.
+  pauses stop growing it logs at Error. "Unavailable" means any database error (a `DbException`), a
+  timeout, a socket error or EF's `RetryLimitExceededException`, anywhere in the exception chain. Not
+  only the errors Npgsql calls transient: the erasure reads one profile by its id and writes fixed
+  values, so a rotated password, a lost grant or a missing table is the environment, never the
+  message, and a person fixing it lets the waiting erasures through.
 - **Any other exception is retried with `basic.reject`, which counts.** That is a bug, not an
   outage, and it fails the same way every time, so it ends in the parking queue at the delivery
   limit instead of looping and blocking the erasures behind it.
@@ -158,10 +163,11 @@ erased person's addresses again.
 ### 7. The grace period outlives an access token
 
 `GdprSettingsValidator` now refuses a `DeletionGracePeriod` that is not longer than
-`OpenIddict:AccessTokenLifetimeMinutes`. Signing in stops when the deletion is scheduled, but an
-access token issued just before still works on the TMS until it expires, and the TMS copies the token's
-name and address into the profile. A longer grace period means no token is left to write them back
-after the erasure. QA can still shorten the period to watch a real erasure, as ADR-0031 describes.
+`OpenIddict:AccessTokenLifetimeMinutes` plus the five minutes of clock skew the TMS's JWT validation
+allows. Signing in stops when the deletion is scheduled, but an access token issued just before still
+works on the TMS until then, and the TMS copies the token's name and address into the profile. A
+longer grace period means no token is left to write them back after the erasure. QA can still shorten
+the period to watch a real erasure, as ADR-0031 describes.
 
 With the default 14 days, every token of the account is also older than the OpenIddict prune's 14-day
 retention at the erasure, so the encrypted copy of the name and address in a stored refresh token goes

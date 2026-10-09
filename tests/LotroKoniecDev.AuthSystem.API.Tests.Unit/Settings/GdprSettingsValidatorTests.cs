@@ -101,9 +101,10 @@ public sealed class GdprSettingsValidatorTests
     [Theory]
     [InlineData("00:01:00")]
     [InlineData("00:05:00")]
-    public void Validate_GracePeriodNoLongerThanAnAccessToken_FailsNamingTheSetting(string gracePeriod)
+    [InlineData("00:10:00")]
+    public void Validate_GracePeriodNoLongerThanAnAccessTokenIsAccepted_FailsNamingTheSetting(string gracePeriod)
     {
-        // The default access token lives five minutes.
+        // The default access token lives five minutes, and the TMS accepts it five more.
         GdprSettings settings = new()
         {
             DeletionGracePeriod = Parse(gracePeriod),
@@ -115,7 +116,7 @@ public sealed class GdprSettingsValidatorTests
         result.Failed.ShouldBeTrue();
         result.Failures.ShouldNotBeNull();
         result.Failures.ShouldContain(failure =>
-            failure.Contains("DeletionGracePeriod must be longer than OpenIddict:AccessTokenLifetimeMinutes", StringComparison.Ordinal));
+            failure.Contains("DeletionGracePeriod must be longer than 10 minutes", StringComparison.Ordinal));
     }
 
     [Fact]

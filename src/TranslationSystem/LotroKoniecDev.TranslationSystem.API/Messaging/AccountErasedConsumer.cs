@@ -1,8 +1,8 @@
+using System.Data.Common;
 using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
-using Npgsql;
 using LotroKoniecDev.SharedKernel.IntegrationEvents;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
@@ -129,19 +129,20 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Says whether a failure means the database could not be reached, which only time can fix. EF has
-    /// already retried a transient error a few times when it gives up with
-    /// <see cref="RetryLimitExceededException"/>. Anything else is taken to fail the same way every
-    /// time. It is internal so the unit tests can check the line between the two.
+    /// Says whether a failure came from the database or the way to it, which a person or time fixes and
+    /// a retry then gets through. That is any database error, not only the ones Npgsql calls transient:
+    /// the erasure reads one profile by its id and writes fixed values, so a rotated password, a lost
+    /// grant or a missing table is the environment, never the message. Anything else is taken to fail
+    /// the same way every time. It is internal so the unit tests can check the line between the two.
     /// </summary>
     internal static bool IsDatabaseUnavailable(Exception exception)
     {
         for (Exception? current = exception; current is not null; current = current.InnerException)
         {
-            if (current is RetryLimitExceededException
+            if (current is DbException
+                or RetryLimitExceededException
                 or TimeoutException
-                or SocketException
-                or NpgsqlException { IsTransient: true })
+                or SocketException)
             {
                 return true;
             }
@@ -167,9 +168,9 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
                 await CloseAsync();
             }
         }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        catch (Exception) when (stoppingToken.IsCancellationRequested)
         {
-            // The app is shutting down, which is not an error.
+            // The app is shutting down, which is not an error, whatever the attach in flight threw.
         }
         finally
         {

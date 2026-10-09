@@ -23,8 +23,8 @@ public sealed class ErasedAccountsTests
     [InlineData("0123456789abcdef0123456789abcdef@anonymized.local", null)]
     [InlineData("anon-0123@anonymized.local.example", null)]
     [InlineData("ANON-0123@ANONYMIZED.LOCAL", null)]
-    [InlineData("an­on-0123@anonymized.local", null)]
-    [InlineData("anon-0123@anonymized.lo­cal", null)]
+    [InlineData("an\u00ADon-0123@anonymized.local", null)]
+    [InlineData("anon-0123@anonymized.lo\u00ADcal", null)]
     [InlineData(null, null)]
     public void Includes_AnythingElse_ReturnsFalse(string? email, string? passwordHash)
     {

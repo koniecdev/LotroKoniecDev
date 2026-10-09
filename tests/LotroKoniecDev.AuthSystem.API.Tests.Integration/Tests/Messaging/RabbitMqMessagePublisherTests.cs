@@ -75,7 +75,9 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
             RabbitMqTopology.EmailsExchange, "billing.invoice", MessageType, Payload, Guid.CreateVersion7(), CancellationToken.None);
 
         // Assert
-        await Should.ThrowAsync<PublishException>(publish);
+        MessageNotRoutedException refusal = await Should.ThrowAsync<MessageNotRoutedException>(publish);
+        refusal.RoutingKey.ShouldBe("billing.invoice");
+        refusal.InnerException.ShouldBeAssignableTo<PublishException>();
     }
 
     [Fact]

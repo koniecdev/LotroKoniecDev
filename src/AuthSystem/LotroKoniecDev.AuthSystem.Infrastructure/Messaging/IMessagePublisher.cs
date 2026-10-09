@@ -7,7 +7,8 @@ namespace LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 /// Failures come out as exceptions and not as a <c>Result</c>. A refused publish is an
 /// infrastructure fault, such as the broker being down, a key nothing is bound to, or a nack. It is
 /// not a business outcome, and the caller, the outbox relay, needs the transport detail to choose
-/// between retrying and recording the failure on the outbox row.
+/// between retrying and recording the failure on the outbox row. A key nothing is bound to comes out
+/// as <see cref="MessageNotRoutedException"/>, because it concerns that one message and not the broker.
 /// </remarks>
 public interface IMessagePublisher
 {

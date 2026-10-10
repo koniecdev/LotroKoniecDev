@@ -1599,8 +1599,9 @@ old rule ("more than a quarter of swap in use") then mailed every 6 hours about 
 
 - **Swapping hard or waiting for memory** (`fleet-swap-in-use`, warning) fires when either holds
   for 5 minutes: on average more than 350 pages a second (about 1.4 MiB/s) moved in and out of swap
-  over the last 30 minutes (`node_vmstat_pswpin` + `node_vmstat_pswpout`), or programs waited for
-  memory more than 10% of the time over the last 5 minutes (`node_pressure_memory_waiting_seconds_total`).
+  over the last 30 minutes (`node_vmstat_pswpin` + `node_vmstat_pswpout`), or at least one program
+  was waiting for memory during more than 10% of the last 5 minutes
+  (`node_pressure_memory_waiting_seconds_total`, the kernel's "some" memory pressure).
   The window is 30 minutes because real squeezes come as bursts of 5 to 15 minutes: the night of
   2026-10-02 was five of them, so a long `for:` on a 5-minute rate never fires. Replayed against
   both boxes' history from 2026-09-25 to 2026-10-10, it fires twice on that night (20:54 and
@@ -1613,9 +1614,10 @@ old rule ("more than a quarter of swap in use") then mailed every 6 hours about 
   kernel kills a container. It fired on nothing in the same window, because no burst kept swap
   above 70% for even five minutes.
 
-To find what holds the swap, sum `VmSwap` per process (`grep VmSwap /proc/*/status`) and map a pid
+To find what holds the swap, list `VmSwap` per process (`grep VmSwap /proc/*/status`) and map a pid
 to its container with `/proc/<pid>/cgroup`. A host service outside Docker, such as a CI runner,
-does not show up in the container memory panels.
+does not show up in the container memory panels. If the processes together hold much less than the
+swap in use, the rest is shared memory, most often files in `/tmp`.
 
 **`/tmp` is memory on these boxes.** On Ubuntu 26.04 it is a tmpfs (1.9 GiB), so a file left there
 counts as memory and can end up in swap. `systemd-tmpfiles` deletes old files only after 10 days
@@ -1623,8 +1625,16 @@ counts as memory and can end up in swap. `systemd-tmpfiles` deletes old files on
 `du -sh /tmp` before you blame the apps.
 
 To check a line against history, query the staging Prometheus over read-only ssh. It holds both
-boxes, with labels `box="lotro-staging"` and `box="lotro-prod"`, for 15 days:
-`ssh lotro-staging "docker exec obs-prometheus wget -qO- 'http://localhost:9090/api/v1/query_range?query=…&start=…&end=…&step=60'"`.
+boxes, with labels `box="lotro-staging"` and `box="lotro-prod"`, for 15 days. URL-encode the query
+on your machine first: a raw `+` arrives as a space, and a `"` breaks the ssh quoting. Prometheus
+returns at most 11,000 points per series, so 7 days fit at `step=60` and 15 days need `step=120`:
+
+```bash
+q='max by (box) (rate(node_vmstat_pswpin[30m]) + rate(node_vmstat_pswpout[30m]))'
+enc=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$q")
+end=$(date +%s); start=$((end - 7 * 86400))
+ssh lotro-staging "docker exec obs-prometheus wget -qO- 'http://localhost:9090/api/v1/query_range?query=$enc&start=$start&end=$end&step=60'"
+```
 
 All of them deliver to **one** contact point, `owner-email`, over the Brevo relay the apps already
 use. There is deliberately no second channel.

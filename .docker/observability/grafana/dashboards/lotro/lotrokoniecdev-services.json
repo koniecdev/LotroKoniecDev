@@ -452,7 +452,7 @@
       "id": 9,
       "type": "timeseries",
       "title": "Box CPU, swap and disk",
-      "description": "The three fleet alerts in one place. Swap in use is the early warning the boxes could not give before #708 - before it, pressure went straight to an OOM-kill.",
+      "description": "CPU, swap and disk for the fleet alerts. Swap used climbs slowly even on a calm box, so it only feeds the late swap-nearly-full guard (above 70%). The swapping alert watches the panel below instead (#1084).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -471,7 +471,7 @@
             "uid": "prometheus"
           },
           "expr": "1 - avg by (box) (rate(node_cpu_seconds_total{mode=\"idle\", environment=~\"$environment\"}[5m]))",
-          "legendFormat": "cpu busy",
+          "legendFormat": "{{box}} cpu busy",
           "range": true
         },
         {
@@ -481,7 +481,7 @@
             "uid": "prometheus"
           },
           "expr": "1 - (max by (box) (node_memory_SwapFree_bytes{environment=~\"$environment\"}) / clamp_min(max by (box) (node_memory_SwapTotal_bytes{environment=~\"$environment\"}), 1))",
-          "legendFormat": "swap used",
+          "legendFormat": "{{box}} swap used",
           "range": true
         },
         {
@@ -491,7 +491,7 @@
             "uid": "prometheus"
           },
           "expr": "1 - (max by (box) (node_filesystem_avail_bytes{mountpoint=\"/\", environment=~\"$environment\"}) / max by (box) (node_filesystem_size_bytes{mountpoint=\"/\", environment=~\"$environment\"}))",
-          "legendFormat": "disk used",
+          "legendFormat": "{{box}} disk used",
           "range": true
         }
       ],
@@ -585,6 +585,123 @@
       }
     },
     {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Swapping and memory stall",
+      "description": "What the swapping alert watches (#1084). Left axis: pages a second moved in and out of swap, averaged over 30 minutes; the alert line is 350 (a page is 4 KiB). Right axis: share of time at least one program waited for memory, over 5 minutes; the alert line is 10%. Either one held for 5 minutes fires the alert.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (box) (rate(node_vmstat_pswpin{environment=~\"$environment\"}[30m]) + rate(node_vmstat_pswpout{environment=~\"$environment\"}[30m]))",
+          "legendFormat": "{{box}} swap traffic (pages/s, 30 min)",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (box) (rate(node_pressure_memory_waiting_seconds_total{environment=~\"$environment\"}[5m]))",
+          "legendFormat": "{{box}} memory stall (5 min)",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": true,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 350
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
       "id": 11,
       "type": "row",
       "title": "Errors",
@@ -592,7 +709,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 40
       },
       "collapsed": false,
       "panels": []
@@ -610,7 +727,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 41
       },
       "targets": [
         {
@@ -668,7 +785,7 @@
         "h": 11,
         "w": 24,
         "x": 0,
-        "y": 41
+        "y": 48
       },
       "targets": [
         {

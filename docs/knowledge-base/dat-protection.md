@@ -6,6 +6,14 @@ originSessionId: fcf33c21-a957-445f-bc57-c8ea7814f1b6
 ---
 # DAT Protection Status: NOT NEEDED
 
+> **Addendum (2026-10-10) — counted on the whole corpus (E7, #1094).** Every 47.2 row was
+> marked and patched into a DAT copy, and the launcher then applied the real cumulative update to
+> 49.7 on it (forced downgrade): **97.03% survived byte-for-byte**, 2.97% lost their Polish
+> (2.57% collateral, 0.30% English changed, 0.11% removed). The per-SubFile model held without an
+> exception: no row survived inside a replaced SubFile, and no row was lost outside one. A guarded
+> re-patch (ADR-0047) repaired every collateral revert and left every changed row in English. See
+> [e7-full-corpus-survival-2026-10-10.md](e7-full-corpus-survival-2026-10-10.md).
+
 > **Addendum (2026-08-02) — the survival model is per-SubFile, not per-fragment.** 9th test
 > (major 48.8 → 49.1, "In Good Company"): **7/8 survived byte-for-byte; 1/8 REVERTED** to its
 > English original because SSG added 4 fragments to its SubFile (620757435: 1019→1023) — the

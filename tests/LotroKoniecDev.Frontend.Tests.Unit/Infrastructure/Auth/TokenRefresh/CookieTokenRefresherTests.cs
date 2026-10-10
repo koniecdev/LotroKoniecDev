@@ -1934,7 +1934,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
         CookieValidatePrincipalContext context = CreateContext(
             accessToken,
             Substitute.For<IAuthenticationService>(),
-            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            expiresAt: time.GetUtcNow().AddSeconds(30),
             refreshToken: "refresh-token");
 
         Task validation = refresher.ValidateAsync(context);

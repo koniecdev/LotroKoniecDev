@@ -1,5 +1,6 @@
 @page
 @model LotroKoniecDev.AuthSystem.API.Pages.Account.RegisterModel
+@using LotroKoniecDev.SharedKernel.Constants
 @{
     Layout = null;
     string loginUrl = string.IsNullOrEmpty(Model.ReturnUrl)
@@ -526,7 +527,7 @@
                                 <label asp-for="Password">Hasło</label>
                                 <div class="auth-input-wrap">
                                     <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
-                                    <input asp-for="Password" type="password" class="auth-input" placeholder="Minimum 8 znaków" autocomplete="new-password" required />
+                                    <input asp-for="Password" type="password" class="auth-input" placeholder="Minimum @PasswordConstants.MinLength znaków" autocomplete="new-password" required />
                                 </div>
                             </div>
 
@@ -539,7 +540,7 @@
                             </div>
 
                             <ul class="pw-rules" aria-label="Wymagania hasła">
-                                <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>Min. 8 znaków</li>
+                                <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>@(PasswordConstants.MinLength)–@(PasswordConstants.MaxLength) znaków</li>
                                 <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>Mała i wielka litera</li>
                                 <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>Cyfra</li>
                                 <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>Znak specjalny</li>

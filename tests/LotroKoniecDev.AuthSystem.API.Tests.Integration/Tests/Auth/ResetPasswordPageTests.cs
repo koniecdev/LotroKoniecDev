@@ -1,10 +1,14 @@
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
+using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.SharedKernel.Constants;
 using OpenIddict.Abstractions;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
@@ -298,6 +302,63 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         html.ShouldNotContain("data-testid=\"reset-password-success\"");
         html.ShouldContain("data-testid=\"reset-password-submit\"");
     }
+
+    [Fact]
+    public async Task ResetPasswordPage_Post_ShouldRefuseThePassword_WhenItIsLongerThanTheMaximum()
+    {
+        // #1046: the page calls Identity directly, so it never ran the API's 128-character rule. It took a
+        // 500-character password and said the change worked.
+        const string originalPassword = "TestPass1!";
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, originalPassword);
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToResetPasswordPageAsync(
+            browser, ResetForm(registerRequest.Email, resetToken, PasswordOfLength(PasswordConstants.MaxLength + 1)));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Passwords must be at most 128 characters.");
+        html.ShouldContain("data-testid=\"reset-password-submit\"");
+        (await PasswordWorksAsync(registerRequest.Email, originalPassword)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ResetPasswordPage_Post_ShouldSetThePassword_WhenItIsExactlyTheMaximumLength()
+    {
+        string newPassword = PasswordOfLength(PasswordConstants.MaxLength);
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToResetPasswordPageAsync(
+            browser, ResetForm(registerRequest.Email, resetToken, newPassword));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        (await PasswordWorksAsync(registerRequest.Email, newPassword)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ResetPasswordPage_Get_ShouldListTheLengthRuleThePageApplies()
+    {
+        HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri("/Account/ResetPassword", UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("8–128 znaków");
+    }
+
+    private async Task<bool> PasswordWorksAsync(string email, string password)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        ApplicationUser user = (await userManager.FindByEmailAsync(email))!;
+
+        return await userManager.CheckPasswordAsync(user, password);
+    }
+
+    private static string PasswordOfLength(int length) => "Aa1!" + new string('x', length - 4);
 
     private async Task<string> RequestResetTokenAsync(string email)
     {

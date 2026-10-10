@@ -13,7 +13,19 @@ public sealed class TooManyRequestsPageTests
     [InlineData(2, "2 minuty")]
     [InlineData(4, "4 minuty")]
     [InlineData(5, "5 minut")]
+    [InlineData(11, "11 minut")]
+    [InlineData(12, "12 minut")]
+    [InlineData(13, "13 minut")]
+    [InlineData(14, "14 minut")]
     [InlineData(15, "15 minut")]
+    [InlineData(21, "21 minut")]
+    [InlineData(22, "22 minuty")]
+    [InlineData(23, "23 minuty")]
+    [InlineData(24, "24 minuty")]
+    [InlineData(25, "25 minut")]
+    [InlineData(101, "101 minut")]
+    [InlineData(112, "112 minut")]
+    [InlineData(122, "122 minuty")]
     public void BuildWaitSentence_ShouldUseThePolishPluralForTheNumber(int minutes, string expected)
     {
         // Act

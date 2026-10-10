@@ -141,7 +141,7 @@ internal sealed class EmailChangeEmailSender : IEmailChangeEmailSender
                 $"Konto w {EmailBranding.Name}, które działało na tym adresie, korzysta od teraz z adresu {newEmail}.",
                 "Jeśli to Ty — nie musisz nic robić.",
                 $"Jeśli to nie Ty, użyj przycisku poniżej. Cofnie on zmianę, przywróci ten adres i unieważni obecne hasło, "
-                + $"a następnie pozwoli Ci ustawić nowe. Link działa przez {EmailDurationText.Describe(revertWindow)} od wysłania tej wiadomości."
+                + $"a następnie pozwoli Ci ustawić nowe. Link działa przez {EmailDurationText.DescribeFor(revertWindow)} od wysłania tej wiadomości."
             ],
             CallToAction = new EmailCallToAction("To nie ja — cofnij zmianę", link),
             SecurityNote =

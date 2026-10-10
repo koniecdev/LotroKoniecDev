@@ -268,6 +268,36 @@ public sealed class TranslationsTests : BunitContext
         flash.ShouldContain("Pominięto 1");
     }
 
+    [Theory]
+    [InlineData(1, "1 tłumaczenie")]
+    [InlineData(2, "2 tłumaczenia")]
+    [InlineData(3, "3 tłumaczenia")]
+    [InlineData(4, "4 tłumaczenia")]
+    [InlineData(5, "5 tłumaczeń")]
+    [InlineData(11, "11 tłumaczeń")]
+    [InlineData(12, "12 tłumaczeń")]
+    [InlineData(13, "13 tłumaczeń")]
+    [InlineData(14, "14 tłumaczeń")]
+    [InlineData(21, "21 tłumaczeń")]
+    [InlineData(22, "22 tłumaczenia")]
+    [InlineData(23, "23 tłumaczenia")]
+    [InlineData(24, "24 tłumaczenia")]
+    [InlineData(25, "25 tłumaczeń")]
+    [InlineData(101, "101 tłumaczeń")]
+    [InlineData(112, "112 tłumaczeń")]
+    [InlineData(122, "122 tłumaczenia")]
+    public void Render_WhenApprovedCountIsInTheQuery_UsesThePolishPluralForTheCount(int approved, string expected)
+    {
+        // The auth API has its own copy of this rule (PolishPlural, #1032), so both copies are pinned on the
+        // numbers a short "2 to 4" rule gets wrong.
+        StubPage(AdminPageOf(Row(canEdit: true, canApprove: true)));
+        Navigation().NavigateTo($"/translations?approved={approved}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find(".status-message.status-success").TextContent.ShouldContain($"Zatwierdzono {expected}.");
+    }
+
     [Fact]
     public void Render_WhenApprovedIsZeroInTheQuery_ShowsTheNothingApprovedNoteNotASuccessFlash()
     {

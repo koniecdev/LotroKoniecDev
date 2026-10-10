@@ -1,4 +1,5 @@
 using System.Globalization;
+using LotroKoniecDev.AuthSystem.API.Common;
 
 namespace LotroKoniecDev.AuthSystem.API.Middleware;
 
@@ -46,10 +47,10 @@ internal static class TooManyRequestsPage
         }
 
         int minutes = (int)Math.Ceiling(retryAfter.TotalMinutes);
-        string unit = minutes == 1 ? "minutę" : minutes < 5 ? "minuty" : "minut";
 
         return "Spróbuj ponownie później. Limit odnowi się najpóźniej za "
-            + minutes.ToString(CultureInfo.InvariantCulture) + " " + unit + ".";
+            + minutes.ToString(CultureInfo.InvariantCulture) + " "
+            + PolishPlural.Pick(minutes, "minutę", "minuty", "minut") + ".";
     }
 
     internal static string BuildHtml(TimeSpan retryAfter, string? nonce) =>

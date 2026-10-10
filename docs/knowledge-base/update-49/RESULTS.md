@@ -507,6 +507,140 @@ i pyta `Choose installation (1-2)`. W sesji bez stdin `Console.ReadLine()` zwrac
 `Invalid choice` → `ExitCodes.FileNotFound`. Skryptowany export musi podawać ścieżkę jawnie:
 `export -d "C:\Program Files (x86)\StandingStoneGames\The Lord of the Rings Online\client_local_English.dat"`.
 
+## Experiment E6 — FileSystemWatcher w trakcie locka launchera (2026-10-10, #660) — ✅ **FSW WIDZI zapisy launchera w trakcie locka; cisza na DAT ≠ koniec update'u**
+
+**Po co:** jedyną bramką gałęzi B (#566) jest „30+ s bez zapisów, gdy launcher trzyma DAT".
+E2 odpytywał size/mtime raz na sekundę i widział ruch dopiero na końcu burstu — nikt nie
+sprawdził, czy `FileSystemWatcher` widzi zapisy *w trakcie* trzymania pliku. Jeśli nie, długi
+apply wygląda jak cisza i B zabija launcher w połowie zapisu.
+
+**Okazja:** druga maszyna ownera (`adminpc`) — launcher nieuruchamiany od **2026-04-18** (ostatni
+wpis `PatchClient.log`: „No data patching necessary"; 277,084 plików tekstowych vs 277,082
+w baseline 47.2 ⇒ stan z ery 47.2, przed majorem 48.0). Pierwszy start = **realny, skumulowany
+update 47.2 → 49.7** (dwa majory, 5,897 iteracji, 1.04 GB, co najmniej 17 plików DAT) — największa delta
+w historii projektu. Przed startem: backup DAT (SHA256 `C9D06582…09F8`) + snapshot E5, więc
+każdy kolejny przebieg to powtarzalny forced-downgrade.
+
+**Narzędzie:** `scripts/experiments/e6-fsw-observability.ps1` = monitor E2 (sonda RW co 1 s,
+size, mtime, procesy) + trzy watchery na DAT, po jednym na rodzaj zmiany (`size`, `lastwrite`,
+`other` = attributes/creation/security/name/access); każde zdarzenie z czasem zgłoszenia
+i rozmiarem pliku w tej chwili, zdarzenie `Error` (overflow bufora) logowane i liczone.
+Przełączniki `-NoProbe` / `-NoStat` wyłączają nasze odpytywanie (patrz self-test niżej).
+Uruchomienie: jeden elevated driver (jeden UAC) wykonujący stałe komendy z plików-flag —
+monitor, start/zamknięcie launchera (`CloseMainWindow`, kill dopiero po 15 s), przywrócenie
+backupu DAT; launcher startowany z procesu elevated. Pełne logi: gitignored `intel/update-49.7/`.
+
+### Self-test (zanim ruszył launcher) — FSW sam z siebie NIE widzi zapisów przez trzymany uchwyt
+
+Plik testowy na tym samym NTFS, pisarz trzyma jeden uchwyt 9 s: 3 dopisania po 64 KiB, potem
+3 zapisy 1 KiB w miejscu (rozmiar bez zmian), potem close.
+
+| Wariant monitora | Zdarzenia FSW w trakcie trzymania | Przy close |
+|---|---|---|
+| tylko FSW (`-NoProbe -NoStat`) | **0** | wszystkie 3 watchery |
+| FSW + stat (`Get-Item`) | tylko po zmianie rozmiaru, **w momentach naszego odczytu** | tak |
+| FSW + sonda RW | j.w. | tak |
+| FSW + oba | j.w.; zapisy w miejscu — **nigdy** | tak |
+
+Wniosek: na NTFS zmiana rozmiaru/czasu przez otwarty uchwyt dochodzi do watcherów dopiero, gdy
+ktoś odczyta metadane pliku albo uchwyt się zamknie. **FSW nie jest ogólnym obserwatorem zapisów
+przez trzymany uchwyt** — to, czy coś zobaczy, zależy od wzorca zapisu piszącego. Dlatego
+pytanie trzeba było zadać prawdziwemu launcherowi, a jeden przebieg zrobić bez odpytywania.
+
+### Przebiegi
+
+| Run | Co | Monitor | Lock DAT (sonda) | Zapisy (FSW) | Zdarzenia FSW |
+|---|---|---|---|---|---|
+| 1 | **realny update 47.2 → 49.7** | FSW + sonda + stat | **12:46:29.1 → 12:48:21.7 = ~112.7 s** | 12:48:17.714 → 21.623 = **3.9 s** | 44 (lastwrite 20, other 20, size 4) w 19 momentach, **max przerwa 0.94 s** |
+| 2 | forced-downgrade (tylko angielski DAT) | **tylko FSW** | — (sonda wyłączona) | 12:54:18.899 → 22.167 = 3.3 s | 42 (20/18/4) w 13 momentach, max przerwa 0.94 s |
+| 3 | forced-downgrade | FSW + sonda + stat | 12:56:04.2 → 08.5 = **~4.4 s** | 12:56:05.127 → 08.475 = 3.3 s | 41 (20/17/4) w 10 momentach, max przerwa 0.92 s |
+| 4 | **zwykły start, bez update'u** | FSW + sonda + stat | nigdy LOCKED | jeden moment 12:57:24.805 | 6 (lastwrite 4, other 2), **0 × size** |
+
+Wszystkie przebiegi: 0 zdarzeń `Error` (zero overflow bufora 64 KiB). Kontrole negatywne
+(monitor bez launchera, 15–26 s; ekran logowania po update, 16 s – 3 min; zamknięcie launchera
+przez `CloseMainWindow`) — **0 zdarzeń**. Skoki rozmiaru identyczne co do bajta w runach 1–3:
+1,876,926,448 → 1,883,420,500 → 1,892,866,524 → 1,903,352,284 → **1,906,498,012** (+28.2 MiB).
+
+**Anatomia runu 1** (z `PatchClient.log`, t0 ≈ 12:46:25.6): launcher najpierw podmienia własne
+binarki (4 file patches, 20.4 MB), potem łata DAT-y **po kolei, każdy w całości** (log jest
+ring-bufferem — początek przepadł; w kolejce był też m.in. gamelogic): …mesh →
+general → anim → sound → highres → surface → cell_1…cell_14 → **local_English na końcu** (razem z trzema małymi map_*)
+(t = 110.8–114.7 s, 294 iteracje 26560–26875, 37.4 MB). Angielski DAT jest **zablokowany od
+t ≈ 3.4 s**, ale przez **108.6 s nikt do niego nie pisze** — size i mtime (stat co 1 s) stoją,
+FSW milczy, i ta cisza jest prawdziwa (self-test: stat widzi mtime zapisów w miejscu nawet przy
+trzymanym uchwycie). Lock schodzi 0.1 s po ostatnim zapisie, czyli razem z końcem całego
+łatania („Data patching complete. 5897 iterations applied, 1038627303 bytes downloaded").
+
+### Odpowiedzi na pytania #660
+
+- **(a) pierwsze zdarzenie FSW vs pierwszy LOCKED:** run 1 — **108.6 s** locka bez żadnego
+  zapisu przed pierwszym zdarzeniem (inne DAT-y w łataniu); run 3 (tylko angielski) — ~1 s.
+  E2 („faza pobierania zostawia DAT wolny") **nie uogólnia się na update wielu DAT-ów**: tam
+  launcher łapie angielski DAT na starcie łatania i trzyma go do końca.
+- **(b) zdarzenia W TRAKCIE locka czy dopiero na końcu: W TRAKCIE.** Co ≤ 0.94 s przez cały
+  burst, we wszystkich trzech przebiegach — także w runie 2, gdzie nikt nie odpytywał pliku,
+  więc to launcher sam wywołuje powiadomienia (jego wzorzec zapisu — rozszerzanie pliku/flush
+  per partia iteracji; wywołań API nie śledziliśmy). W runie 1 z tyknięciem naszej sondy
+  pokrywają się tylko zdarzenia z 12:48:18.44.
+- **(c) zapis przy starcie vs burst apply:** różnica potwierdzona z punktu widzenia FSW —
+  start = **jeden moment, tylko lastwrite/other, 0 × size**, DAT ani razu LOCKED przy sondzie
+  co 1 s; apply = **10–19 momentów przez 3+ s z 4 zdarzeniami size**. Zastrzeżenie: rozmiar
+  nie jest ogólną sygnaturą applyu — **49.4 (2026-08-22, wyżej) był realnym update'em bez
+  zmiany rozmiaru DAT**, więc taki apply dałby same zdarzenia lastwrite/other.
+
+### Werdykt dla gałęzi B (spec 0012 Tier 1, reguła 4)
+
+1. **Quiesce jest obserwowalny:** obecny launcher zgłasza zapisy w trakcie locka, więc 30 s
+   ciszy FSW naprawdę znaczy „30 s bez zapisów do angielskiego DAT".
+2. **Ale cisza na angielskim DAT nie znaczy „update skończony":** w runie 1 DAT był trzymany
+   108.6 s bez zapisu, w środku update'u — bramka 30 s byłaby spełniona 3.6× z rzędu, zanim
+   launcher w ogóle dotknął angielskiego DAT. W runie 1 B i tak by się nie uzbroił (reguła 3
+   wymaga wcześniej zaobserwowanego burstu apply), **ale tylko dlatego, że angielski DAT
+   przyszedł na końcu** — kolejności nie kontrolujemy i nie widzieliśmy innej.
+3. **B nie był potrzebny w żadnym zaobserwowanym update:** E2, 49.4, run 1 i obie powtórki —
+   DAT zwalnia się w chwili końca łatania, a ekran logowania ma wolny DAT (gałąź A).
+
+⇒ **rekomendacja: B jako opt-in (domyślnie wyłączony).** Reguła 4 mówi tylko „default-on
+wyłącznie, jeśli quiesce jest obserwowalny" — jest, ale nie oznacza końca update'u; to nowy
+powód spoza reguły, więc decyzja należy do ownera (#566). **Decyzja ownera 2026-10-10 (spec
+0012 Q9): B wycięte z MVP** — to zabezpieczenie na zachowanie launchera, którego nikt nie
+widział; reagujemy, gdy launcher się zmieni. Gdyby B kiedyś wróciło, dodatkowa przesłanka:
+linia „Data patching complete" w `%LOCALAPPDATA%\The Lord of the Rings Online\PatchClient.log`
+— to sygnał końca CAŁEGO łatania, stan pliku (zgodny z filozofią Tier 1), w przeciwieństwie do
+ciszy na jednym DAT. Uwaga: log jest ring-bufferem (rotacja do `PatchClient.1.old`) o
+nieudokumentowanym formacie — heurystyka, nie kontrakt. Ostateczne cięcie: #566.
+
+**Wkład do reguły 2 (wyzwalacz pętli) — przyjęty jako spec 0012 Q10 (2026-10-10):** „burst, który zmienił rozmiar DAT" nie
+złapie applyu bez zmiany rozmiaru (49.4). Pewniejszy dyskryminator: po każdym obcym burście
+zapisu snapshot E5 (open + `GetSubfileSizes`, 0.14 s) porównany z tym sprzed burstu — zapis przy
+starcie zostawia go nietkniętym (E5, 49.4, run 4), apply go rusza (każdy realny update do tej
+pory). FSW zostaje tanim „ktoś pisał — sprawdź", snapshot rozstrzyga.
+
+### Wyniki uboczne
+
+- **E5 na trzecim realnym update (47.2 → 49.7, skumulowany):** 306,370 → 311,970 SubFile'ów
+  (277,084 → 282,190 text); **iteration changed 1,223** (1,188 text), size changed 998 (969
+  text) — **size przegapił 225 (18%)**; added 6,073 (5,579 text); removed 473. `any changed`
+  = `iteration changed` po raz trzeci. Koszt: open + `GetSubfileSizes` 135–148 ms.
+- **Forced-downgrade zbiega per SubFile, nie bajt w bajt:** snapshot E5 po powtórce = po
+  realnym update (0/0/0/0/0), rozmiar identyczny, ale każdy przebieg daje inny SHA256 (run 1
+  `476F1F5F…E945`, run 2 `FBABEBA1…38C1`, run 3 `B30081DF…064E`); real vs run 3 = 21,433
+  bajtów w 739 blokach 4 KiB (pola 2-bajtowe, od ~1.0 GB w głąb pliku). **Testy oparte na
+  symulatorze (#567) porównują stan przez snapshot E5 albo eksport, nigdy hashem pliku.**
+- **Kontrola negatywna E5:** po powtórce ↔ po zwykłym starcie launchera = 0 we wszystkich
+  kolumnach (czwarte potwierdzenie, że zapis przy starcie nie rusza metadanych SubFile'i).
+- **Bonus #660 — nasz pełny `patch` pod watcherem:** syntetyczny pełny korpus z eksportu 49.7
+  (`PL ` + oryginał, `source_digest` zachowany — 806,120 wierszy, jak w E3) na **kopii** DAT 49.7,
+  monitor tylko-FSW: **806,120 / 806,120 zapisanych** (0 `source moved`, 0 bez digestu) w **10.2 s**
+  wall clock; watcher zgłosił **22 zdarzenia** (size 6, lastwrite 8, other 8) w 8 momentach przez
+  5.9 s, max przerwa 1.3 s, **0 overflow**. Rozmiar rósł skokami po dokładnie 1 MiB (+6 MiB).
+  Obciążenie, które pętla Tier 1 musi odfiltrować jako własne zapisy, jest więc znikome — bufor
+  64 KiB jest daleko od przepełnienia.
+- **Gotcha narzędziowa:** w Windows PowerShell 5.1 skrypt z `[CmdletBinding()]` odpalony przez
+  `powershell -File` widzi pusty `$PSScriptRoot` w domyślnych wartościach parametrów (dotyczy
+  E5 — odpalany jak w jego nagłówku, `.\e5-….ps1` w bieżącej sesji, działa). E6 wylicza ścieżki
+  w ciele skryptu.
+
 ## Pliki intel (gitignored `intel/update-49/`)
 
 DAT backupy 48.8 + 49 + write-test (po ~1.76 GB), pełne exporty 48.8/49 (82.6/83.1 MB), pełny
@@ -522,3 +656,15 @@ SHA256 `DF2A12A3…D45F`) — deliverable do importu w TMS. Uwaga: to **nowy 7-k
 z `source_digest`** (ADR-0047), a nie 6-kolumnowy format eksportu 49.1; stąd +14.7 MB przy
 śladowym przyroście treści (~18 B/wiersz). Poprzedni export 49.1 (SHA256 `56F6D046…32B00`,
 6 kolumn) zachowany jako `intel/update-49/export-49.txt`.
+
+Dołożone 2026-10-10 przy E6 (druga maszyna ownera, gitignored **`intel/update-49.7/`**): backupy
+DAT `client_local_English.pre-update-2026-04-18.dat` (stan 47.2, 1.88 GB — symulator
+forced-downgrade dla skumulowanego 47.2→49.7) i `client_local_English.49.7.dat` (realny update,
+SHA256 `476F1F5F…E945` — baseline przed Wolves of Mordor, 2026-10-28; jeśli wcześniej wyjdzie
+49.8, baseline trzeba zdjąć na nowo), snapshoty E5 (`e5-pre-update-*`, `e5-after-real-update-49.7-*`,
+`e5-after-replay-run2/3-*`, `e5-after-plain-launch-*`), logi E6 (`e6-run1…4-*.log`,
+`e6-driver.log` + `e6-driver.ps1`) i kopie logów launchera po każdym przebiegu
+(`launcher-logs-*`). **Eksport 49.7** zrobiony offline z backupu (`export -d <backup 49.7>`, 7.8 s,
+bez elevacji): `export-49.7.txt` — **806,120 fragmentów w 282,190 plikach tekstowych**, 98.4 MB,
+7 kolumn z `source_digest`, SHA256 `92F7034E…A53D` (vs export 49.4: +4,941 fragmentów, +780
+plików) — deliverable do importu w TMS.

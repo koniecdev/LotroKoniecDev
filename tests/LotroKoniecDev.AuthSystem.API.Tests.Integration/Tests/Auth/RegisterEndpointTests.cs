@@ -309,7 +309,7 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The failure policy of ADR-0065: a breach service that is down lets the password through, so it does
+    /// The failure policy of ADR-0066: a breach service that is down lets the password through, so it does
     /// not take registration down with it. The password here is one the service would refuse.
     /// </summary>
     [Fact]

@@ -144,7 +144,7 @@ internal sealed partial class ResetPasswordModel : PageModel
                 return;
             }
 
-            // The link is still good, so the form stays and takes another password (ADR-0065).
+            // The link is still good, so the form stays and takes another password (ADR-0066).
             if (result.IsBreachedPassword)
             {
                 ErrorMessage = BreachedPasswordMessage;

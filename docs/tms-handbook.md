@@ -1030,7 +1030,7 @@ consciously; Part 12, question 10.
   contain `@`, usernames cannot — the two identifier spaces cannot collide.
 - Passwords: 8–128 chars with complexity, and never one found in a known data breach (checked
   against Have I Been Pwned when a password is set; a check that cannot run lets the password
-  through — ADR-0065); registration requires all three consents (privacy
+  through — ADR-0066); registration requires all three consents (privacy
   policy, data processing, and — since LEGAL-03 — terms of service); users can export their
   data and delete their account. Deletion is **two-phase** (ADR-0031): the request schedules
   erasure behind a 14-day cancellation window — the account is locked, sessions and tokens are

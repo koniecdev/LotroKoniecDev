@@ -12,7 +12,7 @@ internal static class PwnedPasswordsDependencyInjection
 
     /// <summary>
     /// Short on purpose: a person waits on the form, and the endpoint normally answers in well under a
-    /// second. After this the password goes through unchecked (ADR-0065).
+    /// second. After this the password goes through unchecked (ADR-0066).
     /// </summary>
     internal static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(3);
 
@@ -40,7 +40,7 @@ internal static class PwnedPasswordsDependencyInjection
                 .ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler)
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
                 // The factory's own handlers log every request URL at Information, and this URL ends in
-                // the hash prefix. The checker's warnings say everything an operator needs (ADR-0065).
+                // the hash prefix. The checker's warnings say everything an operator needs (ADR-0066).
                 .RemoveAllLoggers();
 
             return services;
@@ -54,7 +54,7 @@ internal static class PwnedPasswordsDependencyInjection
     /// <para>
     /// No activity propagator either. Without it the handler sends no <c>traceparent</c> and no
     /// <c>baggage</c>, so the range API gets no id that ties the call to our request, and no span records
-    /// a URL that ends in the hash prefix (ADR-0065).
+    /// a URL that ends in the hash prefix (ADR-0066).
     /// </para>
     /// </summary>
     internal static SocketsHttpHandler CreatePrimaryHandler() => new()

@@ -5,7 +5,7 @@ using LotroKoniecDev.AuthSystem.Infrastructure.PwnedPasswords;
 namespace LotroKoniecDev.AuthSystem.API.Services.Accounts;
 
 /// <summary>
-/// Refuses a password that is in a known data breach (#694, ADR-0065). Identity runs every password
+/// Refuses a password that is in a known data breach (#694, ADR-0066). Identity runs every password
 /// validator on each path that sets a password: registration, password change, password reset and the
 /// admin seed. Login sets no password, so a password that leaks later never locks anyone out.
 /// </summary>

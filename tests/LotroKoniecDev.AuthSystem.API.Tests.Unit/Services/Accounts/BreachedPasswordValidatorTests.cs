@@ -88,7 +88,7 @@ public sealed class BreachedPasswordValidatorTests
     }
 
     /// <summary>
-    /// The failure policy of ADR-0065: an unknown answer lets the password through instead of blocking
+    /// The failure policy of ADR-0066: an unknown answer lets the password through instead of blocking
     /// registration, password change and reset while the service is down.
     /// </summary>
     [Fact]

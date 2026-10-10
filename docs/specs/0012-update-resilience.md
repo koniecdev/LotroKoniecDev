@@ -15,8 +15,9 @@
   **E6 done 2026-10-10** on a real cumulative 47.2→49.7 update + forced-downgrade replays: a
   `FileSystemWatcher` sees the launcher's writes *during* the hold (gap ≤ 0.94 s, also with no
   polling), but in a multi-DAT update the English DAT was held **108.6 s with no write** before
-  its own apply — silence on our DAT is not "update finished" ⇒ recommendation: branch B
-  opt-in, owner rules in #566 (rule 4).
+  its own apply — silence on our DAT is not "update finished". **Owner decisions 2026-10-10
+  (Q9, Q10): branch B is cut from MVP, and the re-patch trigger is an E5 snapshot diff, not a
+  size change.**
   Results: `docs/knowledge-base/update-49/RESULTS.md` §E6
 - **Date:** 2026-08-02 (seeded from the live-test 48.8→49.1 findings + owner discussion, same day)
 - **Author:** Artur Koniec (problem framing + orchestrator/kill concept) — structured against code,
@@ -115,14 +116,15 @@ state, not process semantics** (FileSystemWatcher + RW-open probe on the DAT):
 
 - **A — silent in-place patch:** probe succeeds while launcher sits at the login screen (DAT
   released after patch phase) ⇒ patch during credential typing. No kill, no restart, invisible.
-- **B — pre-creds launcher kill:** update quiesced but handle still held and `lotroclient64` not
+- ~~**B — pre-creds launcher kill:** update quiesced but handle still held and `lotroclient64` not
   started ⇒ kill the LAUNCHER (pre-session UI shell — NOT the legacy client-kill), patch,
-  relaunch launcher. One login total, reads as a normal update flow.
+  relaunch launcher. One login total, reads as a normal update flow.~~ *Cut from MVP 2026-10-10
+  (Q9).*
 - **C — player was faster (client running):** touch nothing; Tier 0 repairs next launch.
 - **Convergent re-patch loop:** after our patch, keep watching until game start; if the launcher
   writes the DAT again (next chunk burst), re-probe and re-patch. Early patches are harmless by
-  construction; the last write wins. Kill (branch B) remains gated on a conservative quiesce
-  (30+ s no writes) because kill is the one invasive act. **E2-confirmed:** the
+  construction; the last write wins. ~~Kill (branch B) remains gated on a conservative quiesce
+  (30+ s no writes) because kill is the one invasive act.~~ (B cut, Q9.) **E2-confirmed:** the
   download phase leaves the DAT free (~11 s window in the forced 48.8→49.1 replay) so a probe
   CAN succeed mid-update — the loop is what makes that harmless; the observed apply burst was
   ~1 s, making the 30 s quiesce very conservative for deltas of this size.
@@ -137,38 +139,43 @@ stay as the picture; where they are looser than the rules below, the rules win:
    the pre-update artifact safe to apply *after* the launcher's burst: rows whose English changed
    are skipped as `source moved`, collateral reverts are repaired. Without the guard the
    post-apply patch masks by construction — #566 depends on #659.
-2. **What triggers a (re-)patch:** a **foreign** write burst that **changed the DAT size**
+2. **What triggers a (re-)patch:** ~~a **foreign** write burst that **changed the DAT size**
    (the apply signature — E2: 1,893,807,856 → 1,894,856,432 B; the launcher's every-start write
-   leaves the size unchanged, E1-F1) followed by a successful probe, or a pending patch (hash
+   leaves the size unchanged, E1-F1) followed by a successful probe~~ **a foreign write burst
+   after which an E5 snapshot diff (open + `GetSubfileSizes`, ~0.14 s, against the snapshot taken
+   after our last patch — the same mechanism as Tier 0, #565) shows a moved iteration or a
+   vanished FileId, followed by a successful probe** (*Q10, 2026-10-10*), or a pending patch (hash
    changed / sentinel detection) with a successful probe. The bare "the launcher wrote" event is
    **not** a trigger — read literally it fires on every ordinary launch and degenerates into a
    10–15 s re-patch per start, the very failure that killed the size+mtime fingerprint. Own writes
    are filtered by suppressing the watcher during the patch plus a drain window (a generation
    counter, never mtime — RESULTS.md: mtime volatility is unpredictable); a watcher buffer
    overflow counts as activity, not silence.
-   *E6 input (2026-10-10, #660; to settle in #566):* from the watcher's side the two shapes do
-   differ — the every-start write is one moment of lastwrite/other events with no size event, an
-   apply is 10–19 moments over 3+ s with size events. But "size changed" is not a general apply
-   signature: 49.4 (2026-08-22) was a real update that left the DAT size unchanged, so this
-   trigger misses such an apply. A sturdier discriminator: after any foreign write burst, an E5
-   snapshot (0.14 s) diffed against the one taken before it — the every-start write never moves
-   it, every apply measured so far did.
-3. **Branch B is bounded per run, not "per detection":** **at most one kill per orchestrator run**
+   *Why Q10 (E6, #660):* from the watcher's side the two shapes do differ — the every-start write
+   is one moment of lastwrite/other events with no size event, an apply is 10–19 moments over
+   3+ s with size events. But "size changed" is not a general apply signature: 49.4 (2026-08-22)
+   was a real update that left the DAT size unchanged, so a size trigger misses such an apply. The
+   every-start write never moved the E5 snapshot (E5, 49.4, E6 run 4); every apply measured so far
+   did (E5, 49.4, E6, and E7 with 1,661/1,661 affected SubFiles covered). The watcher stays the
+   cheap "someone wrote — check" wake-up; the snapshot decides.
+3. **Branch B — cut from MVP (Q9, 2026-10-10).** The text of this rule is kept only as the
+   starting point if B ever comes back. ~~**Branch B is bounded per run, not "per detection":**
+   **at most one kill per orchestrator run**
    (one launch invocation). Preconditions, all required: an apply burst was observed in this run
    (size changed) · a patch is pending · the probe has failed for 30+ s with no watcher activity ·
    no `lotroclient64`. After the kill: guarded patch, then **relaunch unconditionally** (a failed
    patch logs and still relaunches — never leave the player with a launcher we killed; note the
    sibling `SimplifiedGameLaunchingStrategy` returns `RepatchFailed` *before* launching, do not
    mirror that here). After the kill B is **disarmed for the rest of the run**; A and the loop stay
-   armed. "Launcher idle" is dropped — undefined; the list above is exhaustive.
-4. **B default-on is conditional on E6 (#660).** Its only safety gate is "no writes for 30 s while
+   armed. "Launcher idle" is dropped — undefined; the list above is exhaustive.~~
+4. **B default-on was conditional on E6 (#660)** (historical — answered by the verdict below). Its only safety gate is "no writes for 30 s while
    the handle is held", and no experiment has shown that a watcher sees writes *during* a hold (E2
    polled size/mtime, which moved only at burst end). If E6 says the watcher is blind mid-burst, a
    long apply reads as silence and B kills mid-write — the case E4 never tested; then B ships
    opt-in. Third-party holders (AV, backup, indexer, a second launcher) satisfy B's precondition
    too — the one-kill cap is what keeps that harmless.
-   **E6 verdict (2026-10-10, #660): the quiesce is observable, but it is not a safe kill signal —
-   recommendation: B opt-in (default off); the owner rules in #566.** The watcher is not blind:
+   **E6 verdict (2026-10-10, #660): the quiesce is observable, but it is not a safe kill signal.
+   Owner decision (Q9): B is cut from MVP.** The watcher is not blind:
    it reported the launcher's writes during the hold in all three apply runs, at most 0.94 s
    apart, also with our probe switched off — so by this rule alone B could be default-on. But the
    quiesce does not mean what B needs. In the real 47.2→49.7 update the launcher patched at least
@@ -176,7 +183,8 @@ stay as the picture; where they are looser than the rules below, the rules win:
    it reached it, so "30 s of silence while held" was true in the middle of the update. Rule 3
    kept B disarmed there only because the English DAT happened to come at the end. And B was
    never needed: in every observed update (E2, 49.4, E6 runs) the DAT was released the moment
-   patching ended, so branch A had its window. If B is ever enabled, it should also require the
+   patching ended, so branch A had its window. If B ever comes back — only on evidence that a
+   real update leaves the DAT held after patching ends — it should also require the
    launcher's own "Data patching complete" line in
    `%LOCALAPPDATA%\The Lord of the Rings Online\PatchClient.log` (end of the whole patch; a
    ring-buffer log with an undocumented format — a heuristic, not a contract).
@@ -191,7 +199,7 @@ stay as the picture; where they are looser than the rules below, the rules win:
    seconds, not the synthetic 14.7 s; the M4 GUI owns the "patching, please wait" UX; revisit the
    repair-set (5.6 s, E3) if a real update day shows it hurting.
 7. Naming: `lotroclient64` (`x64\lotroclient64.exe`) everywhere; `IGameProcessDetector` cannot tell
-   the launcher from the client — B/C need their own port.
+   the launcher from the client — branch C and the terminators need their own port.
 
 ### Repair-set optimization (E3 verdict 2026-08-02: OPTIONAL, not required)
 
@@ -247,7 +255,7 @@ faster repair) — not a correctness or UX requirement.
 | E3 | Full-corpus patch duration | Synthetic ~100k+-row polish.txt → patch a DAT COPY → time it | Repair-set: optional vs required | ✅ **800,864 rows = 14.7 s; 21,660 = 5.6 s ⇒ repair-set optional** |
 | E2 | Handle behavior across a real update cycle (download vs apply bursts; slow-network hour-long updates) | **Forced downgrade** (swap live DAT for the 48.8 backup → launcher replays the real 48.8→49.1 cycle) + probe/writes timeline (`scripts/experiments/e2-dat-handle-monitor.ps1`) | Quiesce windows; whether probe-success can occur mid-update | ✅ **download leaves the DAT free (~11 s window, probe-success mid-update IS possible ⇒ convergent loop required & sufficient); apply = single ~1 s lock burst; post-update login screen free (branch A holds on update day); client holds the DAT for the whole session.** Caveat: ~5 MB delta — big-major burst shape TBD at the next real SSG major |
 | E5 | Does an SSG chunk replacement move per-SubFile size/iteration? (2026-08-17, #656) | Snapshot `(FileId,Size,Iteration,Version)` for all ~310k SubFiles via one `GetSubfileSizes` (`scripts/experiments/e5-subfile-metadata-snapshot.ps1`, non-elevated); diff after-patch vs after-update vs plain-launch; 48.8 backup diffed OFFLINE via `-DatPath` | Tier-0 detection: metadata snapshot vs content sentinel | ✅ **iteration+presence = complete signal: 1,277/1,277 ground-truth coverage (899 iteration + 378 removed, 0 missed); negative control 0/0/0 despite E1-F1; measured live on 49.1→49.3 (57 replaced, all caught); `Version` dead, `size` strict subset; 0.2 s warm / 1.4 s cold ⇒ #565 redesigned around it** |
-| E6 | Does a `FileSystemWatcher` see launcher writes while the DAT is held? (2026-10-10, #660) | Real cumulative update 47.2→49.7 on a box idle since 2026-04-18 + two forced-downgrade replays (one with no polling) + a plain start, under `scripts/experiments/e6-fsw-observability.ps1` (E2 monitor + size/lastwrite/other watchers) | Branch-B default (Tier 1 rule 4) | ✅ **watcher sees writes DURING the hold (≤ 0.94 s gaps, 0 overflows, no polling needed); every-start write = 1 moment, no size event; BUT the English DAT was held 108.6 s with no write mid-update (≥ 17 DATs patched in sequence, English at the end) ⇒ silence ≠ done ⇒ recommend B opt-in (#566 decides).** Self-test: a generic held-handle writer is invisible to the watcher until close — this is the launcher's write pattern, not a watcher guarantee |
+| E6 | Does a `FileSystemWatcher` see launcher writes while the DAT is held? (2026-10-10, #660) | Real cumulative update 47.2→49.7 on a box idle since 2026-04-18 + two forced-downgrade replays (one with no polling) + a plain start, under `scripts/experiments/e6-fsw-observability.ps1` (E2 monitor + size/lastwrite/other watchers) | Branch-B default (Tier 1 rule 4) | ✅ **watcher sees writes DURING the hold (≤ 0.94 s gaps, 0 overflows, no polling needed); every-start write = 1 moment, no size event; BUT the English DAT was held 108.6 s with no write mid-update (≥ 17 DATs patched in sequence, English at the end) ⇒ silence ≠ done ⇒ B cut from MVP (Q9).** Self-test: a generic held-handle writer is invisible to the watcher until close — this is the launcher's write pattern, not a watcher guarantee |
 
 New lock-anatomy facts (2026-08-02, E1/E4 pass): `LotroLauncher.exe` manifests `asInvoker` and
 the game dir ACL grants Users only RX, but **the launcher prompts UAC and runs elevated on every
@@ -280,6 +288,7 @@ watcher (FileSystemWatcher cost ≈ zero).
 - **Q4 — Branch B default-on** with the one-shot guard per detection and the conservative
   quiesce (30+ s; E2 measured a ~1 s apply burst, so the margin is wide). Branch A stays the
   default path; B fires only when A is impossible.
+  *Superseded 2026-10-10 by Q9: branch B is cut from MVP.*
   *Amended 2026-08-17:* "per detection" was undefined and re-armed on the same file state after a
   relaunch (its original key, "marker per DAT-fingerprint", died with E1-F1). Now: **at most one
   kill per orchestrator run**, with the exhaustive precondition list of Tier 1 rule 3, and
@@ -309,9 +318,23 @@ watcher (FileSystemWatcher cost ≈ zero).
   `FileSystemWatcher` see the launcher's writes while the DAT is held, or only at burst end? Until
   the verdict, B is specified with the per-run cap and the exhaustive preconditions (Tier 1 rule
   3) and its default-on is conditional (rule 4). *Outcome 2026-10-10:* E6 ran — the watcher sees
-  the writes, but silence on our DAT is not "update finished"; recommendation B opt-in, the
-  owner rules in #566 (rule 4, E6 verdict).
+  the writes, but silence on our DAT is not "update finished"; the owner cut B from MVP (Q9).
 - **Q8 — Play-mid-patch accepted for MVP** (Tier 1 rule 6); repair-set stays optional.
+
+## Decisions — 2026-10-10 (after E6 #660 and E7 #1094)
+
+- **Q9 — Branch B is cut from MVP.** E6 shows the quiesce is observable but is not a safe kill
+  signal: in a multi-DAT update the launcher held our DAT for 108.6 s with no write while it
+  patched other files. And no observed update (E2, 49.4, E6, E7) ever left the DAT held after
+  patching ended, so branch A always had its window. B would only be future-proofing for a
+  launcher behavior nobody has seen. Owner, in intent: *we react to the launcher when it changes,
+  we do not build for how it might behave one day* — SSG shows no sign of changing it. A rare
+  case of that kind is still covered: the player sees English until the next game start, and
+  Tier 0 (#565) repairs it then. Rule 3 stays, struck through, and rule 4 keeps the E6 verdict;
+  together they are the starting point if evidence ever brings B back.
+- **Q10 — The Tier 1 re-patch trigger is an E5 snapshot diff, not a DAT size change** (rule 2).
+  The size signature misses a real apply that keeps the DAT size (49.4); the snapshot is exact
+  in every measured update, costs ~0.14 s, and is the mechanism Tier 0 (#565) already needs.
 
 Ticket cut (2026-08-02, extended 2026-08-06 by ADR-0045). Numbers are allocation order, **not**
 execution order — the real chains are:
@@ -349,13 +372,13 @@ code ticket. It carries no milestone and stays that way: the backlog loop must n
 - [ ] Orchestrator branch A: patch lands between launcher-release and Play without killing
       anything (E1 ✅ confirmed the window exists: DAT free at the login screen, full-corpus
       patch 14.7 s).
-- [ ] Orchestrator branch B: at most one launcher kill **per run**, only pre-client, only after
+- [ ] ~~Orchestrator branch B: at most one launcher kill **per run**, only pre-client, only after
       an observed apply burst + a pending patch + 30 s of no observed writes; relaunch is
       unconditional and reaches login cleanly (E4 ✅ confirmed clean, 3× reproduced — at the login
-      screen; a mid-apply kill is E6's question, #660).
-- [ ] Orchestrator loop: the launcher's every-start write (size unchanged) triggers **no**
-      re-patch; an apply burst (size changed) after our patch triggers exactly one guarded
-      re-patch; own writes never re-trigger.
+      screen; a mid-apply kill is E6's question, #660).~~ *Cut from MVP 2026-10-10 (Q9).*
+- [ ] Orchestrator loop: the launcher's every-start write (E5 snapshot unchanged) triggers **no**
+      re-patch; an apply (E5 snapshot moved — also when the DAT size stays the same, as in 49.4)
+      after our patch triggers exactly one guarded re-patch; own writes never re-trigger (Q10).
 - [ ] Orchestrator terminates on game start, on launcher exit without a client, and on the
       wall-clock cap — a player who closes the launcher without playing leaves no elevated process
       behind.

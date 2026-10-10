@@ -602,14 +602,15 @@ trzymanym uchwycie). Lock schodzi 0.1 s po ostatnim zapisie, czyli razem z końc
 
 ⇒ **rekomendacja: B jako opt-in (domyślnie wyłączony).** Reguła 4 mówi tylko „default-on
 wyłącznie, jeśli quiesce jest obserwowalny" — jest, ale nie oznacza końca update'u; to nowy
-powód spoza reguły, więc decyzja należy do ownera (#566). Jeśli kiedyś B zostanie włączony,
-dodatkowa przesłanka:
+powód spoza reguły, więc decyzja należy do ownera (#566). **Decyzja ownera 2026-10-10 (spec
+0012 Q9): B wycięte z MVP** — to zabezpieczenie na zachowanie launchera, którego nikt nie
+widział; reagujemy, gdy launcher się zmieni. Gdyby B kiedyś wróciło, dodatkowa przesłanka:
 linia „Data patching complete" w `%LOCALAPPDATA%\The Lord of the Rings Online\PatchClient.log`
 — to sygnał końca CAŁEGO łatania, stan pliku (zgodny z filozofią Tier 1), w przeciwieństwie do
 ciszy na jednym DAT. Uwaga: log jest ring-bufferem (rotacja do `PatchClient.1.old`) o
 nieudokumentowanym formacie — heurystyka, nie kontrakt. Ostateczne cięcie: #566.
 
-**Wkład do reguły 2 (wyzwalacz pętli, decyzja w #566):** „burst, który zmienił rozmiar DAT" nie
+**Wkład do reguły 2 (wyzwalacz pętli) — przyjęty jako spec 0012 Q10 (2026-10-10):** „burst, który zmienił rozmiar DAT" nie
 złapie applyu bez zmiany rozmiaru (49.4). Pewniejszy dyskryminator: po każdym obcym burście
 zapisu snapshot E5 (open + `GetSubfileSizes`, 0.14 s) porównany z tym sprzed burstu — zapis przy
 starcie zostawia go nietkniętym (E5, 49.4, run 4), apply go rusza (każdy realny update do tej

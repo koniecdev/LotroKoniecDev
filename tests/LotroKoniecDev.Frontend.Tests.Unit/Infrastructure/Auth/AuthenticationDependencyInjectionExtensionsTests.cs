@@ -1,8 +1,10 @@
+using System.Security.Claims;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Settings;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.DataProtection;
@@ -96,6 +98,56 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         chain[^1].ShouldBeOfType<SocketsHttpHandler>().UseCookies.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// #1026: a refused sign-in ends on the error page, and the remote-failure log is the only place that
+    /// says why. The full sign-in, with no session at the end, is proved in the Frontend integration suite.
+    /// </summary>
+    [Theory]
+    [InlineData(null, "300", "missing, empty or blank access_token")]
+    [InlineData("   ", "300", "missing, empty or blank access_token")]
+    [InlineData("the-access-token", null, "expires_in: missing or unreadable")]
+    [InlineData("the-access-token", "soon", "expires_in: missing or unreadable")]
+    [InlineData("the-access-token", "0", "expires_in: 0")]
+    [InlineData("the-access-token", "-5", "expires_in: -5")]
+    [InlineData("the-access-token", "300", "blank refresh_token", " ")]
+    [InlineData("the-access-token", "300", "blank refresh_token", "\t\r\n")]
+    public async Task AddFrontendAuthentication_TokenResponseReceived_FailsAnUnusableAnswerWithTheReason(
+        string? accessToken,
+        string? expiresIn,
+        string expectedReason,
+        string? refreshToken = "the-refresh-token")
+    {
+        OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
+        TokenResponseReceivedContext context = CreateTokenResponseReceivedContext(
+            options, accessToken, expiresIn, refreshToken);
+
+        await options.Events.TokenResponseReceived(context);
+
+        context.Result.ShouldNotBeNull().Failure.ShouldNotBeNull().Message.ShouldContain(expectedReason);
+    }
+
+    /// <summary>
+    /// A missing or empty refresh token is allowed: OAuth makes it optional, and the handler stores no empty
+    /// one.
+    /// </summary>
+    [Theory]
+    [InlineData("1", "the-refresh-token")]
+    [InlineData("300", "the-refresh-token")]
+    [InlineData("300", null)]
+    [InlineData("300", "")]
+    public async Task AddFrontendAuthentication_TokenResponseReceived_LetsAUsableAnswerThrough(
+        string expiresIn,
+        string? refreshToken)
+    {
+        OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
+        TokenResponseReceivedContext context = CreateTokenResponseReceivedContext(
+            options, "the-access-token", expiresIn, refreshToken);
+
+        await options.Events.TokenResponseReceived(context);
+
+        context.Result.ShouldBeNull();
+    }
+
     [Theory]
     [InlineData("Production")]
     [InlineData("Staging")]
@@ -127,6 +179,33 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         CookieAuthenticationOptions options = ResolveConfiguredCookieOptions("Development");
 
         options.Cookie.SecurePolicy.ShouldBe(CookieSecurePolicy.SameAsRequest);
+    }
+
+    private static TokenResponseReceivedContext CreateTokenResponseReceivedContext(
+        OpenIdConnectOptions options,
+        string? accessToken,
+        string? expiresIn,
+        string? refreshToken)
+    {
+        AuthenticationScheme scheme = new(
+            OpenIdConnectDefaults.AuthenticationScheme,
+            displayName: null,
+            handlerType: typeof(OpenIdConnectHandler));
+
+        return new TokenResponseReceivedContext(
+            new DefaultHttpContext(),
+            scheme,
+            options,
+            new ClaimsPrincipal(),
+            new AuthenticationProperties())
+        {
+            TokenEndpointResponse = new OpenIdConnectMessage
+            {
+                AccessToken = accessToken,
+                ExpiresIn = expiresIn,
+                RefreshToken = refreshToken
+            }
+        };
     }
 
     private static OpenIdConnectOptions ResolveConfiguredOidcOptions()

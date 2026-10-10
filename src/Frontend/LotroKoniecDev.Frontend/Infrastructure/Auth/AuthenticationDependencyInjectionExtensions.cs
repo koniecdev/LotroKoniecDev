@@ -1,3 +1,4 @@
+using System.Globalization;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
@@ -176,6 +177,7 @@ internal static class AuthenticationDependencyInjectionExtensions
         // UseExceptionHandler and UseStatusCodePages run again with the new path.
         options.Events.OnRemoteFailure = OnRemoteFailureAsync;
         options.Events.OnAccessDenied = OnAccessDeniedAsync;
+        options.Events.OnTokenResponseReceived = OnTokenResponseReceivedAsync;
 
         // The code exchange, the userinfo call and the metadata and key fetch go through the handler's
         // own back-channel client, not through the typed clients, so the visitor's address rides on it
@@ -202,6 +204,41 @@ internal static class AuthenticationDependencyInjectionExtensions
 
         context.Response.Redirect(ErrorPath);
         context.HandleResponse();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The first sign-in holds the token answer to the rules the renewal uses (#1026). The handler would
+    /// store a blank access token, and with no lifetime it stores no expiry, so the renewal would never
+    /// run. A failure here ends on the same page as every other failed sign-in, through
+    /// <see cref="OnRemoteFailureAsync"/>, which also logs the reason.
+    /// </summary>
+    private static Task OnTokenResponseReceivedAsync(TokenResponseReceivedContext context)
+    {
+        OpenIdConnectMessage answer = context.TokenEndpointResponse;
+
+        if (!TokenRules.IsUsable(answer.AccessToken))
+        {
+            context.Fail("The sign-in token answer has a missing, empty or blank access_token.");
+            return Task.CompletedTask;
+        }
+
+        int? expiresInSeconds = TokenRules.ParseLifetime(answer.ExpiresIn);
+        if (!TokenRules.IsPositiveLifetime(expiresInSeconds))
+        {
+            context.Fail(
+                "The sign-in token answer has a missing, unreadable or non-positive expires_in. expires_in: "
+                + (expiresInSeconds?.ToString(CultureInfo.InvariantCulture) ?? "missing or unreadable"));
+            return Task.CompletedTask;
+        }
+
+        // The handler skips only an empty refresh token, so it would store a blank one, and the cookie check
+        // ends such a session on the next request. A missing one is allowed, because OAuth makes it optional.
+        if (!string.IsNullOrEmpty(answer.RefreshToken) && !TokenRules.IsUsable(answer.RefreshToken))
+        {
+            context.Fail("The sign-in token answer has a blank refresh_token.");
+        }
+
         return Task.CompletedTask;
     }
 

@@ -241,7 +241,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The breach check runs only where a password is set (ADR-0065). A password that shows up in a leak
+    /// The breach check runs only where a password is set (ADR-0066). A password that shows up in a leak
     /// after it was set must not lock its owner out.
     /// </summary>
     [Fact]

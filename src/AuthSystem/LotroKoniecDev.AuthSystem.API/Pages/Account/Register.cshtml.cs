@@ -152,7 +152,7 @@ internal sealed partial class RegisterModel : PageModel
     /// Turns the handler's error into a Polish message for the user. The missing field, password match
     /// and consent cases are handled above, so what is left is a name or e-mail that is already taken,
     /// a spent registration budget of the inbox (ADR-0057), a password found in data breaches
-    /// (ADR-0065) and the password rules.
+    /// (ADR-0066) and the password rules.
     /// </summary>
     private static string MapErrorToMessage(Error error)
     {

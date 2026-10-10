@@ -358,7 +358,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     [Fact]
     public async Task ResetPasswordPage_Post_ShouldKeepTheFormAndSayThePasswordLeaked_WhenItAppearsInDataBreaches()
     {
-        // The link is good and stays good, so the form has to stay for another password (ADR-0065).
+        // The link is good and stays good, so the form has to stay for another password (ADR-0066).
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
         string resetToken = await RequestResetTokenAsync(registerRequest.Email);

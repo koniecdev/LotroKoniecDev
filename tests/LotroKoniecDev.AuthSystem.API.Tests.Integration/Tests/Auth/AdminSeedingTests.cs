@@ -52,7 +52,7 @@ public sealed partial class AdminSeedingTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The seed sets a password like every other path, so it gets the breach check too (ADR-0065). Only
+    /// The seed sets a password like every other path, so it gets the breach check too (ADR-0066). Only
     /// Development and Testing read a configured password, so this can stop only a local start.
     /// </summary>
     [Fact]

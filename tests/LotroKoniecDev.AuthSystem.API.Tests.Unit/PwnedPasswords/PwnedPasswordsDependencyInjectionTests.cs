@@ -32,7 +32,7 @@ public sealed class PwnedPasswordsDependencyInjectionTests
 
     /// <summary>
     /// The prefix is safe at Have I Been Pwned, which cannot tie it to anyone. In our own log it would sit
-    /// next to the request and the account it belongs to (ADR-0065).
+    /// next to the request and the account it belongs to (ADR-0066).
     /// </summary>
     [Fact]
     public async Task AddPwnedPasswords_WhenTheCheckRuns_LogsNothingThatCarriesTheHashPrefix()

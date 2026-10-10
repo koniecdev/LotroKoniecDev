@@ -1,4 +1,4 @@
-# ADR-0065: A New Password Found in a Known Data Breach Is Refused, and a Check That Cannot Run Lets It Through
+# ADR-0066: A New Password Found in a Known Data Breach Is Refused, and a Check That Cannot Run Lets It Through
 
 **Status:** Accepted
 **Date:** 2026-10-07

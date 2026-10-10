@@ -175,6 +175,11 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
                 if (!result.Succeeded)
                 {
+                    if (result.IsBreachedPassword)
+                    {
+                        return Result.Failure<IdentityId>(AuthErrors.PasswordFoundInBreaches);
+                    }
+
                     if (result.Errors.Any(e => e.Code is "DuplicateEmail"))
                     {
                         return Result.Failure<IdentityId>(AuthErrors.UserAlreadyExistsByEmail);

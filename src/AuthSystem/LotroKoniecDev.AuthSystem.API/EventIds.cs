@@ -227,4 +227,8 @@ internal static class EventIds
     public const int GdprErasedAccountMessagesScrubFailed = 2737;
     public const int GdprErasuresAnnounced = 2738;
     public const int GdprErasuresAnnounceFailed = 2739;
+
+    // Breached-password check (2740-2749). Its "could not check" warnings are 3300-3303 in the
+    // Infrastructure assembly (ADR-0066).
+    public const int PasswordRefusedAsBreached = 2740;
 }

@@ -45,6 +45,11 @@ internal static class AuthErrors
             "The current password is incorrect.",
             TypeOfError.Validation);
 
+    public static Error PasswordFoundInBreaches =>
+        new("Auth.PasswordFoundInBreaches",
+            "This password appears in known data breaches. Choose a different one.",
+            TypeOfError.Validation);
+
     public static Error PasswordConfirmationThrottled =>
         new("Auth.PasswordConfirmationThrottled",
             "Too many password confirmations for this account. Try again in a quarter of an hour.",

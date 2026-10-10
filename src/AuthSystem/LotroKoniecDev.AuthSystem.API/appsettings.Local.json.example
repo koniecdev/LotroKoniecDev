@@ -7,7 +7,8 @@
     "Leave Email blank to skip admin seeding. Leave Password blank to seed the admin without a password, as",
     "every deployed box does (ADR-0056), and set it through 'Nie pamiętam hasła' + the mail in Mailpit.",
     "Only Development and Testing read Password. It must satisfy the Identity policy:",
-    "min 8 chars + uppercase + lowercase + digit + non-alphanumeric (PersistenceDependencyInjection.cs)."
+    "min 8 chars + uppercase + lowercase + digit + non-alphanumeric (PersistenceDependencyInjection.cs),",
+    "and it must not be a password found in a known data breach, or startup stops (ADR-0066)."
   ],
   "AdminUser": {
     "Username": "admin",

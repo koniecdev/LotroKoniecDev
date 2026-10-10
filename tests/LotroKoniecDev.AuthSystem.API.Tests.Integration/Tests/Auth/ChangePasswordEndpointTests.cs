@@ -187,4 +187,34 @@ public sealed class ChangePasswordEndpointTests : EndpointsTestBase
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
+
+    [Fact]
+    public async Task ChangePassword_ShouldRefuseTheNewPasswordAndKeepTheOldOne_WhenItAppearsInDataBreaches()
+    {
+        // Arrange
+        const string currentPassword = "TestPass1!";
+        const string breachedPassword = "Password1!";
+
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, currentPassword);
+
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, currentPassword);
+        Factory.PwnedPasswords.MarkBreached(breachedPassword);
+
+        using HttpRequestMessage request = new(HttpMethod.Post, "auth/change-password");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Content = JsonContent.Create(new ChangePasswordRequest(currentPassword, breachedPassword));
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.SendAsync(request);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        json.RootElement.GetProperty("errorCode").GetString().ShouldBe("Auth.PasswordFoundInBreaches");
+
+        using HttpResponseMessage loginWithOldPassword =
+            await RequestPasswordGrantAsync(registerRequest.Email, currentPassword);
+        loginWithOldPassword.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
 }

@@ -43,6 +43,7 @@ internal sealed class CookieTokenRefresher
     private readonly IDeadSessionRegistry _deadSessionRegistry;
     private readonly ISessionExpiryNotice _sessionExpiryNotice;
     private readonly RefreshTokenRevoker _refreshTokenRevoker;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<CookieTokenRefresher> _logger;
 
     public CookieTokenRefresher(
@@ -51,6 +52,7 @@ internal sealed class CookieTokenRefresher
         IDeadSessionRegistry deadSessionRegistry,
         ISessionExpiryNotice sessionExpiryNotice,
         RefreshTokenRevoker refreshTokenRevoker,
+        TimeProvider timeProvider,
         ILogger<CookieTokenRefresher> logger)
     {
         _tokenEndpointClient = tokenEndpointClient;
@@ -58,6 +60,7 @@ internal sealed class CookieTokenRefresher
         _deadSessionRegistry = deadSessionRegistry;
         _sessionExpiryNotice = sessionExpiryNotice;
         _refreshTokenRevoker = refreshTokenRevoker;
+        _timeProvider = timeProvider;
         _logger = logger;
     }
 
@@ -160,7 +163,7 @@ internal sealed class CookieTokenRefresher
     {
         AuthenticationProperties properties = context.Properties;
 
-        if (!AccessTokenRefreshSchedule.IsDue(properties, expiresAt, DateTimeOffset.UtcNow))
+        if (!AccessTokenRefreshSchedule.IsDue(properties, expiresAt, _timeProvider.GetUtcNow()))
         {
             return RefreshOutcome.Unchanged;
         }
@@ -247,7 +250,7 @@ internal sealed class CookieTokenRefresher
             properties.UpdateTokenValue(IdTokenName, tokenResponse.IdToken);
         }
 
-        DateTimeOffset receivedAt = DateTimeOffset.UtcNow;
+        DateTimeOffset receivedAt = _timeProvider.GetUtcNow();
         properties.UpdateTokenValue(
             AccessTokenRefreshSchedule.ExpiresAtName,
             receivedAt.AddSeconds(tokenResponse.ExpiresIn.Value).ToString("o", CultureInfo.InvariantCulture));

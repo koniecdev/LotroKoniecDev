@@ -452,7 +452,7 @@
       "id": 9,
       "type": "timeseries",
       "title": "Box CPU, swap and disk",
-      "description": "The three fleet alerts in one place. Swap in use is the early warning the boxes could not give before #708 - before it, pressure went straight to an OOM-kill.",
+      "description": "CPU, swap and disk for the fleet alerts. Swap used climbs slowly even on a calm box, so it only feeds the late swap-nearly-full guard. The swapping alert watches swap traffic and memory stalls instead (#1084, runbook: What the two swap rules measure).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

@@ -1961,6 +1961,11 @@ form works for `up` too. It does not.
   service) — NOT via `/etc/docker/daemon.json` on the live boxes, since a daemon-config change
   restarts dockerd and bounces every running container.
 - `.github/workflows/*` pushes need the koniecdev token.
+- **auth-api calls Have I Been Pwned when a password is set** (registration, password change, reset;
+  ADR-0066). It needs outbound HTTPS to `api.pwnedpasswords.com`. When that call fails, the password is
+  accepted unchecked and auth-api logs warning `3300`, `3301`, `3302` or `3303`. A run of those warnings means
+  the breach check is off in practice: look at the box's outbound network first. Information `2740`
+  means the check works: it refused a password found in a breach.
 
 ## History — the Azure era
 

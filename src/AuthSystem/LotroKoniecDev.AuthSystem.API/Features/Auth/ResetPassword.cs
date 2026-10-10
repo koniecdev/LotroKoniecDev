@@ -114,6 +114,11 @@ internal sealed partial class ResetPassword : IApiEndpoint
                     return Result.Failure(AuthErrors.InvalidPasswordResetToken);
                 }
 
+                if (identityResult.IsBreachedPassword)
+                {
+                    return Result.Failure(AuthErrors.PasswordFoundInBreaches);
+                }
+
                 string errors = string.Join(", ", identityResult.Errors.Select(e => e.Description));
                 LogPasswordResetFailed(_logger, user.Id, errors);
                 return Result.Failure(AuthErrors.PasswordResetFailed(errors));

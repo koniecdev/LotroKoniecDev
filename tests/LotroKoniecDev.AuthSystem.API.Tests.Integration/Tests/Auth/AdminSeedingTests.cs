@@ -51,6 +51,28 @@ public sealed partial class AdminSeedingTests : EndpointsTestBase
         (await userManager.IsInRoleAsync(admin, AuthConstants.Roles.Admin)).ShouldBeTrue();
     }
 
+    /// <summary>
+    /// The seed sets a password like every other path, so it gets the breach check too (ADR-0066). Only
+    /// Development and Testing read a configured password, so this can stop only a local start.
+    /// </summary>
+    [Fact]
+    public async Task SeedAuthDatabase_ConfiguredPasswordIsInDataBreaches_FailsAndSeedsNoAdmin()
+    {
+        // Arrange
+        Factory.PwnedPasswords.MarkBreached(AdminPassword);
+
+        // Act
+        InvalidOperationException exception = await Should.ThrowAsync<InvalidOperationException>(ReseedAsync);
+
+        // Assert
+        exception.Message.ShouldContain("known data breaches");
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        (await userManager.FindByEmailAsync(AdminEmail)).ShouldBeNull();
+    }
+
     [Fact]
     public async Task SeedAuthDatabase_RunTwice_SeedsExactlyOneAdmin()
     {

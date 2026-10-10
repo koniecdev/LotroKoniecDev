@@ -286,4 +286,46 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
     // synchronous send: registration no longer touches SMTP, so there is no in-request failure
     // to fall back from. A failed delivery now stays queued for redelivery, and the user-facing
     // recovery is the resend-confirmation endpoint.
+
+    [Fact]
+    public async Task Register_ShouldRefuseThePasswordAndCreateNoAccount_WhenItAppearsInDataBreaches()
+    {
+        // Arrange
+        RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
+        Factory.PwnedPasswords.MarkBreached(request.Password);
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), request);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        json.RootElement.GetProperty("errorCode").GetString().ShouldBe("Auth.PasswordFoundInBreaches");
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        (await db.Users.AnyAsync(user => user.UserName == request.Username)).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The failure policy of ADR-0066: a breach service that is down lets the password through, so it does
+    /// not take registration down with it. The password here is one the service would refuse.
+    /// </summary>
+    [Fact]
+    public async Task Register_ShouldCreateTheAccount_WhenThePwnedPasswordsServiceIsDown()
+    {
+        // Arrange
+        RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
+        Factory.PwnedPasswords.MarkBreached(request.Password);
+        Factory.PwnedPasswords.TakeDown();
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), request);
+
+        // Assert
+        await response.EnsureSuccessWithDetailsAsync();
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+    }
 }

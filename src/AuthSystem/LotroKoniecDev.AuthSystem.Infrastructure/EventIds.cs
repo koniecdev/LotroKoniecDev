@@ -15,4 +15,10 @@ internal static class EventIds
     public const int BrokerConnected = 3200;
     public const int BrokerMessagePublished = 3201;
     public const int BrokerTeardownWarning = 3202;
+
+    // Pwned Passwords (3300–3399)
+    public const int PwnedPasswordsUnexpectedStatus = 3300;
+    public const int PwnedPasswordsUnreachable = 3301;
+    public const int PwnedPasswordsTimedOut = 3302;
+    public const int PwnedPasswordsUnreadableAnswer = 3303;
 }

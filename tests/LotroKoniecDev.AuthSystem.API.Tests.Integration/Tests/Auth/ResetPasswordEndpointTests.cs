@@ -271,4 +271,37 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
+
+    [Fact]
+    public async Task ResetPassword_ShouldRefuseTheNewPassword_WhenItAppearsInDataBreaches()
+    {
+        // Arrange
+        const string breachedPassword = "Password1!";
+
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+
+        PasswordResetEmailSpy.Reset();
+
+        await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/forgot-password", UriKind.Relative),
+            new ForgotPasswordRequest(registerRequest.Email));
+        await PasswordResetEmailSpy.WaitForCaptureAsync();
+
+        Factory.PwnedPasswords.MarkBreached(breachedPassword);
+
+        ResetPasswordRequest resetRequest = new(
+            registerRequest.Email,
+            PasswordResetEmailSpy.LastResetToken!,
+            breachedPassword);
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/reset-password", UriKind.Relative), resetRequest);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        json.RootElement.GetProperty("errorCode").GetString().ShouldBe("Auth.PasswordFoundInBreaches");
+    }
 }

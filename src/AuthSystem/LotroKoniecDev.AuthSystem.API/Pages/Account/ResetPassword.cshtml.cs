@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -10,6 +11,8 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 internal sealed partial class ResetPasswordModel : PageModel
 {
     private const string InvalidLinkMessage = "Link do resetu hasła jest nieprawidłowy lub wygasł.";
+
+    private const string BreachedPasswordMessage = "To hasło pojawiło się w wyciekach danych, wybierz inne.";
 
     /// <summary>
     /// A hash computed up front, so every path verifies exactly one hash.
@@ -138,6 +141,13 @@ internal sealed partial class ResetPasswordModel : PageModel
             {
                 TokenInvalid = true;
                 ErrorMessage = InvalidLinkMessage;
+                return;
+            }
+
+            // The link is still good, so the form stays and takes another password (ADR-0066).
+            if (result.IsBreachedPassword)
+            {
+                ErrorMessage = BreachedPasswordMessage;
                 return;
             }
 

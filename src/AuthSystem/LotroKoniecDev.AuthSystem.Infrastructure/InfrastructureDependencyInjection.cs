@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.Infrastructure.Emails;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 using LotroKoniecDev.AuthSystem.Infrastructure.Options;
+using LotroKoniecDev.AuthSystem.Infrastructure.PwnedPasswords;
 
 namespace LotroKoniecDev.AuthSystem.Infrastructure;
 
@@ -17,6 +18,7 @@ public static class InfrastructureDependencyInjection
             services.AddInfrastructureOptions();
             services.AddEmails();
             services.AddMessaging();
+            services.AddPwnedPasswords();
 
             return services;
         }

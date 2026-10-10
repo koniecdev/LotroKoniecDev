@@ -90,6 +90,14 @@ Detailed analysis: [update-49/RESULTS.md](update-49/RESULTS.md) §E5 · tool: `s
 - Redesigns Tier-0 (#565): metadata snapshot replaces content sampling; the diff set is the repair set; the ADR-0047 row-level guard stays (write admission, complementary)
 - PowerShell interop trap: loading datexport.dll by absolute path needs `LoadLibraryExW` + `LOAD_WITH_ALTERED_SEARCH_PATH` or its beside-the-DLL dependencies (msvcr71 & co.) don't resolve (win32 error 126)
 
+### E6 — a FileSystemWatcher sees the launcher's writes during the hold, but silence on our DAT is not "update finished" (2026-10-10)
+Detailed analysis: [update-49/RESULTS.md](update-49/RESULTS.md) §E6 · tool: `scripts/experiments/e6-fsw-observability.ps1` (#660)
+- Measured on a **real cumulative update 47.2 → 49.7** (second box, launcher idle since 2026-04-18: two majors, 5,897 iterations, 1.04 GB) plus two forced-downgrade replays and a plain start
+- **Watcher sees writes DURING the hold:** events at most 0.94 s apart through every 3.3–3.9 s English apply, 0 buffer overflows — also in a replay with no polling at all. A self-test shows a generic held-handle writer stays invisible until close, so this is the launcher's write pattern, not a watcher guarantee
+- **But the launcher patches DATs one by one and held the English DAT 108.6 s with no write** before its own apply ⇒ "30 s quiet while held" happens mid-update ⇒ **recommendation: branch B opt-in** (spec 0012 rule 4; the owner rules in #566); the DAT was free the moment patching ended in every observed update, so branch A always had its window
+- Every-start write = one moment of lastwrite/other events, no size event; apply = 10–19 moments with size events — but size is no general apply signature (49.4 left the DAT size unchanged); an E5 snapshot diff after a write burst is the sturdier discriminator (input for #566)
+- Side results: E5 on the cumulative update — iteration 1,223 vs size 998 (size missed 18%); a forced-downgrade replay converges **per SubFile, not byte for byte** (E5 diff 0, a different SHA256 every run) ⇒ simulator-based tests (#567) compare snapshots or exports, never file hashes
+
 ### Game version sources — nothing local knows "49.4"; the announcement is the signal (2026-08-25)
 Detailed analysis: [game-version-sources-2026-08-25.md](game-version-sources-2026-08-25.md)
 - The launcher beacon: GLS `GetDatacenters` → `lotrolauncher.server.config.xml` → `Game.Version` = `3601.0066.7272.4024`, **identical to the 2025-08-29 Wayback snapshot** — installer image version, dead like vnum; the real "patch needed" is `patchclient.dll`'s binary protocol on `patch.lotro.com:6015` comparing per-file stamps ("files differ", never a number)
@@ -112,7 +120,7 @@ Detailed analysis: [dat-export-diff-2026-03-22.md](dat-export-diff-2026-03-22.md
 
 ### LOTRO Update History
 Detailed analysis: [lotro-update-history.md](lotro-update-history.md)
-- 45.1 → 45.4.1 → 46 → 46.1 → 47 (major) → 47.1 → 47.1.1 → 47.2 → 48.0 (major, 2026-04-23) → 48.7 (2026-06-25) → 48.8 (observed 2026-07-11) → 49 "In Good Company" (major, 2026-07-22) → 49.1 (observed 2026-08-02) → 49.3 (observed 2026-08-17 during E5)
+- 45.1 → 45.4.1 → 46 → 46.1 → 47 (major) → 47.1 → 47.1.1 → 47.2 → 48.0 (major, 2026-04-23) → 48.7 (2026-06-25) → 48.8 (observed 2026-07-11) → 49 "In Good Company" (major, 2026-07-22) → 49.1 (observed 2026-08-02) → 49.3 (observed 2026-08-17 during E5) → 49.4 (observed 2026-08-22) → 49.5 → 49.6 → 49.7 (observed 2026-10-10 during E6)
 - 48.0 content: Hatokáli Fells, Rhûn expansion, Deluxe housing, Edit UI feature
 
 ### Game Update Detection & Translation Versioning

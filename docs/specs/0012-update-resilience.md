@@ -11,7 +11,13 @@
   volatile ⇒ Tier-0 content-sentinel revision below) and the forced-downgrade method (repeatable
   update-cycle simulator; big-major burst shape still worth observing at the next real SSG major).
   **Amended 2026-08-17** — the owner's no-masking **invariant** + **ADR-0047** (per-row source
-  guard, #659) and the Tier-1 re-cut after the #566 adversarial review (Q6–Q8; E6 = #660)
+  guard, #659) and the Tier-1 re-cut after the #566 adversarial review (Q6–Q8; E6 = #660).
+  **E6 done 2026-10-10** on a real cumulative 47.2→49.7 update + forced-downgrade replays: a
+  `FileSystemWatcher` sees the launcher's writes *during* the hold (gap ≤ 0.94 s, also with no
+  polling), but in a multi-DAT update the English DAT was held **108.6 s with no write** before
+  its own apply — silence on our DAT is not "update finished" ⇒ recommendation: branch B
+  opt-in, owner rules in #566 (rule 4).
+  Results: `docs/knowledge-base/update-49/RESULTS.md` §E6
 - **Date:** 2026-08-02 (seeded from the live-test 48.8→49.1 findings + owner discussion, same day)
 - **Author:** Artur Koniec (problem framing + orchestrator/kill concept) — structured against code,
   spec 0001 and the knowledge base by Claude
@@ -140,6 +146,13 @@ stay as the picture; where they are looser than the rules below, the rules win:
    are filtered by suppressing the watcher during the patch plus a drain window (a generation
    counter, never mtime — RESULTS.md: mtime volatility is unpredictable); a watcher buffer
    overflow counts as activity, not silence.
+   *E6 input (2026-10-10, #660; to settle in #566):* from the watcher's side the two shapes do
+   differ — the every-start write is one moment of lastwrite/other events with no size event, an
+   apply is 10–19 moments over 3+ s with size events. But "size changed" is not a general apply
+   signature: 49.4 (2026-08-22) was a real update that left the DAT size unchanged, so this
+   trigger misses such an apply. A sturdier discriminator: after any foreign write burst, an E5
+   snapshot (0.14 s) diffed against the one taken before it — the every-start write never moves
+   it, every apply measured so far did.
 3. **Branch B is bounded per run, not "per detection":** **at most one kill per orchestrator run**
    (one launch invocation). Preconditions, all required: an apply burst was observed in this run
    (size changed) · a patch is pending · the probe has failed for 30+ s with no watcher activity ·
@@ -154,6 +167,19 @@ stay as the picture; where they are looser than the rules below, the rules win:
    long apply reads as silence and B kills mid-write — the case E4 never tested; then B ships
    opt-in. Third-party holders (AV, backup, indexer, a second launcher) satisfy B's precondition
    too — the one-kill cap is what keeps that harmless.
+   **E6 verdict (2026-10-10, #660): the quiesce is observable, but it is not a safe kill signal —
+   recommendation: B opt-in (default off); the owner rules in #566.** The watcher is not blind:
+   it reported the launcher's writes during the hold in all three apply runs, at most 0.94 s
+   apart, also with our probe switched off — so by this rule alone B could be default-on. But the
+   quiesce does not mean what B needs. In the real 47.2→49.7 update the launcher patched at least
+   17 DATs one after another and held the English DAT for 108.6 s **with no write at all** before
+   it reached it, so "30 s of silence while held" was true in the middle of the update. Rule 3
+   kept B disarmed there only because the English DAT happened to come at the end. And B was
+   never needed: in every observed update (E2, 49.4, E6 runs) the DAT was released the moment
+   patching ended, so branch A had its window. If B is ever enabled, it should also require the
+   launcher's own "Data patching complete" line in
+   `%LOCALAPPDATA%\The Lord of the Rings Online\PatchClient.log` (end of the whole patch; a
+   ring-buffer log with an undocumented format — a heuristic, not a contract).
 5. **Terminators (not detectors):** game start (`lotroclient64` alive — by process **name**, not the
    spawned PID: the launcher re-execs itself for UAC and `GameLauncher` drops the handle),
    launcher exit with no client, and a wall-clock cap (implementation knob). On any terminator: one
@@ -221,6 +247,7 @@ faster repair) — not a correctness or UX requirement.
 | E3 | Full-corpus patch duration | Synthetic ~100k+-row polish.txt → patch a DAT COPY → time it | Repair-set: optional vs required | ✅ **800,864 rows = 14.7 s; 21,660 = 5.6 s ⇒ repair-set optional** |
 | E2 | Handle behavior across a real update cycle (download vs apply bursts; slow-network hour-long updates) | **Forced downgrade** (swap live DAT for the 48.8 backup → launcher replays the real 48.8→49.1 cycle) + probe/writes timeline (`scripts/experiments/e2-dat-handle-monitor.ps1`) | Quiesce windows; whether probe-success can occur mid-update | ✅ **download leaves the DAT free (~11 s window, probe-success mid-update IS possible ⇒ convergent loop required & sufficient); apply = single ~1 s lock burst; post-update login screen free (branch A holds on update day); client holds the DAT for the whole session.** Caveat: ~5 MB delta — big-major burst shape TBD at the next real SSG major |
 | E5 | Does an SSG chunk replacement move per-SubFile size/iteration? (2026-08-17, #656) | Snapshot `(FileId,Size,Iteration,Version)` for all ~310k SubFiles via one `GetSubfileSizes` (`scripts/experiments/e5-subfile-metadata-snapshot.ps1`, non-elevated); diff after-patch vs after-update vs plain-launch; 48.8 backup diffed OFFLINE via `-DatPath` | Tier-0 detection: metadata snapshot vs content sentinel | ✅ **iteration+presence = complete signal: 1,277/1,277 ground-truth coverage (899 iteration + 378 removed, 0 missed); negative control 0/0/0 despite E1-F1; measured live on 49.1→49.3 (57 replaced, all caught); `Version` dead, `size` strict subset; 0.2 s warm / 1.4 s cold ⇒ #565 redesigned around it** |
+| E6 | Does a `FileSystemWatcher` see launcher writes while the DAT is held? (2026-10-10, #660) | Real cumulative update 47.2→49.7 on a box idle since 2026-04-18 + two forced-downgrade replays (one with no polling) + a plain start, under `scripts/experiments/e6-fsw-observability.ps1` (E2 monitor + size/lastwrite/other watchers) | Branch-B default (Tier 1 rule 4) | ✅ **watcher sees writes DURING the hold (≤ 0.94 s gaps, 0 overflows, no polling needed); every-start write = 1 moment, no size event; BUT the English DAT was held 108.6 s with no write mid-update (≥ 17 DATs patched in sequence, English at the end) ⇒ silence ≠ done ⇒ recommend B opt-in (#566 decides).** Self-test: a generic held-handle writer is invisible to the watcher until close — this is the launcher's write pattern, not a watcher guarantee |
 
 New lock-anatomy facts (2026-08-02, E1/E4 pass): `LotroLauncher.exe` manifests `asInvoker` and
 the game dir ACL grants Users only RX, but **the launcher prompts UAC and runs elevated on every
@@ -281,7 +308,9 @@ watcher (FileSystemWatcher cost ≈ zero).
 - **Q7 — Branch B: measure the gate before shipping the kill.** E6 (#660): does a
   `FileSystemWatcher` see the launcher's writes while the DAT is held, or only at burst end? Until
   the verdict, B is specified with the per-run cap and the exhaustive preconditions (Tier 1 rule
-  3) and its default-on is conditional (rule 4).
+  3) and its default-on is conditional (rule 4). *Outcome 2026-10-10:* E6 ran — the watcher sees
+  the writes, but silence on our DAT is not "update finished"; recommendation B opt-in, the
+  owner rules in #566 (rule 4, E6 verdict).
 - **Q8 — Play-mid-patch accepted for MVP** (Tier 1 rule 6); repair-set stays optional.
 
 Ticket cut (2026-08-02, extended 2026-08-06 by ADR-0045). Numbers are allocation order, **not**

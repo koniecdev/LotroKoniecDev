@@ -33,6 +33,10 @@ originSessionId: fcf33c21-a957-445f-bc57-c8ea7814f1b6
 → 49 "In Good Company" (MAJOR — released 2026-07-22) → 49.1 (point — observed 2026-08-02,
   together +7,192 fragments / +2,270 text files vs 48.8)
 → 49.3 (point — observed 2026-08-17; 57 text SubFiles replaced, +122/−9; 49.2 unobserved)
+→ 49.4 (point — notes 2026-08-19, observed 2026-08-22; 8 text SubFiles replaced, DAT size unchanged)
+→ 49.5 (point — notes 2026-09-02) → 49.6 (point — notes 2026-09-30)
+→ 49.7 (point — notes 2026-10-07, observed 2026-10-10; Harvestmath festival)
+→ next: The Wolves of Mordor expansion, scheduled 2026-10-28
 ```
 
 All observed with **vnum 112/3 unchanged** — see [vnum-observations.md](vnum-observations.md).
@@ -50,6 +54,7 @@ All observed with **vnum 112/3 unchanged** — see [vnum-observations.md](vnum-o
 | 2026-07-11 | 48.7 → 48.8 (point) | First real-world AUDIT-SEC run; survival + forced live WRITE-path re-patch OK. Forum-fetcher returned "48.8". |
 | **2026-08-02** | **48.8 → 49.1 (MAJOR)** | **Third live update-test. Survival 7/8 — first per-SubFile revert (SubFile 620757435 modified → chunk replaced). datexport.dll READ+WRITE compat with 49.1. vnum 112/3 (6th cycle). Forum-fetcher returned "49.1". First cycle with the TMS deployed — export-49 feeds the first real spec-0001 import.** |
 | 2026-08-17 | 49.1 → 49.3 (point) | E5 experiment (#656): update hit mid-protocol and became the live measurement — per-SubFile iteration caught all 57 replaced text SubFiles; negative control (plain launch) all-zero; 48.8 backup diffed offline for the 1,277/1,277 ground-truth cross-check. |
+| 2026-10-10 | 47.2 → 49.7 (cumulative, second box) | E6 experiment (#660): a box idle since 2026-04-18 took two majors in one go (5,897 iterations, 1.04 GB) under the FileSystemWatcher monitor — the watcher sees the launcher's writes during the hold, but the English DAT was held 108.6 s with no write mid-update ⇒ recommendation: branch B opt-in. E5 on the cumulative diff: iteration 1,223 vs size 998. |
 
 ## Major update 48.0 content (from diff analysis)
 

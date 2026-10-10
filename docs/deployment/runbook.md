@@ -1582,14 +1582,49 @@ and `/proc`, so it never needs a route to an app container and does not have one
 
 **Alerts (#713)** — the four ADR-0034 deleted, restored, plus a disk backstop. Three are
 project-scoped (crash-loop, 5xx rate, error-log spike; TheKittySaver ships its own mirror set) and
-seven are fleet-scoped, because box saturation belongs to neither project. Fifteen rules in total,
-counted off the running Grafana on 2026-09-09:
+eight are fleet-scoped, because box saturation belongs to neither project. This repo ships eleven
+of them; TheKittySaver's rules live in its own repo:
 
 | Folder | Rules |
 |---|---|
 | LotroKoniecDev | crash-loop · 5xx above 5% · error-level log spike |
-| Fleet | memory > 85% · swapping · CPU > 85% · disk < 20% · disk < 10% · a box has gone silent · a container above 85% of its own `mem_limit` |
-| TheKittySaver | its own five (that repo's #511, plus the prod-absence rule) |
+| Fleet | memory > 85% · swapping hard or waiting for memory · swap > 70% full · CPU > 85% · disk < 20% · disk < 10% · a box has gone silent · a container above 85% of its own `mem_limit` |
+| TheKittySaver | its own set (that repo's #511 and later additions) |
+
+**What the two swap rules measure (#1084).** How full swap is says little on its own. Linux moves
+memory that nothing has used for a while into swap and leaves it there until something reads it
+again, so on a calm box swap fills slowly over weeks and almost never empties. Staging went from
+199 MiB to 523 MiB of its 2 GiB between 2026-09-23 and 2026-10-08 with almost no swapping, and the
+old rule ("more than a quarter of swap in use") then mailed every 6 hours about a healthy box.
+
+- **Swapping hard or waiting for memory** (`fleet-swap-in-use`, warning) fires when either holds
+  for 5 minutes: on average more than 350 pages a second (about 1.4 MiB/s) moved in and out of swap
+  over the last 30 minutes (`node_vmstat_pswpin` + `node_vmstat_pswpout`), or programs waited for
+  memory more than 10% of the time over the last 5 minutes (`node_pressure_memory_waiting_seconds_total`).
+  The window is 30 minutes because real squeezes come as bursts of 5 to 15 minutes: the night of
+  2026-10-02 was five of them, so a long `for:` on a 5-minute rate never fires. Replayed against
+  both boxes' history from 2026-09-25 to 2026-10-10, it fires twice on that night (20:54 and
+  23:44 UTC; peaks 660 and 799 pages/s) and nothing else. A normal CI-job burst on 2026-10-09
+  peaked at 202 pages/s, and calm days stay under 15. The 10% stall line did not fire on
+  its own in that window. It is there for memory waits that do not show up as swap traffic.
+- **Swap nearly full** (`fleet-swap-nearly-full`, warning) is the late guard: more than 70% for
+  15 minutes. That leaves about 600 MiB of swap, and one ordinary CI job pushed 650 MiB into swap
+  in five minutes on 2026-10-09. Above the line, the next such burst can fill swap, and then the
+  kernel kills a container. It fired on nothing in the same window, because no burst kept swap
+  above 70% for even five minutes.
+
+To find what holds the swap, sum `VmSwap` per process (`grep VmSwap /proc/*/status`) and map a pid
+to its container with `/proc/<pid>/cgroup`. A host service outside Docker, such as a CI runner,
+does not show up in the container memory panels.
+
+**`/tmp` is memory on these boxes.** On Ubuntu 26.04 it is a tmpfs (1.9 GiB), so a file left there
+counts as memory and can end up in swap. `systemd-tmpfiles` deletes old files only after 10 days
+(`Q /tmp 1777 root root 10d`). On 2026-10-08 staging held 168 MiB of stale files there. Check
+`du -sh /tmp` before you blame the apps.
+
+To check a line against history, query the staging Prometheus over read-only ssh. It holds both
+boxes, with labels `box="lotro-staging"` and `box="lotro-prod"`, for 15 days:
+`ssh lotro-staging "docker exec obs-prometheus wget -qO- 'http://localhost:9090/api/v1/query_range?query=…&start=…&end=…&step=60'"`.
 
 All of them deliver to **one** contact point, `owner-email`, over the Brevo relay the apps already
 use. There is deliberately no second channel.

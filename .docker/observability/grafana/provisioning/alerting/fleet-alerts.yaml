@@ -112,16 +112,17 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '{{ $labels.box }} is moving memory in and out of swap fast, or its programs are waiting for memory'
+          summary: '{{ $labels.box }} moved memory in and out of swap fast over the last 30 minutes, or its programs are waiting for memory'
           description: >-
             THE BOX IS SHARED between LotroKoniecDev and TheKittySaver. The box does not have enough
             memory for what runs on it now, so trim what grew before the memory alert fires. Either
             of two signals fires this rule: over the last 30 minutes, more than 350 pages a second
-            (about 1.4 MiB/s) moved in and out of swap on average, or over the last 5 minutes,
-            programs waited for memory more than 10% of the time. Because of the 30-minute average,
-            the alert stays on for up to half an hour after the swapping stops. How full swap is
-            does not fire this rule. Linux moves memory that nothing uses into swap and leaves it
-            there, so swap fills slowly even on a calm box. The swap-nearly-full rule watches that.
+            (about 1.4 MiB/s) moved in and out of swap on average, or at least one program was
+            waiting for memory during more than 10% of the last 5 minutes. Because of the 30-minute
+            average, the alert stays on for up to half an hour after the swapping stops. How full
+            swap is does not fire this rule. Linux moves memory that nothing uses into swap and
+            leaves it there, so swap fills slowly even on a calm box. The swap-nearly-full rule
+            watches that.
         data:
           - refId: A
             relativeTimeRange: { from: 1800, to: 0 }
@@ -130,7 +131,9 @@ groups:
               refId: A
               instant: true
               editorMode: code
-              # Two yes/no checks added together: the value is 1 or 2 when either one holds. The
+              # Two yes/no checks added together: the value is 1 or 2 when either one holds. `+`
+              # keeps only boxes that have both series, so the two `or` lines bring back a box that
+              # has one (a PSI-less kernel, or a scrape gap that empties the 5m rate first). The
               # lines come from both boxes' history (runbook, "What the two swap rules measure").
               # The real squeezes came as bursts of 5 to 15 minutes, so a long `for:` on a short
               # rate never fires. The volume over half an hour is what separates them from a
@@ -138,6 +141,8 @@ groups:
               expr: >-
                 (max by (box) (rate(node_vmstat_pswpin[30m]) + rate(node_vmstat_pswpout[30m])) > bool 350)
                 + (max by (box) (rate(node_pressure_memory_waiting_seconds_total[5m])) > bool 0.10)
+                or (max by (box) (rate(node_vmstat_pswpin[30m]) + rate(node_vmstat_pswpout[30m])) > bool 350)
+                or (max by (box) (rate(node_pressure_memory_waiting_seconds_total[5m])) > bool 0.10)
           - refId: C
             datasourceUid: __expr__
             model:
@@ -168,7 +173,8 @@ groups:
             the kernel kills a container. A calm box can reach this line too, because swap empties
             only when something reads the memory back or the process that owns it ends. Find what
             holds it: a container that grew (restart it), or old files in /tmp, which is memory on
-            these boxes (runbook, "What the two swap rules measure").
+            these boxes (runbook, "What the two swap rules measure"). A box with no swap at all
+            reads as 100% used here too, so check `swapon --show` first.
         data:
           - refId: A
             relativeTimeRange: { from: 1800, to: 0 }

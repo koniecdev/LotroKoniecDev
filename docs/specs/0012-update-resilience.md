@@ -31,7 +31,10 @@ Empirics (2026-08-02, `update-49/RESULTS.md`):
    the whole chunk; every resident translation inside reverts to English even when its own text
    did not change ("collateral revert"). U49: 1,277/277,420 SubFiles touched → on a
    fully-translated resident corpus **≈12,180 valid Polish fragments (1.52%) would revert per
-   major**; 98.5% survives byte-for-byte.
+   major**; 98.5% survives byte-for-byte. *Measured 2026-10-10 (E7, #1094):* a fully marked
+   corpus over the real cumulative 47.2→49.7 update (two majors) lost **2.97%** of its rows
+   (2.57% collateral, 0.30% English changed, 0.11% removed); per-SubFile with no exception —
+   `docs/knowledge-base/e7-full-corpus-survival-2026-10-10.md`.
 2. **Our patch runs BEFORE the official launcher applies the update** (fire-and-forget), so even
    a fully re-approved TMS cannot protect the first post-update session, and — because the
    SKIP/PATCH trigger is translation-file-hash-only — **a restart does not repair anything**.
@@ -317,6 +320,10 @@ code ticket. It carries no milestone and stays that way: the backlog loop must n
       repairs every collateral-reverted row — on every write path, offline, no version knowledge;
       the `||` golden fixtures on both sides carry `source_digest` and round-trip; a six-column
       translation file patches nothing and says why.
+      *E7 evidence (2026-10-10, #1094), CLI `patch` path only:* on a forced-downgrade replay of
+      the real 47.2→49.7 update, a guarded re-patch with the pre-update file repaired all 20,228
+      collateral reverts, skipped all 2,347 changed rows as `source moved` and wrote 0 Polish over
+      changed English. The Tier 0/1 write paths are not built yet, so this stays open.
 - [ ] Orchestrator branch A: patch lands between launcher-release and Play without killing
       anything (E1 ✅ confirmed the window exists: DAT free at the login screen, full-corpus
       patch 14.7 s).

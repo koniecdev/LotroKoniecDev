@@ -29,6 +29,12 @@ Detailed analysis: [lotro-companion-data-model.md](lotro-companion-data-model.md
 - `lotro-data` GitHub repo **is** the live dataset (updated within days of each patch); labels not needed — our English comes from our own export
 - Caveats: subset coverage, join on keys never text (`${PLAYER}` vs `<--DO_NOT_TOUCH!-->`), version skew tolerated as dangling refs, no LICENSE (attribution = courtesy decision)
 
+### E7 — the revert rate of a fully translated corpus, counted, and the source guard on a real update (2026-10-10)
+Detailed analysis: [e7-full-corpus-survival-2026-10-10.md](e7-full-corpus-survival-2026-10-10.md) · tool: `scripts/experiments/e7-corpus-survival.ps1` (#1094)
+- Every 47.2 row marked `[PL] `, patched into a DAT copy, then the launcher applied the real update to 49.7 on it (forced downgrade): **97.03% survived; 2.57% collateral revert, 0.30% English changed by SSG, 0.11% removed** — 1,661 SubFiles, all of them in the E5 diff (0 missed), no loss outside them, nothing survived inside them
+- **Guarded re-patch (ADR-0047) on a real update:** 785,070 written = every survivor + every collateral revert repaired; all 2,347 changed rows skipped as `source moved`; **0 Polish over changed English**; 0.41% of the corpus left in English
+- 60 of the changes are letter case only — the guard treats them as changed English (compare case-sensitively in tooling: PowerShell `-eq` is not)
+
 ### DAT Protection: NOT NEEDED — Translations Survive Updates (incl. MAJOR), per-SubFile
 Detailed analysis: [dat-protection.md](dat-protection.md)
 - **PROVEN by 9 independent tests** including majors 47.2→48.0 (2026-04-23) and 48.8→49.1 (2026-08-02)

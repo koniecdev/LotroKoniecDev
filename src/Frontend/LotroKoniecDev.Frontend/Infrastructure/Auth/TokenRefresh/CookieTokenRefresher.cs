@@ -521,6 +521,6 @@ internal sealed class CookieTokenRefresher
     private static readonly Action<ILogger, Exception?> LogBlankStoredRefreshToken =
         LoggerMessage.Define(
             LogLevel.Warning,
-            new EventId(9, nameof(LogBlankStoredRefreshToken)),
+            new EventId(12, nameof(LogBlankStoredRefreshToken)),
             "Cookie has an empty or blank refresh_token; principal rejected.");
 }

@@ -96,6 +96,7 @@ Detailed analysis: [update-49/RESULTS.md](update-49/RESULTS.md) §E6 · tool: `s
 - **Watcher sees writes DURING the hold:** events at most 0.94 s apart through every 3.3–3.9 s English apply, 0 buffer overflows — also in a replay with no polling at all. A self-test shows a generic held-handle writer stays invisible until close, so this is the launcher's write pattern, not a watcher guarantee
 - **But the launcher patches DATs one by one and held the English DAT 108.6 s with no write** before its own apply ⇒ "30 s quiet while held" happens mid-update ⇒ **recommendation: branch B opt-in** (spec 0012 rule 4; the owner rules in #566); the DAT was free the moment patching ended in every observed update, so branch A always had its window
 - Every-start write = one moment of lastwrite/other events, no size event; apply = 10–19 moments with size events — but size is no general apply signature (49.4 left the DAT size unchanged); an E5 snapshot diff after a write burst is the sturdier discriminator (input for #566)
+- Our own full `patch` (806,120 rows, on a DAT copy) gives the watcher only 22 events in 5.9 s, 0 overflows — the own-write load the Tier 1 loop must filter is negligible
 - Side results: E5 on the cumulative update — iteration 1,223 vs size 998 (size missed 18%); a forced-downgrade replay converges **per SubFile, not byte for byte** (E5 diff 0, a different SHA256 every run) ⇒ simulator-based tests (#567) compare snapshots or exports, never file hashes
 
 ### Game version sources — nothing local knows "49.4"; the announcement is the signal (2026-08-25)

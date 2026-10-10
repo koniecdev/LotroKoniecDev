@@ -628,8 +628,13 @@ pory). FSW zostaje tanim „ktoś pisał — sprawdź", snapshot rozstrzyga.
   symulatorze (#567) porównują stan przez snapshot E5 albo eksport, nigdy hashem pliku.**
 - **Kontrola negatywna E5:** po powtórce ↔ po zwykłym starcie launchera = 0 we wszystkich
   kolumnach (czwarte potwierdzenie, że zapis przy starcie nie rusza metadanych SubFile'i).
-- **Bonus #660 (nasz pełny `patch` pod watcherem) — NIE wykonany:** na tej maszynie jest tylko
-  SDK .NET 9, a CLI wymaga .NET 10.
+- **Bonus #660 — nasz pełny `patch` pod watcherem:** syntetyczny pełny korpus z eksportu 49.7
+  (`PL ` + oryginał, `source_digest` zachowany — 806,120 wierszy, jak w E3) na **kopii** DAT 49.7,
+  monitor tylko-FSW: **806,120 / 806,120 zapisanych** (0 `source moved`, 0 bez digestu) w **10.2 s**
+  wall clock; watcher zgłosił **22 zdarzenia** (size 6, lastwrite 8, other 8) w 8 momentach przez
+  5.9 s, max przerwa 1.3 s, **0 overflow**. Rozmiar rósł skokami po dokładnie 1 MiB (+6 MiB).
+  Obciążenie, które pętla Tier 1 musi odfiltrować jako własne zapisy, jest więc znikome — bufor
+  64 KiB jest daleko od przepełnienia.
 - **Gotcha narzędziowa:** w Windows PowerShell 5.1 skrypt z `[CmdletBinding()]` odpalony przez
   `powershell -File` widzi pusty `$PSScriptRoot` w domyślnych wartościach parametrów (dotyczy
   E5 — odpalany jak w jego nagłówku, `.\e5-….ps1` w bieżącej sesji, działa). E6 wylicza ścieżki
@@ -658,5 +663,7 @@ SHA256 `476F1F5F…E945` — baseline przed Wolves of Mordor, 2026-10-28; jeśli
 49.8, baseline trzeba zdjąć na nowo), snapshoty E5 (`e5-pre-update-*`, `e5-after-real-update-49.7-*`,
 `e5-after-replay-run2/3-*`, `e5-after-plain-launch-*`), logi E6 (`e6-run1…4-*.log`,
 `e6-driver.log` + `e6-driver.ps1`) i kopie logów launchera po każdym przebiegu
-(`launcher-logs-*`). Eksport 49.7 jeszcze nie zrobiony (brak SDK .NET 10 na tej maszynie) — można
-go zrobić w dowolnej chwili offline z backupu: `export -d <backup 49.7>`.
+(`launcher-logs-*`). **Eksport 49.7** zrobiony offline z backupu (`export -d <backup 49.7>`, 7.8 s,
+bez elevacji): `export-49.7.txt` — **806,120 fragmentów w 282,190 plikach tekstowych**, 98.4 MB,
+7 kolumn z `source_digest`, SHA256 `92F7034E…A53D` (vs export 49.4: +4,941 fragmentów, +780
+plików) — deliverable do importu w TMS.

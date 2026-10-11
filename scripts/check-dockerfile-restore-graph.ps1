@@ -59,11 +59,20 @@ function Get-ProjectReference {
     param([Parameter(Mandatory)][string] $Project)
 
     $full = Join-Path $repoRoot $Project
-    if (-not (Test-Path $full)) { return @() }
+    if (-not (Test-Path -LiteralPath $full)) { return @() }
+
+    # A project the guard cannot read must not pass as a leaf: it would hide its whole subtree (#1079).
+    try {
+        $referenceLines = @(Select-String -LiteralPath $full -Pattern 'ProjectReference\s+Include="([^"]+)"' -AllMatches -ErrorAction Stop)
+    }
+    catch {
+        Write-Host "Docker restore-graph guard: could not read ${Project}: $($_.Exception.Message)"
+        exit 2
+    }
 
     $dir = Split-Path -Parent $Project
     $refs = @()
-    foreach ($match in (Select-String -Path $full -Pattern 'ProjectReference\s+Include="([^"]+)"' -AllMatches)) {
+    foreach ($match in $referenceLines) {
         foreach ($m in $match.Matches) {
             $refs += Get-NormalizedPath "$dir/$($m.Groups[1].Value)"
         }
@@ -82,7 +91,7 @@ function Get-RestoreClosure {
     while ($queue.Count -gt 0) {
         $project = $queue.Dequeue()
         if (-not $seen.Add($project)) { continue }
-        if (-not (Test-Path (Join-Path $repoRoot $project))) {
+        if (-not (Test-Path -LiteralPath (Join-Path $repoRoot $project))) {
             $missingOnDisk.Add($project)
             continue
         }
@@ -125,8 +134,8 @@ function Join-Continuation {
 function Find-Dockerfile {
     # Walks the tree the way the .sh twin's find does, so both twins check the same files.
     # -Force: without it, PowerShell on Linux and macOS skips every dot-folder (.docker, .github),
-    # which find enters. .git and .claude at the root, and every node_modules, are never entered,
-    # so a loop worktree added or removed under .claude/ during the walk cannot fail it.
+    # which find enters. .git and .claude at the root, and every node_modules, bin and obj, are never
+    # entered, so a loop worktree or a build folder that changes during the walk cannot fail it.
     # Symbolic links and junctions are not followed, as with find's default -P. Other reparse points,
     # like OneDrive placeholders, are ordinary files and folders here. -clike matches the name with
     # case, as find -name does.
@@ -138,7 +147,7 @@ function Find-Dockerfile {
     foreach ($item in Get-ChildItem -LiteralPath $Directory -Force -ErrorAction Stop) {
         if ($item.LinkType -eq 'SymbolicLink' -or $item.LinkType -eq 'Junction') { continue }
         if ($item.PSIsContainer) {
-            if ($item.Name -ceq 'node_modules') { continue }
+            if ($item.Name -ceq 'node_modules' -or $item.Name -ceq 'bin' -or $item.Name -ceq 'obj') { continue }
             if ($IsRoot -and ($item.Name -ceq '.git' -or $item.Name -ceq '.claude')) { continue }
             Find-Dockerfile -Directory $item.FullName
         }
@@ -165,7 +174,13 @@ $checked = 0
 
 foreach ($dockerfile in $dockerfiles) {
     $relative = $dockerfile.FullName.Substring($repoRoot.Length + 1) -replace '\\', '/'
-    $lines = Get-Content $dockerfile.FullName
+    try {
+        $lines = Get-Content -LiteralPath $dockerfile.FullName -ErrorAction Stop
+    }
+    catch {
+        Write-Host "Docker restore-graph guard: could not read ${relative}: $($_.Exception.Message)"
+        exit 2
+    }
 
     $copied = @()
     foreach ($line in $lines) {

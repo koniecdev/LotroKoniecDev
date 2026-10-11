@@ -120,8 +120,26 @@ run_suite() {
     mv "$tree" "$TMP_ROOT/bin.$cases/bin/repo"
     run_tree 1 "a repo inside a folder named bin is still scanned" "$TMP_ROOT/bin.$cases/bin/repo"
 
+    # obj/ and bin/ are matched with case, as grep --exclude-dir does: Bin/ is a source folder.
+    tree="$(new_tree App.razor '<p>ok</p>')"
+    mkdir -p "$tree/src/Frontend/Bin"
+    printf '%s\n' '<button @onclick="Go">Go</button>' > "$tree/src/Frontend/Bin/Bad.razor"
+    run_tree 1 "a component in a folder named Bin is scanned" "$tree"
+
+    # grep -r does not follow a symbolic link it meets inside the tree.
+    tree="$(new_tree App.razor '<p>ok</p>')"
+    printf '%s\n' '<button @onclick="Go">Go</button>' > "$TMP_ROOT/outside.$cases.razor"
+    ln -s "$TMP_ROOT/outside.$cases.razor" "$tree/src/Frontend/Components/Linked.razor"
+    run_tree 0 "a symbolic link to a component is not followed" "$tree"
+
     # Root ignores the read bit, so these cases prove nothing when the suite runs as root.
     if [ "$(id -u)" -ne 0 ]; then
+        tree="$(new_tree App.razor '<p>ok</p>')"
+        mkdir -p "$tree/src/Frontend/obj/Locked"
+        chmod 000 "$tree/src/Frontend/obj/Locked"
+        run_tree 0 "an unreadable folder under obj/ is never entered" "$tree"
+        chmod 755 "$tree/src/Frontend/obj/Locked"
+
         tree="$(new_tree App.razor '<p>ok</p>')"
         mkdir -p "$tree/src/Frontend/Locked"
         chmod 000 "$tree/src/Frontend/Locked"

@@ -93,8 +93,25 @@ run_suite() {
     run_tree 2 "a Frontend folder whose only source is under obj/ fails" "$tree"
     expect_in_output "nothing was checked"
 
+    # obj/ and bin/ are matched with case, as grep --exclude-dir does: Bin/ is a source folder.
+    tree="$(new_tree)"
+    write_file "$tree" src/Patcher/Bin/Paths.cs 'const string Path = "/api/v1/translation-files";'
+    run_tree 1 "an API path in a folder named Bin is scanned" "$tree"
+
+    # grep -r does not follow a symbolic link it meets inside the tree.
+    tree="$(new_tree)"
+    printf '%s\n' 'const string Path = "/api/v1/translation-files";' > "$TMP_ROOT/outside.$cases.cs"
+    ln -s "$TMP_ROOT/outside.$cases.cs" "$tree/src/Patcher/Cli/Linked.cs"
+    run_tree 0 "a symbolic link to a source file is not followed" "$tree"
+
     # Root ignores the read bit, so these cases prove nothing when the suite runs as root.
     if [ "$(id -u)" -ne 0 ]; then
+        tree="$(new_tree)"
+        mkdir -p "$tree/src/Frontend/obj/Locked"
+        chmod 000 "$tree/src/Frontend/obj/Locked"
+        run_tree 0 "an unreadable folder under obj/ is never entered" "$tree"
+        chmod 755 "$tree/src/Frontend/obj/Locked"
+
         tree="$(new_tree)"
         mkdir -p "$tree/src/Frontend/Locked"
         chmod 000 "$tree/src/Frontend/Locked"

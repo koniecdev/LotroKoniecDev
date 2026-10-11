@@ -82,6 +82,12 @@ $proj
 "
         return 0
     fi
+    # project_refs cannot tell a project it cannot read from one with no references, and the second
+    # is a normal leaf. So check here: a project read as a leaf would hide its whole subtree (#1079).
+    if [ ! -r "$REPO_ROOT/$proj" ]; then
+        echo "Docker restore-graph guard: could not read $proj." >&2
+        exit 2
+    fi
     while IFS= read -r ref; do
         if [ -n "$ref" ]; then walk "$ref"; fi
     done <<EOF
@@ -108,11 +114,11 @@ join_continuations() {
     } END { if (buf != "") print buf }'
 }
 
-# .git, .claude and node_modules are pruned, so find never enters them. A loop worktree that is added
-# or removed under .claude/ during the scan cannot make find fail.
+# .git, .claude, node_modules, bin and obj are pruned, so find never enters them. A loop worktree
+# added or removed under .claude/, or a folder a build deletes under obj/, cannot make find fail.
 # -H: when the repo root itself is a symbolic link, find follows it. Without -H find lists only the link.
 if ! dockerfiles="$(find -H "$REPO_ROOT" \
-        \( -path "$REPO_ROOT/.git" -o -path "$REPO_ROOT/.claude" -o -name node_modules \) -prune \
+        \( -path "$REPO_ROOT/.git" -o -path "$REPO_ROOT/.claude" -o -name node_modules -o -name bin -o -name obj \) -prune \
         -o -name 'Dockerfile*' -type f -print | sort)"; then
     echo "Docker restore-graph guard: could not list the Dockerfiles under $REPO_ROOT." >&2
     exit 2
@@ -125,7 +131,10 @@ while IFS= read -r dockerfile; do
     [ -n "$dockerfile" ] || continue
     rel="${dockerfile#"$REPO_ROOT"/}"
 
-    copied="$(sed -nE 's/^[[:space:]]*COPY \["([^"]+\.csproj)".*/\1/p' "$dockerfile" || true)"
+    if ! copied="$(sed -nE 's/^[[:space:]]*COPY \["([^"]+\.csproj)".*/\1/p' "$dockerfile")"; then
+        echo "Docker restore-graph guard: could not read $rel." >&2
+        exit 2
+    fi
     [ -z "$copied" ] && continue
 
     roots="$(join_continuations "$dockerfile" \

@@ -36,6 +36,27 @@ $apiPathPattern = '"[^"]*api/v[0-9]'
 
 $script:fail = $false
 
+function Find-SourceFile {
+    # Lists exactly the files the .sh twin's grep -r reads. It enters dot-folders (-Force; without it,
+    # PowerShell on Linux and macOS skips them), never enters obj/ or bin/ (matched with case, like
+    # --exclude-dir), skips symbolic links like grep -r does, and matches the name with case.
+    param(
+        [Parameter(Mandatory)][string] $Directory,
+        [Parameter(Mandatory)][string] $NamePattern
+    )
+
+    foreach ($item in Get-ChildItem -LiteralPath $Directory -Force -ErrorAction Stop) {
+        if ($item.LinkType -eq 'SymbolicLink' -or $item.LinkType -eq 'Junction') { continue }
+        if ($item.PSIsContainer) {
+            if ($item.Name -ceq 'obj' -or $item.Name -ceq 'bin') { continue }
+            Find-SourceFile -Directory $item.FullName -NamePattern $NamePattern
+        }
+        elseif ($item.Name -cmatch $NamePattern) {
+            $item
+        }
+    }
+}
+
 function Test-Hypermedia {
     param(
         [Parameter(Mandatory)][string] $Client,
@@ -51,14 +72,8 @@ function Test-Hypermedia {
     }
 
     # obj/ and bin/ are build output, not source - never scan them (mirrors the .sh --exclude-dir).
-    # They are matched below the client folder only, so a repo that sits under a folder named bin is
-    # still scanned. -Force: without it, PowerShell on Linux and macOS skips dot-folders, which grep
-    # enters.
     try {
-        $files = @(
-            Get-ChildItem -Path $dir -Recurse -File -Force -Include '*.razor', '*.cs' -ErrorAction Stop |
-                Where-Object { $_.FullName.Substring($dir.Length) -notmatch '[\\/](obj|bin)[\\/]' }
-        )
+        $files = @(Find-SourceFile -Directory $dir -NamePattern '\.(razor|cs)$')
     }
     catch {
         Write-Host "Hypermedia guard: could not list the files under ${dir}: $($_.Exception.Message)"

@@ -17,8 +17,8 @@
     re-flagged. A flagged file passes when it carries a comment line with the token
     `MIGRATION-SAFETY: acknowledged` followed by the reason.
 
-    Exit codes: 0 = clean, 1 = unacknowledged destructive migration, 2 = cannot run, or a
-    migration listed as new is not on disk.
+    Exit codes: 0 = clean, 1 = unacknowledged destructive migration, 2 = cannot run, or a new
+    migration that git holds cannot be read from disk.
 
     CI runs the .sh; this .ps1 is the local twin for Windows devs - keep the two in sync.
     Tests for both: scripts/tests/check-migration-safety.tests.sh.
@@ -32,6 +32,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# git prints file names as UTF-8 here (core.quotePath=false). A Windows console code page would read
+# a non-ASCII letter wrong, and the file would not be found on disk. This changes only this process
+# when the guard runs as `pwsh -File`. A host with no console cannot change it: the guard then still
+# fails closed on such a name, with exit 2.
+try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
 
 # The generic-args group is [^(] (not [^>]) so nested generics still match:
 # AlterColumn<Dictionary<string, string>>(.
@@ -68,22 +74,30 @@ try {
     # new one (the regenerate-a-migration flow) and hides the addition from
     # --diff-filter=A. Each git leg fails CLOSED (exit 2) - a gate that cannot compute
     # its input must not pass.
+    # core.quotePath=false: by default git prints a name with a non-ASCII letter in quotes, with
+    # escape codes, so the .cs$ filter below would drop that migration unscanned (#1079).
     $candidateFiles = @()
     if ($Base) {
-        $candidateFiles += @(git diff --no-renames --name-only --diff-filter=A "$Base...HEAD" --)
+        $candidateFiles += @(git -c core.quotePath=false diff --no-renames --name-only --diff-filter=A "$Base...HEAD" --)
         if ($LASTEXITCODE -ne 0) {
             Write-Host "Migration-safety guard: git diff against base '$Base' failed."
             exit 2
         }
     }
-    $candidateFiles += @(git diff --no-renames --cached --name-only --diff-filter=A --)
+    $candidateFiles += @(git -c core.quotePath=false diff --no-renames --cached --name-only --diff-filter=A --)
     if ($LASTEXITCODE -ne 0) {
         Write-Host 'Migration-safety guard: git diff --cached failed.'
         exit 2
     }
-    $candidateFiles += @(git ls-files --others --exclude-standard)
+    $candidateFiles += @(git -c core.quotePath=false ls-files --others --exclude-standard)
     if ($LASTEXITCODE -ne 0) {
         Write-Host 'Migration-safety guard: git ls-files failed.'
+        exit 2
+    }
+    # A new migration removed with git rm leaves with the next commit, so it never ships.
+    $stagedDeletions = @(git -c core.quotePath=false diff --no-renames --cached --name-only --diff-filter=D --)
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host 'Migration-safety guard: git diff --cached failed.'
         exit 2
     }
 
@@ -101,19 +115,28 @@ try {
     $scanned = 0
 
     foreach ($file in $newFiles) {
-        # git still holds a file deleted only from the working tree, so it would ship unscanned (#1079).
-        if (-not (Test-Path $file)) {
-            Write-Host "Migration-safety guard: $file is listed as a new migration but is not on disk."
-            Write-Host 'Restore the file, or remove it from git too, then run the guard again.'
+        if (-not (Test-Path -LiteralPath $file)) {
+            # Removed from disk only, the file is still in git and would ship unscanned (#1079).
+            if ($stagedDeletions -ccontains $file) { continue }
+            Write-Host "Migration-safety guard: $file is in git but not on disk, so it cannot be scanned."
+            Write-Host 'Restore it, or remove it with git rm, then run the guard again.'
             exit 2
         }
         $scanned++
+
+        try {
+            $lines = Get-Content -LiteralPath $file -ErrorAction Stop
+        }
+        catch {
+            Write-Host "Migration-safety guard: could not read ${file}: $($_.Exception.Message)"
+            exit 2
+        }
 
         # Only the Up() body: lines from `void Up(` up to (excluding) `void Down(` or EOF.
         $inUp = $false
         $hits = @()
         $lineNumber = 0
-        foreach ($line in Get-Content $file) {
+        foreach ($line in $lines) {
             $lineNumber++
             if ($line -cmatch 'void\s+Up\s*\(')   { $inUp = $true }
             if ($line -cmatch 'void\s+Down\s*\(') { $inUp = $false }
@@ -123,7 +146,7 @@ try {
         }
         if (-not $hits) { continue }
 
-        $marker = Select-String -Path $file -Pattern $acknowledged -CaseSensitive |
+        $marker = Select-String -LiteralPath $file -Pattern $acknowledged -CaseSensitive |
             Select-Object -First 1
         if ($marker) {
             Write-Host 'OK Acknowledged destructive migration (deliberate - ADR-0023 section 3 step):'

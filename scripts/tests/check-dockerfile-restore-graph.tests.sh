@@ -109,7 +109,9 @@ run_suite() {
     write_dockerfile "$tree" src/App/node_modules/pkg/Dockerfile "$COPY_APP"
     write_dockerfile "$tree" .claude/worktrees/ticket-1/Dockerfile "$COPY_APP"
     write_dockerfile "$tree" .git/Dockerfile "$COPY_APP"
-    run_tree 0 "Dockerfiles under node_modules, .claude and .git are not checked" "$tree"
+    write_dockerfile "$tree" src/App/bin/Release/Dockerfile "$COPY_APP"
+    write_dockerfile "$tree" src/App/obj/Dockerfile "$COPY_APP"
+    run_tree 0 "Dockerfiles under node_modules, .claude, .git, bin and obj are not checked" "$tree"
     expect_in_output "1 Dockerfile(s)"
 
     tree="$(new_tree)"
@@ -161,6 +163,22 @@ run_suite() {
         run_tree 2 "a folder the guard cannot read fails the run" "$tree"
         expect_in_output "could not list the Dockerfiles"
         chmod 755 "$tree/src/Locked"
+
+        # Read as a leaf, Lib would hide that Core is missing from the COPY list.
+        tree="$(new_tree)"
+        write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_LIB" "$RESTORE_APP"
+        chmod 000 "$tree/src/Lib/Lib.csproj"
+        run_tree 2 "a .csproj the guard cannot read fails the run" "$tree"
+        expect_in_output "could not read src/Lib/Lib.csproj"
+        chmod 644 "$tree/src/Lib/Lib.csproj"
+
+        tree="$(new_tree)"
+        write_complete_dockerfile "$tree"
+        write_dockerfile "$tree" Dockerfile.broken "$COPY_APP"
+        chmod 000 "$tree/Dockerfile.broken"
+        run_tree 2 "a Dockerfile the guard cannot read fails the run" "$tree"
+        expect_in_output "could not read Dockerfile.broken"
+        chmod 644 "$tree/Dockerfile.broken"
     else
         printf 'i [%s] running as root, which reads any folder — skipped the unreadable-folder case.\n' "$LABEL"
     fi

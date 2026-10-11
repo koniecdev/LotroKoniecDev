@@ -13,7 +13,8 @@ set -euo pipefail
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
 SCRIPTS_DIR="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 TMP_ROOT="$(mktemp -d)"
-trap 'rm -rf "$TMP_ROOT"' EXIT
+# The unreadable-migration case takes the read bit away; give it back, or rm cannot clean up.
+trap 'chmod -R u+rwx "$TMP_ROOT" 2>/dev/null; rm -rf "$TMP_ROOT"' EXIT
 
 # Isolate from the developer's git config (gpg signing, hooks, defaults).
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
@@ -225,6 +226,45 @@ run_suite() {
     rm "$repo/src/App.Persistence/Migrations/20260705000013_CommittedThenDeleted.cs"
     run_case 2 "a committed migration missing from disk fails instead of passing unscanned" "$repo" HEAD^1
     expect_in_output "not on disk"
+
+    # 14. The regenerate flow: a branch migration removed with git rm leaves with the next commit,
+    #     so only its replacement is scanned.
+    repo="$(new_repo)"
+    write_migration "$repo" "20260705000014_FirstTry.cs" \
+        'migrationBuilder.DropTable(name: "T");' \
+        'migrationBuilder.CreateTable(name: "T");'
+    commit_all "$repo" "first try"
+    git -C "$repo" rm -q "src/App.Persistence/Migrations/20260705000014_FirstTry.cs"
+    write_migration "$repo" "20260705000015_SecondTry.cs" \
+        'migrationBuilder.AddColumn<string>(name: "N", table: "T");' \
+        'migrationBuilder.DropColumn(name: "N", table: "T");'
+    run_case 0 "a branch migration removed with git rm is not scanned; its replacement is" "$repo" HEAD^1
+    expect_in_output "1 newly-added migration file(s) scanned"
+
+    # 15. git quotes a name with a non-ASCII letter unless core.quotePath is off, and the quoted
+    #     name used to fall out of the .cs filter, unscanned (#1079).
+    repo="$(new_repo)"
+    write_migration "$repo" "20260705000016_UsuńKolumnę.cs" \
+        'migrationBuilder.DropColumn(name: "Old", table: "T");' \
+        'migrationBuilder.AddColumn<string>(name: "Old", table: "T");'
+    commit_all "$repo" "non-ASCII name"
+    run_case 1 "a destructive migration with a non-ASCII letter in its name is caught" "$repo" HEAD^1
+    expect_in_output "Destructive operation"
+
+    # 16. A migration the guard cannot read fails the run. Root reads any file, so skip it there.
+    if [ "$(id -u)" -ne 0 ]; then
+        repo="$(new_repo)"
+        write_migration "$repo" "20260705000017_Unreadable.cs" \
+            'migrationBuilder.DropTable(name: "T");' \
+            'migrationBuilder.CreateTable(name: "T");'
+        commit_all "$repo" "unreadable"
+        chmod 000 "$repo/src/App.Persistence/Migrations/20260705000017_Unreadable.cs"
+        run_case 2 "a migration the guard cannot read fails the run" "$repo" HEAD^1
+        expect_in_output "could not read"
+        chmod 644 "$repo/src/App.Persistence/Migrations/20260705000017_Unreadable.cs"
+    else
+        printf 'i [%s] running as root, which reads any file — skipped the unreadable-migration case.\n' "$LABEL"
+    fi
 }
 
 CHECKER="$SCRIPTS_DIR/check-migration-safety.sh"

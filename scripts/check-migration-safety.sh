@@ -27,8 +27,8 @@
 # nullability (ADR-0023 §3); a benign widening costs one acknowledgment line.
 #
 # Usage: check-migration-safety.sh [<base-ref>]
-# Exit codes: 0 = clean, 1 = unacknowledged destructive migration, 2 = cannot run, or a migration
-# listed as new is not on disk.
+# Exit codes: 0 = clean, 1 = unacknowledged destructive migration, 2 = cannot run, or a new
+# migration that git holds cannot be read from disk.
 # Tests: scripts/tests/check-migration-safety.tests.sh (CI runs them right before this
 # guard). Keep this in sync with its check-migration-safety.ps1 twin.
 
@@ -73,19 +73,26 @@ fi
 # --diff-filter=A. Each git leg fails CLOSED (exit 2) — a gate that cannot compute
 # its input must not pass. Designer files and model snapshots restate the model,
 # not the DDL — excluded.
+# core.quotePath=false: by default git prints a name with a non-ASCII letter in quotes, with
+# escape codes, so the .cs$ filter below would drop that migration unscanned (#1079).
 added_committed=""
 if [ -n "$base" ]; then
-    if ! added_committed="$(git diff --no-renames --name-only --diff-filter=A "$base...HEAD" --)"; then
+    if ! added_committed="$(git -c core.quotePath=false diff --no-renames --name-only --diff-filter=A "$base...HEAD" --)"; then
         echo "Migration-safety guard: git diff against base '$base' failed." >&2
         exit 2
     fi
 fi
-if ! added_staged="$(git diff --no-renames --cached --name-only --diff-filter=A --)"; then
+if ! added_staged="$(git -c core.quotePath=false diff --no-renames --cached --name-only --diff-filter=A --)"; then
     echo "Migration-safety guard: git diff --cached failed." >&2
     exit 2
 fi
-if ! untracked="$(git ls-files --others --exclude-standard)"; then
+if ! untracked="$(git -c core.quotePath=false ls-files --others --exclude-standard)"; then
     echo "Migration-safety guard: git ls-files failed." >&2
+    exit 2
+fi
+# A new migration removed with git rm leaves with the next commit, so it never ships.
+if ! staged_deletions="$(git -c core.quotePath=false diff --no-renames --cached --name-only --diff-filter=D --)"; then
+    echo "Migration-safety guard: git diff --cached failed." >&2
     exit 2
 fi
 
@@ -105,16 +112,19 @@ fail=0
 scanned=0
 
 while IFS= read -r file; do
-    # git still holds a file deleted only from the working tree, so it would ship unscanned (#1079).
     if [ ! -f "$file" ]; then
-        echo "Migration-safety guard: $file is listed as a new migration but is not on disk." >&2
-        echo "Restore the file, or remove it from git too, then run the guard again." >&2
+        # Removed from disk only, the file is still in git and would ship unscanned (#1079).
+        if printf '%s\n' "$staged_deletions" | grep -qxF -- "$file"; then
+            continue
+        fi
+        echo "Migration-safety guard: $file is in git but not on disk, so it cannot be scanned." >&2
+        echo "Restore it, or remove it with git rm, then run the guard again." >&2
         exit 2
     fi
     scanned=$((scanned + 1))
 
     # Only the Up() body: lines from `void Up(` up to (excluding) `void Down(` or EOF.
-    hits="$(awk -v pattern="$DESTRUCTIVE" '
+    if ! hits="$(awk -v pattern="$DESTRUCTIVE" '
         /void[[:space:]]+Up[[:space:]]*\(/  { in_up = 1 }
         /void[[:space:]]+Down[[:space:]]*\(/ { in_up = 0 }
         in_up && $0 ~ pattern {
@@ -122,7 +132,10 @@ while IFS= read -r file; do
             sub(/^[[:space:]]+/, "", line)
             printf "    %s:%d: %s\n", FILENAME, FNR, line
         }
-    ' "$file")"
+    ' "$file")"; then
+        echo "Migration-safety guard: could not read $file." >&2
+        exit 2
+    fi
     [ -n "$hits" ] || continue
 
     if marker="$(grep -nE "$ACKNOWLEDGED" "$file" | head -1 | sed -E 's/^([0-9]+):[[:space:]]*/\1: /')"; then

@@ -44,18 +44,31 @@ foreach ($dir in $frontendDir, $authDir) {
     }
 }
 
+function Find-SourceFile {
+    # Lists exactly the files the .sh twin's grep -r reads. It enters dot-folders (-Force; without it,
+    # PowerShell on Linux and macOS skips them), never enters obj/ or bin/ (matched with case, like
+    # --exclude-dir), skips symbolic links like grep -r does, and matches the name with case.
+    param(
+        [Parameter(Mandatory)][string] $Directory,
+        [Parameter(Mandatory)][string] $NamePattern
+    )
+
+    foreach ($item in Get-ChildItem -LiteralPath $Directory -Force -ErrorAction Stop) {
+        if ($item.LinkType -eq 'SymbolicLink' -or $item.LinkType -eq 'Junction') { continue }
+        if ($item.PSIsContainer) {
+            if ($item.Name -ceq 'obj' -or $item.Name -ceq 'bin') { continue }
+            Find-SourceFile -Directory $item.FullName -NamePattern $NamePattern
+        }
+        elseif ($item.Name -cmatch $NamePattern) {
+            $item
+        }
+    }
+}
+
 # obj/ and bin/ are build output, not source — never scan them (mirrors the .sh --exclude-dir).
-# They are matched below the scanned folder only, so a repo that sits under a folder named bin is
-# still scanned. -Force: without it, PowerShell on Linux and macOS skips dot-folders, which grep enters.
 try {
-    $files = @(
-        Get-ChildItem -Path $frontendDir -Recurse -File -Force -Include '*.razor', '*.cs' -ErrorAction Stop |
-            Where-Object { $_.FullName.Substring($frontendDir.Length) -notmatch '[\\/](obj|bin)[\\/]' }
-    )
-    $authPages = @(
-        Get-ChildItem -Path $authDir -Recurse -File -Force -Include '*.cshtml' -ErrorAction Stop |
-            Where-Object { $_.FullName.Substring($authDir.Length) -notmatch '[\\/](obj|bin)[\\/]' }
-    )
+    $files = @(Find-SourceFile -Directory $frontendDir -NamePattern '\.(razor|cs)$')
+    $authPages = @(Find-SourceFile -Directory $authDir -NamePattern '\.cshtml$')
 }
 catch {
     Write-Host "Frontend markup guard: could not list the files to check: $($_.Exception.Message)"

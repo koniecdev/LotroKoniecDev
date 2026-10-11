@@ -579,7 +579,8 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   twin) flags an API path in any string literal under `src/Frontend/` **and** `src/Patcher/` and
   gates it in **both** `pr-verify` and `ci`, alongside the SSR guard, right after its self-test
   `scripts/tests/check-client-hypermedia.tests.sh`; prose mentions in comments stay allowed. The
-  one bounded exception is the editor's detail URI (`{discovered translations href}/{id}`) — the `/editor/{id}` route hands over an id, not a link,
+  one bounded exception is the editor's detail URI
+  (`{discovered translations href}/{id}`) — the `/editor/{id}` route hands over an id, not a link,
   and it is documented as such in `TranslationEditorLoader`.
 - **The CLI resolves its download URL from discovery, and degrades without guessing (#611).**
   `SyncTranslationFileCommand` still takes one input, `TmsBaseUrl`; everything else comes from

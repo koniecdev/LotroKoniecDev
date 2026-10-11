@@ -18,7 +18,6 @@ internal sealed class TranslationContentNegotiationAndAuthDelegatingHandler : De
 {
     private const string BearerScheme = "Bearer";
     private const string AccessTokenName = "access_token";
-    private const string SubjectClaimType = "sub";
 
     private static readonly MediaTypeWithQualityHeaderValue HateoasJsonMediaType = new(MediaTypes.HateoasJson);
 
@@ -55,24 +54,22 @@ internal sealed class TranslationContentNegotiationAndAuthDelegatingHandler : De
         // response may already be streaming.
         // The signature check we do ourselves is the main path; this only covers the gap before the
         // frontend fetches the new keys.
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        if (response.StatusCode == HttpStatusCode.Unauthorized && !string.IsNullOrWhiteSpace(accessToken))
         {
-            await MarkSessionDeadAsync(httpContext, cancellationToken);
+            await MarkSessionDeadAsync(httpContext, accessToken, cancellationToken);
         }
 
         return response;
     }
 
-    private static async Task MarkSessionDeadAsync(HttpContext httpContext, CancellationToken cancellationToken)
+    /// <summary>Marks the token this call carried, not the user (#1061).</summary>
+    private static async Task MarkSessionDeadAsync(
+        HttpContext httpContext,
+        string accessToken,
+        CancellationToken cancellationToken)
     {
-        string? subject = httpContext.User.FindFirst(SubjectClaimType)?.Value;
-        if (string.IsNullOrWhiteSpace(subject))
-        {
-            return;
-        }
-
         IDeadSessionRegistry registry = httpContext.RequestServices
             .GetRequiredService<IDeadSessionRegistry>();
-        await registry.MarkDeadAsync(subject, cancellationToken);
+        await registry.MarkDeadAsync(accessToken, cancellationToken);
     }
 }

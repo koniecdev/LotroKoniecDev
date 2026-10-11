@@ -1377,14 +1377,14 @@ public sealed class CookieTokenRefresherTests : IDisposable
     }
 
     /// <summary>
-    /// #1026: the dead-session marker is read before the cookie's own checks. Otherwise it would outlive this
-    /// session and end the user's next sign-in on its first request.
+    /// #1026: the dead-session marker is read before the cookie's own checks, so the reason logged is the call
+    /// the API refused.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenMarkedDeadAndTheCookieHasNoExpiry_ConsumesTheMarkerFirst()
     {
         IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
-        deadSessionRegistry.ConsumeAsync(Subject, Arg.Any<CancellationToken>()).Returns(true);
+        deadSessionRegistry.ConsumeAsync("the-access-token", Arg.Any<CancellationToken>()).Returns(true);
         using CapturingLoggerProvider logs = new();
         using LoggerFactory loggerFactory = new([logs]);
         CookieTokenRefresher refresher = CreateRefresher(
@@ -1474,7 +1474,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
     [Fact]
     public async Task ValidateAsync_WhenSessionMarkedDead_RejectsPrincipalAndSignsOut()
     {
-        // An earlier 401 marked this subject dead. That check has to reject the session before any
+        // An earlier 401 marked this session's token dead. That check has to reject the session before any
         // refresh or signature check runs, even though the token is still valid and signed with a trusted
         // key.
         RsaSecurityKey signingKey = CreateRsaKey();
@@ -1482,7 +1482,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
 
         IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
         deadSessionRegistry
-            .ConsumeAsync(Subject, Arg.Any<CancellationToken>())
+            .ConsumeAsync(accessToken, Arg.Any<CancellationToken>())
             .Returns(true);
 
         IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
@@ -1588,8 +1588,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
 
     /// <summary>
     /// Only what routing sends to the logout handler skips the check. A GET to the same path ends on the
-    /// 405 page, and skipping there would lose a dead-session marker and let the cookie's sliding renewal
-    /// write back a token that is about to be redeemed.
+    /// 405 page, and skipping there would let a session marked dead through one more request and let the
+    /// cookie's sliding renewal write back a token that is about to be redeemed.
     /// </summary>
     [Theory]
     [InlineData("POST", "/auth/logout-everywhere")]
@@ -1639,7 +1639,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
         string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
 
         IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
-        deadSessionRegistry.ConsumeAsync(Subject, Arg.Any<CancellationToken>()).Returns(true);
+        deadSessionRegistry.ConsumeAsync(accessToken, Arg.Any<CancellationToken>()).Returns(true);
         ISessionExpiryNotice sessionExpiryNotice = Substitute.For<ISessionExpiryNotice>();
         CookieTokenRefresher refresher = CreateRefresher(
             trustedKeys: [signingKey],
@@ -1661,32 +1661,96 @@ public sealed class CookieTokenRefresherTests : IDisposable
     }
 
     /// <summary>
-    /// A marker left behind would end the user's next sign-in at once, so the sign-out still reads it, and
-    /// a dropped request must not stop that read. Reading it is invisible in the result, hence the check.
+    /// #1061: the marker names the token the refused call carried, not the user. A phone of the same user
+    /// whose token works keeps its session.
     /// </summary>
     [Fact]
-    public async Task ValidateAsync_OnTheSignOutRequest_ClearsTheDeadSessionMarkerEvenWhenTheBrowserLeft()
+    public async Task ValidateAsync_WhenAnotherDeviceOfTheSameUserWasMarkedDead_KeepsThisSession()
     {
-        RsaSecurityKey signingKey = CreateRsaKey();
-        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+        RsaSecurityKey laptopSigningKey = CreateRsaKey();
+        RsaSecurityKey phoneSigningKey = CreateRsaKey();
+        string laptopAccessToken = MintAccessToken(laptopSigningKey, tokenIssuer: DiscoveryIssuer);
+        string phoneAccessToken = MintAccessToken(phoneSigningKey, tokenIssuer: DiscoveryIssuer);
+        DeadSessionRegistry deadSessionRegistry = DeadSessionRegistryFactory.Create();
+        await deadSessionRegistry.MarkDeadAsync(laptopAccessToken);
 
-        IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
         CookieTokenRefresher refresher = CreateRefresher(
-            trustedKeys: [signingKey],
+            trustedKeys: [laptopSigningKey, phoneSigningKey],
             discoveryIssuer: DiscoveryIssuer,
             deadSessionRegistry: deadSessionRegistry);
-        CookieValidatePrincipalContext context = CreateContext(
-            accessToken,
+        CookieValidatePrincipalContext phone = CreateContext(
+            phoneAccessToken, authenticationService, expiresAt: DateTimeOffset.UtcNow.AddHours(1));
+
+        await refresher.ValidateAsync(phone);
+
+        phone.Principal.ShouldNotBeNull();
+        await authenticationService.DidNotReceive().SignOutAsync(
+            Arg.Any<HttpContext>(),
+            Arg.Any<string>(),
+            Arg.Any<AuthenticationProperties>());
+    }
+
+    /// <summary>
+    /// #1061: the marker used to be read and deleted by the first page any device of the user loaded, so the
+    /// laptop whose call was refused kept going. It must still end on the laptop's next page.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenAnotherDeviceLoadsAPageFirst_StillSignsOutTheDeviceWhoseCallWasRefused()
+    {
+        RsaSecurityKey laptopSigningKey = CreateRsaKey();
+        RsaSecurityKey phoneSigningKey = CreateRsaKey();
+        string laptopAccessToken = MintAccessToken(laptopSigningKey, tokenIssuer: DiscoveryIssuer);
+        string phoneAccessToken = MintAccessToken(phoneSigningKey, tokenIssuer: DiscoveryIssuer);
+        DeadSessionRegistry deadSessionRegistry = DeadSessionRegistryFactory.Create();
+        await deadSessionRegistry.MarkDeadAsync(laptopAccessToken);
+
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [laptopSigningKey, phoneSigningKey],
+            discoveryIssuer: DiscoveryIssuer,
+            deadSessionRegistry: deadSessionRegistry);
+        CookieValidatePrincipalContext phone = CreateContext(
+            phoneAccessToken, Substitute.For<IAuthenticationService>(), expiresAt: DateTimeOffset.UtcNow.AddHours(1));
+        CookieValidatePrincipalContext laptop = CreateContext(
+            laptopAccessToken, Substitute.For<IAuthenticationService>(), expiresAt: DateTimeOffset.UtcNow.AddHours(1));
+
+        await refresher.ValidateAsync(phone);
+        await refresher.ValidateAsync(laptop);
+
+        laptop.Principal.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// #1061: the sign-out used to delete the marker of every device of the user, so signing out on the phone
+    /// let the laptop whose call was refused keep going.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_OnTheSignOutRequestOfAnotherDevice_StillSignsOutTheDeviceWhoseCallWasRefused()
+    {
+        RsaSecurityKey laptopSigningKey = CreateRsaKey();
+        RsaSecurityKey phoneSigningKey = CreateRsaKey();
+        string laptopAccessToken = MintAccessToken(laptopSigningKey, tokenIssuer: DiscoveryIssuer);
+        string phoneAccessToken = MintAccessToken(phoneSigningKey, tokenIssuer: DiscoveryIssuer);
+        DeadSessionRegistry deadSessionRegistry = DeadSessionRegistryFactory.Create();
+        await deadSessionRegistry.MarkDeadAsync(laptopAccessToken);
+
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [laptopSigningKey, phoneSigningKey],
+            discoveryIssuer: DiscoveryIssuer,
+            deadSessionRegistry: deadSessionRegistry);
+        CookieValidatePrincipalContext phoneSignOut = CreateContext(
+            phoneAccessToken,
             Substitute.For<IAuthenticationService>(),
             expiresAt: DateTimeOffset.UtcNow.AddHours(1),
             path: "/auth/logout",
-            requestAborted: new CancellationToken(canceled: true),
             method: "POST");
+        CookieValidatePrincipalContext laptop = CreateContext(
+            laptopAccessToken, Substitute.For<IAuthenticationService>(), expiresAt: DateTimeOffset.UtcNow.AddHours(1));
 
-        await refresher.ValidateAsync(context);
+        await refresher.ValidateAsync(phoneSignOut);
+        await refresher.ValidateAsync(laptop);
 
-        await deadSessionRegistry.Received(1).ConsumeAsync(
-            Subject, Arg.Is<CancellationToken>(token => !token.IsCancellationRequested));
+        laptop.Principal.ShouldBeNull();
     }
 
     /// <summary>
@@ -1755,7 +1819,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
         string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
 
         IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
-        deadSessionRegistry.ConsumeAsync(Subject, Arg.Any<CancellationToken>()).Returns(true);
+        deadSessionRegistry.ConsumeAsync(accessToken, Arg.Any<CancellationToken>()).Returns(true);
         ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
         CookieTokenRefresher refresher = CreateRefresher(
             trustedKeys: [signingKey],
@@ -2065,7 +2129,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
         string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
 
         IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
-        deadSessionRegistry.ConsumeAsync(Subject, Arg.Any<CancellationToken>()).Returns(true);
+        deadSessionRegistry.ConsumeAsync(accessToken, Arg.Any<CancellationToken>()).Returns(true);
         ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
         tokenEndpointClient
             .RevokeRefreshTokenAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<CancellationToken>())

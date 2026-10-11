@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Claims;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.Frontend.Tests.Unit.Shared;
 using LotroKoniecDev.Hateoas.Abstractions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
@@ -67,18 +68,57 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
     }
 
     [Fact]
-    public async Task SendAsync_WhenAuthenticatedCallReturns401_MarksSessionDead()
+    public async Task SendAsync_WhenAuthenticatedCallReturns401_MarksTheTokenThatCallCarried()
     {
-        IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
+        DeadSessionRegistry deadSessionRegistry = DeadSessionRegistryFactory.Create();
         IHttpContextAccessor accessor = AuthenticatedContext(
-            accessToken: "the-access-token", deadSessionRegistry: deadSessionRegistry);
+            accessToken: "laptop-access-token", deadSessionRegistry: deadSessionRegistry);
         (HttpMessageInvoker invoker, _) = CreateInvoker(
             accessor, StubHttpMessageHandler.RespondWith(HttpStatusCode.Unauthorized, "{}"));
 
         using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5002/translations");
         await invoker.SendAsync(request, CancellationToken.None);
 
-        await deadSessionRegistry.Received(1).MarkDeadAsync("user-1", Arg.Any<CancellationToken>());
+        (await deadSessionRegistry.ConsumeAsync("laptop-access-token")).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// #1061: the marker used to name the user, so the same user's phone, whose token works, was signed out
+    /// on its next page instead of the laptop.
+    /// </summary>
+    [Fact]
+    public async Task SendAsync_WhenAuthenticatedCallReturns401_LeavesAnotherSessionOfTheSameUserUnmarked()
+    {
+        DeadSessionRegistry deadSessionRegistry = DeadSessionRegistryFactory.Create();
+        IHttpContextAccessor accessor = AuthenticatedContext(
+            accessToken: "laptop-access-token", deadSessionRegistry: deadSessionRegistry);
+        (HttpMessageInvoker invoker, _) = CreateInvoker(
+            accessor, StubHttpMessageHandler.RespondWith(HttpStatusCode.Unauthorized, "{}"));
+
+        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5002/translations");
+        await invoker.SendAsync(request, CancellationToken.None);
+
+        (await deadSessionRegistry.ConsumeAsync("phone-access-token")).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// A call that carried no token says nothing about a token. The cookie validation ends a session with no
+    /// usable token on its own (#1026).
+    /// </summary>
+    [Fact]
+    public async Task SendAsync_WhenAuthenticatedCallWithoutATokenReturns401_DoesNotMarkAnySession()
+    {
+        IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
+        IHttpContextAccessor accessor = AuthenticatedContext(
+            accessToken: null, deadSessionRegistry: deadSessionRegistry);
+        (HttpMessageInvoker invoker, _) = CreateInvoker(
+            accessor, StubHttpMessageHandler.RespondWith(HttpStatusCode.Unauthorized, "{}"));
+
+        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5002/translations");
+        await invoker.SendAsync(request, CancellationToken.None);
+
+        await deadSessionRegistry.DidNotReceive()
+            .MarkDeadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -100,7 +140,7 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
     public async Task SendAsync_WhenAnonymousCallReturns401_DoesNotMarkSessionDead()
     {
         // An anonymous request returns before the 401 backstop (the handler short-circuits at the
-        // IsAuthenticated guard), so the registry is never resolved and no subject is ever marked.
+        // IsAuthenticated guard), so the registry is never resolved and no token is ever marked.
         IHttpContextAccessor accessor = AnonymousContext();
         (HttpMessageInvoker invoker, _) = CreateInvoker(
             accessor, StubHttpMessageHandler.RespondWith(HttpStatusCode.Unauthorized, "{}"));

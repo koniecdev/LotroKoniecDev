@@ -1,6 +1,8 @@
 using System.Net.Http.Headers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -16,8 +18,6 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
 {
     private const string TestPassword = "TestPass1!";
-
-    public CancelAccountDeletionEndpointTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
     [Fact]
     public async Task CancelDeletion_ShouldClearScheduleAndLockout_WhenTokenIsValid()
@@ -168,6 +168,50 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
         user.DeletionScheduledAt.ShouldBeNull();
     }
 
+    [Fact]
+    public async Task CancelDeletion_ShouldReturnBadRequest_WhenALateLinkArrivesAfterTheCancelWindow()
+    {
+        // Arrange: the token was created after the schedule, as after a mail-queue outage, so on its own
+        // it is still valid. The window it belongs to ended five minutes ago (#947).
+        (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
+        await AccountStateFactory.BackdateDeletionScheduleAsync(
+            Factory.Services, registerRequest.Email, GracePeriod() + TimeSpan.FromMinutes(5));
+
+        // Act
+        HttpResponseMessage response = await SendCancelRequestAsync(registerRequest.Email, cancelToken);
+
+        // Assert: the same answer as any bad link, and the account is left as it was
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        string body = await response.Content.ReadAsStringAsync();
+        body.ShouldContain("Auth.InvalidCancelDeletionToken");
+
+        ApplicationUser user = await GetUserAsync(identityId.Value);
+        user.DeletionScheduledAt.ShouldNotBeNull();
+        user.PasswordHash.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task CancelDeletion_ShouldClearSchedule_WhenALateLinkArrivesBeforeTheCancelWindowEnds()
+    {
+        // Arrange: the same late e-mail, five minutes before the window ends
+        (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
+        await AccountStateFactory.BackdateDeletionScheduleAsync(
+            Factory.Services, registerRequest.Email, GracePeriod() - TimeSpan.FromMinutes(5));
+
+        // Act
+        HttpResponseMessage response = await SendCancelRequestAsync(registerRequest.Email, cancelToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        ApplicationUser user = await GetUserAsync(identityId.Value);
+        user.DeletionScheduledAt.ShouldBeNull();
+    }
+
+    public CancelAccountDeletionEndpointTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
+
     private async Task<(RegisterRequest Request, IdentityId IdentityId)> RegisterAndScheduleDeletionAsync()
     {
         (RegisterRequest registerRequest, IdentityId identityId) =
@@ -211,6 +255,9 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
 
         return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
     }
+
+    private TimeSpan GracePeriod() =>
+        Factory.Services.GetRequiredService<IOptions<GdprSettings>>().Value.DeletionGracePeriod;
 
     private async Task<ApplicationUser> GetUserAsync(Guid userId)
     {

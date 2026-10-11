@@ -7,9 +7,12 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
+using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -360,7 +363,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
         string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
-        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        TimeProvider runClock = await EndTheCancelWindowBetweenTheCancelAndTheRunAsync(identityId.Value);
         using CapturingLoggerFactory loggerFactory = new();
 
         // Act
@@ -369,11 +372,11 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
             await (change switch
             {
                 MidErasureChange.OwnerCancels => CancelDeletionAsync(registerRequest.Email, cancelToken),
-                MidErasureChange.AnotherRunErasesIt => RunFinalizerAsync(),
+                MidErasureChange.AnotherRunErasesIt => RunFinalizerAsync(runClock),
                 _ => throw new ArgumentOutOfRangeException(nameof(change), change, null)
             });
             FailTheEmergencyLockOf(identityId.Value);
-        });
+        }, clock: runClock);
 
         // Assert
         Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
@@ -709,10 +712,10 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldSkipAnAccount_WhenItsOwnerCancelledTheDeletionAfterTheRunListedIt()
     {
-        // The cancel link still works for a while after the account becomes due, so a run can list an
-        // account whose owner cancels before its turn comes. The finalizer reads every account again,
-        // with the rule that listed it, right before its erasure. A read without that rule would hand
-        // the cancelled account to the erasure with its new stamp, and the erasure would win.
+        // A cancel that passed its window check just before the account became due can still save after
+        // a run listed the account (#947). The finalizer reads every account again, with the rule that
+        // listed it, right before its erasure. A read without that rule would hand the cancelled account
+        // to the erasure with its new stamp, and the erasure would win.
 
         // Arrange
         (_, IdentityId firstId) = await RegisterAndScheduleDeletionAsync();
@@ -720,7 +723,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(cancellingRequest.Email);
         string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(cancellingRequest.Email)!;
         await BackdateScheduleAsync(firstId.Value, TimeSpan.FromDays(20));
-        await BackdateScheduleAsync(cancellingId.Value, TimeSpan.FromDays(15));
+        TimeProvider runClock = await EndTheCancelWindowBetweenTheCancelAndTheRunAsync(cancellingId.Value);
         HttpStatusCode? cancelStatus = null;
 
         // Act
@@ -730,7 +733,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
                 new Uri("auth/account/cancel-deletion", UriKind.Relative),
                 new CancelAccountDeletionRequest(cancellingRequest.Email, cancelToken));
             cancelStatus = cancelResponse.StatusCode;
-        });
+        }, runClock);
 
         // Assert
         cancelStatus.ShouldBe(HttpStatusCode.OK);
@@ -839,16 +842,16 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
         string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
-        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        TimeProvider runClock = await EndTheCancelWindowBetweenTheCancelAndTheRunAsync(identityId.Value);
         using CapturingLoggerFactory loggerFactory = new();
 
         // Act
         int finalizedCount = await RunFinalizerAsync(loggerFactory, beforeFirstErasure: () => change switch
         {
             MidErasureChange.OwnerCancels => CancelDeletionAsync(registerRequest.Email, cancelToken),
-            MidErasureChange.AnotherRunErasesIt => RunFinalizerAsync(),
+            MidErasureChange.AnotherRunErasesIt => RunFinalizerAsync(runClock),
             _ => throw new ArgumentOutOfRangeException(nameof(change), change, null)
-        });
+        }, clock: runClock);
 
         // Assert
         finalizedCount.ShouldBe(0);
@@ -868,7 +871,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
         string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
-        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        TimeProvider runClock = await EndTheCancelWindowBetweenTheCancelAndTheRunAsync(identityId.Value);
         using CapturingLoggerFactory loggerFactory = new();
 
         // Act
@@ -878,7 +881,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
             Factory.DbCommandFailures.FailNext(
                 command => IsUpdateOfAccount(command, identityId.Value) && CarriesAnAnonymizedAddress(command),
                 () => CreateFailure(ErasureSaveFailure.DatabaseError));
-        });
+        }, clock: runClock);
 
         // Assert
         Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
@@ -903,7 +906,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
         string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
-        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        TimeProvider runClock = await EndTheCancelWindowBetweenTheCancelAndTheRunAsync(identityId.Value);
         using CapturingLoggerFactory loggerFactory = new();
 
         // Act
@@ -913,7 +916,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
             Factory.DbCommandFailures.FailNext(
                 command => IsReadOfAnErasedAccount(command, identityId.Value),
                 CreateDataCorruption);
-        });
+        }, clock: runClock);
 
         // Assert
         Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
@@ -1522,6 +1525,14 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         return await finalizer.FinalizeDueAccountsAsync(CancellationToken.None);
     }
 
+    private async Task<int> RunFinalizerAsync(TimeProvider clock)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        IAccountDeletionFinalizer finalizer =
+            ActivatorUtilities.CreateInstance<AccountDeletionFinalizer>(scope.ServiceProvider, clock);
+        return await finalizer.FinalizeDueAccountsAsync(CancellationToken.None);
+    }
+
     /// <summary>
     /// The finalizer and its erasure write to <paramref name="loggerFactory"/>, so a test reads every line
     /// the run wrote about an account.
@@ -1529,7 +1540,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     private async Task<int> RunFinalizerAsync(
         ILoggerFactory loggerFactory,
         Func<Task>? beforeFirstErasure = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        TimeProvider? clock = null)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         IAccountErasureService erasureService = CreateErasureService(scope.ServiceProvider, loggerFactory);
@@ -1539,18 +1551,24 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         }
 
         IAccountDeletionFinalizer finalizer = ActivatorUtilities.CreateInstance<AccountDeletionFinalizer>(
-            scope.ServiceProvider, erasureService, loggerFactory.CreateLogger<AccountDeletionFinalizer>());
+            scope.ServiceProvider,
+            erasureService,
+            loggerFactory.CreateLogger<AccountDeletionFinalizer>(),
+            clock ?? scope.ServiceProvider.GetRequiredService<TimeProvider>());
         return await finalizer.FinalizeDueAccountsAsync(cancellationToken);
     }
 
     private async Task<(int FinalizedCount, IReadOnlyList<Guid> HandedOver)> RunFinalizerAsync(
-        Func<Task> beforeFirstErasure)
+        Func<Task> beforeFirstErasure,
+        TimeProvider? clock = null)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         ObservedErasure erasureService = new(
             scope.ServiceProvider.GetRequiredService<IAccountErasureService>(), beforeFirstErasure);
-        IAccountDeletionFinalizer finalizer =
-            ActivatorUtilities.CreateInstance<AccountDeletionFinalizer>(scope.ServiceProvider, erasureService);
+        IAccountDeletionFinalizer finalizer = ActivatorUtilities.CreateInstance<AccountDeletionFinalizer>(
+            scope.ServiceProvider,
+            erasureService,
+            clock ?? scope.ServiceProvider.GetRequiredService<TimeProvider>());
         int finalizedCount = await finalizer.FinalizeDueAccountsAsync(CancellationToken.None);
         return (finalizedCount, erasureService.HandedOver);
     }
@@ -1571,6 +1589,19 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         ApplicationUser user = await db.Users.FirstAsync(u => u.Id == userId);
         user.DeletionScheduledAt = DateTimeOffset.UtcNow - age;
         await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Ends the account's cancel window one minute from now and returns a clock one minute past that end.
+    /// The cancel link refuses a due account (#947), so a cancel can land during an erasure only when it
+    /// checked its window just before the end and the run listed the account just after it. The cancel
+    /// request runs on the real clock and the run on the returned one.
+    /// </summary>
+    private async Task<TimeProvider> EndTheCancelWindowBetweenTheCancelAndTheRunAsync(Guid userId)
+    {
+        TimeSpan gracePeriod = Factory.Services.GetRequiredService<IOptions<GdprSettings>>().Value.DeletionGracePeriod;
+        await BackdateScheduleAsync(userId, gracePeriod - TimeSpan.FromMinutes(1));
+        return new FakeTimeProvider(DateTimeOffset.UtcNow + TimeSpan.FromMinutes(2));
     }
 
     private async Task<(RegisterRequest Request, IdentityId IdentityId)> RegisterAndScheduleDeletionAsync()

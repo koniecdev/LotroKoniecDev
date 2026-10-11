@@ -28,6 +28,39 @@ public sealed class AccountDeletionScheduleTests
         sut.CancellableUntil(ScheduledAt).ShouldBe(ScheduledAt + Grace);
     }
 
+    [Theory]
+    [InlineData(-1, true)]
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    public void IsCancellableAt_EndsAtCancellableUntilItself(int secondsPastTheWindow, bool expectedCancellable)
+    {
+        // The link is dead at the exact moment the finalizer's grace term is met, never one tick after
+        // it (#947). One second either side of it is where an off-by-one would hide.
+        IAccountDeletionSchedule sut = CreateSut();
+        DateTimeOffset moment = sut.CancellableUntil(ScheduledAt) + TimeSpan.FromSeconds(secondsPastTheWindow);
+
+        bool cancellable = sut.IsCancellableAt(ScheduledAt, moment);
+
+        cancellable.ShouldBe(expectedCancellable);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void IsCancellableAt_EndsExactlyWhenIsDueByPicksUpTheAccount_WhenNoUndoIsArmed(int secondsPastTheWindow)
+    {
+        // With no undo armed the cancel window and the erasure share one boundary, so there is no
+        // moment at which a working link points at an account the finalizer may already erase.
+        IAccountDeletionSchedule sut = CreateSut();
+        ApplicationUser user = CreateUser(ScheduledAt, armedAt: null);
+        DateTimeOffset moment = sut.CancellableUntil(ScheduledAt) + TimeSpan.FromSeconds(secondsPastTheWindow);
+
+        bool cancellable = sut.IsCancellableAt(ScheduledAt, moment);
+
+        cancellable.ShouldBe(!sut.IsDueBy(moment).Compile()(user));
+    }
+
     [Fact]
     public void FinalizesAt_IsTheGracePeriod_WhenNoUndoIsArmed()
     {

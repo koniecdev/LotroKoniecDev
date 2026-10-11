@@ -12,16 +12,11 @@ internal sealed class AccountDeletionSchedule : IAccountDeletionSchedule
     private readonly IEmailChangeRevertWindow _revertWindow;
     private readonly GdprSettings _gdprSettings;
 
-    public AccountDeletionSchedule(
-        IEmailChangeRevertWindow revertWindow,
-        IOptions<GdprSettings> gdprSettings)
-    {
-        _revertWindow = revertWindow;
-        _gdprSettings = gdprSettings.Value;
-    }
-
     public DateTimeOffset CancellableUntil(DateTimeOffset scheduledAt) =>
         scheduledAt + _gdprSettings.DeletionGracePeriod;
+
+    public bool IsCancellableAt(DateTimeOffset scheduledAt, DateTimeOffset moment) =>
+        moment < CancellableUntil(scheduledAt);
 
     public DateTimeOffset FinalizesAt(DateTimeOffset scheduledAt, DateTimeOffset? revertArmedAt)
     {
@@ -44,5 +39,13 @@ internal sealed class AccountDeletionSchedule : IAccountDeletionSchedule
                        && user.DeletionScheduledAt <= scheduledBefore
                        && (user.EmailChangeRevertArmedAt == null
                            || user.EmailChangeRevertArmedAt <= armedBefore);
+    }
+
+    public AccountDeletionSchedule(
+        IEmailChangeRevertWindow revertWindow,
+        IOptions<GdprSettings> gdprSettings)
+    {
+        _revertWindow = revertWindow;
+        _gdprSettings = gdprSettings.Value;
     }
 }

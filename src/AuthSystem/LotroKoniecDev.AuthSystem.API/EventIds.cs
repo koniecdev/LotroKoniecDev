@@ -234,4 +234,7 @@ internal static class EventIds
 
     // Email Dispatch Consumer, continued (2750-2759). The 2330-2339 range is full.
     public const int EmailConsumerDetached = 2750;
+
+    // Cancel-deletion link (2760-2769). The 2220-2239 range is full.
+    public const int GdprCancelWindowOver = 2760;
 }

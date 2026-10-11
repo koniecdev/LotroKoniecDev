@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
+using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -36,22 +37,9 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     private const string WrongPassword = "WrongPassword1!";
     private const string ApiScope = "email profile roles api";
 
-    protected override TestApiClient ApiClient { get; }
-
     private readonly HttpClient _noRedirectClient;
 
-    public DeletionGraceWindowTests(AuthSystemApiFactory appFactory) : base(appFactory)
-    {
-        JsonSerializerOptions jsonSerializerOptions =
-            appFactory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
-
-        ApiClient = new TestApiClient(appFactory.CreateClient(), jsonSerializerOptions);
-
-        _noRedirectClient = appFactory.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
-    }
+    protected override TestApiClient ApiClient { get; }
 
     [Fact]
     public async Task LoginPage_ShouldShowScheduledDeletionMessage_WhenPasswordIsCorrect()
@@ -414,6 +402,37 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies);
         (cookies ?? []).ShouldNotContain(cookie => cookie.StartsWith(".lotrokoniecdev.used-link.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CancelDeletionPage_PostALinkMailedAfterTheCancelWindow_ShouldShowTheInvalidOrExpiredText()
+    {
+        // #947: a late e-mail carries a token that is still valid on its own, but the window it belongs
+        // to is over. The page answers as it does for any bad link, and the deletion stays.
+        (RegisterRequest registerRequest, string cancelToken) = await RegisterAndScheduleDeletionAsync();
+        TimeSpan gracePeriod = Factory.Services.GetRequiredService<IOptions<GdprSettings>>().Value.DeletionGracePeriod;
+        await AccountStateFactory.BackdateDeletionScheduleAsync(
+            Factory.Services, registerRequest.Email, gracePeriod + TimeSpan.FromMinutes(5));
+
+        HttpResponseMessage response = await PostCancelDeletionPageAsync(_noRedirectClient, registerRequest.Email, cancelToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync())
+            .ShouldContain("Link anulujący usunięcie konta jest nieprawidłowy lub wygasł.");
+        (await GetUserAsync(registerRequest.Email)).DeletionScheduledAt.ShouldNotBeNull();
+    }
+
+    public DeletionGraceWindowTests(AuthSystemApiFactory appFactory) : base(appFactory)
+    {
+        JsonSerializerOptions jsonSerializerOptions =
+            appFactory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
+
+        ApiClient = new TestApiClient(appFactory.CreateClient(), jsonSerializerOptions);
+
+        _noRedirectClient = appFactory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
     }
 
     private static string CancelDeletionUrl(string email, string token) =>

@@ -2,13 +2,14 @@
 
 **Status:** Accepted (amended 2026-09-19 by #685 — the cancel link reaches the armed address and the
 erasure waits for the undo; amended 2026-09-29 by #780 — the finalizer polls once a day; amended
-2026-09-30 by #946 — the 30-day cap covers the grace period plus the poll interval; see the amendments
-below)
+2026-09-30 by #946 — the 30-day cap covers the grace period plus the poll interval; amended 2026-10-11
+by #947 — the cancel link ends at the scheduled time plus the grace period; see the amendments below)
 **Date:** 2026-07-11
-**Decision-makers:** Solo maintainer (ticket #452, legal & GDPR compliance pack #459; amendment #685, SEC-07; amendment #780, #946)
+**Decision-makers:** Solo maintainer (ticket #452, legal & GDPR compliance pack #459; amendment #685, SEC-07; amendment #780, #946, #947)
 **Related:** `DeleteAccount` / `CancelAccountDeletion` (AuthSystem), `AccountErasureService`,
 `AccountDeletionFinalizer`, `AccountDeletionSchedule`, ADR-0048 (the undo this window has to survive),
-TKS ADR-0017 (the ported original), ADR-0035 (the Neon wake-up cost), tickets #452, #459, #685, #780, #946
+TKS ADR-0017 (the ported original), ADR-0035 (the Neon wake-up cost), ADR-0038 (tokens created at
+delivery), tickets #452, #459, #685, #780, #946, #947
 
 ## Context
 
@@ -166,7 +167,9 @@ later. The e-mail, the confirmation page and the login page print that date to t
 minute now means "not before this minute".
 
 Nothing the user can act on waits for a run. The cancel link lives one grace period from the moment
-its e-mail is built, which is normally seconds after the schedule (#947 covers a late e-mail). Every
+its e-mail is built, which is normally seconds after the schedule (#947 covers a late e-mail). (Since
+#947 the link ends at the scheduled time plus the grace period, however late the e-mail went out; see
+the #947 amendment.) Every
 door checks `DeletionScheduledAt`, not the lockout, so the account stays shut after `LockoutEnd`
 has passed too. The longer gap between the date and the erasure shows in two places: the address
 stays taken, so registering it again fails until the run, and the login page shows a date that has
@@ -200,6 +203,33 @@ time (#937). An app that is down erases nothing until the catch-up run when it s
 Thirty days stands in for Art. 12(3)'s "one month". A calendar month can be 28 days, so a request
 made in early February can pass its month at the cap. Whether 30 days is the right stand-in is an
 open question for the owner (#971).
+
+## Amendment (2026-10-11, #947): the cancel link ends with the grace period, however late its e-mail went out
+
+The cancel token is created when its e-mail is built, and it lives one grace period from then
+(ADR-0038 decision 2). That is normally seconds after the schedule. After a mail-queue outage it can
+be hours later, and the link then kept working for those hours after "scheduled + grace", the date
+this ADR calls the end of the window. Since #780 the erasure runs only once a day, so a late link could
+still cancel a deletion whose date had passed, until the next run.
+
+**The owner's decision: the cancel link works until the scheduled time plus the grace period, and not
+longer.** `CancelAccountDeletion` now refuses a valid token once
+`IAccountDeletionSchedule.CancellableUntil(DeletionScheduledAt)` has passed. The answer is the generic
+`Auth.InvalidCancelDeletionToken`, the same as for an unknown address, a bad token or a used one, so
+the endpoint still tells nobody the state of an account, and the hosted page shows its usual "invalid
+or expired" text. One rule, `IAccountDeletionSchedule.IsCancellableAt`, answers "does the link still
+work" for the endpoint and for the deletion-scheduled e-mail worker, which already refused to send once
+the window was over.
+
+**This link does not follow ADR-0038's "the countdown starts at delivery".** Its token is still
+created at delivery, for the reasons ADR-0038 gives: no working token sits in an outbox row, and the
+token is tied to the current security stamp. Only its end is fixed by the schedule. ADR-0038 §2
+carries the matching exception note.
+
+The cut-off is `CancellableUntil`, not `FinalizesAt`. The two differ only while an armed undo of
+ADR-0048 outlasts the grace period, which the shipped configuration never reaches (see the #685
+amendment), and in that tail the undo link still cancels the deletion. What the login page and the
+dead-link page say once the link has stopped working is #916.
 
 ## Consequences
 

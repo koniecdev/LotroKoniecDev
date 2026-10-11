@@ -84,9 +84,7 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
     ];
 
     /// <summary>
-    /// How often the consumer checks that it is still attached. Automatic recovery brings back a lost
-    /// connection, but not a channel the broker closed or a subscription it cancelled, for example
-    /// after <see cref="RabbitMqTopology.EmailQueue"/> was deleted to change its arguments.
+    /// How often the consumer checks that it is still attached.
     /// </summary>
     private static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(30);
 
@@ -160,6 +158,7 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
         TimeSpan watchInterval)
     {
         ArgumentOutOfRangeException.ThrowIfZero(connectBackoffs.Length);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(watchInterval, TimeSpan.Zero);
 
         _connectionFactory = connectionFactory;
         _scopeFactory = scopeFactory;
@@ -422,7 +421,7 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
     [LoggerMessage(
         EventId = EventIds.EmailConsumerDetached,
         Level = LogLevel.Warning,
-        Message = "The e-mail consumer is no longer attached to queue {Queue}: the broker closed its channel or cancelled its subscription. Attaching again.")]
+        Message = "The e-mail consumer is no longer attached to queue {Queue}: its channel is closed or its subscription is gone. Attaching again.")]
     private static partial void LogDetached(ILogger logger, string queue);
 
     [LoggerMessage(

@@ -276,21 +276,22 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     [Fact]
     public async Task Pipeline_ShouldDeliverTheNextConfirmationEmail_WhenTheQueueWasDeletedAndDeclaredAgain()
     {
-        // Arrange: a warm pipeline, then the queue is deleted, the way its arguments are changed on a
-        // live box. That cancels the consumer's subscription, and automatic recovery does not bring it
-        // back. A publish is refused until the queue exists again, so wait for the consumer to declare
-        // it and subscribe once more (#1088).
+        // Arrange: a warm pipeline, with the consumer attached
         await UserFactory.RegisterRandomUserUnconfirmedAsync(_apiClient, _faker, _confirmationEmailSpy);
         await _confirmationEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
-        await DeleteQueueAsync(RabbitMqTopology.EmailQueue);
-        await WaitUntilQueueHasConsumerAsync(RabbitMqTopology.EmailQueue, RecoveryTimeout);
 
-        // Act: no restart in between
+        // Act: the queue is deleted, the way its arguments are changed on a live box. That cancels the
+        // consumer's subscription, and automatic recovery does not bring it back. A publish is refused
+        // until the queue exists again, so wait for the consumer to declare it and subscribe once more
+        // (#1088). No restart in between.
+        await DeleteQueueAsync(RabbitMqTopology.EmailQueue);
+        bool consumerIsBack = await WaitUntilQueueHasConsumerAsync(RabbitMqTopology.EmailQueue, RecoveryTimeout);
         (RegisterRequest request, IdentityId _) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             _apiClient, _faker, _confirmationEmailSpy);
         await _confirmationEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
 
         // Assert
+        consumerIsBack.ShouldBeTrue();
         _confirmationEmailSpy.LastEmail.ShouldBe(request.Email);
         _confirmationEmailSpy.CallCount.ShouldBe(1);
     }
@@ -368,11 +369,11 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     }
 
     /// <summary>
-    /// Polls until the queue exists again and a consumer is subscribed to it, or the time runs out. The
-    /// subscription comes after the bindings, so a publish from then on is routed. A look at a queue that
-    /// does not exist closes the channel, so every look opens its own.
+    /// Polls until the queue exists again and a consumer is subscribed to it, or the time runs out, and
+    /// says which came first. The subscription comes after the bindings, so a publish from then on is
+    /// routed. A look at a queue that does not exist closes the channel, so every look opens its own.
     /// </summary>
-    private async Task WaitUntilQueueHasConsumerAsync(string queue, TimeSpan timeout)
+    private async Task<bool> WaitUntilQueueHasConsumerAsync(string queue, TimeSpan timeout)
     {
         await using IConnection connection = await _factory.Broker.ConnectAsync(CancellationToken.None);
 
@@ -385,7 +386,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
             {
                 if (await channel.ConsumerCountAsync(queue) > 0)
                 {
-                    return;
+                    return true;
                 }
             }
             catch (OperationInterruptedException)
@@ -395,6 +396,8 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
 
             await Task.Delay(TimeSpan.FromMilliseconds(100));
         }
+
+        return false;
     }
 
     private async Task WaitUntilQueueEmptyAsync(string queue, TimeSpan timeout)

@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using RabbitMQ.Client;
+using RabbitMQ.Client.Exceptions;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Messaging;
 
@@ -13,9 +14,9 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Messaging;
 /// may hold a delivery unacked long enough for the broker to kill the channel. Without these,
 /// <c>Math.Min</c> in the consumer silently absorbs any drift. Also pins the poison decision for
 /// unusable message ids (ADR-0037): a delivery the inbox cannot deduplicate must be rejected,
-/// not processed blind. And it pins that the consumer stays attached (#1088): a cancellation the
-/// client reports on its own, or a channel the broker closed, makes it attach again, and only the
-/// host's stop ends it.
+/// not processed blind. And it pins that the consumer stays attached (#1088): a failed attach, a
+/// cancellation the client reports on its own included, or a channel the broker closed makes it
+/// attach again, one closed look is left to automatic recovery, and only the host's stop ends it.
 /// </summary>
 public sealed class EmailDispatchConsumerTests
 {
@@ -73,23 +74,29 @@ public sealed class EmailDispatchConsumerTests
         parsed.ShouldBe(messageId);
     }
 
-    [Fact]
-    public async Task ExecuteAsync_WhenTheClientCancelsTheAttachOnItsOwn_ShouldAttachAgain()
+    public static TheoryData<Exception> AttachFailures() => new()
     {
-        // Arrange: the first connect ends in a cancellation the host did not ask for, the way the
-        // client reports its own timeout.
-        BrokerStub broker = new(channelOpen: true);
+        new TaskCanceledException("The client timed out on its own."),
+        new OperationCanceledException("The client gave up on a step."),
+        new BrokerUnreachableException(new IOException("Connection refused"))
+    };
+
+    [Theory]
+    [MemberData(nameof(AttachFailures))]
+    public async Task ExecuteAsync_WhenAnAttachFailsWhileTheHostRuns_ShouldAttachAgain(Exception failure)
+    {
+        // Arrange: the first connect fails while the host runs. A cancellation is how the client
+        // reports its own timeout, so only the host's stop token may end the consumer.
+        BrokerStub broker = new(true);
         IConnectionFactory connectionFactory = Substitute.For<IConnectionFactory>();
         connectionFactory.CreateConnectionAsync(Arg.Any<CancellationToken>())
-            .Returns(
-                Task.FromCanceled<IConnection>(new CancellationToken(canceled: true)),
-                Task.FromResult(broker.Connection));
+            .Returns(Task.FromException<IConnection>(failure), Task.FromResult(broker.Connection));
         using EmailDispatchConsumer consumer = CreateConsumer(connectionFactory, TimeSpan.FromMinutes(1));
 
         // Act
         await consumer.StartAsync(CancellationToken.None);
         bool attached = await broker.WaitUntilConsumingAsync();
-        await consumer.StopAsync(CancellationToken.None);
+        await StopWithinLimitAsync(consumer);
 
         // Assert
         attached.ShouldBeTrue();
@@ -113,7 +120,7 @@ public sealed class EmailDispatchConsumerTests
         // Act
         await consumer.StartAsync(CancellationToken.None);
         await connecting.Task.WaitAsync(WaitLimit);
-        await consumer.StopAsync(CancellationToken.None);
+        await StopWithinLimitAsync(consumer);
 
         // Assert
         Task execution = consumer.ExecuteTask.ShouldNotBeNull();
@@ -125,8 +132,8 @@ public sealed class EmailDispatchConsumerTests
     {
         // Arrange: the broker closes the first channel after the consumer attached, as it does after an
         // ack for a delivery it no longer knows. Automatic recovery does not bring such a channel back.
-        BrokerStub closedChannel = new(channelOpen: false);
-        BrokerStub openChannel = new(channelOpen: true);
+        BrokerStub closedChannel = new(false);
+        BrokerStub openChannel = new(true);
         IConnectionFactory connectionFactory = Substitute.For<IConnectionFactory>();
         connectionFactory.CreateConnectionAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(closedChannel.Connection), Task.FromResult(openChannel.Connection));
@@ -135,17 +142,21 @@ public sealed class EmailDispatchConsumerTests
         // Act
         await consumer.StartAsync(CancellationToken.None);
         bool attachedAgain = await openChannel.WaitUntilConsumingAsync();
-        await consumer.StopAsync(CancellationToken.None);
+        await StopWithinLimitAsync(consumer);
 
         // Assert
         attachedAgain.ShouldBeTrue();
     }
 
-    [Fact]
-    public async Task ExecuteAsync_WhileTheConsumerStaysAttached_ShouldNotConnectAgain()
+    [Theory]
+    [InlineData(new[] { true })]
+    [InlineData(new[] { false, true })]
+    [InlineData(new[] { false, true, false, true })]
+    public async Task ExecuteAsync_WhenTheChannelIsNeverClosedTwoLooksInARow_ShouldNotConnectAgain(bool[] channelOpenOnLooks)
     {
-        // Arrange: an open channel and a running subscription, looked at every 10 ms.
-        BrokerStub broker = new(channelOpen: true);
+        // Arrange: a channel that is closed on single looks at most, the way automatic recovery brings
+        // it back after a short loss. The last answer holds for every later look, every 10 ms.
+        BrokerStub broker = new(channelOpenOnLooks);
         IConnectionFactory connectionFactory = Substitute.For<IConnectionFactory>();
         connectionFactory.CreateConnectionAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(broker.Connection));
@@ -155,7 +166,7 @@ public sealed class EmailDispatchConsumerTests
         await consumer.StartAsync(CancellationToken.None);
         await broker.WaitUntilConsumingAsync();
         await Task.Delay(TimeSpan.FromMilliseconds(300));
-        await consumer.StopAsync(CancellationToken.None);
+        await StopWithinLimitAsync(consumer);
 
         // Assert: a new connection is a side effect the consumer returns nothing about
         await connectionFactory.Received(1).CreateConnectionAsync(Arg.Any<CancellationToken>());
@@ -168,6 +179,16 @@ public sealed class EmailDispatchConsumerTests
             NullLogger<EmailDispatchConsumer>.Instance,
             [TimeSpan.Zero],
             watchInterval);
+
+    /// <summary>
+    /// Stops the consumer, but never waits longer than <see cref="WaitLimit"/>, so a consumer that
+    /// ignores its stop token fails the test instead of hanging the run.
+    /// </summary>
+    private static async Task StopWithinLimitAsync(EmailDispatchConsumer consumer)
+    {
+        using CancellationTokenSource stopLimit = new(WaitLimit);
+        await consumer.StopAsync(stopLimit.Token);
+    }
 
     /// <summary>
     /// One connection with one channel, standing in for the broker client. The channel confirms a
@@ -186,10 +207,14 @@ public sealed class EmailDispatchConsumerTests
             return finished == _consuming.Task;
         }
 
-        public BrokerStub(bool channelOpen)
+        /// <summary>
+        /// Takes what the channel answers when the consumer asks whether it is open, one answer per
+        /// look. The last answer holds for every later look.
+        /// </summary>
+        public BrokerStub(params bool[] channelOpenOnLooks)
         {
             IChannel channel = Substitute.For<IChannel>();
-            channel.IsOpen.Returns(channelOpen);
+            channel.IsOpen.Returns(channelOpenOnLooks[0], channelOpenOnLooks[1..]);
             channel.BasicConsumeAsync(
                     Arg.Any<string>(),
                     Arg.Any<bool>(),

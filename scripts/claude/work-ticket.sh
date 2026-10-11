@@ -888,26 +888,28 @@ find_ticket_pr() {
     fi
 }
 
-# commits_after_merge — prints how many commits on HEAD the merged PR does not hold, plus one when
-# the worktree has uncommitted files, which `finish` saves as a commit on a salvage branch. The
-# session may push a fix after the merge, for example for a CodeQL alert, and that fix is then only
-# on its branch. HEAD is read when it grows from the PR's branch (a fix on that branch, a follow-up
-# branch or a detached HEAD); otherwise the branch is, so a checkout of main after the merge does
-# not count main's commits. Commits are matched by their change, not by their
-# id, so a rebase by GitHub before the merge still matches. The count can be too high: a local
-# rebase onto a newer main, a conflict fixed in a rebase, or an empty commit also count. So the log
-# asks the owner to check, and never claims the commits are lost. Fails when it cannot tell. The
-# fetch runs where a stop is only noted, so a stalled transfer and a password prompt end it.
+# commits_after_merge — prints how many commits on HEAD or on the merged PR's branch the merged PR
+# does not hold, plus one when the worktree has uncommitted files, which `finish` saves as a commit
+# on a salvage branch. The session may commit a fix after the merge, for example for a CodeQL alert:
+# on the PR's branch, on a new branch or on a detached HEAD. That fix is then not on main. Commits
+# are matched by their change, not by their id, so a rebase by GitHub before the merge still
+# matches, and commits main already has never count. The count can still be too high (a conflict
+# fixed in a rebase, an empty commit), so the log asks the owner to check, and never claims the
+# commits are lost. Fails when it cannot tell. The fetch runs where a stop is only noted, so a
+# stalled transfer and a password prompt end it.
 commits_after_merge() {
-    local tip="HEAD" listed count
-    if git -C "$WT" rev-parse -q --verify "refs/heads/$pr_branch" >/dev/null 2>&1 \
-        && ! git -C "$WT" merge-base --is-ancestor "refs/heads/$pr_branch" HEAD 2>/dev/null; then
-        tip="refs/heads/$pr_branch"
-    fi
+    local tip listed found="" commit count=0
     GIT_TERMINAL_PROMPT=0 git -C "$WT" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 \
         fetch --quiet origin "refs/pull/$pr_num/head" 2>/dev/null < /dev/null || return 1
-    listed="$(git -C "$WT" cherry FETCH_HEAD "$tip" 2>/dev/null)" || return 1
-    count="$(grep -c '^+' <<< "$listed" || true)"
+    for tip in HEAD "refs/heads/$pr_branch"; do
+        git -C "$WT" rev-parse -q --verify "$tip^{commit}" >/dev/null 2>&1 || continue
+        listed="$(git -C "$WT" cherry FETCH_HEAD "$tip" 2>/dev/null)" || return 1
+        found="$found$(sed -n 's/^+ //p' <<< "$listed")"$'\n'
+    done
+    for commit in $(printf '%s' "$found" | sort -u); do
+        git -C "$WT" merge-base --is-ancestor "$commit" refs/remotes/origin/main 2>/dev/null \
+            || count=$((count + 1))
+    done
     [ -z "$(git -C "$WT" status --porcelain 2>/dev/null)" ] || count=$((count + 1))
     echo "$count"
 }
@@ -1108,11 +1110,12 @@ if [ "$pr_merged" -eq 1 ]; then
     meta outcome merged
     after_merge="$(commits_after_merge)" || after_merge="?"
     meta unmerged "$after_merge"
+    head_place="$(git -C "$WT" branch --show-current 2>/dev/null || true)"
     finish
     case "$after_merge" in
         0) log "PR #$pr_num was merged before the session ended — the work is on main ($stats)" ;;
         "?") log "PR #$pr_num was merged before the session ended, but the loop could not check whether branch ${pr_branch:-?} has commits the merge did not take ($stats)" ;;
-        *) log "PR #$pr_num was merged before the session ended, but branch ${pr_branch:-?} holds $after_merge commit(s) the merged PR does not (uncommitted files count as one) — check whether they are on main ($stats)" ;;
+        *) log "PR #$pr_num was merged before the session ended, but $after_merge commit(s) are not in the merged PR — look on branch ${pr_branch:-?}, at the worktree's HEAD (${head_place:-detached}) and on any salvage branch named above ($stats)" ;;
     esac
     exit 13
 fi

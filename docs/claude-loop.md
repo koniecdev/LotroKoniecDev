@@ -230,18 +230,19 @@ Per-ticket outcomes:
   started counts (on a resume after a usage limit: after the session first started). One merged
   before that is history from an earlier attempt, and a PR closed without a merge is still an
   `error`. An open PR of the ticket goes first, even when the summary links a merged one.
-  - The session may still push after the merge, for example a fix for a CodeQL alert. That commit
-    is only on the branch, not on `main`. So the worker compares the PR's own branch (not HEAD, so a
-    checkout of `main` after the merge does not count) with the merged PR's head
+  - The session may still commit after the merge, for example a fix for a CodeQL alert, on the
+    PR's branch, on a new branch or on a detached HEAD. That commit is not on `main`. So the worker
+    compares both the worktree's HEAD and the PR's own branch with the merged PR's head
     (`refs/pull/<n>/head`), commit by commit and by change, not by id, because GitHub may rebase a
-    PR before it merges it. Files left uncommitted count as one more commit: the worker saves them
-    on a `loop-salvage/…` branch. The row then says `<k> commit(s) not in the merged PR: check
-    them`, and the worker's log line names the branch. Such commits usually need a new PR. The
-    count can be too high, which is why the row asks you to check: a local rebase onto a newer
-    `main`, a conflict fixed during a rebase, or an empty commit count too. When the merged head
-    cannot be fetched, the row says `could not check for commits after the merge`. Either way the
-    ticket stays `merged`: it is not a failure of the machine. `.meta` holds the count as
-    `unmerged=` (`?` when it could not check).
+    PR before it merges it. A commit `origin/main` already has never counts, so a checkout of a
+    newer `main` adds nothing. Files left uncommitted count as one more commit: the worker saves
+    them on a `loop-salvage/…` branch. The row then says `<k> commit(s) not in the merged PR: check
+    them`, and the worker's log line says where to look: the PR's branch, the worktree's HEAD and
+    any salvage branch. Such commits usually need a new PR. The count can be too high, which is why
+    the row asks you to check: a conflict fixed during a rebase, or an empty commit, counts too.
+    When the merged head cannot be fetched, the row says `could not check for commits after the
+    merge`. Either way the ticket stays `merged`: it is not a failure of the machine. `.meta` holds
+    the count as `unmerged=` (`?` when it could not check).
   - The loop cannot tell who merged the PR: the worker's `gh` runs under the owner's account. A
     session that merged its own PR would break ADR-0060, and it would show as `merged`, not as an
     `error`. The session's instructions forbid a merge, and that is the guard; this outcome does
@@ -396,7 +397,8 @@ resumed run reports the cost of the whole session. The attempt's older `.before-
 message would make a later crash look like a usage limit. `.meta` gets `session=` whenever the
 run ends on its own and its result names the session (a timeout or a stop leaves it only in
 `ticket-<n>.json`), and `worktree=kept` on a limit that kept one; `unmerged=` on a `merged`
-ticket (see "Outcomes & triage"); `resumes=` counts every resume, the one after the limit included, so the end-of-run table marks the ticket `resumed Nx`. When the resume happens in a
+ticket (see "Outcomes & triage"); `resumes=` counts every resume, the one after the limit
+included, so the end-of-run table marks the ticket `resumed Nx`. When the resume happens in a
 later conductor run, both runs' totals count the part of the session before the limit.
 
 ## Safety model

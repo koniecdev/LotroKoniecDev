@@ -15,8 +15,9 @@ session opens its PR about 15 minutes before it ends, and the PR looks finished 
 the owner may merge it. The loop used to count such a ticket as failed, and two of them in a row
 would have stopped the run (#1082). Now a merged PR from the ticket's own branch, opened after
 the session started, is a success with its own outcome, `merged`: no resume, no failure count,
-and the worktree goes as for an open PR. A PR closed without a merge, or merged before the session started, is still an error.
-The loop never merges, as before. Details: `docs/claude-loop.md`, "Outcomes & triage".
+and the worktree goes as for an open PR. A PR closed without a merge, or merged before the
+session started, is still an error. The loop never merges, as before. Details:
+`docs/claude-loop.md`, "Outcomes & triage".
 
 ## Amendment (2026-10-05): the merge train fixes conflicts itself, and its fix keeps the approval
 

@@ -1664,8 +1664,8 @@ expect_in_output "unreadable"
 # resumed. Here the PR is opened and merged during the session, as in the run that found it. The
 # merged PR's head is the session's commit, unless NO_PR_REF=1 hides it from the loop.
 # FIX_AFTER_MERGE=1 adds one more commit after the merge, LEFTOVER=1 leaves a file uncommitted, and
-# MAIN_AFTER_MERGE=1 moves to a detached main with a commit of its own, and DETACHED_FIX=1 commits a
-# fix on a detached HEAD after the merge.
+# MAIN_AFTER_MERGE=1 moves to a newer main (fetched as origin/main), DETACHED_FIX=1 commits a fix on
+# a detached HEAD, and FOLLOW_UP_FIX=1 commits a fix on a new branch cut from main.
 behavior "$TMP_ROOT/done-merged.sh" 'ticket="${PWD##*ticket-}"
 git checkout -q -b "$ticket-fixture"
 echo "work" > "work-$ticket.txt"
@@ -1686,11 +1686,18 @@ if [ "${DETACHED_FIX:-}" = 1 ]; then
     git add -A
     git commit -q -m "fix a CodeQL alert"
 fi
+if [ "${FOLLOW_UP_FIX:-}" = 1 ]; then
+    git checkout -q -b "$ticket-follow-up" origin/main
+    echo "fix" > "fix-$ticket.txt"
+    git add -A
+    git commit -q -m "fix a CodeQL alert"
+fi
 if [ "${MAIN_AFTER_MERGE:-}" = 1 ]; then
     git checkout -q --detach origin/main
     echo "other" > "other-$ticket.txt"
     git add -A
     git commit -q -m "a commit on main"
+    git update-ref refs/remotes/origin/main HEAD
 fi
 echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\",\"is_error\":false,\"session_id\":\"s-$ticket\"}"'
 reset_fixtures
@@ -1709,7 +1716,7 @@ reset_fixtures
 fixture_issue 170 maintainer OWNER
 run_case 13 "work-ticket: a commit after the merge is named, not lost" \
     env FIX_AFTER_MERGE=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 170 "$TMP_ROOT/run"
-expect_in_output "but branch 170-fixture holds 1 commit(s) the merged PR does not (uncommitted files count as one) — check whether they are on main"
+expect_in_output "but 1 commit(s) are not in the merged PR — look on branch 170-fixture, at the worktree's HEAD (170-fixture) and on any salvage branch named above"
 expect_meta 170 outcome=merged pr=7170 unmerged=1
 
 # Files left uncommitted after the merge are saved on a salvage branch, and they count as well.
@@ -1717,26 +1724,45 @@ reset_fixtures
 fixture_issue 176 maintainer OWNER
 run_case 13 "work-ticket: files left uncommitted after the merge are counted" \
     env LEFTOVER=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 176 "$TMP_ROOT/run"
-expect_in_output "but branch 176-fixture holds 1 commit(s) the merged PR does not"
+expect_in_output "but 1 commit(s) are not in the merged PR — look on branch 176-fixture"
 expect_meta 176 outcome=merged pr=7176 unmerged=1
 [ -n "$(git -C "$FAKE_REPO" for-each-ref 'refs/heads/loop-salvage/176-*')" ] \
     || fail "the uncommitted file should be saved on a salvage branch" "$LAST_OUTPUT"
 
-# The PR's own branch is compared with the merged head, not HEAD: a checkout of main after the merge
-# does not count main's commits.
+# Commits main already has never count: a checkout of a newer main after the merge counts nothing.
+# The session's update-ref stands in for a fetch; the fetch after the case puts origin/main back.
 reset_fixtures
 fixture_issue 175 maintainer OWNER
-run_case 13 "work-ticket: a checkout of main after the merge does not count main's commits" \
+run_case 13 "work-ticket: a checkout of a newer main after the merge does not count main's commits" \
     env MAIN_AFTER_MERGE=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 175 "$TMP_ROOT/run"
+git -C "$FAKE_REPO" fetch -q origin
 expect_in_output "PR #7175 was merged before the session ended — the work is on main"
 expect_meta 175 outcome=merged pr=7175 unmerged=0
+
+# A fix on the PR's branch still counts when the session then moves to main: both HEAD and the
+# PR's branch are read.
+reset_fixtures
+fixture_issue 180 maintainer OWNER
+run_case 13 "work-ticket: a fix on the PR's branch counts after a checkout of main" \
+    env FIX_AFTER_MERGE=1 MAIN_AFTER_MERGE=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 180 "$TMP_ROOT/run"
+git -C "$FAKE_REPO" fetch -q origin
+expect_in_output "but 1 commit(s) are not in the merged PR — look on branch 180-fixture, at the worktree's HEAD (detached)"
+expect_meta 180 outcome=merged pr=7180 unmerged=1
+
+# A fix on a new branch cut from main, with no PR for it, counts too.
+reset_fixtures
+fixture_issue 179 maintainer OWNER
+run_case 13 "work-ticket: a fix after the merge on a new branch from main is counted" \
+    env FOLLOW_UP_FIX=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 179 "$TMP_ROOT/run"
+expect_in_output "but 1 commit(s) are not in the merged PR — look on branch 179-fixture, at the worktree's HEAD (179-follow-up)"
+expect_meta 179 outcome=merged pr=7179 unmerged=1
 
 # A fix committed after the merge on a detached HEAD that grows from the PR's branch still counts.
 reset_fixtures
 fixture_issue 178 maintainer OWNER
 run_case 13 "work-ticket: a fix after the merge on a detached HEAD is counted" \
     env DETACHED_FIX=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 178 "$TMP_ROOT/run"
-expect_in_output "but branch 178-fixture holds 1 commit(s) the merged PR does not"
+expect_in_output "but 1 commit(s) are not in the merged PR — look on branch 178-fixture, at the worktree's HEAD (detached)"
 expect_meta 178 outcome=merged pr=7178 unmerged=1
 
 # GitHub may rebase a PR before the merge. Its head then has new ids for the same changes, and the

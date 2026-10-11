@@ -282,7 +282,7 @@ off-Windows or without a DAT available — `Skipped` on macOS is expected, not a
 
 ## TMS Real-Process E2E Tests (LotroKoniecDev.TranslationSystem.E2E.Tests)
 
-A Testcontainers-driven suite that mirrors TheKittySaver's `E2E.Tests`: `E2ETestFixture` builds the
+A Testcontainers-driven suite: `E2ETestFixture` builds the
 `auth`/`tms`/`migrator` Docker images (`SKIP_DOCKER_BUILD=true` reuses the ones this worktree built last time), spins up a private
 network with `postgres:18-alpine` (+ the bind-mounted `scripts/init-postgres.sh` for the second `lotro_auth`
 DB), runs the one-shot migrator, then boots `auth-api` (env `Testing` → password-grant `lotrokoniecdev-test`

@@ -445,7 +445,7 @@ Ale rosyjskie podejscie DZIALA (bo jest prostsze), a nasze ma known bug
 | **Separator** | \<--DO_NOT_TOUCH!--\> | IDENTYCZNY |
 | **TextFileMarker** | 0x25 (high byte FileId) | IDENTYCZNY |
 | **API** | REST (GET) z timestamp filtering | Planowany REST (M3) |
-| **Auth** | Email + password, role-based | Planowany OpenIddict (M2, lift z TheKittySaver) |
+| **Auth** | Email + password, role-based | Planowany OpenIddict (M2) |
 | **Platforma** | Windows + Linux (Proton) | Windows only (na razie) |
 | **Instalator** | Standalone installer | Planowany MSIX/Inno Setup (M4) |
 | **Auto-update** | Tak (Legacy 3.0) | Planowany (M4 #69) |

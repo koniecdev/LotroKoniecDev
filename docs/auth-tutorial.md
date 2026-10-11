@@ -168,8 +168,8 @@ Seedowani na starcie (`DatabaseSeederExtensions.cs:111`), id z `AuthConstants.Cl
 zewnętrznie (jak Auth0/Entra), tylko **self-hosted** w `auth-api`. Czemu:
 - Pełna kontrola nad tokenami, claimami, flow'ami — i zero kosztu/limitu zewnętrznego dostawcy.
 - Integruje się z ASP.NET Core Identity (baza userów, hasła, lockout, email confirmation).
-- Cały kontekst (Auth) jest **liftem 1:1 z TheKittySaver** (architektoniczna tożsamość repo) —
-  sprawdzony, przetestowany serwer.
+- Na start był kopią sprawdzonego, przetestowanego serwera z wcześniejszego projektu autora.
+  Od tamtej pory rozwija się już tylko tutaj.
 
 OpenIddict ma trzy części, wszystkie włączone w `OpenIddictExtensions.cs:17-89`:
 - **Core** — EF Core store na aplikacje/tokeny/scope'y (`UseDbContext<AuthDbContext>`).
@@ -235,9 +235,9 @@ które w id tokenie. `sub`/`email`/`name`/`role` idą do obu.
 3. wysyłka maila potwierdzającego; gdy mail padnie → **fallback auto-confirm** (`:146-155`);
 4. zwraca **201** z gołym `IdentityId`.
 
-**Kluczowe (`RegisterUser.cs:168-169`):** *brak* cross-contextowej sagi `RegisterUser→CreatePerson`
-(świadomy non-lift KittySavera). Profil tłumacza w TMS powstaje **leniwie** przy pierwszym
-uwierzytelnionym żądaniu (§7.3, ADR-0004). To największa różnica od KittySavera — i świetny temat na
+**Kluczowe (`RegisterUser.cs:228-230`):** *brak* cross-contextowej sagi, która przy rejestracji
+tworzyłaby też profil w TMS (świadoma decyzja, ADR-0002 §7). Profil tłumacza w TMS powstaje
+**leniwie** przy pierwszym uwierzytelnionym żądaniu (§7.3, ADR-0004). To świetny temat na
 rozmowę („dlaczego rozdzieliliście rejestrację od profilu domenowego").
 
 ### 6.6 Skąd się biorą roles i scopes w tokenie
@@ -280,7 +280,7 @@ Endpointy są **autoryzowane domyślnie** — anonim dostaje 401. Publiczne (dow
 
 ### 7.3 Leniwe, idempotentne prowizjonowanie tłumacza (ADR-0004) — nasza specyfika
 
-To serce różnicy od KittySavera. `tms-api` potrzebuje **lokalnej** tożsamości tłumacza (`Translator`),
+`tms-api` potrzebuje **lokalnej** tożsamości tłumacza (`Translator`),
 by renderować „submitted by / approved by <name>" dla *innych* tłumaczy — czego JWT bieżącego usera nie
 rozwiąże. Zamiast sagi przy rejestracji: **get-or-create przy pierwszym uwierzytelnionym żądaniu**.
 
@@ -518,9 +518,9 @@ tego urządzenia** (§10.3). Inne urządzenia zostają zalogowane. Access token 
 **Q: Czemu refresh tokeny są referencyjne?** — Żeby były **rewokowalne** (w bazie) i rolling (replay
 mitigation). Self-contained nie da się unieważnić przed wygaśnięciem.
 
-**Q: Czemu OpenIddict a nie gotowy IdP?** — Pełna kontrola, zero zależności/kosztu zewnętrznego, lift
-1:1 z referencyjnego TheKittySaver. (Sam KittySaver migruje docelowo do Entra — u nas OpenIddict
-zostaje na obecnym etapie.)
+**Q: Czemu OpenIddict a nie gotowy IdP?** — Pełna kontrola i zero zależności/kosztu zewnętrznego.
+Na start był to sprawdzony serwer skopiowany z wcześniejszego projektu autora; od tamtej pory
+rozwija się już tylko tutaj.
 
 **Q: Jak działa service-to-service?** — Grant client_credentials klienta `lotrokoniecdev-api`
 (confidential, sekret); token bez usera, `sub = client_id`, autoryzacja po scope `service`.

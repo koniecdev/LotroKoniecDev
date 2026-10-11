@@ -426,6 +426,8 @@ public sealed class OpenIddictSettingsValidatorTests
     [InlineData(Staging, "https://deploy:hunter2@staging.lotro-translator.pl", "deploy:hunter2")]
     [InlineData(Production, "https://deploy@lotro-translator.pl", "deploy@")]
     [InlineData(Production, "https://:hunter2@lotro-translator.pl", "hunter2")]
+    [InlineData(Production, "  https://deploy:hunter2@lotro-translator.pl  ", "hunter2")]
+    [InlineData(Production, @"https:\\deploy:hunter2@lotro-translator.pl", "hunter2")]
     public void Validate_DeployedEnvironmentWithPostLogoutRedirectUriCarryingUserInfo_FailsNamingTheEntryWithoutTheCredentials(
         string environmentName,
         string postLogoutRedirectUri,
@@ -463,6 +465,26 @@ public sealed class OpenIddictSettingsValidatorTests
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:Issuer", StringComparison.Ordinal));
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:WebClient:RedirectUris:0", StringComparison.Ordinal));
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:WebClient:PostLogoutRedirectUris:0", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Public addresses are checked only outside Development and Testing, where they point at localhost
+    /// (ADR-0008 §3, point 6).
+    /// </summary>
+    [Theory]
+    [InlineData(Development)]
+    [InlineData(Testing)]
+    public void Validate_NonDeployedEnvironmentWithUserInfoInEveryAddress_Succeeds(string environmentName)
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(environmentName);
+        OpenIddictSettings settings = SettingsWith(
+            issuer: "https://deploy:hunter2@localhost:5003",
+            redirectUris: ["https://deploy:hunter2@localhost:7017/callback"],
+            postLogoutRedirectUris: ["https://deploy:hunter2@localhost:7017"]);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Succeeded.ShouldBeTrue();
     }
 
     /// <summary>

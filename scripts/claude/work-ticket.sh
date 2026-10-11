@@ -2,6 +2,7 @@
 # Works ONE GitHub ticket in a headless Claude session inside its own git worktree, then
 # judges the outcome. It stops at the pull request — nothing here merges (ADR-0060):
 #   worktree from origin/main  →  claude -p "/work-ticket <n>"  →  STATUS: DONE (PR opened, waits for the owner's review)
+#                                                             →  STATUS: DONE, PR already merged by the owner: done (#1082)
 #                                                             →  STATUS: DONE, no open PR: resume the session once to open it
 #                                                             →  STATUS: BLOCKED (label `loop-blocked` + questions as issue comment)
 #                                                             →  no STATUS line: resume the same session (up to LOOP_MAX_RESUMES)
@@ -55,6 +56,7 @@
 #             11 issue refused by the provenance gate (untrusted author or commenter)
 #             12 skipped: the ticket already has an open PR, its worktree already exists, or a
 #                worktree kept for a resume can no longer be resumed safely
+#             13 the PR was merged before the session ended: a success, counted apart from 0
 set -euo pipefail
 
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
@@ -702,7 +704,7 @@ resume_prompt() {
     case "$1" in
         no-status) why="Your last message has no STATUS line, so the loop cannot tell how ticket #$ISSUE ended." ;;
         no-pr) why="Your last message says STATUS: DONE, but the loop found no open pull request for ticket #$ISSUE${pr_named:+ (PR #$pr_named, which your message links, is not one)}. \
-The loop counts only an open PR in this repository whose branch name starts with \"$ISSUE-\". \
+The loop counts only an open PR in this repository whose branch name starts with \"$ISSUE-\", or such a PR opened and merged after this session started. \
 Push the branch and open the PR now, or name the full URL of that PR if it already exists." ;;
         limit) why="The usage limit that stopped this session is over, and the loop resumes ticket #$ISSUE in the same worktree. \
 Time has passed since your last step, so check git status and whether the PR already exists before you go on. \
@@ -812,38 +814,58 @@ keep_result() {
     mv "$OUT.resume-$1" "$OUT"
 }
 
-# find_ticket_pr <final message> — sets pr_num to this ticket's open PR. Without one it sets
-# pr_problem for the log, pr_named to the number the message links, and pr_unknown=1 when GitHub
-# could not say whether there is one. pr_problem holds the linked PR's branch, which anyone who
-# opens a PR can name, so only pr_named may reach a prompt (ADR-0026).
+# find_ticket_pr <final message> — sets pr_num to this ticket's PR: an open one, or one the owner
+# merged while the session still ran (#1082), which also sets pr_merged=1. A session opens its PR
+# well before it ends, and the PR looks finished by then. A merged PR counts only when it was
+# opened after this session started: an older one is history from an earlier attempt. A PR closed
+# without a merge never counts. Without a PR it sets pr_problem for the log, pr_named to the number
+# the message links, and pr_unknown=1 when GitHub could not say whether there is one. pr_problem
+# holds the linked PR's branch, which anyone who opens a PR can name, so only pr_named may reach a
+# prompt (ADR-0026).
 find_ticket_pr() {
-    local url state
+    local url view pr_state pr_fork pr_head pr_created found
     pr_num=""
     pr_named=""
     pr_problem=""
     pr_unknown=0
+    pr_merged=0
     url="$(grep -oE 'https://github\.com/[^ )>,]+/pull/[0-9]+' <<< "$1" | head -1 || true)"
     if [ -n "$url" ]; then
         pr_named="${url##*/}"
-        state="$(gh pr view "$pr_named" --json state,isCrossRepository,headRefName \
-            --jq '"\(.state) \(.isCrossRepository) \(.headRefName)"' 2>/dev/null || true)"
-        case "$state" in
-            "OPEN false $ISSUE-"*) pr_num="$pr_named"; return 0 ;;
-        esac
-        pr_problem="PR #$pr_named is not an open PR for this ticket (${state:-unreadable})"
+        view="$(gh pr view "$pr_named" --json state,isCrossRepository,headRefName,createdAt \
+            --jq '"\(.state) \(.isCrossRepository) \(.headRefName) \((.createdAt // "") | if . == "" then 0 else fromdateiso8601 end)"' \
+            2>/dev/null || true)"
+        read -r pr_state pr_fork pr_head pr_created <<< "$view" || true
+        case "$pr_created" in ''|*[!0-9]*) pr_created=0 ;; esac
+        if [ "$pr_fork" = "false" ] && [[ "$pr_head" == "$ISSUE-"* ]]; then
+            case "$pr_state" in
+                OPEN) pr_num="$pr_named"; return 0 ;;
+                MERGED)
+                    if [ "$pr_created" -ge "$session_started" ]; then
+                        pr_num="$pr_named"
+                        pr_merged=1
+                        return 0
+                    fi
+                    ;;
+            esac
+        fi
+        pr_problem="PR #$pr_named is not an open PR for this ticket, nor one merged in this session (${view:+$pr_state $pr_fork $pr_head}${view:-unreadable})"
     fi
     # A wrong link may be a slip in the summary: the ticket's own PR, found by its branch, counts.
-    if ! pr_num="$(gh pr list --state open --limit 200 --json number,headRefName,isCrossRepository \
-        --jq "[.[] | $OURS | .number] | first // empty")"; then
-        pr_num=""
+    # An open PR goes first.
+    if ! found="$(gh pr list --state all --limit 200 --json number,headRefName,isCrossRepository,state,createdAt \
+        --jq "[.[] | $OURS | select(.state == \"OPEN\" or (.state == \"MERGED\" and (.createdAt // \"\") != \"\" and (.createdAt | fromdateiso8601) >= $session_started))]
+            | sort_by(.state != \"OPEN\") | first // empty | \"\(.number) \(.state)\"")"; then
         pr_unknown=1
-        pr_problem="${pr_problem:-no PR named}, and the open PRs could not be listed"
+        pr_problem="${pr_problem:-no PR named}, and the PRs could not be listed"
         return 0
     fi
+    read -r pr_num pr_state <<< "$found" || true
     if [ -n "$pr_num" ]; then
+        [ "$pr_state" != "MERGED" ] || pr_merged=1
         pr_problem=""
     else
-        pr_problem="${pr_problem:-no PR found}"
+        pr_problem="${pr_problem:-no open PR for this ticket, nor one merged in this session}"
     fi
 }
 
@@ -901,6 +923,7 @@ pr_num=""
 pr_named=""
 pr_problem=""
 pr_unknown=0
+pr_merged=0
 while :; do
     run_session_id="$(jq -r '.session_id // ""' "$OUT" 2>/dev/null || true)"
     [ -z "$run_session_id" ] || known_session="$run_session_id"
@@ -1026,8 +1049,9 @@ fi
 
 # ── DONE: the PR must really exist (never trust a summary alone) ───────────────────────────────
 # The loop above already asked GitHub for the final message. The number in that message is only a
-# hint: it must be an open PR in this repo whose branch belongs to this ticket. A made-up link, or
-# a link to another PR that the summary happens to mention first, never counts as this ticket's PR.
+# hint: it must be a PR in this repo whose branch belongs to this ticket, open or merged in this
+# session. A made-up link, or a link to another PR that the summary happens to mention first, never
+# counts as this ticket's PR.
 if [ -z "$pr_num" ]; then
     meta outcome error
     finish
@@ -1035,6 +1059,12 @@ if [ -z "$pr_num" ]; then
     exit 3
 fi
 meta pr "$pr_num"
+if [ "$pr_merged" -eq 1 ]; then
+    meta outcome merged
+    finish
+    log "PR #$pr_num was merged before the session ended — the work is on main (cost \$$cost, $turns turns, ${elapsed_min}m, $resumes resume(s))"
+    exit 13
+fi
 meta outcome pr-opened
 finish
 log "PR #$pr_num opened — waiting for your review (cost \$$cost, $turns turns, ${elapsed_min}m, $resumes resume(s))"

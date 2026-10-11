@@ -11,7 +11,8 @@
 # And it covers the worker's worktree lifecycle: the session runs in its own worktree cut from
 # origin/main, the main checkout is never touched, a finished worktree is removed or salvaged, a
 # stop signal ends the session and its children (also one it starts during the stop — #935), and
-# only a real open PR for the ticket counts.
+# only a real PR for the ticket counts: an open one, or one the owner merged before the session
+# ended (#1082).
 # A session that ends normally without a STATUS line is resumed a capped number of times (#925).
 # A usage limit keeps the worktree, and the next run resumes the session in it; a DONE with no
 # open PR is resumed once to open it; the picker does not hide a worktree kept that way (#934).
@@ -162,12 +163,13 @@ case "${args[0]:-}" in
                     exit 1
                 fi
                 # Like real `gh`, `pr list` returns open PRs unless asked for `--state all`; a fixture
-                # without a state is an open PR.
+                # without a state is an open PR, in every listing.
                 payload='[]'
                 [ ! -f "$GH_FIXTURES/pr-list.json" ] || payload="$(cat "$GH_FIXTURES/pr-list.json")"
+                payload="$(jq 'map(.state = (.state // "OPEN"))' <<< "$payload")"
                 if [ "$state" != "all" ]; then
                     payload="$(jq --arg state "$(printf '%s' "$state" | tr '[:lower:]' '[:upper:]')" \
-                        'map(select((.state // "OPEN") == $state))' <<< "$payload")"
+                        'map(select(.state == $state))' <<< "$payload")"
                 fi
                 if [ -n "$filter" ]; then jq -r "$filter" <<< "$payload"; else printf '%s' "$payload"; fi
                 ;;
@@ -319,13 +321,14 @@ fixture_prs() {
     printf '%s]' "$json" > "$GH_FIXTURES/pr-list.json"
 }
 
-# fixture_prs_state <number,headRefName,state[,headRefOid[,ended]]> ... — PRs in every state, as a
-# resume reads them. A merged or closed PR ends now unless `ended` (ISO 8601) says otherwise; an
-# open PR's head is a commit nobody has unless `headRefOid` names one.
+# fixture_prs_state <number,headRefName,state[,headRefOid[,ended[,created]]]> ... — PRs in every
+# state, as a resume reads them. A merged or closed PR ends now unless `ended` (ISO 8601) says
+# otherwise; an open PR's head is a commit nobody has unless `headRefOid` names one; a PR has no
+# createdAt unless `created` (ISO 8601) names one.
 fixture_prs_state() {
-    local json="[" separator="" number head state oid ended closed merged
+    local json="[" separator="" number head state oid ended created closed merged
     for entry in "$@"; do
-        IFS=, read -r number head state oid ended <<< "$entry"
+        IFS=, read -r number head state oid ended created <<< "$entry"
         oid="${oid:-0000000000000000000000000000000000000000}"
         closed=null
         merged=null
@@ -333,7 +336,8 @@ fixture_prs_state() {
             closed="\"${ended:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}\""
             [ "$state" != "MERGED" ] || merged="$closed"
         fi
-        json="$json$separator{\"number\":$number,\"headRefName\":\"$head\",\"headRefOid\":\"$oid\",\"isCrossRepository\":false,\"state\":\"$state\",\"closedAt\":$closed,\"mergedAt\":$merged}"
+        [ -z "$created" ] || created="\"$created\""
+        json="$json$separator{\"number\":$number,\"headRefName\":\"$head\",\"headRefOid\":\"$oid\",\"isCrossRepository\":false,\"state\":\"$state\",\"closedAt\":$closed,\"mergedAt\":$merged,\"createdAt\":${created:-null}}"
         separator=","
     done
     printf '%s]' "$json" > "$GH_FIXTURES/pr-list.json"
@@ -345,12 +349,14 @@ fixture_transcript() {
     : > "$LOOP_CONFIG_DIR/projects/fixture/$1.jsonl"
 }
 
-# fixture_pr_view <number> <state> <headRefName> [fork] — what `gh pr view <number>` returns.
+# fixture_pr_view <number> <state> <headRefName> [fork] [createdAt] — what `gh pr view <number>`
+# returns. Pass "" for a PR from this repository that has a createdAt (ISO 8601).
 fixture_pr_view() {
-    local fork=false
+    local fork=false created=null
     [ "${4:-}" = "fork" ] && fork=true
-    printf '{"number":%s,"state":"%s","headRefName":"%s","isCrossRepository":%s}' "$1" "$2" "$3" "$fork" \
-        > "$GH_FIXTURES/pr-view-$1.json"
+    [ -z "${5:-}" ] || created="\"$5\""
+    printf '{"number":%s,"state":"%s","headRefName":"%s","isCrossRepository":%s,"createdAt":%s}' \
+        "$1" "$2" "$3" "$fork" "$created" > "$GH_FIXTURES/pr-view-$1.json"
 }
 
 reset_fixtures() {
@@ -1570,7 +1576,7 @@ fixture_issue 76 maintainer OWNER
 behavior "$TMP_ROOT/done-no-pr.sh" 'echo "{\"result\":\"STATUS: DONE\",\"is_error\":false}"'
 run_case 3 "work-ticket: DONE without a PR anywhere is an error" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/done-no-pr.sh" "$WORK" 76 "$TMP_ROOT/run"
-expect_in_output "no PR found"
+expect_in_output "no open PR for this ticket, nor one merged in this session"
 [ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a result with no session id cannot be resumed" "$LAST_OUTPUT"
 
 # A DONE whose push or `gh pr create` failed is resumed once to open the PR (#934). The resume does
@@ -1651,6 +1657,83 @@ fixture_issue 78 maintainer OWNER
 run_case 3 "work-ticket: DONE naming a PR that does not exist is an error" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 78 "$TMP_ROOT/run"
 expect_in_output "unreadable"
+
+# The owner may merge a PR while its session still waits for CodeQL and rewrites the PR body
+# (#1082). The work is on main then: the ticket is merged, not failed, and its session is not
+# resumed. Here the PR is opened and merged during the session, as in the run that found it.
+behavior "$TMP_ROOT/done-merged.sh" 'ticket="${PWD##*ticket-}"
+git checkout -q -b "$ticket-fixture"
+git commit -q --allow-empty -m "reviewed work"
+printf "{\"number\":7$ticket,\"state\":\"MERGED\",\"headRefName\":\"$ticket-fixture\",\"isCrossRepository\":false,\"createdAt\":\"%s\"}" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$GH_FIXTURES/pr-view-7$ticket.json"
+echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\",\"is_error\":false,\"session_id\":\"s-$ticket\"}"'
+reset_fixtures
+fixture_issue 161 maintainer OWNER
+run_case 13 "work-ticket: a PR the owner merged before the session ended counts as merged" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 161 "$TMP_ROOT/run"
+expect_in_output "PR #7161 was merged before the session ended"
+expect_meta 161 outcome=merged pr=7161 resumes=0
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a merged PR must not resume the session" "$LAST_OUTPUT"
+[ ! -e "$WT_ROOT/ticket-161" ] || fail "a merged ticket's worktree is removed, as an opened one's is"
+git -C "$FAKE_REPO" rev-parse -q --verify refs/heads/161-fixture >/dev/null \
+    || fail "the branch of a merged ticket stays"
+
+# A summary with no link finds the merged PR by its branch.
+behavior "$TMP_ROOT/done-unlinked.sh" 'ticket="${PWD##*ticket-}"
+git checkout -q -B "$ticket-fixture"
+echo "{\"result\":\"STATUS: DONE\",\"is_error\":false,\"session_id\":\"s-$ticket\"}"'
+reset_fixtures
+fixture_issue 162 maintainer OWNER
+fixture_prs_state "8162,162-fixture,MERGED,,2099-01-01T00:10:00Z,2099-01-01T00:00:00Z"
+run_case 13 "work-ticket: a merged PR found by its branch counts as merged" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-unlinked.sh" "$WORK" 162 "$TMP_ROOT/run"
+expect_in_output "PR #8162 was merged before the session ended"
+expect_meta 162 outcome=merged pr=8162 resumes=0
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a merged PR must not resume the session" "$LAST_OUTPUT"
+
+# An open PR of the ticket goes before a merged one: it still waits for the owner's review. Both
+# open during the session, or the open one would stop the run before it starts.
+reset_fixtures
+fixture_issue 163 maintainer OWNER
+behavior "$TMP_ROOT/done-merged-and-open.sh" 'git checkout -q -b 163-fixture
+printf "[%s,%s]" \
+    "{\"number\":8163,\"headRefName\":\"163-fixture\",\"isCrossRepository\":false,\"state\":\"MERGED\",\"createdAt\":\"2099-01-01T00:00:00Z\"}" \
+    "{\"number\":9163,\"headRefName\":\"163-fixture\",\"isCrossRepository\":false,\"state\":\"OPEN\",\"createdAt\":\"2099-01-01T00:20:00Z\"}" \
+    > "$GH_FIXTURES/pr-list.json"
+echo "{\"result\":\"STATUS: DONE\",\"is_error\":false,\"session_id\":\"s-163\"}"'
+run_case 0 "work-ticket: an open PR of the ticket goes before a merged one" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged-and-open.sh" "$WORK" 163 "$TMP_ROOT/run"
+expect_in_output "PR #9163 opened"
+expect_meta 163 outcome=pr-opened pr=9163
+
+# Still an error, after the one resume as before (#1082): a PR closed without a merge, a PR merged
+# before this session started (history from an earlier attempt), and a merged PR from a fork or
+# of another ticket. A date in 2099 is after the session's start.
+for spec in "164|MERGED|164-fixture||2020-01-01T00:00:00Z|merged before this session started" \
+    "165|CLOSED|165-fixture||2099-01-01T00:00:00Z|closed without a merge" \
+    "166|MERGED|166-fixture|fork|2099-01-01T00:00:00Z|merged from a fork" \
+    "167|MERGED|12-another-ticket||2099-01-01T00:00:00Z|merged for another ticket"; do
+    IFS='|' read -r ticket state head fork created what <<< "$spec"
+    reset_fixtures
+    fixture_issue "$ticket" maintainer OWNER
+    fixture_pr_view "7$ticket" "$state" "$head" "$fork" "$created"
+    run_case 3 "work-ticket: a linked PR $what is still an error" \
+        env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" "$ticket" "$TMP_ROOT/run"
+    expect_in_output "PR #7$ticket is not an open PR for this ticket, nor one merged in this session"
+    expect_meta "$ticket" outcome=error resumes=1
+    [ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "a DONE with no PR is resumed exactly once" "$LAST_OUTPUT"
+done
+
+# Found by its branch, neither a closed PR nor one merged before the session counts.
+reset_fixtures
+fixture_issue 168 maintainer OWNER
+fixture_prs_state "8168,168-fixture,CLOSED,,2099-01-01T00:10:00Z,2099-01-01T00:00:00Z" \
+    "9168,168-fixture,MERGED,,2020-01-01T00:10:00Z,2020-01-01T00:00:00Z"
+run_case 3 "work-ticket: a closed PR or an old merged PR found by its branch is still an error" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-unlinked.sh" "$WORK" 168 "$TMP_ROOT/run"
+expect_in_output "worker reported DONE, but no open PR for this ticket, nor one merged in this session — treating as error"
+expect_meta 168 outcome=error resumes=1
+[ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "a DONE with no PR is resumed exactly once" "$LAST_OUTPUT"
 
 # A worktree folder deleted by hand is still registered; the run must not trip over it.
 reset_fixtures

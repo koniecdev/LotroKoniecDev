@@ -50,7 +50,7 @@ produces PRs, and the one merge path is `/merge-train` over PRs the owner approv
 | `scripts/claude/backlog-loop.sh` | the conductor — up to `-j` tickets at once, lock, stop conditions, roll-up table of PRs |
 | `scripts/claude/next-ticket.sh` | deterministic picker: priority labels + `Depends on #X` gate + skip rules + "no open PR yet" (a worktree kept for a resume after a usage limit does not hide its ticket) |
 | `scripts/claude/issue-trust.sh` | the provenance gate: refuses an issue written by anyone without write access (ADR-0026) |
-| `scripts/claude/work-ticket.sh` | one ticket: provenance gate → resume the session of a worktree kept after a usage limit, or skip if already in flight → worktree from `origin/main` → fresh headless session → judge `STATUS:` (no line: resume the same session, at most `LOOP_MAX_RESUMES` times) → confirm the PR exists (DONE with no open PR: resume once) → remove the clean worktree (usage limit: keep it for the next run) |
+| `scripts/claude/work-ticket.sh` | one ticket: provenance gate → resume the session of a worktree kept after a usage limit, or skip if already in flight → worktree from `origin/main` → fresh headless session → judge `STATUS:` (no line: resume the same session, at most `LOOP_MAX_RESUMES` times) → confirm the PR exists (merged by the owner while the session ran: done; DONE with no open PR: resume once) → remove the clean worktree (usage limit: keep it for the next run) |
 | `.claude/commands/work-ticket.md` | the per-ticket discipline prompt (the old `ticket-worker` agent, promoted to a slash command) |
 | `.claude/commands/backlog.md` | `/backlog <numbers>` prints the terminal command; `/backlog` with no arguments, after a run, reports the roll-up from the console copy and the run's `.meta` files. It never starts the loop |
 | `~/.claude-account1/skills/merge-train/` | the maintainer's merge path — merges PRs the owner approved by assigning themselves (lives outside this repo) |
@@ -221,6 +221,14 @@ Per-ticket outcomes:
   `pr-verify`: the table shows the checks as they stand at the end of the run, and `/merge-train`
   checks them again before any merge. A DONE with no open PR for the ticket is resumed once to
   open it (see "A session stopped by a usage limit, or DONE without a PR").
+- **merged** — the worker reported DONE, and you merged its PR before its session ended (#1082). A
+  session opens its PR about 15 minutes before it ends: it still waits for CodeQL and rewrites the
+  PR body, and the PR looks finished in that time. The work is on `main`, so the ticket is done:
+  its session is not resumed, it does not count toward the failure circuit breaker, and its
+  worktree is removed as for `pr-opened` (the branch stays). The table shows its PR, and the
+  `done:` line counts it apart from `PR opened` and `failed`. Only a PR opened after the session
+  started counts: one merged before it is history from an earlier attempt, and a PR closed without
+  a merge is still an `error`.
 - **skipped** — the ticket already has an open PR, or `.claude/worktrees/ticket-<n>` already
   exists (a manual `/ticket` session or an earlier run is on it). Nothing is started. A worktree
   kept for a resume after a usage limit is skipped too when resuming it is no longer safe (see
@@ -353,7 +361,8 @@ Now:
 - **Without a session id, a limit still starts over**, as before: the worktree is salvaged and
   removed, and the retry cuts a new one from `origin/main`.
 - **A DONE with no open PR for the ticket is resumed once**, with a prompt that says what the loop
-  found and that it counts only an open PR whose branch starts with `<n>-`, and asks the session to
+  found and that it counts only an open PR whose branch starts with `<n>-`, or such a PR opened and
+  merged during the session (`merged` above), and asks the session to
   push and open the PR. The prompt names a PR the summary linked by its number only: that PR's
   branch name is text anyone who opens a PR can choose, so it stays in the log (ADR-0026). The result is judged again from the top: `pr-opened` when the PR now
   exists, `error` when it still does not. The resume needs a real "no PR" from GitHub: when the

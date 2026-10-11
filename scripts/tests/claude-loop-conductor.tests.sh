@@ -11,7 +11,9 @@
 #     worker resumes its session then — #934), and a limit that outlasts every nap names the
 #     worktree kept for that resume,
 #   * a worktree that cannot be made, or two failures in a row, stop new starts,
-#   * a skip, a refusal or a blocked ticket is not a failure,
+#   * a skip, a refusal or a blocked ticket is not a failure, and neither is a PR the owner merged
+#     before its session ended: the table shows it as merged, and it resets the failure streak
+#     (#1082),
 #   * drain mode and -n still work, a number given twice runs once, and nothing calls `gh pr merge`,
 #   * the table names a ticket whose worker had to be resumed,
 #   * the loop refuses to run loop scripts that differ from origin/main,
@@ -103,9 +105,9 @@ if [ -f "$STATE/rc-$ticket" ]; then
     echo "$*" > "$STATE/rc-$ticket"
 fi
 outcome=pr-opened
-case "$rc" in 2) outcome=blocked ;; 3) outcome=error ;; 6) outcome=limit ;; 11) outcome=untrusted ;; 12) outcome=skipped ;; esac
+case "$rc" in 2) outcome=blocked ;; 3) outcome=error ;; 6) outcome=limit ;; 11) outcome=untrusted ;; 12) outcome=skipped ;; 13) outcome=merged ;; esac
 printf 'issue=%s\noutcome=%s\n' "$ticket" "$outcome" > "$run_dir/ticket-$ticket.meta"
-[ "$rc" -eq 0 ] && echo "pr=$((ticket + 1000))" >> "$run_dir/ticket-$ticket.meta"
+case "$rc" in 0|13) echo "pr=$((ticket + 1000))" >> "$run_dir/ticket-$ticket.meta" ;; esac
 # The real worker keeps the worktree of a limited session for the next run's resume.
 [ "$rc" -eq 6 ] && echo "worktree=kept" >> "$run_dir/ticket-$ticket.meta"
 # The real worker writes resumes= for every ticket, 0 when none was needed.
@@ -361,7 +363,22 @@ echo 2 > "$STATE/rc-43"
 echo 3 > "$STATE/rc-44"
 run_conductor 0 "conductor: a skip, a refusal or a block is not a failure" -j 1 41 42 43 44 45
 expect_started "41 42 43 44 45"
-expect_in_output "done: 1 PR opened · 1 blocked · 1 failed · 1 skipped · 1 untrusted"
+expect_in_output "done: 1 PR opened · 0 merged · 1 blocked · 1 failed · 1 skipped · 1 untrusted"
+
+# A PR the owner merged while its session still ran is done work (#1082). Two in a row do not stop
+# the run, and one between two failures resets the streak.
+reset_state
+echo 3 > "$STATE/rc-101"
+echo 13 > "$STATE/rc-102"
+echo 13 > "$STATE/rc-103"
+echo 3 > "$STATE/rc-104"
+run_conductor 0 "conductor: a PR merged before its session ended is not a failure" -j 1 101 102 103 104 105
+expect_started "101 102 103 104 105"
+printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #102 +merged +#1102 ' >/dev/null \
+    || fail "the row of #102 should say merged, with its PR" "$LAST_OUTPUT"
+expect_in_output "done: 1 PR opened · 2 merged · 0 blocked · 2 failed · 0 skipped · 0 untrusted"
+printf '%s\n' "$LAST_OUTPUT" | grep -q "consecutive failures" \
+    && fail "a merged ticket must not count toward the stop after consecutive failures" "$LAST_OUTPUT"
 
 # ── Drain mode ─────────────────────────────────────────────────────────────────────────────────
 reset_state

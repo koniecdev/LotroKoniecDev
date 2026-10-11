@@ -16,7 +16,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Messaging;
 /// <remarks>
 /// Declaring the same thing twice is safe only while the arguments stay the same. A changed argument
 /// fails the channel with <c>PRECONDITION_FAILED</c>, so changing <see cref="ErasedQueueArguments"/>
-/// means deleting the queue first, as with the e-mail queue (ADR-0036).
+/// means deleting the queue, as with the e-mail queue (ADR-0036). Delete it only while the release
+/// with the new arguments runs: the running consumer declares the queue again with its own arguments.
 /// </remarks>
 internal static class AccountEventsTopology
 {

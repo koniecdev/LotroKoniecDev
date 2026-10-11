@@ -1412,7 +1412,11 @@ name may still be on a translator profile, so look at it the same day. If you de
 `tms.account-erased` to change its arguments, do it while the tms-api release with the new arguments
 is running, or while tms-api is stopped. The running tms-api declares it again with **its own**
 arguments and attaches, usually within a minute and with no restart, so a delete under the old
-release brings the old arguments straight back. Replay works as for `emails.send.dlq`, on the **`lotro.accounts`** exchange with the routing
+release brings the old arguments straight back. The release with the new arguments cannot read the
+old queue, so check in the management UI that it holds no messages right before the delete: the
+AuthSystem never sends an erasure again once it was sent, so a message lost there leaves the
+person's name on the profile for good. An erasure that is waiting out a database outage at that
+moment holds the attach back until its pause ends (about 15 minutes at most). Replay works as for `emails.send.dlq`, on the **`lotro.accounts`** exchange with the routing
 key `account.erased` and the `type` property `AccountErased`. Erasing a profile twice is harmless,
 so a replay never needs a duplicate check.
 

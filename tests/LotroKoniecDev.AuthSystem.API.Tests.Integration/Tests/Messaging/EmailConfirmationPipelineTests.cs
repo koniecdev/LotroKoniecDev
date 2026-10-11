@@ -44,16 +44,6 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     private readonly SpyAccountConfirmationEmailSender _confirmationEmailSpy;
     private readonly Bogus.Faker _faker = new();
 
-    public EmailConfirmationPipelineTests(BrokeredAuthSystemApiFactory factory)
-    {
-        _factory = factory;
-        _confirmationEmailSpy = factory.Services.GetRequiredService<SpyAccountConfirmationEmailSender>();
-
-        JsonSerializerOptions jsonSerializerOptions =
-            factory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
-        _apiClient = new TestApiClient(factory.CreateClient(), jsonSerializerOptions);
-    }
-
     public async Task InitializeAsync()
     {
         _confirmationEmailSpy.Reset();
@@ -310,6 +300,16 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         JsonElement rabbitMqCheck = report.RootElement.GetProperty("checks").EnumerateArray()
             .Single(check => check.GetProperty("name").GetString() == "rabbitmq");
         rabbitMqCheck.GetProperty("status").GetString().ShouldBe("Healthy");
+    }
+
+    public EmailConfirmationPipelineTests(BrokeredAuthSystemApiFactory factory)
+    {
+        _factory = factory;
+        _confirmationEmailSpy = factory.Services.GetRequiredService<SpyAccountConfirmationEmailSender>();
+
+        JsonSerializerOptions jsonSerializerOptions =
+            factory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
+        _apiClient = new TestApiClient(factory.CreateClient(), jsonSerializerOptions);
     }
 
     private async Task PublishRawAsync(string payload, string? messageId, string? messageType = null)

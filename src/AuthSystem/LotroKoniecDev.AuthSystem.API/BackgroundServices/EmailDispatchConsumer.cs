@@ -158,6 +158,7 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
         TimeSpan watchInterval)
     {
         ArgumentOutOfRangeException.ThrowIfZero(connectBackoffs.Length);
+        ArgumentOutOfRangeException.ThrowIfLessThan(connectBackoffs.Min(), TimeSpan.Zero);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(watchInterval, TimeSpan.Zero);
 
         _connectionFactory = connectionFactory;

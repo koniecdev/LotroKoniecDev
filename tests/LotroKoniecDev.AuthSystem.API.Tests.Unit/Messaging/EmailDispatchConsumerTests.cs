@@ -15,8 +15,9 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Messaging;
 /// <c>Math.Min</c> in the consumer silently absorbs any drift. Also pins the poison decision for
 /// unusable message ids (ADR-0037): a delivery the inbox cannot deduplicate must be rejected,
 /// not processed blind. And it pins that the consumer stays attached (#1088): a failed attach, a
-/// cancellation the client reports on its own included, or a channel the broker closed makes it
-/// attach again, one closed look is left to automatic recovery, and only the host's stop ends it.
+/// cancellation the client reports on its own included, a channel the broker closed or a subscription
+/// it cancelled makes it attach again without leaving the old connection behind, one closed look is
+/// left to automatic recovery, and only the host's stop ends it.
 /// </summary>
 public sealed class EmailDispatchConsumerTests
 {
@@ -148,6 +149,50 @@ public sealed class EmailDispatchConsumerTests
         attachedAgain.ShouldBeTrue();
     }
 
+    [Fact]
+    public async Task ExecuteAsync_AfterTheBrokerCancelledTheSubscription_ShouldAttachAgain()
+    {
+        // Arrange: the channel stays open, but the broker cancels the subscription, as it does when the
+        // queue is deleted to change its arguments. Automatic recovery does not bring that back.
+        BrokerStub cancelledSubscription = new(true);
+        BrokerStub newSubscription = new(true);
+        IConnectionFactory connectionFactory = Substitute.For<IConnectionFactory>();
+        connectionFactory.CreateConnectionAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(cancelledSubscription.Connection), Task.FromResult(newSubscription.Connection));
+        using EmailDispatchConsumer consumer = CreateConsumer(connectionFactory, TimeSpan.FromMilliseconds(10));
+
+        // Act
+        await consumer.StartAsync(CancellationToken.None);
+        await cancelledSubscription.WaitUntilConsumingAsync();
+        await cancelledSubscription.CancelSubscriptionAsync();
+        bool attachedAgain = await newSubscription.WaitUntilConsumingAsync();
+        await StopWithinLimitAsync(consumer);
+
+        // Assert
+        attachedAgain.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_BeforeItAttachesAgain_ShouldDisposeTheOldConnection()
+    {
+        // Arrange: a detached consumer whose old connection stayed alive would come back through
+        // automatic recovery and consume next to the new one.
+        BrokerStub closedChannel = new(false);
+        BrokerStub openChannel = new(true);
+        IConnectionFactory connectionFactory = Substitute.For<IConnectionFactory>();
+        connectionFactory.CreateConnectionAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(closedChannel.Connection), Task.FromResult(openChannel.Connection));
+        using EmailDispatchConsumer consumer = CreateConsumer(connectionFactory, TimeSpan.FromMilliseconds(10));
+
+        // Act
+        await consumer.StartAsync(CancellationToken.None);
+        await openChannel.WaitUntilConsumingAsync();
+        await StopWithinLimitAsync(consumer);
+
+        // Assert: resource cleanup, which the consumer returns nothing about
+        await closedChannel.Connection.Received(1).DisposeAsync();
+    }
+
     [Theory]
     [InlineData(new[] { true })]
     [InlineData(new[] { false, true })]
@@ -162,13 +207,13 @@ public sealed class EmailDispatchConsumerTests
             .Returns(Task.FromResult(broker.Connection));
         using EmailDispatchConsumer consumer = CreateConsumer(connectionFactory, TimeSpan.FromMilliseconds(10));
 
-        // Act: about thirty looks
+        // Act
         await consumer.StartAsync(CancellationToken.None);
-        await broker.WaitUntilConsumingAsync();
-        await Task.Delay(TimeSpan.FromMilliseconds(300));
+        bool lookedThirtyTimes = await broker.WaitForLooksAsync(30);
         await StopWithinLimitAsync(consumer);
 
         // Assert: a new connection is a side effect the consumer returns nothing about
+        lookedThirtyTimes.ShouldBeTrue();
         await connectionFactory.Received(1).CreateConnectionAsync(Arg.Any<CancellationToken>());
     }
 
@@ -194,11 +239,14 @@ public sealed class EmailDispatchConsumerTests
     /// <summary>
     /// One connection with one channel, standing in for the broker client. The channel confirms a
     /// subscription the way the broker does, so the consumer counts as running, and the test can wait
-    /// for that moment.
+    /// for that moment, cancel the subscription as the broker does, and count the consumer's looks.
     /// </summary>
     private sealed class BrokerStub
     {
+        private readonly bool[] _channelOpenOnLooks;
         private readonly TaskCompletionSource _consuming = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private IAsyncBasicConsumer? _consumer;
+        private int _looks;
 
         public IConnection Connection { get; }
 
@@ -208,14 +256,35 @@ public sealed class EmailDispatchConsumerTests
             return finished == _consuming.Task;
         }
 
+        public Task CancelSubscriptionAsync()
+        {
+            IAsyncBasicConsumer consumer = _consumer
+                ?? throw new InvalidOperationException("Nothing has subscribed yet.");
+            return consumer.HandleBasicCancelAsync(ConsumerTag);
+        }
+
+        public async Task<bool> WaitForLooksAsync(int looks)
+        {
+            using CancellationTokenSource waitLimit = new(WaitLimit);
+
+            while (Volatile.Read(ref _looks) < looks && !waitLimit.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(5));
+            }
+
+            return Volatile.Read(ref _looks) >= looks;
+        }
+
         /// <summary>
         /// Takes what the channel answers when the consumer asks whether it is open, one answer per
         /// look. The last answer holds for every later look.
         /// </summary>
         public BrokerStub(params bool[] channelOpenOnLooks)
         {
+            _channelOpenOnLooks = channelOpenOnLooks;
+
             IChannel channel = Substitute.For<IChannel>();
-            channel.IsOpen.Returns(channelOpenOnLooks[0], channelOpenOnLooks[1..]);
+            channel.IsOpen.Returns(_ => AnswerNextLook());
             channel.BasicConsumeAsync(
                     Arg.Any<string>(),
                     Arg.Any<bool>(),
@@ -227,7 +296,9 @@ public sealed class EmailDispatchConsumerTests
                     Arg.Any<CancellationToken>())
                 .Returns(async callInfo =>
                 {
-                    await callInfo.Arg<IAsyncBasicConsumer>().HandleBasicConsumeOkAsync(ConsumerTag);
+                    IAsyncBasicConsumer consumer = callInfo.Arg<IAsyncBasicConsumer>();
+                    await consumer.HandleBasicConsumeOkAsync(ConsumerTag);
+                    _consumer = consumer;
                     _consuming.TrySetResult();
                     return ConsumerTag;
                 });
@@ -235,6 +306,12 @@ public sealed class EmailDispatchConsumerTests
             Connection = Substitute.For<IConnection>();
             Connection.CreateChannelAsync(Arg.Any<CreateChannelOptions?>(), Arg.Any<CancellationToken>())
                 .Returns(Task.FromResult(channel));
+        }
+
+        private bool AnswerNextLook()
+        {
+            int look = Interlocked.Increment(ref _looks);
+            return _channelOpenOnLooks[Math.Min(look, _channelOpenOnLooks.Length) - 1];
         }
     }
 }

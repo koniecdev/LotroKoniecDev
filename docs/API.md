@@ -117,7 +117,7 @@ idempotently provisions the caller's TMS `Translator` profile (ADR-0004, amended
 stamping attribution.
 
 **Roles** (`AuthConstants.Roles`): `Admin` (reviewer — approves, imports, registers versions) and
-`Translator` (edits Polish). A self-registered user gets **`Translator`** (`RegisterUser.cs:138-139`);
+`Translator` (edits Polish). A self-registered user gets **`Translator`** (`RegisterUser.cs:191-192`);
 the seeded admin gets `Admin`. **Scopes** (`AuthConstants.Scopes`): `api`, `service` (plus the OIDC
 `openid email profile roles offline_access`).
 
@@ -386,9 +386,9 @@ cancellation link's landing page — LEGAL-01).
 `RegisterRequest`: `{ username, email, password, acceptedPrivacyPolicy, acceptedTermsOfService }`.
 Both flags **must be `true`** (the ToS flag landed with LEGAL-03; acceptance + timestamp are persisted
 and surface in the data export). There is no data-processing consent: the account runs on the
-contract, not on consent (#1073), so registration neither asks for one nor stores one. The data export
+contract, not on consent (ADR-0068, #1073), so registration neither asks for one nor stores one. The data export
 still carries `dataProcessingConsentGiven`/`dataProcessingConsentDate`, which only older accounts have
-set, until the column is dropped (ADR-0023). Password rules (`PasswordValidationRules.cs`, lengths in `PasswordConstants.cs`): **8–128** chars,
+set, until the columns are dropped (ADR-0023, #1130). Password rules (`PasswordValidationRules.cs`, lengths in `PasswordConstants.cs`): **8–128** chars,
 ≥1 digit, ≥1 lowercase, ≥1 uppercase, ≥1 special. Email unique (case-insensitively, physical via the
 unique `EmailIndex`), ≤ 250, regex-validated — **the e-mail is the login identifier** (ADR-0022).
 Username is a **display-only handle**: unique (case-insensitively), `^[a-zA-Z0-9]+$` (letters + digits

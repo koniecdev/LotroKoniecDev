@@ -6,8 +6,8 @@ public sealed class ApplicationUser : IdentityUser<Guid>
 {
     /// <summary>
     /// Registration asked for this consent until #1073. The account runs on the contract, not on consent,
-    /// so registration no longer sets it. It only keeps what older accounts gave, until the column is
-    /// dropped in a later expand/contract step (ADR-0023, #1130).
+    /// so registration no longer sets it (ADR-0068). It only keeps what older accounts gave, until the
+    /// column is dropped in a later expand/contract step (ADR-0023, #1130).
     /// </summary>
     public bool DataProcessingConsentGiven { get; set; }
     public DateTimeOffset? DataProcessingConsentDate { get; set; }

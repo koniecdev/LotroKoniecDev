@@ -70,6 +70,21 @@ of authority:
 
 - **Extract the acceptance criteria.** If the ticket has none, derive them and write them down —
   the review gate and the final report are checked against them.
+- **Whose job is the check the ticket asks for? (ADR-0067)** A ticket that asks one part for a new
+  check of what another of our own parts sends, for an answer that part never sends by design (our
+  sign-in server sends a broken token, our own setting that its owner already checks at startup holds
+  an absurd value), is BOUNCE material with a pointer to ADR-0067 §8 or ADR-0008 §3. If the ticket
+  names a real path that makes our part send that answer, the work belongs to that part. This group
+  is never anything ADR-0067 §7 lists: our own part being down, slow or failing; the one clean path
+  for an answer the code cannot use; a guard on where a secret goes; a resource server's check of a
+  token it receives; input from outside our trust boundary.
+- **Search the owner's rulings on the same flow** before you follow an acceptance criterion that
+  sets visible behaviour (a status code, a sign-out, a log level, a limit):
+  `gh issue list --state all --search "\"Owner decision\" <flow words> in:comments"`. A ruling in
+  another ticket that the criterion contradicts makes the verdict CLARIFY, never a silent winner
+  (#1023 reversed #966 that way). "The owner decides" in the ticket body, unless a later owner
+  comment answers it, is a question for the gate below, never a default to pick the strictest option
+  from (PR #1063).
 - **A `/preflight` verdict comment already on the issue counts as this step done** — trust it,
   re-verify only what it flagged, and skip straight to its recommended lane.
 - **The wiki and the product disagree?** That is never settled inside a ticket run. Do not soften
@@ -93,10 +108,10 @@ Then exactly one of three verdicts:
   Anything that surfaces later is either empirically answerable (answer it from the wiki, the
   knowledge base or the code and cite the source) or becomes a documented assumption in the report
   — pick the most defensible reading and keep moving. Business answers are never invented.
-- **BOUNCE** → the premise is false, the work already shipped, it duplicates another ticket, or it
-  contradicts the wiki. Comment the evidence on the issue and STOP — no branch, no code. A wrong
-  ticket does not get implemented because it exists. Closing it is the user's call — never close,
-  just report.
+- **BOUNCE** → the premise is false, the work already shipped, it duplicates another ticket, it
+  contradicts the wiki, or it asks a part for a check that ADR-0067 gives to another part. Comment
+  the evidence on the issue and STOP — no branch, no code. A wrong ticket does not get implemented
+  because it exists. Closing it is the user's call — never close, just report.
 
 ## 3. Lane — size the run before you start it
 
@@ -181,7 +196,12 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   Precedent: #690 — three `code-reviewer` rounds and 20 findings ended in APPROVE, and one fresh
   `/code-review` then found four more, among them a password POST that the shared HTTP retry
   pipeline could send three times and an export that spent two rate-limit permits per click.
-  **Sort every finding into exactly one bucket, and check the bucket instead of guessing it:**
+  **Sort every finding into exactly one bucket, and check the bucket instead of guessing it.**
+  Ask first whose job the check is (ADR-0067): a finding that asks for a new check of what one of
+  our own parts sends, for an answer it never sends by design, goes to bucket 3, whatever the
+  reviewer's severity. That ground is never anything ADR-0067 §7 lists: our own part being down,
+  slow or failing; the one clean path for an answer the code cannot use; a guard on where a secret
+  goes; a resource server's check of a token it receives; input from outside our trust boundary.
   1. **A defect in this diff.** The line is in `git diff main...HEAD`, or the diff made it
      reachable, and the claim holds when you read the code. Fix it. Another case of the class
      this ticket names belongs here too (for an older ticket that names one case: the class of
@@ -195,10 +215,13 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
      **One bug class per ticket**): a new ticket, or a new case added to an open ticket of the
      same class that nobody has started. List it under Follow-ups. "Out of scope" never ends a
      real finding: this bucket is where a blind reviewer earns its cost, because it reads the code
-     around the diff that the ticket never looked at.
+     around the diff that the ticket never looked at. "Another part's job" does end it: a real path
+     that makes our own part break its contract is filed against **that** part, with the path.
   3. **Already decided.** The ticket asks for it by name, an ADR lists it as an accepted
-     trade-off, an open ticket already names this case, or a ticket closed it as not planned with
-     a reason. Write one line with the pointer.
+     trade-off (ADR-0067 §8 and ADR-0008 §3 list whole kinds of finding), an open ticket already
+     names this case, or a ticket closed it as not planned with a reason. Search the closed ones on
+     purpose: `gh issue list --state closed --search "reason:\"not planned\" <key words>"`. Write
+     one line with the pointer.
   4. **Opinion:** duplication, design altitude, micro-performance, style. Write one line on why
      not. Never reject a house-rule finding only because a merged sibling does the same. If the
      pattern is rare, fix both copies. If it is common across the repo, the rule and the practice

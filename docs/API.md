@@ -357,7 +357,9 @@ marked "bearer token" below) takes only a token whose `aud` names `lotrokoniecde
 other token, the service's client credentials token too, gets **401** and `error="invalid_token"` in
 the `WWW-Authenticate` header (#1023). `connect/userinfo` answers the token of an account that no
 longer exists the same way (#955). A 429 from the rate limiter and a 500 from an unhandled exception
-still come from the shared pipeline as `ProblemDetails` (#917).
+come from the shared pipeline as `ProblemDetails`, by design: the status code tells a temporary
+failure from a final one, and the built-in behaviour comes first (#917, closed as not planned;
+ADR-0067 §8).
 
 The login/consent UI is server-rendered Razor Pages: `/Account/Login`, `/Account/Register`,
 `/Account/ConfirmEmail`, `/Account/ResendConfirmation`, `/Account/ForgotPassword`,

@@ -133,6 +133,19 @@ name the single case someone happened to hit.
 - **A case of the class your own ticket names is not a follow-up.** For an older ticket that names
   only one case, that is the class of that case. Finding the other cases is that ticket's task, so
   fix it in your diff with its own test, and name it under Shipped in the report.
+- **Name whose job the check is before you file.** A case that asks one part for a new check of
+  what another of our own parts sends, for an answer that part never sends by design (a token of the
+  wrong shape from our sign-in server, our own settings that their owner already checks at startup),
+  is not a defect of the part that receives it, so it is not filed. If a real path makes our part
+  send that answer, file the case against that part, with the path. Five kinds always stay findings:
+  our own part being down, slow or failing (a 5xx, a timeout, a failed save); the one clean path for
+  an answer the code cannot use; a guard on where a secret goes (another host, plain HTTP, a page, an
+  e-mail, a log line); a resource server's check of a token it receives; and input from outside our
+  trust boundary (a user, a browser, an imported file, a third-party service). The repo's trust model
+  lists the kinds that are not findings (here: ADR-0067 §8 and ADR-0008 §3). This rule sorts
+  findings; it does not drop any. The chain it ends: #974 → #1026/#1028 →
+  #1056/#1057/#1065/#1066/#1067, where each ticket added checks on our own server's answers and the
+  next review filed the checks' edge cases.
 - **Look for a ticket of the same class before you file.**
   - **Open, and nobody has started it** (no branch, no PR, no loop worktree for it): read its body,
     add the case as a new checkbox, and write the body back with `gh issue edit --body-file`. Then
@@ -140,7 +153,9 @@ name the single case someone happened to hit.
     live. Later comments override the body and any older plan, so the comment keeps the case from
     being missed. Add any process label, such as `audit`, that a new follow-up would get.
   - **Open and already started, or closed as completed:** file a new ticket and link the old one.
-    A ticket closed as not planned has already decided the case: point to it instead.
+    A ticket closed as not planned has already decided the case: point to it instead. Search those
+    on purpose, because a keyword search over open tickets never shows them:
+    `gh issue list --state closed --search "reason:\"not planned\" <key words>"`.
   - **A bug a tester filed** never gets a case added: the tester's report stays one bug. File a
     new ticket and link it.
 - **Never put unrelated fixes in one ticket to save sessions.** One unclear fix would block the

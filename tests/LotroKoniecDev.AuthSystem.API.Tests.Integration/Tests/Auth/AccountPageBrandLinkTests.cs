@@ -37,7 +37,7 @@ public sealed partial class AccountPageBrandLinkTests : EndpointsTestBase
         // Act
         using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
 
-        // Assert: nothing in this host's settings names production, so such an address is written into the page
+        // Assert: every web address this host is given is on localhost, so a production link can only come from the page
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
         ProductionAddressRegex().Matches(html).Select(match => match.Value).ShouldBeEmpty();

@@ -4,9 +4,9 @@ using LotroKoniecDev.AuthSystem.API.Settings;
 namespace LotroKoniecDev.AuthSystem.API.Common;
 
 /// <summary>
-/// The website's home page, where the logo on every account page leads (#1074). The pages get it through
-/// <c>Pages/_ViewImports.cshtml</c>, so a new page links to the website of its own environment with no
-/// extra code. A fixed address would send a staging tester or a local developer to production.
+/// The website's home page, where the logo on every account page leads (#1074). Every page gets it through
+/// <c>Pages/_ViewImports.cshtml</c>, so its logo only needs <c>href="@FrontendHome.Url"</c> and no code in
+/// the page model. A fixed address would send a staging tester or a local developer to production.
 /// </summary>
 internal sealed class FrontendHome
 {

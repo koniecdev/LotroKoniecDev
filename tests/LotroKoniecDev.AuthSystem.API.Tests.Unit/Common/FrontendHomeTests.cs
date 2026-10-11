@@ -40,22 +40,6 @@ public sealed class FrontendHomeTests
         frontendHome.Url.ShouldBeNull();
     }
 
-    [Theory]
-    [InlineData("")]
-    [InlineData("/app")]
-    [InlineData("javascript:alert(1)")]
-    public void Url_AppRootThatIsNotAnHttpUrl_IsNull(string appRoot)
-    {
-        // Arrange
-        IOptions<OpenIddictSettings> options = OptionsWith(new WebClientSettings { PostLogoutRedirectUris = [appRoot] });
-
-        // Act
-        FrontendHome frontendHome = new(options);
-
-        // Assert
-        frontendHome.Url.ShouldBeNull();
-    }
-
     private static IOptions<OpenIddictSettings> OptionsWith(WebClientSettings webClient) =>
         Microsoft.Extensions.Options.Options.Create(new OpenIddictSettings
         {

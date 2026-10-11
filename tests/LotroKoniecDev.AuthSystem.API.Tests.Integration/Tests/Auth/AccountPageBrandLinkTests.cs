@@ -4,22 +4,21 @@ using Microsoft.AspNetCore.TestHost;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Settings;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
-using LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.SecurityHeaders;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
 /// The logo on every account page linked to production, so a tester on staging who clicked it went on
-/// testing production without noticing (#1074). The page list is the one in
-/// <see cref="SecurityHeadersTests"/>, and a test there holds it equal to the pages the app maps, so a new
+/// testing production without noticing (#1074). The pages come from <see cref="AccountPages"/>, so a new
 /// page is checked the day it is added.
 /// </summary>
 public sealed partial class AccountPageBrandLinkTests : EndpointsTestBase
 {
     [Theory]
-    [MemberData(nameof(SecurityHeadersTests.AccountPages), MemberType = typeof(SecurityHeadersTests))]
-    public async Task AccountPage_ShouldLinkTheLogoToTheConfiguredWebsite(string page)
+    [MemberData(nameof(AccountPages.All), MemberType = typeof(AccountPages))]
+    public async Task AccountPage_WebClientConfigured_LinksTheLogoToItsWebsite(string page)
     {
         // Act
         using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
@@ -32,22 +31,22 @@ public sealed partial class AccountPageBrandLinkTests : EndpointsTestBase
     }
 
     [Theory]
-    [MemberData(nameof(SecurityHeadersTests.AccountPages), MemberType = typeof(SecurityHeadersTests))]
-    public async Task AccountPage_ShouldContainNoProductionAddress(string page)
+    [MemberData(nameof(AccountPages.All), MemberType = typeof(AccountPages))]
+    public async Task AccountPage_TestHostOnLocalhost_ContainsNoProductionAddress(string page)
     {
         // Act
         using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
 
-        // Assert: the test host points at localhost, so a production address can only be written into the page
+        // Assert: nothing in this host's settings names production, so such an address is written into the page
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
         ProductionAddressRegex().Matches(html).Select(match => match.Value).ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task AccountPages_ShouldShowTheLogoWithoutALink_WhenTheWebClientIsNotConfigured()
+    public async Task AccountPages_WebClientNotConfigured_ShowTheLogoWithoutALink()
     {
-        // Arrange
+        // Arrange: the seeder needs the web client's addresses, so only the logo's source loses them
         await using WebApplicationFactory<Program> host = Factory.WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(services =>
             {
@@ -59,18 +58,19 @@ public sealed partial class AccountPageBrandLinkTests : EndpointsTestBase
                 AuthSystemApiFactory.ReplaceSingleton(services, frontendHome);
             }));
         using HttpClient client = host.CreateClient();
-        List<string> brandLinks = [];
+        List<string> renderedPages = [];
 
         // Act
-        foreach (string page in SecurityHeadersTests.AccountPagePaths)
+        foreach (string page in AccountPages.Paths)
         {
             using HttpResponseMessage response = await client.GetAsync(new Uri(page, UriKind.Relative));
             string html = await response.Content.ReadAsStringAsync();
-            brandLinks.AddRange(BrandLinkRegex().Matches(html).Select(match => $"{page}: {match.Value}"));
+            IEnumerable<string> brandLinks = BrandLinkRegex().Matches(html).Select(match => match.Value);
+            renderedPages.Add($"{page}: {(int)response.StatusCode} {string.Join(" ", brandLinks)}");
         }
 
         // Assert: no href at all, so the logo can never lead to the API discovery JSON at this host's root
-        brandLinks.ShouldBe(SecurityHeadersTests.AccountPagePaths.Select(page => $"{page}: <a class=\"brand\">"));
+        renderedPages.ShouldBe(AccountPages.Paths.Select(page => $"{page}: 200 <a class=\"brand\">"));
     }
 
     public AccountPageBrandLinkTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
@@ -78,6 +78,10 @@ public sealed partial class AccountPageBrandLinkTests : EndpointsTestBase
     [GeneratedRegex("""<a\b[^>]*\bclass="brand"[^>]*>""")]
     private static partial Regex BrandLinkRegex();
 
-    [GeneratedRegex(@"https?://(?:[a-z0-9-]+\.)*lotro-translator\.pl", RegexOptions.IgnoreCase)]
+    /// <summary>
+    /// Any link to the production domain or one of its subdomains, with or without a scheme. The bare
+    /// name in titles and footers is the service's name, not an address, so it is not matched.
+    /// </summary>
+    [GeneratedRegex(@"(?:https?:)?//(?:[a-z0-9-]+\.)*lotro-translator\.pl", RegexOptions.IgnoreCase)]
     private static partial Regex ProductionAddressRegex();
 }

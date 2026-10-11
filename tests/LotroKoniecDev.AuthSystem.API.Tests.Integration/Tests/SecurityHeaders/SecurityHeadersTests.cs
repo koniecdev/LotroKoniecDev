@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.SecurityHeaders;
@@ -19,21 +20,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
 {
     private const int ForgotPasswordPermitLimit = 3;
 
-    /// <summary>
-    /// Every account page, found by reflection so a theory can list them. The check below proves the
-    /// list matches the pages the app really maps, so a new page cannot slip past these tests.
-    /// </summary>
-    internal static readonly IReadOnlyList<string> AccountPagePaths = typeof(Program).Assembly.GetTypes()
-        .Where(type => type.IsSubclassOf(typeof(PageModel))
-            && type is { Namespace: string pageNamespace }
-            && pageNamespace.EndsWith(".Pages.Account", StringComparison.Ordinal))
-        .Select(type => "/Account/" + type.Name[..^"Model".Length])
-        .Order(StringComparer.Ordinal)
-        .ToList();
-
     public SecurityHeadersTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
-
-    public static TheoryData<string> AccountPages { get; } = new(AccountPagePaths);
 
     [Fact]
     public void AccountPages_ShouldBeEveryRazorPageTheAppMaps()
@@ -48,7 +35,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
             .ToList();
 
         // Act
-        IReadOnlyList<string> listedPages = AccountPagePaths;
+        IReadOnlyList<string> listedPages = AccountPages.Paths;
 
         // Assert
         listedPages.ShouldNotBeEmpty();
@@ -56,7 +43,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
     }
 
     [Theory]
-    [MemberData(nameof(AccountPages))]
+    [MemberData(nameof(AccountPages.All), MemberType = typeof(AccountPages))]
     public async Task AccountPage_ShouldCarryTheSecurityHeaders(string page)
     {
         // Act
@@ -75,7 +62,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
     /// console says so. The pages keep their styles inline, so every block needs this response's nonce.
     /// </summary>
     [Theory]
-    [MemberData(nameof(AccountPages))]
+    [MemberData(nameof(AccountPages.All), MemberType = typeof(AccountPages))]
     public async Task AccountPage_ShouldPutTheResponsesNonceOnEveryInlineStyle(string page)
     {
         // Act
@@ -90,7 +77,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
     }
 
     [Theory]
-    [MemberData(nameof(AccountPages))]
+    [MemberData(nameof(AccountPages.All), MemberType = typeof(AccountPages))]
     public async Task AccountPage_ShouldServeNoInlineScript(string page)
     {
         // Act
@@ -104,7 +91,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
     }
 
     [Theory]
-    [MemberData(nameof(AccountPages))]
+    [MemberData(nameof(AccountPages.All), MemberType = typeof(AccountPages))]
     public async Task AccountPage_ShouldServeNoStyleAttribute(string page)
     {
         // Act

@@ -103,6 +103,10 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
                 $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.Issuer)} must be an absolute "
                 + $"http(s) URL in {_environment.EnvironmentName} (e.g. https://auth.lotro-translator.pl).");
         }
+        else if (CarriesUserInfo(options.Issuer))
+        {
+            errors.Add(UserInfoError($"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.Issuer)}"));
+        }
         else if (options.Issuer.Contains("localhost", StringComparison.OrdinalIgnoreCase))
         {
             errors.Add(
@@ -121,14 +125,22 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
                 + "(e.g. https://lotro-translator.pl/callback).");
         }
 
-        foreach (string redirectUri in options.WebClient.RedirectUris)
+        for (int index = 0; index < options.WebClient.RedirectUris.Length; index++)
         {
+            string redirectUri = options.WebClient.RedirectUris[index];
+
             if (!BeAbsoluteHttpUrl(redirectUri))
             {
                 errors.Add(
                     $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.WebClient)}:"
                     + $"{nameof(WebClientSettings.RedirectUris)} entry '{redirectUri}' must be an absolute http(s) URL "
                     + $"in {_environment.EnvironmentName}.");
+            }
+            else if (CarriesUserInfo(redirectUri))
+            {
+                errors.Add(UserInfoError(
+                    $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.WebClient)}:"
+                    + $"{nameof(WebClientSettings.RedirectUris)}:{index}"));
             }
         }
 
@@ -143,14 +155,22 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
                 + "(e.g. https://lotro-translator.pl).");
         }
 
-        foreach (string postLogoutRedirectUri in options.WebClient.PostLogoutRedirectUris)
+        for (int index = 0; index < options.WebClient.PostLogoutRedirectUris.Length; index++)
         {
+            string postLogoutRedirectUri = options.WebClient.PostLogoutRedirectUris[index];
+
             if (!BeAbsoluteHttpUrl(postLogoutRedirectUri))
             {
                 errors.Add(
                     $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.WebClient)}:"
                     + $"{nameof(WebClientSettings.PostLogoutRedirectUris)} entry '{postLogoutRedirectUri}' must be an "
                     + $"absolute http(s) URL in {_environment.EnvironmentName}.");
+            }
+            else if (CarriesUserInfo(postLogoutRedirectUri))
+            {
+                errors.Add(UserInfoError(
+                    $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.WebClient)}:"
+                    + $"{nameof(WebClientSettings.PostLogoutRedirectUris)}:{index}"));
             }
         }
 
@@ -167,5 +187,28 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
     private static bool BeAbsoluteHttpUrl(string value)
     {
         return AbsoluteHttpUri.TryParse(value, out _);
+    }
+
+    /// <summary>
+    /// Nothing on the sign-in server needs a user name or password in these addresses, and each one is
+    /// public: the issuer is in the discovery document and in every token, a redirect URI is where the
+    /// browser is sent, and the first post-logout URI is printed on every account page and in every e-mail
+    /// (<see cref="FrontendUrl"/>). So such a value can only be a mistake that shows the password to
+    /// everyone (#1108, ADR-0067 decision 4).
+    /// </summary>
+    private static bool CarriesUserInfo(string value)
+    {
+        return AbsoluteHttpUri.TryParse(value, out Uri? uri) && !string.IsNullOrEmpty(uri.UserInfo);
+    }
+
+    /// <summary>
+    /// The message names the key and never repeats the value, so the password does not land in the
+    /// startup log either.
+    /// </summary>
+    private string UserInfoError(string key)
+    {
+        return $"{key} must not carry a user name or password in {_environment.EnvironmentName}. Visitors can "
+               + "see this address, so they would see the user name and password too. Remove the "
+               + "'user:password@' part.";
     }
 }

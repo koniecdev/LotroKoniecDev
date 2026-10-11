@@ -361,6 +361,130 @@ public sealed class OpenIddictSettingsValidatorTests
             && failure.Contains("absolute", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// #1108: the issuer is public, so a user name or password in it would reach every client. The message
+    /// must not repeat them either, or they would land in the startup log.
+    /// </summary>
+    [Theory]
+    [InlineData(Production, "https://deploy:hunter2@auth.lotro-translator.pl", "deploy:hunter2")]
+    [InlineData(Staging, "https://deploy:hunter2@auth.staging.lotro-translator.pl", "deploy:hunter2")]
+    [InlineData(Production, "https://deploy@auth.lotro-translator.pl", "deploy@")]
+    [InlineData(Production, "https://:hunter2@auth.lotro-translator.pl", "hunter2")]
+    [InlineData(Production, "https://deploy:@auth.lotro-translator.pl", "deploy:")]
+    [InlineData(Production, "HTTPS://deploy:hunter2@auth.lotro-translator.pl", "hunter2")]
+    [InlineData(Production, "http://deploy:hunter2@auth.lotro-translator.pl:8080", "hunter2")]
+    [InlineData(Production, "https://deploy:hunter2@localhost:5003", "hunter2")]
+    public void Validate_DeployedEnvironmentWithIssuerCarryingUserInfo_FailsNamingTheKeyWithoutTheCredentials(
+        string environmentName,
+        string issuer,
+        string credentials)
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(environmentName);
+        OpenIddictSettings settings = SettingsWith(issuer: issuer);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        string failure = result.Failures.ShouldHaveSingleItem();
+        failure.ShouldContain("OpenIddict:Issuer", Case.Sensitive);
+        failure.ShouldContain("user name or password", Case.Sensitive);
+        failure.ShouldContain(environmentName, Case.Sensitive);
+        failure.ShouldNotContain(credentials);
+    }
+
+    [Theory]
+    [InlineData(Production, "https://deploy:hunter2@lotro-translator.pl/callback", "deploy:hunter2")]
+    [InlineData(Staging, "https://deploy:hunter2@staging.lotro-translator.pl/callback", "deploy:hunter2")]
+    [InlineData(Production, "https://deploy@lotro-translator.pl/callback", "deploy@")]
+    [InlineData(Production, "https://:hunter2@lotro-translator.pl/callback", "hunter2")]
+    public void Validate_DeployedEnvironmentWithRedirectUriCarryingUserInfo_FailsNamingTheEntryWithoutTheCredentials(
+        string environmentName,
+        string redirectUri,
+        string credentials)
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(environmentName);
+        OpenIddictSettings settings = SettingsWith(redirectUris: ["https://lotro-translator.pl/callback", redirectUri]);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        string failure = result.Failures.ShouldHaveSingleItem();
+        failure.ShouldContain("OpenIddict:WebClient:RedirectUris:1", Case.Sensitive);
+        failure.ShouldContain("user name or password", Case.Sensitive);
+        failure.ShouldContain(environmentName, Case.Sensitive);
+        failure.ShouldNotContain(credentials);
+    }
+
+    /// <summary>
+    /// #1108: the first post-logout URI is the website's address that every account page and every
+    /// e-mail prints (<c>FrontendUrl</c>), so it is the entry that would show the password to everyone.
+    /// </summary>
+    [Theory]
+    [InlineData(Production, "https://deploy:hunter2@lotro-translator.pl", "deploy:hunter2")]
+    [InlineData(Staging, "https://deploy:hunter2@staging.lotro-translator.pl", "deploy:hunter2")]
+    [InlineData(Production, "https://deploy@lotro-translator.pl", "deploy@")]
+    [InlineData(Production, "https://:hunter2@lotro-translator.pl", "hunter2")]
+    public void Validate_DeployedEnvironmentWithPostLogoutRedirectUriCarryingUserInfo_FailsNamingTheEntryWithoutTheCredentials(
+        string environmentName,
+        string postLogoutRedirectUri,
+        string credentials)
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(environmentName);
+        OpenIddictSettings settings = SettingsWith(
+            postLogoutRedirectUris: [postLogoutRedirectUri, "https://lotro-translator.pl/signed-out"]);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        string failure = result.Failures.ShouldHaveSingleItem();
+        failure.ShouldContain("OpenIddict:WebClient:PostLogoutRedirectUris:0", Case.Sensitive);
+        failure.ShouldContain("user name or password", Case.Sensitive);
+        failure.ShouldContain(environmentName, Case.Sensitive);
+        failure.ShouldNotContain(credentials);
+    }
+
+    [Fact]
+    public void Validate_ProductionWithUserInfoInEveryAddress_ReportsEveryAddress()
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(Production);
+        OpenIddictSettings settings = SettingsWith(
+            issuer: "https://deploy:hunter2@auth.lotro-translator.pl",
+            redirectUris: ["https://deploy:hunter2@lotro-translator.pl/callback"],
+            postLogoutRedirectUris: ["https://deploy:hunter2@lotro-translator.pl"]);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        result.Failures.Count().ShouldBe(3);
+        result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:Issuer", StringComparison.Ordinal));
+        result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:WebClient:RedirectUris:0", StringComparison.Ordinal));
+        result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:WebClient:PostLogoutRedirectUris:0", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Only an '@' before the host carries a user name or password. One in the path, the query or the
+    /// fragment is part of an ordinary address, and the server starts as before.
+    /// </summary>
+    [Theory]
+    [InlineData(Production, "https://lotro-translator.pl/callback?contact=team@lotro-translator.pl")]
+    [InlineData(Production, "https://lotro-translator.pl/users/@me")]
+    [InlineData(Production, "https://lotro-translator.pl/callback#deploy:hunter2@lotro-translator.pl")]
+    [InlineData(Production, "https://lotro-translator.pl/a%40b")]
+    [InlineData(Staging, "https://staging.lotro-translator.pl/callback?contact=team@lotro-translator.pl")]
+    public void Validate_DeployedEnvironmentWithAtSignAfterTheHost_Succeeds(string environmentName, string address)
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(environmentName);
+        OpenIddictSettings settings = SettingsWith(redirectUris: [address], postLogoutRedirectUris: [address]);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Succeeded.ShouldBeTrue();
+    }
+
     private static OpenIddictSettings SettingsWith(
         string? encryptionKey = ValidEncryptionKey,
         string? signingKeyXml = ValidSigningKeyXml,

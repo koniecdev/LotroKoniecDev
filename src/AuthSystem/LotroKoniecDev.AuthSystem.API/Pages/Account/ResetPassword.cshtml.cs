@@ -2,9 +2,12 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using LotroKoniecDev.AuthSystem.API.Extensions;
+using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence.Identity;
+using LotroKoniecDev.SharedKernel.Constants;
 
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 
@@ -13,6 +16,12 @@ internal sealed partial class ResetPasswordModel : PageModel
     private const string InvalidLinkMessage = "Link do resetu hasła jest nieprawidłowy lub wygasł.";
 
     private const string BreachedPasswordMessage = "To hasło pojawiło się w wyciekach danych, wybierz inne.";
+
+    /// <summary>
+    /// Every password rule has its own sentence, so only a failed save or another account rule gets here.
+    /// The form stays, and a second try either works or shows that the link is used up.
+    /// </summary>
+    private const string GeneralRefusalMessage = "Spróbuj jeszcze raz. Jeśli błąd się powtórzy, napisz do nas.";
 
     /// <summary>
     /// A hash computed up front, so every path verifies exactly one hash.
@@ -151,7 +160,19 @@ internal sealed partial class ResetPasswordModel : PageModel
                 return;
             }
 
-            ErrorMessage = string.Join(" ", result.Errors.Select(e => e.Description));
+            // The user never sees Identity's text, so a code the page cannot name is kept in the log.
+            string[] unnamedCodes = result.Errors
+                .Select(error => error.Code)
+                .Where(code => PolishFor(code) is null)
+                .ToArray();
+            if (unnamedCodes.Length > 0)
+            {
+                LogPasswordResetFailed(_logger, user.Id, string.Join(", ", unnamedCodes));
+            }
+
+            ErrorMessage = string.Join(
+                " ",
+                result.Errors.Select(error => PolishFor(error.Code) ?? GeneralRefusalMessage).Distinct());
             return;
         }
 
@@ -163,8 +184,30 @@ internal sealed partial class ResetPasswordModel : PageModel
         IsCompleted = true;
     }
 
+    /// <summary>
+    /// Identity writes its errors in English, so the page names each broken rule in Polish by the error's
+    /// code (#1076). It never prints Identity's own text.
+    /// </summary>
+    private static string? PolishFor(string code) =>
+        code switch
+        {
+            nameof(IdentityErrorDescriber.PasswordTooShort) =>
+                $"Hasło musi mieć co najmniej {PasswordConstants.MinLength} znaków.",
+            PasswordMaxLengthValidator.ErrorCode =>
+                $"Hasło może mieć co najwyżej {PasswordConstants.MaxLength} znaków.",
+            nameof(IdentityErrorDescriber.PasswordRequiresLower) => "Hasło musi zawierać małą literę.",
+            nameof(IdentityErrorDescriber.PasswordRequiresUpper) => "Hasło musi zawierać wielką literę.",
+            nameof(IdentityErrorDescriber.PasswordRequiresDigit) => "Hasło musi zawierać cyfrę.",
+            nameof(IdentityErrorDescriber.PasswordRequiresNonAlphanumeric) => "Hasło musi zawierać znak specjalny.",
+            BreachedPasswordValidator.ErrorCode => BreachedPasswordMessage,
+            _ => null
+        };
+
     [LoggerMessage(EventId = EventIds.PasswordResetCompletedViaUi, Level = LogLevel.Information, Message = "Password reset completed via UI for user {UserId}. Tokens and authorizations revoked.")]
     private static partial void LogPasswordResetCompleted(ILogger logger, Guid userId);
+
+    [LoggerMessage(EventId = EventIds.ResetPasswordFailed, Level = LogLevel.Warning, Message = "Password reset failed via UI for user {UserId}. Error codes: {ErrorCodes}")]
+    private static partial void LogPasswordResetFailed(ILogger logger, Guid userId, string errorCodes);
 
     [LoggerMessage(EventId = EventIds.ResetPasswordDeletionScheduled, Level = LogLevel.Warning, Message = "Password reset blocked for user {UserId}: account deletion is scheduled")]
     private static partial void LogPasswordResetBlockedDeletionScheduled(ILogger logger, Guid userId);

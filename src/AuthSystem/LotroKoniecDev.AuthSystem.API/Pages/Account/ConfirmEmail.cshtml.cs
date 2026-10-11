@@ -17,6 +17,13 @@ internal sealed partial class ConfirmEmailModel : PageModel
     private const string InvalidOrExpiredLinkMessage =
         "Link potwierdzający jest nieprawidłowy lub wygasł. Jeśli Twoje konto jest już aktywne, po prostu się zaloguj.";
 
+    private const string InvalidLinkTitle = "Link wygasł lub jest nieprawidłowy";
+
+    private const string ConfirmationFailedTitle = "Nie udało się potwierdzić adresu";
+
+    private const string ConfirmationFailedMessage =
+        "Otwórz link z wiadomości jeszcze raz. Jeśli błąd się powtórzy, napisz do nas.";
+
     /// <summary>
     /// A hash computed up front, so every path verifies exactly one hash.
     /// </summary>
@@ -27,6 +34,22 @@ internal sealed partial class ConfirmEmailModel : PageModel
     private readonly IResponseTimeFloor _responseTimeFloor;
     private readonly ILogger<ConfirmEmailModel> _logger;
 
+    public string Email { get; set; } = string.Empty;
+
+    public string Token { get; set; } = string.Empty;
+
+    public bool IsCompleted { get; set; }
+
+    /// <summary>
+    /// Identity checked the link and then refused for another reason. The page must not call such a link
+    /// dead, or the visitor asks for a new one when opening this one again would work (#869).
+    /// </summary>
+    public bool LinkWasGood { get; set; }
+
+    public string ErrorTitle => LinkWasGood ? ConfirmationFailedTitle : InvalidLinkTitle;
+
+    public string? ErrorMessage { get; set; }
+
     public ConfirmEmailModel(
         UserManager<ApplicationUser> userManager,
         IResponseTimeFloor responseTimeFloor,
@@ -36,14 +59,6 @@ internal sealed partial class ConfirmEmailModel : PageModel
         _responseTimeFloor = responseTimeFloor;
         _logger = logger;
     }
-
-    public string Email { get; set; } = string.Empty;
-
-    public string Token { get; set; } = string.Empty;
-
-    public bool IsCompleted { get; set; }
-
-    public string? ErrorMessage { get; set; }
 
     public async Task OnGet(string? email = null, string? token = null)
     {
@@ -114,8 +129,14 @@ internal sealed partial class ConfirmEmailModel : PageModel
             return;
         }
 
-        ErrorMessage = string.Join(" ", result.Errors.Select(e => e.Description));
+        // Identity's own text is English, so the page never prints it, and the log keeps the codes (#1076).
+        LogEmailConfirmationFailedViaUi(_logger, user.Id, string.Join(", ", result.Errors.Select(e => e.Code)));
+        LinkWasGood = true;
+        ErrorMessage = ConfirmationFailedMessage;
     }
+
+    [LoggerMessage(EventId = EventIds.EmailConfirmationFailed, Level = LogLevel.Warning, Message = "Email confirmation failed via UI for user {UserId}. Error codes: {ErrorCodes}")]
+    private static partial void LogEmailConfirmationFailedViaUi(ILogger logger, Guid userId, string errorCodes);
 
     [LoggerMessage(EventId = EventIds.EmailConfirmedViaUi, Level = LogLevel.Information, Message = "Email confirmed via UI for user {UserId}.")]
     private static partial void LogEmailConfirmedViaUi(ILogger logger, Guid userId);

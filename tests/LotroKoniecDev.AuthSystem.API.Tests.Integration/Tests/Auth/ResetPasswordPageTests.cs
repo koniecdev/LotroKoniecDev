@@ -325,9 +325,83 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
-        html.ShouldContain("Passwords must be at most 128 characters.");
+        html.ShouldContain("Hasło może mieć co najwyżej 128 znaków.");
+        html.ShouldNotContain("Passwords must");
         html.ShouldContain("data-testid=\"reset-password-submit\"");
         (await PasswordWorksAsync(registerRequest.Email, originalPassword)).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// Identity writes its refusals in English. The page names the broken rule in Polish instead (#1076).
+    /// </summary>
+    [Theory]
+    [InlineData("Ab1!xyz", "Hasło musi mieć co najmniej 8 znaków.")]
+    [InlineData("ABCDEFG1!", "Hasło musi zawierać małą literę.")]
+    [InlineData("abcdefg1!", "Hasło musi zawierać wielką literę.")]
+    [InlineData("Abcdefgh!", "Hasło musi zawierać cyfrę.")]
+    [InlineData("Abcdefgh1", "Hasło musi zawierać znak specjalny.")]
+    public async Task ResetPasswordPage_Post_ShouldNameTheBrokenRuleInPolish_WhenThePolicyRefusesThePassword(
+        string newPassword, string expectedMessage)
+    {
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToResetPasswordPageAsync(
+            browser, ResetForm(registerRequest.Email, resetToken, newPassword));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain(expectedMessage);
+        html.ShouldNotContain("Passwords must");
+    }
+
+    [Fact]
+    public async Task ResetPasswordPage_Post_ShouldNameEveryBrokenRule_WhenThePasswordBreaksSeveral()
+    {
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToResetPasswordPageAsync(
+            browser, ResetForm(registerRequest.Email, resetToken, "abc"));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Hasło musi mieć co najmniej 8 znaków.");
+        html.ShouldContain("Hasło musi zawierać znak specjalny.");
+        html.ShouldContain("Hasło musi zawierać cyfrę.");
+        html.ShouldContain("Hasło musi zawierać wielką literę.");
+        html.ShouldNotContain("Passwords must");
+    }
+
+    /// <summary>
+    /// The breach check skips a password that breaks the policy, but the length limit is a separate
+    /// validator. So an over-long password can also be found in a breach, and the page names both. This
+    /// pins today's behaviour on purpose: #1110 will skip the breach call here, and this test changes
+    /// with it.
+    /// </summary>
+    [Fact]
+    public async Task ResetPasswordPage_Post_ShouldNameTheLengthAndTheLeak_WhenAnOverLongPasswordIsAlsoInDataBreaches()
+    {
+        string newPassword = PasswordOfLength(PasswordConstants.MaxLength + 1);
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        Factory.PwnedPasswords.MarkBreached(newPassword);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToResetPasswordPageAsync(
+            browser, ResetForm(registerRequest.Email, resetToken, newPassword));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Hasło może mieć co najwyżej 128 znaków.");
+        html.ShouldContain("To hasło pojawiło się w wyciekach danych, wybierz inne.");
+        html.ShouldNotContain("Passwords must");
+        html.ShouldNotContain("known data breaches");
     }
 
     [Fact]
@@ -391,7 +465,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldNotContain("wyciekach danych");
         html.ShouldNotContain("known data breaches");
-        html.ShouldContain("Passwords must be at least 8 characters.");
+        html.ShouldContain("Hasło musi mieć co najmniej 8 znaków.");
         html.ShouldContain("data-testid=\"reset-password-submit\"");
     }
 

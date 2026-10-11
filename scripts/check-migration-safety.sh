@@ -114,7 +114,7 @@ scanned=0
 while IFS= read -r file; do
     if [ ! -f "$file" ]; then
         # Removed from disk only, the file is still in git and would ship unscanned (#1079).
-        if printf '%s\n' "$staged_deletions" | grep -qxF -- "$file"; then
+        if grep -qxF -- "$file" <<< "$staged_deletions"; then
             continue
         fi
         echo "Migration-safety guard: $file is in git but not on disk, so it cannot be scanned." >&2

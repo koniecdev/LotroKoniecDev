@@ -33,12 +33,6 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# git prints file names as UTF-8 here (core.quotePath=false). A Windows console code page would read
-# a non-ASCII letter wrong, and the file would not be found on disk. This changes only this process
-# when the guard runs as `pwsh -File`. A host with no console cannot change it: the guard then still
-# fails closed on such a name, with exit 2.
-try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
-
 # The generic-args group is [^(] (not [^>]) so nested generics still match:
 # AlterColumn<Dictionary<string, string>>(.
 $destructive  = '(DropColumn|DropTable|RenameColumn|RenameTable|DropIndex|AlterColumn)\s*(<[^(]*>)?\s*[(]'
@@ -51,6 +45,12 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Push-Location $repoRoot
+# git prints file names as UTF-8 here (core.quotePath=false). A Windows console code page would read
+# a non-ASCII letter wrong, and the file would not be found on disk. The finally block sets the
+# console back. A host with no console cannot change it: the guard then still fails closed on such a
+# name, with exit 2.
+$originalOutputEncoding = [Console]::OutputEncoding
+try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
 try {
     if ($Base) {
         git rev-parse --quiet --verify "$Base^{commit}" *> $null
@@ -176,5 +176,6 @@ try {
     Write-Host "OK Migration-safety guard passed - $scanned newly-added migration file(s) scanned."
 }
 finally {
+    try { [Console]::OutputEncoding = $originalOutputEncoding } catch { }
     Pop-Location
 }

@@ -133,15 +133,18 @@ name the single case someone happened to hit.
 - **A case of the class your own ticket names is not a follow-up.** For an older ticket that names
   only one case, that is the class of that case. Finding the other cases is that ticket's task, so
   fix it in your diff with its own test, and name it under Shipped in the report.
-- **Name whose job the check is before you file.** A case whose only trigger is one of our own
-  parts breaking its contract (our sign-in server's answer, our other API's answer, our own
-  settings that their owner already checks at startup) is not a defect of the part that receives
-  it, so it is not filed. If a real path makes our part break the contract, file the case against
-  that part, with the path. A class names a trigger outside our trust boundary: a user, a browser,
-  an imported file, a third-party service. The repo's trust model lists the kinds that are not
-  findings (here: ADR-0067 §8 and ADR-0008 §3). This rule sorts findings; it does not drop any. The
-  chain it ends: #974 → #1026/#1028 → #1056/#1057/#1065/#1066/#1067, where each ticket added checks
-  on our own server's answers and the next review filed the checks' edge cases.
+- **Name whose job the check is before you file.** A case that asks one part for a new check of
+  what another of our own parts sends, for an answer that part never sends by design (a token of the
+  wrong shape from our sign-in server, our own settings that their owner already checks at startup),
+  is not a defect of the part that receives it, so it is not filed. If a real path makes our part
+  send that answer, file the case against that part, with the path. Three kinds always stay
+  findings: our own part being down, slow or failing (a 5xx, a timeout, a failed save); a guard on
+  where a secret goes (another host, plain HTTP, a page or an e-mail); and anything from outside our
+  trust boundary (a user, a browser, an imported file, a third-party service). The repo's trust model
+  lists the kinds that are not findings (here: ADR-0067 §8 and ADR-0008 §3). This rule sorts
+  findings; it does not drop any. The chain it ends: #974 → #1026/#1028 →
+  #1056/#1057/#1065/#1066/#1067, where each ticket added checks on our own server's answers and the
+  next review filed the checks' edge cases.
 - **Look for a ticket of the same class before you file.**
   - **Open, and nobody has started it** (no branch, no PR, no loop worktree for it): read its body,
     add the case as a new checkbox, and write the body back with `gh issue edit --body-file`. Then

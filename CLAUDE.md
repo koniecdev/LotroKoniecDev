@@ -159,7 +159,7 @@ rule, the wiki stating it, and a follow-up ticket amending ADR-0003 and the vali
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
 | Write or hand over a **manual QA ticket** (external tester) | **`/qa-ticket`** — every scenario verified against HEAD first; `/qa-ticket #<n>` re-baselines an existing one |
 | Review a finished change | the **`code-reviewer`** agent |
-| Sort review findings, file one, or triage an `audit` ticket | **ADR-0067 §8** (what is not a finding: our own part breaking its contract) + ADR-0008 §3 (the bar for a startup check) + `docs/labels.md` → "One bug class per ticket" |
+| Sort review findings, file one, or triage an `audit` ticket | **ADR-0067 §8** (what is not a finding: a new check of an answer our own part never sends) + ADR-0008 §3 (the bar for a startup check) + `docs/labels.md` → "One bug class per ticket" |
 | Understand the backlog / milestones | `gh issue list` + Roadmap digest below |
 | Compare with the Russian sister project | `docs/RUSSIAN_PROJECT_RESEARCH.md` + `docs/knowledge-base/russian-project.md` |
 
@@ -375,14 +375,17 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   website cannot use ends the session cleanly, or counts as temporary (429, 5xx, a network error, a
   timeout). Guards on where our secrets go stay; checks on whether our own server told the truth go.
   Built-in OpenIddict and ASP.NET Core behaviour comes first, and own protocol code carries a written
-  reason. **A review finding whose only trigger is one of our own parts breaking its contract (our
-  sign-in server, our other API, our own settings already checked at startup) is not a defect of the
-  part that receives it.** Sort it as already decided with a pointer to ADR-0067 §8. If a real path
-  makes our part break the contract, file it against that part, with the path. Inputs from outside
-  our trust boundary (browser, user, imported files, DAT bytes, the CLI and its settings, third-party
-  services) keep every check, and least privilege between our parts (#1086) is a separate, valid
-  question. The chain this ends: #974 → #1026/#1028 → #1056/#1057/#1065/#1066/#1067, nine tickets in
-  thirteen days, each adding a check the next review audited.
+  reason. **A review finding that asks for a new check of what one of our own parts sends, for an
+  answer that part never sends by design (a token of the wrong shape from our sign-in server, our own
+  settings already checked at startup), is not a defect of the part that receives it.** Sort it as
+  already decided with a pointer to ADR-0067 §8. If a real path makes our part send that answer, file
+  it against that part, with the path. Always still findings: our own part being down, slow or
+  failing (a 5xx, a timeout, a failed save); a guard on where a secret goes (another host, plain
+  HTTP, a page, an e-mail); a resource server's token checks; and inputs from outside our trust
+  boundary (browser, user, imported files, DAT bytes, the CLI and its settings, third-party
+  services). Least privilege between our parts (#1086) is a separate, valid question. The chain this
+  ends: #974 → #1026/#1028 → #1056/#1057/#1065/#1066/#1067, eight tickets in thirteen days, each
+  adding a check the next review audited.
 - **Hypermedia links are authorization-aware, not role-branched (ADR-0040).** `ILinkFactory` replays
   the *target* endpoint's own policy (`IAllowAnonymous` → `AuthorizationPolicy.CombineAsync` incl.
   the fallback → `IAuthorizationService`) before emitting a link, so a rel is never advertised to a

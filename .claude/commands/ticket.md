@@ -70,14 +70,16 @@ of authority:
 
 - **Extract the acceptance criteria.** If the ticket has none, derive them and write them down —
   the review gate and the final report are checked against them.
-- **Whose job is the check the ticket asks for? (ADR-0067)** A bug premise whose only trigger is
-  one of our own parts breaking its contract (our sign-in server sends a broken token, our own
-  setting that its owner already checks at startup holds an absurd value) is BOUNCE material with a
-  pointer to ADR-0067 §8 or ADR-0008 §3. If the ticket names a real path that makes our part break
-  the contract, the work belongs to that part, not to the part the ticket names.
+- **Whose job is the check the ticket asks for? (ADR-0067)** A ticket that asks one part for a new
+  check of what another of our own parts sends, for an answer that part never sends by design (our
+  sign-in server sends a broken token, our own setting that its owner already checks at startup holds
+  an absurd value), is BOUNCE material with a pointer to ADR-0067 §8 or ADR-0008 §3. If the ticket
+  names a real path that makes our part send that answer, the work belongs to that part. Our own part
+  being down, slow or failing, a guard on where a secret goes, and anything from outside our trust
+  boundary are never in this group (ADR-0067 §7).
 - **Search the owner's rulings on the same flow** before you follow an acceptance criterion that
   sets visible behaviour (a status code, a sign-out, a log level, a limit):
-  `gh issue list --state all --search "\"Owner decision\" <flow words> in:comments`. A ruling in
+  `gh issue list --state all --search "\"Owner decision\" <flow words> in:comments"`. A ruling in
   another ticket that the criterion contradicts makes the verdict CLARIFY, never a silent winner
   (#1023 reversed #966 that way). "The owner decides" in the ticket body is a question for the
   gate below, never a default to pick the strictest option from (PR #1063).
@@ -193,8 +195,10 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   `/code-review` then found four more, among them a password POST that the shared HTTP retry
   pipeline could send three times and an export that spent two rate-limit permits per click.
   **Sort every finding into exactly one bucket, and check the bucket instead of guessing it.**
-  Ask first whose job the check is (ADR-0067): a finding whose only trigger is one of our own parts
-  breaking its contract goes to bucket 3, whatever the reviewer's severity.
+  Ask first whose job the check is (ADR-0067): a finding that asks for a new check of what one of
+  our own parts sends, for an answer it never sends by design, goes to bucket 3, whatever the
+  reviewer's severity. Our own part being down, slow or failing, a guard on where a secret goes, and
+  anything from outside our trust boundary never go there on that ground.
   1. **A defect in this diff.** The line is in `git diff main...HEAD`, or the diff made it
      reachable, and the claim holds when you read the code. Fix it. Another case of the class
      this ticket names belongs here too (for an older ticket that names one case: the class of

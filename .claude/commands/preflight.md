@@ -38,9 +38,10 @@ run; a false premise caught here costs a few tool calls instead of a whole imple
    the claimed defect in code (mechanism, not vibes); feature → confirm the gap still exists (check
    recently merged PRs in the area) and that nothing above contradicts it. A wiki ↔ product
    disagreement is BOUNCE material with both sides quoted — the owner settles it in the wiki, never
-   a run (`CLAUDE.md` → "Source of truth"). Also ask whose job the check is (ADR-0067): a premise
-   whose only trigger is one of our own parts breaking its contract is BOUNCE with a pointer to
-   ADR-0067 §8 or ADR-0008 §3. An acceptance criterion that sets visible behaviour is checked
+   a run (`CLAUDE.md` → "Source of truth"). Also ask whose job the check is (ADR-0067): a ticket
+   that asks for a new check of what one of our own parts sends, for an answer it never sends by
+   design, is BOUNCE with a pointer to ADR-0067 §8 or ADR-0008 §3. A part being down, slow or
+   failing, and a guard on where a secret goes, are never in that group. An acceptance criterion that sets visible behaviour is checked
    against the owner's rulings on the same flow
    (`gh issue list --state all --search "\"Owner decision\" <flow words> in:comments"`); a conflict,
    or a "the owner decides" with no answer yet, is CLARIFY.

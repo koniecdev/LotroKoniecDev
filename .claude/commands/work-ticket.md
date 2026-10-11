@@ -54,8 +54,9 @@ everything that matters must be committed and pushed.
    locate the defect in code and explain the mechanism; feature → confirm the gap still exists
    (recently merged PRs in the area) and that nothing above contradicts it. A
    `<!-- preflight-verdict -->` comment on the issue counts as this done. Premise false, already
-   shipped, a duplicate, a check that ADR-0067 gives to another part (its only trigger is one of our
-   own parts breaking its contract), or a wiki ↔ product disagreement (never settled inside a run —
+   shipped, a duplicate, a new check of what one of our own parts sends for an answer it never sends
+   by design (ADR-0067 §8 — never a part being down, slow or failing, never a guard on where a secret
+   goes), or a wiki ↔ product disagreement (never settled inside a run —
    the owner rules in the wiki first) → `STATUS: BLOCKED` (category: false-premise) with the
    evidence — a wrong ticket is not implemented because it exists. An acceptance criterion that sets
    visible behaviour (a status code, a sign-out, a log level, a limit) is checked against the

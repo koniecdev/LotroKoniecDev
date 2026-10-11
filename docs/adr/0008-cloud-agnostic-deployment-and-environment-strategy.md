@@ -92,15 +92,19 @@ Data Protection keyrings (M6-04) all move under this regime.
 >    refresh-token lifetime under 540 minutes (#1054), a missing production key.
 > 2. **It also enforces a limit an ADR sets on a security setting** (ADR-0049's floor, ADR-0065's
 >    rule for the grace period).
-> 3. **It does not refuse a value an existing rule already bounds** (#1054: ADR-0065's grace-period
->    rule keeps the access-token lifetime far below the size that would overflow), **nor a value that
->    only a deliberate act puts there.** #1108 is such a case: none of our addresses carries a user
->    name or password, so there is nothing to paste one from.
-> 4. **Only the part that owns a setting checks it.** Another part never makes up for it and never
+> 3. **It also refuses a value that would show a secret** to a visitor or in an e-mail, such as a
+>    password inside an address the server prints (#1108, ADR-0067 decision 4).
+> 4. **It does not refuse a value an existing rule already bounds.** #1054 got no upper limit on the
+>    access-token lifetime, because ADR-0065's grace-period rule already keeps it far below the size
+>    that would overflow.
+> 5. **Only the part that owns a setting checks it.** Another part never makes up for it and never
 >    keeps a copy of it (ADR-0067 decision 6).
-> 5. **Environments:** a rule about the value itself (a range, a format) runs in every environment,
->    so tests and local runs meet it too. A rule that a production secret or address is set runs
->    outside Development and Testing, where those values are throwaway.
+> 6. **Environments.** A rule that holds the same way everywhere, such as a lifetime floor or a key
+>    with spaces around it, runs in every environment, so tests and local runs meet it too. A rule
+>    about values that only production has (signing and encryption keys, public addresses, client
+>    secrets, CORS origins) runs outside Development and Testing, where those values are throwaway or
+>    point at localhost. The validators already follow this split (`OpenIddictSettingsValidator`,
+>    `CorsSettingsValidator`); this note writes it down and moves no existing check.
 >
 > A review finding below this bar is not filed (ADR-0067 §8).
 

@@ -30,11 +30,11 @@ internal static class AuthenticationDependencyInjectionExtensions
 
     /// <summary>
     /// The longest the website waits for one answer from the sign-in server: the login renewal and every
-    /// back-channel call (#923). Both can run before a page renders, so a stuck sign-in server holds the
-    /// page this long. It must stay above the sign-in server's 20 seconds for opening a database
-    /// connection. If the website gave up first, the sign-in server could finish a renewal the website
-    /// never reads, and the next try would send a refresh token that is already spent. For the same
-    /// reason the renewal is tried once, with no retry.
+    /// back-channel call (#923). Both can run before a page renders. A renewal that runs out of time signs
+    /// the user out, and the revoke in that sign-out can wait <see cref="RefreshTokenRevoker.TimeLimit"/>
+    /// more. The limit must stay above the sign-in server's 20 seconds for opening a database connection,
+    /// and the renewal is tried once, with no retry. The sign-in server's
+    /// <c>AuthDatabaseConnectionString</c> explains both.
     /// </summary>
     internal static readonly TimeSpan AuthServerRequestTimeout = TimeSpan.FromSeconds(30);
 

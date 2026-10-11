@@ -27,7 +27,8 @@
 # nullability (ADR-0023 §3); a benign widening costs one acknowledgment line.
 #
 # Usage: check-migration-safety.sh [<base-ref>]
-# Exit codes: 0 = clean, 1 = unacknowledged destructive migration, 2 = cannot run.
+# Exit codes: 0 = clean, 1 = unacknowledged destructive migration, 2 = cannot run, or a migration
+# listed as new is not on disk.
 # Tests: scripts/tests/check-migration-safety.tests.sh (CI runs them right before this
 # guard). Keep this in sync with its check-migration-safety.ps1 twin.
 
@@ -104,7 +105,12 @@ fail=0
 scanned=0
 
 while IFS= read -r file; do
-    [ -f "$file" ] || continue
+    # git still holds a file deleted only from the working tree, so it would ship unscanned (#1079).
+    if [ ! -f "$file" ]; then
+        echo "Migration-safety guard: $file is listed as a new migration but is not on disk." >&2
+        echo "Restore the file, or remove it from git too, then run the guard again." >&2
+        exit 2
+    fi
     scanned=$((scanned + 1))
 
     # Only the Up() body: lines from `void Up(` up to (excluding) `void Down(` or EOF.

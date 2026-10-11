@@ -17,8 +17,11 @@
     re-flagged. A flagged file passes when it carries a comment line with the token
     `MIGRATION-SAFETY: acknowledged` followed by the reason.
 
+    Exit codes: 0 = clean, 1 = unacknowledged destructive migration, 2 = cannot run, or a
+    migration listed as new is not on disk.
+
     CI runs the .sh; this .ps1 is the local twin for Windows devs - keep the two in sync.
-    Tests for the .sh: scripts/tests/check-migration-safety.tests.sh.
+    Tests for both: scripts/tests/check-migration-safety.tests.sh.
 
 .PARAMETER Base
     Base ref to diff against (CI uses HEAD^1). Defaults to origin/main, then main.
@@ -98,7 +101,12 @@ try {
     $scanned = 0
 
     foreach ($file in $newFiles) {
-        if (-not (Test-Path $file)) { continue }
+        # git still holds a file deleted only from the working tree, so it would ship unscanned (#1079).
+        if (-not (Test-Path $file)) {
+            Write-Host "Migration-safety guard: $file is listed as a new migration but is not on disk."
+            Write-Host 'Restore the file, or remove it from git too, then run the guard again.'
+            exit 2
+        }
         $scanned++
 
         # Only the Up() body: lines from `void Up(` up to (excluding) `void Down(` or EOF.

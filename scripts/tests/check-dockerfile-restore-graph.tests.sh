@@ -117,6 +117,20 @@ run_suite() {
     run_tree 2 "a tree whose only Dockerfile is under node_modules fails" "$tree"
     expect_in_output "nothing was checked"
 
+    # Only the repo's own .claude is skipped; a .claude folder deeper down is an ordinary folder.
+    tree="$(new_tree)"
+    write_complete_dockerfile "$tree"
+    write_dockerfile "$tree" src/.claude/Dockerfile "$COPY_APP" "$COPY_LIB" "$RESTORE_APP"
+    run_tree 1 "a Dockerfile under a .claude folder below the root is checked" "$tree"
+    expect_in_output "missing: src/Core/Core.csproj"
+
+    # find -name is case-sensitive, so a lowercase dockerfile is not one; both twins must agree.
+    tree="$(new_tree)"
+    write_complete_dockerfile "$tree"
+    write_dockerfile "$tree" src/Lib/dockerfile "$COPY_APP"
+    run_tree 0 "a lowercase dockerfile does not match the Dockerfile* pattern" "$tree"
+    expect_in_output "1 Dockerfile(s)"
+
     # PowerShell on Linux and macOS hides dot-folders unless -Force is given; find does not.
     tree="$(new_tree)"
     write_complete_dockerfile "$tree"

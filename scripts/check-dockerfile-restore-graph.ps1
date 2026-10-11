@@ -127,15 +127,16 @@ function Find-Dockerfile {
     # -Force: without it, PowerShell on Linux and macOS skips every dot-folder (.docker, .github),
     # which find enters. .git and .claude at the root, and every node_modules, are never entered,
     # so a loop worktree added or removed under .claude/ during the walk cannot fail it.
-    # Symbolic links are not followed, as with find's default -P. -clike matches the name with case,
-    # as find -name does.
+    # Symbolic links and junctions are not followed, as with find's default -P. Other reparse points,
+    # like OneDrive placeholders, are ordinary files and folders here. -clike matches the name with
+    # case, as find -name does.
     param(
         [Parameter(Mandatory)][string] $Directory,
         [switch] $IsRoot
     )
 
     foreach ($item in Get-ChildItem -LiteralPath $Directory -Force -ErrorAction Stop) {
-        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
+        if ($item.LinkType -eq 'SymbolicLink' -or $item.LinkType -eq 'Junction') { continue }
         if ($item.PSIsContainer) {
             if ($item.Name -ceq 'node_modules') { continue }
             if ($IsRoot -and ($item.Name -ceq '.git' -or $item.Name -ceq '.claude')) { continue }

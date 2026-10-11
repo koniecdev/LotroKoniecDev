@@ -124,6 +124,18 @@ run_suite() {
     write_file "$tree" src/Frontend/obj/Debug/Routes.g.cs 'const string Route = "/api/v1/translations";'
     run_tree 0 "an API path in generated code under obj/ is not scanned" "$tree"
 
+    # PowerShell on Linux and macOS hides dot-folders unless -Force is given; grep does not.
+    tree="$(new_tree)"
+    write_file "$tree" src/Frontend/.shared/Paths.cs 'const string Path = "/api/v1/translations";'
+    run_tree 1 "an API path in a dot-folder is scanned" "$tree"
+
+    # obj/ and bin/ are skipped below the client folder only.
+    tree="$(new_tree)"
+    write_file "$tree" src/Patcher/Cli/Download.cs 'const string Path = "/api/v1/translation-files";'
+    mkdir -p "$TMP_ROOT/bin.$cases/bin"
+    mv "$tree" "$TMP_ROOT/bin.$cases/bin/repo"
+    run_tree 1 "a repo inside a folder named bin is still scanned" "$TMP_ROOT/bin.$cases/bin/repo"
+
     # --- a hardcoded API path fails ---
     tree="$(new_tree)"
     write_file "$tree" src/Frontend/Pages/Editor.razor '<a href="/api/v1/translations/@Id">Edit</a>'

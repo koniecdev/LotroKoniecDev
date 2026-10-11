@@ -45,14 +45,16 @@ foreach ($dir in $frontendDir, $authDir) {
 }
 
 # obj/ and bin/ are build output, not source — never scan them (mirrors the .sh --exclude-dir).
+# They are matched below the scanned folder only, so a repo that sits under a folder named bin is
+# still scanned. -Force: without it, PowerShell on Linux and macOS skips dot-folders, which grep enters.
 try {
     $files = @(
-        Get-ChildItem -Path $frontendDir -Recurse -File -Include '*.razor', '*.cs' -ErrorAction Stop |
-            Where-Object { $_.FullName -notmatch '[\\/](obj|bin)[\\/]' }
+        Get-ChildItem -Path $frontendDir -Recurse -File -Force -Include '*.razor', '*.cs' -ErrorAction Stop |
+            Where-Object { $_.FullName.Substring($frontendDir.Length) -notmatch '[\\/](obj|bin)[\\/]' }
     )
     $authPages = @(
-        Get-ChildItem -Path $authDir -Recurse -File -Include '*.cshtml' -ErrorAction Stop |
-            Where-Object { $_.FullName -notmatch '[\\/](obj|bin)[\\/]' }
+        Get-ChildItem -Path $authDir -Recurse -File -Force -Include '*.cshtml' -ErrorAction Stop |
+            Where-Object { $_.FullName.Substring($authDir.Length) -notmatch '[\\/](obj|bin)[\\/]' }
     )
 }
 catch {

@@ -204,6 +204,27 @@ run_suite() {
     commit_all "$repo" "nested generic alter"
     run_case 1 "AlterColumn with nested generic type arguments is caught" "$repo" HEAD^1
     expect_in_output "20260705000011_NestedGeneric.cs"
+
+    # 12. A staged migration deleted only from disk would still be committed, unscanned (#1079).
+    repo="$(new_repo)"
+    write_migration "$repo" "20260705000012_StagedThenDeleted.cs" \
+        'migrationBuilder.DropTable(name: "T");' \
+        'migrationBuilder.CreateTable(name: "T");'
+    git -C "$repo" add -A
+    rm "$repo/src/App.Persistence/Migrations/20260705000012_StagedThenDeleted.cs"
+    run_case 2 "a staged migration missing from disk fails instead of passing unscanned" "$repo"
+    expect_in_output "20260705000012_StagedThenDeleted.cs"
+    expect_in_output "not on disk"
+
+    # 13. The same for a migration committed on the branch and then deleted from disk only.
+    repo="$(new_repo)"
+    write_migration "$repo" "20260705000013_CommittedThenDeleted.cs" \
+        'migrationBuilder.DropTable(name: "T");' \
+        'migrationBuilder.CreateTable(name: "T");'
+    commit_all "$repo" "destructive migration"
+    rm "$repo/src/App.Persistence/Migrations/20260705000013_CommittedThenDeleted.cs"
+    run_case 2 "a committed migration missing from disk fails instead of passing unscanned" "$repo" HEAD^1
+    expect_in_output "not on disk"
 }
 
 CHECKER="$SCRIPTS_DIR/check-migration-safety.sh"

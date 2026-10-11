@@ -108,6 +108,18 @@ run_suite() {
     run_tree 2 "a component under obj/ is build output, not a file to scan" "$tree"
     expect_in_output "nothing was checked"
 
+    # PowerShell on Linux and macOS hides dot-folders unless -Force is given; grep does not.
+    tree="$(new_tree App.razor '<p>ok</p>')"
+    mkdir -p "$tree/src/Frontend/.shared"
+    printf '%s\n' '<button @onclick="Go">Go</button>' > "$tree/src/Frontend/.shared/Bad.razor"
+    run_tree 1 "a component in a dot-folder is scanned" "$tree"
+
+    # obj/ and bin/ are skipped below the scanned folder only.
+    tree="$(new_tree App.razor '<button @onclick="Go">Go</button>')"
+    mkdir -p "$TMP_ROOT/bin.$cases/bin"
+    mv "$tree" "$TMP_ROOT/bin.$cases/bin/repo"
+    run_tree 1 "a repo inside a folder named bin is still scanned" "$TMP_ROOT/bin.$cases/bin/repo"
+
     # Root ignores the read bit, so these cases prove nothing when the suite runs as root.
     if [ "$(id -u)" -ne 0 ]; then
         tree="$(new_tree App.razor '<p>ok</p>')"

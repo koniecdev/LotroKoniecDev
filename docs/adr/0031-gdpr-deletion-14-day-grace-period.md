@@ -169,9 +169,8 @@ minute now means "not before this minute".
 Nothing the user can act on waits for a run. The cancel link lives one grace period from the moment
 its e-mail is built, which is normally seconds after the schedule (#947 covers a late e-mail). (Since
 #947 the link ends at the scheduled time plus the grace period, however late the e-mail went out; see
-the #947 amendment.) Every
-door checks `DeletionScheduledAt`, not the lockout, so the account stays shut after `LockoutEnd`
-has passed too. The longer gap between the date and the erasure shows in two places: the address
+the #947 amendment.) Every door checks `DeletionScheduledAt`, not the lockout, so the account stays
+shut after `LockoutEnd` has passed too. The longer gap between the date and the erasure shows in two places: the address
 stays taken, so registering it again fails until the run, and the login page shows a date that has
 passed and points to a dead cancel link (#916). A run that fails is now retried a day later, not an
 hour later (#937).

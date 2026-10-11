@@ -1,7 +1,13 @@
 using System.Net.Http.Headers;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using LotroKoniecDev.AuthSystem.API.BackgroundServices;
+using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
@@ -11,7 +17,9 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.AuthSystem.Persistence.Identity;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
+using LotroKoniecDev.Tests.Shared;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
@@ -192,6 +200,34 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task CancelDeletion_ShouldLogALateLinkAsInformation_WhenTheCancelWindowIsOver()
+    {
+        // Arrange: the token is valid and only the window is over. That is time passing, not an attack,
+        // so it is not the warning a bad token gets (#977). The token is made on the capturing host, so
+        // the test does not depend on two hosts sharing a key ring.
+        (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        using CapturingLoggerFactory loggerFactory = new();
+        await using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
+        using HttpClient client = host.CreateClient();
+        string cancelToken = await CreateCancelTokenAsync(host.Services, identityId.Value);
+        await AccountStateFactory.BackdateDeletionScheduleAsync(
+            Factory.Services, registerRequest.Email, GracePeriod() + TimeSpan.FromMinutes(5));
+
+        // Act
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            new Uri("auth/account/cancel-deletion", UriKind.Relative),
+            new CancelAccountDeletionRequest(registerRequest.Email, cancelToken));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        CapturingLoggerFactory.LogEntry entry = loggerFactory.Entries
+            .Where(entry => entry.Category.StartsWith(typeof(CancelAccountDeletion).FullName!, StringComparison.Ordinal))
+            .ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Information);
+        entry.EventId.Id.ShouldBe(EventIds.GdprCancelWindowOver);
+    }
+
+    [Fact]
     public async Task CancelDeletion_ShouldClearSchedule_WhenALateLinkArrivesBeforeTheCancelWindowEnds()
     {
         // Arrange: the same late e-mail, five minutes before the window ends
@@ -254,6 +290,28 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
         });
 
         return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
+    }
+
+    private WebApplicationFactory<Program> CreateHost(CapturingLoggerFactory loggerFactory) =>
+        Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                // A second relay on this database could take a row another test waits for.
+                AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
+
+                services.AddSingleton<ILoggerFactory>(loggerFactory);
+            }));
+
+    private static async Task<string> CreateCancelTokenAsync(IServiceProvider services, Guid userId)
+    {
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        ApplicationUser user = (await userManager.FindByIdAsync(userId.ToString()))!;
+
+        return await userManager.GenerateUserTokenAsync(
+            user,
+            AccountDeletionCancellationTokenProvider.ProviderName,
+            AccountDeletionCancellationTokenProvider.CancelDeletionPurpose);
     }
 
     private TimeSpan GracePeriod() =>

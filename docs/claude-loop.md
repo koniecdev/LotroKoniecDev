@@ -50,7 +50,7 @@ produces PRs, and the one merge path is `/merge-train` over PRs the owner approv
 | `scripts/claude/backlog-loop.sh` | the conductor — up to `-j` tickets at once, lock, stop conditions, roll-up table of PRs |
 | `scripts/claude/next-ticket.sh` | deterministic picker: priority labels + `Depends on #X` gate + skip rules + "no open PR yet" (a worktree kept for a resume after a usage limit does not hide its ticket) |
 | `scripts/claude/issue-trust.sh` | the provenance gate: refuses an issue written by anyone without write access (ADR-0026) |
-| `scripts/claude/work-ticket.sh` | one ticket: provenance gate → resume the session of a worktree kept after a usage limit, or skip if already in flight → worktree from `origin/main` → fresh headless session → judge `STATUS:` (no line: resume the same session, at most `LOOP_MAX_RESUMES` times) → confirm the PR exists (merged by the owner while the session ran: done; DONE with no open PR: resume once) → remove the clean worktree (usage limit: keep it for the next run) |
+| `scripts/claude/work-ticket.sh` | one ticket: provenance gate → resume the session of a worktree kept after a usage limit, or skip if already in flight → worktree from `origin/main` → fresh headless session → judge `STATUS:` (no line: resume the same session, at most `LOOP_MAX_RESUMES` times) → confirm the PR exists (merged while the session ran: done; DONE with no open PR: resume once) → remove the clean worktree (usage limit: keep it for the next run) |
 | `.claude/commands/work-ticket.md` | the per-ticket discipline prompt (the old `ticket-worker` agent, promoted to a slash command) |
 | `.claude/commands/backlog.md` | `/backlog <numbers>` prints the terminal command; `/backlog` with no arguments, after a run, reports the roll-up from the console copy and the run's `.meta` files. It never starts the loop |
 | `~/.claude-account1/skills/merge-train/` | the maintainer's merge path — merges PRs the owner approved by assigning themselves (lives outside this repo) |
@@ -233,10 +233,13 @@ Per-ticket outcomes:
   - The session may still push after the merge, for example a fix for a CodeQL alert. That commit
     is only on the branch, not on `main`. So the worker compares its HEAD with the merged PR's
     head (`refs/pull/<n>/head`), commit by commit and by change, not by id, because GitHub may
-    rebase a PR before it merges it. The row then says `<k> commit(s) after the merge are not on
-    main`, and the worker's log line names the branch: those commits need a new PR. When the
-    merged head cannot be fetched, the row says `could not check for commits after the merge`.
-    Either way the ticket stays `merged`: it is not a failure of the machine.
+    rebase a PR before it merges it. The row then says `<k> commit(s) not in the merged PR: check
+    them`, and the worker's log line names the branch. Such commits usually need a new PR. The
+    count can be too high, which is why the row asks you to check: a local rebase onto a newer
+    `main`, a conflict fixed during a rebase, or an empty commit count too. When the merged head
+    cannot be fetched, the row says `could not check for commits after the merge`. Either way the
+    ticket stays `merged`: it is not a failure of the machine. `.meta` holds the count as
+    `unmerged=` (`?` when it could not check).
   - The loop cannot tell who merged the PR: the worker's `gh` runs under the owner's account. A
     session that merged its own PR would break ADR-0060, and it would show as `merged`, not as an
     `error`. The session's instructions forbid a merge, and that is the guard; this outcome does
@@ -390,7 +393,7 @@ resumed run reports the cost of the whole session. The attempt's older `.before-
 `.resume-*` and `.stderr` files get a `.limit-<time>` suffix. The stderr moves because its limit
 message would make a later crash look like a usage limit. `.meta` gets `session=` whenever the
 run ends on its own and its result names the session (a timeout or a stop leaves it only in
-`ticket-<n>.json`), and `worktree=kept` on a limit that kept one; `resumes=` counts every resume, the one after the limit
+`ticket-<n>.json`), and `worktree=kept` on a limit that kept one; `unmerged=` on a `merged` ticket (see "Outcomes & triage"); `resumes=` counts every resume, the one after the limit
 included, so the end-of-run table marks the ticket `resumed Nx`. When the resume happens in a
 later conductor run, both runs' totals count the part of the session before the limit.
 

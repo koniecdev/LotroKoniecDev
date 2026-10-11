@@ -381,7 +381,7 @@ run_conductor 0 "conductor: a PR merged before its session ended is not a failur
 expect_started "101 102 103 104 105 106"
 printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #102 +merged +#1102 +[^ ]+ +[^ ]+$' >/dev/null \
     || fail "the row of #102 should say merged, with its PR and no note" "$LAST_OUTPUT"
-printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #103 +merged +#1103 .*  2 commit\(s\) after the merge are not on main$' >/dev/null \
+printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #103 +merged +#1103 .*  2 commit\(s\) not in the merged PR: check them$' >/dev/null \
     || fail "the row of #103 should name the commits after the merge" "$LAST_OUTPUT"
 printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #106 +merged +#1106 .*  could not check for commits after the merge$' >/dev/null \
     || fail "the row of #106 should say the check could not run" "$LAST_OUTPUT"

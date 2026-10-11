@@ -11,8 +11,8 @@
 # And it covers the worker's worktree lifecycle: the session runs in its own worktree cut from
 # origin/main, the main checkout is never touched, a finished worktree is removed or salvaged, a
 # stop signal ends the session and its children (also one it starts during the stop — #935), and
-# only a real PR for the ticket counts: an open one, or one the owner merged before the session
-# ended (#1082).
+# only a real PR for the ticket counts: an open one, or one merged before the session ended
+# (#1082).
 # A session that ends normally without a STATUS line is resumed a capped number of times (#925).
 # A usage limit keeps the worktree, and the next run resumes the session in it; a DONE with no
 # open PR is resumed once to open it; the picker does not hide a worktree kept that way (#934).
@@ -1693,7 +1693,7 @@ reset_fixtures
 fixture_issue 170 maintainer OWNER
 run_case 13 "work-ticket: a commit after the merge is named, not lost" \
     env FIX_AFTER_MERGE=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 170 "$TMP_ROOT/run"
-expect_in_output "but 1 commit(s) on branch 170-fixture came after the merge and are not on main"
+expect_in_output "but 1 commit(s) on branch 170-fixture are not in the merged PR — check whether they are on main"
 expect_meta 170 outcome=merged pr=7170 unmerged=1
 
 # GitHub may rebase a PR before the merge. Its head then has new ids for the same changes, and the
@@ -1722,6 +1722,22 @@ run_case 13 "work-ticket: a PR rebased by GitHub before the merge still holds th
     || fail "the merged head should be a rebased copy, or the case proves nothing"
 expect_in_output "PR #7171 was merged before the session ended — the work is on main"
 expect_meta 171 outcome=merged pr=7171 unmerged=0
+
+# The summary links a merged PR, and then GitHub cannot list the ticket's PRs. The linked PR is
+# already checked, so the ticket is merged, not an error.
+reset_fixtures
+fixture_issue 174 maintainer OWNER
+behavior "$TMP_ROOT/done-merged-list-down.sh" 'git checkout -q -b 174-fixture
+git push -q origin "HEAD:refs/pull/7174/head"
+printf "{\"number\":7174,\"state\":\"MERGED\",\"headRefName\":\"174-fixture\",\"isCrossRepository\":false,\"createdAt\":\"2099-01-01T00:00:00Z\"}" \
+    > "$GH_FIXTURES/pr-view-7174.json"
+printf x > "$GH_FIXTURES/pr-list-fail.json"
+echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7174\",\"is_error\":false,\"session_id\":\"s-174\"}"'
+run_case 13 "work-ticket: a linked merged PR counts when the PR list cannot be read" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged-list-down.sh" "$WORK" 174 "$TMP_ROOT/run"
+expect_in_output "PR #7174 was merged before the session ended — the work is on main"
+expect_meta 174 outcome=merged pr=7174 resumes=0
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a merged PR must not resume the session" "$LAST_OUTPUT"
 
 # When the loop cannot read the merged PR's head, it says so instead of guessing.
 reset_fixtures

@@ -880,7 +880,9 @@ find_ticket_pr() {
 # commits_after_merge — prints how many commits on the worktree's HEAD the merged PR does not hold.
 # The session may push a fix after the merge, for example for a CodeQL alert, and that fix is then
 # only on its branch. Commits are matched by their change, not by their id, so a rebase by GitHub
-# before the merge still matches. Fails when it cannot tell.
+# before the merge still matches. The count can be too high: a local rebase onto a newer main, a
+# conflict fixed in a rebase, or an empty commit also count. So the log asks the owner to check,
+# and never claims the commits are lost. Fails when it cannot tell.
 commits_after_merge() {
     local listed
     git -C "$WT" fetch --quiet origin "refs/pull/$pr_num/head" 2>/dev/null || return 1
@@ -1088,7 +1090,7 @@ if [ "$pr_merged" -eq 1 ]; then
     case "$after_merge" in
         0) log "PR #$pr_num was merged before the session ended — the work is on main ($stats)" ;;
         "?") log "PR #$pr_num was merged before the session ended, but the loop could not check whether branch ${merged_branch:-?} has commits the merge did not take ($stats)" ;;
-        *) log "PR #$pr_num was merged before the session ended, but $after_merge commit(s) on branch ${merged_branch:-?} came after the merge and are not on main — they need a new PR ($stats)" ;;
+        *) log "PR #$pr_num was merged before the session ended, but $after_merge commit(s) on branch ${merged_branch:-?} are not in the merged PR — check whether they are on main ($stats)" ;;
     esac
     exit 13
 fi

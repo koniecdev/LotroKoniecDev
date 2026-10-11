@@ -380,7 +380,7 @@ for meta_file in "$RUN_DIR"/ticket-*.meta; do
     case "$outcome:$unmerged" in
         merged:0|merged:) ;;
         "merged:?") note="$note  could not check for commits after the merge" ;;
-        merged:*) note="$note  $unmerged commit(s) after the merge are not on main" ;;
+        merged:*) note="$note  $unmerged commit(s) not in the merged PR: check them" ;;
     esac
     printf '[conductor] #%-6s %-12s %-6s %-8s %s%s\n' \
         "$ticket" "${outcome:-running?}" "${pr:+#$pr}" "$checks" "$alerts" "$note"

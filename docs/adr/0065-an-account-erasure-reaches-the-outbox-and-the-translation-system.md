@@ -1,6 +1,7 @@
 # ADR-0065: An Account Erasure Reaches the Outbox and the Translation System
 
-**Status:** Accepted
+**Status:** Accepted (§7 amended 2026-10-11 by #933 — the TMS allows no clock skew, so the check
+no longer adds one; see the note in §7)
 **Date:** 2026-10-09
 **Decision-makers:** Solo maintainer (ticket #1071)
 **Related:** AuthSystem.API (`Services/Gdpr/AccountErasureService.cs`, `ErasedAccountReconciler.cs`,
@@ -168,6 +169,11 @@ allows. Signing in stops when the deletion is scheduled, but an access token iss
 works on the TMS until then, and the TMS copies the token's name and address into the profile. A
 longer grace period means no token is left to write them back after the erasure. QA can still shorten
 the period to watch a real erasure, as ADR-0031 describes.
+
+> **Amendment (2026-10-11, #933).** The TMS now refuses a token the moment it expires (`ClockSkew = 0`,
+> ADR-0049, amendment of 2026-10-11). The validator kept its own copy of the old five minutes, and
+> ADR-0067 decision 6 says a part never keeps a copy of another part's setting. So the copy is gone,
+> and the grace period only has to be longer than `OpenIddict:AccessTokenLifetimeMinutes`.
 
 With the default 14 days, every token of the account is also older than the OpenIddict prune's 14-day
 retention at the erasure, so the encrypted copy of the name and address in a stored refresh token goes

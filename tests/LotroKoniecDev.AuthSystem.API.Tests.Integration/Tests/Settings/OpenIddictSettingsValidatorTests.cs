@@ -361,10 +361,6 @@ public sealed class OpenIddictSettingsValidatorTests
             && failure.Contains("absolute", StringComparison.Ordinal));
     }
 
-    /// <summary>
-    /// #1108: the issuer is public, so a user name or password in it would reach every client. The message
-    /// must not repeat them either, or they would land in the startup log.
-    /// </summary>
     [Theory]
     [InlineData(Production, "https://deploy:hunter2@auth.lotro-translator.pl", "deploy:hunter2")]
     [InlineData(Staging, "https://deploy:hunter2@auth.staging.lotro-translator.pl", "deploy:hunter2")]
@@ -417,10 +413,6 @@ public sealed class OpenIddictSettingsValidatorTests
         failure.ShouldNotContain(credentials);
     }
 
-    /// <summary>
-    /// #1108: the first post-logout URI is the website's address that every account page and every
-    /// e-mail prints (<c>FrontendUrl</c>), so it is the entry that would show the password to everyone.
-    /// </summary>
     [Theory]
     [InlineData(Production, "https://deploy:hunter2@lotro-translator.pl", "deploy:hunter2")]
     [InlineData(Staging, "https://deploy:hunter2@staging.lotro-translator.pl", "deploy:hunter2")]

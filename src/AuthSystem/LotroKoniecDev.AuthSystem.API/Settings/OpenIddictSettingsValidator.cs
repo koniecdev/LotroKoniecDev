@@ -191,10 +191,10 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
 
     /// <summary>
     /// Nothing on the sign-in server needs a user name or password in these addresses. Each one is public.
-    /// The issuer is the base of the discovery document, of every token and of every e-mail link. A
-    /// redirect URI is where the browser goes after sign-in. The first post-logout URI is printed on every
-    /// account page and in every e-mail (<see cref="FrontendUrl"/>). So a user name or password here can
-    /// only be a mistake, and everyone would see it (#1108, ADR-0067 decision 4).
+    /// The issuer is in the discovery document and in every token. A redirect URI is where the browser
+    /// goes after sign-in. The first post-logout URI is printed on every account page and in every e-mail
+    /// (<see cref="FrontendUrl"/>). So a user name or password here can only be a mistake, and everyone
+    /// would see it (#1108, ADR-0067 decision 4).
     /// </summary>
     private static bool CarriesUserInfo(string value)
     {

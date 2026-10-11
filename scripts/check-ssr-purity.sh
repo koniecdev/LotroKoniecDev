@@ -23,6 +23,9 @@
 # — and is how Editor.razor posts forms (<form method="post" @formname @onsubmit>).
 # KittySaver uses <EditForm> so its broad @on* regex never sees this; we use plain forms.
 # Every other @on* handler (onclick/onchange/oninput/…) is dead in SSR and stays forbidden.
+# A run that scans no file is not a pass (#1079): a folder that moved, or pages that changed their
+# file type, would switch a rule off while CI stays green. So a missing folder, a folder with no file
+# to scan, and a file grep cannot read all stop the guard with exit 2.
 # Keep this in sync with its check-ssr-purity.ps1 twin (run locally on Windows).
 
 set -euo pipefail
@@ -32,12 +35,39 @@ REPO_ROOT="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 FRONTEND_DIR="$REPO_ROOT/src/Frontend"
 AUTH_DIR="$REPO_ROOT/src/AuthSystem"
 
-if [ ! -d "$FRONTEND_DIR" ]; then
-    echo "Pure-SSR guard: Frontend directory not found at $FRONTEND_DIR" >&2
-    exit 2
-fi
+for dir in "$FRONTEND_DIR" "$AUTH_DIR"; do
+    if [ ! -d "$dir" ]; then
+        echo "Frontend markup guard: directory not found at $dir" >&2
+        exit 2
+    fi
+done
+
+require_files() {
+    # $1 = folder, $2 = the kind of file, for the message, then find's name tests.
+    local dir="$1" kind="$2" found
+    shift 2
+    if ! found="$(find -H "$dir" \( -name obj -o -name bin \) -prune -o -type f \( "$@" \) -print)"; then
+        echo "Frontend markup guard: could not list the files under $dir." >&2
+        exit 2
+    fi
+    if [ -z "$found" ]; then
+        echo "Frontend markup guard: no $kind under $dir, so nothing was checked." >&2
+        exit 2
+    fi
+}
+
+require_files "$FRONTEND_DIR" '.razor or .cs file' -name '*.razor' -o -name '*.cs'
+require_files "$AUTH_DIR" '.cshtml page' -name '*.cshtml'
 
 fail=0
+
+stop_on_read_error() {
+    # $1 = grep's exit code, $2 = the folder it scanned. 1 only means "no match", the clean result.
+    if [ "$1" -gt 1 ]; then
+        echo "Frontend markup guard: could not read the files under $2." >&2
+        exit 2
+    fi
+}
 
 check() {
     # $1 = grep -E pattern to flag, $2 = plain explanation of what to do instead,
@@ -47,13 +77,18 @@ check() {
     #      violation (e.g. @onclick beside @onsubmit on one element) is still flagged.
     # obj/ and bin/ are build output, not source — never scan them (in CI this runs before
     # restore/build, but a local run after a build would otherwise hit generated *.g.cs).
-    report "$(grep -rnE "$1" --include='*.razor' --include='*.cs' --exclude-dir=obj --exclude-dir=bin "$FRONTEND_DIR" 2>/dev/null || true)" "$@"
+    local matches rc=0
+    matches="$(grep -rnE "$1" --include='*.razor' --include='*.cs' --exclude-dir=obj --exclude-dir=bin "$FRONTEND_DIR")" || rc=$?
+    stop_on_read_error "$rc" "$FRONTEND_DIR"
+    report "$matches" "$@"
 }
 
 check_auth_pages() {
-    # Same arguments as check(), over the auth pages. A tree without them is not an error.
-    [ -d "$AUTH_DIR" ] || return 0
-    report "$(grep -rnE "$1" --include='*.cshtml' --exclude-dir=obj --exclude-dir=bin "$AUTH_DIR" 2>/dev/null || true)" "$@"
+    # Same arguments as check(), over the auth pages.
+    local matches rc=0
+    matches="$(grep -rnE "$1" --include='*.cshtml' --exclude-dir=obj --exclude-dir=bin "$AUTH_DIR")" || rc=$?
+    stop_on_read_error "$rc" "$AUTH_DIR"
+    report "$matches" "$@"
 }
 
 report() {

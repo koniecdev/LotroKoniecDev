@@ -33,20 +33,56 @@ $repoRoot    = Split-Path -Parent $PSScriptRoot
 $frontendDir = Join-Path $repoRoot 'src/Frontend'
 $authDir     = Join-Path $repoRoot 'src/AuthSystem'
 
-if (-not (Test-Path $frontendDir)) {
-    Write-Error "Pure-SSR guard: Frontend directory not found at $frontendDir"
-    exit 2
+# A run that scans no file is not a pass (#1079), so a missing folder, a folder with no file to scan,
+# and a file that cannot be read all stop the guard with exit 2, as in the .sh twin.
+# Write-Host, not Write-Error: under ErrorActionPreference Stop, Write-Error throws, and the script
+# would end with exit 1 before it reached `exit 2`.
+foreach ($dir in $frontendDir, $authDir) {
+    if (-not (Test-Path $dir)) {
+        Write-Host "Frontend markup guard: directory not found at $dir"
+        exit 2
+    }
+}
+
+function Find-SourceFile {
+    # Lists exactly the files the .sh twin's grep -r reads. It enters dot-folders (-Force; without it,
+    # PowerShell on Linux and macOS skips them), never enters obj/ or bin/ (matched with case, like
+    # --exclude-dir), skips symbolic links like grep -r does, and matches the name with case.
+    param(
+        [Parameter(Mandatory)][string] $Directory,
+        [Parameter(Mandatory)][string] $NamePattern
+    )
+
+    foreach ($item in Get-ChildItem -LiteralPath $Directory -Force -ErrorAction Stop) {
+        if ($item.LinkType -eq 'SymbolicLink' -or $item.LinkType -eq 'Junction') { continue }
+        if ($item.PSIsContainer) {
+            if ($item.Name -ceq 'obj' -or $item.Name -ceq 'bin') { continue }
+            Find-SourceFile -Directory $item.FullName -NamePattern $NamePattern
+        }
+        elseif ($item.Name -cmatch $NamePattern) {
+            $item
+        }
+    }
 }
 
 # obj/ and bin/ are build output, not source — never scan them (mirrors the .sh --exclude-dir).
-$files = Get-ChildItem -Path $frontendDir -Recurse -File -Include '*.razor', '*.cs' |
-    Where-Object { $_.FullName -notmatch '[\\/](obj|bin)[\\/]' }
-# A tree without the auth pages is not an error.
-$authPages = @()
-if (Test-Path $authDir) {
-    $authPages = Get-ChildItem -Path $authDir -Recurse -File -Include '*.cshtml' |
-        Where-Object { $_.FullName -notmatch '[\\/](obj|bin)[\\/]' }
+try {
+    $files = @(Find-SourceFile -Directory $frontendDir -NamePattern '\.(razor|cs)$')
+    $authPages = @(Find-SourceFile -Directory $authDir -NamePattern '\.cshtml$')
 }
+catch {
+    Write-Host "Frontend markup guard: could not list the files to check: $($_.Exception.Message)"
+    exit 2
+}
+if ($files.Count -eq 0) {
+    Write-Host "Frontend markup guard: no .razor or .cs file under $frontendDir, so nothing was checked."
+    exit 2
+}
+if ($authPages.Count -eq 0) {
+    Write-Host "Frontend markup guard: no .cshtml page under $authDir, so nothing was checked."
+    exit 2
+}
+
 $script:fail = $false
 
 function Test-SsrPurity {
@@ -59,7 +95,13 @@ function Test-SsrPurity {
         $Files = $files
     )
 
-    $hits = $Files | Select-String -Pattern $Pattern -CaseSensitive
+    try {
+        $hits = $Files | Select-String -Pattern $Pattern -CaseSensitive -ErrorAction Stop
+    }
+    catch {
+        Write-Host "Frontend markup guard: could not read the files to check: $($_.Exception.Message)"
+        exit 2
+    }
     if ($AllowPattern) {
         # Strip the SSR-valid token, then re-test: a line matching ONLY via the allowed
         # token drops out; a line also carrying a real handler is still flagged.

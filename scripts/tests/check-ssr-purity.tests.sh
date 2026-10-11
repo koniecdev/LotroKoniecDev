@@ -14,7 +14,8 @@ set -euo pipefail
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
 SCRIPTS_DIR="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 TMP_ROOT="$(mktemp -d)"
-trap 'rm -rf "$TMP_ROOT"' EXIT
+# The unreadable-folder cases take the read bit away; give it back, or rm cannot clean up.
+trap 'chmod -R u+rwx "$TMP_ROOT" 2>/dev/null; rm -rf "$TMP_ROOT"' EXIT
 
 GUARD_SH="$SCRIPTS_DIR/check-ssr-purity.sh"
 GUARD_PS1="$SCRIPTS_DIR/check-ssr-purity.ps1"
@@ -33,13 +34,15 @@ fail() {
 
 # Builds a fixture repo holding a copy of the guard, so the guard resolves src/Frontend
 # relative to itself exactly as it does in the real tree. $1 = file name under
-# src/Frontend/Components, $2 = its contents.
+# src/Frontend/Components, $2 = its contents. The tree also holds one clean auth page: a run
+# with no auth page to check fails (#1079).
 new_tree() {
     local tree
     tree="$(mktemp -d "$TMP_ROOT/tree.XXXXXX")"
-    mkdir -p "$tree/scripts" "$tree/src/Frontend/Components"
+    mkdir -p "$tree/scripts" "$tree/src/Frontend/Components" "$tree/src/AuthSystem/Api/Pages/Account"
     cp "$GUARD_SH" "$GUARD_PS1" "$tree/scripts/"
     printf '%s\n' "$2" > "$tree/src/Frontend/Components/$1"
+    printf '%s\n' '<p>ok</p>' > "$tree/src/AuthSystem/Api/Pages/Account/Placeholder.cshtml"
     printf '%s' "$tree"
 }
 
@@ -76,6 +79,89 @@ expect_in_output() {
 }
 
 run_suite() {
+    local tree
+
+    # --- the guard scans something, or it does not pass (#1079) ---
+    tree="$(new_tree App.razor '<p>ok</p>')"
+    rm -rf "$tree/src/AuthSystem"
+    run_tree 2 "a tree without the auth folder fails" "$tree"
+    expect_in_output "directory not found"
+
+    tree="$(new_tree App.razor '<p>ok</p>')"
+    rm "$tree/src/AuthSystem/Api/Pages/Account/Placeholder.cshtml"
+    printf '%s\n' 'namespace Auth;' > "$tree/src/AuthSystem/Api/Program.cs"
+    run_tree 2 "an auth folder with no .cshtml page fails" "$tree"
+    expect_in_output "nothing was checked"
+
+    tree="$(new_tree App.razor '<p>ok</p>')"
+    rm -rf "$tree/src/Frontend"
+    run_tree 2 "a tree without the Frontend folder fails" "$tree"
+    expect_in_output "directory not found"
+
+    tree="$(new_tree app.css 'p { color: red; }')"
+    run_tree 2 "a Frontend folder with no .razor or .cs file fails" "$tree"
+    expect_in_output "nothing was checked"
+
+    tree="$(new_tree app.css 'p { color: red; }')"
+    mkdir -p "$tree/src/Frontend/obj/Debug"
+    printf '%s\n' '<p>ok</p>' > "$tree/src/Frontend/obj/Debug/App.razor"
+    run_tree 2 "a component under obj/ is build output, not a file to scan" "$tree"
+    expect_in_output "nothing was checked"
+
+    # PowerShell on Linux and macOS hides dot-folders unless -Force is given; grep does not.
+    tree="$(new_tree App.razor '<p>ok</p>')"
+    mkdir -p "$tree/src/Frontend/.shared"
+    printf '%s\n' '<button @onclick="Go">Go</button>' > "$tree/src/Frontend/.shared/Bad.razor"
+    run_tree 1 "a component in a dot-folder is scanned" "$tree"
+
+    # obj/ and bin/ are skipped below the scanned folder only.
+    tree="$(new_tree App.razor '<button @onclick="Go">Go</button>')"
+    mkdir -p "$TMP_ROOT/bin.$cases/bin"
+    mv "$tree" "$TMP_ROOT/bin.$cases/bin/repo"
+    run_tree 1 "a repo inside a folder named bin is still scanned" "$TMP_ROOT/bin.$cases/bin/repo"
+
+    # obj/ and bin/ are matched with case, as grep --exclude-dir does: Bin/ is a source folder.
+    tree="$(new_tree App.razor '<p>ok</p>')"
+    mkdir -p "$tree/src/Frontend/Bin"
+    printf '%s\n' '<button @onclick="Go">Go</button>' > "$tree/src/Frontend/Bin/Bad.razor"
+    run_tree 1 "a component in a folder named Bin is scanned" "$tree"
+
+    # grep -r does not follow a symbolic link it meets inside the tree.
+    tree="$(new_tree App.razor '<p>ok</p>')"
+    printf '%s\n' '<button @onclick="Go">Go</button>' > "$TMP_ROOT/outside.$cases.razor"
+    ln -s "$TMP_ROOT/outside.$cases.razor" "$tree/src/Frontend/Components/Linked.razor"
+    run_tree 0 "a symbolic link to a component is not followed" "$tree"
+
+    # Root ignores the read bit, so these cases prove nothing when the suite runs as root.
+    if [ "$(id -u)" -ne 0 ]; then
+        tree="$(new_tree App.razor '<p>ok</p>')"
+        mkdir -p "$tree/src/Frontend/obj/Locked"
+        chmod 000 "$tree/src/Frontend/obj/Locked"
+        run_tree 0 "an unreadable folder under obj/ is never entered" "$tree"
+        chmod 755 "$tree/src/Frontend/obj/Locked"
+
+        tree="$(new_tree App.razor '<p>ok</p>')"
+        mkdir -p "$tree/src/Frontend/Locked"
+        chmod 000 "$tree/src/Frontend/Locked"
+        run_tree 2 "a Frontend folder the guard cannot read fails the run" "$tree"
+        expect_in_output "could not list"
+        chmod 755 "$tree/src/Frontend/Locked"
+
+        tree="$(new_tree App.razor '<button @onclick="Go">Go</button>')"
+        chmod 000 "$tree/src/Frontend/Components/App.razor"
+        run_tree 2 "a component the guard cannot read fails the run" "$tree"
+        expect_in_output "could not read"
+        chmod 644 "$tree/src/Frontend/Components/App.razor"
+
+        tree="$(new_tree App.razor '<p>ok</p>')"
+        chmod 000 "$tree/src/AuthSystem/Api/Pages/Account/Placeholder.cshtml"
+        run_tree 2 "an auth page the guard cannot read fails the run" "$tree"
+        expect_in_output "could not read"
+        chmod 644 "$tree/src/AuthSystem/Api/Pages/Account/Placeholder.cshtml"
+    else
+        printf 'i [%s] running as root, which reads any file — skipped the unreadable-file cases.\n' "$LABEL"
+    fi
+
     # --- the inline-script rule (#670) ---
     run_case 0 "external lowercase script passes" \
         App.razor '<script src="/app.js"></script>'

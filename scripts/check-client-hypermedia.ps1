@@ -14,6 +14,10 @@
 
     CLAUDE.md and ADR-0041 state the rule in prose; this script enforces it. CI runs the .sh;
     this .ps1 is the local twin for Windows devs - keep the two in sync.
+    Tests for both: scripts/tests/check-client-hypermedia.tests.sh.
+
+    A run that scans no file is not a pass (#1079), so a missing client folder, a folder with no
+    .razor or .cs file, and a file that cannot be read all stop the guard with exit 2.
 
     What it flags: an API path inside a STRING LITERAL (the shape a hardcoded route actually
     takes - a const, an interpolation base, a razor href). Prose mentions in comments and XML
@@ -32,23 +36,61 @@ $apiPathPattern = '"[^"]*api/v[0-9]'
 
 $script:fail = $false
 
+function Find-SourceFile {
+    # Lists exactly the files the .sh twin's grep -r reads. It enters dot-folders (-Force; without it,
+    # PowerShell on Linux and macOS skips them), never enters obj/ or bin/ (matched with case, like
+    # --exclude-dir), skips symbolic links like grep -r does, and matches the name with case.
+    param(
+        [Parameter(Mandatory)][string] $Directory,
+        [Parameter(Mandatory)][string] $NamePattern
+    )
+
+    foreach ($item in Get-ChildItem -LiteralPath $Directory -Force -ErrorAction Stop) {
+        if ($item.LinkType -eq 'SymbolicLink' -or $item.LinkType -eq 'Junction') { continue }
+        if ($item.PSIsContainer) {
+            if ($item.Name -ceq 'obj' -or $item.Name -ceq 'bin') { continue }
+            Find-SourceFile -Directory $item.FullName -NamePattern $NamePattern
+        }
+        elseif ($item.Name -cmatch $NamePattern) {
+            $item
+        }
+    }
+}
+
 function Test-Hypermedia {
     param(
         [Parameter(Mandatory)][string] $Client,
         [Parameter(Mandatory)][string] $Message
     )
 
+    # Write-Host, not Write-Error: under ErrorActionPreference Stop, Write-Error throws, and the
+    # script would end with exit 1 before it reached `exit 2`.
     $dir = Join-Path $repoRoot "src/$Client"
     if (-not (Test-Path $dir)) {
-        Write-Error "Hypermedia guard: client directory not found at $dir"
+        Write-Host "Hypermedia guard: client directory not found at $dir"
         exit 2
     }
 
     # obj/ and bin/ are build output, not source - never scan them (mirrors the .sh --exclude-dir).
-    $files = Get-ChildItem -Path $dir -Recurse -File -Include '*.razor', '*.cs' |
-        Where-Object { $_.FullName -notmatch '[\\/](obj|bin)[\\/]' }
+    try {
+        $files = @(Find-SourceFile -Directory $dir -NamePattern '\.(razor|cs)$')
+    }
+    catch {
+        Write-Host "Hypermedia guard: could not list the files under ${dir}: $($_.Exception.Message)"
+        exit 2
+    }
+    if ($files.Count -eq 0) {
+        Write-Host "Hypermedia guard: no .razor or .cs file under $dir, so nothing was checked."
+        exit 2
+    }
 
-    $hits = $files | Select-String -Pattern $apiPathPattern -CaseSensitive
+    try {
+        $hits = $files | Select-String -Pattern $apiPathPattern -CaseSensitive -ErrorAction Stop
+    }
+    catch {
+        Write-Host "Hypermedia guard: could not read the files under ${dir}: $($_.Exception.Message)"
+        exit 2
+    }
     if ($hits) {
         $script:fail = $true
         Write-Host "X $Message"

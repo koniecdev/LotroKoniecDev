@@ -116,6 +116,11 @@ jobs:
       # Same shape, the other client invariant: no hardcoded API paths, in the Frontend and in
       # the CLI alike. There is no gateway (ADR-0041), so a client resolves every entry point by
       # rel — a compiled-in "/api/v1/..." only fails at runtime, and this catches it in seconds.
+      # The self-test runs first, as for the other guards (#1079).
+      - name: Client hypermedia guard self-test
+        if: steps.diff.outputs.guards != 'false'
+        run: ./scripts/tests/check-client-hypermedia.tests.sh
+
       - name: Client hypermedia guard
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/check-client-hypermedia.sh
@@ -123,6 +128,12 @@ jobs:
       # Build-cache analog of the SSR gate: every Dockerfile must COPY the full transitive
       # .csproj closure it restores. `dotnet restore` SKIPS a missing project file and still
       # exits 0, so a stale COPY list degrades the restore layer silently and stays green.
+      # The self-test runs first: it also proves that a run which finds no Dockerfile to check
+      # fails instead of passing (#1079).
+      - name: Docker restore-graph guard self-test
+        if: steps.diff.outputs.guards != 'false'
+        run: ./scripts/tests/check-dockerfile-restore-graph.tests.sh
+
       - name: Docker restore-graph guard
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/check-dockerfile-restore-graph.sh

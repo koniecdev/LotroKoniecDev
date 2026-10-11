@@ -198,9 +198,9 @@ facts join the list in "What the tests pin":
 3. A token that expired one second, one minute, four minutes or twenty minutes ago gets 401, and a
    token that expires in one minute is accepted (`AuthorizationDefaultsTests`).
 4. A correctly signed token of another type gets 401 (`AuthorizationDefaultsTests`). The real token
-   endpoint writes `at+jwt` on the website's authorization-code tokens (`AuthorizationCodeFlowTests`)
-   and on password and service tokens (`TokenEndpointTests`), so the rule cannot lock out the website
-   or the deploy smoke.
+   endpoint writes `at+jwt` on the website's authorization-code and refresh tokens
+   (`AuthorizationCodeFlowTests`, `TokenEndpointTests`) and on password and service tokens
+   (`TokenEndpointTests`), so the rule cannot lock out the website or the deploy smoke.
 
 `GdprSettingsValidator` kept its own copy of the old five minutes, so that the deletion grace period
 outlived every token the TMS still accepted. The copy is gone, and the grace period only has to be

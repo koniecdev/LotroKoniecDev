@@ -258,7 +258,8 @@ Role seedowane (`DatabaseSeederExtensions.cs:37`): **`Admin`** i **`Translator`*
 `ApiDependencyInjection.cs:201-247`. Standardowy `AddJwtBearer` (nie OpenIddict validation — prościej):
 - `Authority = EffectiveAuthority` (issuer lub osobne Authority dla Dockera);
 - `Audience = "lotrokoniecdev-api"`;
-- `TokenValidationParameters`: waliduje issuer + audience + lifetime + signing key;
+- `TokenValidationParameters`: waliduje issuer + audience + lifetime + signing key, bez tolerancji
+  zegara (`ClockSkew = 0`) i tylko dla typu `at+jwt` (#933, ADR-0049);
 - `NameClaimType = "name"`, `RoleClaimType = "role"`, `MapInboundClaims = false`;
 - **klucze z JWKS**: `ConfigurationManager` ciągnie `{authority}/.well-known/openid-configuration`
   (`:243`) — `tms-api` nie zna klucza prywatnego, tylko publiczny przez JWKS.
@@ -508,8 +509,8 @@ AS. Skalowalne. Koszt: trudna rewokacja access tokena ⇒ krótki żywot + rewok
 bezużyteczny.
 
 **Q: Jak waliduje się token po stronie API?** — `JwtBearer`: ściąga JWKS z
-`{authority}/.well-known/openid-configuration`, sprawdza podpis, `iss`, `aud`, `exp`. Klucza prywatnego
-RS nie zna.
+`{authority}/.well-known/openid-configuration`, sprawdza podpis, `iss`, `aud`, `exp` (bez tolerancji
+zegara) i typ `at+jwt` (#933). Klucza prywatnego RS nie zna.
 
 **Q: Co się dzieje przy logoucie?** — Cookie sign-out, rewokacja refresh tokena strony serwer–serwer
 (#964) i RP-initiated end-session do `auth-api`, które **rewokuje autoryzację i reference tokeny sesji

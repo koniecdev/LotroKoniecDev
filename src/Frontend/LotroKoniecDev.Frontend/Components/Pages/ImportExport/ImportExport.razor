@@ -11,6 +11,8 @@
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate
 @using LotroKoniecDev.Frontend.Infrastructure.Errors
 @inject ImportExportLoader Loader
+@inject ImportSummaryRedirect SummaryRedirect
+@inject NavigationManager Navigation
 
 <PageTitle>Import / Eksport — lotro-translator.pl</PageTitle>
 
@@ -222,9 +224,6 @@
 
 @code
 {
-    [SupplyParameterFromForm(FormName = "import-export")]
-    private ImportFormModel? ImportInput { get; set; }
-
     private IReadOnlyList<GameVersionResponse>? _versions;
 
     /// <summary>
@@ -238,11 +237,20 @@
     private ImportSummary? _summary;
     private bool _canImport;
 
+    [SupplyParameterFromForm(FormName = "import-export")]
+    private ImportFormModel? ImportInput { get; set; }
+
+    /// <summary>The summary of the import that redirected here (#933).</summary>
+    [SupplyParameterFromQuery(Name = ImportSummaryRedirect.SummaryParameter)]
+    private string? ProtectedSummary { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         // A property initializer is rejected for a [SupplyParameterFromForm] model (BL0008), so seed it
         // here: on a non-matching render the model stays empty, on a matching post the bound model wins.
         ImportInput ??= new ImportFormModel();
+
+        _summary = SummaryRedirect.Read(ProtectedSummary);
 
         // Any translator may see the game-versions list. Whether the import panel appears is decided by
         // the collection's admin-only `register` rel (#158) and not by a role check here.
@@ -280,17 +288,18 @@
 
         ImportFormModel input = ImportInput ?? new ImportFormModel();
 
+        // On every refusal below, the version list loaded at the start of this request stays on screen.
+        // A refused import changes nothing, because the import is all or nothing, and a second call would
+        // carry this request's token, which a long import may have outlived (#933).
         if (input.File is null || input.File.Length == 0)
         {
             _importProblem = ApiProblemCopy.FrontendAuthored("Wybierz plik exported.txt do wgrania.");
-            await LoadVersionsAsync();
             return;
         }
 
         if (input.GameVersionId == Guid.Empty)
         {
             _importProblem = ApiProblemCopy.FrontendAuthored("Wybierz wersję gry.");
-            await LoadVersionsAsync();
             return;
         }
 
@@ -302,7 +311,6 @@
             _importProblem = ApiProblemCopy.FrontendAuthored(
                 "Nie można zaimportować do tej wersji gry.",
                 "Serwer nie udostępnia importu dla wybranej wersji. Odśwież stronę i wybierz inną wersję.");
-            await LoadVersionsAsync();
             return;
         }
 
@@ -317,16 +325,14 @@
 
         if (result.IsSuccess)
         {
-            _summary = result.Value;
-        }
-        else
-        {
-            _importProblem = result.ProblemDetails;
+            // Redirect after post (#933): the import changed the catalog and the version's status, so the
+            // list is loaded again, in a new request that renews the token first. The TMS refuses a token
+            // the moment it expires, and an import takes minutes. A browser reload is then a plain GET too.
+            Navigation.NavigateTo(SummaryRedirect.PageUriWith(result.Value));
+            return;
         }
 
-        // The import mutated the catalog and the version's status; refresh the selector so it reflects
-        // the new state (e.g. the just-imported version flips to Processed).
-        await LoadVersionsAsync();
+        _importProblem = result.ProblemDetails;
     }
 
     /// <summary>

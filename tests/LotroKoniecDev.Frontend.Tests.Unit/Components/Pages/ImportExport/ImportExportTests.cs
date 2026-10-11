@@ -7,8 +7,11 @@ using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
+using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using ImportExportComponent = LotroKoniecDev.Frontend.Components.Pages.ImportExport.ImportExport;
@@ -36,6 +39,8 @@ public sealed class ImportExportTests : BunitContext
         Services.AddSingleton(_client);
         Services.AddSingleton(StubDiscoveryCache.AdvertisingGet(Rels.GameVersions, Rels.TranslationFile));
         Services.AddScoped<ImportExportLoader>();
+        Services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+        Services.AddSingleton<ImportSummaryRedirect>();
     }
 
     [Fact]
@@ -103,7 +108,7 @@ public sealed class ImportExportTests : BunitContext
         await component.Find("form").SubmitAsync();
 
         component.Find(".status-down").TextContent.ShouldContain("Wybierz plik exported.txt");
-        await _client.DidNotReceive().SendMultipartApiResultAsync<TranslationSystem.Contracts.Import.ImportSummary>(
+        await _client.DidNotReceive().SendMultipartApiResultAsync<ImportSummary>(
             Arg.Any<HttpMethod>(),
             Arg.Any<string>(),
             Arg.Any<MultipartFormDataContent>(),
@@ -188,6 +193,52 @@ public sealed class ImportExportTests : BunitContext
         component.Find("details.problem-tech .problem-tech-body").TextContent
             .ShouldBe("Catalog.SomethingNobodyMappedYet — Not your row.");
     }
+
+    [Fact]
+    public void Render_WhenTheRedirectAfterAnImportCarriesItsSummary_ShowsTheSixCountsAndTheNotes()
+    {
+        // The GET side of the redirect after an import (#933): the list loads again in this new request,
+        // and the summary of the import that sent the admin here is still on screen.
+        AuthorizeAs("Sam");
+        StubVersionsWithRegisterRel(ImportableVersion("48.0"));
+        ImportSummary summary = new(
+            Added: 11,
+            SourceChanged: 12,
+            Invalidated: 13,
+            Removed: 14,
+            Unchanged: 15,
+            Echoed: 16,
+            Warnings: ["1 older unprocessed version(s) marked superseded — they will never receive their own upload."]);
+        Navigation().NavigateTo(Services.GetRequiredService<ImportSummaryRedirect>().PageUriWith(summary));
+
+        IRenderedComponent<ImportExportComponent> component = RenderPage();
+
+        component.Find(".status-ok").TextContent.ShouldContain("Import zakończony powodzeniem.");
+        component.FindAll(".stat-tile .num").Select(tile => tile.TextContent)
+            .ShouldBe(["11", "12", "13", "14", "15", "16"]);
+        component.Find(".notice-list").TextContent.ShouldContain("1 older unprocessed version(s) marked superseded");
+    }
+
+    [Theory]
+    [InlineData("/import-export?summary=forged")]
+    [InlineData("/import-export?summary=")]
+    [InlineData("/import-export")]
+    public void Render_WhenTheAddressCarriesNoSummaryThisPageWrote_ShowsNoSummary(string uri)
+    {
+        // A link that someone else wrote must not put counts or notes on the page.
+        AuthorizeAs("Sam");
+        StubVersionsWithRegisterRel(ImportableVersion("48.0"));
+        Navigation().NavigateTo(uri);
+
+        IRenderedComponent<ImportExportComponent> component = RenderPage();
+
+        component.FindAll(".status-ok").ShouldBeEmpty();
+        component.FindAll(".stat-tile").ShouldBeEmpty();
+        component.FindAll("input[type=file]").ShouldHaveSingleItem();
+    }
+
+    private BunitNavigationManager Navigation() =>
+        (BunitNavigationManager)Services.GetRequiredService<NavigationManager>();
 
     private IRenderedComponent<ImportExportComponent> RenderPage() =>
         Render<ImportExportComponent>();

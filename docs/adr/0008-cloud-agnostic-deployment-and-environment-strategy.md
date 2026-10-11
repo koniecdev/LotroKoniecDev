@@ -1,6 +1,6 @@
 # ADR-0008: Cloud-agnostic deployment & environment strategy (staging + production)
 
-**Status:** Accepted (its "no IaC / human-driven first deploy / provider undecided" stance superseded by ADR-0012, 2026-06-28; §6 migration wording amended 2026-07-05 by ADR-0023/#337 — see the in-body note)
+**Status:** Accepted (its "no IaC / human-driven first deploy / provider undecided" stance superseded by ADR-0012, 2026-06-28; §6 migration wording amended 2026-07-05 by ADR-0023/#337 — see the in-body note; §3 amended 2026-10-11 by ADR-0067 with the bar for a startup check — see the in-body note)
 **Date:** 2026-06-19
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0002 (TMS pivot + KittySaver 1:1 lift), ADR-0005 (Frontend Data Protection key
@@ -79,6 +79,30 @@ Every deployment-critical setting is validated at startup in non-Development; a 
 value aborts boot with a message naming the key (M6-05). This is the primary defense against the
 "cryptic 500 on staging" failure mode. CORS origins (M6-03), forwarded-headers config (M6-02), and
 Data Protection keyrings (M6-04) all move under this regime.
+
+> **Amendment (2026-10-11, ADR-0067): the bar for a startup check.** Reviews added these checks one
+> at a time, each found next to the one before (#853 → #857 → #877 → #915, #946 → #971, #1025 →
+> #1054 → #1108), and nothing said where they stop. The environment rule drifted too: this section
+> says "non-Development", ADR-0054 says "outside Development and Testing", and #857, #1025 and #1054
+> check in every environment. From now on:
+>
+> 1. **A startup check refuses a value the app cannot work with, or one that breaks the product
+>    silently or late**, before any build, test or smoke would fail. Examples: a caller key with
+>    spaces or a newline in it (#857, #877), an access-token lifetime under two minutes (#1025), a
+>    refresh-token lifetime under 540 minutes (#1054), a missing production key.
+> 2. **It also enforces a limit an ADR sets on a security setting** (ADR-0049's floor, ADR-0065's
+>    rule for the grace period).
+> 3. **It does not refuse a value an existing rule already bounds** (#1054: ADR-0065's grace-period
+>    rule keeps the access-token lifetime far below the size that would overflow), **nor a value that
+>    only a deliberate act puts there.** #1108 is such a case: none of our addresses carries a user
+>    name or password, so there is nothing to paste one from.
+> 4. **Only the part that owns a setting checks it.** Another part never makes up for it and never
+>    keeps a copy of it (ADR-0067 decision 6).
+> 5. **Environments:** a rule about the value itself (a range, a format) runs in every environment,
+>    so tests and local runs meet it too. A rule that a production secret or address is set runs
+>    outside Development and Testing, where those values are throwaway.
+>
+> A review finding below this bar is not filed (ADR-0067 §8).
 
 ### 4. Production parity is reproduced locally via `compose.prod.yaml`
 

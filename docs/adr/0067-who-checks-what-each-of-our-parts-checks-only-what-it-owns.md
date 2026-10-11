@@ -1,0 +1,335 @@
+# ADR-0067: Who checks what — each of our parts checks only what it owns, by the standard OAuth roles
+
+**Status:** Accepted
+**Date:** 2026-10-11
+**Decision-makers:** Solo maintainer (owner decision recorded in #1098, 2026-10-11)
+**Related:** Frontend (`Infrastructure/Auth/`), AuthSystem.API (the OpenIddict server and the account
+API), TranslationSystem.API (`ApiDependencyInjection`, `JwtBearer`); ADR-0008 §3 (startup checks,
+amended by this ADR), ADR-0041 (no gateway), ADR-0049 (the revocation window), ADR-0054 (the caller
+key), ADR-0062 (the sign-in server's session); tickets #1098, #1058, #1062, #923, #933, #1114, the
+chain #974 → #1026/#1028 → #1056/#1057/#1065/#1066/#1067, and #830, #899, #922, #966, #1023, #1054,
+#1086, #1108
+
+## Context
+
+### The problem
+
+Review sessions kept filing tickets that asked the website to check the answers of our own sign-in
+server. Then the next sessions filed tickets about those checks. Between 2026-09-29 and 2026-10-11,
+eight commits changed the website's token renewal code, and nine tickets formed one chain:
+
+- #974 (a renewal accepts an empty access token or no lifetime): checks added (PR #1030).
+- #1026 (the first sign-in accepts what the renewal refuses) and #1028 (a renewal stores a broken
+  access token): more checks, among them a check that the access token is a three-part JWS (PR #1060,
+  PR #1068).
+- #1056, #1057, #1065, #1066 and #1067: edge cases of those checks. The size of a token, a lifetime
+  the server overstates, a broken shape at the first sign-in, the refresh token left alive after a
+  refused answer.
+
+Each of these tickets says almost the same sentence: our own sign-in server always sends a good
+answer, so the case needs a broken server or a proxy in front of it. #974 adds: "It is unlikely, but
+the answer comes from outside the process". One session even decided both ways. PR #975 did not
+file a size limit, because "only our own sign-in server, or Caddy, can send that answer". PR #1068
+later filed the same limit as #1065.
+
+The owner stopped the chain on 2026-10-11 (#1098) and closed #1056, #1057, #1059, #1065 and #1066 as
+not planned. This ADR writes the rule down, so that the next session does not decide it again.
+
+### Why it happened
+
+No document said which part checks what. Four instructions, each fine alone, added up to a loop:
+
+1. The `code-reviewer` agent's edge-case gate (`.claude/agents/code-reviewer.md`, Phase 6) had two
+   states: "impossible by construction", or "must be handled and tested". It called an unhandled
+   input "reachable from outside the process" Critical. An answer from our own sign-in server comes
+   from another process, so it was always a finding. The gate was written for the patcher (imported
+   `||` files, DAT bytes, CLI arguments). There, "outside the process" really means "not trusted".
+2. The second review pass in `/ticket` step 7 calls a finding real when "the claim holds when you
+   read the code", and says "'Out of scope' never ends a real finding". "The website does not check
+   the token's size" is true, so it was real. A finding counted as already decided only when an ADR or
+   a ticket said so, and none did.
+3. `docs/labels.md` turns each case into a class: "find every case of this class in the flow, fix
+   each one, and give each one its own test". So each ticket added several checks, and each check gave
+   the next blind review new edge cases.
+4. The rulings lived in issue comments, with no line that said how far they reach. PR #1068 read
+   the owner's narrow ruling on #974 (a missing lifetime is a failed renewal) as "a damaged answer is
+   not trusted at all", and used it to add the shape checks.
+
+The checks also tied the website to a setting of the sign-in server that nobody connected to it.
+The sign-in server calls `DisableAccessTokenEncryption()` (`OpenIddictExtensions.cs`), against
+OpenIddict's default of encrypting every token. Since #1028 the website refuses any access token
+that is not a three-part JWS. Removing that one line on the sign-in server would have signed every
+user out at their next renewal, and no build and no test would have caught it.
+
+### What the standards say
+
+- RFC 9068 §6: "The client MUST NOT inspect the content of the access token." §4: the resource
+  server checks the token's `typ`, `iss`, `aud` and `exp`.
+- OpenID Connect Core 1.0 §3.1.3.5–3.1.3.8: the client validates the ID token of the token answer.
+  `at_hash` is the one access-token check it may do.
+- Microsoft identity platform, on access tokens: clients "should treat them as opaque strings. The
+  client application shouldn't attempt to validate access tokens. The resource server should
+  validate the access token".
+- OpenIddict's own client calls its access-token check "typically not used for standard-compliant
+  implementations as access tokens are supposed to be opaque to clients".
+
+### The same argument in two neighbouring questions
+
+- **A failed renewal.** #923 asked for a sign-out after a 10-second timeout. PR #1063 revoked the
+  refresh token on every failure path, because "the owner ruled no path out". #1061 and #1062 then
+  showed the cost: a deploy or a busy sign-in server signed users out. Two tickets waited twelve days
+  in the loop on this question. The owner ruled in #1062 on 2026-10-11.
+- **Links and redirects.** On #830 the owner left the OIDC back-channel as it was, because "its
+  addresses come from the auth server's own OIDC metadata". The review of #830 filed #899, which put
+  the back-channel back in, and it merged.
+
+Startup checks of our own settings grew the same way, one review at a time (#853 → #857 → #877 →
+#915, #946 → #971, #1025 → #1054 → #1108), with no written bar for where they stop.
+
+## Decision
+
+### 1. The roles are the standard OAuth 2.0 / OpenID Connect roles
+
+| Part | Role | Library |
+|---|---|---|
+| Website (`Frontend`) | Client (relying party) | ASP.NET Core OpenID Connect handler, plus our renewal hook |
+| Sign-in server (`AuthSystem.API`) | Authorization server and OpenID provider | OpenIddict server and ASP.NET Core Identity |
+| Translation API (`TranslationSystem.API`) | Resource server | ASP.NET Core `JwtBearer` |
+| The sign-in server's account API (`auth/*`, `connect/userinfo`) | Resource server | OpenIddict validation (local server) |
+
+### 2. What each part checks
+
+**The website checks only what OpenID Connect asks of a client.** The OIDC handler does it: the ID
+token (signature, issuer, audience, lifetime), `state`, `nonce`, PKCE, `at_hash`, and the `sub` of
+the userinfo answer. On top of that, the website reads only what it needs to use an answer: a token
+is there and is not blank, and `expires_in` is there and positive, because the renewal schedule
+needs it.
+
+**The access token is opaque to the website.** The website never checks its shape, signature, size,
+lifetime or characters. It never checks the characters of a refresh token either (RFC 6749 §1.5). A
+renewed ID token is kept only as the `id_token_hint` of the sign-out. The website reads no claims
+from it, so it does not check it. If the website ever reads claims from a renewed ID token, it
+validates the token with the OIDC handler's own `TokenValidationParameters` and `ProtocolValidator`,
+the way Microsoft's Blazor sample does (`CookieOidcRefresher`), and never with a check of its own.
+
+**The translation API checks every access token it receives:** the signature, the issuer, the
+audience and the lifetime, and, with #933, the token type `at+jwt` and no clock skew. A token it
+refuses gets a 401, and the website's dead-session marker ends that session cleanly on the next
+page. This is the path by which a revoked or broken token reaches the website: through the part whose
+job it is to check it.
+
+**The account API checks its tokens the same way** (OpenIddict validation, audience
+`lotrokoniecdev-auth-api`). A token for another audience gets 401 `invalid_token` (RFC 6750, #1023).
+A token with the right audience but of the wrong kind for the endpoint, such as a service token on a
+user endpoint, gets 403 from `UserTokenPolicy` (#966). Both are the resource server's own checks, so
+#1023 and #966 do not contradict each other.
+
+**The sign-in server checks the clients and the grants:** the client's authentication, PKCE, the
+authorization code, the refresh token, and the security stamp at every code exchange and every
+refresh (ADR-0049, amendment of 2026-09-27). It checks its own settings at startup (decision 6).
+
+### 3. An answer the website cannot use ends the session cleanly, or counts as temporary
+
+The website adds no check for an answer our sign-in server does not send. It sorts every renewal
+answer it can get into one of two kinds (owner decisions in #1062 and #923):
+
+- **Temporary:** 429, any 5xx, a network error, a timeout (30 seconds, #923). The website keeps the
+  session, revokes nothing, and tries again on the next request, while the current access token still
+  works. There is no setting for it: the window is the rest of the access token's life, about one
+  minute. This window is an accepted trade-off. A session revoked in that minute keeps working until
+  its access token runs out, which ADR-0049 already accepts for five minutes.
+- **Final:** any other refusal (for example 400 `invalid_grant`), any failure once the access token
+  has run out, and a 2xx answer the website cannot use (a body it cannot read, a missing token, no
+  lifetime). The website ends the session with the session-expired notice, and revokes the refresh
+  token it holds. Only a broken sign-in server sends a 2xx answer that cannot be used, and a retry
+  would not help, because that answer has already replaced the refresh token. So it gets the simplest
+  outcome and no further code.
+
+Neither kind ever throws an unhandled exception, and neither shows the error page for a session that
+already exists.
+
+### 4. Guards on where our secrets go stay; checks on whether our own server told the truth go
+
+The website keeps every guard that stops its secrets from leaving for a host that is not ours. The
+secrets are the bearer token, the refresh token, the client secret and the caller key. The guards are
+the same-origin check on links and on the revocation endpoint, no automatic redirects and no shared
+cookies (`SameOriginDelegatingHandler`, `CreatePrimaryHandler`; #830, #899, #924, #964). The harm
+there is a leak to a third party, and ADR-0041 expects links to another origin when a service splits
+off. #922 belongs to this side.
+
+A check that second-guesses what our own server put in an answer does not stay.
+
+### 5. Built-in behaviour first; own protocol code needs a written reason
+
+Behaviour that OpenIddict or ASP.NET Core gives us wins over our own code. A library default is
+changed only for a harm a real user can meet in normal use (#1059: the OIDC handler's one-time
+correlation cookie stays as the library sets it). Own protocol code carries its reason in its doc
+comment or in an ADR. #1098 asked for this comparison:
+
+- **The website's renewal stays our own code.** ASP.NET Core has no built-in token renewal
+  (dotnet/aspnetcore#8175 is open, planned for .NET 12). Our hook in the cookie's
+  `OnValidatePrincipal` is the pattern Microsoft documents for Blazor Web Apps. Static SSR also needs
+  the renewal to finish before the response starts to stream, and `OnValidatePrincipal` runs before
+  that.
+  - OpenIddict.Client was not chosen. It replaces the whole OIDC handler, still leaves the renewal to
+    us, and keeps state tokens in a database the website does not have. The other option,
+    `DisableTokenStorage()`, is one its docs advise against.
+  - Duende.AccessTokenManagement (Apache-2.0) was not chosen. It renews when a page asks for a token.
+    On a streaming page that can be after the response has started, when the cookie can no longer
+    change.
+  - What stays our own code moves toward Microsoft's sample. The renewal and sign-out addresses are
+    read from the discovery document instead of being built from `connect/token` and `connect/logout`
+    (#1114).
+- **The translation API stays on `JwtBearer`,** with #933's two settings (`ClockSkew = 0`,
+  `ValidTypes = at+jwt`). It is ASP.NET Core's own handler, the change is configuration only, and it
+  keeps the TheKittySaver lift: TheKittySaver validates Entra tokens, whose `typ` is `JWT`, and
+  OpenIddict validation would refuse them. Reopen this when a third rule has to be set by hand, or
+  when encrypted access tokens are wanted. Then OpenIddict validation with `AddEncryptionKey` is the
+  built-in path.
+
+### 6. Our own settings are checked once, by the part that owns them
+
+Our configuration (`appsettings*.json` and each box's `.env`) is written and reviewed by the owner.
+It is trusted input. The part that owns a setting checks it at startup. Another part never makes up
+for it and never keeps a copy of it. `GdprSettingsValidator.TmsClockSkew` is such a copy of the
+translation API's clock skew, and #933 sets it to zero with the change on the API. The bar for a
+startup check is in ADR-0008 §3, amended by this ADR.
+
+### 7. What this ADR does not cover
+
+- **Inputs from outside our trust boundary** keep every check they have, and get one for every new
+  case a review finds. They are: browser requests and form fields, anything a user types, imported
+  files (`exported.txt`, the Companion zip), DAT bytes, CLI arguments, the CLI's settings on a
+  player's machine, the CLI's download from the translation API over the public internet to an
+  address the player sets (#391, #394, #611), third-party services (Pwned Passwords, Brevo, the LOTRO
+  forum), and ticket text in this public repo.
+- **Limiting the damage after a break-in** is a separate question. Least privilege between our own
+  parts stays a valid finding: #1086 (the translation API should not hold the broker's admin account)
+  is not closed by this ADR. It is solved with credentials and permissions, never by checking data
+  again where it arrives.
+- **A real path that makes our own part break its contract** is a defect of that part. If a review
+  shows how our sign-in server could send a broken token (a setting, a code path, a library upgrade),
+  the ticket goes to the sign-in server, with that path in it. Without such a path there is no
+  defect, and nothing is filed.
+
+### 8. Not a finding
+
+A review finding of one of these kinds is sorted as "already decided", with a pointer to this
+section. It is not filed, not fixed, and not added to another ticket:
+
+- The website checking an access token (its shape, signature, size, lifetime or characters), or the
+  characters of a refresh token.
+- The website handling a token answer our sign-in server does not send (a broken shape, an oversized
+  token, a lifetime the server overstates, an unknown charset) in any other way than decision 3.
+- The first sign-in and the renewal "disagreeing" about such answers (#1026, #1056, #1066).
+- A protocol answer where the built-in OpenIddict or ASP.NET Core behaviour is used and the standard
+  leaves the form open (#917: a 429 or a 500 from the token endpoint is `ProblemDetails`, and the
+  status code tells a temporary failure from a final one).
+- A library default whose harm needs abnormal use (#1059).
+- The renewal keeping a session for the rest of the access token's life while the sign-in server
+  fails for a moment (decision 3).
+- A startup check below the bar of ADR-0008 §3.
+
+## Consequences
+
+### Positive
+
+- One question now settles the next finding of this kind: who owns this check? A session answers it
+  from this file, without waiting for the owner.
+- The website's token code gets smaller. #1058 removes the per-request signature check and the shape
+  checks, so the website no longer depends on `DisableAccessTokenEncryption()`, and its pages keep
+  working while the sign-in server is down after a website restart.
+- A change to a sign-in server setting can no longer sign every user out through a website check
+  nobody remembers.
+- The translation API is the one place that judges an access token, which is where RFC 9068 puts it.
+
+### Negative / Accepted Trade-offs
+
+- A broken token from our own sign-in server is caught by the translation API's 401, one page later
+  than a website check would catch it. The user sees one failed page, then the session-expired
+  notice. Accepted: it needs our own server to be broken, and a check on every page for that case
+  cost more than it saved.
+- After a hard swap of the signing key, each live session fails one API call before it ends. A
+  planned rotation with `PreviousRsaPrivateKeyXml` has no effect on users. QA #632's key-rotation
+  step changes with #1058.
+- For the rest of an access token's life (about a minute), a session survives a temporary failure of
+  the sign-in server, even when it was revoked in that minute.
+- Nobody checks the ID token a renewal returns. It is only the sign-out hint. A broken one means the
+  sign-in server does not find the session at sign-out, and its own session there ends at its own
+  time.
+
+## Alternatives Considered
+
+### A. The website as defense in depth: check everything the sign-in server sends
+
+Rejected. It was tried from #974 to #1068. Each check had edge cases of its own, each review filed
+them, and the checks tied the website to a sign-in server setting. RFC 9068 forbids the client to
+inspect the access token, and the translation API already checks every token it receives.
+
+### B. Decide each case in the ticket that raises it
+
+Rejected. This is what happened. A ruling in an issue comment says nothing about how far it reaches,
+so the next session stretched it (PR #1068 and the #974 ruling) or missed it (#1023 was filed nine
+hours after the owner ruled on #966, and reversed that ruling without naming it).
+
+### C. Move the website to OpenIddict.Client or to Duende.AccessTokenManagement
+
+Rejected for now (decision 5). Neither one removes our renewal hook, and OpenIddict.Client needs a
+database the website does not have.
+
+### D. Move the translation API to OpenIddict validation now
+
+Rejected for now (decision 5). `JwtBearer` with #933's settings checks the same rules and keeps the
+TheKittySaver lift. The reopen triggers are in decision 5.
+
+### E. Introspection on the translation API, so it also sees a revoked token at once
+
+Rejected by ADR-0049: it puts the sign-in server in the path of every API request. Nothing here
+changes that.
+
+## Implementation Notes
+
+- **Removed by #1058** (the checks that break decision 2), all in `CookieTokenRefresher`: the
+  per-request signature check `IsAccessTokenCryptographicallyValidAsync`, its call in `ValidateAsync`
+  and the branch that skips it right after a renewal; and, in `TryRefreshIfNearExpiryAsync`, the
+  `IsCompactJws` check on the access token, the printable-ASCII check on the refresh token, and the
+  `IsCompactJws` check on the renewed ID token. The comments that describe the signature check as the
+  main path go with them (`TranslationContentNegotiationAndAuthDelegatingHandler`,
+  `AuthContentNegotiationAndAuthDelegatingHandler`, `CookieTokenRefresher`, `TokenRules`), and so do
+  the matching parts of `docs/tms-handbook.md` and `docs/auth-tutorial.md` §8.4.
+- **Kept:** the OIDC handler's checks, the blank-token and lifetime reads (`TokenRules`), the
+  dead-session marker, the JSON read from the bytes and `UnknownCharsetDelegatingHandler` (they read
+  JSON the way RFC 8259 says, nothing more), `SameOriginDelegatingHandler` and `CreatePrimaryHandler`
+  (decision 4), and `RefreshTokenRevoker`.
+- **Changed by #1062:** `TokenEndpointClient.RefreshAsync` tells a temporary failure from a final one
+  (decision 3).
+- **Changed by #933:** `ClockSkew = 0` and `ValidTypes` in
+  `TranslationSystem.API/ApiDependencyInjection.cs`, and `GdprSettingsValidator.TmsClockSkew` set to
+  zero. The comment there that says `JwtBearer` "avoids OpenIddict's own scope permission checks" is
+  wrong, and goes in the same change.
+- **#1114:** read the renewal and sign-out addresses from the discovery document (decision 5).
+- **ADR-0008 §3:** amended with the bar for a startup check (decision 6).
+- **Review instructions:** `.claude/agents/code-reviewer.md` (Phase 1 reads this ADR, Phase 6 has a
+  third state, "not this part's job", and the gate counts inputs from outside our trust boundary
+  instead of inputs from outside the process), `.claude/commands/ticket.md` steps 2 and 7,
+  `.claude/commands/work-ticket.md`, `.claude/commands/preflight.md`, `docs/labels.md` → "One bug
+  class per ticket", and a house rule in `CLAUDE.md`.
+
+## References
+
+- Tickets: #1098 (this decision), #1058, #1062, #923, #933, #1114; the chain #974, #1026, #1028,
+  #1056, #1057, #1065, #1066, #1067; #830, #899, #922, #924, #964 (secrets); #966, #1023 (the account
+  API); #917, #1059 (built-in first); #1086 (not covered).
+- ADRs: ADR-0008 §3 (amended), ADR-0041, ADR-0049, ADR-0054, ADR-0062.
+- RFC 6749 §1.5 and §5.1; RFC 6750 §3.1; RFC 9068 §4 and §6 (https://www.rfc-editor.org/rfc/rfc9068);
+  OpenID Connect Core 1.0 §3.1.3.5–3.1.3.8 and §12.2 (https://openid.net/specs/openid-connect-core-1_0.html).
+- Microsoft: "Access tokens in the Microsoft identity platform"
+  (https://learn.microsoft.com/en-us/entra/identity-platform/access-tokens); "Secure an ASP.NET Core
+  Blazor Web App with OpenID Connect", the custom cookie refresher
+  (https://learn.microsoft.com/en-us/aspnet/core/blazor/security/blazor-web-app-with-oidc);
+  dotnet/aspnetcore#8175.
+- OpenIddict: token formats (https://documentation.openiddict.com/configuration/token-formats);
+  integrating with a remote server instance
+  (https://documentation.openiddict.com/guides/getting-started/integrating-with-a-remote-server-instance).
+- Duende.AccessTokenManagement: web apps and Blazor Server
+  (https://docs.duendesoftware.com/accesstokenmanagement/web-apps/).

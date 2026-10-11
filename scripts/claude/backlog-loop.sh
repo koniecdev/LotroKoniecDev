@@ -252,7 +252,7 @@ handle_exit() {
     local ticket="$1" rc="$2"
     case "$rc" in
         0) opened=$((opened + 1)); consecutive_failures=0 ;;
-        # The PR was merged while its session still ran (#1082): the work is on main.
+        # The PR was merged while its session still ran (#1082): done work, not a failure.
         13) merged=$((merged + 1)); consecutive_failures=0 ;;
         2) blocked=$((blocked + 1)); consecutive_failures=0 ;;
         12) skipped=$((skipped + 1)); consecutive_failures=0 ;;

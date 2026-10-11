@@ -156,8 +156,9 @@ Three more facts shape the decision:
 
 `work-ticket.sh` ends when the worker's PR exists (an open PR in this repo whose branch belongs
 to the ticket; or one merged before the session ended — amended 2026-10-11). It does not wait for
-`pr-verify` and does not touch the merge button. The conductor ends with a table of the PRs it opened (checks and open CodeQL alerts as they stand at
-that moment). That table is the owner's review queue.
+`pr-verify` and does not touch the merge button. The conductor ends with a table of the PRs it
+opened (checks and open CodeQL alerts as they stand at that moment). That table is the owner's
+review queue.
 
 Old loop code merged PRs, and the loop scripts run from whichever checkout starts them. So from
 this change on, the conductor refuses to start when `scripts/claude/` there differs from

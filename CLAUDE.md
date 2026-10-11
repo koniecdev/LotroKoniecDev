@@ -159,6 +159,7 @@ rule, the wiki stating it, and a follow-up ticket amending ADR-0003 and the vali
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
 | Write or hand over a **manual QA ticket** (external tester) | **`/qa-ticket`** — every scenario verified against HEAD first; `/qa-ticket #<n>` re-baselines an existing one |
 | Review a finished change | the **`code-reviewer`** agent |
+| Sort review findings, file one, or triage an `audit` ticket | **ADR-0067 §8** (what is not a finding: our own part breaking its contract) + ADR-0008 §3 (the bar for a startup check) + `docs/labels.md` → "One bug class per ticket" |
 | Understand the backlog / milestones | `gh issue list` + Roadmap digest below |
 | Compare with the Russian sister project | `docs/RUSSIAN_PROJECT_RESEARCH.md` + `docs/knowledge-base/russian-project.md` |
 
@@ -366,6 +367,22 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   upsert (added in M2-11; persisted via the `IdentityId` converter in `TranslationSystem.Persistence`),
   and `ApprovedById` lands with the approve slice (#101 / M2-12). No auth-less interim state to
   retrofit later.
+- **Who checks what: the standard OAuth roles (ADR-0067, #1098).** The website is the client, the
+  sign-in server issues the tokens, and the translation API and the account API are resource servers.
+  The website checks only what OpenID Connect asks of a client, and the OIDC handler does that. The
+  access token is opaque to the website: no check of its shape, signature, size, lifetime or
+  characters, because the translation API checks every token it receives. A renewal answer the
+  website cannot use ends the session cleanly, or counts as temporary (429, 5xx, a network error, a
+  timeout). Guards on where our secrets go stay; checks on whether our own server told the truth go.
+  Built-in OpenIddict and ASP.NET Core behaviour comes first, and own protocol code carries a written
+  reason. **A review finding whose only trigger is one of our own parts breaking its contract (our
+  sign-in server, our other API, our own settings already checked at startup) is not a defect of the
+  part that receives it.** Sort it as already decided with a pointer to ADR-0067 §8. If a real path
+  makes our part break the contract, file it against that part, with the path. Inputs from outside
+  our trust boundary (browser, user, imported files, DAT bytes, the CLI and its settings, third-party
+  services) keep every check, and least privilege between our parts (#1086) is a separate, valid
+  question. The chain this ends: #974 → #1026/#1028 → #1056/#1057/#1065/#1066/#1067, nine tickets in
+  thirteen days, each adding a check the next review audited.
 - **Hypermedia links are authorization-aware, not role-branched (ADR-0040).** `ILinkFactory` replays
   the *target* endpoint's own policy (`IAllowAnonymous` → `AuthorizationPolicy.CombineAsync` incl.
   the fallback → `IAuthorizationService`) before emitting a link, so a rel is never advertised to a
@@ -569,8 +586,9 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   too. The CLI does it in its resolver (#611). The frontend does it in `SameOriginDelegatingHandler`,
   the first handler on the TMS and auth typed clients (#830) and on the token client, whose sign-out
   revoke follows the discovery document's `revocation_endpoint` (#964). No frontend client to either API
-  follows a redirect, so no bearer token, refresh token or caller key leaves for another host. The
-  two typed clients (#830) and the token client (#899) use `CreatePrimaryHandler` as their primary
+  follows a redirect, so no bearer token, refresh token or caller key leaves for another host. These
+  guards decide where our secrets go, which ADR-0067 decision 4 keeps; they never judge what our own
+  server answered. The two typed clients (#830) and the token client (#899) use `CreatePrimaryHandler` as their primary
   handler. The OIDC back-channel (#899) uses it too, unless other code sets a back-channel handler
   first: that handler is wrapped as it is and keeps its own redirect and cookie settings (only tests
   do this). `CreatePrimaryHandler` also keeps no cookies (#924): one handler serves every visitor,
@@ -828,6 +846,18 @@ structure.
 6. **Feed the flywheel.** Reusable correction → persist it: global rule → **this file**; real
    decision → new ADR; empirical DAT/update finding → `docs/knowledge-base/` (dated). The same
    mistake made twice means a rule is missing.
+   **An owner ruling that reaches past its own ticket goes into an ADR or this file in the same
+   session (2026-10-11).** A ruling that lives only in an issue comment says nothing about how far it
+   reaches, so the next session stretches it or misses it. PR #1068 read the narrow #974 ruling as
+   "a damaged answer is not trusted at all". #1023 reversed #966's 403 nine hours later without
+   naming it. The verdict on PR #952 lived only in private memory while #781 kept asking for the
+   rejected test. Two rules follow. **"The owner decides" in a ticket is a question, never a
+   default:** ask it at the `/ticket` step-2 gate, or BLOCK a headless run, and never pick the
+   strictest option because "the owner ruled no path out" (PR #1063). **Before you follow an
+   acceptance criterion that sets visible behaviour** (a status code, a sign-out, a log level, a
+   limit), search the owner's rulings on the same flow:
+   `gh issue list --state all --search "\"Owner decision\" <flow words> in:comments"`. A conflict is
+   CLARIFY, never a silent winner.
    A lesson too narrow for any of those goes to `.claude/agent-memory/<agent>/`, which is
    **gitignored** — this repo is public, and one maintainer's notes about their own runs are not
    something a stranger should pull. So treat agent-memory as a scratchpad: if a lesson is worth

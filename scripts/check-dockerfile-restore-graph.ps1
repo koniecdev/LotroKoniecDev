@@ -21,7 +21,14 @@
     and demands the COPY list cover the full transitive closure. Dockerfiles that copy whole source
     trees (Dockerfile.migrator.prod, Dockerfile.tests) have no list to go stale and are skipped.
 
+    A run that checks no Dockerfile at all is not a pass (#1079). A wrong folder, or a Dockerfile
+    renamed out of the `Dockerfile*` pattern, would otherwise switch the guard off.
+
+    Exit codes: 0 = every checked COPY list is complete, 1 = a COPY list is incomplete,
+    2 = cannot run, or nothing was checked.
+
     CI runs the .sh; this .ps1 is the local twin for Windows devs — keep the two in sync.
+    Tests for both: scripts/tests/check-dockerfile-restore-graph.tests.sh.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -119,17 +126,20 @@ function Join-Continuation {
 # excluded ones (agent worktrees live in .claude/worktrees/), which an absolute match would swallow.
 # @(...) keeps this an array even for 0 or 1 hits — `foreach` over a bare $null iterates ONCE with
 # a null item, which would blow up on .FullName below.
-$dockerfiles = @(
-    Get-ChildItem -Path $repoRoot -Recurse -File -Filter 'Dockerfile*' -ErrorAction SilentlyContinue |
-        Where-Object {
-            $rel = $_.FullName.Substring($repoRoot.Length + 1) -replace '\\', '/'
-            $rel -notmatch '^(\.git|\.claude)/' -and $rel -notmatch '(^|/)node_modules/'
-        } |
-        Sort-Object FullName
-)
-
-if ($dockerfiles.Count -eq 0) {
-    Write-Error "Docker restore-graph guard: no Dockerfile found under $repoRoot"
+# A listing error stops the guard with exit 2, like a failed find in the .sh twin. It is never
+# skipped: a folder the guard cannot read may hold the Dockerfile it should check.
+try {
+    $dockerfiles = @(
+        Get-ChildItem -Path $repoRoot -Recurse -File -Filter 'Dockerfile*' -ErrorAction Stop |
+            Where-Object {
+                $rel = $_.FullName.Substring($repoRoot.Length + 1) -replace '\\', '/'
+                $rel -notmatch '^(\.git|\.claude)/' -and $rel -notmatch '(^|/)node_modules/'
+            } |
+            Sort-Object FullName
+    )
+}
+catch {
+    Write-Host "Docker restore-graph guard: could not list the Dockerfiles under ${repoRoot}: $($_.Exception.Message)"
     exit 2
 }
 
@@ -191,6 +201,12 @@ if ($script:fail) {
     Write-Host "See CLAUDE.md -> 'Docker restore layers are gated': a new project must join"
     Write-Host "every Dockerfile whose restore graph reaches it."
     exit 1
+}
+
+if ($checked -eq 0) {
+    Write-Host "Docker restore-graph guard: no Dockerfile under $repoRoot copies a .csproj list, so nothing was checked."
+    Write-Host "Check the path, and that the image Dockerfiles still match 'Dockerfile*'."
+    exit 2
 }
 
 Write-Host "OK Docker restore-graph guard passed - $checked Dockerfile(s) copy their full .csproj closure."

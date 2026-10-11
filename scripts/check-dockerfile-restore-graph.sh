@@ -22,7 +22,13 @@
 # Dockerfiles that copy whole source trees (Dockerfile.migrator.prod, Dockerfile.tests) have no
 # list to go stale and are skipped.
 #
-# Run it before pushing; CI (pr-verify + ci) runs it on every PR.
+# A run that checks no Dockerfile at all is not a pass (#1079). A wrong folder, or a Dockerfile
+# renamed out of the `Dockerfile*` pattern, would otherwise switch the guard off while CI stays green.
+#
+# Exit codes: 0 = every checked COPY list is complete, 1 = a COPY list is incomplete,
+# 2 = cannot run, or nothing was checked.
+# Run it before pushing; CI (pr-verify + ci) runs it on every PR, right after its self-test
+# (scripts/tests/check-dockerfile-restore-graph.tests.sh).
 # Keep this in sync with its check-dockerfile-restore-graph.ps1 twin (run locally on Windows).
 
 set -euo pipefail
@@ -102,6 +108,15 @@ join_continuations() {
     } END { if (buf != "") print buf }'
 }
 
+# .git, .claude and node_modules are pruned, so find never enters them. A loop worktree that is added
+# or removed under .claude/ during the scan cannot make find fail.
+if ! dockerfiles="$(find "$REPO_ROOT" \
+        \( -path "$REPO_ROOT/.git" -o -path "$REPO_ROOT/.claude" -o -name node_modules \) -prune \
+        -o -name 'Dockerfile*' -type f -print | sort)"; then
+    echo "Docker restore-graph guard: could not list the Dockerfiles under $REPO_ROOT." >&2
+    exit 2
+fi
+
 fail=0
 checked=0
 
@@ -152,10 +167,7 @@ EOF
         echo
     fi
 done <<EOF
-$(find "$REPO_ROOT" -name 'Dockerfile*' -type f \
-    -not -path "$REPO_ROOT/.git/*" \
-    -not -path "$REPO_ROOT/.claude/*" \
-    -not -path '*/node_modules/*' | sort)
+$dockerfiles
 EOF
 
 if [ "$fail" -ne 0 ]; then
@@ -165,6 +177,12 @@ if [ "$fail" -ne 0 ]; then
     echo "See CLAUDE.md → 'Docker restore layers are gated': a new project must join"
     echo "every Dockerfile whose restore graph reaches it."
     exit 1
+fi
+
+if [ "$checked" -eq 0 ]; then
+    echo "Docker restore-graph guard: no Dockerfile under $REPO_ROOT copies a .csproj list, so nothing was checked." >&2
+    echo "Check the path, and that the image Dockerfiles still match 'Dockerfile*'." >&2
+    exit 2
 fi
 
 echo "✓ Docker restore-graph guard passed — $checked Dockerfile(s) copy their full .csproj closure."

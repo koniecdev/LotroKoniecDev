@@ -614,6 +614,8 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   **both** `pr-verify` and `ci` — `ci` builds no images, and pr-verify's image job (CI-01 / #403)
   fires only on Dockerfile/.dockerignore/workflow edits, never on the project-graph changes that
   actually stale a COPY list. A new project must join every Dockerfile whose restore graph reaches it.
+  A run that checks no Dockerfile at all exits 2, never passes (#1079), and
+  `scripts/tests/check-dockerfile-restore-graph.tests.sh` runs first in both workflows to prove it.
   **The Blazor exception (#414):** the frontend image's `dotnet build` runs **without**
   `--no-restore`. `blazor.web.js` ships in `Microsoft.AspNetCore.App.Internal.Assets`, which the SDK
   references only once it sees `.razor` files — never during the `.csproj`-only restore — so

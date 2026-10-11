@@ -123,6 +123,12 @@ jobs:
       # Build-cache analog of the SSR gate: every Dockerfile must COPY the full transitive
       # .csproj closure it restores. `dotnet restore` SKIPS a missing project file and still
       # exits 0, so a stale COPY list degrades the restore layer silently and stays green.
+      # The self-test runs first: it also proves that a run which finds no Dockerfile to check
+      # fails instead of passing (#1079).
+      - name: Docker restore-graph guard self-test
+        if: steps.diff.outputs.guards != 'false'
+        run: ./scripts/tests/check-dockerfile-restore-graph.tests.sh
+
       - name: Docker restore-graph guard
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/check-dockerfile-restore-graph.sh

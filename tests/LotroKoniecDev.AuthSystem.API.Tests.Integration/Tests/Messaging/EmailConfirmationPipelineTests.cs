@@ -13,6 +13,7 @@ using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using RabbitMQ.Client;
+using RabbitMQ.Client.Exceptions;
 using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Messaging;
@@ -42,16 +43,6 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     private readonly TestApiClient _apiClient;
     private readonly SpyAccountConfirmationEmailSender _confirmationEmailSpy;
     private readonly Bogus.Faker _faker = new();
-
-    public EmailConfirmationPipelineTests(BrokeredAuthSystemApiFactory factory)
-    {
-        _factory = factory;
-        _confirmationEmailSpy = factory.Services.GetRequiredService<SpyAccountConfirmationEmailSender>();
-
-        JsonSerializerOptions jsonSerializerOptions =
-            factory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
-        _apiClient = new TestApiClient(factory.CreateClient(), jsonSerializerOptions);
-    }
 
     public async Task InitializeAsync()
     {
@@ -273,6 +264,29 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     }
 
     [Fact]
+    public async Task Pipeline_ShouldDeliverTheNextConfirmationEmail_WhenTheQueueWasDeletedAndDeclaredAgain()
+    {
+        // Arrange: a warm pipeline, with the consumer attached
+        await UserFactory.RegisterRandomUserUnconfirmedAsync(_apiClient, _faker, _confirmationEmailSpy);
+        await _confirmationEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
+
+        // Act: the queue is deleted, the way its arguments are changed on a live box. That cancels the
+        // consumer's subscription, and automatic recovery does not bring it back. A publish is refused
+        // until the queue exists again, so wait for the consumer to declare it and subscribe once more
+        // (#1088). No restart in between.
+        await DeleteQueueAsync(RabbitMqTopology.EmailQueue);
+        bool consumerIsBack = await WaitUntilQueueHasConsumerAsync(RabbitMqTopology.EmailQueue, RecoveryTimeout);
+        (RegisterRequest request, IdentityId _) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
+            _apiClient, _faker, _confirmationEmailSpy);
+        await _confirmationEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
+
+        // Assert
+        consumerIsBack.ShouldBeTrue();
+        _confirmationEmailSpy.LastEmail.ShouldBe(request.Email);
+        _confirmationEmailSpy.CallCount.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task GetHealth_ShouldReportTheBrokerHealthy_WhenTheBrokerIsUp()
     {
         // Act: the base factory proves the Unhealthy side against a dead port; this host is the
@@ -286,6 +300,16 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         JsonElement rabbitMqCheck = report.RootElement.GetProperty("checks").EnumerateArray()
             .Single(check => check.GetProperty("name").GetString() == "rabbitmq");
         rabbitMqCheck.GetProperty("status").GetString().ShouldBe("Healthy");
+    }
+
+    public EmailConfirmationPipelineTests(BrokeredAuthSystemApiFactory factory)
+    {
+        _factory = factory;
+        _confirmationEmailSpy = factory.Services.GetRequiredService<SpyAccountConfirmationEmailSender>();
+
+        JsonSerializerOptions jsonSerializerOptions =
+            factory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
+        _apiClient = new TestApiClient(factory.CreateClient(), jsonSerializerOptions);
     }
 
     private async Task PublishRawAsync(string payload, string? messageId, string? messageType = null)
@@ -335,6 +359,45 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
 
             await Task.Delay(TimeSpan.FromMilliseconds(100));
         }
+    }
+
+    private async Task DeleteQueueAsync(string queue)
+    {
+        await using IConnection connection = await _factory.Broker.ConnectAsync(CancellationToken.None);
+        await using IChannel channel = await connection.CreateChannelAsync();
+        await channel.QueueDeleteAsync(queue);
+    }
+
+    /// <summary>
+    /// Polls until the queue exists again and a consumer is subscribed to it, or the time runs out, and
+    /// says which came first. The subscription comes after the bindings, so a publish from then on is
+    /// routed. A look at a queue that does not exist closes the channel, so every look opens its own.
+    /// </summary>
+    private async Task<bool> WaitUntilQueueHasConsumerAsync(string queue, TimeSpan timeout)
+    {
+        await using IConnection connection = await _factory.Broker.ConnectAsync(CancellationToken.None);
+
+        Stopwatch elapsed = Stopwatch.StartNew();
+
+        while (elapsed.Elapsed < timeout)
+        {
+            await using IChannel channel = await connection.CreateChannelAsync();
+            try
+            {
+                if (await channel.ConsumerCountAsync(queue) > 0)
+                {
+                    return true;
+                }
+            }
+            catch (OperationInterruptedException)
+            {
+                // The queue has not been declared again yet.
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+        }
+
+        return false;
     }
 
     private async Task WaitUntilQueueEmptyAsync(string queue, TimeSpan timeout)

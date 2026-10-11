@@ -13,8 +13,10 @@ namespace LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 /// <remarks>
 /// This is only safe to repeat while the arguments stay the same. Declaring an existing queue with
 /// different arguments fails the channel with <c>PRECONDITION_FAILED</c>. So changing anything in
-/// <see cref="EmailQueueArguments"/> means deleting the queue first, which in dev is
-/// <c>docker compose down -v</c>. See ADR-0036.
+/// <see cref="EmailQueueArguments"/> means deleting the queue, which in dev is
+/// <c>docker compose down -v</c>. On a live box, delete it only while the release with the new
+/// arguments runs: the running consumer declares the queue again with its own arguments (#1088).
+/// See ADR-0036 and the runbook.
 /// </remarks>
 public static class RabbitMqTopologyDeclaration
 {

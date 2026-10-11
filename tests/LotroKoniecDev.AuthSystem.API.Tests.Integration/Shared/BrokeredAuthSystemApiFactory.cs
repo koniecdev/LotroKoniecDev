@@ -3,8 +3,11 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
+using RabbitMQ.Client;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
@@ -16,9 +19,18 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 /// added again, and the RabbitMq settings point at the container.
 /// SMTP is still a spy, so tests can see the e-mails without sending any. This is the only host where
 /// the whole pipeline, outbox to relay to broker to consumer, exists in one process.
+/// The consumer runs faster than in production but in the same order. It checks its subscription every
+/// second instead of every 30 seconds, and waits 200 ms instead of up to a minute before it connects
+/// again, so a test can watch it attach again in seconds. Its automatic recovery retries every 100 ms
+/// instead of every 5 seconds, so after a dropped connection recovery still comes first, before the
+/// second look, as it does in production.
 /// </summary>
 public sealed class BrokeredAuthSystemApiFactory : AuthSystemApiFactory
 {
+    private static readonly TimeSpan[] ShortConnectBackoffs = [TimeSpan.FromMilliseconds(200)];
+    private static readonly TimeSpan ShortWatchInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan ShortRecoveryInterval = TimeSpan.FromMilliseconds(100);
+
     public RabbitMqBrokerFixture Broker { get; } = new();
 
     /// <summary>
@@ -61,7 +73,20 @@ public sealed class BrokeredAuthSystemApiFactory : AuthSystemApiFactory
             }
 
             services.AddSingleton<IMessagePublisher, RabbitMqMessagePublisher>();
-            services.AddHostedService<EmailDispatchConsumer>();
+            services.AddHostedService(serviceProvider =>
+            {
+                ConnectionFactory connectionFactory = RabbitMqConnectionFactoryBuilder.Build(
+                    serviceProvider.GetRequiredService<IOptions<RabbitMqOptions>>().Value,
+                    EmailDispatchConsumer.ClientProvidedName);
+                connectionFactory.NetworkRecoveryInterval = ShortRecoveryInterval;
+
+                return new EmailDispatchConsumer(
+                    connectionFactory,
+                    serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+                    serviceProvider.GetRequiredService<ILogger<EmailDispatchConsumer>>(),
+                    ShortConnectBackoffs,
+                    ShortWatchInterval);
+            });
         });
     }
 

@@ -55,6 +55,9 @@ jobs:
         run: ./scripts/tests/smoke-csp.tests.sh
 
       # Same hypermedia gate as pr-verify — backstops direct pushes to main.
+      - name: Client hypermedia guard self-test
+        run: ./scripts/tests/check-client-hypermedia.tests.sh
+
       - name: Client hypermedia guard
         run: ./scripts/check-client-hypermedia.sh
 

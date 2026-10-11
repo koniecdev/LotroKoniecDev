@@ -110,7 +110,8 @@ join_continuations() {
 
 # .git, .claude and node_modules are pruned, so find never enters them. A loop worktree that is added
 # or removed under .claude/ during the scan cannot make find fail.
-if ! dockerfiles="$(find "$REPO_ROOT" \
+# -H: when the repo root itself is a symbolic link, find follows it. Without -H find lists only the link.
+if ! dockerfiles="$(find -H "$REPO_ROOT" \
         \( -path "$REPO_ROOT/.git" -o -path "$REPO_ROOT/.claude" -o -name node_modules \) -prune \
         -o -name 'Dockerfile*' -type f -print | sort)"; then
     echo "Docker restore-graph guard: could not list the Dockerfiles under $REPO_ROOT." >&2

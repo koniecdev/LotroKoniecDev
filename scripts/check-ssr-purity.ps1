@@ -33,20 +33,41 @@ $repoRoot    = Split-Path -Parent $PSScriptRoot
 $frontendDir = Join-Path $repoRoot 'src/Frontend'
 $authDir     = Join-Path $repoRoot 'src/AuthSystem'
 
-if (-not (Test-Path $frontendDir)) {
-    Write-Error "Pure-SSR guard: Frontend directory not found at $frontendDir"
-    exit 2
+# A run that scans no file is not a pass (#1079), so a missing folder, a folder with no file to scan,
+# and a file that cannot be read all stop the guard with exit 2, as in the .sh twin.
+# Write-Host, not Write-Error: under ErrorActionPreference Stop, Write-Error throws, and the script
+# would end with exit 1 before it reached `exit 2`.
+foreach ($dir in $frontendDir, $authDir) {
+    if (-not (Test-Path $dir)) {
+        Write-Host "Frontend markup guard: directory not found at $dir"
+        exit 2
+    }
 }
 
 # obj/ and bin/ are build output, not source — never scan them (mirrors the .sh --exclude-dir).
-$files = Get-ChildItem -Path $frontendDir -Recurse -File -Include '*.razor', '*.cs' |
-    Where-Object { $_.FullName -notmatch '[\\/](obj|bin)[\\/]' }
-# A tree without the auth pages is not an error.
-$authPages = @()
-if (Test-Path $authDir) {
-    $authPages = Get-ChildItem -Path $authDir -Recurse -File -Include '*.cshtml' |
-        Where-Object { $_.FullName -notmatch '[\\/](obj|bin)[\\/]' }
+try {
+    $files = @(
+        Get-ChildItem -Path $frontendDir -Recurse -File -Include '*.razor', '*.cs' -ErrorAction Stop |
+            Where-Object { $_.FullName -notmatch '[\\/](obj|bin)[\\/]' }
+    )
+    $authPages = @(
+        Get-ChildItem -Path $authDir -Recurse -File -Include '*.cshtml' -ErrorAction Stop |
+            Where-Object { $_.FullName -notmatch '[\\/](obj|bin)[\\/]' }
+    )
 }
+catch {
+    Write-Host "Frontend markup guard: could not list the files to check: $($_.Exception.Message)"
+    exit 2
+}
+if ($files.Count -eq 0) {
+    Write-Host "Frontend markup guard: no .razor or .cs file under $frontendDir, so nothing was checked."
+    exit 2
+}
+if ($authPages.Count -eq 0) {
+    Write-Host "Frontend markup guard: no .cshtml page under $authDir, so nothing was checked."
+    exit 2
+}
+
 $script:fail = $false
 
 function Test-SsrPurity {
@@ -59,7 +80,13 @@ function Test-SsrPurity {
         $Files = $files
     )
 
-    $hits = $Files | Select-String -Pattern $Pattern -CaseSensitive
+    try {
+        $hits = $Files | Select-String -Pattern $Pattern -CaseSensitive -ErrorAction Stop
+    }
+    catch {
+        Write-Host "Frontend markup guard: could not read the files to check: $($_.Exception.Message)"
+        exit 2
+    }
     if ($AllowPattern) {
         # Strip the SSR-valid token, then re-test: a line matching ONLY via the allowed
         # token drops out; a line also carrying a real handler is still flagged.

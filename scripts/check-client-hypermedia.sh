@@ -11,7 +11,12 @@
 #
 # CLAUDE.md and ADR-0041 state this rule in prose; THIS script is the machine that
 # enforces it, so the rule can't rot. Run it before pushing; CI (pr-verify + ci) runs
-# it on every PR. Keep this in sync with its check-client-hypermedia.ps1 twin.
+# it on every PR, right after its self-test (scripts/tests/check-client-hypermedia.tests.sh).
+# Keep this in sync with its check-client-hypermedia.ps1 twin.
+#
+# A run that scans no file is not a pass (#1079): a client folder that moved would switch the rule
+# off while CI stays green. So a missing folder, a folder with no .razor or .cs file, and a file
+# grep cannot read all stop the guard with exit 2.
 #
 # What it flags: an API path inside a STRING LITERAL (the shape a hardcoded route
 # actually takes — a const, an interpolation base, a razor href). Prose mentions in
@@ -41,8 +46,23 @@ check() {
         exit 2
     fi
 
-    local matches
-    matches="$(grep -rnE "$API_PATH_PATTERN" --include='*.razor' --include='*.cs' --exclude-dir=obj --exclude-dir=bin "$dir" 2>/dev/null || true)"
+    local found
+    if ! found="$(find -H "$dir" \( -name obj -o -name bin \) -prune -o -type f \( -name '*.razor' -o -name '*.cs' \) -print)"; then
+        echo "Hypermedia guard: could not list the files under $dir." >&2
+        exit 2
+    fi
+    if [ -z "$found" ]; then
+        echo "Hypermedia guard: no .razor or .cs file under $dir, so nothing was checked." >&2
+        exit 2
+    fi
+
+    # grep exits 1 when nothing matches, which is the clean result. 2 means it could not read a file.
+    local matches rc=0
+    matches="$(grep -rnE "$API_PATH_PATTERN" --include='*.razor' --include='*.cs' --exclude-dir=obj --exclude-dir=bin "$dir")" || rc=$?
+    if [ "$rc" -gt 1 ]; then
+        echo "Hypermedia guard: could not read the files under $dir." >&2
+        exit 2
+    fi
     if [ -n "$matches" ]; then
         fail=1
         printf '✗ %s\n' "$2"

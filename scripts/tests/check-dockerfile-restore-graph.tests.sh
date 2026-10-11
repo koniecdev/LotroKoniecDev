@@ -7,7 +7,7 @@
 # missing one fails, and a tree where the guard finds nothing to check fails with exit 2.
 # CI runs this right before the guard itself, so the gate cannot rot silently.
 # When pwsh is available (it is on the ubuntu runners), the whole suite re-runs against
-# the .ps1 twin, keeping the two in sync mechanically.
+# the .ps1 twin, so both twins must give the same exit code on every case.
 
 set -euo pipefail
 
@@ -100,17 +100,43 @@ run_suite() {
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/App.dockerfile "$COPY_APP" "$COPY_LIB" "$COPY_CORE" "$RESTORE_APP"
     run_tree 2 "a Dockerfile renamed out of the Dockerfile* pattern is not checked, so the tree fails" "$tree"
+    expect_in_output "nothing was checked"
 
+    # Each of these holds a COPY list with no restore, which fails the run if the guard reads it.
     tree="$(new_tree)"
     write_complete_dockerfile "$tree"
     write_dockerfile "$tree" node_modules/pkg/Dockerfile "$COPY_APP"
+    write_dockerfile "$tree" src/App/node_modules/pkg/Dockerfile "$COPY_APP"
     write_dockerfile "$tree" .claude/worktrees/ticket-1/Dockerfile "$COPY_APP"
-    run_tree 0 "Dockerfiles under node_modules and .claude are not checked" "$tree"
+    write_dockerfile "$tree" .git/Dockerfile "$COPY_APP"
+    run_tree 0 "Dockerfiles under node_modules, .claude and .git are not checked" "$tree"
     expect_in_output "1 Dockerfile(s)"
 
     tree="$(new_tree)"
     write_dockerfile "$tree" node_modules/pkg/Dockerfile "$COPY_APP" "$COPY_LIB" "$COPY_CORE" "$RESTORE_APP"
     run_tree 2 "a tree whose only Dockerfile is under node_modules fails" "$tree"
+    expect_in_output "nothing was checked"
+
+    # PowerShell on Linux and macOS hides dot-folders unless -Force is given; find does not.
+    tree="$(new_tree)"
+    write_complete_dockerfile "$tree"
+    write_dockerfile "$tree" .docker/Dockerfile "$COPY_APP" "$COPY_LIB" "$RESTORE_APP"
+    run_tree 1 "a Dockerfile under a dot-folder like .docker is checked" "$tree"
+    expect_in_output "missing: src/Core/Core.csproj"
+
+    tree="$(new_tree)"
+    write_complete_dockerfile "$tree"
+    ln -s "$tree" "$TMP_ROOT/link.$cases"
+    run_tree 0 "a repo root reached through a symbolic link is still read" "$TMP_ROOT/link.$cases"
+    expect_in_output "1 Dockerfile(s)"
+
+    tree="$(new_tree)"
+    write_complete_dockerfile "$tree"
+    mkdir -p "$TMP_ROOT/outside.$cases"
+    write_dockerfile "$TMP_ROOT/outside.$cases" Dockerfile "$COPY_APP"
+    ln -s "$TMP_ROOT/outside.$cases" "$tree/src/linked"
+    run_tree 0 "a symbolic link to a folder inside the tree is not followed, as with find" "$tree"
+    expect_in_output "1 Dockerfile(s)"
 
     # Root ignores the read bit, so this case proves nothing when the suite runs as root.
     if [ "$(id -u)" -ne 0 ]; then
@@ -121,6 +147,8 @@ run_suite() {
         run_tree 2 "a folder the guard cannot read fails the run" "$tree"
         expect_in_output "could not list the Dockerfiles"
         chmod 755 "$tree/src/Locked"
+    else
+        printf 'i [%s] running as root, which reads any folder — skipped the unreadable-folder case.\n' "$LABEL"
     fi
 
     # --- a complete COPY list passes ---

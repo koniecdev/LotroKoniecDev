@@ -122,21 +122,37 @@ function Join-Continuation {
     return $joined
 }
 
-# Match on the repo-RELATIVE path: the repo itself may sit under a directory named like one of the
-# excluded ones (agent worktrees live in .claude/worktrees/), which an absolute match would swallow.
+function Find-Dockerfile {
+    # Walks the tree the way the .sh twin's find does, so both twins check the same files.
+    # -Force: without it, PowerShell on Linux and macOS skips every dot-folder (.docker, .github),
+    # which find enters. .git and .claude at the root, and every node_modules, are never entered,
+    # so a loop worktree added or removed under .claude/ during the walk cannot fail it.
+    # Symbolic links are not followed, as with find's default -P. -clike matches the name with case,
+    # as find -name does.
+    param(
+        [Parameter(Mandatory)][string] $Directory,
+        [switch] $IsRoot
+    )
+
+    foreach ($item in Get-ChildItem -LiteralPath $Directory -Force -ErrorAction Stop) {
+        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
+        if ($item.PSIsContainer) {
+            if ($item.Name -ceq 'node_modules') { continue }
+            if ($IsRoot -and ($item.Name -ceq '.git' -or $item.Name -ceq '.claude')) { continue }
+            Find-Dockerfile -Directory $item.FullName
+        }
+        elseif ($item.Name -clike 'Dockerfile*') {
+            $item
+        }
+    }
+}
+
 # @(...) keeps this an array even for 0 or 1 hits — `foreach` over a bare $null iterates ONCE with
 # a null item, which would blow up on .FullName below.
-# A listing error stops the guard with exit 2, like a failed find in the .sh twin. It is never
-# skipped: a folder the guard cannot read may hold the Dockerfile it should check.
+# A listing error stops the guard with exit 2, like a failed find in the .sh twin: a folder the
+# guard cannot read may hold the Dockerfile it should check.
 try {
-    $dockerfiles = @(
-        Get-ChildItem -Path $repoRoot -Recurse -File -Filter 'Dockerfile*' -ErrorAction Stop |
-            Where-Object {
-                $rel = $_.FullName.Substring($repoRoot.Length + 1) -replace '\\', '/'
-                $rel -notmatch '^(\.git|\.claude)/' -and $rel -notmatch '(^|/)node_modules/'
-            } |
-            Sort-Object FullName
-    )
+    $dockerfiles = @(Find-Dockerfile -Directory $repoRoot -IsRoot | Sort-Object FullName)
 }
 catch {
     Write-Host "Docker restore-graph guard: could not list the Dockerfiles under ${repoRoot}: $($_.Exception.Message)"

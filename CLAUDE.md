@@ -577,8 +577,8 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   so a kept cookie would go out with other visitors' calls.
   `scripts/check-client-hypermedia.sh` (with a `.ps1`
   twin) flags an API path in any string literal under `src/Frontend/` **and** `src/Patcher/` and
-  gates it in **both** `pr-verify` and `ci`, alongside the SSR guard; prose mentions in comments
-  stay allowed. The one bounded exception is the editor's detail URI
+  gates it in **both** `pr-verify` and `ci`, alongside the SSR guard, right after its self-test
+  `scripts/tests/check-client-hypermedia.tests.sh`; prose mentions in comments stay allowed. The one bounded exception is the editor's detail URI
   (`{discovered translations href}/{id}`) — the `/editor/{id}` route hands over an id, not a link,
   and it is documented as such in `TranslationEditorLoader`.
 - **The CLI resolves its download URL from discovery, and degrades without guessing (#611).**
@@ -616,6 +616,8 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   actually stale a COPY list. A new project must join every Dockerfile whose restore graph reaches it.
   A run that checks no Dockerfile at all exits 2, never passes (#1079), and
   `scripts/tests/check-dockerfile-restore-graph.tests.sh` runs first in both workflows to prove it.
+  The same holds for every `scripts/check-*` guard: a missing folder, a folder with nothing to scan,
+  or a file it cannot read is exit 2, and a new guard copies that.
   **The Blazor exception (#414):** the frontend image's `dotnet build` runs **without**
   `--no-restore`. `blazor.web.js` ships in `Microsoft.AspNetCore.App.Internal.Assets`, which the SDK
   references only once it sees `.razor` files — never during the `.csproj`-only restore — so

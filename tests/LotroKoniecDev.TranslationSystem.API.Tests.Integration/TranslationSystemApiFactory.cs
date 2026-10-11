@@ -187,8 +187,18 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     public static string CreateAccessTokenForAudiences(params string[] audiences)
         => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), audiences: audiences);
 
+    /// <summary>
+    /// A token that expired one minute ago. It sits inside the five-minute clock skew JwtBearer allows by
+    /// default, so only the zero skew refuses it (#933).
+    /// </summary>
     public static string CreateExpiredAccessToken()
-        => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(-20));
+        => CreateAccessTokenExpiringAt(DateTime.UtcNow.AddMinutes(-1));
+
+    public static string CreateAccessTokenExpiringAt(DateTime expires)
+        => CreateToken(TestSigningKey, expires);
+
+    public static string CreateAccessTokenOfType(string tokenType)
+        => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), tokenType: tokenType);
 
     public static string CreateTokenSignedWithUnknownKey()
         => CreateToken(
@@ -203,12 +213,14 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         Guid? subject = null,
         string displayName = TestUserDisplayName,
         string email = TestUserEmail,
-        string[]? audiences = null)
+        string[]? audiences = null,
+        string tokenType = AuthConstants.TokenTypes.AccessToken)
     {
         JsonWebTokenHandler handler = new();
 
         SecurityTokenDescriptor descriptor = new()
         {
+            TokenType = tokenType,
             Issuer = TestIssuer,
             // One audience goes out as a string, like the service token and every real one-API token.
             Audience = audiences is null ? TestAudience : null,

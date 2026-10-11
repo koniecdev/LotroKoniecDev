@@ -3,7 +3,7 @@ using Npgsql;
 namespace LotroKoniecDev.AuthSystem.Persistence.Settings;
 
 /// <summary>
-/// The sign-in server gives up opening a database connection after 20 seconds, whatever the configured
+/// The sign-in server waits at most 20 seconds to open a database connection, whatever the configured
 /// connection string says, so no box <c>.env</c> needs a change (#923). The website waits 30 seconds for
 /// the sign-in server, and the sign-in server has to give up first. Otherwise it could finish a login
 /// renewal that the website never reads, and the website's next try would send a refresh token that is
@@ -12,8 +12,18 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Settings;
 /// </summary>
 public static class AuthDatabaseConnectionString
 {
-    private const int OpenTimeoutSeconds = 20;
+    private const int MaxOpenTimeoutSeconds = 20;
 
-    public static string WithOpenTimeout(string connectionString) =>
-        new NpgsqlConnectionStringBuilder(connectionString) { Timeout = OpenTimeoutSeconds }.ConnectionString;
+    public static string CapOpenTimeout(string connectionString)
+    {
+        NpgsqlConnectionStringBuilder builder = new(connectionString);
+
+        // Npgsql reads Timeout=0 as "wait forever".
+        if (builder.Timeout is <= 0 or > MaxOpenTimeoutSeconds)
+        {
+            builder.Timeout = MaxOpenTimeoutSeconds;
+        }
+
+        return builder.ConnectionString;
+    }
 }

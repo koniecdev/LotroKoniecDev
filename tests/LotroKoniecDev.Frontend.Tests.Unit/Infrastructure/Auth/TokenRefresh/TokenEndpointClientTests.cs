@@ -151,8 +151,9 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// #923: the registration gives this client a time limit. When a stuck sign-in server reaches it, the
-    /// refresh fails like any other failed refresh instead of throwing.
+    /// #923: when the client's time limit runs out on a stuck sign-in server, the refresh fails like any
+    /// other failed refresh instead of throwing. The registration's limit is pinned in
+    /// <c>AuthenticationDependencyInjectionExtensionsTests</c>.
     /// </summary>
     [Fact]
     public async Task RefreshAsync_WhenTheAuthApiNeverAnswers_ReturnsNullOnceTheClientTimesOut()

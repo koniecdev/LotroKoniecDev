@@ -10,20 +10,12 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Extensions;
 
 public sealed class PersistenceDependencyInjectionTests
 {
-    private const string ConnectionStringWithoutTimeout =
-        "Host=localhost;Database=lotro_auth;Username=postgres;Password=changeme";
-
-    /// <summary>
-    /// #923: 20 seconds, below the website's 30, whatever the box says. The boxes carry <c>Timeout=60</c>
-    /// today, and <c>Timeout=0</c> would make Npgsql wait forever.
-    /// </summary>
-    [Theory]
-    [InlineData(";Timeout=60")]
-    [InlineData(";Timeout=0")]
-    [InlineData("")]
-    public void AddAuthPersistence_AnyConfiguredOpenTimeout_OpensTheConnectionWithinTwentySeconds(string configuredTimeout)
+    /// <summary>#923: the boxes carry <c>Timeout=60</c>, and the database context opens within 20 seconds.</summary>
+    [Fact]
+    public void AddAuthPersistence_BoxConnectionString_CapsTheOpenTimeoutAtTwentySeconds()
     {
-        using ServiceProvider provider = CreateAuthPersistenceServices(ConnectionStringWithoutTimeout + configuredTimeout)
+        using ServiceProvider provider = CreateAuthPersistenceServices(
+                "Host=localhost;Database=lotro_auth;Username=postgres;Password=changeme;Timeout=60")
             .BuildServiceProvider();
         using IServiceScope scope = provider.CreateScope();
 

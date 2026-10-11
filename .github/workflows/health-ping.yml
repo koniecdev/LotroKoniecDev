@@ -92,8 +92,9 @@ jobs:
                 printf -- '- FAIL **%s** — HTTP 404: the health check key most likely does not match the prod box (or /health is not routed to the API)\n' "$name" >> "$GITHUB_STEP_SUMMARY"
                 return 1
               fi
-              # A measured cold start from zero replicas is ~45-60 s (auth's own is ~31 s and dominates
-              # the chain), so a single attempt must out-wait it: --max-time 60 above, 20 x 10 s here.
+              # Sized in the Azure days, when a cold start from zero replicas took ~45-60 s. On Hetzner the
+              # apps stay up and Neon wakes in a few seconds (runbook, #923), so --max-time 60 above and
+              # 20 x 10 s here leave a wide margin.
               sleep 10
             done
             echo "  last response body:"

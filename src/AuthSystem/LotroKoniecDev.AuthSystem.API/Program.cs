@@ -297,7 +297,7 @@ try
         // is still available on the full /health, and a deploy proves the database through the smoke
         // test's real endpoints.
         .AddNpgSql(
-            connectionStringFactory: sp => AuthDatabaseConnectionString.WithOpenTimeout(
+            connectionStringFactory: sp => AuthDatabaseConnectionString.CapOpenTimeout(
                 sp.GetRequiredService<IOptions<ConnectionStringSettings>>().Value.AuthDatabase),
             name: "authdb",
             tags: ["db", "postgres"])

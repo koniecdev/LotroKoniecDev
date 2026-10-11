@@ -55,7 +55,8 @@ into every consumer (and a consumer-side count resets on restart).
 `lotro.emails.dlx` (fanout) → `emails.send.dlq` (quorum). Fanout, because "everything that dies
 goes to the one parking lot" needs no routing decisions — and dead-lettering preserves the
 original routing key on the message, so replay knows where it belongs. Nothing consumes the
-DLQ; it sets no explicit delivery limit and no DLX of its own — it is terminal by design. It
+DLQ; it sets no explicit delivery limit and no DLX of its own — it is terminal by design. (Since
+§6, #1085: a parked message expires after 7 days.) It
 still inherits the quorum **default** delivery limit (20), which constrains how replay may ever
 consume it (Decision 5).
 
@@ -96,7 +97,7 @@ it would silently drop the parked message after 20 attempts.
 - **Every failure loop is bounded** — including consumer crash loops — by one broker-enforced
   counter shared with the backoff ladder (`RabbitMqTopology.EmailDeliveryLimit`).
 - ~33 min of SMTP outage rides out on backoff alone, no human needed; beyond that the message
-  waits intact in the DLQ.
+  waits intact in the DLQ (for at most 7 days since §6, #1085).
 - The whole mechanism is topology + one consumer — no new infrastructure (fits ADR-0034 ops).
 
 ### Negative / Accepted Trade-offs
@@ -189,10 +190,13 @@ the manual replay of Decision 5 a deadline.
 - The CLI runs as the `rabbitmq` user. On a new volume a root `rabbitmqctl` that runs before the
   server has written its Erlang cookie writes the cookie first, owned by root, and the server then
   stops at boot because it cannot read it (seen on `rabbitmq:4.3.4`).
-- A broker that does not answer within the healthcheck's budget (about 3 minutes) gets a warning in
-  the deploy log, not a failed deploy: a broker outage must never block an app deploy
-  (`compose.hetzner.yaml`). A broker that had the policy keeps it. Only a new broker is left without it,
-  until the next deploy.
+- A broker that does not answer within the healthcheck's budget (about 3 minutes), or holds one try
+  past its 20 s limit, gets a warning in the deploy log, not a failed deploy: a broker outage must
+  never block an app deploy (`compose.hetzner.yaml`). A broker that had the policy keeps it. Only a
+  new broker is left without it (see fact 2 below for why that gap matters).
+- Every way this project brings up a broker goes through `deploy.sh`: CD, a hand-run deploy, and the
+  runbook's bring-up and disaster-recovery steps. A broker started with a plain `docker compose up -d`
+  has no policy until `deploy.sh` runs.
 - Only `emails.send.dlq`. **Never `tms.account-erased.dlq`:** a message parked there is erasure work
   (ADR-0065), and it waits for a person however long that takes. Never `emails.send` either: an e-mail
   waiting out an outage there must not be dropped.
@@ -204,8 +208,8 @@ the manual replay of Decision 5 a deadline.
 2. A quorum queue drops expired messages only from its head. One message with no expiry at the head
    holds back every message behind it, expired or not. With fact 1, this means a message that parks
    while the policy is missing never expires, and it stops the expiry of everything after it. So the
-   policy must be in place before anything parks. Both boxes' parking lots were empty when the policy
-   first went out (checked 2026-10-11). The runbook says what to do if one is not.
+   policy must be in place before anything parks. Both boxes' parking lots were empty when checked
+   on 2026-10-11, before the first deploy with the policy. The runbook says what to do if one is not.
 3. A queue follows only one policy: the matching one with the highest priority. Any other policy that
    matches `emails.send.dlq` must carry the same `message-ttl`, or it switches the expiry off.
 
@@ -220,13 +224,15 @@ queue (Context). The policy does the same job without that, which is why the own
 
 **Rejected: failing the deploy when the policy does not land.** It would roll good apps back over a
 broker problem, against the rule above. The cost of the choice: a new broker that only comes up after
-the deploy has no policy until the next deploy.
+the deploy has no policy until the next deploy, and a message that parks in that window never expires
+and holds back every message behind it (facts 1 and 2). The warning says so and asks for a new deploy
+and a look at the parking lot.
 
 **Not in the dev and production-parity stacks** (`compose.yaml`, `compose.prod.yaml`). They hold no
 real person's data, and `deploy.sh` does not run there.
 
-**Tests.** `scripts/tests/hetzner-deploy.tests.sh` pins the exact call, its place after `up -d`, the
-retry and the warning, and checks that the pattern matches `RabbitMqTopology.EmailDeadLetterQueue` and
+**Tests.** `scripts/tests/hetzner-deploy.tests.sh` pins the exact call, its place after `up -d`, its
+time limit, the retry, the stop after a timed-out try and the warning, and checks that the pattern matches `RabbitMqTopology.EmailDeadLetterQueue` and
 no other queue the apps declare. `DeadLetterExpiryTests` shows on the pinned broker image that such a
 policy removes a parked message with no consumer.
 

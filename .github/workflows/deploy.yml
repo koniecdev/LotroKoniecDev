@@ -26,7 +26,8 @@ name: Deploy (reusable rollout)
 #   4. snapshot the box's live config, scp the stack files (compose + Caddyfile + deploy.sh) so the
 #      box's config IS the deployed commit, then run scripts/hetzner/deploy.sh over ssh: validate →
 #      pull → assert the pulled digests are the attested ones → run the migrator as a GATE → `up -d`
-#      → reload Caddy → pin the tag in .env.
+#      → reload Caddy → set the e-mail parking-lot expiry policy (warns, never fails; ADR-0036 §6) →
+#      pin the tag in .env.
 #   5. wait for the public origins to answer, smoke them (scripts/smoke.sh — the fingerprint leg,
 #      because `GET / -> 200` proves nothing), and roll the box back — images AND config — if anything
 #      above went red.
@@ -400,10 +401,11 @@ jobs:
           # shellcheck disable=SC2029
           ssh box "chmod 755 ${STACK_DIR}/deploy.sh"
 
-      # The rollout itself (scripts/hetzner/deploy.sh, on the box): pin the tag in .env → pull → assert
-      # the pulled digests are the attested ones → `up -d`, where the one-shot migrator gates the apps →
-      # reload Caddy. PREVIOUS_IMAGE_TAG is printed by the script BEFORE it changes anything, so the
-      # rollback step below has its target even when the roll dies half-way.
+      # The rollout itself (scripts/hetzner/deploy.sh, on the box): pull → assert the pulled digests are
+      # the attested ones → the one-shot migrator as a gate → `up -d` → reload Caddy → set the e-mail
+      # parking-lot expiry policy (a broker problem there only warns, so it never triggers the rollback
+      # below; ADR-0036 §6) → pin the tag in .env. PREVIOUS_IMAGE_TAG is printed by the script BEFORE it
+      # changes anything, so the rollback step below has its target even when the roll dies half-way.
       - name: Deploy (pull → migrate → up)
         id: rollout
         env:

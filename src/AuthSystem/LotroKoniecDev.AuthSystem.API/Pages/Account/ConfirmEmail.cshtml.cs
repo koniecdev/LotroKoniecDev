@@ -40,7 +40,13 @@ internal sealed partial class ConfirmEmailModel : PageModel
 
     public bool IsCompleted { get; set; }
 
-    public string ErrorTitle { get; set; } = InvalidLinkTitle;
+    /// <summary>
+    /// Identity checked the link and then refused for another reason. The page must not call such a link
+    /// dead, or the visitor asks for a new one when opening this one again would work (#869).
+    /// </summary>
+    public bool LinkWasGood { get; set; }
+
+    public string ErrorTitle => LinkWasGood ? ConfirmationFailedTitle : InvalidLinkTitle;
 
     public string? ErrorMessage { get; set; }
 
@@ -123,11 +129,14 @@ internal sealed partial class ConfirmEmailModel : PageModel
             return;
         }
 
-        // Identity checked the token before it refused, so this link is not dead. Identity's own text is
-        // English, so the page never prints it (#1076).
-        ErrorTitle = ConfirmationFailedTitle;
+        // Identity's own text is English, so the page never prints it, and the log keeps the codes (#1076).
+        LogEmailConfirmationFailedViaUi(_logger, user.Id, string.Join(", ", result.Errors.Select(e => e.Code)));
+        LinkWasGood = true;
         ErrorMessage = ConfirmationFailedMessage;
     }
+
+    [LoggerMessage(EventId = EventIds.EmailConfirmationFailed, Level = LogLevel.Warning, Message = "Email confirmation failed via UI for user {UserId}. Error codes: {ErrorCodes}")]
+    private static partial void LogEmailConfirmationFailedViaUi(ILogger logger, Guid userId, string errorCodes);
 
     [LoggerMessage(EventId = EventIds.EmailConfirmedViaUi, Level = LogLevel.Information, Message = "Email confirmed via UI for user {UserId}.")]
     private static partial void LogEmailConfirmedViaUi(ILogger logger, Guid userId);

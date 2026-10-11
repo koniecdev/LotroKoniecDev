@@ -19,7 +19,7 @@ internal sealed partial class ResetPasswordModel : PageModel
 
     /// <summary>
     /// Every password rule has its own sentence, so only a failed save or another account rule gets here.
-    /// The link is still good, so trying again with the same password can work.
+    /// The form stays, and a second try either works or shows that the link is used up.
     /// </summary>
     private const string GeneralRefusalMessage = "Spróbuj jeszcze raz. Jeśli błąd się powtórzy, napisz do nas.";
 
@@ -160,7 +160,19 @@ internal sealed partial class ResetPasswordModel : PageModel
                 return;
             }
 
-            ErrorMessage = string.Join(" ", result.Errors.Select(DescribeRefusal).Distinct());
+            // The user never sees Identity's text, so a code the page cannot name is kept in the log.
+            string[] unnamedCodes = result.Errors
+                .Select(error => error.Code)
+                .Where(code => PolishFor(code) is null)
+                .ToArray();
+            if (unnamedCodes.Length > 0)
+            {
+                LogPasswordResetFailed(_logger, user.Id, string.Join(", ", unnamedCodes));
+            }
+
+            ErrorMessage = string.Join(
+                " ",
+                result.Errors.Select(error => PolishFor(error.Code) ?? GeneralRefusalMessage).Distinct());
             return;
         }
 
@@ -174,10 +186,10 @@ internal sealed partial class ResetPasswordModel : PageModel
 
     /// <summary>
     /// Identity writes its errors in English, so the page names each broken rule in Polish by the error's
-    /// code (#1076). Any other code gets the general sentence, never Identity's own text.
+    /// code (#1076). It never prints Identity's own text.
     /// </summary>
-    private static string DescribeRefusal(IdentityError error) =>
-        error.Code switch
+    private static string? PolishFor(string code) =>
+        code switch
         {
             nameof(IdentityErrorDescriber.PasswordTooShort) =>
                 $"Hasło musi mieć co najmniej {PasswordConstants.MinLength} znaków.",
@@ -188,11 +200,14 @@ internal sealed partial class ResetPasswordModel : PageModel
             nameof(IdentityErrorDescriber.PasswordRequiresDigit) => "Hasło musi zawierać cyfrę.",
             nameof(IdentityErrorDescriber.PasswordRequiresNonAlphanumeric) => "Hasło musi zawierać znak specjalny.",
             BreachedPasswordValidator.ErrorCode => BreachedPasswordMessage,
-            _ => GeneralRefusalMessage
+            _ => null
         };
 
     [LoggerMessage(EventId = EventIds.PasswordResetCompletedViaUi, Level = LogLevel.Information, Message = "Password reset completed via UI for user {UserId}. Tokens and authorizations revoked.")]
     private static partial void LogPasswordResetCompleted(ILogger logger, Guid userId);
+
+    [LoggerMessage(EventId = EventIds.ResetPasswordFailed, Level = LogLevel.Warning, Message = "Password reset failed via UI for user {UserId}. Error codes: {ErrorCodes}")]
+    private static partial void LogPasswordResetFailed(ILogger logger, Guid userId, string errorCodes);
 
     [LoggerMessage(EventId = EventIds.ResetPasswordDeletionScheduled, Level = LogLevel.Warning, Message = "Password reset blocked for user {UserId}: account deletion is scheduled")]
     private static partial void LogPasswordResetBlockedDeletionScheduled(ILogger logger, Guid userId);

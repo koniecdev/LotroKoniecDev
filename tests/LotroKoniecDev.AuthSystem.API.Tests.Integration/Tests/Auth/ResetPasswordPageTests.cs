@@ -379,7 +379,9 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
 
     /// <summary>
     /// The breach check skips a password that breaks the policy, but the length limit is a separate
-    /// validator. So an over-long password can also be found in a breach, and the page names both.
+    /// validator. So an over-long password can also be found in a breach, and the page names both. This
+    /// pins today's behaviour on purpose: #1110 will skip the breach call here, and this test changes
+    /// with it.
     /// </summary>
     [Fact]
     public async Task ResetPasswordPage_Post_ShouldNameTheLengthAndTheLeak_WhenAnOverLongPasswordIsAlsoInDataBreaches()

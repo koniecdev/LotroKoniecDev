@@ -1,11 +1,13 @@
 using LotroKoniecDev.AuthSystem.API.Pages.Account;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
+using LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
@@ -26,6 +28,7 @@ public sealed class ResetPasswordModelTests
     private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(5);
 
     private readonly FakeTimeProvider _clock = new();
+    private readonly CapturingLogger<ResetPasswordModel> _logger = new();
     private readonly IUserStore<ApplicationUser> _store = Substitute.For<
         IUserEmailStore<ApplicationUser>,
         IUserPasswordStore<ApplicationUser>>();
@@ -64,6 +67,27 @@ public sealed class ResetPasswordModelTests
 
         // Assert
         sut.ErrorMessage.ShouldBe(GeneralMessage);
+    }
+
+    /// <summary>
+    /// The page hides Identity's text from the user, so the log is the only place that still names it.
+    /// </summary>
+    [Fact]
+    public async Task OnPostAsync_ShouldLogTheCodesAsAWarning_WhenIdentityRefusesWithCodesThePageDoesNotKnow()
+    {
+        // Arrange
+        ArrangeAccountWithAGoodLink();
+        ArrangeSaveRefusal("InvalidUserName", "DuplicateEmail");
+        ResetPasswordModel sut = CreatePostingSut();
+
+        // Act
+        await PostAsync(sut);
+
+        // Assert
+        CapturingLogger<ResetPasswordModel>.LogEntry entry = _logger.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.EventId.ShouldBe(EventIds.ResetPasswordFailed);
+        entry.Message.ShouldContain("InvalidUserName, DuplicateEmail");
     }
 
     /// <summary>
@@ -134,7 +158,7 @@ public sealed class ResetPasswordModelTests
             userManager,
             Substitute.For<IUserSessionRevoker>(),
             new ResponseTimeFloor(_clock),
-            NullLogger<ResetPasswordModel>.Instance)
+            _logger)
         {
             PageContext = new PageContext { HttpContext = new DefaultHttpContext() },
             Email = Email,

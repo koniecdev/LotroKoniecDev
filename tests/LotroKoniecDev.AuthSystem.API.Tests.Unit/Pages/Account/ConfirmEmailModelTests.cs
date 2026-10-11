@@ -1,7 +1,9 @@
 using LotroKoniecDev.AuthSystem.API.Pages.Account;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
+using LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
@@ -17,10 +19,13 @@ public sealed class ConfirmEmailModelTests
 {
     private const string Email = "frodo@shire.me";
     private const string InvalidLinkTitle = "Link wygasł lub jest nieprawidłowy";
+    private const string InvalidLinkMessage =
+        "Link potwierdzający jest nieprawidłowy lub wygasł. Jeśli Twoje konto jest już aktywne, po prostu się zaloguj.";
 
     private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(5);
 
     private readonly FakeTimeProvider _clock = new();
+    private readonly CapturingLogger<ConfirmEmailModel> _logger = new();
     private readonly IUserEmailStore<ApplicationUser> _store = Substitute.For<IUserEmailStore<ApplicationUser>>();
     private readonly IUserTwoFactorTokenProvider<ApplicationUser> _tokenProvider =
         Substitute.For<IUserTwoFactorTokenProvider<ApplicationUser>>();
@@ -33,13 +38,7 @@ public sealed class ConfirmEmailModelTests
     {
         // Arrange
         ArrangeUnconfirmedAccount(linkVerifies: true);
-        _store
-            .UpdateAsync(Arg.Any<ApplicationUser>(), Arg.Any<CancellationToken>())
-            .Returns(IdentityResult.Failed(new IdentityError
-            {
-                Code = code,
-                Description = "Optimistic concurrency failure, object has been modified."
-            }));
+        ArrangeSaveRefusal(code);
         ConfirmEmailModel sut = CreateSut();
 
         // Act
@@ -48,6 +47,27 @@ public sealed class ConfirmEmailModelTests
         // Assert
         sut.ErrorTitle.ShouldBe("Nie udało się potwierdzić adresu");
         sut.ErrorMessage.ShouldBe("Otwórz link z wiadomości jeszcze raz. Jeśli błąd się powtórzy, napisz do nas.");
+    }
+
+    /// <summary>
+    /// The page hides Identity's text from the user, so the log is the only place that still names it.
+    /// </summary>
+    [Fact]
+    public async Task OnGet_ShouldLogTheErrorCodesAsAWarning_WhenIdentityRefusesAGoodLink()
+    {
+        // Arrange
+        ArrangeUnconfirmedAccount(linkVerifies: true);
+        ArrangeSaveRefusal("ConcurrencyFailure");
+        ConfirmEmailModel sut = CreateSut();
+
+        // Act
+        await GetAsync(sut);
+
+        // Assert
+        CapturingLogger<ConfirmEmailModel>.LogEntry entry = _logger.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.EventId.ShouldBe(EventIds.EmailConfirmationFailed);
+        entry.Message.ShouldContain("ConcurrencyFailure");
     }
 
     [Fact]
@@ -62,8 +82,7 @@ public sealed class ConfirmEmailModelTests
 
         // Assert
         sut.ErrorTitle.ShouldBe(InvalidLinkTitle);
-        sut.ErrorMessage.ShouldBe(
-            "Link potwierdzający jest nieprawidłowy lub wygasł. Jeśli Twoje konto jest już aktywne, po prostu się zaloguj.");
+        sut.ErrorMessage.ShouldBe(InvalidLinkMessage);
     }
 
     [Fact]
@@ -80,6 +99,7 @@ public sealed class ConfirmEmailModelTests
 
         // Assert
         sut.ErrorTitle.ShouldBe(InvalidLinkTitle);
+        sut.ErrorMessage.ShouldBe(InvalidLinkMessage);
     }
 
     private void ArrangeUnconfirmedAccount(bool linkVerifies)
@@ -95,6 +115,15 @@ public sealed class ConfirmEmailModelTests
                 Arg.Any<ApplicationUser>())
             .Returns(linkVerifies);
     }
+
+    private void ArrangeSaveRefusal(string code) =>
+        _store
+            .UpdateAsync(Arg.Any<ApplicationUser>(), Arg.Any<CancellationToken>())
+            .Returns(IdentityResult.Failed(new IdentityError
+            {
+                Code = code,
+                Description = "Optimistic concurrency failure, object has been modified."
+            }));
 
     private async Task GetAsync(ConfirmEmailModel sut)
     {
@@ -117,6 +146,6 @@ public sealed class ConfirmEmailModelTests
             NullLogger<UserManager<ApplicationUser>>.Instance);
         userManager.RegisterTokenProvider(TokenOptions.DefaultProvider, _tokenProvider);
 
-        return new ConfirmEmailModel(userManager, new ResponseTimeFloor(_clock), NullLogger<ConfirmEmailModel>.Instance);
+        return new ConfirmEmailModel(userManager, new ResponseTimeFloor(_clock), _logger);
     }
 }

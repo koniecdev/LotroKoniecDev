@@ -353,10 +353,13 @@
                                 </div>
                             </div>
                             <div class="auth-actions">
-                                <a href="/Account/ResendConfirmation" class="btn btn-primary btn-block">
-                                    Wyślij nowy link aktywacyjny
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
-                                </a>
+                                @if (!Model.LinkWasGood)
+                                {
+                                    <a href="/Account/ResendConfirmation" class="btn btn-primary btn-block">
+                                        Wyślij nowy link aktywacyjny
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+                                    </a>
+                                }
                                 <a href="/Account/Login" class="btn btn-ghost btn-block">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m11 19-7-7 7-7"/></svg>
                                     Powrót do logowania

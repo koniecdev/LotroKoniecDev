@@ -18,12 +18,14 @@ authoritative) — **two bounded contexts in one repo**, integrating through a f
    translators import the CLI export, edit with review workflow, and export `polish.txt` back
    for patching.
 
-**Architectural identity:** every TMS pattern is lifted **1:1 from TheKittySaver**
-(`~/RiderProjects/TheKittySaver` — the canonical reference for Vertical Slice Architecture, DDD
-domain, Result monad, the OpenIddict auth server, Docker/compose, testing discipline), with
-**one repo-wide deviation: NO MEDIATOR (ADR-0001)**. KittySaver uses `Mediator.SourceGenerator`;
-every lifted slice is de-mediatorized on entry (recipe: `docs/kittysaver-lift-map.md`). `Mediator`/`MediatR` packages are
-forbidden — never add them back.
+**Architectural identity:** Vertical Slice Architecture, a DDD domain, the Result monad, a
+self-hosted OpenIddict sign-in server, Docker Compose and the testing discipline below. **This
+repo's own code is the only reference:** a new slice mirrors its nearest sibling here, and nothing
+outside the repo is a template. The TMS began as a copy of the patterns of TheKittySaver, the
+owner's earlier project, which is why older ADRs name it. That copy is finished and the two code
+bases have gone their own ways (ADR-0002 §4, amended 2026-10-11). **NO MEDIATOR, repo-wide
+(ADR-0001):** in-house `ICommand`/`IQuery` handlers; `Mediator`/`MediatR` packages are forbidden —
+never add them back.
 
 ## Project status — deployed, pre-launch (no real users yet)
 
@@ -50,15 +52,15 @@ issue body conflicts with this file, **this file wins** — align the ticket bef
 ```
 src/
   Patcher/LotroKoniecDev.{Primitives,Domain,Application,Infrastructure,Cli}               ← PATCHER (stable)
-  SharedKernel/LotroKoniecDev.SharedKernel                                                ← TMS-side building blocks (lifted)
+  SharedKernel/LotroKoniecDev.SharedKernel                                                ← TMS-side building blocks
   TranslationSystem/LotroKoniecDev.TranslationSystem.{Primitives,Domain,ReadModels,ReadModels.EntityFramework,Projections,Persistence,Contracts,API}
-  AuthSystem/LotroKoniecDev.AuthSystem.{API,Domain,Infrastructure,Persistence,Contracts}  ← self-hosted OpenIddict (lifted)
+  AuthSystem/LotroKoniecDev.AuthSystem.{API,Domain,Infrastructure,Persistence,Contracts}  ← self-hosted OpenIddict
   Frontend/LotroKoniecDev.Frontend                                                        ← Blazor Static SSR, OIDC RP
   Utilities/LotroKoniecDev.{Hateoas,Hateoas.Abstractions,Logging,Options}
 ```
 
 (`TranslationSystem.Projections` is the in-house precomputed-translation-file store behind the
-distribution endpoint — not part of the KittySaver lift map in `docs/kittysaver-lift-map.md`.)
+distribution endpoint.)
 
 **The contexts share a data contract, not code: the `||` translation file.** CLI `export` →
 `exported.txt` → TMS import; TMS export → `polish.txt` → CLI `patch`. Each context owns its own
@@ -88,23 +90,19 @@ high — but it is **no longer frozen** (ADR-0002 amendment, 2026-06-25). Refact
 restructuring are allowed when they earn their keep (the `src/Patcher/` grouping was the first);
 **any change must keep every existing test green without touching its assertions**, and behavior
 proven in `docs/knowledge-base/` must not regress. The TMS still deliberately duplicates the few
-tiny building blocks it needs (Result/Maybe/Error shapes, messaging interfaces — they arrive
-inside the lifted SharedKernel); consolidating that duplication is an opt-in cleanup, not a
+tiny building blocks it needs (Result/Maybe/Error shapes, messaging interfaces — they live
+in the SharedKernel); consolidating that duplication is an opt-in cleanup, not a
 mandate. The DAT/`||` file format still changes only via ADR + updated golden fixtures.
 
-### TMS — lifted 1:1 from TheKittySaver
+### TMS — vertical slices in the API project
 
-The lift is **done** — every TMS project mirrors its `~/RiderProjects/TheKittySaver` original. The
-per-project map and the **de-mediatorization recipe** (record → in-house `ICommand`/`IQuery`,
-explicit closed-handler DI registration, validation and logging inside the handler) live in
-**`docs/kittysaver-lift-map.md`**: a **new** TMS slice mirrors the nearest existing sibling slice
-in this repo first and reads that map only when no sibling fits.
+A **new** TMS slice mirrors the nearest existing sibling slice in this repo, and "Anatomy of a
+feature slice" below gives its shape: a record on the in-house `ICommand`/`IQuery`, a handler
+whose closed interface is registered in DI explicitly, and validation and logging inside the
+handler. When no sibling fits, build it from that anatomy.
 
-**Deliberate non-lifts (YAGNI — revisit only on a real, present need):** `Calculators`, domain
-events (KittySaver dispatches them via Mediator notifications; the TMS core loop doesn't need
-them — if a need appears, design an in-house dispatcher via ADR first). `ReadModels(+EF)` and
-per-system `Primitives` were on this list and are now lifted from day 1 (ADR-0002 amendment
-2026-06-12).
+**Deliberately absent (YAGNI — revisit only on a real, present need):** domain events (the TMS
+core loop doesn't need them — if a need appears, design an in-house dispatcher via ADR first).
 
 ## Source of truth — the wiki outranks specs, ADRs and code
 
@@ -140,7 +138,7 @@ rule, the wiki stating it, and a follow-up ticket amending ADR-0003 and the vali
 
 | You're about to… | Read first |
 |---|---|
-| Build/change a **TMS slice** | the nearest existing sibling slice in `TranslationSystem.API/Features/…`; no fitting sibling → the KittySaver original (`AdoptionSystem.API/Features/…`) + the lift map and de-mediatorization recipe in `docs/kittysaver-lift-map.md` |
+| Build/change a **TMS slice** | the nearest existing sibling slice in `TranslationSystem.API/Features/…`; no fitting sibling → "Anatomy of a feature slice" below |
 | Work a GitHub ticket end-to-end | run **`/ticket <number>`** (mind the this-file-wins rule in Project status) |
 | Triage a pile of tickets before working them (premise check, no implementation) | run **`/preflight <numbers…>`** — wiki-first READY/CLARIFY/BOUNCE verdict comment + lane per ticket; then fire `/ticket` per READY one, each in a fresh session |
 | Make a PR body, report or comment readable for a non-native reader | run **`/b2-english <PR# / comment URL / file>`** — `/ticket` and `/work-ticket` run it as their last step |
@@ -345,7 +343,7 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   the ticket said "warning".
 - **No mediator — slim SRP handlers (ADR-0001), repo-wide.** One use case = one record + one
   handler implementing the in-house `ICommandHandler<,>`/`IQueryHandler<,>`. Consumers inject the
-  closed handler interface directly. Lifted KittySaver code is de-mediatorized on entry.
+  closed handler interface directly.
 - **DI validation is always on (#572).** Every composition root enables `ValidateScopes` +
   `ValidateOnBuild` in ALL environments (`builder.Host.UseDefaultServiceProvider` on the three web
   hosts; `ServiceProviderOptions` in the CLI `TypeRegistrar`) — a new host copies the pattern. It
@@ -763,7 +761,8 @@ internal sealed class <Action> : IEndpoint
 Wire the rest — **all three steps, every time**: (1) explicit DI registration of the closed
 handler interface, (2) request/response DTOs in `TranslationSystem.Contracts`, (3) tests —
 domain/handler unit tests + endpoint integration test against real PostgreSQL.
-**Mirror the nearest existing sibling slice** (here or in TheKittySaver) rather than inventing
+There are no pipeline behaviors: validation and logging (`ILogger<Handler>`) live inside the
+handler. **Mirror the nearest existing sibling slice in this repo** rather than inventing
 structure.
 
 ## Testing philosophy — repo-authoritative
@@ -816,7 +815,7 @@ structure.
   rule (a self-test fails until it does). Changing a rule is an architecture decision: fix the code, or
   write the ADR first — never weaken the test to green. Details: `tests/CLAUDE.md`.
 - Platform honesty: tests must pass on macOS AND Windows — `Path.Combine`, never hardcoded `C:\`.
-- **TMS test projects mirror KittySaver naming.** Unit (pure):
+- **TMS test projects follow one naming scheme.** Unit (pure):
   `TranslationSystem.Domain.Tests.Unit`, `TranslationSystem.API.Tests.Unit`,
   `AuthSystem.API.Tests.Unit`, `SharedKernel.Tests.Unit`, `Logging.Tests.Unit`,
   `Frontend.Tests.Unit`. Integration (real
@@ -978,7 +977,7 @@ are **extracted for the user, never invented** — that rule binds the worker an
 
 Starting the loop (`start-loop.sh`, the line `/backlog` hands over) **is** the standing
 authorization for commit → push → PR — never for a merge, which stays the owner's `/merge-train`.
-A single wholesale lift (e.g. the AuthSystem module) is **one ticket**: a large diff there is
+A single large change (e.g. a whole new module) is **one ticket**: a large diff there is
 expected and fine — what's not fine is two tickets sharing one working copy or one context. Full
 manual (env knobs, triage, troubleshooting): **`docs/claude-loop.md`**.
 
@@ -992,7 +991,7 @@ manual (env knobs, triage, troubleshooting): **`docs/claude-loop.md`**.
   deliberately post-MVP** — owner decision (2026-06, ADR-0030): game-version registration stays
   manual, like the export→import pipeline. Don't work #85 without an explicit owner go-ahead.
 - **M3 — Frontend (Blazor Static SSR) — DONE** (manual QA pass **QA-FE / #275 still open**):
-  lifted OIDC infra; pages: dashboard, translation list, editor with `<--DO_NOT_TOUCH!-->`
+  OIDC sign-in; pages: dashboard, translation list, editor with `<--DO_NOT_TOUCH!-->`
   placeholder validation + approve flow, import/export, game-versions admin, "Moje konto"
   (data export + account-deletion UX — LEGAL-02) and terms of service (LEGAL-03).
 - **M6 — Deployment — DONE:** CD over ssh + `docker compose` to a **Hetzner VPS** (Caddy ingress,
@@ -1042,8 +1041,8 @@ them yourself when the request matches, without waiting for the user to type the
   re-baseline the QA ticket that produced it.
 - User floats a **rough feature idea** with unclear business rules → **`/spec`** first.
 - User describes a **concrete new use case** → mirror the nearest sibling slice (note:
-  **`/feature` scaffolds the patcher-style Application slice** — for TMS slices mirror
-  TheKittySaver + the de-mediatorization recipe until the skill is updated).
+  **`/feature` scaffolds the patcher-style Application slice** — for a TMS slice, mirror the
+  nearest TMS sibling and "Anatomy of a feature slice" until the skill is updated).
 - User is **settling an architecture/modeling choice** → **`/adr`** first, then implement.
 - Any **DAT binary format work** → hand off to the **`dat-format-expert`** agent.
 - User says **"kontynuuj pracę w pętli" / "continue the loop" / "work through the backlog" /

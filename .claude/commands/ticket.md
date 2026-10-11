@@ -148,9 +148,8 @@ answered, so it never stops here — it names the mismatch in the report's **Dou
 
 ## 4. Ground it in the repo
 
-- Read the code areas the ticket touches; identify the **nearest sibling slice** to mirror (here,
-  or TheKittySaver `AdoptionSystem.API/Features/…` + the de-mediatorization recipe in
-  `docs/kittysaver-lift-map.md`).
+- Read the code areas the ticket touches; identify the **nearest sibling slice** in this repo to
+  mirror (no fitting sibling → "Anatomy of a feature slice" in `CLAUDE.md`).
 - DAT/update-related? `docs/knowledge-base/` BEFORE planning — vnum semantics, translation
   survival, update detection and the launch flow are **already empirically settled** there.
 - Skim `docs/adr/` for rulings that constrain the approach (ADR-0001: no mediator, slim handlers).

@@ -1,6 +1,6 @@
 # ADR-0002: Two bounded contexts — TMS lifted from TheKittySaver, patcher frozen (later lifted)
 
-**Status:** Accepted (amended 2026-06-11 spec 0001 · 2026-06-12 ReadModels/Primitives lifts · 2026-06-14 ADR-0004 · 2026-06-25 the patcher freeze is lifted — see the in-body amendment notes)
+**Status:** Accepted (amended 2026-06-11 spec 0001 · 2026-06-12 ReadModels/Primitives lifts · 2026-06-14 ADR-0004 · 2026-06-25 the patcher freeze is lifted · 2026-10-11 TheKittySaver is no longer a reference — see the in-body amendment notes)
 **Date:** 2026-06-11
 **Decision-makers:** Solo maintainer
 **Related:** whole-repo architecture (both contexts), ticket #90 (M2-01), PR #89 (CLAUDE.md pivot + planning-doc removal), ADR-0001 (no mediator)
@@ -91,6 +91,16 @@ slice is transformed on entry per the de-mediatorization recipe — in-house
 `ICommand`/`IQuery` + closed handler interfaces, explicit DI registration, endpoints inject the
 closed handler; validation via `IValidator<TCommand>` mapped to `Result` in command handlers,
 inline in query handlers. `Mediator`/`MediatR` packages remain forbidden.
+
+**Amendment (2026-10-11, #1118): TheKittySaver is no longer a reference.** The lift this section
+describes is finished, and the two code bases have gone their own ways since. TheKittySaver
+replaced its OpenIddict server with Entra External ID and deleted it on 2026-09-01. The TMS here
+changed in about 240 commits after the lift, and no code has come over since August. So patterns
+come from this repo only: a new slice mirrors its nearest sibling here, and "Anatomy of a feature
+slice" in `CLAUDE.md` gives the shape. Nothing outside the repo is a template, and docs and
+comments do not explain our code by comparing it with TheKittySaver. The no-mediator rule stands
+on its own (ADR-0001). The lift map and the de-mediatorization recipe are retired, because there
+is nothing left to lift. The sections above stay as the record of how the TMS began.
 
 ### 5. Deliberate non-lifts (YAGNI — revisit only on a real, present need)
 

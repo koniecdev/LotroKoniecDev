@@ -378,13 +378,11 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The breach check skips a password that breaks the policy, but the length limit is a separate
-    /// validator. So an over-long password can also be found in a breach, and the page names both. This
-    /// pins today's behaviour on purpose: #1110 will skip the breach call here, and this test changes
-    /// with it.
+    /// The user has to shorten the password first, and the shorter one may be in no breach at all. So the
+    /// breach check stays out of the way of the length limit, as it does for the built-in rules (#1110).
     /// </summary>
     [Fact]
-    public async Task ResetPasswordPage_Post_ShouldNameTheLengthAndTheLeak_WhenAnOverLongPasswordIsAlsoInDataBreaches()
+    public async Task ResetPasswordPage_Post_ShouldNameOnlyTheLength_WhenAnOverLongPasswordIsAlsoInDataBreaches()
     {
         string newPassword = PasswordOfLength(PasswordConstants.MaxLength + 1);
         (RegisterRequest registerRequest, _) =
@@ -399,7 +397,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Hasło może mieć co najwyżej 128 znaków.");
-        html.ShouldContain("To hasło pojawiło się w wyciekach danych, wybierz inne.");
+        html.ShouldNotContain("To hasło pojawiło się w wyciekach danych, wybierz inne.");
         html.ShouldNotContain("Passwords must");
         html.ShouldNotContain("known data breaches");
     }

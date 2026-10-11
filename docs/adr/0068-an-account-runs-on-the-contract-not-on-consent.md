@@ -20,9 +20,11 @@ RODO) and the legitimate interest in a secure service (lit. f) as legal bases. �
 "Prawo sprzeciwu — wycofasz zgodę na przetwarzanie w dowolnym momencie". That line mixed two
 different rights, and the only way to "withdraw" was to delete the account.
 
-GDPR art. 7(4) says consent is not freely given when a service depends on it. A consent the user must
-give to get the account is therefore not valid consent. The processing the account needs is covered
-by the contract anyway, so the consent added nothing but a promise the site could not keep.
+GDPR art. 7(4) and the EDPB consent guidelines (05/2020) say a consent the service depends on is not
+freely given, and processing the contract needs should rest on the contract, not on consent. A
+consent the user must give to get the account is therefore not valid consent. The processing the
+account needs is covered by the contract anyway, so the consent added nothing but a promise the site
+could not keep.
 
 ## Decision
 
@@ -35,9 +37,9 @@ contract.
 
 ### 2. No consent is ever a condition of the account
 
-A consent the user must give to get the service is not valid consent. If the site one day processes
-data the account does not need (the policy's own example is analytics cookies, §05), it asks for a
-separate consent that is optional and can be withdrawn without deleting the account.
+A consent the user must give to get the service is not valid consent. This adds no new rule for
+processing the account does not need (the policy's own example is analytics cookies): GDPR art. 7(3)
+and the promise already made in policy §05 ("najpierw poprosimy Cię o zgodę") cover it.
 
 ### 3. The right to object is about the security processing
 
@@ -53,15 +55,13 @@ change removes them in at least two deploys (ADR-0023, #1130). Until then:
 - registration does not write them, so new accounts keep the column defaults (`false`, `null`);
 - the account data export still carries them, because older accounts hold a real value and the
   export is their copy of what we store;
-- the erasure still clears them;
-- the account page shows no row for them, so it never presents this consent as one the user has or
-  lacks.
+- the erasure still clears them.
 
 ## Consequences
 
 ### Positive
 
-- The registration form, the privacy policy and the code say the same thing.
+- The registration form, the privacy policy and the code say the same thing about consent.
 - One required tick less at registration.
 - A user is never told they can withdraw a consent whose withdrawal only deletes the account.
 
@@ -77,8 +77,8 @@ change removes them in at least two deploys (ADR-0023, #1130). Until then:
 
 ### A. Keep the consent as an extra legal basis
 
-Rejected. It is not freely given (art. 7(4)), and its withdrawal can only end the account, which is
-not what withdrawing consent means.
+Rejected. It is not freely given and it is the wrong basis (see Context), and its withdrawal can
+only end the account, which is not what withdrawing consent means.
 
 ### B. Keep the checkbox but make it optional
 
@@ -101,7 +101,8 @@ destructive schema step wait for a later deploy.
 - `src/AuthSystem/LotroKoniecDev.AuthSystem.API/Pages/Account/PrivacyPolicy.cshtml`: §02, §04 and §06
   carry the owner's wording from #1073.
 - `src/Frontend/LotroKoniecDev.Frontend/Components/Pages/Account/Account.razor`: no "Przetwarzanie
-  danych" row.
+  danych" row, so the page never presents this consent as one the user has or lacks. This was chosen
+  in the #1073 PR, not ruled by the owner; #1134 asks the owner about the rest of that panel.
 - Unchanged until #1130: `ApplicationUser`, `ApplicationUserConfiguration`, `AccountDataExportReader`,
   `AuthDataExportDto`, `AccountErasureService`.
 

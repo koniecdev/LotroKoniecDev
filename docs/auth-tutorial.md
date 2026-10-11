@@ -238,7 +238,7 @@ które w id tokenie. `sub`/`email`/`name`/`role` idą do obu.
    auto-confirm;
 4. zwraca **201** z gołym `IdentityId`.
 
-**Kluczowe (`RegisterUser.cs:228-230`):** *brak* cross-contextowej sagi, która przy rejestracji
+**Kluczowe (`RegisterUser.cs:222-224`):** *brak* cross-contextowej sagi, która przy rejestracji
 tworzyłaby też profil w TMS (świadoma decyzja, ADR-0002 §7). Profil tłumacza w TMS powstaje
 **leniwie** przy pierwszym uwierzytelnionym żądaniu (§7.3, ADR-0004). To świetny temat na
 rozmowę („dlaczego rozdzieliliście rejestrację od profilu domenowego").

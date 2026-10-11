@@ -221,14 +221,26 @@ Per-ticket outcomes:
   `pr-verify`: the table shows the checks as they stand at the end of the run, and `/merge-train`
   checks them again before any merge. A DONE with no open PR for the ticket is resumed once to
   open it (see "A session stopped by a usage limit, or DONE without a PR").
-- **merged** — the worker reported DONE, and you merged its PR before its session ended (#1082). A
+- **merged** — the worker reported DONE, and its PR was merged before its session ended (#1082). A
   session opens its PR about 15 minutes before it ends: it still waits for CodeQL and rewrites the
   PR body, and the PR looks finished in that time. The work is on `main`, so the ticket is done:
   its session is not resumed, it does not count toward the failure circuit breaker, and its
   worktree is removed as for `pr-opened` (the branch stays). The table shows its PR, and the
   `done:` line counts it apart from `PR opened` and `failed`. Only a PR opened after the session
-  started counts: one merged before it is history from an earlier attempt, and a PR closed without
-  a merge is still an `error`.
+  started counts (on a resume after a usage limit: after the session first started). One merged
+  before that is history from an earlier attempt, and a PR closed without a merge is still an
+  `error`. An open PR of the ticket goes first, even when the summary links a merged one.
+  - The session may still push after the merge, for example a fix for a CodeQL alert. That commit
+    is only on the branch, not on `main`. So the worker compares its HEAD with the merged PR's
+    head (`refs/pull/<n>/head`), commit by commit and by change, not by id, because GitHub may
+    rebase a PR before it merges it. The row then says `<k> commit(s) after the merge are not on
+    main`, and the worker's log line names the branch: those commits need a new PR. When the
+    merged head cannot be fetched, the row says `could not check for commits after the merge`.
+    Either way the ticket stays `merged`: it is not a failure of the machine.
+  - The loop cannot tell who merged the PR: the worker's `gh` runs under the owner's account. A
+    session that merged its own PR would break ADR-0060, and it would show as `merged`, not as an
+    `error`. The session's instructions forbid a merge, and that is the guard; this outcome does
+    not police it.
 - **skipped** — the ticket already has an open PR, or `.claude/worktrees/ticket-<n>` already
   exists (a manual `/ticket` session or an earlier run is on it). Nothing is started. A worktree
   kept for a resume after a usage limit is skipped too when resuming it is no longer safe (see
@@ -365,8 +377,9 @@ Now:
   merged during the session (`merged` above), and asks the session to
   push and open the PR. The prompt names a PR the summary linked by its number only: that PR's
   branch name is text anyone who opens a PR can choose, so it stays in the log (ADR-0026). The result is judged again from the top: `pr-opened` when the PR now
-  exists, `error` when it still does not. The resume needs a real "no PR" from GitHub: when the
-  open PRs cannot be listed, the ticket is an `error` without it. A link to a wrong PR in the
+  exists, `merged` when it was merged in the meantime, `error` when there is still none. The
+  resume needs a real "no PR" from GitHub: when the ticket's PRs cannot be listed, the ticket is an
+  `error` without it. A link to a wrong PR in the
   summary no longer fails a ticket whose own PR exists: the branch list finds that one. This
   resume has the same guards as the no-STATUS one (a session id, ten minutes of the clock, the
   provenance gate), but it does not count toward `LOOP_MAX_RESUMES`.

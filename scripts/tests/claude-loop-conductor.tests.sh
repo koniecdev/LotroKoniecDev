@@ -11,9 +11,9 @@
 #     worker resumes its session then — #934), and a limit that outlasts every nap names the
 #     worktree kept for that resume,
 #   * a worktree that cannot be made, or two failures in a row, stop new starts,
-#   * a skip, a refusal or a blocked ticket is not a failure, and neither is a PR the owner merged
-#     before its session ended: the table shows it as merged, and it resets the failure streak
-#     (#1082),
+#   * a skip, a refusal or a blocked ticket is not a failure, and neither is a PR merged before its
+#     session ended: the table shows it as merged, names commits that came after the merge, and it
+#     resets the failure streak (#1082),
 #   * drain mode and -n still work, a number given twice runs once, and nothing calls `gh pr merge`,
 #   * the table names a ticket whose worker had to be resumed,
 #   * the loop refuses to run loop scripts that differ from origin/main,
@@ -110,6 +110,8 @@ printf 'issue=%s\noutcome=%s\n' "$ticket" "$outcome" > "$run_dir/ticket-$ticket.
 case "$rc" in 0|13) echo "pr=$((ticket + 1000))" >> "$run_dir/ticket-$ticket.meta" ;; esac
 # The real worker keeps the worktree of a limited session for the next run's resume.
 [ "$rc" -eq 6 ] && echo "worktree=kept" >> "$run_dir/ticket-$ticket.meta"
+# The real worker checks a merged PR for commits that came after the merge.
+[ "$rc" -eq 13 ] && echo "unmerged=$(cat "$STATE/unmerged-$ticket" 2>/dev/null || echo 0)" >> "$run_dir/ticket-$ticket.meta"
 # The real worker writes resumes= for every ticket, 0 when none was needed.
 echo "resumes=$(cat "$STATE/resumes-$ticket" 2>/dev/null || echo 0)" >> "$run_dir/ticket-$ticket.meta"
 exit "$rc"
@@ -365,18 +367,25 @@ run_conductor 0 "conductor: a skip, a refusal or a block is not a failure" -j 1 
 expect_started "41 42 43 44 45"
 expect_in_output "done: 1 PR opened · 0 merged · 1 blocked · 1 failed · 1 skipped · 1 untrusted"
 
-# A PR the owner merged while its session still ran is done work (#1082). Two in a row do not stop
-# the run, and one between two failures resets the streak.
+# A PR merged while its session still ran is done work (#1082). Two in a row do not stop the run,
+# and one between two failures resets the streak. The row names commits that came after the merge.
 reset_state
 echo 3 > "$STATE/rc-101"
 echo 13 > "$STATE/rc-102"
 echo 13 > "$STATE/rc-103"
+echo 2 > "$STATE/unmerged-103"
 echo 3 > "$STATE/rc-104"
-run_conductor 0 "conductor: a PR merged before its session ended is not a failure" -j 1 101 102 103 104 105
-expect_started "101 102 103 104 105"
-printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #102 +merged +#1102 ' >/dev/null \
-    || fail "the row of #102 should say merged, with its PR" "$LAST_OUTPUT"
-expect_in_output "done: 1 PR opened · 2 merged · 0 blocked · 2 failed · 0 skipped · 0 untrusted"
+echo 13 > "$STATE/rc-106"
+echo "?" > "$STATE/unmerged-106"
+run_conductor 0 "conductor: a PR merged before its session ended is not a failure" -j 1 101 102 103 104 105 106
+expect_started "101 102 103 104 105 106"
+printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #102 +merged +#1102 +[^ ]+ +[^ ]+$' >/dev/null \
+    || fail "the row of #102 should say merged, with its PR and no note" "$LAST_OUTPUT"
+printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #103 +merged +#1103 .*  2 commit\(s\) after the merge are not on main$' >/dev/null \
+    || fail "the row of #103 should name the commits after the merge" "$LAST_OUTPUT"
+printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #106 +merged +#1106 .*  could not check for commits after the merge$' >/dev/null \
+    || fail "the row of #106 should say the check could not run" "$LAST_OUTPUT"
+expect_in_output "done: 1 PR opened · 3 merged · 0 blocked · 2 failed · 0 skipped · 0 untrusted"
 printf '%s\n' "$LAST_OUTPUT" | grep -q "consecutive failures" \
     && fail "a merged ticket must not count toward the stop after consecutive failures" "$LAST_OUTPUT"
 

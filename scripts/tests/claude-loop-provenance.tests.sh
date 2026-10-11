@@ -1660,39 +1660,95 @@ expect_in_output "unreadable"
 
 # The owner may merge a PR while its session still waits for CodeQL and rewrites the PR body
 # (#1082). The work is on main then: the ticket is merged, not failed, and its session is not
-# resumed. Here the PR is opened and merged during the session, as in the run that found it.
+# resumed. Here the PR is opened and merged during the session, as in the run that found it. The
+# merged PR's head is the session's commit, unless NO_PR_REF=1 hides it from the loop, and
+# FIX_AFTER_MERGE=1 adds one more commit after the merge.
 behavior "$TMP_ROOT/done-merged.sh" 'ticket="${PWD##*ticket-}"
 git checkout -q -b "$ticket-fixture"
-git commit -q --allow-empty -m "reviewed work"
+echo "work" > "work-$ticket.txt"
+git add -A
+git commit -q -m "reviewed work"
+[ "${NO_PR_REF:-}" = 1 ] || git push -q origin "HEAD:refs/pull/7$ticket/head"
 printf "{\"number\":7$ticket,\"state\":\"MERGED\",\"headRefName\":\"$ticket-fixture\",\"isCrossRepository\":false,\"createdAt\":\"%s\"}" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$GH_FIXTURES/pr-view-7$ticket.json"
+if [ "${FIX_AFTER_MERGE:-}" = 1 ]; then
+    echo "fix" > "fix-$ticket.txt"
+    git add -A
+    git commit -q -m "fix a CodeQL alert"
+fi
 echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\",\"is_error\":false,\"session_id\":\"s-$ticket\"}"'
 reset_fixtures
 fixture_issue 161 maintainer OWNER
-run_case 13 "work-ticket: a PR the owner merged before the session ended counts as merged" \
+run_case 13 "work-ticket: a PR merged before the session ended counts as merged" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 161 "$TMP_ROOT/run"
-expect_in_output "PR #7161 was merged before the session ended"
-expect_meta 161 outcome=merged pr=7161 resumes=0
+expect_in_output "PR #7161 was merged before the session ended — the work is on main"
+expect_meta 161 outcome=merged pr=7161 resumes=0 unmerged=0
 [ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a merged PR must not resume the session" "$LAST_OUTPUT"
 [ ! -e "$WT_ROOT/ticket-161" ] || fail "a merged ticket's worktree is removed, as an opened one's is"
 git -C "$FAKE_REPO" rev-parse -q --verify refs/heads/161-fixture >/dev/null \
     || fail "the branch of a merged ticket stays"
 
+# A fix pushed after the merge is not on main: the ticket is still merged, but the log says so.
+reset_fixtures
+fixture_issue 170 maintainer OWNER
+run_case 13 "work-ticket: a commit after the merge is named, not lost" \
+    env FIX_AFTER_MERGE=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 170 "$TMP_ROOT/run"
+expect_in_output "but 1 commit(s) on branch 170-fixture came after the merge and are not on main"
+expect_meta 170 outcome=merged pr=7170 unmerged=1
+
+# GitHub may rebase a PR before the merge. Its head then has new ids for the same changes, and the
+# session's commits are still on main.
+behavior "$TMP_ROOT/done-merged-rebased.sh" 'ticket="${PWD##*ticket-}"
+git checkout -q -b "$ticket-fixture"
+echo "work" > work.txt
+git add -A
+git commit -q -m "reviewed work"
+work="$(git rev-parse HEAD)"
+git checkout -q --detach origin/main
+echo "newer" > newer.txt
+git add -A
+git commit -q -m "newer main"
+git cherry-pick "$work" >/dev/null
+git push -q origin "HEAD:refs/pull/7$ticket/head"
+git checkout -q "$ticket-fixture"
+printf "{\"number\":7$ticket,\"state\":\"MERGED\",\"headRefName\":\"$ticket-fixture\",\"isCrossRepository\":false,\"createdAt\":\"2099-01-01T00:00:00Z\"}" \
+    > "$GH_FIXTURES/pr-view-7$ticket.json"
+echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\",\"is_error\":false,\"session_id\":\"s-$ticket\"}"'
+reset_fixtures
+fixture_issue 171 maintainer OWNER
+run_case 13 "work-ticket: a PR rebased by GitHub before the merge still holds the session's commits" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged-rebased.sh" "$WORK" 171 "$TMP_ROOT/run"
+[ "$(git -C "$TMP_ROOT/origin.git" rev-parse refs/pull/7171/head)" != "$(git -C "$FAKE_REPO" rev-parse 171-fixture)" ] \
+    || fail "the merged head should be a rebased copy, or the case proves nothing"
+expect_in_output "PR #7171 was merged before the session ended — the work is on main"
+expect_meta 171 outcome=merged pr=7171 unmerged=0
+
+# When the loop cannot read the merged PR's head, it says so instead of guessing.
+reset_fixtures
+fixture_issue 172 maintainer OWNER
+run_case 13 "work-ticket: a merged PR whose head cannot be read is still merged, with a warning" \
+    env NO_PR_REF=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 172 "$TMP_ROOT/run"
+expect_in_output "but the loop could not check whether branch 172-fixture has commits the merge did not take"
+expect_meta 172 outcome=merged pr=7172 'unmerged=?'
+
 # A summary with no link finds the merged PR by its branch.
-behavior "$TMP_ROOT/done-unlinked.sh" 'ticket="${PWD##*ticket-}"
+behavior "$TMP_ROOT/done-merged-unlinked.sh" 'ticket="${PWD##*ticket-}"
 git checkout -q -B "$ticket-fixture"
+git commit -q --allow-empty -m "reviewed work"
+git push -q origin "HEAD:refs/pull/8$ticket/head"
 echo "{\"result\":\"STATUS: DONE\",\"is_error\":false,\"session_id\":\"s-$ticket\"}"'
 reset_fixtures
 fixture_issue 162 maintainer OWNER
 fixture_prs_state "8162,162-fixture,MERGED,,2099-01-01T00:10:00Z,2099-01-01T00:00:00Z"
 run_case 13 "work-ticket: a merged PR found by its branch counts as merged" \
-    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-unlinked.sh" "$WORK" 162 "$TMP_ROOT/run"
-expect_in_output "PR #8162 was merged before the session ended"
-expect_meta 162 outcome=merged pr=8162 resumes=0
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged-unlinked.sh" "$WORK" 162 "$TMP_ROOT/run"
+expect_in_output "PR #8162 was merged before the session ended — the work is on main"
+expect_meta 162 outcome=merged pr=8162 resumes=0 unmerged=0
 [ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a merged PR must not resume the session" "$LAST_OUTPUT"
 
 # An open PR of the ticket goes before a merged one: it still waits for the owner's review. Both
-# open during the session, or the open one would stop the run before it starts.
+# PRs are opened during the session. An open PR that exists before the start would make the run
+# skip the ticket.
 reset_fixtures
 fixture_issue 163 maintainer OWNER
 behavior "$TMP_ROOT/done-merged-and-open.sh" 'git checkout -q -b 163-fixture
@@ -1705,6 +1761,50 @@ run_case 0 "work-ticket: an open PR of the ticket goes before a merged one" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged-and-open.sh" "$WORK" 163 "$TMP_ROOT/run"
 expect_in_output "PR #9163 opened"
 expect_meta 163 outcome=pr-opened pr=9163
+
+# The same holds when the summary links the merged PR first.
+reset_fixtures
+fixture_issue 173 maintainer OWNER
+behavior "$TMP_ROOT/done-links-merged-with-open.sh" 'git checkout -q -b 173-fixture
+printf "{\"number\":7173,\"state\":\"MERGED\",\"headRefName\":\"173-fixture\",\"isCrossRepository\":false,\"createdAt\":\"2099-01-01T00:00:00Z\"}" \
+    > "$GH_FIXTURES/pr-view-7173.json"
+printf "[{\"number\":9173,\"headRefName\":\"173-fixture\",\"isCrossRepository\":false,\"state\":\"OPEN\",\"createdAt\":\"2099-01-01T00:20:00Z\"}]" \
+    > "$GH_FIXTURES/pr-list.json"
+echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7173\",\"is_error\":false,\"session_id\":\"s-173\"}"'
+run_case 0 "work-ticket: an open PR of the ticket goes before a merged one the summary links" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-links-merged-with-open.sh" "$WORK" 173 "$TMP_ROOT/run"
+expect_in_output "PR #9173 opened"
+expect_meta 173 outcome=pr-opened pr=9173
+
+# A run that resumes a session after a usage limit keeps the session's first start. So a PR opened
+# before the limit and merged during the resumed session counts as merged too.
+behavior "$TMP_ROOT/limit-then-merged.sh" 'ticket="${PWD##*ticket-}"
+case " $* " in
+*" --resume "*)
+    git push -q origin "HEAD:refs/pull/7$ticket/head"
+    printf "{\"number\":7$ticket,\"state\":\"MERGED\",\"headRefName\":\"$ticket-fixture\",\"isCrossRepository\":false,\"createdAt\":\"%s\"}" \
+        "$(jq -nr "(now | floor) - 1800 | todate")" > "$GH_FIXTURES/pr-view-7$ticket.json"
+    echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\",\"is_error\":false,\"session_id\":\"s-$ticket\"}" ;;
+*)
+    git checkout -q -b "$ticket-fixture"
+    git commit -q --allow-empty -m "reviewed work"
+    echo "{\"result\":\"You have hit your session limit\",\"is_error\":true,\"session_id\":\"s-$ticket\"}" ;;
+esac'
+reset_fixtures
+fixture_issue 169 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #169" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-then-merged.sh" "$WORK" 169 "$TMP_ROOT/run"
+fixture_transcript s-169
+# The session started an hour ago. Its PR, opened half an hour ago, is older than the resumed run.
+marker_169="$(kept_marker 169)"
+sed "s/^started=.*/started=$(( $(date +%s) - 3600 ))/" "$marker_169" > "$TMP_ROOT/marker-169"
+mv "$TMP_ROOT/marker-169" "$marker_169"
+grep -q "^started=" "$marker_169" || fail "the marker should record when the session started" "$(cat "$marker_169")"
+run_case 13 "work-ticket: a PR opened before a usage limit and merged in the resumed session counts as merged" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-then-merged.sh" "$WORK" 169 "$TMP_ROOT/run"
+expect_in_output "PR #7169 was merged before the session ended — the work is on main"
+expect_meta 169 outcome=merged pr=7169 resumes=1 unmerged=0
+[ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "expected the limited run and one resume" "$LAST_OUTPUT"
 
 # Still an error, after the one resume as before (#1082): a PR closed without a merge, a PR merged
 # before this session started (history from an earlier attempt), and a merged PR from a fork or
@@ -1725,6 +1825,9 @@ for spec in "164|MERGED|164-fixture||2020-01-01T00:00:00Z|merged before this ses
 done
 
 # Found by its branch, neither a closed PR nor one merged before the session counts.
+behavior "$TMP_ROOT/done-unlinked.sh" 'ticket="${PWD##*ticket-}"
+git checkout -q -B "$ticket-fixture"
+echo "{\"result\":\"STATUS: DONE\",\"is_error\":false,\"session_id\":\"s-$ticket\"}"'
 reset_fixtures
 fixture_issue 168 maintainer OWNER
 fixture_prs_state "8168,168-fixture,CLOSED,,2099-01-01T00:10:00Z,2099-01-01T00:00:00Z" \

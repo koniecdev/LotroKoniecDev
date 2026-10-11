@@ -2,7 +2,7 @@
 # Works ONE GitHub ticket in a headless Claude session inside its own git worktree, then
 # judges the outcome. It stops at the pull request — nothing here merges (ADR-0060):
 #   worktree from origin/main  →  claude -p "/work-ticket <n>"  →  STATUS: DONE (PR opened, waits for the owner's review)
-#                                                             →  STATUS: DONE, PR already merged by the owner: done (#1082)
+#                                                             →  STATUS: DONE, PR already merged: done (#1082)
 #                                                             →  STATUS: DONE, no open PR: resume the session once to open it
 #                                                             →  STATUS: BLOCKED (label `loop-blocked` + questions as issue comment)
 #                                                             →  no STATUS line: resume the same session (up to LOOP_MAX_RESUMES)
@@ -814,16 +814,17 @@ keep_result() {
     mv "$OUT.resume-$1" "$OUT"
 }
 
-# find_ticket_pr <final message> — sets pr_num to this ticket's PR: an open one, or one the owner
-# merged while the session still ran (#1082), which also sets pr_merged=1. A session opens its PR
-# well before it ends, and the PR looks finished by then. A merged PR counts only when it was
-# opened after this session started: an older one is history from an earlier attempt. A PR closed
-# without a merge never counts. Without a PR it sets pr_problem for the log, pr_named to the number
-# the message links, and pr_unknown=1 when GitHub could not say whether there is one. pr_problem
-# holds the linked PR's branch, which anyone who opens a PR can name, so only pr_named may reach a
-# prompt (ADR-0026).
+# find_ticket_pr <final message> — sets pr_num to this ticket's PR: an open one, or one merged while
+# the session still ran (#1082), which also sets pr_merged=1. A session opens its PR well before it
+# ends, and the PR looks finished by then, so the owner may merge it. An open PR of the ticket goes
+# first, even before a merged one the message links: it still waits for review. A merged PR counts
+# only when it was opened after this session started: an older one is history from an earlier
+# attempt. A PR closed without a merge never counts. Without a PR it sets pr_problem for the log,
+# pr_named to the number the message links, and pr_unknown=1 when GitHub could not say whether there
+# is one. pr_problem holds the linked PR's branch, which anyone who opens a PR can name, so only
+# pr_named may reach a prompt (ADR-0026).
 find_ticket_pr() {
-    local url view pr_state pr_fork pr_head pr_created found
+    local url view pr_state pr_fork pr_head pr_created linked_merged="" listed found found_state
     pr_num=""
     pr_named=""
     pr_problem=""
@@ -840,33 +841,51 @@ find_ticket_pr() {
         if [ "$pr_fork" = "false" ] && [[ "$pr_head" == "$ISSUE-"* ]]; then
             case "$pr_state" in
                 OPEN) pr_num="$pr_named"; return 0 ;;
-                MERGED)
-                    if [ "$pr_created" -ge "$session_started" ]; then
-                        pr_num="$pr_named"
-                        pr_merged=1
-                        return 0
-                    fi
-                    ;;
+                MERGED) [ "$pr_created" -lt "$session_started" ] || linked_merged="$pr_named" ;;
             esac
         fi
-        pr_problem="PR #$pr_named is not an open PR for this ticket, nor one merged in this session (${view:+$pr_state $pr_fork $pr_head}${view:-unreadable})"
+        [ -n "$linked_merged" ] \
+            || pr_problem="PR #$pr_named is not an open PR for this ticket, nor one merged in this session (${view:+$pr_state $pr_fork $pr_head}${view:-unreadable})"
     fi
     # A wrong link may be a slip in the summary: the ticket's own PR, found by its branch, counts.
-    # An open PR goes first.
-    if ! found="$(gh pr list --state all --limit 200 --json number,headRefName,isCrossRepository,state,createdAt \
+    if ! listed="$(gh pr list --state all --limit 200 --json number,headRefName,isCrossRepository,state,createdAt \
         --jq "[.[] | $OURS | select(.state == \"OPEN\" or (.state == \"MERGED\" and (.createdAt // \"\") != \"\" and (.createdAt | fromdateiso8601) >= $session_started))]
             | sort_by(.state != \"OPEN\") | first // empty | \"\(.number) \(.state)\"")"; then
+        if [ -n "$linked_merged" ]; then
+            pr_num="$linked_merged"
+            pr_merged=1
+            return 0
+        fi
         pr_unknown=1
         pr_problem="${pr_problem:-no PR named}, and the PRs could not be listed"
         return 0
     fi
-    read -r pr_num pr_state <<< "$found" || true
+    read -r found found_state <<< "$listed" || true
+    if [ "$found_state" = "OPEN" ]; then
+        pr_num="$found"
+    elif [ -n "$linked_merged" ]; then
+        pr_num="$linked_merged"
+        pr_merged=1
+    elif [ -n "$found" ]; then
+        pr_num="$found"
+        pr_merged=1
+    fi
     if [ -n "$pr_num" ]; then
-        [ "$pr_state" != "MERGED" ] || pr_merged=1
         pr_problem=""
     else
         pr_problem="${pr_problem:-no open PR for this ticket, nor one merged in this session}"
     fi
+}
+
+# commits_after_merge — prints how many commits on the worktree's HEAD the merged PR does not hold.
+# The session may push a fix after the merge, for example for a CodeQL alert, and that fix is then
+# only on its branch. Commits are matched by their change, not by their id, so a rebase by GitHub
+# before the merge still matches. Fails when it cannot tell.
+commits_after_merge() {
+    local listed
+    git -C "$WT" fetch --quiet origin "refs/pull/$pr_num/head" 2>/dev/null || return 1
+    listed="$(git -C "$WT" cherry FETCH_HEAD HEAD 2>/dev/null)" || return 1
+    grep -c '^+' <<< "$listed" || true
 }
 
 start_epoch="$(date +%s)"
@@ -1061,8 +1080,16 @@ fi
 meta pr "$pr_num"
 if [ "$pr_merged" -eq 1 ]; then
     meta outcome merged
+    merged_branch="$(git -C "$WT" branch --show-current 2>/dev/null || true)"
+    after_merge="$(commits_after_merge)" || after_merge="?"
+    meta unmerged "$after_merge"
     finish
-    log "PR #$pr_num was merged before the session ended — the work is on main (cost \$$cost, $turns turns, ${elapsed_min}m, $resumes resume(s))"
+    stats="cost \$$cost, $turns turns, ${elapsed_min}m, $resumes resume(s)"
+    case "$after_merge" in
+        0) log "PR #$pr_num was merged before the session ended — the work is on main ($stats)" ;;
+        "?") log "PR #$pr_num was merged before the session ended, but the loop could not check whether branch ${merged_branch:-?} has commits the merge did not take ($stats)" ;;
+        *) log "PR #$pr_num was merged before the session ended, but $after_merge commit(s) on branch ${merged_branch:-?} came after the merge and are not on main — they need a new PR ($stats)" ;;
+    esac
     exit 13
 fi
 meta outcome pr-opened

@@ -122,8 +122,10 @@ Then stop. **Do not run the command** — not in the background, not in the fore
      `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<pr>/merge&state=open" --jq length`,
    - tickets **blocked** — relay each ticket's open questions **verbatim** (they were posted as issue
      comments; `gh issue list --label loop-blocked` finds them),
-   - tickets **merged** — the owner merged the PR before its session ended (#1082). Nothing waits
-     for review there; list them with their PR so the owner sees the whole run,
+   - tickets **merged** — the PR was merged before its session ended (#1082). Nothing waits for
+     review there; list them with their PR so the owner sees the whole run. A row that says
+     `commit(s) after the merge are not on main` or `could not check for commits after the merge`
+     needs the owner: the worker's `[loop] #<n>` line names the branch with those commits,
    - tickets **skipped** (already had an open PR or a worktree) and **refused** (`untrusted` — the
      provenance gate),
    - tickets whose row says **`worktree kept: run #<n> again to resume its session`** (`outcome=limit`

@@ -74,8 +74,7 @@ internal static class ApiDependencyInjection
             // An in-memory HybridCache only (PERF-07). No IDistributedCache is registered, so it uses
             // its in-memory store. The translator lookup that runs on every authenticated request is
             // small and local to this process, and a shared cache would only add latency.
-            // This mirrors TheKittySaver's AuthSystem HybridCache setup. The short TTL is the default
-            // here and is written out again where provisioning uses it.
+            // The short TTL is the default here and is written out again where provisioning uses it.
             services.AddHybridCache(options =>
             {
                 options.MaximumPayloadBytes = 1024 * 64;

@@ -37,8 +37,8 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
     /// <summary>
     /// A short lifetime, keyed by identity. Inside that window an authenticated request whose claims
     /// have not changed is answered from memory and skips the <c>Translators</c> query.
-    /// The value is written out here as well, following TheKittySaver's pattern of per-consumer entry
-    /// options, even though the DI default is the same, so the lifetime is visible where it is used.
+    /// The value is written out here as well, even though the DI default is the same, so the lifetime
+    /// is visible where it is used.
     /// </summary>
     private static readonly HybridCacheEntryOptions ShortTtlEntryOptions = new()
     {

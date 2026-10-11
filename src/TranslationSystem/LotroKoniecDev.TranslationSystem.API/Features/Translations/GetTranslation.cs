@@ -46,8 +46,7 @@ internal sealed class GetTranslation : IEndpoint
             }
 
             // Written out here instead of using the shared TranslationProjections.ToDetail, so the
-            // soft-removal flag comes back with the detail view in one query, as KittySaver's GetCat
-            // does.
+            // soft-removal flag comes back with the detail view in one query.
             QueryResult? result = await _readDbContext.Translations
                 .Where(translation => translation.Id == query.Id)
                 .Select(translation => new QueryResult(

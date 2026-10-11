@@ -17,11 +17,10 @@
 # CLAUDE.md states this rule in prose; THIS script is the machine that enforces it,
 # so the rule can't rot. Run it before pushing; CI (pr-verify + ci) runs it on every PR.
 #
-# Lifted from TheKittySaver with ONE deliberate deviation: @onsubmit is allowed.
-# It is the documented Static-SSR special exception — "always functional, regardless of
-# render mode" (MS docs: aspnet/core/blazor/components/class-libraries-and-static-server-side-rendering)
+# ONE deliberate exception: @onsubmit is allowed. It is the documented Static-SSR special
+# case — "always functional, regardless of render mode" (MS docs:
+# aspnet/core/blazor/components/class-libraries-and-static-server-side-rendering)
 # — and is how Editor.razor posts forms (<form method="post" @formname @onsubmit>).
-# KittySaver uses <EditForm> so its broad @on* regex never sees this; we use plain forms.
 # Every other @on* handler (onclick/onchange/oninput/…) is dead in SSR and stays forbidden.
 # A run that scans no file is not a pass (#1079): a folder that moved, or pages that changed their
 # file type, would switch a rule off while CI stays green. So a missing folder, a folder with no file

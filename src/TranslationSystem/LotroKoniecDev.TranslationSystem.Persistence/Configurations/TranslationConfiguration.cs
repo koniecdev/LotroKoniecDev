@@ -31,8 +31,8 @@ internal sealed class TranslationConfiguration : IEntityTypeConfiguration<Transl
             $"\"{nameof(Translation.TranslatedText)}\" IS NULL "
             + $"OR length(\"{nameof(Translation.TranslatedText)}\") <= {DatFormatConstants.MaxTranslatedTextLength}"));
 
-        // PostgreSQL's xmin system column gives us a free concurrency token (AUDIT-EF-01). It is
-        // mapped as a shadow property, exactly as TheKittySaver's AuditableEntityConfiguration does.
+        // PostgreSQL's xmin system column gives us a free concurrency token (AUDIT-EF-01). It is a
+        // shadow property, so the domain class carries no version field.
         // An approve or upsert built on an old copy of a row that an import has since changed now
         // fails the version check instead of quietly undoing the invalidation, and
         // DbUpdateConcurrencyExceptionHandler turns that into a 409.

@@ -169,7 +169,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
 
     private async Task StartApiContainersAsync()
     {
-        // No RegisterUser->CreatePerson saga is lifted (the translator profile is provisioned lazily on the first
+        // Registration creates no TMS profile (the translator profile is provisioned lazily on the first
         // authenticated TMS request), so there is no auth->tms startup dependency. auth-api is started first only
         // because tms-api fetches its JWKS from it; the seeded admin must also be live before any test logs in.
         _authApi = new ContainerBuilder(_worktree.Image(AuthRepository))

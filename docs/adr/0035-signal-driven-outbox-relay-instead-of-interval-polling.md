@@ -50,7 +50,8 @@ call is explicit in the handler. If writers multiply (≥3), promote the convent
 `SaveChangesInterceptor`+`IDbTransactionInterceptor` pair via a follow-up ADR; until then the
 explicit call is the YAGNI-correct form. A forgotten notify is a soft failure: the row waits for
 a sweep instead of being lost. *(The ≥3 trigger fired with the MSG migration — answered by
-ADR-0038 decision 6: explicit call retained, interceptor still declined.)*
+ADR-0038 decision 6: explicit call retained, interceptor still declined. Reversed 2026-10-11 by the
+ADR-0038 §6 amendment (#1115): the interceptor pair replaces the explicit call.)*
 
 ### 3. Two sweeps bound the orphan window
 

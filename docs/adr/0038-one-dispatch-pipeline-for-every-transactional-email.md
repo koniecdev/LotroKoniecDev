@@ -1,6 +1,6 @@
 # ADR-0038: One dispatch pipeline for every transactional e-mail
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-10-11 by #1115: §6 — the wake-up moves into an interceptor pair; §2 — the cancel-deletion link follows ADR-0031, not delivery; see the in-body notes)
 **Date:** 2026-08-04
 **Decision-makers:** Solo maintainer
 **Related:** AuthSystem messaging, epic #578 (MSG-00), ticket #579 (MSG-01), ADR-0001 (no
@@ -84,6 +84,11 @@ deletion-scheduled processor recomputes `finalizesAt` from `ApplicationUser.Dele
 plus `GdprSettings.DeletionGracePeriod` instead of snapshotting it into the payload. The
 deletion-cancelled e-mail needs no token at all (see Context) — its payload is the user id alone.
 
+> **Exception (2026-10-11, #947, #1115): the cancel-deletion link follows ADR-0031, not delivery.**
+> Its token is still minted at delivery, but its time limit is not "one grace period from now". It
+> stops working at the deletion date the e-mail shows (`DeletionScheduledAt` plus the grace period),
+> however late the e-mail went out. "The countdown starts now" holds for every other link.
+
 Minting against the *current* stamp is only safe while nothing rotates the stamp after the
 outbox row becomes visible — and the relay is signal-driven, so "after commit" can mean
 milliseconds. Hence a hard rule: **a handler that both writes an e-mail outbox row and rotates
@@ -159,6 +164,24 @@ per-writer call, do not build the interceptor pair. The new writers commit throu
 that save; none reproduces `RegisterUser`'s explicit-transaction trap), a forgotten
 call is a soft failure bounded by the 6 h sweep, and an interceptor pair is machinery a
 four-writer inventory doesn't earn (YAGNI). Revisit only if a forgotten notify actually bites.
+
+> **Amendment (2026-10-11, #1115): an interceptor pair replaces the hand-kept call.** This ruling
+> did not hold. The writers kept growing: `OutboxWriter.NotifyEnqueuedCommitted` is called in ten
+> places today, and each new writer is one more place to forget it. #781 asked for a test that scans
+> the compiled code for the second call, and PR #952 built one: a hand-written IL reader of about
+> 140 lines plus its test. It caught a missing call, but not a call in the wrong order, a call inside
+> a lambda, or a row written without `OutboxWriter`. The owner closed it unmerged: a guard nobody can
+> read on the first pass is more machinery than the interceptor this section turned down. So:
+>
+> - The wake-up moves into the `SaveChangesInterceptor` + `IDbTransactionInterceptor` pair that
+>   ADR-0035 §2 named. It notices the outbox rows a save adds, and signals the relay after the commit:
+>   after the save when no transaction is open, after the transaction's commit when one is (the
+>   `RegisterUser` trap). `NotifyEnqueuedCommitted` and its ten call sites go. Every outbox row is
+>   added through EF Core (`OutboxWriter.Enqueue`), so the pair sees each one.
+> - No test polices a hand-kept call that a mechanism can remove. A guard on a convention is priced
+>   against the mechanism it stands in for (`CLAUDE.md` → "Right-size the design").
+> - #781 builds the pair. #951 is triaged again against this note: its wake-up half goes away with
+>   the pair.
 
 ### 7. Future senders publish to the broker
 

@@ -53,9 +53,9 @@ EXPECTED_DIGESTS="${EXPECTED_DIGESTS:-}"
 # reclaim a byte on a 40 GB disk. Keeps ~2 weeks of tags around to roll back to instantly.
 PRUNE_UNUSED_OLDER_THAN="${PRUNE_UNUSED_OLDER_THAN:-336h}"
 # How long the broker policy step waits for a broker that is still starting (a new volume, or a
-# container `up -d` has just recreated): this many tries, this many seconds apart. The defaults match
-# the broker's healthcheck budget in compose.hetzner.yaml (a 30 s start period + 30 checks 5 s apart).
-BROKER_POLICY_ATTEMPTS="${BROKER_POLICY_ATTEMPTS:-36}"
+# container `up -d` has just recreated), trying again this many seconds apart. The wait matches the
+# broker's healthcheck budget in compose.hetzner.yaml (a 30 s start period + 30 checks 5 s apart).
+BROKER_POLICY_WAIT_SECONDS="${BROKER_POLICY_WAIT_SECONDS:-180}"
 BROKER_POLICY_RETRY_SECONDS="${BROKER_POLICY_RETRY_SECONDS:-5}"
 # The time limit of one try. A healthy broker answers in about a second and a starting one refuses at
 # once, so a try that runs out of time means a stuck broker, and the step stops trying (see below).
@@ -64,8 +64,10 @@ BROKER_POLICY_TRY_TIMEOUT_SECONDS="${BROKER_POLICY_TRY_TIMEOUT_SECONDS:-20}"
 # A parked e-mail message expires 7 days (604800000 ms) after it parks (ADR-0036 §6, #1085). An e-mail
 # change message holds the old and the new address, and an account erasure runs 14 days after the
 # deletion request at the earliest, so the message is gone well before the account is. It is a policy
-# and not a queue argument, because a live queue's arguments cannot change (ADR-0036). Plain values,
-# not settings: a box `.env` cannot change them.
+# and not a queue argument, because a live queue's arguments cannot change (ADR-0036). It is an
+# OPERATOR policy: it applies next to any user policy on the queue and the lower message-ttl wins, so a
+# policy someone adds later in the management UI cannot switch the expiry off. Plain values, not
+# settings: a box `.env` cannot change them.
 #
 # The pattern matches emails.send.dlq and nothing else. Never widen it to tms.account-erased.dlq: a
 # message parked there is erasure work, and it waits for a person however long that takes (ADR-0065).
@@ -105,7 +107,10 @@ done
 # thing.
 export IMAGE_TAG
 
-compose() { docker compose -f "$COMPOSE_FILE" "$@"; }
+# An array as well as a function: `timeout` below cannot run a shell function, and both must stay one
+# definition.
+COMPOSE=(docker compose -f "$COMPOSE_FILE")
+compose() { "${COMPOSE[@]}" "$@"; }
 
 # Any failure below leaves the box mid-roll; the logs of the migrator and the apps are what an
 # operator (or the CD log) needs to see, so print them before dying.
@@ -189,16 +194,19 @@ compose up -d --remove-orphans
 log "Reloading Caddy (its bind-mounted Caddyfile is not hashed by compose)"
 compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 
-# After `up -d`, because `up -d` is what creates a new broker. `set_policy` replaces a policy of the
-# same name, so running it on every deploy is safe.
+# After `up -d`, because `up -d` is what creates a new broker. `set_operator_policy` replaces a policy
+# of the same name, so running it on every deploy is safe.
 #
 # The CLI runs as the `rabbitmq` user (`--user rabbitmq`, then the service name), never as root. On a
 # new volume a root CLI that runs before the server can write the Erlang cookie writes it first, owned
 # by root, and the server stops because it cannot read it (seen on rabbitmq:4.3.4).
 #
 # Each try has a time limit, because rabbitmqctl itself can wait forever on a stuck broker, and a
-# deploy that hangs until the CD job is cancelled gets no rollback and leaves .env on the old tag.
-# `timeout` cannot run the `compose` function, so this one call names `docker compose` directly.
+# deploy that hangs until the CD job is cancelled gets no rollback and leaves .env on the old tag. The
+# limit stops only the docker client: a stuck rabbitmqctl stays in the broker container until the
+# broker restarts. Its stdin is /dev/null, because `timeout` runs it outside the terminal's process
+# group, and in a hand-run deploy a docker client that reads the terminal there is stopped (SIGTTIN)
+# until the limit ends it.
 #
 # A broker that does not take the policy does not fail the deploy: a broker outage must never block an
 # app deploy (compose.hetzner.yaml). The policy is kept on the broker's volume, so a broker that had it
@@ -206,27 +214,29 @@ compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddy
 # a later policy does not reach it, so it stays for good and holds back every message behind it
 # (ADR-0036 §6).
 apply_email_dead_letter_expiry() {
-    local attempt status output=''
-    for ((attempt = 1; attempt <= BROKER_POLICY_ATTEMPTS; attempt++)); do
+    local started=$SECONDS status output=''
+    while :; do
         status=0
         output="$(timeout -k 5 "$BROKER_POLICY_TRY_TIMEOUT_SECONDS" \
-            docker compose -f "$COMPOSE_FILE" exec -T --user rabbitmq rabbitmq \
-            rabbitmqctl set_policy --apply-to queues \
-            "$EMAIL_DLQ_EXPIRY_POLICY" "$EMAIL_DLQ_EXPIRY_PATTERN" "$EMAIL_DLQ_EXPIRY_DEFINITION" 2>&1)" \
-            || status=$?
+            "${COMPOSE[@]}" exec -T --user rabbitmq rabbitmq \
+            rabbitmqctl set_operator_policy --apply-to queues \
+            "$EMAIL_DLQ_EXPIRY_POLICY" "$EMAIL_DLQ_EXPIRY_PATTERN" "$EMAIL_DLQ_EXPIRY_DEFINITION" \
+            < /dev/null 2>&1)" || status=$?
         if [ "$status" -eq 0 ]; then
             printf '%s\n' "$output"
             return 0
         fi
-        # 124 is `timeout` stopping the try, 137 its KILL five seconds later if the client ignored that.
-        # More tries would only stretch a stuck broker into minutes.
-        if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+        # 124 is `timeout` stopping the try: more tries would only stretch a stuck broker into minutes.
+        # 137 is not treated the same way, because it is also what a try returns when the broker
+        # container restarts under it, and a restarting broker is worth another try within the wait.
+        if [ "$status" -eq 124 ]; then
             printf 'rabbitmqctl did not answer within %s s.\n' "$BROKER_POLICY_TRY_TIMEOUT_SECONDS"
             return 1
         fi
-        if [ "$attempt" -lt "$BROKER_POLICY_ATTEMPTS" ]; then
-            sleep "$BROKER_POLICY_RETRY_SECONDS"
+        if [ $((SECONDS - started + BROKER_POLICY_RETRY_SECONDS)) -ge "$BROKER_POLICY_WAIT_SECONDS" ]; then
+            break
         fi
+        sleep "$BROKER_POLICY_RETRY_SECONDS"
     done
     printf '%s\n' "$output"
     return 1

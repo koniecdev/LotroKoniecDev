@@ -28,6 +28,8 @@ REPO='ghcr.io/koniecdev'
 IMAGES='lotrokoniecdev-migrator lotrokoniecdev-auth-api lotrokoniecdev-tms-api lotrokoniecdev-frontend'
 GOOD_DIGEST='sha256:1111111111111111111111111111111111111111111111111111111111111111'
 OTHER_DIGEST='sha256:2222222222222222222222222222222222222222222222222222222222222222'
+STDIN_MARKER='stdin-of-deploy.sh'
+export STDIN_MARKER
 
 cases=0
 CASE=""
@@ -74,8 +76,9 @@ new_stack() {
 # The stub `docker`. Behavior is steered by env vars the cases set:
 #   STUB_CADDY_INVALID / STUB_PULL_FAIL / STUB_MIGRATE_FAIL / STUB_UP_FAIL — make that step exit 1
 #   STUB_DIGEST — the digest `docker image inspect` reports for every image
-#   STUB_BROKER_BOOTING_TRIES=<n> — the first n `rabbitmqctl set_policy` calls fail, as on a broker
-#     that is still starting; STUB_BROKER_DOWN — every one of them fails
+#   STUB_BROKER_BOOTING_TRIES=<n> — the first n `rabbitmqctl set_operator_policy` calls fail, as on a
+#     broker that is still starting; STUB_BROKER_DOWN — every one of them fails;
+#     STUB_BROKER_RESTARTED — the first one returns 137, as a try does when the container restarts
 #   STUB_BROKER_HANGS — the stub `timeout` lets the call start, then stops it with 124, as it does on
 #     a broker that never answers
 # Every call is appended to $STUB_LOG *in order*, so a case can assert what ran, what did NOT, and
@@ -118,9 +121,19 @@ if [ "$1" = compose ]; then
         ps)   echo 'NAME   STATUS' ;;
         exec)
             case "$*" in
-                *set_policy*)
+                *set_operator_policy*)
+                    # run_deploy feeds a marker into deploy.sh's stdin. The policy call must never
+                    # read it (see deploy.sh: SIGTTIN under `timeout` in a hand-run deploy).
+                    if IFS= read -r line && [ "$line" = "$STDIN_MARKER" ]; then
+                        echo 'stub: the policy call read the stdin of deploy.sh' >&2
+                        exit 70
+                    fi
                     # This call is already in the log, so the count includes it.
-                    tries="$(grep -c 'set_policy' "$STUB_LOG")"
+                    tries="$(grep -c 'set_operator_policy' "$STUB_LOG")"
+                    if [ -n "${STUB_BROKER_RESTARTED:-}" ] && [ "$tries" -eq 1 ]; then
+                        echo 'stub: the exec was killed with the container' >&2
+                        exit 137
+                    fi
                     if [ -n "${STUB_BROKER_DOWN:-}" ] || [ "$tries" -le "${STUB_BROKER_BOOTING_TRIES:-0}" ]; then
                         echo "stub: unable to perform an operation on node 'rabbit@lotro-rabbitmq'" >&2
                         exit 69
@@ -169,8 +182,10 @@ run_deploy() {
     : > "$STUB_LOG"
     export STUB_LOG
     LAST_STATUS=0
-    # No pause between broker tries, so a broker that never answers costs no wall-clock time here.
-    LAST_OUTPUT="$(env STACK_DIR="$dir" BROKER_POLICY_RETRY_SECONDS=0 "$@" bash "$DEPLOY_SH" 2>&1)" || LAST_STATUS=$?
+    # No pause between broker tries, so a broker that never answers costs no wall-clock time here. The
+    # marker on stdin stands in for an operator's terminal (see the stub's policy branch).
+    LAST_OUTPUT="$(printf '%s\n' "$STDIN_MARKER" \
+        | env STACK_DIR="$dir" BROKER_POLICY_RETRY_SECONDS=0 "$@" bash "$DEPLOY_SH" 2>&1)" || LAST_STATUS=$?
 }
 
 expected_digests() {
@@ -182,7 +197,7 @@ expected_digests() {
 }
 
 env_tag() { sed -n 's/^IMAGE_TAG=//p' "$1/.env" | head -1; }
-policy_tries() { grep -c 'set_policy' "$TMP_ROOT/calls.log" || true; }
+policy_tries() { grep -c 'set_operator_policy' "$TMP_ROOT/calls.log" || true; }
 called() { grep -qF -- "$1" "$TMP_ROOT/calls.log"; }
 # Line number of the first docker call containing $1 (0 = never called).
 call_line() { grep -nF -- "$1" "$TMP_ROOT/calls.log" | head -1 | cut -d: -f1; }
@@ -366,7 +381,7 @@ AUTH_TOPOLOGY="$REPO_ROOT/src/AuthSystem/LotroKoniecDev.AuthSystem.Infrastructur
 TMS_TOPOLOGY="$REPO_ROOT/src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Messaging/AccountEventsTopology.cs"
 # The owner's decision on #1085, word for word: only emails.send.dlq, 604800000 ms, as a policy. The CLI
 # runs as the `rabbitmq` user (see deploy.sh for the Erlang cookie trap a root CLI sets off).
-POLICY_CALL='exec -T --user rabbitmq rabbitmq rabbitmqctl set_policy --apply-to queues emails-send-dlq-ttl ^emails\.send\.dlq$ {"message-ttl":604800000}'
+POLICY_CALL='exec -T --user rabbitmq rabbitmq rabbitmqctl set_operator_policy --apply-to queues emails-send-dlq-ttl ^emails\.send\.dlq$ {"message-ttl":604800000}'
 
 # Every queue name the apps declare: the `const string …Queue = "…"` lines of both topology files.
 declared_queues() {
@@ -382,15 +397,15 @@ run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
 [ "$LAST_STATUS" -eq 0 ] || fail 'a clean roll should exit 0' "status $LAST_STATUS"
 called "$POLICY_CALL" || fail 'the 7-day expiry policy was not applied to emails.send.dlq as the owner decided'
 [ "$(policy_tries)" -eq 1 ] || fail 'a broker that answers needs exactly one try' "tries: $(policy_tries)"
-# The try runs under `timeout 20`: the line right before the set_policy call.
-[ "$(call_line 'timeout 20')" -eq $(($(call_line 'set_policy') - 1)) ] \
-    || fail 'the set_policy try must run under a 20 s time limit'
+# The try runs under `timeout 20`: the line right before the policy call.
+[ "$(call_line 'timeout 20')" -eq $(($(call_line 'set_operator_policy') - 1)) ] \
+    || fail 'the policy try must run under a 20 s time limit'
 grep -q '::warning::' <<<"$LAST_OUTPUT" && fail 'a policy that landed must not print a warning'
 pass 'every deploy sets the 7-day expiry policy on emails.send.dlq, as the rabbitmq user'
 
 CASE='policy after up -d'
 # `up -d` is what creates a new broker, so a policy set before it would miss a fresh volume.
-policy_at="$(call_line 'set_policy')"
+policy_at="$(call_line 'set_operator_policy')"
 up_at="$(call_line 'up -d --remove-orphans')"
 [ -n "$policy_at" ] && [ -n "$up_at" ] || fail 'expected both up -d and the policy step to run'
 [ "$policy_at" -gt "$up_at" ] \
@@ -425,11 +440,22 @@ run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" STUB_BROKER
 grep -q '::warning::' <<<"$LAST_OUTPUT" && fail 'a policy that landed on a later try must not print a warning'
 pass 'a broker that is still starting is tried again until it answers'
 
+CASE='broker restarted'
+# 137 is also what a try returns when the broker container restarts under it. That is not a stuck
+# broker, so the step must try again rather than give up.
+stack="$(new_stack restarted)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" STUB_BROKER_RESTARTED=1
+[ "$LAST_STATUS" -eq 0 ] || fail 'a broker that restarted once is a clean roll' "status $LAST_STATUS"
+[ "$(policy_tries)" -eq 2 ] || fail 'expected the killed try and one more that lands' "tries: $(policy_tries)"
+grep -q '::warning::' <<<"$LAST_OUTPUT" && fail 'a policy that landed on the next try must not print a warning'
+pass 'a try killed with a restarting broker (137) is tried again, not taken for a time-out'
+
 CASE='broker never answers'
 stack="$(new_stack brokerdown)"
-run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" STUB_BROKER_DOWN=1 BROKER_POLICY_ATTEMPTS=4
+# A wait of 0 s ends the step after the first refused try. A real wait would make this case slow.
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" STUB_BROKER_DOWN=1 BROKER_POLICY_WAIT_SECONDS=0
 [ "$LAST_STATUS" -eq 0 ] || fail 'a broker outage must never block an app deploy' "status $LAST_STATUS"
-[ "$(policy_tries)" -eq 4 ] || fail 'expected exactly BROKER_POLICY_ATTEMPTS tries' "tries: $(policy_tries)"
+[ "$(policy_tries)" -eq 1 ] || fail 'a wait that has run out must end the tries' "tries: $(policy_tries)"
 grep -q '::warning::.*emails-send-dlq-ttl' <<<"$LAST_OUTPUT" || fail 'the missing policy was not reported as a warning'
 grep -q 'unable to perform an operation' <<<"$LAST_OUTPUT" || fail "the broker's own error was not shown"
 [ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'the apps rolled, so the new tag must still be pinned' "$(env_tag "$stack")"

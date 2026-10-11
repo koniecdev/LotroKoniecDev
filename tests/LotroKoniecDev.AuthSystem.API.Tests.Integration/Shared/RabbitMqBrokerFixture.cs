@@ -64,30 +64,27 @@ public sealed class RabbitMqBrokerFixture : IAsyncLifetime
     /// </summary>
     public async Task CloseAllConnectionsAsync()
     {
-        ExecResult result = await _container.ExecAsync(
-            ["rabbitmqctl", "close_all_connections", "integration-test induced failure"]);
-
-        if (result.ExitCode != 0)
-        {
-            throw new InvalidOperationException(
-                $"rabbitmqctl close_all_connections failed (exit code {result.ExitCode}).\nStdout:\n{result.Stdout}\nStderr:\n{result.Stderr}");
-        }
+        await RunRabbitMqCtlAsync("close_all_connections", "integration-test induced failure");
     }
 
     /// <summary>
-    /// Sets a queue policy with the same <c>rabbitmqctl set_policy</c> arguments that
+    /// Sets a queue operator policy with the same <c>rabbitmqctl set_operator_policy</c> arguments that
     /// <c>scripts/hetzner/deploy.sh</c> uses on a box. It runs as root, which is safe here because the
     /// broker has fully started and written its Erlang cookie.
     /// </summary>
-    public async Task SetQueuePolicyAsync(string name, string pattern, string definition)
+    public async Task SetOperatorPolicyAsync(string name, string pattern, string definition)
     {
-        ExecResult result = await _container.ExecAsync(
-            ["rabbitmqctl", "set_policy", "--apply-to", "queues", name, pattern, definition]);
+        await RunRabbitMqCtlAsync("set_operator_policy", "--apply-to", "queues", name, pattern, definition);
+    }
+
+    private async Task RunRabbitMqCtlAsync(params string[] arguments)
+    {
+        ExecResult result = await _container.ExecAsync(["rabbitmqctl", .. arguments]);
 
         if (result.ExitCode != 0)
         {
             throw new InvalidOperationException(
-                $"rabbitmqctl set_policy failed (exit code {result.ExitCode}).\nStdout:\n{result.Stdout}\nStderr:\n{result.Stderr}");
+                $"rabbitmqctl {arguments[0]} failed (exit code {result.ExitCode}).\nStdout:\n{result.Stdout}\nStderr:\n{result.Stderr}");
         }
     }
 }

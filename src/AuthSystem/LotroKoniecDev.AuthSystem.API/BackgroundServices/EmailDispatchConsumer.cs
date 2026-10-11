@@ -18,7 +18,7 @@ namespace LotroKoniecDev.AuthSystem.API.BackgroundServices;
 /// The broker pushes, we do not poll. Once <c>BasicConsumeAsync</c> has registered the subscription,
 /// the broker sends deliveries over the open connection and the client library calls
 /// <see cref="OnDeliveredAsync"/> for each one. <see cref="ExecuteAsync"/> only sets this up and then
-/// waits until shutdown.
+/// watches that it stays attached until shutdown.
 /// </summary>
 /// <remarks>
 /// We acknowledge by hand (<c>autoAck: false</c>) and only after the processor finished. A crash while
@@ -36,11 +36,15 @@ namespace LotroKoniecDev.AuthSystem.API.BackgroundServices;
 /// against. A nack with requeue counts as an "explicit return" that the broker redelivers forever
 /// without counting.
 /// A broker that is down must never stop the application from starting, so we connect here with a
-/// growing backoff, and the client library's automatic recovery reattaches the consumer if the
-/// connection drops later.
+/// growing backoff. The client library's automatic recovery brings back a lost connection, but not a
+/// channel the broker closed or a subscription it cancelled, so the consumer checks that it is still
+/// attached and attaches again when it is not (#1088). The TMS account event consumer does the same
+/// (ADR-0065 §4).
 /// </remarks>
 internal sealed partial class EmailDispatchConsumer : BackgroundService
 {
+    internal const string ClientProvidedName = "lotro-auth-api-email-consumer";
+
     /// <summary>
     /// The growing wait between the first connection attempts. The top of the ladder stays low: the
     /// broker is a container on the same machine and an outage lasts about as long as a deploy. Unlike
@@ -79,38 +83,51 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
         TimeSpan.FromMinutes(15)
     ];
 
-    private readonly RabbitMqOptions _settings;
+    /// <summary>
+    /// How often the consumer checks that it is still attached. Automatic recovery brings back a lost
+    /// connection, but not a channel the broker closed or a subscription it cancelled, for example
+    /// after <see cref="RabbitMqTopology.EmailQueue"/> was deleted to change its arguments.
+    /// </summary>
+    private static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(30);
+
+    private readonly IConnectionFactory _connectionFactory;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<EmailDispatchConsumer> _logger;
+    private readonly TimeSpan[] _connectBackoffs;
+    private readonly TimeSpan _watchInterval;
 
     private IConnection? _connection;
     private IChannel? _channel;
 
-    public EmailDispatchConsumer(
-        IOptions<RabbitMqOptions> options,
-        IServiceScopeFactory scopeFactory,
-        ILogger<EmailDispatchConsumer> logger)
+    /// <summary>
+    /// Reads the broker message id the inbox uses to spot duplicates (ADR-0037). It is internal so the
+    /// unit tests can check that a missing id, an id that is not a Guid and an empty Guid all fail.
+    /// </summary>
+    internal static bool TryReadMessageId(IReadOnlyBasicProperties properties, out Guid messageId)
     {
-        _settings = options.Value;
-        _scopeFactory = scopeFactory;
-        _logger = logger;
+        return Guid.TryParse(properties.MessageId, out messageId) && messageId != Guid.Empty;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
         {
-            await AttachConsumerWithRetryAsync(stoppingToken);
+            while (true)
+            {
+                AsyncEventingBasicConsumer consumer = await AttachConsumerWithRetryAsync(stoppingToken);
+                LogStarted(_logger, RabbitMqTopology.EmailQueue);
 
-            LogStarted(_logger, RabbitMqTopology.EmailQueue);
+                // All the work happens in OnDeliveredAsync, on the client library's own loop. This only
+                // watches that the subscription is still there, and attaches again when it is not.
+                await WaitWhileAttachedAsync(consumer, stoppingToken);
 
-            // All the work happens in OnDeliveredAsync, on the client library's own loop. This task
-            // only keeps the service, and with it the channel, alive until shutdown.
-            await Task.Delay(Timeout.Infinite, stoppingToken);
+                LogDetached(_logger, RabbitMqTopology.EmailQueue);
+                await CloseAsync();
+            }
         }
-        catch (OperationCanceledException)
+        catch (Exception) when (stoppingToken.IsCancellationRequested)
         {
-            // The app is shutting down, which is not an error.
+            // The app is shutting down, which is not an error, whatever the attach in flight threw.
         }
         finally
         {
@@ -118,18 +135,53 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
         }
     }
 
+    public EmailDispatchConsumer(
+        IOptions<RabbitMqOptions> options,
+        IServiceScopeFactory scopeFactory,
+        ILogger<EmailDispatchConsumer> logger)
+        : this(
+            RabbitMqConnectionFactoryBuilder.Build(options.Value, ClientProvidedName),
+            scopeFactory,
+            logger,
+            ConnectBackoffs,
+            WatchInterval)
+    {
+    }
+
+    /// <summary>
+    /// Lets a test hand in its own broker client and shorten the pauses and the watch, so it can run the
+    /// slow paths in seconds. The container only sees the public constructor.
+    /// </summary>
+    internal EmailDispatchConsumer(
+        IConnectionFactory connectionFactory,
+        IServiceScopeFactory scopeFactory,
+        ILogger<EmailDispatchConsumer> logger,
+        TimeSpan[] connectBackoffs,
+        TimeSpan watchInterval)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(connectBackoffs.Length);
+
+        _connectionFactory = connectionFactory;
+        _scopeFactory = scopeFactory;
+        _logger = logger;
+        _connectBackoffs = connectBackoffs;
+        _watchInterval = watchInterval;
+    }
+
     /// <summary>
     /// Connects, declares the topology and registers the consumer, all as one attempt that either
     /// fully succeeds or fully fails.
-    /// The whole attach sits inside the retry loop on purpose. Any exception other than cancellation
-    /// leaving <see cref="ExecuteAsync"/> would stop the entire host
+    /// The whole attach sits inside the retry loop on purpose. Any exception leaving
+    /// <see cref="ExecuteAsync"/> while the host is not stopping would stop the entire host
     /// (<see cref="BackgroundServiceExceptionBehavior.StopHost"/>). A failure between the connect and
     /// the consume registration, such as a topology mismatch or a channel closed in between, must only
     /// make e-mail delivery worse and must never take login down with it.
+    /// So every failure is retried here, a timeout the client reports as a cancellation included. Only
+    /// the host's own stop token ends the loop (#1088).
     /// A failed attempt disposes whatever it managed to open before it waits, so retrying cannot leave
     /// half-attached connections behind, which automatic recovery would otherwise keep alive forever.
     /// </summary>
-    private async Task AttachConsumerWithRetryAsync(CancellationToken stoppingToken)
+    private async Task<AsyncEventingBasicConsumer> AttachConsumerWithRetryAsync(CancellationToken stoppingToken)
     {
         int failedAttempts = 0;
 
@@ -137,10 +189,7 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
         {
             try
             {
-                ConnectionFactory connectionFactory =
-                    RabbitMqConnectionFactoryBuilder.Build(_settings, "lotro-auth-api-email-consumer");
-
-                _connection = await connectionFactory.CreateConnectionAsync(stoppingToken);
+                _connection = await _connectionFactory.CreateConnectionAsync(stoppingToken);
                 IChannel channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
                 _channel = channel;
                 await RabbitMqTopologyDeclaration.DeclareAsync(channel, stoppingToken);
@@ -162,16 +211,33 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
                     consumer: consumer,
                     cancellationToken: stoppingToken);
 
-                return;
+                return consumer;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
             {
                 await CloseAsync();
                 failedAttempts++;
-                TimeSpan wait = ConnectBackoffs[Math.Min(failedAttempts - 1, ConnectBackoffs.Length - 1)];
+                TimeSpan wait = _connectBackoffs[Math.Min(failedAttempts - 1, _connectBackoffs.Length - 1)];
                 LogConnectFailed(_logger, ex, wait.TotalSeconds);
                 await Task.Delay(wait, stoppingToken);
             }
+        }
+    }
+
+    /// <summary>
+    /// Returns once the consumer has been detached for two looks in a row. The first look gives
+    /// automatic recovery its chance after a lost connection.
+    /// </summary>
+    private async Task WaitWhileAttachedAsync(AsyncEventingBasicConsumer consumer, CancellationToken stoppingToken)
+    {
+        int detachedLooks = 0;
+
+        while (detachedLooks < 2)
+        {
+            await Task.Delay(_watchInterval, stoppingToken);
+
+            bool attached = _channel is { IsOpen: true } && consumer.IsRunning;
+            detachedLooks = attached ? 0 : detachedLooks + 1;
         }
     }
 
@@ -314,15 +380,6 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
         }
     }
 
-    /// <summary>
-    /// Reads the broker message id the inbox uses to spot duplicates (ADR-0037). It is internal so the
-    /// unit tests can check that a missing id, an id that is not a Guid and an empty Guid all fail.
-    /// </summary>
-    internal static bool TryReadMessageId(IReadOnlyBasicProperties properties, out Guid messageId)
-    {
-        return Guid.TryParse(properties.MessageId, out messageId) && messageId != Guid.Empty;
-    }
-
     private async Task CloseAsync()
     {
         IChannel? channel = _channel;
@@ -361,6 +418,12 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
         Level = LogLevel.Information,
         Message = "Consuming e-mail messages from queue {Queue}")]
     private static partial void LogStarted(ILogger logger, string queue);
+
+    [LoggerMessage(
+        EventId = EventIds.EmailConsumerDetached,
+        Level = LogLevel.Warning,
+        Message = "The e-mail consumer is no longer attached to queue {Queue}: the broker closed its channel or cancelled its subscription. Attaching again.")]
+    private static partial void LogDetached(ILogger logger, string queue);
 
     [LoggerMessage(
         EventId = EventIds.EmailConsumerConnectFailed,

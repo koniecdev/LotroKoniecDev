@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 
@@ -16,9 +18,14 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 /// added again, and the RabbitMq settings point at the container.
 /// SMTP is still a spy, so tests can see the e-mails without sending any. This is the only host where
 /// the whole pipeline, outbox to relay to broker to consumer, exists in one process.
+/// The consumer checks its subscription every 200 ms instead of every 30 seconds, and waits 200 ms
+/// instead of up to a minute before it connects again, so a test can watch it attach again in seconds.
 /// </summary>
 public sealed class BrokeredAuthSystemApiFactory : AuthSystemApiFactory
 {
+    private static readonly TimeSpan[] ShortConnectBackoffs = [TimeSpan.FromMilliseconds(200)];
+    private static readonly TimeSpan ShortWatchInterval = TimeSpan.FromMilliseconds(200);
+
     public RabbitMqBrokerFixture Broker { get; } = new();
 
     /// <summary>
@@ -61,7 +68,14 @@ public sealed class BrokeredAuthSystemApiFactory : AuthSystemApiFactory
             }
 
             services.AddSingleton<IMessagePublisher, RabbitMqMessagePublisher>();
-            services.AddHostedService<EmailDispatchConsumer>();
+            services.AddHostedService(serviceProvider => new EmailDispatchConsumer(
+                RabbitMqConnectionFactoryBuilder.Build(
+                    serviceProvider.GetRequiredService<IOptions<RabbitMqOptions>>().Value,
+                    EmailDispatchConsumer.ClientProvidedName),
+                serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+                serviceProvider.GetRequiredService<ILogger<EmailDispatchConsumer>>(),
+                ShortConnectBackoffs,
+                ShortWatchInterval));
         });
     }
 

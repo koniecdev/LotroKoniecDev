@@ -1436,7 +1436,8 @@ back only long enough to fix forward.
   [secrets table](#secret-material--source-of-truth-and-how-to-rotate)).
 - **Queue arguments are immutable.** Redeclaring `emails.send` with different `x-*` arguments fails
   the channel with `PRECONDITION_FAILED` (ADR-0036). Changing them on a live box means draining and
-  deleting the queue first — treat it as a small migration, not a config tweak.
+  deleting the queue first — treat it as a small migration, not a config tweak. After the delete,
+  auth-api declares the queue again and attaches within a minute; no restart is needed (#1088).
 - **Never remove the `hostname:` pin** on the service. RabbitMQ keys its on-disk state by node name
   (`rabbit@<hostname>`); an unpinned recreation boots a fresh node beside the old data and orphans
   the volume's quorum queues — parked dead letters included.

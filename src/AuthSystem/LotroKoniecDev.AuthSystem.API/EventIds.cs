@@ -231,4 +231,7 @@ internal static class EventIds
     // Breached-password check (2740-2749). Its "could not check" warnings are 3300-3303 in the
     // Infrastructure assembly (ADR-0066).
     public const int PasswordRefusedAsBreached = 2740;
+
+    // Email Dispatch Consumer, continued (2750-2759). The 2330-2339 range is full.
+    public const int EmailConsumerDetached = 2750;
 }

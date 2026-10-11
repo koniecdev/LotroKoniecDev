@@ -4,8 +4,8 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 
 /// <summary>
-/// The two dates a scheduled deletion runs on, and the query that finds the accounts those dates have
-/// caught up with (ADR-0031, amended by #685).
+/// The two dates a scheduled deletion runs on, whether its cancel link still works, and the query that
+/// finds the accounts those dates have caught up with (ADR-0031, amended by #685 and #947).
 /// </summary>
 /// <remarks>
 /// It exists because the erasure date was worked out in four places — the response header, the

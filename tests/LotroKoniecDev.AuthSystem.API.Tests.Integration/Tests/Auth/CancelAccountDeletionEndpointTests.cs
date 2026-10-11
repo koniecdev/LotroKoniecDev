@@ -230,11 +230,11 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
     [Fact]
     public async Task CancelDeletion_ShouldClearSchedule_WhenALateLinkArrivesBeforeTheCancelWindowEnds()
     {
-        // Arrange: the same late e-mail, five minutes before the window ends
+        // Arrange: the same late e-mail, an hour before the window ends
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
         await AccountStateFactory.BackdateDeletionScheduleAsync(
-            Factory.Services, registerRequest.Email, GracePeriod() - TimeSpan.FromMinutes(5));
+            Factory.Services, registerRequest.Email, GracePeriod() - TimeSpan.FromHours(1));
 
         // Act
         HttpResponseMessage response = await SendCancelRequestAsync(registerRequest.Email, cancelToken);

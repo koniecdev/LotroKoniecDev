@@ -1517,19 +1517,12 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         return await db.SignInSessions.CountAsync(session => session.UserId == userId);
     }
 
-    private async Task<int> RunFinalizerAsync()
+    private async Task<int> RunFinalizerAsync(TimeProvider? clock = null)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
-        IAccountDeletionFinalizer finalizer =
-            scope.ServiceProvider.GetRequiredService<IAccountDeletionFinalizer>();
-        return await finalizer.FinalizeDueAccountsAsync(CancellationToken.None);
-    }
-
-    private async Task<int> RunFinalizerAsync(TimeProvider clock)
-    {
-        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
-        IAccountDeletionFinalizer finalizer =
-            ActivatorUtilities.CreateInstance<AccountDeletionFinalizer>(scope.ServiceProvider, clock);
+        IAccountDeletionFinalizer finalizer = clock is null
+            ? scope.ServiceProvider.GetRequiredService<IAccountDeletionFinalizer>()
+            : ActivatorUtilities.CreateInstance<AccountDeletionFinalizer>(scope.ServiceProvider, clock);
         return await finalizer.FinalizeDueAccountsAsync(CancellationToken.None);
     }
 
@@ -1592,16 +1585,17 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Ends the account's cancel window one minute from now and returns a clock one minute past that end.
+    /// Ends the account's cancel window one hour from now and returns a clock one hour past that end.
     /// The cancel link refuses a due account (#947), so a cancel can land during an erasure only when it
-    /// checked its window just before the end and the run listed the account just after it. The cancel
-    /// request runs on the real clock and the run on the returned one.
+    /// checked its window before the end and the run listed the account after it. The cancel request
+    /// runs on the real clock and the run on the returned one. An hour on each side keeps a slow run
+    /// from closing the window before the cancel arrives.
     /// </summary>
     private async Task<TimeProvider> EndTheCancelWindowBetweenTheCancelAndTheRunAsync(Guid userId)
     {
         TimeSpan gracePeriod = Factory.Services.GetRequiredService<IOptions<GdprSettings>>().Value.DeletionGracePeriod;
-        await BackdateScheduleAsync(userId, gracePeriod - TimeSpan.FromMinutes(1));
-        return new FakeTimeProvider(DateTimeOffset.UtcNow + TimeSpan.FromMinutes(2));
+        await BackdateScheduleAsync(userId, gracePeriod - TimeSpan.FromHours(1));
+        return new FakeTimeProvider(DateTimeOffset.UtcNow + TimeSpan.FromHours(2));
     }
 
     private async Task<(RegisterRequest Request, IdentityId IdentityId)> RegisterAndScheduleDeletionAsync()

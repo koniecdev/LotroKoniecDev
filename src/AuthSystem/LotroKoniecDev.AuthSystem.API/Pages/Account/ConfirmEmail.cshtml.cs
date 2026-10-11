@@ -17,6 +17,13 @@ internal sealed partial class ConfirmEmailModel : PageModel
     private const string InvalidOrExpiredLinkMessage =
         "Link potwierdzający jest nieprawidłowy lub wygasł. Jeśli Twoje konto jest już aktywne, po prostu się zaloguj.";
 
+    private const string InvalidLinkTitle = "Link wygasł lub jest nieprawidłowy";
+
+    private const string ConfirmationFailedTitle = "Nie udało się potwierdzić adresu";
+
+    private const string ConfirmationFailedMessage =
+        "Otwórz link z wiadomości jeszcze raz. Jeśli błąd się powtórzy, napisz do nas.";
+
     /// <summary>
     /// A hash computed up front, so every path verifies exactly one hash.
     /// </summary>
@@ -27,6 +34,16 @@ internal sealed partial class ConfirmEmailModel : PageModel
     private readonly IResponseTimeFloor _responseTimeFloor;
     private readonly ILogger<ConfirmEmailModel> _logger;
 
+    public string Email { get; set; } = string.Empty;
+
+    public string Token { get; set; } = string.Empty;
+
+    public bool IsCompleted { get; set; }
+
+    public string ErrorTitle { get; set; } = InvalidLinkTitle;
+
+    public string? ErrorMessage { get; set; }
+
     public ConfirmEmailModel(
         UserManager<ApplicationUser> userManager,
         IResponseTimeFloor responseTimeFloor,
@@ -36,14 +53,6 @@ internal sealed partial class ConfirmEmailModel : PageModel
         _responseTimeFloor = responseTimeFloor;
         _logger = logger;
     }
-
-    public string Email { get; set; } = string.Empty;
-
-    public string Token { get; set; } = string.Empty;
-
-    public bool IsCompleted { get; set; }
-
-    public string? ErrorMessage { get; set; }
 
     public async Task OnGet(string? email = null, string? token = null)
     {
@@ -114,7 +123,10 @@ internal sealed partial class ConfirmEmailModel : PageModel
             return;
         }
 
-        ErrorMessage = string.Join(" ", result.Errors.Select(e => e.Description));
+        // Identity checked the token before it refused, so this link is not dead. Identity's own text is
+        // English, so the page never prints it (#1076).
+        ErrorTitle = ConfirmationFailedTitle;
+        ErrorMessage = ConfirmationFailedMessage;
     }
 
     [LoggerMessage(EventId = EventIds.EmailConfirmedViaUi, Level = LogLevel.Information, Message = "Email confirmed via UI for user {UserId}.")]

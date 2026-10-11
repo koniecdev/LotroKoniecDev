@@ -438,6 +438,12 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
 - **Right-size the design — YAGNI by default.** Before proposing an abstraction, cache, config
   knob, queue, or new infra, check it solves a **real, present** need from the current
   spec/ticket — not a hypothetical future. Pick the simple path and note the trade-off in one line.
+  **YAGNI prices both sides (#1115).** A convention that every writer must remember is a cost too,
+  and so is a guard or a test that polices it. When a ticket asks for a guard around a hand-kept
+  convention, put the mechanism that would remove the convention next to it, with rough sizes, and
+  pick the smaller and more readable one. PR #952 built a hand-written IL scanner to police the
+  outbox wake-up call, because ADR-0038 had turned the interceptor down as YAGNI; the scanner was
+  the bigger machine, and the owner closed it (ADR-0038 §6 amendment).
 - **Agent fan-out is budgeted; agents inherit the session's model and effort** (the repo pins no
   model tier of its own — see the 2026-08-14 prune; the churn it ended: Fable switch 2026-07-09→11,
   same-day Opus revert #497, Fable re-enable #503, Opus for reviews 2026-07-13, Fable again

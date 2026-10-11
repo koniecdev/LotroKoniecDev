@@ -50,7 +50,8 @@ call is explicit in the handler. If writers multiply (≥3), promote the convent
 `SaveChangesInterceptor`+`IDbTransactionInterceptor` pair via a follow-up ADR; until then the
 explicit call is the YAGNI-correct form. A forgotten notify is a soft failure: the row waits for
 a sweep instead of being lost. *(The ≥3 trigger fired with the MSG migration — answered by
-ADR-0038 decision 6: explicit call retained, interceptor still declined.)*
+ADR-0038 decision 6: explicit call retained, interceptor still declined. Reversed 2026-10-11 by the
+ADR-0038 §6 amendment (#1115): the interceptor pair replaces the explicit call, and #781 builds it.)*
 
 ### 3. Two sweeps bound the orphan window
 
@@ -105,7 +106,8 @@ retries; nothing in this design promises ordering across failures.
   no urgency.
 - **Convention, not mechanism.** Writers must remember the after-commit `Notify()`; raw-SQL or
   out-of-band inserts (psql debugging) wait for a sweep. Mitigated by the sweeps and by rule 2's
-  escalation trigger.
+  escalation trigger. *(The trigger fired: ADR-0038 §6 amendment, #1115, moves the call into an
+  interceptor pair.)*
 - **Broker outages re-awaken the database** on the retry backoff for their duration — a long
   RabbitMQ outage costs both undelivered mail and some CU-h. Capped by the 6 h ceiling.
 - The design's reason lives in Neon economics; on a paid tier or self-hosted Postgres it looks

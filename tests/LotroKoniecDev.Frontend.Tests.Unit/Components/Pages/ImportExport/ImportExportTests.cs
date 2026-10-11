@@ -237,6 +237,24 @@ public sealed class ImportExportTests : BunitContext
         component.FindAll("input[type=file]").ShouldHaveSingleItem();
     }
 
+    [Fact]
+    public async Task Submit_FromThePageARedirectLeftASummaryOn_ShowsOnlyTheNewOutcome()
+    {
+        // The form posts to the current address, which still carries the last import's summary (#933). A
+        // refused second attempt must not show its error next to the old counts.
+        AuthorizeAs("Sam");
+        StubVersionsWithRegisterRel(ImportableVersion("48.0"));
+        Navigation().NavigateTo(Services.GetRequiredService<ImportSummaryRedirect>()
+            .PageUriWith(new ImportSummary(1, 2, 3, 4, 5, 6, ["Stara uwaga."])));
+        IRenderedComponent<ImportExportComponent> component = RenderPage();
+
+        await component.Find("form").SubmitAsync();
+
+        component.Find(".status-down").TextContent.ShouldContain("Wybierz plik exported.txt");
+        component.FindAll(".status-ok").ShouldBeEmpty();
+        component.FindAll(".stat-tile").ShouldBeEmpty();
+    }
+
     private BunitNavigationManager Navigation() =>
         (BunitNavigationManager)Services.GetRequiredService<NavigationManager>();
 

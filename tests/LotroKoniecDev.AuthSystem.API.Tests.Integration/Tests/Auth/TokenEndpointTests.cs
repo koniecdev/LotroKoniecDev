@@ -237,6 +237,52 @@ public sealed class TokenEndpointTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task RefreshTokenGrant_ShouldMintAnAccessTokenTypedAtJwt()
+    {
+        // Arrange
+        // The website gets most of its tokens from this grant, and the TMS accepts only this type (#933).
+        const string password = "TestPass1!";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+
+        using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "password",
+            ["username"] = request.Email,
+            ["password"] = password,
+            ["client_id"] = "lotrokoniecdev-test",
+            ["scope"] = "email profile roles api offline_access"
+        });
+
+        HttpResponseMessage loginResponse = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), loginRequest);
+
+        string loginContent = await loginResponse.Content.ReadAsStringAsync();
+        using JsonDocument loginJson = JsonDocument.Parse(loginContent);
+        string refreshToken = loginJson.RootElement.GetProperty("refresh_token").GetString()!;
+
+        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+            ["client_id"] = "lotrokoniecdev-test"
+        });
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), refreshRequest);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string content = await response.Content.ReadAsStringAsync();
+        using JsonDocument json = JsonDocument.Parse(content);
+        string accessToken = json.RootElement.GetProperty("access_token").GetString().ShouldNotBeNull();
+
+        new JsonWebToken(accessToken).Typ.ShouldBe(AuthConstants.TokenTypes.AccessToken);
+    }
+
+    [Fact]
     public async Task RefreshTokenGrant_ShouldReturnUpdatedRoles_WhenRolesChangedInDatabase()
     {
         // Arrange: Register user and get initial tokens

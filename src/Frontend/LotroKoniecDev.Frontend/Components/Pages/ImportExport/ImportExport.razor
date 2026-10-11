@@ -290,7 +290,8 @@
 
         // On every refusal below, the version list loaded at the start of this request stays on screen.
         // A refused import changes nothing, because the import is all or nothing, and a second call would
-        // carry this request's token, which a long import may have outlived (#933).
+        // carry this request's token, which a long import may have outlived (#933). An import that timed
+        // out here may still finish on the TMS, so its result shows after a reload.
         if (input.File is null || input.File.Length == 0)
         {
             _importProblem = ApiProblemCopy.FrontendAuthored("Wybierz plik exported.txt do wgrania.");

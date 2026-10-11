@@ -23,17 +23,24 @@ internal sealed class ImportSummaryRedirect
     /// <summary>A new version here makes the page ignore links written for an older shape of the summary.</summary>
     private const string Purpose = "LotroKoniecDev.Frontend.ImportSummary.v1";
 
+    /// <summary>A summary with a field missing or empty is refused, so the page never reads a null list.</summary>
+    private static readonly JsonSerializerOptions SummaryJsonOptions = new()
+    {
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true
+    };
+
     private readonly IDataProtector _protector;
 
     public string PageUriWith(ImportSummary summary) =>
         QueryHelpers.AddQueryString(
             PagePath,
             SummaryParameter,
-            _protector.Protect(JsonSerializer.Serialize(summary)));
+            _protector.Protect(JsonSerializer.Serialize(summary, SummaryJsonOptions)));
 
     /// <summary>
-    /// A value this page did not write, or one written with a key the key ring no longer has, shows no
-    /// summary at all.
+    /// A value this page did not write, one written with a key the key ring no longer has, or one written
+    /// for another shape of the summary, shows no summary at all.
     /// </summary>
     public ImportSummary? Read(string? protectedSummary)
     {
@@ -44,9 +51,9 @@ internal sealed class ImportSummaryRedirect
 
         try
         {
-            return JsonSerializer.Deserialize<ImportSummary>(_protector.Unprotect(protectedSummary));
+            return JsonSerializer.Deserialize<ImportSummary>(_protector.Unprotect(protectedSummary), SummaryJsonOptions);
         }
-        catch (Exception exception) when (exception is CryptographicException or FormatException)
+        catch (Exception exception) when (exception is CryptographicException or FormatException or JsonException)
         {
             return null;
         }

@@ -14,7 +14,7 @@ public sealed class ImportSummaryRedirectTests
     private readonly EphemeralDataProtectionProvider _dataProtectionProvider = new();
 
     [Fact]
-    public void PageUriWith_ThenRead_GivesBackTheWholeSummary()
+    public void Read_ValueFromPageUriWith_ReturnsTheWholeSummary()
     {
         ImportSummaryRedirect redirect = new(_dataProtectionProvider);
         ImportSummary summary = new(
@@ -39,7 +39,7 @@ public sealed class ImportSummaryRedirectTests
     }
 
     [Fact]
-    public void PageUriWith_PointsAtTheImportPage()
+    public void PageUriWith_AnySummary_PointsAtTheImportPage()
     {
         ImportSummaryRedirect redirect = new(_dataProtectionProvider);
 
@@ -54,7 +54,7 @@ public sealed class ImportSummaryRedirectTests
     [InlineData("not a protected value")]
     [InlineData("{\"added\":1,\"warnings\":[\"Kliknij tutaj\"]}")]
     [InlineData("CfDJ8AAAAAAAAAAAAAAAAAAAAAA")]
-    public void Read_ValueThisPageDidNotWrite_ShowsNoSummary(string? protectedSummary)
+    public void Read_ValueThisPageDidNotWrite_ReturnsNull(string? protectedSummary)
     {
         ImportSummaryRedirect redirect = new(_dataProtectionProvider);
 
@@ -64,7 +64,7 @@ public sealed class ImportSummaryRedirectTests
     }
 
     [Fact]
-    public void Read_ValueWithOneCharacterChanged_ShowsNoSummary()
+    public void Read_ValueWithOneCharacterChanged_ReturnsNull()
     {
         ImportSummaryRedirect redirect = new(_dataProtectionProvider);
         string protectedSummary = SummaryParameterOf(redirect.PageUriWith(new ImportSummary(1, 0, 0, 0, 0, 0, [])));
@@ -79,7 +79,7 @@ public sealed class ImportSummaryRedirectTests
     }
 
     [Fact]
-    public void Read_ValueWrittenUnderAnotherKeyRing_ShowsNoSummary()
+    public void Read_ValueWrittenUnderAnotherKeyRing_ReturnsNull()
     {
         // What a link from before a key ring change looks like: the page shows nothing instead of failing.
         string protectedSummary = SummaryParameterOf(
@@ -93,11 +93,31 @@ public sealed class ImportSummaryRedirectTests
     }
 
     [Fact]
-    public void Read_ValueProtectedForAnotherPurpose_ShowsNoSummary()
+    public void Read_ValueProtectedForAnotherPurpose_ReturnsNull()
     {
         string protectedSummary = _dataProtectionProvider
             .CreateProtector("LotroKoniecDev.Frontend.SomethingElse")
             .Protect("""{"Added":1,"SourceChanged":0,"Invalidated":0,"Removed":0,"Unchanged":0,"Echoed":0,"Warnings":[]}""");
+        ImportSummaryRedirect redirect = new(_dataProtectionProvider);
+
+        ImportSummary? read = redirect.Read(protectedSummary);
+
+        read.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("[1,2,3]")]
+    [InlineData("{\"Added\":\"many\"}")]
+    [InlineData("{}")]
+    [InlineData("{\"Added\":1,\"SourceChanged\":0,\"Invalidated\":0,\"Removed\":0,\"Unchanged\":0,\"Echoed\":0,\"Warnings\":null}")]
+    [InlineData("null")]
+    public void Read_ValueWithThePurposeButAnotherShape_ReturnsNull(string payload)
+    {
+        // A link written before the shape of the summary changed, if nobody changed the purpose.
+        string protectedSummary = _dataProtectionProvider
+            .CreateProtector("LotroKoniecDev.Frontend.ImportSummary.v1")
+            .Protect(payload);
         ImportSummaryRedirect redirect = new(_dataProtectionProvider);
 
         ImportSummary? read = redirect.Read(protectedSummary);

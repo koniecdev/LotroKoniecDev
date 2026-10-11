@@ -59,9 +59,11 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
     private readonly Dictionary<string, string> _cookies = new(StringComparer.Ordinal);
 
     [Fact]
-    public async Task Post_WhenTheImportSucceeds_RedirectsAndTheNextPageShowsTheSummary()
+    public async Task Post_WhenTheImportSucceeds_RedirectsWithoutASecondListLoadAndTheNextPageShowsTheSummary()
     {
-        // Arrange
+        // Arrange: the list is loaded again only in the request the redirect starts, which renews the token
+        // first. A second load before the redirect would carry this request's token, which an import of
+        // several minutes may have outlived (#933).
         StubTranslationSystem translationSystem = new(ImportAnswer.Accepted(new ImportSummary(
             Added: 21,
             SourceChanged: 22,
@@ -75,12 +77,14 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
         using HttpClient browser = CreateBrowser(host);
         await SignInAsync(browser, signInServer);
         string antiforgeryToken = await LoadImportFormAsync(browser);
+        int listLoadsBeforePost = translationSystem.GameVersionsLoads;
 
         // Act
         using HttpResponseMessage posted = await SendAsync(browser, ImportPost(antiforgeryToken));
 
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        (translationSystem.GameVersionsLoads - listLoadsBeforePost).ShouldBe(1);
         Uri redirectedTo = new(new Uri("https://localhost"), posted.Headers.Location.ShouldNotBeNull());
         redirectedTo.AbsolutePath.ShouldBe("/import-export");
         redirectedTo.Query.ShouldStartWith("?summary=");
@@ -175,8 +179,9 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
     {
         using HttpResponseMessage challenge = await SendAsync(
             browser, new HttpRequestMessage(HttpMethod.Get, "/auth/login"));
-        challenge.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-        Dictionary<string, string> authorizeQuery = ParseQuery(challenge.Headers.Location.ShouldNotBeNull());
+        Uri authorizeUri = challenge.Headers.Location
+            ?? throw new InvalidOperationException($"The login answered {challenge.StatusCode} with no redirect.");
+        Dictionary<string, string> authorizeQuery = ParseQuery(authorizeUri);
         signInServer.Nonce = authorizeQuery["nonce"];
 
         using HttpResponseMessage signedIn = await SendAsync(
@@ -186,20 +191,22 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
                 $"/callback?code=test-code&state={Uri.EscapeDataString(authorizeQuery["state"])}"));
 
         // A failed callback also answers 302, but to the error page.
-        signedIn.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-        signedIn.Headers.Location.ShouldNotBeNull().OriginalString.ShouldBe("/");
+        if (signedIn.Headers.Location?.OriginalString != "/")
+        {
+            throw new InvalidOperationException(
+                $"The sign-in failed: the callback answered {signedIn.StatusCode} to {signedIn.Headers.Location}.");
+        }
     }
 
     private async Task<string> LoadImportFormAsync(HttpClient browser)
     {
         using HttpResponseMessage form = await SendAsync(browser, new HttpRequestMessage(HttpMethod.Get, "/import-export"));
-        form.StatusCode.ShouldBe(HttpStatusCode.OK);
         string page = await form.Content.ReadAsStringAsync();
+        Match antiforgeryToken = AntiforgeryTokenInput().Match(page);
 
-        string antiforgeryToken = AntiforgeryTokenInput().Match(page).Groups["token"].Value;
-        antiforgeryToken.ShouldNotBeNullOrEmpty();
-
-        return antiforgeryToken;
+        return antiforgeryToken.Success
+            ? antiforgeryToken.Groups["token"].Value
+            : throw new InvalidOperationException($"The import page answered {form.StatusCode} with no import form.");
     }
 
     private static HttpRequestMessage ImportPost(string antiforgeryToken)
@@ -341,7 +348,7 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            Uri uri = request.RequestUri.ShouldNotBeNull();
+            Uri uri = request.RequestUri ?? throw new InvalidOperationException("A call with no address.");
             HttpResponseMessage response = uri.GetLeftPart(UriPartial.Path) switch
             {
                 $"{TmsOrigin}/" => Json(new DiscoveryResponse("tms")

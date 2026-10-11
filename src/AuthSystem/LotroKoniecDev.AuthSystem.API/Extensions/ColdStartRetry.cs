@@ -3,13 +3,13 @@ using Npgsql;
 namespace LotroKoniecDev.AuthSystem.API.Extensions;
 
 /// <summary>
-/// A limited retry for database work that runs before the app starts listening (#451). On the daily
-/// cold start the Neon compute takes longer to wake up, about 31 seconds as measured, than Npgsql
-/// waits to open a connection, so the first open fails for a moment.
+/// A limited retry for database work that runs before the app starts listening (#451). A sleeping Neon
+/// compute can take longer to wake up than Npgsql waits to open a connection, so the first open fails
+/// for a moment. On Azure that wake took about 31 seconds; on Hetzner it takes under 5 seconds (#923).
 /// EF's <c>EnableRetryOnFailure</c> retries commands but not that first open, so without this wrapper
 /// the exception kills the process before <c>RunAsync</c> and the container restarts.
-/// In the worst case this takes about 95 seconds (4 attempts of about 20 seconds plus 3 waits of 5),
-/// well under the 300 second startup probe budget.
+/// In the worst case this takes about 95 seconds (4 attempts of up to 20 seconds, the open limit in
+/// <c>AuthDatabaseConnectionString</c>, plus 3 waits of 5), well under the 300 second startup probe budget.
 /// </summary>
 internal static partial class ColdStartRetry
 {

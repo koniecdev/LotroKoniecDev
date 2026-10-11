@@ -158,7 +158,8 @@ case "${args[0]:-}" in
     pr)
         case "${args[1]:-}" in
             list)
-                if [ -f "$GH_FIXTURES/pr-list-fail.json" ]; then
+                # pr-list-fail-<state>.json fails only the listing of that state.
+                if [ -f "$GH_FIXTURES/pr-list-fail.json" ] || [ -f "$GH_FIXTURES/pr-list-fail-$state.json" ]; then
                     echo "gh: HTTP 502" >&2
                     exit 1
                 fi
@@ -1663,7 +1664,8 @@ expect_in_output "unreadable"
 # resumed. Here the PR is opened and merged during the session, as in the run that found it. The
 # merged PR's head is the session's commit, unless NO_PR_REF=1 hides it from the loop.
 # FIX_AFTER_MERGE=1 adds one more commit after the merge, LEFTOVER=1 leaves a file uncommitted, and
-# MAIN_AFTER_MERGE=1 moves to a detached main with a commit of its own.
+# MAIN_AFTER_MERGE=1 moves to a detached main with a commit of its own, and DETACHED_FIX=1 commits a
+# fix on a detached HEAD after the merge.
 behavior "$TMP_ROOT/done-merged.sh" 'ticket="${PWD##*ticket-}"
 git checkout -q -b "$ticket-fixture"
 echo "work" > "work-$ticket.txt"
@@ -1678,6 +1680,12 @@ if [ "${FIX_AFTER_MERGE:-}" = 1 ]; then
     git commit -q -m "fix a CodeQL alert"
 fi
 [ "${LEFTOVER:-}" != 1 ] || echo "half a fix" > "leftover-$ticket.txt"
+if [ "${DETACHED_FIX:-}" = 1 ]; then
+    git checkout -q --detach
+    echo "fix" > "fix-$ticket.txt"
+    git add -A
+    git commit -q -m "fix a CodeQL alert"
+fi
 if [ "${MAIN_AFTER_MERGE:-}" = 1 ]; then
     git checkout -q --detach origin/main
     echo "other" > "other-$ticket.txt"
@@ -1723,6 +1731,14 @@ run_case 13 "work-ticket: a checkout of main after the merge does not count main
 expect_in_output "PR #7175 was merged before the session ended — the work is on main"
 expect_meta 175 outcome=merged pr=7175 unmerged=0
 
+# A fix committed after the merge on a detached HEAD that grows from the PR's branch still counts.
+reset_fixtures
+fixture_issue 178 maintainer OWNER
+run_case 13 "work-ticket: a fix after the merge on a detached HEAD is counted" \
+    env DETACHED_FIX=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 178 "$TMP_ROOT/run"
+expect_in_output "but branch 178-fixture holds 1 commit(s) the merged PR does not"
+expect_meta 178 outcome=merged pr=7178 unmerged=1
+
 # GitHub may rebase a PR before the merge. Its head then has new ids for the same changes, and the
 # session's commits are still on main.
 behavior "$TMP_ROOT/done-merged-rebased.sh" 'ticket="${PWD##*ticket-}"
@@ -1765,6 +1781,19 @@ run_case 13 "work-ticket: a linked merged PR counts when the PR list cannot be r
 expect_in_output "PR #7174 was merged before the session ended — the work is on main"
 expect_meta 174 outcome=merged pr=7174 resumes=0
 [ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a merged PR must not resume the session" "$LAST_OUTPUT"
+
+# The open PRs can be listed, but the merged ones cannot: GitHub could not say whether there is a
+# PR, so the ticket is an error without a resume.
+reset_fixtures
+fixture_issue 177 maintainer OWNER
+printf x > "$GH_FIXTURES/pr-list-fail-merged.json"
+behavior "$TMP_ROOT/done-merged-list-half-down.sh" 'git checkout -q -b 177-fixture
+echo "{\"result\":\"STATUS: DONE\",\"is_error\":false,\"session_id\":\"s-177\"}"'
+run_case 3 "work-ticket: a merged-PR list that cannot be read is an error, not a resume" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged-list-half-down.sh" "$WORK" 177 "$TMP_ROOT/run"
+expect_in_output "no PR named, and the PRs could not be listed"
+expect_meta 177 outcome=error resumes=0
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no resume on an unreadable PR list" "$LAST_OUTPUT"
 
 # When the loop cannot read the merged PR's head, it says so instead of guessing.
 reset_fixtures

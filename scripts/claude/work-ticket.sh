@@ -888,18 +888,20 @@ find_ticket_pr() {
     fi
 }
 
-# commits_after_merge — prints how many commits on the merged PR's branch the merged PR does not
-# hold, plus one when the worktree has uncommitted files, which `finish` saves as a commit on a
-# salvage branch. The session may push a fix after the merge, for example for a CodeQL alert, and
-# that fix is then only on its branch. The PR's own branch is read, not HEAD, so a checkout of main
-# after the merge does not count main's commits. Commits are matched by their change, not by their
+# commits_after_merge — prints how many commits on HEAD the merged PR does not hold, plus one when
+# the worktree has uncommitted files, which `finish` saves as a commit on a salvage branch. The
+# session may push a fix after the merge, for example for a CodeQL alert, and that fix is then only
+# on its branch. HEAD is read when it grows from the PR's branch (a fix on that branch, a follow-up
+# branch or a detached HEAD); otherwise the branch is, so a checkout of main after the merge does
+# not count main's commits. Commits are matched by their change, not by their
 # id, so a rebase by GitHub before the merge still matches. The count can be too high: a local
 # rebase onto a newer main, a conflict fixed in a rebase, or an empty commit also count. So the log
 # asks the owner to check, and never claims the commits are lost. Fails when it cannot tell. The
 # fetch runs where a stop is only noted, so a stalled transfer and a password prompt end it.
 commits_after_merge() {
     local tip="HEAD" listed count
-    if git -C "$WT" rev-parse -q --verify "refs/heads/$pr_branch" >/dev/null 2>&1; then
+    if git -C "$WT" rev-parse -q --verify "refs/heads/$pr_branch" >/dev/null 2>&1 \
+        && ! git -C "$WT" merge-base --is-ancestor "refs/heads/$pr_branch" HEAD 2>/dev/null; then
         tip="refs/heads/$pr_branch"
     fi
     GIT_TERMINAL_PROMPT=0 git -C "$WT" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 \

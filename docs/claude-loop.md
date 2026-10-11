@@ -395,8 +395,8 @@ resumed run reports the cost of the whole session. The attempt's older `.before-
 `.resume-*` and `.stderr` files get a `.limit-<time>` suffix. The stderr moves because its limit
 message would make a later crash look like a usage limit. `.meta` gets `session=` whenever the
 run ends on its own and its result names the session (a timeout or a stop leaves it only in
-`ticket-<n>.json`), and `worktree=kept` on a limit that kept one; `unmerged=` on a `merged` ticket (see "Outcomes & triage"); `resumes=` counts every resume, the one after the limit
-included, so the end-of-run table marks the ticket `resumed Nx`. When the resume happens in a
+`ticket-<n>.json`), and `worktree=kept` on a limit that kept one; `unmerged=` on a `merged`
+ticket (see "Outcomes & triage"); `resumes=` counts every resume, the one after the limit included, so the end-of-run table marks the ticket `resumed Nx`. When the resume happens in a
 later conductor run, both runs' totals count the part of the session before the limit.
 
 ## Safety model

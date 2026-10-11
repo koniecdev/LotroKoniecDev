@@ -340,7 +340,7 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     /// Swaps one production singleton for a test one. Strict for the same reason as
     /// <see cref="RemoveHostedService{THostedService}"/>: exactly one registration must exist.
     /// </summary>
-    private static void ReplaceSingleton<TService>(IServiceCollection services, TService replacement)
+    internal static void ReplaceSingleton<TService>(IServiceCollection services, TService replacement)
         where TService : class
     {
         List<ServiceDescriptor> descriptors = services

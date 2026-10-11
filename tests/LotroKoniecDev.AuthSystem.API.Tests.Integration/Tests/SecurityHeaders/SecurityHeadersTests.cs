@@ -23,7 +23,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
     /// Every account page, found by reflection so a theory can list them. The check below proves the
     /// list matches the pages the app really maps, so a new page cannot slip past these tests.
     /// </summary>
-    private static readonly IReadOnlyList<string> AccountPagePaths = typeof(Program).Assembly.GetTypes()
+    internal static readonly IReadOnlyList<string> AccountPagePaths = typeof(Program).Assembly.GetTypes()
         .Where(type => type.IsSubclassOf(typeof(PageModel))
             && type is { Namespace: string pageNamespace }
             && pageNamespace.EndsWith(".Pages.Account", StringComparison.Ordinal))

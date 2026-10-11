@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.WebEncoders;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
+using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.ExceptionHandlers;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
@@ -99,6 +100,7 @@ internal static class ApiDependencyInjection
             services.AddScoped<IEmailChangeRevertLinkFactory>(sp => sp.GetRequiredService<EmailChangeLinkFactory>());
             services.AddSingleton<UsedLinkNextStepCookie>();
             services.AddSingleton<IEmailTemplateRenderer, EmailTemplateRenderer>();
+            services.AddSingleton<FrontendHome>();
             services.AddScoped<IPasswordResetEmailSender, PasswordResetEmailSender>();
             services.AddScoped<IAccountConfirmationEmailSender, AccountConfirmationEmailSender>();
             services.AddScoped<IAccountDeletionEmailSender, AccountDeletionEmailSender>();

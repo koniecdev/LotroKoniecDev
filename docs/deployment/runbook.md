@@ -234,7 +234,7 @@ staging from prod in Grafana, because both boxes run `ASPNETCORE_ENVIRONMENT=Pro
 |---|---|---|---|---|---|
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation, ephemeral-vs-real keys, the CORS policy. |
 | `ASPNETCORE_URLS` | `https://localhost:5003` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); prod serves HTTP only (Caddy owns TLS). |
-| `ConnectionStrings__AuthDatabase` | `…;Database=lotro_auth;…;Password=changeme` (appsettings.Development) | Neon: `Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Timeout=60` | ✅ all | **secret** | Carries the DB password. **Keyword format only** — Npgsql does not parse `postgres://` URIs. `Timeout` is the limit for opening a connection: the auth API caps it at 20 s in code (#923), so the 60 reaches only the migrator. Wake times: Gotchas → *First cold hit*. |
+| `ConnectionStrings__AuthDatabase` | `…;Database=lotro_auth;…;Password=changeme` (appsettings.Development) | Neon: `Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Timeout=20` | ✅ all | **secret** | Carries the DB password. **Keyword format only** — Npgsql does not parse `postgres://` URIs. `Timeout` is the limit for opening a connection. The auth API caps it at 20 s in code (#923), so an older box's `Timeout=60` still works there; only the migrator reads the value as written. Wake times: Gotchas → *First cold hit*. |
 | `OpenIddict__Issuer` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ non-dev | plain | **THE token `iss`.** Absolute http(s), no `localhost`. Must equal tms `Auth__Issuer`. |
 | `OpenIddict__SigningKey__RsaPrivateKeyXml` | — (ephemeral) | base64 of RSA XML (≥2048-bit) | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
 | `OpenIddict__AccessTokenLifetimeMinutes` | `5` (appsettings) | `5` (appsettings) | ❌ optional | plain | **A security parameter, not a tuning knob.** The TMS validates JWTs locally, so this is how long a revoked session keeps working after a password change, an e-mail-change undo or a scheduled deletion. Raising it lengthens that window everywhere — read ADR-0049 first. The service refuses to start below `2` in every environment: a client that renews a token a minute before it runs out would renew a shorter token on every page (#1025). The website itself copes with a one-minute token, which it refreshes after 30 seconds, but the server does not count on that (ADR-0049, amendment of 2026-10-07). `compose.hetzner.yaml` does not pass this variable, so on the boxes the value comes from `appsettings.json` and changes only with a code change. |
@@ -349,7 +349,7 @@ which is why they are named volumes and not bind mounts.
 
 | Variable | Consumed by | Source of truth | (Re)mint / rotate |
 |---|---|---|---|
-| `ConnectionStrings__AuthDatabase` | migrator, auth-api | **Neon** — the env's project (prod: `lotro-translator-prod`; staging has its own, ADR-0018), DB `lotro_auth` | Neon console → Roles → *Reset password* → rebuild the string by hand. **Keyword format only** — Npgsql does not parse `postgres://` URIs. Must carry `Ssl Mode=Require` and `Timeout=60`. Only the migrator uses that 60; the auth API caps the open at 20 s in code (#923). |
+| `ConnectionStrings__AuthDatabase` | migrator, auth-api | **Neon** — the env's project (prod: `lotro-translator-prod`; staging has its own, ADR-0018), DB `lotro_auth` | Neon console → Roles → *Reset password* → rebuild the string by hand. **Keyword format only** — Npgsql does not parse `postgres://` URIs. Must carry `Ssl Mode=Require`. Use `Timeout=20`; an existing `Timeout=60` also works, because the auth API caps the open at 20 s in code and only the migrator reads the value as written (#923). |
 | `ConnectionStrings__TranslationDatabase` | migrator, tms-api | same Neon project, DB `lotro_translation` | same |
 | `OpenIddict__SigningKey__RsaPrivateKeyXml` | auth-api | **regenerate** — no canonical copy exists anywhere | `scripts/gen-openiddict-keys.sh` prints all three OpenIddict values as `KEY=VALUE` lines; append to the box `.env`. Pure config (never stored in the DB), so rotating just invalidates issued tokens → everyone re-logs in. Free pre-launch. |
 | `OpenIddict__EncryptionKey__Key` | auth-api | regenerate | same script, same blast radius. |
@@ -1164,7 +1164,7 @@ docker compose -f compose.prod.yaml --env-file .env.prod logs migrator   # watch
 ```bash
 docker run --rm \
   -e ConnectionStrings__TranslationDatabase="Host=…;Database=lotro_translation;Username=…;Password=…;Ssl Mode=Require;Timeout=60" \
-  -e ConnectionStrings__AuthDatabase="Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Timeout=60" \
+  -e ConnectionStrings__AuthDatabase="Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Timeout=20" \
   ghcr.io/koniecdev/lotrokoniecdev-migrator:<tag>
 ```
 

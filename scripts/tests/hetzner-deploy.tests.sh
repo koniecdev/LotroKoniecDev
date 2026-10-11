@@ -146,6 +146,9 @@ STUB
     # A stub `timeout` too: macOS has none, and the real one would make the hang case wait for real.
     cat > "$bin/timeout" <<'STUB'
 #!/usr/bin/env bash
+if [ "$1" = -k ]; then
+    shift 2
+fi
 printf 'timeout %s\n' "$1" >> "$STUB_LOG"
 shift
 if [ -n "${STUB_BROKER_HANGS:-}" ]; then

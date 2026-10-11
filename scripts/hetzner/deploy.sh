@@ -209,7 +209,7 @@ apply_email_dead_letter_expiry() {
     local attempt status output=''
     for ((attempt = 1; attempt <= BROKER_POLICY_ATTEMPTS; attempt++)); do
         status=0
-        output="$(timeout "$BROKER_POLICY_TRY_TIMEOUT_SECONDS" \
+        output="$(timeout -k 5 "$BROKER_POLICY_TRY_TIMEOUT_SECONDS" \
             docker compose -f "$COMPOSE_FILE" exec -T --user rabbitmq rabbitmq \
             rabbitmqctl set_policy --apply-to queues \
             "$EMAIL_DLQ_EXPIRY_POLICY" "$EMAIL_DLQ_EXPIRY_PATTERN" "$EMAIL_DLQ_EXPIRY_DEFINITION" 2>&1)" \
@@ -218,8 +218,9 @@ apply_email_dead_letter_expiry() {
             printf '%s\n' "$output"
             return 0
         fi
-        # 124 is `timeout` stopping the try. More tries would only stretch a stuck broker into minutes.
-        if [ "$status" -eq 124 ]; then
+        # 124 is `timeout` stopping the try, 137 its KILL five seconds later if the client ignored that.
+        # More tries would only stretch a stuck broker into minutes.
+        if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
             printf 'rabbitmqctl did not answer within %s s.\n' "$BROKER_POLICY_TRY_TIMEOUT_SECONDS"
             return 1
         fi

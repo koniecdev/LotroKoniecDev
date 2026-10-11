@@ -232,9 +232,10 @@ and a look at the parking lot.
 real person's data, and `deploy.sh` does not run there.
 
 **Tests.** `scripts/tests/hetzner-deploy.tests.sh` pins the exact call, its place after `up -d`, its
-time limit, the retry, the stop after a timed-out try and the warning, and checks that the pattern matches `RabbitMqTopology.EmailDeadLetterQueue` and
-no other queue the apps declare. `DeadLetterExpiryTests` shows on the pinned broker image that such a
-policy removes a parked message with no consumer.
+time limit, the retry, the stop after a timed-out try and the warning, and checks that the pattern
+matches `RabbitMqTopology.EmailDeadLetterQueue` and no other queue the apps declare.
+`DeadLetterExpiryTests` shows on the pinned broker image that such a policy removes a parked message
+with no consumer.
 
 ## References
 

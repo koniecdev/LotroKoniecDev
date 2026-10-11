@@ -17,8 +17,6 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 /// </summary>
 public sealed partial class AccountPageBrandLinkTests : EndpointsTestBase
 {
-    public AccountPageBrandLinkTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
-
     [Theory]
     [MemberData(nameof(SecurityHeadersTests.AccountPages), MemberType = typeof(SecurityHeadersTests))]
     public async Task AccountPage_ShouldLinkTheLogoToTheConfiguredWebsite(string page)
@@ -74,6 +72,8 @@ public sealed partial class AccountPageBrandLinkTests : EndpointsTestBase
         // Assert: no href at all, so the logo can never lead to the API discovery JSON at this host's root
         brandLinks.ShouldBe(SecurityHeadersTests.AccountPagePaths.Select(page => $"{page}: <a class=\"brand\">"));
     }
+
+    public AccountPageBrandLinkTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
     [GeneratedRegex("""<a\b[^>]*\bclass="brand"[^>]*>""")]
     private static partial Regex BrandLinkRegex();

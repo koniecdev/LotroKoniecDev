@@ -15,18 +15,28 @@ public sealed class FrontendHomeTests
     [InlineData("https://staging.lotro-translator.pl/", "https://staging.lotro-translator.pl/")]
     [InlineData("https://localhost:7017", "https://localhost:7017/")]
     [InlineData("https://lotro-translator.pl/wylogowano", "https://lotro-translator.pl/")]
-    public void Url_IsTheRootOfTheConfiguredAppRoot(string appRoot, string expected)
+    public void Url_ConfiguredAppRoot_IsTheRootOfItsOrigin(string appRoot, string expected)
     {
-        FrontendHome frontendHome = new(OptionsWith(new WebClientSettings { PostLogoutRedirectUris = [appRoot] }));
+        // Arrange
+        IOptions<OpenIddictSettings> options = OptionsWith(new WebClientSettings { PostLogoutRedirectUris = [appRoot] });
 
+        // Act
+        FrontendHome frontendHome = new(options);
+
+        // Assert
         frontendHome.Url.ShouldBe(expected);
     }
 
     [Fact]
-    public void Url_IsNull_WhenTheWebClientHasNoConfiguredUri()
+    public void Url_NoConfiguredAppRoot_IsNull()
     {
-        FrontendHome frontendHome = new(OptionsWith(new WebClientSettings()));
+        // Arrange
+        IOptions<OpenIddictSettings> options = OptionsWith(new WebClientSettings());
 
+        // Act
+        FrontendHome frontendHome = new(options);
+
+        // Assert
         frontendHome.Url.ShouldBeNull();
     }
 
@@ -34,10 +44,15 @@ public sealed class FrontendHomeTests
     [InlineData("")]
     [InlineData("/app")]
     [InlineData("javascript:alert(1)")]
-    public void Url_IsNull_WhenTheConfiguredAppRootIsNotAnHttpUrl(string appRoot)
+    public void Url_AppRootThatIsNotAnHttpUrl_IsNull(string appRoot)
     {
-        FrontendHome frontendHome = new(OptionsWith(new WebClientSettings { PostLogoutRedirectUris = [appRoot] }));
+        // Arrange
+        IOptions<OpenIddictSettings> options = OptionsWith(new WebClientSettings { PostLogoutRedirectUris = [appRoot] });
 
+        // Act
+        FrontendHome frontendHome = new(options);
+
+        // Assert
         frontendHome.Url.ShouldBeNull();
     }
 

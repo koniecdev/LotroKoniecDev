@@ -76,6 +76,8 @@ new_stack() {
 #   STUB_DIGEST — the digest `docker image inspect` reports for every image
 #   STUB_BROKER_BOOTING_TRIES=<n> — the first n `rabbitmqctl set_policy` calls fail, as on a broker
 #     that is still starting; STUB_BROKER_DOWN — every one of them fails
+#   STUB_BROKER_HANGS — the stub `timeout` lets the call start, then stops it with 124, as it does on
+#     a broker that never answers
 # Every call is appended to $STUB_LOG *in order*, so a case can assert what ran, what did NOT, and
 # crucially in which sequence.
 install_stub_docker() {
@@ -141,6 +143,18 @@ esac
 exit 0
 STUB
     chmod +x "$bin/docker"
+    # A stub `timeout` too: macOS has none, and the real one would make the hang case wait for real.
+    cat > "$bin/timeout" <<'STUB'
+#!/usr/bin/env bash
+printf 'timeout %s\n' "$1" >> "$STUB_LOG"
+shift
+if [ -n "${STUB_BROKER_HANGS:-}" ]; then
+    "$@" > /dev/null 2>&1
+    exit 124
+fi
+exec "$@"
+STUB
+    chmod +x "$bin/timeout"
     PATH="$bin:$PATH"
     export PATH
 }
@@ -365,6 +379,9 @@ run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
 [ "$LAST_STATUS" -eq 0 ] || fail 'a clean roll should exit 0' "status $LAST_STATUS"
 called "$POLICY_CALL" || fail 'the 7-day expiry policy was not applied to emails.send.dlq as the owner decided'
 [ "$(policy_tries)" -eq 1 ] || fail 'a broker that answers needs exactly one try' "tries: $(policy_tries)"
+# The try runs under `timeout 20`: the line right before the set_policy call.
+[ "$(call_line 'timeout 20')" -eq $(($(call_line 'set_policy') - 1)) ] \
+    || fail 'the set_policy try must run under a 20 s time limit'
 grep -q '::warning::' <<<"$LAST_OUTPUT" && fail 'a policy that landed must not print a warning'
 pass 'every deploy sets the 7-day expiry policy on emails.send.dlq, as the rabbitmq user'
 
@@ -415,5 +432,17 @@ grep -q 'unable to perform an operation' <<<"$LAST_OUTPUT" || fail "the broker's
 [ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'the apps rolled, so the new tag must still be pinned' "$(env_tag "$stack")"
 grep -q 'Deploy FAILED' <<<"$LAST_OUTPUT" && fail 'the deploy did not fail, so no failure banner'
 pass 'a broker that never answers prints a warning, and the deploy still pins the new tag and exits 0'
+
+CASE='broker stuck'
+# A try that runs out of time ends the step at once: 36 stuck tries would hold the deploy for minutes,
+# and a CD job that hits its own time limit is cancelled with no rollback.
+stack="$(new_stack brokerstuck)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" STUB_BROKER_HANGS=1
+[ "$LAST_STATUS" -eq 0 ] || fail 'a stuck broker must never block an app deploy' "status $LAST_STATUS"
+[ "$(policy_tries)" -eq 1 ] || fail 'a try that ran out of time must be the last one' "tries: $(policy_tries)"
+grep -q 'did not answer within 20 s' <<<"$LAST_OUTPUT" || fail 'the time-out was not named'
+grep -q '::warning::.*emails-send-dlq-ttl' <<<"$LAST_OUTPUT" || fail 'the missing policy was not reported as a warning'
+[ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'the apps rolled, so the new tag must still be pinned' "$(env_tag "$stack")"
+pass 'a broker that holds the call past the time limit stops the step after one try, with a warning'
 
 printf '\nAll %d hetzner deploy.sh case(s) passed.\n' "$cases"

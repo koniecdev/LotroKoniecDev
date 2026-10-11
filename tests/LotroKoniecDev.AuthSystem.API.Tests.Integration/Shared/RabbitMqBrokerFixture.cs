@@ -75,8 +75,9 @@ public sealed class RabbitMqBrokerFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Sets a queue policy with the same <c>rabbitmqctl set_policy</c> call that
-    /// <c>scripts/hetzner/deploy.sh</c> runs on a box.
+    /// Sets a queue policy with the same <c>rabbitmqctl set_policy</c> arguments that
+    /// <c>scripts/hetzner/deploy.sh</c> uses on a box. It runs as root, which is safe here because the
+    /// broker has fully started and written its Erlang cookie.
     /// </summary>
     public async Task SetQueuePolicyAsync(string name, string pattern, string definition)
     {

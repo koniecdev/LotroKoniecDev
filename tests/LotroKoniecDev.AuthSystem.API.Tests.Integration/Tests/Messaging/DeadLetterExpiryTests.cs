@@ -20,9 +20,10 @@ public sealed class DeadLetterExpiryTests : IClassFixture<RabbitMqBrokerFixture>
     private const string ExpiryPolicyName = "emails-send-dlq-ttl";
 
     /// <summary>
-    /// Three seconds: long enough to see the message park first, short enough to watch it expire.
+    /// Five seconds: long enough to see the message park first even on a busy runner, short enough to
+    /// watch it expire.
     /// </summary>
-    private const string ShortExpiryPolicyDefinition = """{"message-ttl":3000}""";
+    private const string ShortExpiryPolicyDefinition = """{"message-ttl":5000}""";
 
     private static readonly TimeSpan DeliveryTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan ExpiryTimeout = TimeSpan.FromSeconds(30);

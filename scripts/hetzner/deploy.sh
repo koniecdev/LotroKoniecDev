@@ -57,6 +57,9 @@ PRUNE_UNUSED_OLDER_THAN="${PRUNE_UNUSED_OLDER_THAN:-336h}"
 # the broker's healthcheck budget in compose.hetzner.yaml (a 30 s start period + 30 checks 5 s apart).
 BROKER_POLICY_ATTEMPTS="${BROKER_POLICY_ATTEMPTS:-36}"
 BROKER_POLICY_RETRY_SECONDS="${BROKER_POLICY_RETRY_SECONDS:-5}"
+# The time limit of one try. A healthy broker answers in about a second and a starting one refuses at
+# once, so a try that runs out of time means a stuck broker, and the step stops trying (see below).
+BROKER_POLICY_TRY_TIMEOUT_SECONDS="${BROKER_POLICY_TRY_TIMEOUT_SECONDS:-20}"
 
 # A parked e-mail message expires 7 days (604800000 ms) after it parks (ADR-0036 §6, #1085). An e-mail
 # change message holds the old and the new address, and an account erasure runs 14 days after the
@@ -193,16 +196,32 @@ compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddy
 # new volume a root CLI that runs before the server can write the Erlang cookie writes it first, owned
 # by root, and the server stops because it cannot read it (seen on rabbitmq:4.3.4).
 #
-# A broker that never answers does not fail the deploy: a broker outage must never block an app deploy
-# (compose.hetzner.yaml). The policy is kept on the broker's volume, so a broker that had it still has
-# it. Only a new broker is left without it, and the next deploy applies it.
+# Each try has a time limit, because rabbitmqctl itself can wait forever on a stuck broker, and a
+# deploy that hangs until the CD job is cancelled gets no rollback and leaves .env on the old tag.
+# `timeout` cannot run the `compose` function, so this one call names `docker compose` directly.
+#
+# A broker that does not take the policy does not fail the deploy: a broker outage must never block an
+# app deploy (compose.hetzner.yaml). The policy is kept on the broker's volume, so a broker that had it
+# still has it. A new broker without it is the real gap: a message that parks there gets no expiry, and
+# a later policy does not reach it, so it stays for good and holds back every message behind it
+# (ADR-0036 §6).
 apply_email_dead_letter_expiry() {
-    local attempt output=''
+    local attempt status output=''
     for ((attempt = 1; attempt <= BROKER_POLICY_ATTEMPTS; attempt++)); do
-        if output="$(compose exec -T --user rabbitmq rabbitmq rabbitmqctl set_policy --apply-to queues \
-            "$EMAIL_DLQ_EXPIRY_POLICY" "$EMAIL_DLQ_EXPIRY_PATTERN" "$EMAIL_DLQ_EXPIRY_DEFINITION" 2>&1)"; then
+        status=0
+        output="$(timeout "$BROKER_POLICY_TRY_TIMEOUT_SECONDS" \
+            docker compose -f "$COMPOSE_FILE" exec -T --user rabbitmq rabbitmq \
+            rabbitmqctl set_policy --apply-to queues \
+            "$EMAIL_DLQ_EXPIRY_POLICY" "$EMAIL_DLQ_EXPIRY_PATTERN" "$EMAIL_DLQ_EXPIRY_DEFINITION" 2>&1)" \
+            || status=$?
+        if [ "$status" -eq 0 ]; then
             printf '%s\n' "$output"
             return 0
+        fi
+        # 124 is `timeout` stopping the try. More tries would only stretch a stuck broker into minutes.
+        if [ "$status" -eq 124 ]; then
+            printf 'rabbitmqctl did not answer within %s s.\n' "$BROKER_POLICY_TRY_TIMEOUT_SECONDS"
+            return 1
         fi
         if [ "$attempt" -lt "$BROKER_POLICY_ATTEMPTS" ]; then
             sleep "$BROKER_POLICY_RETRY_SECONDS"
@@ -214,7 +233,7 @@ apply_email_dead_letter_expiry() {
 
 log "Applying the broker policy: a parked e-mail message expires after 7 days (ADR-0036 §6)"
 if ! apply_email_dead_letter_expiry; then
-    echo "::warning::The broker did not take the policy '${EMAIL_DLQ_EXPIRY_POLICY}' after ${BROKER_POLICY_ATTEMPTS} tries. The apps rolled, so the deploy goes on. A broker that had the policy keeps it; a new broker has none, so parked e-mail messages there never expire until the next deploy applies it (runbook -> 'The dead-letter parking lot')."
+    echo "::warning::The broker did not take the policy '${EMAIL_DLQ_EXPIRY_POLICY}'. The apps rolled, so the deploy goes on. A broker that had the policy keeps it. A new broker has none: a message that parks there before the policy is set never expires and holds back every message behind it. Deploy again as soon as the broker is healthy, then check emails.send.dlq (runbook -> 'The dead-letter parking lot')."
 fi
 
 # The roll is live and healthy — record it. Write-to-temp + rename, so a crash mid-write can never

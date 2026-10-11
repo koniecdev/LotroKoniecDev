@@ -4,6 +4,7 @@ using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Hateoas.Abstractions;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Caching.Hybrid;
 using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.DiscoveryResponse;
 using AuthRels = LotroKoniecDev.AuthSystem.Contracts.Hateoas.Rels;
@@ -20,6 +21,7 @@ internal sealed class DiscoveryCache : IDiscoveryCache
     private const string AnonymousSuffix = "anon";
     private const string AccountSuffixPrefix = "user:";
     private const string SubjectClaimType = "sub";
+    private const string AccessTokenName = "access_token";
 
     private static readonly HybridCacheEntryOptions OneDayEntryOptions = new()
     {
@@ -83,8 +85,9 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         CancellationToken cancellationToken)
         where TResponse : class, ILinksResponse
     {
+        HttpContext? httpContext = _httpContextAccessor.HttpContext;
         ClaimsPrincipal? signedInUser =
-            _httpContextAccessor.HttpContext?.User is { Identity.IsAuthenticated: true } user ? user : null;
+            httpContext?.User is { Identity.IsAuthenticated: true } user ? user : null;
         string? subject = signedInUser?.FindFirst(SubjectClaimType)?.Value is { } value && !string.IsNullOrWhiteSpace(value)
             ? value
             : null;
@@ -123,7 +126,7 @@ internal sealed class DiscoveryCache : IDiscoveryCache
             // public pages still render on the way out. It is cached under neither key: under the
             // account's key it would take every signed-in feature away from this user for a day, and an
             // answer to a call that carried a bearer is not what an anonymous call gets.
-            await MarkSessionDeadAsync(subject, cancellationToken);
+            await MarkSessionDeadAsync(httpContext, cancellationToken);
             return live;
         }
 
@@ -135,11 +138,15 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         return live;
     }
 
-    private async Task MarkSessionDeadAsync(string? subject, CancellationToken cancellationToken)
+    /// <summary>
+    /// Marks the token the discovery call carried, which the client read from this same request, not the
+    /// user (#1061).
+    /// </summary>
+    private async Task MarkSessionDeadAsync(HttpContext? httpContext, CancellationToken cancellationToken)
     {
-        if (subject is not null)
+        if (httpContext is not null && await httpContext.GetTokenAsync(AccessTokenName) is { } accessToken)
         {
-            await _deadSessionRegistry.MarkDeadAsync(subject, cancellationToken);
+            await _deadSessionRegistry.MarkDeadAsync(accessToken, cancellationToken);
         }
     }
 

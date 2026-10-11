@@ -1,19 +1,18 @@
 using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
-using Microsoft.Extensions.Caching.Hybrid;
-using Microsoft.Extensions.DependencyInjection;
+using LotroKoniecDev.Frontend.Tests.Unit.Shared;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Auth.DeadSession;
 
 public sealed class DeadSessionRegistryTests
 {
-    private const string Subject = "11111111-1111-1111-1111-111111111111";
+    private const string AccessToken = "laptop-access-token";
 
     [Fact]
     public async Task ConsumeAsync_WhenNeverMarked_ReturnsFalse()
     {
-        DeadSessionRegistry registry = CreateRegistry();
+        DeadSessionRegistry registry = DeadSessionRegistryFactory.Create();
 
-        bool isDead = await registry.ConsumeAsync(Subject);
+        bool isDead = await registry.ConsumeAsync(AccessToken);
 
         isDead.ShouldBeFalse();
     }
@@ -21,10 +20,10 @@ public sealed class DeadSessionRegistryTests
     [Fact]
     public async Task ConsumeAsync_AfterMarkDead_ReturnsTrue()
     {
-        DeadSessionRegistry registry = CreateRegistry();
+        DeadSessionRegistry registry = DeadSessionRegistryFactory.Create();
 
-        await registry.MarkDeadAsync(Subject);
-        bool isDead = await registry.ConsumeAsync(Subject);
+        await registry.MarkDeadAsync(AccessToken);
+        bool isDead = await registry.ConsumeAsync(AccessToken);
 
         isDead.ShouldBeTrue();
     }
@@ -32,47 +31,73 @@ public sealed class DeadSessionRegistryTests
     [Fact]
     public async Task ConsumeAsync_IsOneShot_SecondCallReturnsFalse()
     {
-        DeadSessionRegistry registry = CreateRegistry();
+        DeadSessionRegistry registry = DeadSessionRegistryFactory.Create();
 
-        await registry.MarkDeadAsync(Subject);
-        bool first = await registry.ConsumeAsync(Subject);
-        bool second = await registry.ConsumeAsync(Subject);
+        await registry.MarkDeadAsync(AccessToken);
+        bool first = await registry.ConsumeAsync(AccessToken);
+        bool second = await registry.ConsumeAsync(AccessToken);
 
         first.ShouldBeTrue();
         second.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// #1061: the other token is the same user's phone. Its session must not end because the laptop's token
+    /// was refused.
+    /// </summary>
     [Fact]
-    public async Task ConsumeAsync_ForADifferentSubject_ReturnsFalse()
+    public async Task ConsumeAsync_ForAnotherSessionsToken_ReturnsFalse()
     {
-        DeadSessionRegistry registry = CreateRegistry();
+        DeadSessionRegistry registry = DeadSessionRegistryFactory.Create();
 
-        await registry.MarkDeadAsync(Subject);
-        bool isDead = await registry.ConsumeAsync("22222222-2222-2222-2222-222222222222");
+        await registry.MarkDeadAsync(AccessToken);
+        bool isDead = await registry.ConsumeAsync("phone-access-token");
 
         isDead.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// #1061: the phone reading its own marker must not delete the laptop's.
+    /// </summary>
+    [Fact]
+    public async Task ConsumeAsync_ForAnotherSessionsToken_KeepsTheMarkedSessionsMarker()
+    {
+        DeadSessionRegistry registry = DeadSessionRegistryFactory.Create();
+
+        await registry.MarkDeadAsync(AccessToken);
+        await registry.ConsumeAsync("phone-access-token");
+        bool isDead = await registry.ConsumeAsync(AccessToken);
+
+        isDead.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// #1061: a real access token is longer than the 256 characters the frontend's cache allows for a key, and
+    /// the cache skips such a key with only a log line. So the marker only works because the key is a hash.
+    /// </summary>
+    [Fact]
+    public async Task ConsumeAsync_AfterMarkDeadWithATokenLongerThanTheCacheKeyLimit_ReturnsTrue()
+    {
+        DeadSessionRegistry registry = DeadSessionRegistryFactory.Create();
+        string longAccessToken = new('a', 2048);
+
+        await registry.MarkDeadAsync(longAccessToken);
+        bool isDead = await registry.ConsumeAsync(longAccessToken);
+
+        isDead.ShouldBeTrue();
+    }
+
+    /// <summary>A blank token names no session, so it is never reported dead.</summary>
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    public async Task MarkDeadAsync_WithBlankSubject_IsNoOp(string blankSubject)
+    public async Task ConsumeAsync_AfterMarkDeadWithABlankToken_ReturnsFalse(string blankAccessToken)
     {
-        DeadSessionRegistry registry = CreateRegistry();
+        DeadSessionRegistry registry = DeadSessionRegistryFactory.Create();
 
-        await registry.MarkDeadAsync(blankSubject);
+        await registry.MarkDeadAsync(blankAccessToken);
+        bool isDead = await registry.ConsumeAsync(blankAccessToken);
 
-        // Nothing was stored, so a subsequent consume for the same blank key finds no marker.
-        bool isDead = await registry.ConsumeAsync(blankSubject);
         isDead.ShouldBeFalse();
-    }
-
-    private static DeadSessionRegistry CreateRegistry()
-    {
-        ServiceCollection services = new();
-        services.AddHybridCache();
-        ServiceProvider provider = services.BuildServiceProvider();
-        HybridCache hybridCache = provider.GetRequiredService<HybridCache>();
-        return new DeadSessionRegistry(hybridCache);
     }
 }

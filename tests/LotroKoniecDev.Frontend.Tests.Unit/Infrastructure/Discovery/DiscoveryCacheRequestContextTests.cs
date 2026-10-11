@@ -134,7 +134,7 @@ public sealed class DiscoveryCacheRequestContextTests
         ApiResult<AuthDiscoveryResponse> healthy = await healthyRequest;
 
         healthy.Value.Links.ShouldContain(link => link.Rel == AuthRels.ExportAccountData);
-        await _deadSessionRegistry.DidNotReceive().MarkDeadAsync(HealthySubject, Arg.Any<CancellationToken>());
+        await _deadSessionRegistry.DidNotReceive().MarkDeadAsync(AccessToken, Arg.Any<CancellationToken>());
     }
 
     /// <summary>

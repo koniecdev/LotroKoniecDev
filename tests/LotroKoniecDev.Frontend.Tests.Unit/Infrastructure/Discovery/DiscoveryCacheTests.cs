@@ -7,6 +7,7 @@ using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.SharedKernel.Authorization;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Hybrid;
@@ -35,6 +36,7 @@ public sealed class DiscoveryCacheTests
     private const string AdminSubject = "admin-sub-1";
     private const string TranslatorSubject = "translator-sub-1";
     private const string RoleClaimType = "role";
+    private const string AccessToken = "laptop-access-token";
 
     private readonly IAuthSystemClient _authClient = Substitute.For<IAuthSystemClient>();
     private readonly ITranslationSystemClient _translationClient = Substitute.For<ITranslationSystemClient>();
@@ -70,8 +72,27 @@ public sealed class DiscoveryCacheTests
         // Degrades to a successful anonymous link set instead of an error box…
         result.IsSuccess.ShouldBeTrue();
         result.Value.Links.ShouldNotContain(link => link.Rel == Rels.ExportAccountData);
-        // The sign-out does not show up in the return value, so the .Received() check is the only proof.
-        await _deadSessionRegistry.Received(1).MarkDeadAsync(Subject, Arg.Any<CancellationToken>());
+        // The sign-out does not show up in the return value, so the .Received() check is the only proof. It
+        // names the token the call carried, so another device of the same user keeps its session (#1061).
+        await _deadSessionRegistry.Received(1).MarkDeadAsync(AccessToken, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// A call that carried no token says nothing about a token. The cookie validation ends a session with no
+    /// usable token on its own (#1026).
+    /// </summary>
+    [Fact]
+    public async Task GetAuthSystemDiscoveryAsync_WhenAuthenticatedWithoutATokenGetsAnonymousLinks_DoesNotMarkAnySession()
+    {
+        _authClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(AnonymousDiscovery()));
+        DiscoveryCache cache = CreateCache(
+            SignedIn(Subject, AuthConstants.Roles.Translator), CreateHybridCache(), accessToken: null);
+
+        ApiResult<AuthDiscoveryResponse> result = await cache.GetAuthSystemDiscoveryAsync();
+
+        result.IsSuccess.ShouldBeTrue();
+        await _deadSessionRegistry.DidNotReceive().MarkDeadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -176,8 +197,27 @@ public sealed class DiscoveryCacheTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.Links.ShouldNotContain(link => link.Rel == TranslationRels.ContributionDataExport);
         result.Value.Links.ShouldContain(link => link.Rel == TranslationRels.Progress);
-        // The sign-out does not show up in the return value, so the .Received() check is the only proof.
-        await _deadSessionRegistry.Received(1).MarkDeadAsync(Subject, Arg.Any<CancellationToken>());
+        // The sign-out does not show up in the return value, so the .Received() check is the only proof. It
+        // names the token the call carried, so another device of the same user keeps its session (#1061).
+        await _deadSessionRegistry.Received(1).MarkDeadAsync(AccessToken, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// A call that carried no token says nothing about a token. The cookie validation ends a session with no
+    /// usable token on its own (#1026).
+    /// </summary>
+    [Fact]
+    public async Task GetTranslationSystemDiscoveryAsync_WhenAuthenticatedWithoutATokenGetsAnonymousLinks_DoesNotMarkAnySession()
+    {
+        _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(AnonymousTranslationDiscovery()));
+        DiscoveryCache cache = CreateCache(
+            SignedIn(Subject, AuthConstants.Roles.Translator), CreateHybridCache(), accessToken: null);
+
+        ApiResult<TranslationDiscoveryResponse> result = await cache.GetTranslationSystemDiscoveryAsync();
+
+        result.IsSuccess.ShouldBeTrue();
+        await _deadSessionRegistry.DidNotReceive().MarkDeadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -426,9 +466,29 @@ public sealed class DiscoveryCacheTests
                 : new ClaimsPrincipal(new ClaimsIdentity()),
             hybridCache ?? CreateHybridCache());
 
-    private DiscoveryCache CreateCache(ClaimsPrincipal user, HybridCache hybridCache)
+    /// <param name="accessToken">The token the session holds, which the client sends as its bearer. Null leaves it out.</param>
+    private DiscoveryCache CreateCache(ClaimsPrincipal user, HybridCache hybridCache, string? accessToken = AccessToken)
     {
-        DefaultHttpContext httpContext = new() { User = user };
+        // HttpContext.GetTokenAsync reads the token from the ticket that IAuthenticationService returns.
+        AuthenticationProperties properties = new();
+        if (accessToken is not null)
+        {
+            properties.StoreTokens([new AuthenticationToken { Name = "access_token", Value = accessToken }]);
+        }
+
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        authenticationService
+            .AuthenticateAsync(Arg.Any<HttpContext>(), Arg.Any<string?>())
+            .Returns(AuthenticateResult.Success(new AuthenticationTicket(user, properties, "Cookies")));
+
+        ServiceCollection requestServices = new();
+        requestServices.AddSingleton(authenticationService);
+
+        DefaultHttpContext httpContext = new()
+        {
+            RequestServices = requestServices.BuildServiceProvider(),
+            User = user
+        };
 
         IHttpContextAccessor accessor = Substitute.For<IHttpContextAccessor>();
         accessor.HttpContext.Returns(httpContext);

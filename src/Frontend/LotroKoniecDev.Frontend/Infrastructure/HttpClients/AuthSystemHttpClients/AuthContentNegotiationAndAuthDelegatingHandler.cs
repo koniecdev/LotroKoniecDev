@@ -19,7 +19,6 @@ internal sealed class AuthContentNegotiationAndAuthDelegatingHandler : Delegatin
 {
     private const string BearerScheme = "Bearer";
     private const string AccessTokenName = "access_token";
-    private const string SubjectClaimType = "sub";
 
     private static readonly MediaTypeWithQualityHeaderValue HateoasJsonMediaType = new(MediaTypes.HateoasJson);
 
@@ -50,24 +49,22 @@ internal sealed class AuthContentNegotiationAndAuthDelegatingHandler : Delegatin
 
         HttpResponseMessage response = await base.SendAsync(request, cancellationToken);
 
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        if (response.StatusCode == HttpStatusCode.Unauthorized && !string.IsNullOrWhiteSpace(accessToken))
         {
-            await MarkSessionDeadAsync(httpContext, cancellationToken);
+            await MarkSessionDeadAsync(httpContext, accessToken, cancellationToken);
         }
 
         return response;
     }
 
-    private static async Task MarkSessionDeadAsync(HttpContext httpContext, CancellationToken cancellationToken)
+    /// <summary>Marks the token this call carried, not the user (#1061).</summary>
+    private static async Task MarkSessionDeadAsync(
+        HttpContext httpContext,
+        string accessToken,
+        CancellationToken cancellationToken)
     {
-        string? subject = httpContext.User.FindFirst(SubjectClaimType)?.Value;
-        if (string.IsNullOrWhiteSpace(subject))
-        {
-            return;
-        }
-
         IDeadSessionRegistry registry = httpContext.RequestServices
             .GetRequiredService<IDeadSessionRegistry>();
-        await registry.MarkDeadAsync(subject, cancellationToken);
+        await registry.MarkDeadAsync(accessToken, cancellationToken);
     }
 }

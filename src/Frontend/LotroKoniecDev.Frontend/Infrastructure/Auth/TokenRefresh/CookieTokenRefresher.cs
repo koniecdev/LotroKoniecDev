@@ -15,8 +15,9 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 
 /// <summary>
 /// Runs on every cookie validation (<c>OnValidatePrincipal</c>).
-/// First it reads any "dead session" marker a previous 401 left behind and signs the cookie out
-/// properly. A cookie with no expiry, no usable access token or a blank refresh token is signed out too.
+/// First it reads the "dead session" marker that an earlier refused API call may have left on this
+/// cookie's access token, and signs the cookie out properly. A cookie with no expiry, no usable access
+/// token or a blank refresh token is signed out too.
 /// Otherwise it refreshes the access token shortly before it expires, at the time
 /// <see cref="AccessTokenRefreshSchedule"/> sets, using the stored refresh token. When the token is still
 /// valid by the local clock, it also checks the token's signature against the cached OIDC keys, so a key
@@ -24,16 +25,14 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// reach the API.
 /// Every rejection sets the one-time "session expired" notice and revokes the session's refresh token
 /// (#1027). The one exception is a browser that left during the renewal, which comes back with the same
-/// token. On the user's own sign-out (<c>/auth/logout</c> and <c>/auth/local-signout</c>) it only clears the
-/// marker and checks nothing else, so it never sets the notice there, and the sign-out revokes the token
-/// itself (#964, #1027).
+/// token. On the user's own sign-out (<c>/auth/logout</c> and <c>/auth/local-signout</c>) it checks nothing,
+/// so it never sets the notice there, and the sign-out revokes the token itself (#964, #1027).
 /// </summary>
 internal sealed class CookieTokenRefresher
 {
     private const string AccessTokenName = "access_token";
     private const string RefreshTokenName = "refresh_token";
     private const string IdTokenName = "id_token";
-    private const string SubjectClaimType = "sub";
 
     private static readonly SearchValues<char> Base64UrlCharacters = SearchValues.Create(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_");
@@ -69,22 +68,22 @@ internal sealed class CookieTokenRefresher
         // Both sign-outs end the session themselves and revoke the stored refresh token (#964, #1027). A
         // refresh here would redeem that token first, and OpenIddict still accepts a redeemed token for a
         // short reuse window, so the revoke would miss the token a copied cookie holds. A failed refresh
-        // would even throw the token away. So a sign-out request is not checked at all.
+        // would even throw the token away. So a sign-out request is not checked at all. A dead-session marker
+        // stays where it is: it names this session's access token, which no later sign-in holds (#1061).
         if (IsSignOutRequest(context.HttpContext.Request))
         {
-            await ClearDeadSessionMarkerAsync(context);
             return;
         }
 
         CancellationToken cancellationToken = context.HttpContext.RequestAborted;
 
-        // The fallback path: on an earlier request the TMS delegating handler saw a 401 and marked this
-        // subject's session dead. That response may already have been streaming, so the clean sign-out
+        // The fallback path: on an earlier request an API refused this cookie's access token, and the call
+        // marked that token dead. That response may already have been streaming, so the clean sign-out
         // waits until here, where the response has not started. It runs first, so a session we know is
-        // dead never reaches the API again.
-        string? subject = GetSubject(context);
-        if (subject is not null
-            && await _deadSessionRegistry.ConsumeAsync(subject, cancellationToken))
+        // dead never reaches the API again. The marker names this cookie's token, not the user (#1061).
+        string? accessToken = context.Properties.GetTokenValue(AccessTokenName);
+        if (accessToken is not null
+            && await _deadSessionRegistry.ConsumeAsync(accessToken, cancellationToken))
         {
             LogReactiveDeadSession(_logger, null);
             await RejectAsync(context);
@@ -103,7 +102,6 @@ internal sealed class CookieTokenRefresher
             return;
         }
 
-        string? accessToken = context.Properties.GetTokenValue(AccessTokenName);
         if (!TokenRules.IsUsable(accessToken))
         {
             LogNoStoredAccessToken(_logger, null);
@@ -370,24 +368,6 @@ internal sealed class CookieTokenRefresher
 
     private static bool IsPath(PathString path, string target) =>
         path.StartsWithSegments(target, out PathString remaining) && (!remaining.HasValue || remaining == "/");
-
-    /// <summary>
-    /// A marker left behind would end the user's next sign-in, as long as it lives. It does not use the
-    /// request's cancellation token: a browser that drops the sign-out request must not stop it.
-    /// </summary>
-    private async Task ClearDeadSessionMarkerAsync(CookieValidatePrincipalContext context)
-    {
-        if (GetSubject(context) is { } subject)
-        {
-            await _deadSessionRegistry.ConsumeAsync(subject, CancellationToken.None);
-        }
-    }
-
-    private static string? GetSubject(CookieValidatePrincipalContext context)
-    {
-        string? subject = context.Principal?.FindFirst(SubjectClaimType)?.Value;
-        return string.IsNullOrWhiteSpace(subject) ? null : subject;
-    }
 
     /// <summary>
     /// Deleting the cookie is not enough: the refresh token it carries stays valid at the auth server for

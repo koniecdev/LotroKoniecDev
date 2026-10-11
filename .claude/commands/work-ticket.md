@@ -64,8 +64,7 @@ everything that matters must be committed and pushed.
    visible behaviour (a status code, a sign-out, a log level, a limit) is checked against the
    owner's rulings on the same flow first, as `/ticket` step 2 says; a conflict → `STATUS: BLOCKED`.
 2. **Ground it in the repo.** Read the areas the ticket touches; identify the nearest sibling
-   slice to mirror (here, or TheKittySaver `AdoptionSystem.API/Features/…` + the de-mediatorization
-   recipe in `docs/kittysaver-lift-map.md`).
+   slice in this repo to mirror (no fitting sibling → "Anatomy of a feature slice" in `CLAUDE.md`).
    DAT/update work → `docs/knowledge-base/` FIRST (vnum, translation survival, launch flow are
    empirically settled — never re-test). Skim `docs/adr/` for constraints.
 3. **Spec — decide the weight.** Spec-worthy (new feature, fuzzy rules, contract change) → copy

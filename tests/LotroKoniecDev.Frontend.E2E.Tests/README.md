@@ -70,5 +70,5 @@ post-action state panels (`register-success`, `confirm-email-success`). See `Inf
 
 1. Register → confirm e-mail (Mailpit link) → login (FE OIDC) → logout.
 
-> PL-only: the Auth pages and the FE nav are Polish-only (no culture routing), so — unlike
-> TheKittySaver's PL/EN matrix — there is no culture parameter.
+> PL-only: the Auth pages and the FE nav are Polish-only (no culture routing), so there is no
+> culture parameter.

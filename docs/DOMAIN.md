@@ -32,9 +32,8 @@
 
 TMS to jeden z **dwóch bounded contextów** w repo (drugim jest stabilny patcher CLI). Konteksty nie
 mają wzajemnych referencji projektowych — łączy je **wyłącznie kontrakt pliku** `||` (format
-tłumaczeń). TMS jest podniesiony 1:1 z referencyjnego `TheKittySaver` (Vertical Slice Architecture,
-domena DDD, monada `Result`, serwer OpenIddict), z **jednym odstępstwem na całe repo: brak mediatora
-(ADR-0001)**.
+tłumaczeń). TMS stoi na Vertical Slice Architecture, domenie DDD, monadzie `Result` i własnym
+serwerze OpenIddict. W całym repo **nie ma mediatora (ADR-0001)**.
 
 Kluczowe cechy:
 
@@ -49,9 +48,8 @@ Kluczowe cechy:
   `DomainErrors.*`. Guardy (`Ensure`, `ArgumentNullException`) są tylko dla błędów programisty.
 - **Brak prymitywnej obsesji.** Każdy koncept domenowy niosący ograniczenie lub tożsamość jest
   `ValueObject` albo strongly-typed ID — nigdy surowym `string`/`int`/`Guid`.
-- **Agregaty są celowo proste.** Nasze agregaty są znacznie mniejsze niż KittySaverowy `Cat` —
-  nie nadymamy ich. Brak domain eventów (świadomy non-lift, ADR-0002): rdzeniowa pętla ich nie
-  potrzebuje.
+- **Agregaty są celowo proste** — nie nadymamy ich. Brak domain eventów (świadoma decyzja,
+  ADR-0002 §5): rdzeniowa pętla ich nie potrzebuje.
 
 Kierunek zależności (warstwy TMS):
 
@@ -144,8 +142,8 @@ treści to `LotroNotationVersion` (VO w postaci kanonicznej). Status: `Unprocess
 
 `src/TranslationSystem/…Domain/Aggregates/TranslatorAggregate/Entities/Translator.cs`
 
-Lokalna dla TMS projekcja uwierzytelnionego użytkownika edytującego tłumaczenia — chudy odpowiednik
-KittySaverowego `Person`. Trzyma czytelną tożsamość renderowaną w edytorze (`DisplayName`, opcjonalny
+Lokalna dla TMS, chuda projekcja uwierzytelnionego użytkownika edytującego tłumaczenia. Trzyma
+czytelną tożsamość renderowaną w edytorze (`DisplayName`, opcjonalny
 `Email`) kluczowaną przez cross-contextowy `IdentityId` (id użytkownika z AuthSystem). **Prowizjonowany
 leniwie i idempotentnie** przy **pierwszym uwierzytelnionym żądaniu** (middleware
 `TranslatorProvisioningMiddleware`; ADR-0004 z aneksem 2026-06-24 — wcześniej dopiero przy pierwszym

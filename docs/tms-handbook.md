@@ -115,16 +115,17 @@ special tests ("parity tests") make sure the two parsers always agree.
 - There are **no production users yet**. This matters: breaking changes are still cheap, and
   several cost/risk decisions (Part 11) are made for a zero-user world on purpose.
 
-### 1.4 One inspiration and one reference
+### 1.4 One inspiration and one starting point
 
 - A **Russian community** translated LOTRO years ago with the same core technique (same native
   DLL, same fragment identity). Their experience (documented in `docs/RUSSIAN_PROJECT_RESEARCH.md`)
   confirmed the approach and warned about over-engineering.
-- The TMS architecture is **copied deliberately from a proven reference project**
-  (*TheKittySaver*, by the same author): vertical slices, domain-driven design, the Result
-  pattern, the self-hosted auth server, testing style. One rule changed repo-wide: **no mediator
-  library** (ADR-0001). Copying a proven skeleton saved months; changing one thing consciously
-  kept the design honest.
+- The TMS architecture **started as a deliberate copy of a proven earlier project** by the same
+  author: vertical slices, domain-driven design, the Result pattern, the self-hosted
+  auth server, testing style. One rule changed repo-wide: **no mediator library** (ADR-0001).
+  Copying a proven skeleton saved months; changing one thing consciously kept the design honest.
+  The copy is finished and the two code bases have gone their own ways, so this repo's own code
+  is now the only reference (ADR-0002 §4, amended 2026-10-11).
 
 ---
 
@@ -467,8 +468,8 @@ Rules that keep the model clean:
   interface, *not* an aggregate with a repository (ADR-0007). Putting it in the domain would be
   a category error.
 - Class layout follows one fixed order (constants → fields → properties → behavior methods →
-  static factory → private constructors), same as the reference project, so every aggregate file
-  reads the same way.
+  static factory → constructors → private helpers — the order in `CLAUDE.md`), so every aggregate
+  file reads the same way.
 
 ### 3.5 Repositories and the Unit of Work
 
@@ -991,8 +992,7 @@ Standard OAuth2/OIDC roles, self-hosted:
   working until they expire — the TMS does not fall over with it.
 
 Why self-hosted instead of Auth0/Entra: full control, zero per-user cost, no external
-dependency — and the module was lifted from the reference project where it was already built
-and tested. The trade-off (you own security updates and key management) was accepted
+dependency. The trade-off (you own security updates and key management) was accepted
 consciously; Part 12, question 10.
 
 ### 7.2 Tokens, keys, sessions
@@ -1323,8 +1323,7 @@ invisible until runtime, "find usages" broken, plus a vulnerable transitive depe
 what matters from CQRS — one use case = one record + one handler — and inject the **closed
 handler interface** directly. Compile-time wiring, greppable call sites, one explicit DI line
 per use case. Trade-off: no single choke-point for cross-cutting concerns — accepted, because
-validation and logging live in handlers by convention. *(ADR-0001; the KittySaver reference is
-mediator-based, so every lifted slice is consciously de-mediatorized.)*
+validation and logging live in handlers by convention. *(ADR-0001.)*
 
 **3. Why Result instead of exceptions?**
 Business failures are expected outcomes, not emergencies: "cannot approve without text" is
@@ -1374,10 +1373,10 @@ on the server. *(spec 0001)*
 
 **10. Why self-hosted OpenIddict rather than Auth0/Entra?**
 Control (custom Polish UX, custom rules like ADR-0022), zero per-user cost, no external
-dependency for a hobby-scale system — and the module was already proven in the reference
-project. Standards-compliant OIDC means swapping to a SaaS later is feasible. Owned risk: key
+dependency for a hobby-scale system. Standards-compliant OIDC means swapping to a SaaS later
+is feasible. Owned risk: key
 management and security updates are ours; mitigated by fail-fast key validation, rotation
-support, and lifted, tested code.
+support, and integration tests against the real server.
 
 **11. Why lazy provisioning instead of creating the TMS profile at registration?**
 Registration-time provisioning is a distributed transaction across two systems — if the TMS is
@@ -1420,8 +1419,8 @@ concurrency fits because conflicts are rare; locking would punish the common cas
 **16. Why HATEOAS?**
 One brain for permissions. The server computes which actions exist for *this caller* on *this
 resource in this state* and sends them as links; the UI renders only what it received. No
-duplicated role/status logic to drift, and the pattern was already the reference project's
-convention. Opt-in via a vendor media type keeps plain JSON clean for ordinary clients.
+duplicated role/status logic to drift. Opt-in via a vendor media type keeps plain JSON clean for
+ordinary clients.
 *(spec 0002)*
 
 **17. How do you *know* translations survive game updates?**
@@ -1494,12 +1493,13 @@ interface and call it directly. Why: the mediator's magic hid wiring, its pipeli
 real for us, and it dragged in a vulnerable package. Day to day: one explicit DI line per use
 case; validation returns `Result` instead of throwing.
 
-**ADR-0002 — Two bounded contexts; TMS lifted from the reference project.**
-What: patcher and TMS live in one repo but share only the `||` file format; the TMS copies
-TheKittySaver's proven patterns 1:1, then removes the mediator. Why: incompatible runtimes
+**ADR-0002 — Two bounded contexts; the TMS started from an earlier project.**
+What: patcher and TMS live in one repo but share only the `||` file format; the TMS started
+as a copy of TheKittySaver's proven patterns, without the mediator. Why: incompatible runtimes
 (Windows-native vs Linux web) and a solo maintainer's time. Amended over time: read models and
 per-system primitives joined the lift; the patcher went from "frozen" to "stable — refactor
-with care".
+with care"; and in 2026-10 TheKittySaver stopped being a reference, because the two code bases
+had gone their own ways.
 
 **ADR-0003 — One canonical form for game versions.**
 What: `48`, `48.0`, `48.0.0` are stored and compared as one value (`48`). Why: raw strings made
@@ -1664,8 +1664,7 @@ days, inside GDPR Art. 12(3)'s one month — #946),
 revokes sessions and tokens, and emails a one-time cancel link; a background finalizer performs
 the actual anonymization after the window, and cancelling forces a password reset. Why: with
 password-only confirmation, one credential-stuffing hit could irreversibly erase an account;
-the industry-standard grace window gives the legitimate owner a recovery path (ported from
-TKS ADR-0017).
+the industry-standard grace window gives the legitimate owner a recovery path.
 
 **ADR-0034 — A single Hetzner VPS instead of Azure Container Apps.**
 What: on 2026-07-12 the Azure for Students subscription was disabled — credits exhausted, renewal

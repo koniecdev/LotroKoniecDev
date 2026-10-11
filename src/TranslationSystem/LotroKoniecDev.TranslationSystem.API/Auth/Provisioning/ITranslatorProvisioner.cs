@@ -5,7 +5,7 @@ namespace LotroKoniecDev.TranslationSystem.API.Auth.Provisioning;
 
 /// <summary>
 /// Creates the TMS-side <c>Translator</c> for the authenticated caller when it is first needed, and it
-/// is safe to call twice (ADR-0004, the pattern from KittySaver ADR-0007 §4). It returns the existing
+/// is safe to call twice (ADR-0004). It returns the existing
 /// <see cref="TranslatorId"/> when a row for the caller's identity is already there, and otherwise
 /// creates one from the current claims.
 /// The provisioning middleware calls it on the caller's first authenticated request (ADR-0004, amended

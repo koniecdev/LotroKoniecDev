@@ -8,7 +8,7 @@ namespace LotroKoniecDev.Architecture.Tests.Unit.Tests;
 /// PostgreSQL, and the POCO read models stay free of the EF configurations that map them.
 /// </summary>
 /// <remarks>
-/// <c>AuthSystem.Domain</c> is deliberately out of scope: it is a wholesale lift of an ASP.NET Core
+/// <c>AuthSystem.Domain</c> is deliberately out of scope: it is built on the ASP.NET Core
 /// Identity model (<c>ApplicationUser : IdentityUser&lt;Guid&gt;</c>), so the Identity EF Core package IS
 /// its domain vocabulary. Removing it would mean rewriting the auth server, not fixing a leak.
 /// </remarks>

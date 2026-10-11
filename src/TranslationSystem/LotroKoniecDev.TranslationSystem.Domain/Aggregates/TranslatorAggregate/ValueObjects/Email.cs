@@ -8,7 +8,7 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate
 /// <summary>
 /// A translator's email, taken from the authenticated <c>email</c> claim. The claim can be missing,
 /// so <see cref="Entities.Translator"/> keeps it optional and callers build this type only when there
-/// is a value. The format check mirrors KittySaver's <c>Email</c> value object.
+/// is a value.
 /// </summary>
 public sealed partial class Email : ValueObject
 {

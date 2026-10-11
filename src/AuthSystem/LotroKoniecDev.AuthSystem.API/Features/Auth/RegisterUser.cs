@@ -225,8 +225,7 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 // transaction could arrive while there is still nothing to see (ADR-0035).
                 _outboxWriter.NotifyEnqueuedCommitted();
 
-                // No profile is created in the other context here. The KittySaver
-                // RegisterUser to CreatePerson saga was left out on purpose: the translator profile is
+                // No profile is created in the other context here, on purpose: the translator profile is
                 // created on the first authenticated TranslationSystem request, and creating it twice
                 // is safe (ADR-0002 §7).
                 return IdentityId.Create(user.Id);

@@ -399,8 +399,8 @@ in**; lockout is **5 failed attempts / 5 min**.
 > and to every failed sign-in on `/Account/Login` that shows the general message. A malformed request
 > is refused at once.
 
-> **No registration saga.** Registering creates only the AuthSystem user (ADR-0002 §7 / ADR-0004) —
-> the KittySaver `RegisterUser → CreatePerson` saga is deliberately **not** lifted. The TMS
+> **No registration saga.** Registering creates only the AuthSystem user (ADR-0002 §7 / ADR-0004).
+> On purpose, it does **not** create the TMS profile in the same step. The TMS
 > `Translator` profile is provisioned lazily and idempotently on the caller's first authenticated
 > request to `tms-api` (§2.2).
 

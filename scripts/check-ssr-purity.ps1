@@ -21,9 +21,9 @@
     CLAUDE.md states the rule in prose; this script enforces it. CI runs the .sh; this
     .ps1 is the local twin for Windows devs — keep the two in sync.
 
-    Lifted from TheKittySaver with ONE deliberate deviation: @onsubmit is allowed. It is
-    the documented Static-SSR special exception — "always functional, regardless of render
-    mode" — and is how Editor.razor posts forms (<form method="post" @formname @onsubmit>).
+    ONE deliberate exception: @onsubmit is allowed. It is the documented Static-SSR special
+    case — "always functional, regardless of render mode" — and is how Editor.razor posts
+    forms (<form method="post" @formname @onsubmit>).
     Every other @on* handler (onclick/onchange/oninput/...) is dead in SSR and stays forbidden.
 #>
 

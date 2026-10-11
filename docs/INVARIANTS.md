@@ -243,7 +243,7 @@ all-or-nothing, idempotentny re-upload). Błędy importu = `DataConflict` → **
 
 ## 11. AuthSystem — uwierzytelnianie
 
-Lifted wholesale (OpenIddict + ASP.NET Identity). Pełna narracja: [auth-tutorial.md](auth-tutorial.md).
+Własny serwer OpenIddict + ASP.NET Identity. Pełna narracja: [auth-tutorial.md](auth-tutorial.md).
 
 | # | Invariant | Reguła | Lokalizacja |
 |---|-----------|--------|-------------|
@@ -275,9 +275,8 @@ Lifted wholesale (OpenIddict + ASP.NET Identity). Pełna narracja: [auth-tutoria
   bezużyteczny jako wersja treści (knowledge base).
 - **⚠️ Masowe usunięcie 20% (INV-7.6).** Próg domyślny, override przez `allowMassRemoval=true` —
   truncowany/częściowy export nie może udawać masowego usunięcia (spec 0001 Q4).
-- **⚠️ Nowy user = `Translator`, nie `User` (INV-11.4).** Role to `Admin`/`Translator` (nie
-  KittySaverowe `Admin`/`User`/`Moderator`).
-- **⚠️ Brak sagi rejestracji (INV-11.8).** Świadomy non-lift — `Translator` prowizjonowany leniwie.
+- **⚠️ Nowy user = `Translator`, nie `User` (INV-11.4).** Role to tylko `Admin`/`Translator`.
+- **⚠️ Brak sagi rejestracji (INV-11.8).** Świadoma decyzja — `Translator` prowizjonowany leniwie.
 - **Jeden enum zamiast bool+flaga.** `TranslationStatus` i `GameVersionStatus` kodują pełny cykl życia
   w jednym enumie — nielegalne kombinacje niereprezentowalne (spec 0001 Q6).
 - **Projekcja ≠ agregat (INV-5.1).** `PrecomputedTranslationFile` to `Entity` za `Store`, nie agregat

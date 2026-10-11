@@ -8,9 +8,8 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
 
 /// <summary>
-/// The TMS-side profile of an authenticated user who edits translations (ADR-0004). It is the small
-/// counterpart to KittySaver's <c>Person</c> and holds the name the editor shows
-/// (<see cref="DisplayName"/> and an optional <see cref="Email"/>), keyed by the
+/// The TMS-side profile of an authenticated user who edits translations (ADR-0004). It holds the name
+/// the editor shows (<see cref="DisplayName"/> and an optional <see cref="Email"/>), keyed by the
 /// <see cref="IdentityId"/> that the AuthSystem owns.
 /// The profile is created on the user's first authenticated request, and creating it twice is safe
 /// (ADR-0004, amended 2026-06-24). So a user who registered and logged in has a profile before any

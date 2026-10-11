@@ -139,7 +139,7 @@ handled, nor impossible-by-construction, nor another part's job** is a finding.
 6. **Idempotency & repeat operations** — running the same operation twice has a *defined* outcome:
    re-importing the same `exported.txt`, re-approving an already-approved row, upserting an
    existing translation; the lazy translator-profile provisioning must be idempotent under
-   concurrent first requests (no double-insert — KittySaver ADR-0007 §4).
+   concurrent first requests (no double-insert — ADR-0004 §3).
 7. **State & lifecycle (spec 0001)** — operating on an entity in the wrong state (approving an
    invalidated row, importing against a stale/frozen `GameVersion`); invalidation correctness: a
    *changed* source row must invalidate its translation and a *survives* the distributed file,

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -44,8 +45,8 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
     private static readonly Uri TokenEndpoint = new($"{Issuer}/connect/token");
     private static readonly Uri UserInfoEndpoint = new($"{Issuer}/connect/userinfo");
     private static readonly Uri GameVersionsHref = new($"{TmsOrigin}/advertised/game-versions");
-    private static readonly Uri ImportHref = new($"{TmsOrigin}/advertised/import-into/48");
     private static readonly GameVersionId GameVersion = GameVersionId.Create(Guid.NewGuid());
+    private static readonly GameVersionId OtherGameVersion = GameVersionId.Create(Guid.NewGuid());
 
     /// <summary>The options the Frontend reads the TMS answers with (HttpClientApiExtensions).</summary>
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
@@ -73,7 +74,7 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
         int listLoadsBeforePost = translationSystem.GameVersionsLoads;
 
         // Act
-        using HttpResponseMessage posted = await SendAsync(browser, ImportPost(antiforgeryToken));
+        using HttpResponseMessage posted = await SendAsync(browser, ImportPost(antiforgeryToken, GameVersion));
 
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
@@ -100,7 +101,7 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
         using HttpClient browser = CreateBrowser(host);
         await SignInAsync(browser, signInServer);
         string antiforgeryToken = await LoadImportFormAsync(browser);
-        using HttpResponseMessage posted = await SendAsync(browser, ImportPost(antiforgeryToken));
+        using HttpResponseMessage posted = await SendAsync(browser, ImportPost(antiforgeryToken, GameVersion));
         Uri redirectedTo = posted.Headers.Location
             ?? throw new InvalidOperationException($"The import answered {posted.StatusCode} with no redirect.");
 
@@ -117,6 +118,31 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
     }
 
     [Fact]
+    public async Task Post_FromTheRedirectAfterAnImport_SendsTheFileToTheVersionTheAdminChoseNow()
+    {
+        // Arrange: the form posts to the address the redirect left, which names the last import's version.
+        // The version posted with the form must win, or the next file lands in the last version (#933).
+        StubTranslationSystem translationSystem = new(ImportAnswer.Accepted(new ImportSummary(1, 0, 0, 0, 0, 0, [])));
+        StubSignInServer signInServer = new(_signingKey);
+        using WebApplicationFactory<Program> host = CreateHost(signInServer, translationSystem);
+        using HttpClient browser = CreateBrowser(host);
+        await SignInAsync(browser, signInServer);
+        using HttpResponseMessage firstImport = await SendAsync(
+            browser, ImportPost(await LoadImportFormAsync(browser), OtherGameVersion));
+        string redirectedTo = firstImport.Headers.Location?.OriginalString
+            ?? throw new InvalidOperationException($"The first import answered {firstImport.StatusCode} with no redirect.");
+        string antiforgeryToken = await LoadImportFormAsync(browser, redirectedTo);
+
+        // Act
+        using HttpResponseMessage secondImport = await SendAsync(
+            browser, ImportPost(antiforgeryToken, GameVersion, redirectedTo));
+
+        // Assert
+        secondImport.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        translationSystem.ImportedInto.ShouldBe([OtherGameVersion.Value, GameVersion.Value]);
+    }
+
+    [Fact]
     public async Task Post_WhenTheImportIsRefused_ShowsTheProblemWithoutARedirectOrASecondListLoad()
     {
         // Arrange: a refused import changes nothing, so the list loaded at the start of the request stays.
@@ -130,7 +156,7 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
         int listLoadsBeforePost = translationSystem.GameVersionsLoads;
 
         // Act
-        using HttpResponseMessage posted = await SendAsync(browser, ImportPost(antiforgeryToken));
+        using HttpResponseMessage posted = await SendAsync(browser, ImportPost(antiforgeryToken, GameVersion));
 
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -216,9 +242,9 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
         }
     }
 
-    private async Task<string> LoadImportFormAsync(HttpClient browser)
+    private async Task<string> LoadImportFormAsync(HttpClient browser, string pageUri = "/import-export")
     {
-        using HttpResponseMessage form = await SendAsync(browser, new HttpRequestMessage(HttpMethod.Get, "/import-export"));
+        using HttpResponseMessage form = await SendAsync(browser, new HttpRequestMessage(HttpMethod.Get, pageUri));
         string page = await form.Content.ReadAsStringAsync();
         Match antiforgeryToken = AntiforgeryTokenInput().Match(page);
 
@@ -227,7 +253,10 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
             : throw new InvalidOperationException($"The import page answered {form.StatusCode} with no import form.");
     }
 
-    private static HttpRequestMessage ImportPost(string antiforgeryToken)
+    private static HttpRequestMessage ImportPost(
+        string antiforgeryToken,
+        GameVersionId gameVersion,
+        string pageUri = "/import-export")
     {
         ByteArrayContent file = new("1||1||Hello||NULL||NULL||0000000000000000\n"u8.ToArray());
         file.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
@@ -236,11 +265,11 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
         {
             { new StringContent("import-export"), "_handler" },
             { new StringContent(antiforgeryToken), "__RequestVerificationToken" },
-            { new StringContent(GameVersion.Value.ToString()), "ImportInput.GameVersionId" },
+            { new StringContent(gameVersion.Value.ToString()), "ImportInput.GameVersionId" },
             { file, "ImportInput.File", "exported.txt" }
         };
 
-        return new HttpRequestMessage(HttpMethod.Post, "/import-export") { Content = content };
+        return new HttpRequestMessage(HttpMethod.Post, pageUri) { Content = content };
     }
 
     /// <summary>A browser with a plain cookie jar: it keeps what the server sets and sends it back.</summary>
@@ -353,14 +382,20 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
 
     /// <summary>
     /// The translation API as the Frontend's typed client sees it: the service document, the version list
-    /// with one version an admin may import into, and that version's import link.
+    /// with two versions an admin may import into, and each version's own import link.
     /// </summary>
     private sealed class StubTranslationSystem : HttpMessageHandler
     {
+        private const string ImportHrefPrefix = $"{TmsOrigin}/advertised/import-into/";
+
         private readonly ImportAnswer _importAnswer;
+        private readonly ConcurrentQueue<Guid> _importedInto = new();
         private int _gameVersionsLoads;
 
         public int GameVersionsLoads => _gameVersionsLoads;
+
+        /// <summary>The versions the imports went into, in order, read from the import link each one followed.</summary>
+        public IReadOnlyList<Guid> ImportedInto => [.. _importedInto];
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -378,7 +413,8 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
                     ]
                 }),
                 { } path when path == GameVersionsHref.AbsoluteUri => LoadGameVersions(),
-                { } path when path == ImportHref.AbsoluteUri => Import(),
+                { } path when path.StartsWith(ImportHrefPrefix, StringComparison.Ordinal) =>
+                    Import(Guid.Parse(path[ImportHrefPrefix.Length..])),
                 _ => new HttpResponseMessage(HttpStatusCode.NotFound)
             };
 
@@ -396,19 +432,22 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
 
             return Json(new CollectionResponse<GameVersionResponse>
             {
-                Items =
-                [
-                    new GameVersionResponse(GameVersion, "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed)
-                    {
-                        Links = [new LinkDto(ImportHref.AbsoluteUri, Rels.Import, "POST")]
-                    }
-                ],
+                Items = [ImportableVersion(OtherGameVersion, "48.1"), ImportableVersion(GameVersion, "48.0")],
                 Links = [new LinkDto(GameVersionsHref.AbsoluteUri, Rels.Register, "POST")]
             });
         }
 
-        private HttpResponseMessage Import() =>
-            _importAnswer.Summary is { } summary
+        private static GameVersionResponse ImportableVersion(GameVersionId id, string version) =>
+            new(id, version, DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed)
+            {
+                Links = [new LinkDto($"{ImportHrefPrefix}{id.Value}", Rels.Import, "POST")]
+            };
+
+        private HttpResponseMessage Import(Guid gameVersionId)
+        {
+            _importedInto.Enqueue(gameVersionId);
+
+            return _importAnswer.Summary is { } summary
                 ? Json(summary)
                 : new HttpResponseMessage(HttpStatusCode.UnprocessableEntity)
                 {
@@ -421,6 +460,7 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
                         },
                         mediaType: new MediaTypeHeaderValue("application/problem+json"))
                 };
+        }
 
         private static HttpResponseMessage Json<T>(T body) =>
             new(HttpStatusCode.OK)

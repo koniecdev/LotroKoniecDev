@@ -217,9 +217,9 @@ protected with the website's Data Protection keys. So a link that someone else w
 text on the page nor choose the version for the next upload, and the page still says the import
 worked when the new request cannot load the list. A refused import makes no second call: the import
 is all or nothing, so the list loaded at the start of the request is still right. After a timeout the
-import may still finish on the TMS, and a reload shows it. The owner ruled out the other ways on #933: no exception to the dead-session marker,
-and no renewal in the middle of a request. If an import ever takes hours, the answer is a background
-job, not a longer token.
+import may still finish on the TMS, and a reload shows it. The owner ruled out the other ways on
+#933: no exception to the dead-session marker, and no renewal in the middle of a request. If an
+import ever takes hours, the answer is a background job, not a longer token.
 
 One case stays open in #1120. The browser sends the whole `exported.txt`, about 80 MB, before the
 page makes its first call to the TMS. When that upload takes longer than the token has left, which

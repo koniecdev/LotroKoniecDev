@@ -30,7 +30,8 @@ everything that matters must be committed and pushed.
 - A question that is a **genuine business decision** (boundary behavior, UX wording, scope cut,
   contract shape not derivable from anything) — **STOP and return `STATUS: BLOCKED`** with the 3-5
   questions. A wrong guess costs the owner a review round and a rework; a paused ticket costs
-  nothing.
+  nothing. "The owner decides" in a ticket is such a question: never pick the strictest option as
+  "the ticket's default" (PR #1063).
 
 ## The loop (do not skip steps)
 
@@ -53,9 +54,12 @@ everything that matters must be committed and pushed.
    locate the defect in code and explain the mechanism; feature → confirm the gap still exists
    (recently merged PRs in the area) and that nothing above contradicts it. A
    `<!-- preflight-verdict -->` comment on the issue counts as this done. Premise false, already
-   shipped, a duplicate, or a wiki ↔ product disagreement (never settled inside a run — the owner
-   rules in the wiki first) → `STATUS: BLOCKED` (category: false-premise) with the evidence — a
-   wrong ticket is not implemented because it exists.
+   shipped, a duplicate, a check that ADR-0067 gives to another part (its only trigger is one of our
+   own parts breaking its contract), or a wiki ↔ product disagreement (never settled inside a run —
+   the owner rules in the wiki first) → `STATUS: BLOCKED` (category: false-premise) with the
+   evidence — a wrong ticket is not implemented because it exists. An acceptance criterion that sets
+   visible behaviour (a status code, a sign-out, a log level, a limit) is checked against the
+   owner's rulings on the same flow first, as `/ticket` step 2 says; a conflict → `STATUS: BLOCKED`.
 2. **Ground it in the repo.** Read the areas the ticket touches; identify the nearest sibling
    slice to mirror (here, or TheKittySaver `AdoptionSystem.API/Features/…` + the de-mediatorization
    recipe in `docs/kittysaver-lift-map.md`).
@@ -82,7 +86,8 @@ everything that matters must be committed and pushed.
    **`code-reviewer`** agent with the ticket's acceptance criteria; fix every finding; repeat until
    **APPROVE**. Then the second pass, exactly as `/ticket` step 7 has it: run `/code-review` on the
    branch (a fresh context that never saw your plan), sort every finding into the four buckets of
-   `/ticket` step 7 and put the split in the report's Proof. Fix bucket 1. File bucket 2 by the
+   `/ticket` step 7 (whose job the check is comes first: ADR-0067) and put the split in the
+   report's Proof. Fix bucket 1. File bucket 2 by the
    one-bug-class rule of `/ticket` step 7. A new follow-up ticket, and an open ticket that gets a
    case added, both get the `audit` label as well, because nobody checked the case live and the
    owner triages it before the loop may pick it up. Then re-run the build and the whole suite on

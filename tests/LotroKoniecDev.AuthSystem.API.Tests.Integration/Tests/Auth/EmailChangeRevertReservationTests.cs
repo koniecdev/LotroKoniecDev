@@ -359,7 +359,6 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
                 email,
                 Password,
                 AcceptedPrivacyPolicy: true,
-                AcceptedDataProcessingConsent: true,
                 AcceptedTermsOfService: true));
 
     private async Task<HttpResponseMessage> RequestChangeAsync(string accessToken, string newEmail)

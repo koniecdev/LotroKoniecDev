@@ -383,9 +383,12 @@ cancellation link's landing page — LEGAL-01).
 | `POST` | `auth/account/data-export` | bearer token, rate-limited | `DownloadAccountDataRequest { password }` → **200** `AccountDataExportResponse` without links — the **GDPR Art. 15 export**, contact details included, handed over only behind the current password (#690, ADR-0052). Wrong password → **400** `Auth.InvalidCurrentPassword`, none sent → **400** `Auth.ExportPasswordRequired`; every attempt that reaches the password check is written to the audit log (a throttled or unauthenticated request never gets that far) |
 | `GET` | `/` | anonymous | discovery document (links into the auth flows) |
 
-`RegisterRequest`: `{ username, email, password, acceptedPrivacyPolicy, acceptedDataProcessingConsent,
-acceptedTermsOfService }`. All three consent flags **must be `true`** (the ToS flag landed with
-LEGAL-03; acceptance + timestamp are persisted and surface in the data export). Password rules (`PasswordValidationRules.cs`, lengths in `PasswordConstants.cs`): **8–128** chars,
+`RegisterRequest`: `{ username, email, password, acceptedPrivacyPolicy, acceptedTermsOfService }`.
+Both flags **must be `true`** (the ToS flag landed with LEGAL-03; acceptance + timestamp are persisted
+and surface in the data export). There is no data-processing consent: the account runs on the
+contract, not on consent (#1073), so registration neither asks for one nor stores one. The data export
+still carries `dataProcessingConsentGiven`/`dataProcessingConsentDate`, which only older accounts have
+set, until the column is dropped (ADR-0023). Password rules (`PasswordValidationRules.cs`, lengths in `PasswordConstants.cs`): **8–128** chars,
 ≥1 digit, ≥1 lowercase, ≥1 uppercase, ≥1 special. Email unique (case-insensitively, physical via the
 unique `EmailIndex`), ≤ 250, regex-validated — **the e-mail is the login identifier** (ADR-0022).
 Username is a **display-only handle**: unique (case-insensitively), `^[a-zA-Z0-9]+$` (letters + digits

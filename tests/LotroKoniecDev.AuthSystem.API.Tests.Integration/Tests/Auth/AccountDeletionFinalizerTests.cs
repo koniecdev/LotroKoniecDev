@@ -48,6 +48,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     {
         // Arrange
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await GiveTheDataProcessingConsentAsAnOlderAccountDidAsync(identityId.Value);
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
 
         // Act
@@ -1596,6 +1597,22 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         TimeSpan gracePeriod = Factory.Services.GetRequiredService<IOptions<GdprSettings>>().Value.DeletionGracePeriod;
         await BackdateScheduleAsync(userId, gracePeriod - TimeSpan.FromHours(1));
         return new FakeTimeProvider(DateTimeOffset.UtcNow + TimeSpan.FromHours(2));
+    }
+
+    /// <summary>
+    /// Registration stopped asking for this consent in #1073, but accounts made before that still hold
+    /// it, and the erasure has to clear it.
+    /// </summary>
+    private async Task GiveTheDataProcessingConsentAsAnOlderAccountDidAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        DateTimeOffset givenAt = DateTimeOffset.UtcNow;
+        await db.Users
+            .Where(user => user.Id == userId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(user => user.DataProcessingConsentGiven, true)
+                .SetProperty(user => user.DataProcessingConsentDate, givenAt));
     }
 
     private async Task<(RegisterRequest Request, IdentityId IdentityId)> RegisterAndScheduleDeletionAsync()

@@ -9,7 +9,6 @@ Content-Type: application/json
   "email": "testuser@example.com",
   "password": "Test@12345",
   "acceptedPrivacyPolicy": true,
-  "acceptedDataProcessingConsent": true,
   "acceptedTermsOfService": true
 }
 

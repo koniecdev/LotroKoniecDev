@@ -36,7 +36,9 @@ public sealed class ExportAccountDataEndpointTests : EndpointsTestBase
         JsonElement authData = json.RootElement.GetProperty("authData");
         authData.GetProperty("username").GetString().ShouldBe(registerRequest.Username);
         authData.GetProperty("email").GetString().ShouldBe(registerRequest.Email);
-        authData.GetProperty("dataProcessingConsentGiven").GetBoolean().ShouldBeTrue();
+        // Registration asks for no data-processing consent since #1073; the field stays for older accounts.
+        authData.GetProperty("dataProcessingConsentGiven").GetBoolean().ShouldBeFalse();
+        authData.GetProperty("dataProcessingConsentDate").ValueKind.ShouldBe(JsonValueKind.Null);
         authData.GetProperty("privacyPolicyAccepted").GetBoolean().ShouldBeTrue();
         authData.GetProperty("termsOfServiceAccepted").GetBoolean().ShouldBeTrue();
         authData.GetProperty("termsOfServiceAcceptedDate").ValueKind.ShouldNotBe(JsonValueKind.Null);

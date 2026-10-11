@@ -4,6 +4,11 @@ namespace LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 
 public sealed class ApplicationUser : IdentityUser<Guid>
 {
+    /// <summary>
+    /// The consent registration asked for until #1073. The account runs on the contract, not on consent,
+    /// so registration no longer sets it. It only keeps what older accounts gave, until the column is
+    /// dropped in a later expand/contract step (ADR-0023).
+    /// </summary>
     public bool DataProcessingConsentGiven { get; set; }
     public DateTimeOffset? DataProcessingConsentDate { get; set; }
     public bool PrivacyPolicyAccepted { get; set; }

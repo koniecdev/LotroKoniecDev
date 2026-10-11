@@ -1,9 +1,11 @@
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
+using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 
@@ -44,7 +46,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             existingRequest.Email,
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true,
             AcceptedTermsOfService: true);
 
         // Act
@@ -96,7 +97,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             caseVariantEmail,
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true,
             AcceptedTermsOfService: true);
 
         // Act
@@ -121,7 +121,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             Faker.Internet.Email(),
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true,
             AcceptedTermsOfService: true);
 
         // Act
@@ -147,7 +146,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             Faker.Internet.Email(),
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true,
             AcceptedTermsOfService: true);
 
         // Act
@@ -178,7 +176,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             Faker.Internet.Email(),
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true,
             AcceptedTermsOfService: true);
 
         // Act
@@ -204,7 +201,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             Faker.Internet.Email(),
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true,
             AcceptedTermsOfService: true);
 
         // Act
@@ -225,7 +221,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             Faker.Internet.Email(),
             "TestPass1!",
             AcceptedPrivacyPolicy: false,
-            AcceptedDataProcessingConsent: true,
             AcceptedTermsOfService: true);
 
         // Act
@@ -245,7 +240,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             Faker.Internet.Email(),
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true,
             AcceptedTermsOfService: false);
 
         // Act
@@ -256,6 +250,42 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         string content = await response.Content.ReadAsStringAsync();
         content.ShouldContain("You must accept the terms of service to register.");
+    }
+
+    /// <summary>
+    /// The account runs on the contract, so registration neither asks for a data-processing consent nor
+    /// stores one, whatever an older client still sends for it (#1073).
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Register_ShouldStoreNoDataProcessingConsent_WhenTheClientSendsAnyValueOrNone(
+        bool? acceptedDataProcessingConsent)
+    {
+        // Arrange
+        RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
+        JsonObject body = JsonSerializer.SerializeToNode(request, ApiClient.JsonOptions)!.AsObject();
+        if (acceptedDataProcessingConsent is { } sentValue)
+        {
+            body["acceptedDataProcessingConsent"] = sentValue;
+        }
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), body);
+
+        // Assert
+        await response.EnsureSuccessWithDetailsAsync();
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        ApplicationUser user = await db.Users
+            .AsNoTracking()
+            .SingleAsync(candidate => candidate.UserName == request.Username);
+        user.DataProcessingConsentGiven.ShouldBeFalse();
+        user.DataProcessingConsentDate.ShouldBeNull();
     }
 
     [Fact]

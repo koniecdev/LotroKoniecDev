@@ -230,7 +230,8 @@ które w id tokenie. `sub`/`email`/`name`/`role` idą do obu.
 `POST auth/register` (`RegisterUser.cs`, `AllowAnonymous`, rate-limited):
 1. walidacja (email unikalny/regex ≤250 — **to e-mail jest loginem**, ADR-0022; username: unikalny
    handle wyłącznie do wyświetlania, `^[a-zA-Z0-9]+$` ≤150 — `UsernameConstants`; hasło 8–128 +
-   złożoność, **wszystkie trzy zgody `true`** — privacy, data-processing i ToS od LEGAL-03);
+   złożoność, **obie akceptacje `true`** — privacy i ToS od LEGAL-03; zgody na przetwarzanie danych
+   nie ma od #1073);
 2. `userManager.CreateAsync` → przypisanie roli **`Translator`** (`:138-139`);
 3. wysyłka maila potwierdzającego; gdy mail padnie → **fallback auto-confirm** (`:146-155`);
 4. zwraca **201** z gołym `IdentityId`.
@@ -469,8 +470,9 @@ HTTPS. Dev/test i wewnętrzne `http://…:8080` (compose) wyłączają wymóg.
 trafiają w to samo cookie). 8 h sliding.
 
 ### 10.7 Wymaganie zgód RODO przy rejestracji i kasowanie konta
-`RegisterUser.cs:49-57`: `acceptedPrivacyPolicy`, `acceptedDataProcessingConsent` i (od LEGAL-03)
-`acceptedTermsOfService` **muszą być `true`**, data każdej zgody stemplowana na `ApplicationUser`.
+`RegisterUser.cs:52-56`: `acceptedPrivacyPolicy` i (od LEGAL-03) `acceptedTermsOfService` **muszą być
+`true`**, data każdej akceptacji stemplowana na `ApplicationUser`. Zgody na przetwarzanie danych nie ma
+od #1073: konto działa na podstawie umowy, a nie zgody, więc rejestracja o nią nie pyta.
 `DeleteAccount` **planuje** kasowanie RODO z 14-dniowym oknem anulowania (ADR-0031): konto
 zablokowane na czas okna, sesje i tokeny rewokowane, jednorazowy link anulowania mailem;
 erasure wykonuje finalizer po upływie okna (usuwa też zapisane sesje cookie `auth-api` — ADR-0062),

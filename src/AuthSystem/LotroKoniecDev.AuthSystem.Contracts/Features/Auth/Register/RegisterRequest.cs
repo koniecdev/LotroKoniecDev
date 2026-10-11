@@ -5,5 +5,4 @@ public sealed record RegisterRequest(
     string Email,
     string Password,
     bool AcceptedPrivacyPolicy,
-    bool AcceptedDataProcessingConsent,
     bool AcceptedTermsOfService);

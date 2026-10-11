@@ -326,6 +326,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Hasło może mieć co najwyżej 128 znaków.");
+        html.ShouldNotContain("Passwords must");
         html.ShouldContain("data-testid=\"reset-password-submit\"");
         (await PasswordWorksAsync(registerRequest.Email, originalPassword)).ShouldBeTrue();
     }
@@ -373,6 +374,32 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         html.ShouldContain("Hasło musi zawierać znak specjalny.");
         html.ShouldContain("Hasło musi zawierać cyfrę.");
         html.ShouldContain("Hasło musi zawierać wielką literę.");
+        html.ShouldNotContain("Passwords must");
+    }
+
+    /// <summary>
+    /// The breach check skips a password that breaks the policy, but the length limit is a separate
+    /// validator. So an over-long password can also be found in a breach, and the page names both.
+    /// </summary>
+    [Fact]
+    public async Task ResetPasswordPage_Post_ShouldNameTheLengthAndTheLeak_WhenAnOverLongPasswordIsAlsoInDataBreaches()
+    {
+        string newPassword = PasswordOfLength(PasswordConstants.MaxLength + 1);
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        Factory.PwnedPasswords.MarkBreached(newPassword);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToResetPasswordPageAsync(
+            browser, ResetForm(registerRequest.Email, resetToken, newPassword));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Hasło może mieć co najwyżej 128 znaków.");
+        html.ShouldContain("To hasło pojawiło się w wyciekach danych, wybierz inne.");
+        html.ShouldNotContain("Passwords must");
+        html.ShouldNotContain("known data breaches");
     }
 
     [Fact]

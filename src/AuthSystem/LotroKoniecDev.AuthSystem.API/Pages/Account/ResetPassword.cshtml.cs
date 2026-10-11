@@ -17,7 +17,11 @@ internal sealed partial class ResetPasswordModel : PageModel
 
     private const string BreachedPasswordMessage = "To hasło pojawiło się w wyciekach danych, wybierz inne.";
 
-    private const string GeneralRefusalMessage = "Upewnij się, że hasło spełnia wymagania, i spróbuj ponownie.";
+    /// <summary>
+    /// Every password rule has its own sentence, so only a failed save or another account rule gets here.
+    /// The link is still good, so trying again with the same password can work.
+    /// </summary>
+    private const string GeneralRefusalMessage = "Spróbuj jeszcze raz. Jeśli błąd się powtórzy, napisz do nas.";
 
     /// <summary>
     /// A hash computed up front, so every path verifies exactly one hash.

@@ -1,9 +1,7 @@
 using LotroKoniecDev.AuthSystem.API.Pages.Account;
-using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
-using LotroKoniecDev.AuthSystem.Persistence.Identity;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -16,16 +14,14 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Pages.Account;
 
 /// <summary>
 /// Identity writes its errors in English, and the page must never print that text (#1076). The
-/// integration suite covers the rules the real policy refuses. These cases need an answer the real stack
-/// gives only in a race or a rare mix, so the store and a validator give it here.
+/// integration suite covers the rules the real policy refuses. A refusal from the save comes only in a
+/// race, so the store gives it here.
 /// </summary>
 public sealed class ResetPasswordModelTests
 {
     private const string Email = "frodo@shire.me";
     private const string NewPassword = "NewPass99!";
-    private const string EnglishDescription = "Optimistic concurrency failure, object has been modified.";
-    private const string GeneralMessage = "Upewnij się, że hasło spełnia wymagania, i spróbuj ponownie.";
-    private const string TooLongMessage = "Hasło może mieć co najwyżej 128 znaków.";
+    private const string GeneralMessage = "Spróbuj jeszcze raz. Jeśli błąd się powtórzy, napisz do nas.";
 
     private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(5);
 
@@ -35,8 +31,6 @@ public sealed class ResetPasswordModelTests
         IUserPasswordStore<ApplicationUser>>();
     private readonly IUserTwoFactorTokenProvider<ApplicationUser> _tokenProvider =
         Substitute.For<IUserTwoFactorTokenProvider<ApplicationUser>>();
-    private readonly IPasswordValidator<ApplicationUser> _passwordValidator =
-        Substitute.For<IPasswordValidator<ApplicationUser>>();
 
     [Theory]
     [InlineData("ConcurrencyFailure")]
@@ -47,12 +41,7 @@ public sealed class ResetPasswordModelTests
     {
         // Arrange
         ArrangeAccountWithAGoodLink();
-        _passwordValidator
-            .ValidateAsync(Arg.Any<UserManager<ApplicationUser>>(), Arg.Any<ApplicationUser>(), Arg.Any<string?>())
-            .Returns(IdentityResult.Success);
-        _store
-            .UpdateAsync(Arg.Any<ApplicationUser>(), Arg.Any<CancellationToken>())
-            .Returns(IdentityResult.Failed(new IdentityError { Code = code, Description = EnglishDescription }));
+        ArrangeSaveRefusal(code);
         ResetPasswordModel sut = CreatePostingSut();
 
         // Act
@@ -63,45 +52,29 @@ public sealed class ResetPasswordModelTests
     }
 
     [Fact]
-    public async Task OnPostAsync_ShouldNameTheRuleAndAddTheGeneralMessageOnce_WhenOtherCodesHaveNoPolishText()
+    public async Task OnPostAsync_ShouldShowTheGeneralMessageOnce_WhenSeveralCodesHaveNoPolishText()
     {
         // Arrange
         ArrangeAccountWithAGoodLink();
-        ArrangePasswordRefusal(PasswordMaxLengthValidator.ErrorCode, "FirstUnknownCode", "SecondUnknownCode");
+        ArrangeSaveRefusal("InvalidUserName", "DuplicateEmail");
         ResetPasswordModel sut = CreatePostingSut();
 
         // Act
         await PostAsync(sut);
 
         // Assert
-        sut.ErrorMessage.ShouldBe(TooLongMessage + " " + GeneralMessage);
+        sut.ErrorMessage.ShouldBe(GeneralMessage);
     }
 
     /// <summary>
-    /// The breach check skips a password that breaks the policy, but the length limit is a separate
-    /// validator. So an over-long password can also be found in a breach, and the page names both.
+    /// The general message asks for another try, so the form has to stay for it.
     /// </summary>
-    [Fact]
-    public async Task OnPostAsync_ShouldNameTheLengthAndTheLeak_WhenAnOverLongPasswordIsAlsoInDataBreaches()
-    {
-        // Arrange
-        ArrangeAccountWithAGoodLink();
-        ArrangePasswordRefusal(PasswordMaxLengthValidator.ErrorCode, BreachedPasswordValidator.ErrorCode);
-        ResetPasswordModel sut = CreatePostingSut();
-
-        // Act
-        await PostAsync(sut);
-
-        // Assert
-        sut.ErrorMessage.ShouldBe(TooLongMessage + " To hasło pojawiło się w wyciekach danych, wybierz inne.");
-    }
-
     [Fact]
     public async Task OnPostAsync_ShouldKeepTheForm_WhenIdentityRefusesWithACodeThePageDoesNotKnow()
     {
         // Arrange
         ArrangeAccountWithAGoodLink();
-        ArrangePasswordRefusal("CodeThatIdentityAddsLater");
+        ArrangeSaveRefusal("ConcurrencyFailure");
         ResetPasswordModel sut = CreatePostingSut();
 
         // Act
@@ -125,11 +98,15 @@ public sealed class ResetPasswordModelTests
             .Returns(true);
     }
 
-    private void ArrangePasswordRefusal(params string[] codes) =>
-        _passwordValidator
-            .ValidateAsync(Arg.Any<UserManager<ApplicationUser>>(), Arg.Any<ApplicationUser>(), Arg.Any<string?>())
+    private void ArrangeSaveRefusal(params string[] codes) =>
+        _store
+            .UpdateAsync(Arg.Any<ApplicationUser>(), Arg.Any<CancellationToken>())
             .Returns(IdentityResult.Failed(codes
-                .Select(code => new IdentityError { Code = code, Description = EnglishDescription })
+                .Select(code => new IdentityError
+                {
+                    Code = code,
+                    Description = "Optimistic concurrency failure, object has been modified."
+                })
                 .ToArray()));
 
     private async Task PostAsync(ResetPasswordModel sut)
@@ -146,7 +123,7 @@ public sealed class ResetPasswordModelTests
             Microsoft.Extensions.Options.Options.Create(new IdentityOptions()),
             new PasswordHasher<ApplicationUser>(),
             [],
-            [_passwordValidator],
+            [],
             new UpperInvariantLookupNormalizer(),
             new IdentityErrorDescriber(),
             services: null!,

@@ -86,8 +86,10 @@ deletion-cancelled e-mail needs no token at all (see Context) — its payload is
 
 > **Exception (2026-10-11, #947, #1115): the cancel-deletion link follows ADR-0031, not delivery.**
 > Its token is still minted at delivery, but its time limit is not "one grace period from now". It
-> stops working at the deletion date the e-mail shows (`DeletionScheduledAt` plus the grace period),
-> however late the e-mail went out. "The countdown starts now" holds for every other link.
+> stops working at `AccountDeletionSchedule.CancellableUntil(DeletionScheduledAt)`, the scheduled
+> time plus the grace period, however late the e-mail went out. #947 builds that check and amends
+> ADR-0031, whose #780 amendment still counts from the moment the e-mail is built. "The countdown
+> starts now" holds for every other link.
 
 Minting against the *current* stamp is only safe while nothing rotates the stamp after the
 outbox row becomes visible — and the relay is signal-driven, so "after commit" can mean
@@ -169,15 +171,21 @@ four-writer inventory doesn't earn (YAGNI). Revisit only if a forgotten notify a
 > did not hold. The writers kept growing: `OutboxWriter.NotifyEnqueuedCommitted` is called in ten
 > places today, and each new writer is one more place to forget it. #781 asked for a test that scans
 > the compiled code for the second call, and PR #952 built one: a hand-written IL reader of about
-> 140 lines plus its test. It caught a missing call, but not a call in the wrong order, a call inside
-> a lambda, or a row written without `OutboxWriter`. The owner closed it unmerged: a guard nobody can
-> read on the first pass is more machinery than the interceptor this section turned down. So:
+> 140 lines plus a 115-line test. It caught a missing call, but not a call in the wrong order or a
+> row written without `OutboxWriter`, and it raised a false alarm when the two calls sat on two sides
+> of a lambda. The owner closed it unmerged: a guard nobody can read on the first pass is more
+> machinery than the interceptor this section turned down, which is about 50 lines of plain EF Core
+> API. So:
 >
 > - The wake-up moves into the `SaveChangesInterceptor` + `IDbTransactionInterceptor` pair that
 >   ADR-0035 §2 named. It notices the outbox rows a save adds, and signals the relay after the commit:
 >   after the save when no transaction is open, after the transaction's commit when one is (the
->   `RegisterUser` trap). `NotifyEnqueuedCommitted` and its ten call sites go. Every outbox row is
->   added through EF Core (`OutboxWriter.Enqueue`), so the pair sees each one.
+>   `RegisterUser` trap). It also signals when a save or a commit that carried outbox rows fails,
+>   because the write may have landed without its answer (ADR-0065 §1); a needless wake-up finds
+>   nothing to send. `NotifyEnqueuedCommitted` and its ten call sites go. The pair sees every outbox
+>   row added through EF Core, whoever adds it. A raw-SQL insert would wait for the sweep, and none
+>   exists.
+> - Until #781 lands, every writer keeps its explicit call.
 > - No test polices a hand-kept call that a mechanism can remove. A guard on a convention is priced
 >   against the mechanism it stands in for (`CLAUDE.md` → "Right-size the design").
 > - #781 builds the pair. #951 is triaged again against this note: its wake-up half goes away with
@@ -221,7 +229,7 @@ delivery detail behind the consumer (plus the decision-4 exception).
   cost one sender call — plus a per-processor idempotency argument. Accepted: that ceremony IS
   the delivery guarantee.
 - Four explicit `Notify()` call sites instead of one interceptor (decision 6) — a forgotten one
-  costs up to 6 h of latency until the sweep.
+  costs up to 6 h of latency until the sweep. *(Reversed by the §6 amendment, #1115.)*
 
 ## Alternatives Considered
 
@@ -292,7 +300,8 @@ Recorded here, implemented by MSG-02..05 — this ADR changes no code.
 - Touched types: `EmailConfirmationConsumer`, `RabbitMqMessagePublisher`, `RabbitMqTopology`,
   `OutboxMessageRouting`, `EmailConfirmationDeliveryProcessor`, the three e-mail senders behind
   the processors, the four feature slices above.
-- Every migrated writer follows ADR-0035 §2: `OutboxSignal.Notify()` after its commit.
+- Every migrated writer follows ADR-0035 §2: `OutboxSignal.Notify()` after its commit. *(Until #781
+  moves the call into the interceptor pair, §6 amendment.)*
 
 ## References
 

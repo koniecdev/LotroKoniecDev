@@ -1,7 +1,8 @@
 # ADR-0049: The revocation window is the access-token lifetime — five minutes, not introspection
 
-**Status:** Accepted (amended 2026-09-27 by #848 — a refresh now also checks the security stamp; and
-2026-10-07 by #1025 — the lifetime has a floor of two minutes; see the amendments below)
+**Status:** Accepted (amended 2026-09-27 by #848 — a refresh now also checks the security stamp;
+2026-10-07 by #1025 — the lifetime has a floor of two minutes; and 2026-10-11 by #933 — the TMS
+allows no clock skew and accepts only access tokens; see the amendments below)
 **Date:** 2026-08-21
 **Decision-makers:** Solo maintainer
 **Related:** #686 (SEC-08, the defect), #701 (QA-FE-24 S03 TC06/TC07, where a tester hit it), ADR-0048 (the e-mail-change undo this protects), ADR-0041 (no API gateway), ADR-0031 (deletion grace period), `OpenIddictSettings`, `IUserSessionRevoker`, `SecurityStampCookieValidator`, `CookieTokenRefresher`, `DeadSessionRegistry`
@@ -170,3 +171,57 @@ The Consequences above say the frontend needed no change. That stays true for th
 decision. Separately, #1025 made the website refresh at the smaller of 60 seconds and half the token's
 lifetime before expiry, so a one-minute token is refreshed after 30 seconds and not on every page. The
 server floor does not count on that.
+
+## Amendment (2026-10-11, #933): the TMS allows no clock skew, so the window really is five minutes
+
+The decision above set the token lifetime and never looked at clock skew. The TMS checks tokens with
+JwtBearer, and its `TokenValidationParameters` did not set `ClockSkew`. The library default is five
+minutes, and its lifetime check refuses a token only when `exp` is more than that far in the past. So
+a token that expired at 12:00 still worked until 12:05. The real window was up to ten minutes, not the
+five this ADR, the pages and the runbook promise.
+
+The TMS now sets `ClockSkew` to zero, as OpenIddict's own validator and its server do. In every
+environment the auth server and the TMS run on the same machine (one box per environment on Hetzner,
+one host or one Docker engine everywhere else), so they read the same clock and there is no
+difference to allow for. A token now stops working at its `exp`.
+
+The same change makes the TMS accept only access tokens. `ValidTypes` is `at+jwt` and
+`application/at+jwt`: RFC 9068 §4 requires this of a resource server, and OpenIddict's validator does
+it by default. The auth server signs other tokens with the API's audience too. Today the only one is
+an ID token for the API client itself, which gives nothing that client cannot already get, so this is
+defence in depth, not the fix of an open hole.
+
+The TMS keeps JwtBearer and sets both rules by hand. ADR-0067 decision 5 says why, and when to move
+to OpenIddict validation instead. Tests pin both rules, so removing either one fails the tests. Two
+facts join the list in "What the tests pin":
+
+3. A token that expired one second, one minute, four minutes or twenty minutes ago gets 401, and a
+   token that expires in one minute is accepted (`AuthorizationDefaultsTests`).
+4. A correctly signed token of another type gets 401 (`AuthorizationDefaultsTests`). The real token
+   endpoint writes `at+jwt` on the website's authorization-code tokens (`AuthorizationCodeFlowTests`)
+   and on password and service tokens (`TokenEndpointTests`), so the rule cannot lock out the website
+   or the deploy smoke.
+
+`GdprSettingsValidator` kept its own copy of the old five minutes, so that the deletion grace period
+outlived every token the TMS still accepted. The copy is gone, and the grace period only has to be
+longer than the token lifetime (ADR-0065 §7, ADR-0067 decision 6).
+
+**The website's calls that come late in a request.** The website renews a token at the start of a
+request, when less than 60 seconds are left, and every call in that request carries that token. The
+old skew hid a call that came later than that. The import page made one: after an import, which takes
+minutes, it loaded the version list again with the same token. The TMS answered 401, the website
+marked the session dead, and the admin was signed out on the next click. Now the page redirects after
+a successful import (Post/Redirect/Get). The version list loads in the new request, which renews the
+token first. The import summary travels in the redirect address, protected with the website's Data
+Protection keys, so a link that someone else wrote cannot put text on the page. A refused import
+makes no second call: the import is all or nothing, so the list loaded at the start of the request
+is still right. The owner ruled out the other ways on #933: no exception to the dead-session marker,
+and no renewal in the middle of a request. If an import ever takes hours, the answer is a background
+job, not a longer token.
+
+One case stays open in #1120. The browser sends the whole `exported.txt`, about 80 MB, before the
+page makes its first call to the TMS. When that upload takes longer than the token has left, which
+can be as little as 60 seconds, the first call already carries an expired token.
+
+**Reopen this amendment when** the auth server and the TMS stop sharing a machine. Then allow a few
+seconds of skew, never the library's five minutes, and count those seconds in the window.

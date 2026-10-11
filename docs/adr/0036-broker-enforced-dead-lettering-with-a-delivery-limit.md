@@ -170,7 +170,7 @@ address. An account erasure cannot reach a message in a queue, so when that pers
 account, both addresses could stay on the broker for good. The other e-mail messages hold only the
 account id. The review of #1071 found this.
 
-### 6. `emails.send.dlq` keeps a message for 7 days, through a broker policy
+### 6. `emails.send.dlq` keeps a message for 7 days, through a broker operator policy
 
 **The rule (owner decision, 2026-10-11).** A parked e-mail message expires 7 days after it parks. A
 week-old account e-mail is no use to anyone. An account erasure runs 14 days after the deletion request
@@ -183,17 +183,27 @@ the manual replay of Decision 5 a deadline.
 - A RabbitMQ policy, not a queue argument: name `emails-send-dlq-ttl`, pattern `^emails\.send\.dlq$`,
   definition `{"message-ttl":604800000}`, applied to queues. A live queue's arguments cannot change
   (Context), and a policy changes none, so `RabbitMqTopologyDeclaration` stays as it is.
+- An **operator** policy (`set_operator_policy`), not a user policy. A queue follows only one user
+  policy, the matching one with the highest priority, so a user policy added later in the management
+  UI would switch the expiry off. An operator policy applies next to whatever user policy matches, and
+  where both set `message-ttl` the lower one wins. So no later policy can lengthen or remove the limit,
+  and nobody has to remember a rule about it (seen on `rabbitmq:4.3.4`: a user policy with priority 10
+  and a 10-minute TTL left the operator's limit in force).
 - `scripts/hetzner/deploy.sh` applies it on every deploy, on both boxes, right after `up -d`, which is
-  what creates a new broker. `set_policy` replaces a policy of the same name, so a repeat changes
-  nothing. Nobody applies it by hand. The policy is stored on the broker's volume, so a rollback or a
-  recreated container keeps it.
+  what creates a new broker. `set_operator_policy` replaces a policy of the same name, so a repeat
+  changes nothing. Nobody applies it by hand. The policy is stored on the broker's volume, so a
+  rollback or a recreated container keeps it.
 - The CLI runs as the `rabbitmq` user. On a new volume a root `rabbitmqctl` that runs before the
   server has written its Erlang cookie writes the cookie first, owned by root, and the server then
   stops at boot because it cannot read it (seen on `rabbitmq:4.3.4`).
-- A broker that does not answer within the healthcheck's budget (about 3 minutes), or holds one try
-  past its 20 s limit, gets a warning in the deploy log, not a failed deploy: a broker outage must
-  never block an app deploy (`compose.hetzner.yaml`). A broker that had the policy keeps it. Only a
-  new broker is left without it (see fact 2 below for why that gap matters).
+- The step tries again for up to 180 s, the broker healthcheck's own budget, each try under a 20 s
+  limit, with stdin closed: `timeout` runs the call outside the terminal's process group, and in a
+  hand-run deploy a client that reads the terminal there is stopped. A try that runs out of time ends
+  the step, because a starting broker refuses at once and only a stuck one holds the call. The whole
+  step is bounded at about three and a half minutes.
+- A broker that does not take the policy gets a warning in the deploy log, not a failed deploy: a
+  broker outage must never block an app deploy (`compose.hetzner.yaml`). A broker that had the policy
+  keeps it. Only a new broker is left without it (see fact 2 below for why that gap matters).
 - Every way this project brings up a broker goes through `deploy.sh`: CD, a hand-run deploy, and the
   runbook's bring-up and disaster-recovery steps. A broker started with a plain `docker compose up -d`
   has no policy until `deploy.sh` runs.
@@ -201,7 +211,7 @@ the manual replay of Decision 5 a deadline.
   (ADR-0065), and it waits for a person however long that takes. Never `emails.send` either: an e-mail
   waiting out an outage there must not be dropped.
 
-**Three quorum-queue facts this depends on** (all seen on `rabbitmq:4.3.4`, 2026-10-11):
+**Two quorum-queue facts this depends on** (both seen on `rabbitmq:4.3.4`, 2026-10-11):
 
 1. A message gets its expiry when it enters the queue. A policy added later does not reach a message
    that is already there.
@@ -210,14 +220,19 @@ the manual replay of Decision 5 a deadline.
    while the policy is missing never expires, and it stops the expiry of everything after it. So the
    policy must be in place before anything parks. Both boxes' parking lots were empty when checked
    on 2026-10-11, before the first deploy with the policy. The runbook says what to do if one is not.
-3. A queue follows only one policy: the matching one with the highest priority. Any other policy that
-   matches `emails.send.dlq` must carry the same `message-ttl`, or it switches the expiry off.
 
 **Rejected: a definitions file loaded at boot** (`load_definitions`), so the broker would apply the
 policy itself on every start. With a definitions file configured, RabbitMQ does not create the default
 vhost and user from `RABBITMQ_DEFAULT_USER` / `RABBITMQ_DEFAULT_PASS`, and a new broker stops at boot
 ("Please create virtual host "/" prior to importing definitions"). Adding the user to the file would put
 the broker password in a committed file.
+
+**Not done: a default operator policy in `rabbitmq.conf`** (`default_policies.operator.*`, which the
+4.3.4 broker accepts). It would give a new broker the limit when its vhost is created, before anything
+can park, and so close the gap a failed deploy step leaves. But it acts only on a new vhost, so the
+deploy step stays for the boxes that exist, and the rule would then live in two places, with a new
+mounted file for the deploy to ship and roll back. The gap it closes needs a new broker and a deploy
+step that failed, and the warning already covers that. Worth it only if that ever happens.
 
 **Rejected: `x-message-ttl` in the queue's arguments.** Changing it on a live box means deleting the
 queue (Context). The policy does the same job without that, which is why the owner chose it.
@@ -232,10 +247,11 @@ and a look at the parking lot.
 real person's data, and `deploy.sh` does not run there.
 
 **Tests.** `scripts/tests/hetzner-deploy.tests.sh` pins the exact call, its place after `up -d`, its
-time limit, the retry, the stop after a timed-out try and the warning, and checks that the pattern
-matches `RabbitMqTopology.EmailDeadLetterQueue` and no other queue the apps declare.
-`DeadLetterExpiryTests` shows on the pinned broker image that such a policy removes a parked message
-with no consumer.
+time limit and closed stdin, the retries (a starting broker, a restarted one), the stop after a
+timed-out try, the warning, and that the pattern matches `RabbitMqTopology.EmailDeadLetterQueue` and no
+other queue the apps declare. `DeadLetterExpiryTests` reads the name, pattern and definition from
+`deploy.sh`, cuts only the message-ttl, and shows on the pinned broker image that this policy removes a
+parked message with no consumer.
 
 ## References
 

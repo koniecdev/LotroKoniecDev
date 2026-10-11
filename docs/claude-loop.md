@@ -231,9 +231,11 @@ Per-ticket outcomes:
   before that is history from an earlier attempt, and a PR closed without a merge is still an
   `error`. An open PR of the ticket goes first, even when the summary links a merged one.
   - The session may still push after the merge, for example a fix for a CodeQL alert. That commit
-    is only on the branch, not on `main`. So the worker compares its HEAD with the merged PR's
-    head (`refs/pull/<n>/head`), commit by commit and by change, not by id, because GitHub may
-    rebase a PR before it merges it. The row then says `<k> commit(s) not in the merged PR: check
+    is only on the branch, not on `main`. So the worker compares the PR's own branch (not HEAD, so a
+    checkout of `main` after the merge does not count) with the merged PR's head
+    (`refs/pull/<n>/head`), commit by commit and by change, not by id, because GitHub may rebase a
+    PR before it merges it. Files left uncommitted count as one more commit: the worker saves them
+    on a `loop-salvage/…` branch. The row then says `<k> commit(s) not in the merged PR: check
     them`, and the worker's log line names the branch. Such commits usually need a new PR. The
     count can be too high, which is why the row asks you to check: a local rebase onto a newer
     `main`, a conflict fixed during a rebase, or an empty commit count too. When the merged head
@@ -376,9 +378,9 @@ Now:
 - **Without a session id, a limit still starts over**, as before: the worktree is salvaged and
   removed, and the retry cuts a new one from `origin/main`.
 - **A DONE with no open PR for the ticket is resumed once**, with a prompt that says what the loop
-  found and that it counts only an open PR whose branch starts with `<n>-`, or such a PR opened and
-  merged during the session (`merged` above), and asks the session to
-  push and open the PR. The prompt names a PR the summary linked by its number only: that PR's
+  found and that it counts only an open PR whose branch starts with `<n>-`, and asks the session to
+  push and open the PR. The prompt does not mention a merged PR, so it never points the session at
+  a merge (ADR-0060). The prompt names a PR the summary linked by its number only: that PR's
   branch name is text anyone who opens a PR can choose, so it stays in the log (ADR-0026). The result is judged again from the top: `pr-opened` when the PR now
   exists, `merged` when it was merged in the meantime, `error` when there is still none. The
   resume needs a real "no PR" from GitHub: when the ticket's PRs cannot be listed, the ticket is an

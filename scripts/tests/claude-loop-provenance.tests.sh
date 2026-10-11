@@ -1661,8 +1661,9 @@ expect_in_output "unreadable"
 # The owner may merge a PR while its session still waits for CodeQL and rewrites the PR body
 # (#1082). The work is on main then: the ticket is merged, not failed, and its session is not
 # resumed. Here the PR is opened and merged during the session, as in the run that found it. The
-# merged PR's head is the session's commit, unless NO_PR_REF=1 hides it from the loop, and
-# FIX_AFTER_MERGE=1 adds one more commit after the merge.
+# merged PR's head is the session's commit, unless NO_PR_REF=1 hides it from the loop.
+# FIX_AFTER_MERGE=1 adds one more commit after the merge, LEFTOVER=1 leaves a file uncommitted, and
+# MAIN_AFTER_MERGE=1 moves to a detached main with a commit of its own.
 behavior "$TMP_ROOT/done-merged.sh" 'ticket="${PWD##*ticket-}"
 git checkout -q -b "$ticket-fixture"
 echo "work" > "work-$ticket.txt"
@@ -1675,6 +1676,13 @@ if [ "${FIX_AFTER_MERGE:-}" = 1 ]; then
     echo "fix" > "fix-$ticket.txt"
     git add -A
     git commit -q -m "fix a CodeQL alert"
+fi
+[ "${LEFTOVER:-}" != 1 ] || echo "half a fix" > "leftover-$ticket.txt"
+if [ "${MAIN_AFTER_MERGE:-}" = 1 ]; then
+    git checkout -q --detach origin/main
+    echo "other" > "other-$ticket.txt"
+    git add -A
+    git commit -q -m "a commit on main"
 fi
 echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\",\"is_error\":false,\"session_id\":\"s-$ticket\"}"'
 reset_fixtures
@@ -1693,8 +1701,27 @@ reset_fixtures
 fixture_issue 170 maintainer OWNER
 run_case 13 "work-ticket: a commit after the merge is named, not lost" \
     env FIX_AFTER_MERGE=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 170 "$TMP_ROOT/run"
-expect_in_output "but 1 commit(s) on branch 170-fixture are not in the merged PR — check whether they are on main"
+expect_in_output "but branch 170-fixture holds 1 commit(s) the merged PR does not (uncommitted files count as one) — check whether they are on main"
 expect_meta 170 outcome=merged pr=7170 unmerged=1
+
+# Files left uncommitted after the merge are saved on a salvage branch, and they count as well.
+reset_fixtures
+fixture_issue 176 maintainer OWNER
+run_case 13 "work-ticket: files left uncommitted after the merge are counted" \
+    env LEFTOVER=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 176 "$TMP_ROOT/run"
+expect_in_output "but branch 176-fixture holds 1 commit(s) the merged PR does not"
+expect_meta 176 outcome=merged pr=7176 unmerged=1
+[ -n "$(git -C "$FAKE_REPO" for-each-ref 'refs/heads/loop-salvage/176-*')" ] \
+    || fail "the uncommitted file should be saved on a salvage branch" "$LAST_OUTPUT"
+
+# The PR's own branch is compared with the merged head, not HEAD: a checkout of main after the merge
+# does not count main's commits.
+reset_fixtures
+fixture_issue 175 maintainer OWNER
+run_case 13 "work-ticket: a checkout of main after the merge does not count main's commits" \
+    env MAIN_AFTER_MERGE=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 175 "$TMP_ROOT/run"
+expect_in_output "PR #7175 was merged before the session ended — the work is on main"
+expect_meta 175 outcome=merged pr=7175 unmerged=0
 
 # GitHub may rebase a PR before the merge. Its head then has new ids for the same changes, and the
 # session's commits are still on main.
@@ -1835,7 +1862,9 @@ for spec in "164|MERGED|164-fixture||2020-01-01T00:00:00Z|merged before this ses
     fixture_pr_view "7$ticket" "$state" "$head" "$fork" "$created"
     run_case 3 "work-ticket: a linked PR $what is still an error" \
         env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" "$ticket" "$TMP_ROOT/run"
-    expect_in_output "PR #7$ticket is not an open PR for this ticket, nor one merged in this session"
+    expected_fork=false
+    [ "$fork" != fork ] || expected_fork=true
+    expect_in_output "PR #7$ticket is not an open PR for this ticket, nor one merged in this session ($state $expected_fork $head) — "
     expect_meta "$ticket" outcome=error resumes=1
     [ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "a DONE with no PR is resumed exactly once" "$LAST_OUTPUT"
 done

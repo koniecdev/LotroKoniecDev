@@ -82,9 +82,9 @@ Data Protection keyrings (M6-04) all move under this regime.
 
 > **Amendment (2026-10-11, ADR-0067): the bar for a startup check.** Reviews added these checks one
 > at a time, each found next to the one before (#853 → #857 → #877 → #915, #946 → #971,
-> #1025 → #1054 → #1108), and nothing said where they stop. The environment rule drifted too: this section
-> says "non-Development", ADR-0054 says "outside Development and Testing", and #857, #1025 and #1054
-> check in every environment. From now on:
+> #1025 → #1054 → #1108), and nothing said where they stop. The environment rule drifted too:
+> this section says "non-Development", ADR-0054 says "outside Development and Testing", and #857,
+> #1025 and #1054 check in every environment. From now on:
 >
 > 1. **A startup check refuses a value the app cannot work with, or one that breaks the product
 >    silently or late**, before any build, test or smoke would fail. Examples: a caller key with

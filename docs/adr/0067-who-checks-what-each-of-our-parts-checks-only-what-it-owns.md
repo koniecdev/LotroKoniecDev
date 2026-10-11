@@ -297,8 +297,11 @@ section. It is not filed, not fixed, and not added to another ticket:
   public pages, which also accept anonymous callers, show what an anonymous visitor sees. The window is
   at most the access token's lifetime (five minutes). Accepted: it needs our own server to be broken,
   and a check on every page for that case cost more than it saved.
-- A token that an HTTP header cannot carry (a line break in it) fails each API call as a network
-  error, with no 401 and no dead-session mark, until it runs out. Accepted for the same reason.
+- A token that an HTTP header cannot carry gets no 401 and no dead-session mark. With a line break
+  in it, .NET refuses to build the header (`FormatException`), so each page that calls an API shows
+  the error page until the token runs out (at most five minutes). With a non-ASCII character, each
+  call fails as a network error. Accepted for the same reason: only a broken sign-in server sends
+  such a token, and decision 3's "never the error page" is about the renewal answer, not about this.
 - After a hard swap of the signing key, the same happens to each live session. A planned rotation with
   `PreviousRsaPrivateKeyXml` has no effect on users. QA #632's key-rotation step changes with #1058.
 - For the rest of an access token's life (about a minute), a session survives a temporary failure of

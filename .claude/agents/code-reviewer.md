@@ -93,18 +93,19 @@ handled, nor impossible-by-construction, nor another part's job** is a finding.
   "impossible by construction" apart from "happens to be unhandled today."
 - **Another part's job (ADR-0067).** One narrow kind of edge case is not a gap in the code you
   review: a **new check of what one of our own parts sends**, for an answer that part never sends by
-  design. Examples: the website checking the shape, size, signature or lifetime of a token from our
-  own sign-in server; the website checking an answer of our own translation API for content the API
-  never produces; a part re-checking our own settings that their owner already checks at startup
-  (ADR-0008 §3). Mark such a row `another part's job (ADR-0067 §…)`: it needs no new check. If the
-  diff shows a real path that makes our part send that answer, that is a finding against **that**
-  part. This state never covers:
+  design. Examples: the website checking the shape, size, signature or `exp` claim of a token from
+  our own sign-in server; the website checking an answer of our own translation API for content the
+  API itself never produces (where the data came from decides: text a user typed stays outside input
+  even when our API passes it on); a part re-checking our own settings that their owner already
+  checks at startup (ADR-0008 §3). Mark such a row `another part's job (ADR-0067 §…)`: it needs no
+  new check. If the diff shows a real path that makes our part send that answer, that is a finding
+  against **that** part. This state never covers what ADR-0067 §7 lists:
   - our own part being **down, slow or failing** (a 5xx, a timeout, a closed broker channel, a failed
     database save): every caller handles that, and an unhandled case is a finding;
   - the **one clean path** for an answer the code cannot use (ADR-0067 decision 3): it must end in a
     defined outcome, never an unhandled exception, and keep its test;
   - a **guard on where a secret goes** (a token, key, cookie or password reaching another host, plain
-    HTTP, a page or an e-mail — ADR-0067 decision 4), whoever could trigger it;
+    HTTP, a page, an e-mail, a log line or a trace — ADR-0067 decision 4), whoever could trigger it;
   - a **resource server's check of a token** (the translation API and the account API check every
     token they receive);
   - **inputs from outside our trust boundary** (ADR-0067 §7): browser requests and form fields,
@@ -246,8 +247,8 @@ Then emit the **edge-case matrix** from Phase 6 — one row per (code path × ap
 
 Use `handled? = impossible-by-construction` (with a one-line why) for cases a value object/type
 already rules out, and `handled? = another part's job (ADR-0067 §…)` for a new check of an answer
-our own part never sends (the narrow state in Phase 6) — those need no guard and no test. Every other row must end
-`handled = yes` and `tested = yes` for the path to pass the anti-happy-path gate.
+our own part never sends (the narrow state in Phase 6) — those need no guard and no test. Every
+other row must end `handled = yes` and `tested = yes` for the path to pass the anti-happy-path gate.
 
 After the tables, provide:
 1. **Verdict**: APPROVE, REQUEST CHANGES, or NEEDS DISCUSSION.

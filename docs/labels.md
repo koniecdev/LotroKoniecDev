@@ -137,9 +137,10 @@ name the single case someone happened to hit.
   what another of our own parts sends, for an answer that part never sends by design (a token of the
   wrong shape from our sign-in server, our own settings that their owner already checks at startup),
   is not a defect of the part that receives it, so it is not filed. If a real path makes our part
-  send that answer, file the case against that part, with the path. Three kinds always stay
-  findings: our own part being down, slow or failing (a 5xx, a timeout, a failed save); a guard on
-  where a secret goes (another host, plain HTTP, a page or an e-mail); and anything from outside our
+  send that answer, file the case against that part, with the path. Five kinds always stay findings:
+  our own part being down, slow or failing (a 5xx, a timeout, a failed save); the one clean path for
+  an answer the code cannot use; a guard on where a secret goes (another host, plain HTTP, a page, an
+  e-mail, a log line); a resource server's check of a token it receives; and input from outside our
   trust boundary (a user, a browser, an imported file, a third-party service). The repo's trust model
   lists the kinds that are not findings (here: ADR-0067 §8 and ADR-0008 §3). This rule sorts
   findings; it does not drop any. The chain it ends: #974 → #1026/#1028 →

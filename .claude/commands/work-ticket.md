@@ -30,8 +30,8 @@ everything that matters must be committed and pushed.
 - A question that is a **genuine business decision** (boundary behavior, UX wording, scope cut,
   contract shape not derivable from anything) — **STOP and return `STATUS: BLOCKED`** with the 3-5
   questions. A wrong guess costs the owner a review round and a rework; a paused ticket costs
-  nothing. "The owner decides" in a ticket is such a question: never pick the strictest option as
-  "the ticket's default" (PR #1063).
+  nothing. "The owner decides" in a ticket, unless a later owner comment answers it, is such a
+  question: never pick the strictest option as "the ticket's default" (PR #1063).
 
 ## The loop (do not skip steps)
 
@@ -55,8 +55,10 @@ everything that matters must be committed and pushed.
    (recently merged PRs in the area) and that nothing above contradicts it. A
    `<!-- preflight-verdict -->` comment on the issue counts as this done. Premise false, already
    shipped, a duplicate, a new check of what one of our own parts sends for an answer it never sends
-   by design (ADR-0067 §8 — never a part being down, slow or failing, never a guard on where a secret
-   goes), or a wiki ↔ product disagreement (never settled inside a run —
+   by design (ADR-0067 §8; never anything ADR-0067 §7 lists: our own part being down, slow or
+   failing; the one clean path for an answer the code cannot use; a guard on where a secret goes; a
+   resource server's check of a token it receives; input from outside our trust boundary), or a
+   wiki ↔ product disagreement (never settled inside a run —
    the owner rules in the wiki first) → `STATUS: BLOCKED` (category: false-premise) with the
    evidence — a wrong ticket is not implemented because it exists. An acceptance criterion that sets
    visible behaviour (a status code, a sign-out, a log level, a limit) is checked against the

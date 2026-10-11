@@ -58,8 +58,9 @@ No document said which part checks what. Four instructions, each fine alone, add
 The checks also made the website a party to a contract it has no business in. The sign-in server
 calls `DisableAccessTokenEncryption()` (`OpenIddictExtensions.cs`), against OpenIddict's default of
 encrypting every token. That setting is a contract between the sign-in server and the APIs that read
-the token: the translation API holds no decryption key, so it would refuse an encrypted token. Since
-#1028 the website refuses any access token that is not a three-part JWS as well, so a change of the
+the token: the translation API holds no decryption key, so it would refuse an encrypted token. The
+website's per-request signature check (from the M3-01 lift) already refused an encrypted token too,
+and since #1028 its shape check refuses anything that is not a three-part JWS. So a change of the
 token format would have to be made in three places instead of two.
 
 ### What the standards say
@@ -116,7 +117,8 @@ with the OIDC handler's own `TokenValidationParameters` and `ProtocolValidator`,
 Blazor sample does (`CookieOidcRefresher`), and never with a check of its own.
 
 **The access token is opaque to the website.** The website never checks its shape, signature, size,
-lifetime or characters. It never checks the characters of a refresh token either (RFC 6749 §1.5).
+`exp` claim or characters. Reading `expires_in` from the token answer, above, is not a check of the
+token. The website never checks the characters of a refresh token either (RFC 6749 §1.5).
 
 **The translation API checks every access token it receives:** the signature, the issuer, the
 audience and the lifetime, and, with #933, the token type `at+jwt` and no clock skew. A token it
@@ -142,19 +144,24 @@ The website adds no check for an answer our sign-in server does not send. It sor
 answer it can get into one of two kinds (owner decisions in #1062 and #923):
 
 - **Temporary:** 429, any 5xx, a network error, a timeout (30 seconds, #923), and a failed fetch of
-  the discovery document on the way to the token or revocation endpoint (`RefreshTokenRevoker`
-  already treats it so). The website keeps the session, revokes nothing, and tries again on the next
-  request, while the current access token still works. There is no setting for it: the window is the rest of the access token's life, about one
-  minute. This window is an accepted trade-off. A session revoked in that minute keeps working until
-  its access token runs out, which ADR-0049 already accepts for five minutes.
+  the discovery document on the way to the token endpoint. The website keeps the session, revokes
+  nothing, and tries again on the next request, while the current access token still works. There is
+  no setting for it: the window is the rest of the access token's life, about one minute. This
+  window is an accepted trade-off. A session revoked in that minute keeps working until its access
+  token runs out, which ADR-0049 already accepts for five minutes.
 - **Final:** any other refusal (for example 400 `invalid_grant`), any failure once the access token
   has run out, and a 2xx answer the website cannot use (a body it cannot read, a missing token, no
   lifetime). The website ends the session with the session-expired notice, and revokes the refresh
-  token it holds. Only a broken sign-in server sends a 2xx answer that cannot be used, and a retry
-  would get the same broken answer from the same server. So it gets the simplest outcome and no
-  further code. #1098 lists "a body it cannot read" and "a missing token" with ending the session
-  cleanly, and #1062's temporary list names only status codes, a network error and a timeout. A body
-  cut off on the way fails as a network error, so it is temporary.
+  token it holds and the new one a refused answer carries (#1027, #1067). Only a broken sign-in
+  server sends a 2xx answer that cannot be used, and a retry would get the same broken answer from
+  the same server. So it gets the simplest outcome and no further code. #1098 lists "a body it
+  cannot read" and "a missing token" with ending the session cleanly, and #1062's temporary list
+  names only status codes, a network error and a timeout. A body cut off on the way fails as a
+  network error, so it is temporary.
+
+A session that is already ending (a sign-out, or a final failure above) still ends when the
+revocation or end-session address cannot be reached: the revoke is skipped and logged
+(`RefreshTokenRevoker`), and the session does not come back.
 
 Neither kind ever throws an unhandled exception, and neither shows the error page for a session that
 already exists. This one clean path is a rule of its own and keeps its tests: decision 3 removes the
@@ -164,23 +171,25 @@ need for a check per broken shape, not the need to end every unusable answer in 
 ### 4. Guards on where our secrets go stay; checks on whether our own server told the truth go
 
 Every part keeps every guard that stops a secret from reaching someone who must not have it: a host
-that is not ours, plain HTTP, a page a visitor sees, an e-mail. The secrets are the bearer token, the
-refresh token, the client secret, the caller key, the session cookie and any password. The guards
-include the same-origin check on links and on the revocation endpoint, no automatic redirects, no
-shared cookies, the `Secure` flag on the session cookie (`SameOriginDelegatingHandler`,
-`CreatePrimaryHandler`; #830, #899, #924, #964, #400), and a startup check that keeps a password out
-of an address the sign-in server prints (#1108). The harm there is a leak, and such a guard is a
-finding even when only our own server or Caddy could trigger it. ADR-0041 also expects links to
-another origin when a service splits off. #922 belongs to this side.
+that is not ours, plain HTTP, a page a visitor sees, an e-mail, a log line or a trace. The secrets
+are the bearer token, the refresh token, the client secret, the caller key, the session cookie and
+any password. The guards include the same-origin check on links and on the revocation endpoint, no
+automatic redirects, no shared cookies, the `Secure` flag on the session cookie
+(`SameOriginDelegatingHandler`, `CreatePrimaryHandler`; #830, #899, #924, #964, #400), and a startup
+check that keeps a password out of an address the sign-in server prints (#1108). The harm there is a
+leak, and such a guard is a finding even when only our own server or Caddy could trigger it.
+ADR-0041 also expects links to another origin when a service splits off. #922 belongs to this side.
 
 A check that second-guesses what our own server put in an answer does not stay.
 
 ### 5. Built-in behaviour first; own protocol code needs a written reason
 
 Behaviour that OpenIddict or ASP.NET Core gives us wins over our own code. A library default is
-changed only for a harm a real user can meet in normal use (#1059: the OIDC handler's one-time
-correlation cookie stays as the library sets it). Own protocol code carries its reason in its doc
-comment or in an ADR. #1098 asked for this comparison:
+changed only for a harm a real user can meet in normal use, or one an attacker can cause. ADR-0061
+is the second kind: OpenIddict let a GET to the introspection endpoint test client-secret guesses on
+a route with no rate limit, so that default went. #1059 is the other side: the OIDC handler's
+one-time correlation cookie stays as the library sets it. Own protocol code carries its reason in
+its doc comment or in an ADR. #1098 asked for this comparison:
 
 - **The website's renewal stays our own code.** ASP.NET Core has no built-in token renewal
   (dotnet/aspnetcore#8175 is open, in the ".NET 12 Planning" milestone). Our hook in the cookie's
@@ -198,36 +207,50 @@ comment or in an ADR. #1098 asked for this comparison:
     (#1114).
 - **The translation API stays on `JwtBearer`,** with #933's two settings (`ClockSkew = 0`,
   `ValidTypes = at+jwt`). It is ASP.NET Core's own handler, the change is configuration only, and it
-  keeps the TheKittySaver lift: TheKittySaver validates Entra tokens, whose `typ` is `JWT`, and
-  OpenIddict validation would refuse them. Reopen this when a third rule has to be set by hand, or
-  when encrypted access tokens are wanted. Then OpenIddict validation with `AddEncryptionKey` is the
-  built-in path.
+  keeps the TheKittySaver lift (`docs/kittysaver-lift-map.md`). Reopen this when a third rule has to
+  be set by hand, or when encrypted access tokens are wanted. Then OpenIddict validation with
+  `AddEncryptionKey` is the built-in path.
 
 ### 6. Our own settings are checked once, by the part that owns them
 
 Our configuration (`appsettings*.json` and each box's `.env`) is written and reviewed by the owner.
 It is trusted input. The part that owns a setting checks it at startup. Another part never makes up
 for it and never keeps a copy of it. `GdprSettingsValidator.TmsClockSkew` is such a copy of the
-translation API's clock skew, and #933 sets it to zero with the change on the API. The bar for a
-startup check is in ADR-0008 §3, amended by this ADR.
+translation API's clock skew. #933 sets it to zero with the change on the API, as the owner ruled
+there. With no skew left on the API there is nothing to copy, so the constant can go in that change.
+The bar for a startup check is in ADR-0008 §3, amended by this ADR.
 
 ### 7. What stays a finding
 
-- **Inputs from outside our trust boundary** keep every check they have, and get one for every new
-  case a review finds. They are: browser requests and form fields, anything a user types, imported
-  files (`exported.txt`, the Companion zip), DAT bytes, CLI arguments, the CLI's settings on a
-  player's machine, the CLI's download from the translation API over the public internet to an
-  address the player sets (#391, #394, #611), third-party services (Pwned Passwords, Brevo, the LOTRO
-  forum), and ticket text in this public repo.
+"Another part's job" (§8) covers one narrow kind of finding: a new check of what one of our own
+parts sends, for an answer that part never sends by design. "Breaking its contract" in this ADR means
+exactly that: sending an answer the contract says it never sends, such as a token of the wrong shape
+or a lifetime that is not true. These five always stay findings, whoever could trigger them, and
+every instruction file repeats them:
+
+1. **Our own part being down, slow or failing.** A 5xx, a timeout, a closed broker channel, a failed
+   database save: every part handles these, and a case nobody handles is a valid finding (#908,
+   #937, #1088, #923, #1062).
+2. **The one clean path for an answer the code cannot use** (decision 3). It ends in a defined
+   outcome, never an unhandled exception, and it keeps its tests (#943, #972).
+3. **A guard on where a secret goes** (decision 4).
+4. **A resource server's check of a token it receives** (decision 2). Adding one to the translation
+   API or the account API, such as #933's `at+jwt`, is never "another part's job".
+5. **Input from outside our trust boundary.** It keeps every check it has, and gets one for every new
+   case a review finds: browser requests and form fields, anything a user types, imported files
+   (`exported.txt`, the Companion zip), DAT bytes, CLI arguments, the CLI's settings on a player's
+   machine, the CLI's download from the translation API over the public internet to an address the
+   player sets (#391, #394, #611), third-party services (Pwned Passwords, Brevo, the LOTRO forum),
+   and ticket text in this public repo. Where the data came from decides, not the last part it
+   passed through: text a translator typed is still outside input when our own API hands it to the
+   website.
+
+Two more points:
+
 - **Limiting the damage after a break-in** is a separate question. Least privilege between our own
   parts stays a valid finding: #1086 (the translation API should not hold the broker's admin account)
   is not closed by this ADR. It is solved with credentials and permissions, never by checking data
   again where it arrives.
-- **Our own parts being down, slow or failing.** A 5xx, a timeout, a closed broker channel, a failed
-  database save: every part handles these, and a case nobody handles is a valid finding (#908, #937,
-  #1088, #923, #1062). "Breaking its contract" in this ADR means something else: sending an answer the
-  contract says it never sends, such as a token of the wrong shape or a lifetime that is not true.
-- **Guards on where a secret goes** (decision 4) stay findings, whoever could trigger them.
 - **A real path that makes our own part break its contract** is a defect of that part. If a review
   shows how our sign-in server could send a broken token (a setting, a code path, a library upgrade),
   the ticket goes to the sign-in server, with that path in it. Without such a path, the case is not
@@ -238,8 +261,8 @@ startup check is in ADR-0008 §3, amended by this ADR.
 A review finding of one of these kinds is sorted as "already decided", with a pointer to this
 section. It is not filed, not fixed, and not added to another ticket:
 
-- The website checking an access token (its shape, signature, size, lifetime or characters), or the
-  characters of a refresh token.
+- The website checking an access token (its shape, signature, size, `exp` claim or characters), or
+  the characters of a refresh token.
 - A new check, in the website, for each kind of token answer our sign-in server does not send (a
   broken shape, an oversized token, a lifetime the server overstates, an unknown charset). Decision
   3's one clean path covers all of them, and that path keeps its tests.
@@ -274,6 +297,8 @@ section. It is not filed, not fixed, and not added to another ticket:
   public pages, which also accept anonymous callers, show what an anonymous visitor sees. The window is
   at most the access token's lifetime (five minutes). Accepted: it needs our own server to be broken,
   and a check on every page for that case cost more than it saved.
+- A token that an HTTP header cannot carry (a line break in it) fails each API call as a network
+  error, with no 401 and no dead-session mark, until it runs out. Accepted for the same reason.
 - After a hard swap of the signing key, the same happens to each live session. A planned rotation with
   `PreviousRsaPrivateKeyXml` has no effect on users. QA #632's key-rotation step changes with #1058.
 - For the rest of an access token's life (about a minute), a session survives a temporary failure of
@@ -338,7 +363,7 @@ changes that.
   `GetConfigurationAsync`, which throws when nothing is cached yet (the #1058 failure).
 - **ADR-0008 §3:** amended with the bar for a startup check (decision 6).
 - **Review instructions:** `.claude/agents/code-reviewer.md` (Phase 1 reads this ADR, Phase 6 has a
-  third state, "not this part's job", and the gate counts inputs from outside our trust boundary
+  third state, "another part's job", and the gate counts inputs from outside our trust boundary
   instead of inputs from outside the process), `.claude/commands/ticket.md` steps 2 and 7,
   `.claude/commands/work-ticket.md`, `.claude/commands/preflight.md`, `docs/labels.md` → "One bug
   class per ticket", and a house rule in `CLAUDE.md`.

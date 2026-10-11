@@ -370,7 +370,7 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
 - **Who checks what: the standard OAuth roles (ADR-0067, #1098).** The website is the client, the
   sign-in server issues the tokens, and the translation API and the account API are resource servers.
   The website checks only what OpenID Connect asks of a client, and the OIDC handler does that. The
-  access token is opaque to the website: no check of its shape, signature, size, lifetime or
+  access token is opaque to the website: no check of its shape, signature, size, `exp` claim or
   characters, because the translation API checks every token it receives. A renewal answer the
   website cannot use ends the session cleanly, or counts as temporary (429, 5xx, a network error, a
   timeout). Guards on where our secrets go stay; checks on whether our own server told the truth go.
@@ -379,13 +379,14 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   answer that part never sends by design (a token of the wrong shape from our sign-in server, our own
   settings already checked at startup), is not a defect of the part that receives it.** Sort it as
   already decided with a pointer to ADR-0067 §8. If a real path makes our part send that answer, file
-  it against that part, with the path. Always still findings: our own part being down, slow or
-  failing (a 5xx, a timeout, a failed save); a guard on where a secret goes (another host, plain
-  HTTP, a page, an e-mail); a resource server's token checks; and inputs from outside our trust
-  boundary (browser, user, imported files, DAT bytes, the CLI and its settings, third-party
-  services). Least privilege between our parts (#1086) is a separate, valid question. The chain this
-  ends: #974 → #1026/#1028 → #1056/#1057/#1065/#1066/#1067, eight tickets in thirteen days, each
-  adding a check the next review audited.
+  it against that part, with the path. Always still findings (ADR-0067 §7): our own part being
+  down, slow or failing (a 5xx, a timeout, a failed save); the one clean path for an answer the code
+  cannot use; a guard on where a secret goes (another host, plain HTTP, a page, an e-mail, a log
+  line); a resource server's check of a token it receives; and input from outside our trust boundary
+  (browser, user, imported files, DAT bytes, the CLI and its settings, third-party services). Least
+  privilege between our parts (#1086) is a separate, valid question. The chain this ends: #974 →
+  #1026/#1028 → #1056/#1057/#1065/#1066/#1067, eight tickets in thirteen days, each adding a check
+  the next review audited.
 - **Hypermedia links are authorization-aware, not role-branched (ADR-0040).** `ILinkFactory` replays
   the *target* endpoint's own policy (`IAllowAnonymous` → `AuthorizationPolicy.CombineAsync` incl.
   the fallback → `IAuthorizationService`) before emitting a link, so a rel is never advertised to a
@@ -591,10 +592,10 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   revoke follows the discovery document's `revocation_endpoint` (#964). No frontend client to either API
   follows a redirect, so no bearer token, refresh token or caller key leaves for another host. These
   guards decide where our secrets go, which ADR-0067 decision 4 keeps; they never judge what our own
-  server answered. The two typed clients (#830) and the token client (#899) use `CreatePrimaryHandler` as their primary
-  handler. The OIDC back-channel (#899) uses it too, unless other code sets a back-channel handler
-  first: that handler is wrapped as it is and keeps its own redirect and cookie settings (only tests
-  do this). `CreatePrimaryHandler` also keeps no cookies (#924): one handler serves every visitor,
+  server answered. The two typed clients (#830) and the token client (#899) use
+  `CreatePrimaryHandler` as their primary handler. The OIDC back-channel (#899) uses it too, unless
+  other code sets a back-channel handler first: that handler is wrapped as it is and keeps its own
+  redirect and cookie settings (only tests do this). `CreatePrimaryHandler` also keeps no cookies (#924): one handler serves every visitor,
   so a kept cookie would go out with other visitors' calls.
   `scripts/check-client-hypermedia.sh` (with a `.ps1`
   twin) flags an API path in any string literal under `src/Frontend/` **and** `src/Patcher/` and
@@ -854,9 +855,10 @@ structure.
    reaches, so the next session stretches it or misses it. PR #1068 read the narrow #974 ruling as
    "a damaged answer is not trusted at all". #1023 reversed #966's 403 nine hours later without
    naming it. The verdict on PR #952 lived only in private memory while #781 kept asking for the
-   rejected test. Two rules follow. **"The owner decides" in a ticket is a question, never a
-   default:** ask it at the `/ticket` step-2 gate, or BLOCK a headless run, and never pick the
-   strictest option because "the owner ruled no path out" (PR #1063). **Before you follow an
+   rejected test. Two rules follow. **"The owner decides" in a ticket, unless a later owner comment
+   answers it, is a question, never a default:** ask it at the `/ticket` step-2 gate, or BLOCK a
+   headless run, and never pick the strictest option because "the owner ruled no path out"
+   (PR #1063). **Before you follow an
    acceptance criterion that sets visible behaviour** (a status code, a sign-out, a log level, a
    limit), search the owner's rulings on the same flow:
    `gh issue list --state all --search "\"Owner decision\" <flow words> in:comments"`. A conflict is

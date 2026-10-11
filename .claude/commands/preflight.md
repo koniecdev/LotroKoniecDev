@@ -40,9 +40,11 @@ run; a false premise caught here costs a few tool calls instead of a whole imple
    disagreement is BOUNCE material with both sides quoted — the owner settles it in the wiki, never
    a run (`CLAUDE.md` → "Source of truth"). Also ask whose job the check is (ADR-0067): a ticket
    that asks for a new check of what one of our own parts sends, for an answer it never sends by
-   design, is BOUNCE with a pointer to ADR-0067 §8 or ADR-0008 §3. A part being down, slow or
-   failing, and a guard on where a secret goes, are never in that group. An acceptance criterion that sets visible behaviour is checked
-   against the owner's rulings on the same flow
+   design, is BOUNCE with a pointer to ADR-0067 §8 or ADR-0008 §3. That group is never anything
+   ADR-0067 §7 lists: our own part being down, slow or failing; the one clean path for an answer the
+   code cannot use; a guard on where a secret goes; a resource server's check of a token it
+   receives; input from outside our trust boundary. An acceptance criterion that sets visible
+   behaviour is checked against the owner's rulings on the same flow
    (`gh issue list --state all --search "\"Owner decision\" <flow words> in:comments"`); a conflict,
    or a "the owner decides" with no answer yet, is CLARIFY.
 3. Verdict:
@@ -51,8 +53,9 @@ run; a false premise caught here costs a few tool calls instead of a whole imple
    - **CLARIFY** — the ticket forks: list the exact questions (with your recommended answers) that
      `/ticket`'s gate — or the user on the issue — must settle first.
    - **BOUNCE** — premise false, already shipped, duplicate, contradicts the wiki, or asks for a
-     check ADR-0067 gives to another part. Cite the evidence (wiki line, `file:line`, PR/commit, the contradicting ADR or knowledge-base finding).
-     Never close the issue — that is the user's call.
+     check ADR-0067 gives to another part. Cite the evidence (wiki line, `file:line`, PR/commit,
+     the contradicting ADR or knowledge-base finding). Never close the issue — that is the user's
+     call.
 4. Post the verdict as an issue comment, exactly this shape (the marker line lets `/ticket` skip
    its own step-2 re-verification):
 

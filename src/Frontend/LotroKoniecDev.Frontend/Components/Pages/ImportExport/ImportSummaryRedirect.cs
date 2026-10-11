@@ -18,10 +18,10 @@ internal sealed class ImportSummaryRedirect
 {
     internal const string SummaryParameter = "summary";
 
-    private const string PagePath = "/import-export";
-
     /// <summary>A new version here makes the page ignore links written for an older shape of the summary.</summary>
-    private const string Purpose = "LotroKoniecDev.Frontend.ImportSummary.v1";
+    internal const string Purpose = "LotroKoniecDev.Frontend.ImportSummary.v1";
+
+    private const string PagePath = "/import-export";
 
     /// <summary>A summary with a field missing or empty is refused, so the page never reads a null list.</summary>
     private static readonly JsonSerializerOptions SummaryJsonOptions = new()

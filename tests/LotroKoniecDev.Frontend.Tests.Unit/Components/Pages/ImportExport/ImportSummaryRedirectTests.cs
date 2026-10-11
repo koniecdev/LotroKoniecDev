@@ -116,7 +116,7 @@ public sealed class ImportSummaryRedirectTests
     {
         // A link written before the shape of the summary changed, if nobody changed the purpose.
         string protectedSummary = _dataProtectionProvider
-            .CreateProtector("LotroKoniecDev.Frontend.ImportSummary.v1")
+            .CreateProtector(ImportSummaryRedirect.Purpose)
             .Protect(payload);
         ImportSummaryRedirect redirect = new(_dataProtectionProvider);
 

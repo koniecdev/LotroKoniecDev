@@ -182,7 +182,8 @@ public sealed class EmailDispatchConsumerTests
 
     /// <summary>
     /// Stops the consumer, but never waits longer than <see cref="WaitLimit"/>, so a consumer that
-    /// ignores its stop token fails the test instead of hanging the run.
+    /// ignores its stop token never hangs the run. The stop itself returns quietly when the limit runs
+    /// out, so the test that is about stopping checks the outcome on its own.
     /// </summary>
     private static async Task StopWithinLimitAsync(EmailDispatchConsumer consumer)
     {

@@ -1441,9 +1441,11 @@ back only long enough to fix forward.
   deleting the queue — treat it as a small migration, not a config tweak. Delete it only while the
   release with the new arguments is running, or while auth-api is stopped. The running auth-api
   declares the queue again with **its own** arguments and attaches, usually within a minute and with
-  no restart (#1088), so a delete under the old release brings the old arguments straight back. An
-  e-mail that is waiting out an SMTP outage at that moment holds the attach back until its pause ends
-  (at most 15 minutes).
+  no restart (#1088), so a delete under the old release brings the old arguments straight back. The
+  release with the new arguments cannot read the old queue, so check in the management UI that it
+  holds no messages right before the delete: anything still in it is lost. An e-mail that is waiting
+  out an SMTP outage at that moment holds the attach back until its pause ends (about 15 minutes at
+  most).
 - **Never remove the `hostname:` pin** on the service. RabbitMQ keys its on-disk state by node name
   (`rabbit@<hostname>`); an unpinned recreation boots a fresh node beside the old data and orphans
   the volume's quorum queues — parked dead letters included.

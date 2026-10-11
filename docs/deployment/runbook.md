@@ -998,7 +998,10 @@ the live config into `/opt/lotro/.previous/`, scp's `compose.hetzner.yaml`, the 
    **previous release still serving** — it is a no-op for the live site;
 4. `up -d` — only now are the app containers recreated, onto an already-migrated schema;
 5. reloads Caddy (its Caddyfile is a bind mount — compose does not notice content changes);
-6. pins `IMAGE_TAG` in the box `.env` **last, on success only**, so the file always describes what is
+6. sets the broker policy that makes a parked e-mail message expire after 7 days (ADR-0036 §6) — see
+   [the dead-letter parking lot](#the-dead-letter-parking-lot-emailssenddlq). A broker that does not
+   answer only prints a warning: it never fails the deploy;
+7. pins `IMAGE_TAG` in the box `.env` **last, on success only**, so the file always describes what is
    actually running.
 
 Finally the runner waits for the public origins to answer, then smokes them. Red smoke ⇒ the box is
@@ -1355,7 +1358,8 @@ its own queue `tms.account-erased` and takes the person's name and address off t
 profile. Both use the one broker user `rabbitmq`; #1086 tracks a least-privilege user for tms-api.
 Everything each side needs — exchanges, quorum queues, bindings, the dead-letter wiring — is
 **declared idempotently by the app on channel open**, so a fresh broker needs zero manual
-provisioning. auth-api declares `lotro.accounts`; tms-api only checks that it exists, so until
+provisioning. The one thing an app does not declare, the 7-day expiry of parked e-mail messages, is a
+broker policy that `deploy.sh` sets on every deploy (ADR-0036 §6). auth-api declares `lotro.accounts`; tms-api only checks that it exists, so until
 auth-api has started once, the tms-api consumer keeps retrying its connection.
 
 The broker is deliberately a **soft dependency**:
@@ -1400,6 +1404,31 @@ queue with the *default* delivery limit (20) and no DLX of its own, so a reject-
 3. Only after the replay demonstrably processed (e-mail sent / inbox row present): remove the parked
    copy — *Get messages* with ack mode *Automatic ack*.
 
+**A parked message expires 7 days after it parks** (ADR-0036 §6, #1085), so replay within that week
+or it is gone for good. The limit exists because an e-mail change message holds the person's old and
+new address, and an account erasure cannot reach a queue. It is the RabbitMQ policy
+`emails-send-dlq-ttl` (pattern `^emails\.send\.dlq$`, `message-ttl` 604800000 ms). `deploy.sh` sets it
+on every deploy, on both boxes, so nobody sets it by hand. Check that it is on:
+
+```bash
+docker compose -f compose.hetzner.yaml exec -T --user rabbitmq rabbitmq rabbitmqctl list_queues name policy messages
+# emails.send.dlq  emails-send-dlq-ttl  0   <- the policy column must name it
+```
+
+Run `rabbitmqctl` as the `rabbitmq` user, as above. On a broker whose volume is new, a root CLI can
+write the Erlang cookie before the server does, and the server then stops at boot.
+
+- **The deploy warned that the policy did not land.** The broker did not answer in time. A broker that
+  had the policy keeps it, so this matters only for a new broker. Deploy again once the broker is
+  healthy, then check `emails.send.dlq`: a message that parked while the policy was missing never
+  expires.
+- **A message with no expiry blocks the others.** A quorum queue gets a message's expiry when the
+  message parks, and it drops expired messages only from its head. So a message that parked before the
+  policy existed stays for good, and every message behind it stays too. Replay or remove such a message
+  by hand. Both parking lots were empty when the policy first went out (2026-10-11).
+- **Never add a second policy that matches `emails.send.dlq`.** A queue follows only one policy, the one
+  with the highest priority, so a second one without the same `message-ttl` switches the expiry off.
+
 ### The account events parking lot (`tms.account-erased.dlq`)
 
 Only a message tms-api can never handle lands here: an unknown type, an unreadable payload or a
@@ -1418,7 +1447,9 @@ AuthSystem never sends an erasure again once it was sent, so a message lost ther
 person's name on the profile for good. An erasure that is waiting out a database outage at that
 moment holds the attach back until its pause ends (about 15 minutes at most). Replay works as for `emails.send.dlq`, on the **`lotro.accounts`** exchange with the routing
 key `account.erased` and the `type` property `AccountErased`. Erasing a profile twice is harmless,
-so a replay never needs a duplicate check.
+so a replay never needs a duplicate check. This parking lot has **no time limit, on purpose**: a parked
+message is erasure work that must wait for a person. Never give it a policy with a `message-ttl`, and
+never widen the e-mail expiry pattern to reach it (ADR-0036 §6).
 
 ### Rolling back past ADR-0065
 

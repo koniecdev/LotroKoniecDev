@@ -46,7 +46,7 @@ checked the rest:
 | TMS `Translators` | **kept the name and the e-mail** (this ADR, §2–§4) |
 | TMS translations, game versions, the translation file | no names |
 | Frontend | no server-side store beyond five-minute in-memory caches |
-| The broker's `emails.send.dlq` | can keep a parked e-mail change message forever (#1085, needs an owner decision on a time limit) |
+| The broker's `emails.send.dlq` | a parked e-mail change message expires 7 days after it parks, well before the erasure (ADR-0036 §6, #1085) |
 | Logs | 30 days, as the policy says |
 
 ## Decision
@@ -204,8 +204,8 @@ within a day. A shorter QA grace period leaves those encrypted rows until the pr
 - The TMS now talks to the broker, with the same broker user as the AuthSystem. A broken-into TMS
   could publish to the e-mail exchange. It very likely holds the sign-in server's database user
   already, so this adds little today, but both are tracked in #1086.
-- A parked e-mail change message in `emails.send.dlq` still keeps both addresses until a person
-  removes it (#1085).
+- A parked e-mail change message in `emails.send.dlq` keeps both addresses until it expires, 7 days
+  after it parks (ADR-0036 §6, #1085).
 - A TMS consumer that cannot erase shows only in the logs: one Error line every 15 minutes once the
   pauses stop growing. No alert or health check watches it or the parking queues yet (#1087).
 - Each finalizer run reads every sent outbox row once. That is a few thousand small rows at this

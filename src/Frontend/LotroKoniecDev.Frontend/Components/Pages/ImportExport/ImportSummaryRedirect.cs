@@ -7,24 +7,25 @@ using Microsoft.AspNetCore.WebUtilities;
 namespace LotroKoniecDev.Frontend.Components.Pages.ImportExport;
 
 /// <summary>
-/// Carries an import's summary across the redirect after the import (#933). The page redirects so that
-/// the version list loads in a new request with a renewed token: the token of the import request may
-/// already be dead when an import of several minutes ends, and the TMS allows no clock skew.
-/// The summary travels in the query string, so the server keeps no state per user, like the other
-/// redirects after a post (#321). It holds the server's notes as text, so it is protected: a link that
-/// someone else wrote cannot put text on this page.
+/// Carries an import's summary, and the version it went into, across the redirect after the import
+/// (#933). The page redirects so that the version list loads in a new request with a renewed token: the
+/// token of the import request may already be dead when an import of several minutes ends, and the TMS
+/// allows no clock skew.
+/// Both travel in the query string, so the server keeps no state per user, like the other redirects
+/// after a post (#321). They are protected: a link that someone else wrote can neither put text on this
+/// page nor choose the version the next upload goes to.
 /// </summary>
 internal sealed class ImportSummaryRedirect
 {
     internal const string SummaryParameter = "summary";
 
-    /// <summary>A new version here makes the page ignore links written for an older shape of the summary.</summary>
+    /// <summary>A new version here makes the page ignore links written for an older shape of the value.</summary>
     internal const string Purpose = "LotroKoniecDev.Frontend.ImportSummary.v1";
 
     private const string PagePath = "/import-export";
 
-    /// <summary>A summary with a field missing or empty is refused, so the page never reads a null list.</summary>
-    private static readonly JsonSerializerOptions SummaryJsonOptions = new()
+    /// <summary>A value with a field missing or null is refused, so the page never reads a null list.</summary>
+    private static readonly JsonSerializerOptions JsonOptions = new()
     {
         RespectNullableAnnotations = true,
         RespectRequiredConstructorParameters = true
@@ -32,26 +33,26 @@ internal sealed class ImportSummaryRedirect
 
     private readonly IDataProtector _protector;
 
-    public string PageUriWith(ImportSummary summary) =>
+    public string PageUriWith(CompletedImport completedImport) =>
         QueryHelpers.AddQueryString(
             PagePath,
             SummaryParameter,
-            _protector.Protect(JsonSerializer.Serialize(summary, SummaryJsonOptions)));
+            _protector.Protect(JsonSerializer.Serialize(completedImport, JsonOptions)));
 
     /// <summary>
     /// A value this page did not write, one written with a key the key ring no longer has, or one written
-    /// for another shape of the summary, shows no summary at all.
+    /// for another shape, shows no summary at all.
     /// </summary>
-    public ImportSummary? Read(string? protectedSummary)
+    public CompletedImport? Read(string? protectedValue)
     {
-        if (string.IsNullOrEmpty(protectedSummary))
+        if (string.IsNullOrEmpty(protectedValue))
         {
             return null;
         }
 
         try
         {
-            return JsonSerializer.Deserialize<ImportSummary>(_protector.Unprotect(protectedSummary), SummaryJsonOptions);
+            return JsonSerializer.Deserialize<CompletedImport>(_protector.Unprotect(protectedValue), JsonOptions);
         }
         catch (Exception exception) when (exception is CryptographicException or FormatException or JsonException)
         {
@@ -63,4 +64,6 @@ internal sealed class ImportSummaryRedirect
     {
         _protector = dataProtectionProvider.CreateProtector(Purpose);
     }
+
+    internal sealed record CompletedImport(Guid GameVersionId, ImportSummary Summary);
 }

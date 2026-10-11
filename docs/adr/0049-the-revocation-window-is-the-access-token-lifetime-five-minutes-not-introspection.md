@@ -198,9 +198,9 @@ facts join the list in "What the tests pin":
 3. A token that expired one second, one minute, four minutes or twenty minutes ago gets 401, and a
    token that expires in one minute is accepted (`AuthorizationDefaultsTests`).
 4. A correctly signed token of another type gets 401 (`AuthorizationDefaultsTests`). The real token
-   endpoint writes `at+jwt` on the website's authorization-code and refresh tokens
-   (`AuthorizationCodeFlowTests`, `TokenEndpointTests`) and on password and service tokens
-   (`TokenEndpointTests`), so the rule cannot lock out the website or the deploy smoke.
+   endpoint writes `at+jwt` on authorization-code tokens (`AuthorizationCodeFlowTests`) and on
+   password, refresh and service tokens (`TokenEndpointTests`). OpenIddict writes every access token
+   the same way, whatever the client, so the rule cannot lock out the website or the deploy smoke.
 
 `GdprSettingsValidator` kept its own copy of the old five minutes, so that the deletion grace period
 outlived every token the TMS still accepted. The copy is gone, and the grace period only has to be
@@ -212,10 +212,12 @@ old skew hid a call that came later than that. The import page made one: after a
 minutes, it loaded the version list again with the same token. The TMS answered 401, the website
 marked the session dead, and the admin was signed out on the next click. Now the page redirects after
 a successful import (Post/Redirect/Get). The version list loads in the new request, which renews the
-token first. The import summary travels in the redirect address, protected with the website's Data
-Protection keys, so a link that someone else wrote cannot put text on the page. A refused import
-makes no second call: the import is all or nothing, so the list loaded at the start of the request
-is still right. The owner ruled out the other ways on #933: no exception to the dead-session marker,
+token first. The import summary and the version it went into travel in the redirect address,
+protected with the website's Data Protection keys. So a link that someone else wrote can neither put
+text on the page nor choose the version for the next upload, and the page still says the import
+worked when the new request cannot load the list. A refused import makes no second call: the import
+is all or nothing, so the list loaded at the start of the request is still right. After a timeout the
+import may still finish on the TMS, and a reload shows it. The owner ruled out the other ways on #933: no exception to the dead-session marker,
 and no renewal in the middle of a request. If an import ever takes hours, the answer is a background
 job, not a longer token.
 

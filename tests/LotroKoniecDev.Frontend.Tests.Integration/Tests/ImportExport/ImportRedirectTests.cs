@@ -59,11 +59,34 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
     private readonly Dictionary<string, string> _cookies = new(StringComparer.Ordinal);
 
     [Fact]
-    public async Task Post_WhenTheImportSucceeds_RedirectsWithoutASecondListLoadAndTheNextPageShowsTheSummary()
+    public async Task Post_WhenTheImportSucceeds_RedirectsToTheImportPageWithoutASecondListLoad()
     {
         // Arrange: the list is loaded again only in the request the redirect starts, which renews the token
         // first. A second load before the redirect would carry this request's token, which an import of
         // several minutes may have outlived (#933).
+        StubTranslationSystem translationSystem = new(ImportAnswer.Accepted(new ImportSummary(1, 0, 0, 0, 0, 0, [])));
+        StubSignInServer signInServer = new(_signingKey);
+        using WebApplicationFactory<Program> host = CreateHost(signInServer, translationSystem);
+        using HttpClient browser = CreateBrowser(host);
+        await SignInAsync(browser, signInServer);
+        string antiforgeryToken = await LoadImportFormAsync(browser);
+        int listLoadsBeforePost = translationSystem.GameVersionsLoads;
+
+        // Act
+        using HttpResponseMessage posted = await SendAsync(browser, ImportPost(antiforgeryToken));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        Uri redirectedTo = new(new Uri("https://localhost"), posted.Headers.Location.ShouldNotBeNull());
+        redirectedTo.AbsolutePath.ShouldBe("/import-export");
+        redirectedTo.Query.ShouldStartWith("?summary=");
+        (translationSystem.GameVersionsLoads - listLoadsBeforePost).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Get_TheRedirectAfterASuccessfulImport_ShowsTheWholeSummary()
+    {
+        // Arrange
         StubTranslationSystem translationSystem = new(ImportAnswer.Accepted(new ImportSummary(
             Added: 21,
             SourceChanged: 22,
@@ -77,19 +100,14 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
         using HttpClient browser = CreateBrowser(host);
         await SignInAsync(browser, signInServer);
         string antiforgeryToken = await LoadImportFormAsync(browser);
-        int listLoadsBeforePost = translationSystem.GameVersionsLoads;
+        using HttpResponseMessage posted = await SendAsync(browser, ImportPost(antiforgeryToken));
+        Uri redirectedTo = posted.Headers.Location
+            ?? throw new InvalidOperationException($"The import answered {posted.StatusCode} with no redirect.");
 
         // Act
-        using HttpResponseMessage posted = await SendAsync(browser, ImportPost(antiforgeryToken));
+        using HttpResponseMessage redirected = await SendAsync(browser, new HttpRequestMessage(HttpMethod.Get, redirectedTo));
 
         // Assert
-        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-        (translationSystem.GameVersionsLoads - listLoadsBeforePost).ShouldBe(1);
-        Uri redirectedTo = new(new Uri("https://localhost"), posted.Headers.Location.ShouldNotBeNull());
-        redirectedTo.AbsolutePath.ShouldBe("/import-export");
-        redirectedTo.Query.ShouldStartWith("?summary=");
-
-        using HttpResponseMessage redirected = await SendAsync(browser, new HttpRequestMessage(HttpMethod.Get, redirectedTo));
         redirected.StatusCode.ShouldBe(HttpStatusCode.OK);
         string page = WebUtility.HtmlDecode(await redirected.Content.ReadAsStringAsync());
         page.ShouldContain("Import zakończony powodzeniem.");

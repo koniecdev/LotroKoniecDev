@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
+using CompletedImport = LotroKoniecDev.Frontend.Components.Pages.ImportExport.ImportSummaryRedirect.CompletedImport;
 using ImportExportComponent = LotroKoniecDev.Frontend.Components.Pages.ImportExport.ImportExport;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 
@@ -209,7 +210,7 @@ public sealed class ImportExportTests : BunitContext
             Unchanged: 15,
             Echoed: 16,
             Warnings: ["1 older unprocessed version(s) marked superseded — they will never receive their own upload."]);
-        Navigation().NavigateTo(Services.GetRequiredService<ImportSummaryRedirect>().PageUriWith(summary));
+        NavigateToTheRedirectAfter(new CompletedImport(Guid.NewGuid(), summary));
 
         IRenderedComponent<ImportExportComponent> component = RenderPage();
 
@@ -244,8 +245,7 @@ public sealed class ImportExportTests : BunitContext
         // refused second attempt must not show its error next to the old counts.
         AuthorizeAs("Sam");
         StubVersionsWithRegisterRel(ImportableVersion("48.0"));
-        Navigation().NavigateTo(Services.GetRequiredService<ImportSummaryRedirect>()
-            .PageUriWith(new ImportSummary(1, 2, 3, 4, 5, 6, ["Stara uwaga."])));
+        NavigateToTheRedirectAfter(new CompletedImport(Guid.NewGuid(), new ImportSummary(1, 2, 3, 4, 5, 6, ["Stara uwaga."])));
         IRenderedComponent<ImportExportComponent> component = RenderPage();
 
         await component.Find("form").SubmitAsync();
@@ -254,6 +254,45 @@ public sealed class ImportExportTests : BunitContext
         component.FindAll(".status-ok").ShouldBeEmpty();
         component.FindAll(".stat-tile").ShouldBeEmpty();
     }
+
+    [Fact]
+    public void Render_WhenTheRedirectAfterAnImportNamesItsVersion_KeepsThatVersionSelected()
+    {
+        // Without this the browser selects the first option, and a second file could go to another
+        // version than the one the admin just used (#933).
+        AuthorizeAs("Sam");
+        GameVersionResponse newer = ImportableVersion("48.1");
+        GameVersionResponse imported = ImportableVersion("48.0");
+        StubVersionsWithRegisterRel(newer, imported);
+        NavigateToTheRedirectAfter(new CompletedImport(imported.Id.Value, new ImportSummary(1, 0, 0, 0, 0, 0, [])));
+
+        IRenderedComponent<ImportExportComponent> component = RenderPage();
+
+        component.Find("select[name=\"ImportInput.GameVersionId\"] option[selected]").GetAttribute("value")
+            .ShouldBe(imported.Id.Value.ToString());
+    }
+
+    [Fact]
+    public void Render_WhenTheRedirectAfterAnImportCannotLoadTheList_StillSaysTheImportWorked()
+    {
+        // The import committed in the request that redirected here. If this request cannot load the list,
+        // the admin must still see that, or they send the 80 MB file again (#933).
+        AuthorizeAs("Sam");
+        _client
+            .GetApiResultAsync<CollectionResponse<GameVersionResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<CollectionResponse<GameVersionResponse>>(new() { Title = "Nie udało się wczytać wersji." }));
+        NavigateToTheRedirectAfter(new CompletedImport(Guid.NewGuid(), new ImportSummary(31, 32, 33, 34, 35, 36, [])));
+
+        IRenderedComponent<ImportExportComponent> component = RenderPage();
+
+        component.Find(".status-ok").TextContent.ShouldContain("Import zakończony powodzeniem.");
+        component.FindAll(".stat-tile .num").Select(tile => tile.TextContent)
+            .ShouldBe(["31", "32", "33", "34", "35", "36"]);
+        component.Find(".error-message").TextContent.ShouldContain("Nie udało się wczytać wersji.");
+    }
+
+    private void NavigateToTheRedirectAfter(CompletedImport completedImport) =>
+        Navigation().NavigateTo(Services.GetRequiredService<ImportSummaryRedirect>().PageUriWith(completedImport));
 
     private BunitNavigationManager Navigation() =>
         (BunitNavigationManager)Services.GetRequiredService<NavigationManager>();

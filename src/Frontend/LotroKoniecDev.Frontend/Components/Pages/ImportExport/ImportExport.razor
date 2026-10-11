@@ -168,56 +168,65 @@
                 }
             </div>
         </section>
+    }
+    else if (_summary is not null)
+    {
+        @* The import committed in the request that redirected here. If this request cannot load the list,
+           the panel is hidden, but the admin must still see that the import worked, or they send the file
+           again (#933). *@
+        <p class="status-line status-ok" role="status">
+            <span class="dot"></span>Import zakończony powodzeniem.
+        </p>
+    }
 
-        @if (_summary is not null)
+    @if (_summary is not null)
+    {
+        ImportSummary summary = _summary;
+
+        <section class="stats-grid">
+            <article class="stat-tile">
+                <span class="num @(summary.Added == 0 ? "zero" : null)">@summary.Added</span>
+                <span class="lbl">Dodane</span>
+            </article>
+            <article class="stat-tile">
+                <span class="num @(summary.SourceChanged == 0 ? "zero" : null)">@summary.SourceChanged</span>
+                <span class="lbl">Zmieniony angielski</span>
+            </article>
+            <article class="stat-tile">
+                <span class="num @(summary.Invalidated == 0 ? "zero" : null)">@summary.Invalidated</span>
+                <span class="lbl">Unieważnione</span>
+            </article>
+            <article class="stat-tile">
+                <span class="num @(summary.Removed == 0 ? "zero" : null)">@summary.Removed</span>
+                <span class="lbl">Usunięte</span>
+            </article>
+            <article class="stat-tile">
+                <span class="num @(summary.Unchanged == 0 ? "zero" : null)">@summary.Unchanged</span>
+                <span class="lbl">Bez zmian</span>
+            </article>
+            <article class="stat-tile" title="Wiersze, których „źródłem” w pliku był nasz własny polski tekst (eksport z patchowanego DAT) — policzone jako bez zmian, angielski źródłowy nietknięty.">
+                <span class="num @(summary.Echoed == 0 ? "zero" : null)">@summary.Echoed</span>
+                <span class="lbl">W tym echo patcha</span>
+            </article>
+        </section>
+
+        @if (summary.Warnings.Count > 0)
         {
-            ImportSummary summary = _summary;
-
-            <section class="stats-grid">
-                <article class="stat-tile">
-                    <span class="num @(summary.Added == 0 ? "zero" : null)">@summary.Added</span>
-                    <span class="lbl">Dodane</span>
-                </article>
-                <article class="stat-tile">
-                    <span class="num @(summary.SourceChanged == 0 ? "zero" : null)">@summary.SourceChanged</span>
-                    <span class="lbl">Zmieniony angielski</span>
-                </article>
-                <article class="stat-tile">
-                    <span class="num @(summary.Invalidated == 0 ? "zero" : null)">@summary.Invalidated</span>
-                    <span class="lbl">Unieważnione</span>
-                </article>
-                <article class="stat-tile">
-                    <span class="num @(summary.Removed == 0 ? "zero" : null)">@summary.Removed</span>
-                    <span class="lbl">Usunięte</span>
-                </article>
-                <article class="stat-tile">
-                    <span class="num @(summary.Unchanged == 0 ? "zero" : null)">@summary.Unchanged</span>
-                    <span class="lbl">Bez zmian</span>
-                </article>
-                <article class="stat-tile" title="Wiersze, których „źródłem” w pliku był nasz własny polski tekst (eksport z patchowanego DAT) — policzone jako bez zmian, angielski źródłowy nietknięty.">
-                    <span class="num @(summary.Echoed == 0 ? "zero" : null)">@summary.Echoed</span>
-                    <span class="lbl">W tym echo patcha</span>
-                </article>
+            <section class="panel">
+                <header class="panel-head">
+                    <h2>Uwagi</h2>
+                </header>
+                <div class="panel-body">
+                    <ul class="notice-list">
+                        @foreach (string warning in summary.Warnings)
+                        {
+                            <li class="status-line status-warning">
+                                <span class="dot"></span>@warning
+                            </li>
+                        }
+                    </ul>
+                </div>
             </section>
-
-            @if (summary.Warnings.Count > 0)
-            {
-                <section class="panel">
-                    <header class="panel-head">
-                        <h2>Uwagi</h2>
-                    </header>
-                    <div class="panel-body">
-                        <ul class="notice-list">
-                            @foreach (string warning in summary.Warnings)
-                            {
-                                <li class="status-line status-warning">
-                                    <span class="dot"></span>@warning
-                                </li>
-                            }
-                        </ul>
-                    </div>
-                </section>
-            }
         }
     }
 </section>
@@ -240,7 +249,7 @@
     [SupplyParameterFromForm(FormName = "import-export")]
     private ImportFormModel? ImportInput { get; set; }
 
-    /// <summary>The summary of the import that redirected here (#933).</summary>
+    /// <summary>The import that redirected here (#933).</summary>
     [SupplyParameterFromQuery(Name = ImportSummaryRedirect.SummaryParameter)]
     private string? ProtectedSummary { get; set; }
 
@@ -250,7 +259,16 @@
         // here: on a non-matching render the model stays empty, on a matching post the bound model wins.
         ImportInput ??= new ImportFormModel();
 
-        _summary = SummaryRedirect.Read(ProtectedSummary);
+        // The redirect after an import names the version it went into, so the selector keeps it and a
+        // second file is not sent to another version by accident (#933). A posted choice wins.
+        if (SummaryRedirect.Read(ProtectedSummary) is { } completedImport)
+        {
+            _summary = completedImport.Summary;
+            if (ImportInput.GameVersionId == Guid.Empty)
+            {
+                ImportInput.GameVersionId = completedImport.GameVersionId;
+            }
+        }
 
         // Any translator may see the game-versions list. Whether the import panel appears is decided by
         // the collection's admin-only `register` rel (#158) and not by a role check here.
@@ -329,7 +347,8 @@
             // Redirect after post (#933): the import changed the catalog and the version's status, so the
             // list is loaded again, in a new request that renews the token first. The TMS refuses a token
             // the moment it expires, and an import takes minutes. A browser reload is then a plain GET too.
-            Navigation.NavigateTo(SummaryRedirect.PageUriWith(result.Value));
+            Navigation.NavigateTo(SummaryRedirect.PageUriWith(
+                new ImportSummaryRedirect.CompletedImport(input.GameVersionId, result.Value)));
             return;
         }
 

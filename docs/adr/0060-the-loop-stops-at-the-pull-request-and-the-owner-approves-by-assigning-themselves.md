@@ -8,6 +8,17 @@
 `docs/claude-loop.md`, `.github/dependabot.yml`, the maintainer's `merge-train` skill (outside this
 repo); ADR-0026 (its §D is reversed here); ticket #884 / PR #895 (per-worktree E2E images)
 
+## Amendment (2026-10-11): a PR merged before its session ends counts as done
+
+**Narrows §1 and the Implementation Notes.** The PR a worker reports no longer has to be open. A
+session opens its PR about 15 minutes before it ends, and the PR looks finished in that time, so
+the owner may merge it. The loop used to count such a ticket as failed, and two of them in a row
+would have stopped the run (#1082). Now a merged PR from the ticket's own branch, opened after
+the session started, is a success with its own outcome, `merged`: no resume, no failure count,
+and the worktree goes as for an open PR. A PR closed without a merge, or merged before the
+session started, is still an error. The loop never merges, as before. Details:
+`docs/claude-loop.md`, "Outcomes & triage".
+
 ## Amendment (2026-10-05): the merge train fixes conflicts itself, and its fix keeps the approval
 
 **Narrows §4 and the 2026-09-28 amendment.** The owner's rule: the merge train always rebases a
@@ -145,9 +156,10 @@ Three more facts shape the decision:
 ### 1. The loop never merges
 
 `work-ticket.sh` ends when the worker's PR exists (an open PR in this repo whose branch belongs
-to the ticket). It does not wait for `pr-verify` and does not touch the merge button. The
-conductor ends with a table of the PRs it opened (checks and open CodeQL alerts as they stand at
-that moment). That table is the owner's review queue.
+to the ticket; or one merged before the session ended — amended 2026-10-11). It does not wait for
+`pr-verify` and does not touch the merge button. The conductor ends with a table of the PRs it
+opened (checks and open CodeQL alerts as they stand at that moment). That table is the owner's
+review queue.
 
 Old loop code merged PRs, and the loop scripts run from whichever checkout starts them. So from
 this change on, the conductor refuses to start when `scripts/claude/` there differs from
@@ -286,7 +298,8 @@ the same either way, so serial only costs wall-clock time. `-j 1` stays availabl
 - `scripts/claude/work-ticket.sh`: worktree from `origin/main`; skip (exit 12) on an open PR or an
   existing worktree; the session runs inside the worktree in its own process group, and a stop,
   a timeout or a SIGKILL of the worker ends its whole process tree; no checks
-  wait, no merge; the PR it reports must be open and belong to the ticket; salvage, then the
+  wait, no merge; the PR it reports must be open and belong to the ticket (or be merged during the
+  session — amended 2026-10-11); salvage, then the
   worktree and its E2E images are removed; every exit writes its outcome to the `.meta` file.
 - `scripts/claude/backlog-loop.sh`: up to `-j` workers; refuses loop scripts that differ from
   `origin/main`; a usage limit starts nothing new, waits for the running tickets, naps and retries

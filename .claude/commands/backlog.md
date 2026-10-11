@@ -110,11 +110,14 @@ Then stop. **Do not run the command** — not in the background, not in the fore
      table.
    - No `done:` line: the run was stopped (Ctrl-C, a closed terminal) or killed. A stopped conductor
      prints no table, so build one row per ticket from the `.meta` files: `key=value` lines, and the
-     last line of a key wins (`issue`, `outcome`, `pr`, `resumes`, `worktree`, `session`). A `.meta`
-     with no `outcome=` line belongs to a worker that was killed hard (SIGKILL, power loss): its
-     worktree may still hold work, it has no resume marker, and the next run will skip that ticket —
-     list it as one that needs the owner. A ticket the run line names (`· tickets: …`) with no
-     `.meta` at all never started: list it as **not started**, since those are the ones to run again.
+     last line of a key wins (`issue`, `outcome`, `pr`, `resumes`, `worktree`, `session`,
+     `unmerged`). A `merged` ticket with `unmerged=` set to something other than `0` gets the table
+     note the conductor would print (`<k> commit(s) not in the merged PR: check them`, or for `?`:
+     `could not check for commits after the merge`). A `.meta` with no `outcome=` line belongs to
+     a worker that was killed hard (SIGKILL, power loss): its worktree may still hold work, it has
+     no resume marker, and the next run will skip that ticket — list it as one that needs the owner.
+     A ticket the run line names (`· tickets: …`) with no `.meta` at all never started: list it as
+     **not started**, since those are the ones to run again.
 6. Report:
    - the **PRs opened** — ticket, PR, checks, CodeQL alerts. This is the owner's review queue. The
      table shows the checks as they stood when the run ended, so read them again now:
@@ -122,6 +125,12 @@ Then stop. **Do not run the command** — not in the background, not in the fore
      `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<pr>/merge&state=open" --jq length`,
    - tickets **blocked** — relay each ticket's open questions **verbatim** (they were posted as issue
      comments; `gh issue list --label loop-blocked` finds them),
+   - tickets **merged** — the PR was merged before its session ended (#1082). Nothing waits for
+     review there; list them with their PR so the owner sees the whole run. The merge may have
+     skipped `/merge-train`'s gate, so read the row's checks and CodeQL alerts again as for an open
+     PR: a red check or an open alert is now on `main` and needs a follow-up ticket. A row that says
+     `commit(s) not in the merged PR: check them` or `could not check for commits after the merge`
+     needs the owner: the worker's `[loop] #<n>` line says where to look for those commits,
    - tickets **skipped** (already had an open PR or a worktree) and **refused** (`untrusted` — the
      provenance gate),
    - tickets whose row says **`worktree kept: run #<n> again to resume its session`** (`outcome=limit`

@@ -194,7 +194,7 @@ gh label create loop-blocked --color e36209 \
 
 RETRY=""          # tickets that hit the usage limit; they go first once the nap is over
 ATTEMPTED=""      # everything dispatched, so the picker never returns it again
-opened=0 blocked=0 failed=0 skipped=0 untrusted=0 count=0
+opened=0 merged=0 blocked=0 failed=0 skipped=0 untrusted=0 count=0
 consecutive_failures=0
 limit_naps=0
 limit_hold=0      # 1 = a worker hit the usage limit: dispatch nothing until the running ones end
@@ -252,6 +252,8 @@ handle_exit() {
     local ticket="$1" rc="$2"
     case "$rc" in
         0) opened=$((opened + 1)); consecutive_failures=0 ;;
+        # The PR was merged while its session still ran (#1082): done work, not a failure.
+        13) merged=$((merged + 1)); consecutive_failures=0 ;;
         2) blocked=$((blocked + 1)); consecutive_failures=0 ;;
         12) skipped=$((skipped + 1)); consecutive_failures=0 ;;
         11)
@@ -360,6 +362,7 @@ for meta_file in "$RUN_DIR"/ticket-*.meta; do
     pr="$(sed -n 's/^pr=//p' "$meta_file" | tail -1)"
     resumes="$(sed -n 's/^resumes=//p' "$meta_file" | tail -1)"
     worktree="$(sed -n 's/^worktree=//p' "$meta_file" | tail -1)"
+    unmerged="$(sed -n 's/^unmerged=//p' "$meta_file" | tail -1)"
     checks="-"; alerts="-"
     if [ -n "$pr" ]; then
         checks="$(pr_checks "$pr")"
@@ -373,6 +376,12 @@ for meta_file in "$RUN_DIR"/ticket-*.meta; do
     if [ "$outcome" = "limit" ] && [ "$worktree" = "kept" ]; then
         note="$note  worktree kept: run #$ticket again to resume its session"
     fi
+    # The PR was merged before its session ended, and the session went on committing (#1082).
+    case "$outcome:$unmerged" in
+        merged:0|merged:) ;;
+        "merged:?") note="$note  could not check for commits after the merge" ;;
+        merged:*) note="$note  $unmerged commit(s) not in the merged PR: check them" ;;
+    esac
     printf '[conductor] #%-6s %-12s %-6s %-8s %s%s\n' \
         "$ticket" "${outcome:-running?}" "${pr:+#$pr}" "$checks" "$alerts" "$note"
 done
@@ -383,10 +392,10 @@ if [ "${#ticket_json[@]}" -gt 0 ]; then
 fi
 
 echo
-echo "[conductor] done: $opened PR opened · $blocked blocked · $failed failed · $skipped skipped · $untrusted untrusted · \$$total_cost"
+echo "[conductor] done: $opened PR opened · $merged merged · $blocked blocked · $failed failed · $skipped skipped · $untrusted untrusted · \$$total_cost"
 [ "$opened" -gt 0 ] && echo "[conductor] next: review each PR, assign yourself to approve it, then run /merge-train"
 [ "$blocked" -gt 0 ] && echo "[conductor] blocked tickets carry your questions as issue comments: gh issue list --label loop-blocked"
 echo "[conductor] raw session logs: $RUN_DIR"
 
-notify "Claude backlog loop finished" "$opened PR opened, $blocked blocked, $failed failed (\$$total_cost)"
+notify "Claude backlog loop finished" "$opened PR opened, $merged merged, $blocked blocked, $failed failed (\$$total_cost)"
 exit "$exit_code"

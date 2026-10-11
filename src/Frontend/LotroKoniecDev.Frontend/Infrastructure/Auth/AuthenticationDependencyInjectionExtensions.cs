@@ -28,6 +28,16 @@ internal static class AuthenticationDependencyInjectionExtensions
     internal const string AccessDeniedPath = "/auth/access-denied";
     private const string ErrorPath = "/Error";
 
+    /// <summary>
+    /// The longest the website waits for one answer from the sign-in server: the login renewal and every
+    /// back-channel call (#923). Both can run before a page renders, so a stuck sign-in server holds the
+    /// page this long. It must stay above the sign-in server's 20 seconds for opening a database
+    /// connection. If the website gave up first, the sign-in server could finish a renewal the website
+    /// never reads, and the next try would send a refresh token that is already spent. For the same
+    /// reason the renewal is tried once, with no retry.
+    /// </summary>
+    internal static readonly TimeSpan AuthServerRequestTimeout = TimeSpan.FromSeconds(30);
+
     private static readonly Action<ILogger, string?, Exception?> LogOidcRemoteFailure =
         LoggerMessage.Define<string?>(
             LogLevel.Warning,
@@ -64,6 +74,7 @@ internal static class AuthenticationDependencyInjectionExtensions
                     AuthSystemSettings settings = sp
                         .GetRequiredService<IOptions<AuthSystemSettings>>().Value;
                     client.BaseAddress = new Uri(settings.BaseUrl);
+                    client.Timeout = AuthServerRequestTimeout;
                 })
                 .ConfigurePrimaryHttpMessageHandler(HttpClientsDependencyInjectionExtensions.CreatePrimaryHandler)
                 .AddSameOriginHandler<AuthSystemSettings>(settings => settings.BaseUrl)
@@ -196,6 +207,7 @@ internal static class AuthenticationDependencyInjectionExtensions
                 InnerHandler = options.BackchannelHttpHandler ?? HttpClientsDependencyInjectionExtensions.CreatePrimaryHandler()
             }
         };
+        options.BackchannelTimeout = AuthServerRequestTimeout;
     }
 
     private static Task OnRemoteFailureAsync(RemoteFailureContext context)

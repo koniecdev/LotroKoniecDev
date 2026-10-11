@@ -126,6 +126,35 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// #923: the login renewal runs before the page renders, so a stuck sign-in server holds the page this
+    /// long at most, not for the 100-second default. It must stay above the sign-in server's 20 seconds for
+    /// opening a database connection.
+    /// </summary>
+    [Fact]
+    public void AddFrontendAuthentication_TokenEndpointClient_WaitsThirtySecondsAtMost()
+    {
+        using ServiceProvider provider = CreateFrontendAuthenticationServices().BuildServiceProvider();
+
+        using HttpClient client = provider
+            .GetRequiredService<IHttpClientFactory>()
+            .CreateClient(nameof(ITokenEndpointClient));
+
+        client.Timeout.ShouldBe(TimeSpan.FromSeconds(30));
+    }
+
+    /// <summary>
+    /// #923: the same for the code exchange, the userinfo call and the discovery and key fetch, not the
+    /// 60-second default.
+    /// </summary>
+    [Fact]
+    public void AddFrontendAuthentication_OpenIdConnectBackchannel_WaitsThirtySecondsAtMost()
+    {
+        OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
+
+        options.Backchannel.Timeout.ShouldBe(TimeSpan.FromSeconds(30));
+    }
+
     /// <summary>#924: one handler serves every visitor's refresh.</summary>
     [Fact]
     public void AddFrontendAuthentication_TokenEndpointClient_KeepsNoCookies()

@@ -419,7 +419,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     [LoggerMessage(
         EventId = EventIds.AccountConsumerDetached,
         Level = LogLevel.Warning,
-        Message = "The account event consumer is no longer attached to queue {Queue}: the broker closed its channel or cancelled its subscription. Attaching again.")]
+        Message = "The account event consumer is no longer attached to queue {Queue}: its channel is closed or its subscription is gone. Attaching again.")]
     private static partial void LogDetached(ILogger logger, string queue);
 
     [LoggerMessage(

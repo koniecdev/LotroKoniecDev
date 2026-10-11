@@ -74,6 +74,8 @@ new_stack() {
 # The stub `docker`. Behavior is steered by env vars the cases set:
 #   STUB_CADDY_INVALID / STUB_PULL_FAIL / STUB_MIGRATE_FAIL / STUB_UP_FAIL — make that step exit 1
 #   STUB_DIGEST — the digest `docker image inspect` reports for every image
+#   STUB_BROKER_BOOTING_TRIES=<n> — the first n `rabbitmqctl set_policy` calls fail, as on a broker
+#     that is still starting; STUB_BROKER_DOWN — every one of them fails
 # Every call is appended to $STUB_LOG *in order*, so a case can assert what ran, what did NOT, and
 # crucially in which sequence.
 install_stub_docker() {
@@ -112,6 +114,19 @@ if [ "$1" = compose ]; then
             ;;
         up)   [ -z "${STUB_UP_FAIL:-}" ] || { echo 'stub: up failed' >&2; exit 1; } ;;
         ps)   echo 'NAME   STATUS' ;;
+        exec)
+            case "$*" in
+                *set_policy*)
+                    # This call is already in the log, so the count includes it.
+                    tries="$(grep -c 'set_policy' "$STUB_LOG")"
+                    if [ -n "${STUB_BROKER_DOWN:-}" ] || [ "$tries" -le "${STUB_BROKER_BOOTING_TRIES:-0}" ]; then
+                        echo "stub: unable to perform an operation on node 'rabbit@lotro-rabbitmq'" >&2
+                        exit 69
+                    fi
+                    echo 'stub: policy set'
+                    ;;
+            esac
+            ;;
     esac
     exit 0
 fi
@@ -137,7 +152,8 @@ run_deploy() {
     : > "$STUB_LOG"
     export STUB_LOG
     LAST_STATUS=0
-    LAST_OUTPUT="$(env STACK_DIR="$dir" "$@" bash "$DEPLOY_SH" 2>&1)" || LAST_STATUS=$?
+    # No pause between broker tries, so a broker that never answers costs no wall-clock time here.
+    LAST_OUTPUT="$(env STACK_DIR="$dir" BROKER_POLICY_RETRY_SECONDS=0 "$@" bash "$DEPLOY_SH" 2>&1)" || LAST_STATUS=$?
 }
 
 expected_digests() {
@@ -149,6 +165,7 @@ expected_digests() {
 }
 
 env_tag() { sed -n 's/^IMAGE_TAG=//p' "$1/.env" | head -1; }
+policy_tries() { grep -c 'set_policy' "$TMP_ROOT/calls.log" || true; }
 called() { grep -qF -- "$1" "$TMP_ROOT/calls.log"; }
 # Line number of the first docker call containing $1 (0 = never called).
 call_line() { grep -nF -- "$1" "$TMP_ROOT/calls.log" | head -1 | cut -d: -f1; }
@@ -325,5 +342,78 @@ grep -q 'PREVIOUS_IMAGE_TAG=sha-0000000' <<<"$LAST_OUTPUT" || fail 'CD was not t
 grep -q 'Deploy FAILED' <<<"$LAST_OUTPUT" || fail 'the failure banner (with container logs) was not printed'
 called 'logs' || fail 'container logs were not dumped on failure'
 pass 'a failed up -d exits non-zero, dumps logs, leaves .env on the live tag, and names the rollback target'
+
+# --- The parked e-mail expiry policy (ADR-0036 §6, #1085) ------------------------------------------
+
+AUTH_TOPOLOGY="$REPO_ROOT/src/AuthSystem/LotroKoniecDev.AuthSystem.Infrastructure/Messaging/RabbitMqTopology.cs"
+TMS_TOPOLOGY="$REPO_ROOT/src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Messaging/AccountEventsTopology.cs"
+# The owner's decision on #1085, word for word: only emails.send.dlq, 604800000 ms, as a policy. The CLI
+# runs as the `rabbitmq` user (see deploy.sh for the Erlang cookie trap a root CLI sets off).
+POLICY_CALL='exec -T --user rabbitmq rabbitmq rabbitmqctl set_policy --apply-to queues emails-send-dlq-ttl ^emails\.send\.dlq$ {"message-ttl":604800000}'
+
+# Every queue name the apps declare: the `const string …Queue = "…"` lines of both topology files.
+declared_queues() {
+    sed -n 's/.*const string [A-Za-z]*Queue = "\([^"]*\)";.*/\1/p' "$AUTH_TOPOLOGY" "$TMS_TOPOLOGY"
+}
+queue_constant() {
+    sed -n "s/.*const string $1 = \"\([^\"]*\)\";.*/\1/p" "$AUTH_TOPOLOGY" "$TMS_TOPOLOGY"
+}
+
+CASE='parked e-mail expiry'
+stack="$(new_stack policy)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
+[ "$LAST_STATUS" -eq 0 ] || fail 'a clean roll should exit 0' "status $LAST_STATUS"
+called "$POLICY_CALL" || fail 'the 7-day expiry policy was not applied to emails.send.dlq as the owner decided'
+[ "$(policy_tries)" -eq 1 ] || fail 'a broker that answers needs exactly one try' "tries: $(policy_tries)"
+grep -q '::warning::' <<<"$LAST_OUTPUT" && fail 'a policy that landed must not print a warning'
+pass 'every deploy sets the 7-day expiry policy on emails.send.dlq, as the rabbitmq user'
+
+CASE='policy after up -d'
+# `up -d` is what creates a new broker, so a policy set before it would miss a fresh volume.
+policy_at="$(call_line 'set_policy')"
+up_at="$(call_line 'up -d --remove-orphans')"
+[ -n "$policy_at" ] && [ -n "$up_at" ] || fail 'expected both up -d and the policy step to run'
+[ "$policy_at" -gt "$up_at" ] \
+    || fail 'the policy must be set AFTER up -d, which creates a new broker' "policy at call #$policy_at, up -d at call #$up_at"
+pass 'the policy is set after up -d, so a broker that up -d just created gets it too'
+
+CASE='policy reach'
+# The policy must reach the e-mail parking lot and nothing else the apps declare: never the work queue
+# emails.send (a waiting e-mail would be dropped), and never tms.account-erased.dlq (erasure work waits
+# for a person, #1085). The names come from the C# constants, so a renamed queue fails here instead of
+# leaving the policy on nothing. RabbitMQ reads the pattern as a regular expression; this one uses only
+# syntax that grep -E reads the same way.
+pattern="$(sed -n "s/^EMAIL_DLQ_EXPIRY_PATTERN='\(.*\)'$/\1/p" "$DEPLOY_SH")"
+[ -n "$pattern" ] || fail 'could not read EMAIL_DLQ_EXPIRY_PATTERN from deploy.sh'
+queues="$(declared_queues)"
+email_dlq="$(queue_constant EmailDeadLetterQueue)"
+erased_dlq="$(queue_constant ErasedDeadLetterQueue)"
+[ -n "$email_dlq" ] && [ -n "$erased_dlq" ] \
+    || fail 'could not read EmailDeadLetterQueue and ErasedDeadLetterQueue from the topology files' "$queues"
+[ "$(printf '%s\n' "$queues" | grep -c .)" -ge 4 ] \
+    || fail 'expected at least the four queues of both topology files' "$queues"
+matched="$(printf '%s\n' "$queues" | grep -E -- "$pattern" || true)"
+[ "$matched" = "$email_dlq" ] \
+    || fail "the policy must match ${email_dlq} and nothing else" "matched: ${matched:-<nothing>}; declared: $(printf '%s\n' "$queues" | tr '\n' ' ')"
+pass "the policy matches ${email_dlq} only, not ${erased_dlq} or any other declared queue"
+
+CASE='broker still starting'
+stack="$(new_stack booting)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" STUB_BROKER_BOOTING_TRIES=2
+[ "$LAST_STATUS" -eq 0 ] || fail 'a broker that answers on a later try is a clean roll' "status $LAST_STATUS"
+[ "$(policy_tries)" -eq 3 ] || fail 'expected two failed tries and a third that lands' "tries: $(policy_tries)"
+grep -q '::warning::' <<<"$LAST_OUTPUT" && fail 'a policy that landed on a later try must not print a warning'
+pass 'a broker that is still starting is tried again until it answers'
+
+CASE='broker never answers'
+stack="$(new_stack brokerdown)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" STUB_BROKER_DOWN=1 BROKER_POLICY_ATTEMPTS=4
+[ "$LAST_STATUS" -eq 0 ] || fail 'a broker outage must never block an app deploy' "status $LAST_STATUS"
+[ "$(policy_tries)" -eq 4 ] || fail 'expected exactly BROKER_POLICY_ATTEMPTS tries' "tries: $(policy_tries)"
+grep -q '::warning::.*emails-send-dlq-ttl' <<<"$LAST_OUTPUT" || fail 'the missing policy was not reported as a warning'
+grep -q 'unable to perform an operation' <<<"$LAST_OUTPUT" || fail "the broker's own error was not shown"
+[ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'the apps rolled, so the new tag must still be pinned' "$(env_tag "$stack")"
+grep -q 'Deploy FAILED' <<<"$LAST_OUTPUT" && fail 'the deploy did not fail, so no failure banner'
+pass 'a broker that never answers prints a warning, and the deploy still pins the new tag and exits 0'
 
 printf '\nAll %d hetzner deploy.sh case(s) passed.\n' "$cases"

@@ -73,4 +73,20 @@ public sealed class RabbitMqBrokerFixture : IAsyncLifetime
                 $"rabbitmqctl close_all_connections failed (exit code {result.ExitCode}).\nStdout:\n{result.Stdout}\nStderr:\n{result.Stderr}");
         }
     }
+
+    /// <summary>
+    /// Sets a queue policy with the same <c>rabbitmqctl set_policy</c> call that
+    /// <c>scripts/hetzner/deploy.sh</c> runs on a box.
+    /// </summary>
+    public async Task SetQueuePolicyAsync(string name, string pattern, string definition)
+    {
+        ExecResult result = await _container.ExecAsync(
+            ["rabbitmqctl", "set_policy", "--apply-to", "queues", name, pattern, definition]);
+
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"rabbitmqctl set_policy failed (exit code {result.ExitCode}).\nStdout:\n{result.Stdout}\nStderr:\n{result.Stderr}");
+        }
+    }
 }

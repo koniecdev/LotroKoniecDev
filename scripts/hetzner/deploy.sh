@@ -18,7 +18,9 @@
 #   4. `up -d` — the apps are recreated only now, on an already-migrated schema.
 #   5. reloads Caddy: its Caddyfile is a bind mount, and compose does not hash mounted file CONTENT,
 #      so without this a changed Caddyfile would sit on disk unapplied until someone restarted it.
-#   6. writes IMAGE_TAG into the box `.env` — LAST, and only on success, so the file always describes
+#   6. applies the broker policy that makes a parked e-mail message expire after 7 days (ADR-0036 §6,
+#      #1085). A broker that does not answer only prints a warning: it never fails the deploy.
+#   7. writes IMAGE_TAG into the box `.env` — LAST, and only on success, so the file always describes
 #      what is actually running. A later bare `docker compose up -d` by an operator then re-asserts
 #      the deployed tag instead of silently reverting to whatever the file said before.
 #
@@ -50,6 +52,23 @@ EXPECTED_DIGESTS="${EXPECTED_DIGESTS:-}"
 # and they are NOT dangling (they keep their sha-<short> tag), so a dangling-only prune would never
 # reclaim a byte on a 40 GB disk. Keeps ~2 weeks of tags around to roll back to instantly.
 PRUNE_UNUSED_OLDER_THAN="${PRUNE_UNUSED_OLDER_THAN:-336h}"
+# How long the broker policy step waits for a broker that is still starting (a new volume, or a
+# container `up -d` has just recreated): this many tries, this many seconds apart. The defaults match
+# the broker's healthcheck budget in compose.hetzner.yaml (a 30 s start period + 30 checks 5 s apart).
+BROKER_POLICY_ATTEMPTS="${BROKER_POLICY_ATTEMPTS:-36}"
+BROKER_POLICY_RETRY_SECONDS="${BROKER_POLICY_RETRY_SECONDS:-5}"
+
+# A parked e-mail message expires 7 days (604800000 ms) after it parks (ADR-0036 §6, #1085). An e-mail
+# change message holds the old and the new address, and an account erasure runs 14 days after the
+# deletion request at the earliest, so the message is gone well before the account is. It is a policy
+# and not a queue argument, because a live queue's arguments cannot change (ADR-0036). Plain values,
+# not settings: a box `.env` cannot change them.
+#
+# The pattern matches emails.send.dlq and nothing else. Never widen it to tms.account-erased.dlq: a
+# message parked there is erasure work, and it waits for a person however long that takes (ADR-0065).
+EMAIL_DLQ_EXPIRY_POLICY='emails-send-dlq-ttl'
+EMAIL_DLQ_EXPIRY_PATTERN='^emails\.send\.dlq$'
+EMAIL_DLQ_EXPIRY_DEFINITION='{"message-ttl":604800000}'
 
 log() { printf '\n==> %s\n' "$*"; }
 
@@ -166,6 +185,37 @@ compose up -d --remove-orphans
 # started with the new file. (Validated above, so this should not be the step that discovers a typo.)
 log "Reloading Caddy (its bind-mounted Caddyfile is not hashed by compose)"
 compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+
+# After `up -d`, because `up -d` is what creates a new broker. `set_policy` replaces a policy of the
+# same name, so running it on every deploy is safe.
+#
+# The CLI runs as the `rabbitmq` user (`--user rabbitmq`, then the service name), never as root. On a
+# new volume a root CLI that runs before the server can write the Erlang cookie writes it first, owned
+# by root, and the server stops because it cannot read it (seen on rabbitmq:4.3.4).
+#
+# A broker that never answers does not fail the deploy: a broker outage must never block an app deploy
+# (compose.hetzner.yaml). The policy is kept on the broker's volume, so a broker that had it still has
+# it. Only a new broker is left without it, and the next deploy applies it.
+apply_email_dead_letter_expiry() {
+    local attempt output=''
+    for ((attempt = 1; attempt <= BROKER_POLICY_ATTEMPTS; attempt++)); do
+        if output="$(compose exec -T --user rabbitmq rabbitmq rabbitmqctl set_policy --apply-to queues \
+            "$EMAIL_DLQ_EXPIRY_POLICY" "$EMAIL_DLQ_EXPIRY_PATTERN" "$EMAIL_DLQ_EXPIRY_DEFINITION" 2>&1)"; then
+            printf '%s\n' "$output"
+            return 0
+        fi
+        if [ "$attempt" -lt "$BROKER_POLICY_ATTEMPTS" ]; then
+            sleep "$BROKER_POLICY_RETRY_SECONDS"
+        fi
+    done
+    printf '%s\n' "$output"
+    return 1
+}
+
+log "Applying the broker policy: a parked e-mail message expires after 7 days (ADR-0036 §6)"
+if ! apply_email_dead_letter_expiry; then
+    echo "::warning::The broker did not take the policy '${EMAIL_DLQ_EXPIRY_POLICY}' after ${BROKER_POLICY_ATTEMPTS} tries. The apps rolled, so the deploy goes on. A broker that had the policy keeps it; a new broker has none, so parked e-mail messages there never expire until the next deploy applies it (runbook -> 'The dead-letter parking lot')."
+fi
 
 # The roll is live and healthy — record it. Write-to-temp + rename, so a crash mid-write can never
 # truncate the one file that holds every secret the stack runs on. mktemp creates the temp at 0600 —

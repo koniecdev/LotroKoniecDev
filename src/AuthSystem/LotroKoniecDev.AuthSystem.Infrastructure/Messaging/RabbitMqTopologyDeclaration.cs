@@ -46,6 +46,9 @@ public static class RabbitMqTopologyDeclaration
     /// the line. The quorum <em>default</em> limit of 20 still applies, so a replay must ack the
     /// message and publish it again. Rejecting and requeueing in a loop would quietly lose it
     /// (ADR-0036).
+    /// The 7-day expiry of a parked message is not here on purpose. It is a broker policy set at deploy
+    /// time, because an argument added here could not reach the queue that already exists on a live box
+    /// (ADR-0036 §6).
     /// </summary>
     private static readonly Dictionary<string, object?> DeadLetterQueueArguments = new()
     {

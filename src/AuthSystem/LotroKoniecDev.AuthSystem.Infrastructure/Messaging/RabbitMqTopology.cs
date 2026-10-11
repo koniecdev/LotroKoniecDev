@@ -70,7 +70,10 @@ public static class RabbitMqTopology
     /// <summary>
     /// The queue bound to <see cref="EmailsDeadLetterExchange"/> where failed messages wait. Nothing
     /// consumes it: a person looks at them in the management UI and replays them to
-    /// <see cref="EmailsExchange"/> under their original routing key.
+    /// <see cref="EmailsExchange"/> under their original routing key. A message expires 7 days after it
+    /// parks, because an e-mail change message holds two addresses that an account erasure cannot reach.
+    /// That limit is a broker policy set by <c>scripts/hetzner/deploy.sh</c>, whose pattern matches this
+    /// name, so renaming the queue means changing the policy too (ADR-0036 §6).
     /// </summary>
     public const string EmailDeadLetterQueue = "emails.send.dlq";
 

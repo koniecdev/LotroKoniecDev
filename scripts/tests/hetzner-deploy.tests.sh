@@ -125,11 +125,18 @@ if [ "$1" = compose ]; then
                     # run_deploy feeds a marker into deploy.sh's stdin. The policy call must never
                     # read it (see deploy.sh: SIGTTIN under `timeout` in a hand-run deploy).
                     if IFS= read -r line && [ "$line" = "$STDIN_MARKER" ]; then
+                        echo 'read-stdin' >> "$STUB_LOG"
                         echo 'stub: the policy call read the stdin of deploy.sh' >&2
                         exit 70
                     fi
                     # This call is already in the log, so the count includes it.
                     tries="$(grep -c 'set_operator_policy' "$STUB_LOG")"
+                    # A broken wait bound would retry forever and hang the suite. Let a runaway loop
+                    # land instead, so the case that counts the tries fails fast.
+                    if [ "$tries" -gt 50 ]; then
+                        echo 'stub: runaway retry loop, letting it land'
+                        exit 0
+                    fi
                     if [ -n "${STUB_BROKER_RESTARTED:-}" ] && [ "$tries" -eq 1 ]; then
                         echo 'stub: the exec was killed with the container' >&2
                         exit 137
@@ -159,10 +166,12 @@ STUB
     # A stub `timeout` too: macOS has none, and the real one would make the hang case wait for real.
     cat > "$bin/timeout" <<'STUB'
 #!/usr/bin/env bash
+kill_after=''
 if [ "$1" = -k ]; then
+    kill_after="-k $2 "
     shift 2
 fi
-printf 'timeout %s\n' "$1" >> "$STUB_LOG"
+printf 'timeout %s%s\n' "$kill_after" "$1" >> "$STUB_LOG"
 shift
 if [ -n "${STUB_BROKER_HANGS:-}" ]; then
     "$@" > /dev/null 2>&1
@@ -236,6 +245,14 @@ stack="$(new_stack novar)"
 run_deploy "$stack"
 [ "$LAST_STATUS" -eq 2 ] || fail 'expected exit 2 on a missing IMAGE_TAG' "got $LAST_STATUS"
 pass 'a missing IMAGE_TAG is a usage error (exit 2)'
+
+CASE='broker wait not a number'
+stack="$(new_stack badwait)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 BROKER_POLICY_WAIT_SECONDS=3m
+[ "$LAST_STATUS" -eq 2 ] || fail 'expected exit 2 on a broker wait that is not a whole number' "got $LAST_STATUS"
+called 'pull' && fail 'a bad setting still reached docker'
+[ "$(env_tag "$stack")" = 'sha-0000000' ] || fail '.env was rewritten although nothing rolled'
+pass 'a broker wait, retry or time limit that is not a whole number is a usage error before anything runs'
 
 CASE='hostile IMAGE_TAG'
 stack="$(new_stack hostile)"
@@ -397,9 +414,10 @@ run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
 [ "$LAST_STATUS" -eq 0 ] || fail 'a clean roll should exit 0' "status $LAST_STATUS"
 called "$POLICY_CALL" || fail 'the 7-day expiry policy was not applied to emails.send.dlq as the owner decided'
 [ "$(policy_tries)" -eq 1 ] || fail 'a broker that answers needs exactly one try' "tries: $(policy_tries)"
-# The try runs under `timeout 20`: the line right before the policy call.
-[ "$(call_line 'timeout 20')" -eq $(($(call_line 'set_operator_policy') - 1)) ] \
-    || fail 'the policy try must run under a 20 s time limit'
+# The try runs under `timeout -k 5 20`: the line right before the policy call.
+[ "$(call_line 'timeout -k 5 20')" -eq $(($(call_line 'set_operator_policy') - 1)) ] \
+    || fail 'the policy try must run under a 20 s time limit with a KILL 5 s later'
+called 'read-stdin' && fail 'the policy call read the stdin of deploy.sh (SIGTTIN in a hand-run deploy)'
 grep -q '::warning::' <<<"$LAST_OUTPUT" && fail 'a policy that landed must not print a warning'
 pass 'every deploy sets the 7-day expiry policy on emails.send.dlq, as the rabbitmq user'
 

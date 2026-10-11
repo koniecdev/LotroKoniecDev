@@ -91,6 +91,17 @@ case "$IMAGE_TAG" in
         ;;
 esac
 
+# A typo here would only surface after the apps rolled: a wait that is not a number never ends the
+# broker policy loop, and a retry that is not one kills the script and sets off CD's rollback.
+for setting in BROKER_POLICY_WAIT_SECONDS BROKER_POLICY_RETRY_SECONDS BROKER_POLICY_TRY_TIMEOUT_SECONDS; do
+    case "${!setting}" in
+        '' | *[!0-9]*)
+            echo "deploy.sh: $setting must be a whole number of seconds (got '${!setting}')." >&2
+            exit 2
+            ;;
+    esac
+done
+
 cd "$STACK_DIR" || { echo "deploy.sh: stack dir $STACK_DIR not found — is the box bootstrapped?" >&2; exit 2; }
 
 for required in "$COMPOSE_FILE" .env; do

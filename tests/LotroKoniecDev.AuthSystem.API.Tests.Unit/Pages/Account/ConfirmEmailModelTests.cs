@@ -85,6 +85,23 @@ public sealed class ConfirmEmailModelTests
         sut.ErrorMessage.ShouldBe(InvalidLinkMessage);
     }
 
+    /// <summary>
+    /// An old or mistyped link is a normal result, so it is no Warning (#977).
+    /// </summary>
+    [Fact]
+    public async Task OnGet_ShouldLogNothing_WhenTheLinkDoesNotVerify()
+    {
+        // Arrange
+        ArrangeUnconfirmedAccount(linkVerifies: false);
+        ConfirmEmailModel sut = CreateSut();
+
+        // Act
+        await GetAsync(sut);
+
+        // Assert
+        _logger.Entries.ShouldBeEmpty();
+    }
+
     [Fact]
     public async Task OnGet_ShouldCallTheLinkDead_WhenTheAddressHasNoAccount()
     {

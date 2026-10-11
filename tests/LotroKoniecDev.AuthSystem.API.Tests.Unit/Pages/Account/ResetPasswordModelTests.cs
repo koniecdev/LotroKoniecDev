@@ -3,6 +3,8 @@ using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence.Identity;
+using LotroKoniecDev.SharedKernel.Constants;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -91,6 +93,25 @@ public sealed class ResetPasswordModelTests
     }
 
     /// <summary>
+    /// A broken password rule is the normal result of what the user typed, so it is no Warning (#977).
+    /// </summary>
+    [Fact]
+    public async Task OnPostAsync_ShouldLogNothing_WhenThePasswordBreaksARule()
+    {
+        // Arrange
+        ArrangeAccountWithAGoodLink();
+        ResetPasswordModel sut = CreatePostingSut(
+            new string('x', PasswordConstants.MaxLength + 1), new PasswordMaxLengthValidator());
+
+        // Act
+        await PostAsync(sut);
+
+        // Assert
+        sut.ErrorMessage.ShouldBe("Hasło może mieć co najwyżej 128 znaków.");
+        _logger.Entries.ShouldBeEmpty();
+    }
+
+    /// <summary>
     /// The general message asks for another try, so the form has to stay for it.
     /// </summary>
     [Fact]
@@ -140,14 +161,16 @@ public sealed class ResetPasswordModelTests
         await posting.WaitAsync(CompletionTimeout);
     }
 
-    private ResetPasswordModel CreatePostingSut()
+    private ResetPasswordModel CreatePostingSut(
+        string newPassword = NewPassword,
+        params IPasswordValidator<ApplicationUser>[] passwordValidators)
     {
         UserManager<ApplicationUser> userManager = new(
             _store,
             Microsoft.Extensions.Options.Options.Create(new IdentityOptions()),
             new PasswordHasher<ApplicationUser>(),
             [],
-            [],
+            passwordValidators,
             new UpperInvariantLookupNormalizer(),
             new IdentityErrorDescriber(),
             services: null!,
@@ -163,8 +186,8 @@ public sealed class ResetPasswordModelTests
             PageContext = new PageContext { HttpContext = new DefaultHttpContext() },
             Email = Email,
             Token = "mailed-token",
-            NewPassword = NewPassword,
-            ConfirmPassword = NewPassword
+            NewPassword = newPassword,
+            ConfirmPassword = newPassword
         };
     }
 }

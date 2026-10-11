@@ -112,8 +112,10 @@ they document. Do not "fix" such a test — fix the defect, then change the asse
 That is what #596, #597 and #598 did: the escape asymmetry (ADR-0039), the swallowed trailing pipe
 (ADR-0042) and the over-long piece (ADR-0043) are all gone, so their tests now assert exact round
 trips — and `Write_PieceLongerThanTheVarLenCeiling_ShouldThrow` stays, restated as the deliberate
-last resort behind `Fragment.IsWritablePiece` rather than a reachable crash. **There is no
-known-lossy pin left today**; the next one to be added should name its ticket here.
+last resort behind `Fragment.IsWritablePiece` rather than a reachable crash. **One known pin is
+open today:** `ResetPasswordPageTests.ResetPasswordPage_Post_ShouldNameTheLengthAndTheLeak_WhenAnOverLongPasswordIsAlsoInDataBreaches`
+documents #1110 (the breach check still asks about a password that is already too long). The next
+pin to be added should name its ticket here too.
 
 The `||` rule now lives in **two duplicated-by-design types per context** — `TranslationLineEscaper`
 (the content escape) and `TranslationLineCarver` (the field boundaries) — each with its own twin

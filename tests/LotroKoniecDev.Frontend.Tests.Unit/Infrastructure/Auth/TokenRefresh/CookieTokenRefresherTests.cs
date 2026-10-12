@@ -275,6 +275,37 @@ public sealed class CookieTokenRefresherTests : IDisposable
         RevokedRefreshTokens(tokenEndpointClient).ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// A refusal, and a failure once the access token has run out, end the session with the one-time
+    /// notice, the same as every other rejection.
+    /// </summary>
+    [Theory]
+    [InlineData(false, 30)]
+    [InlineData(true, -1)]
+    public async Task ValidateAsync_WhenTheRefreshFailsForGood_RaisesTheExpiryNotice(
+        bool temporaryFailure,
+        int secondsUntilExpiry)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        ISessionExpiryNotice sessionExpiryNotice = Substitute.For<ISessionExpiryNotice>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            sessionExpiryNotice: sessionExpiryNotice,
+            refreshFailure: temporaryFailure ? TokenRefreshResult.TemporaryFailure : TokenRefreshResult.FinalFailure);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(secondsUntilExpiry),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        sessionExpiryNotice.Received(1).Raise();
+    }
+
     [Fact]
     public async Task ValidateAsync_WhenTheRefreshFailsForAMomentWhileTheAccessTokenWorks_RaisesNoExpiryNotice()
     {

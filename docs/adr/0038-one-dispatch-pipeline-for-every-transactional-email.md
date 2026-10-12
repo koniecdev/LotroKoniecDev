@@ -87,9 +87,8 @@ deletion-cancelled e-mail needs no token at all (see Context) — its payload is
 > **Exception (2026-10-11, #947, #1115): the cancel-deletion link follows ADR-0031, not delivery.**
 > Its token is still minted at delivery, but its time limit is not "one grace period from now". It
 > stops working at `AccountDeletionSchedule.CancellableUntil(DeletionScheduledAt)`, the scheduled
-> time plus the grace period, however late the e-mail went out. #947 builds that check and amends
-> ADR-0031, whose #780 amendment still counts from the moment the e-mail is built. "The countdown
-> starts now" holds for every other link.
+> time plus the grace period, however late the e-mail went out. #947 built that check and amended
+> ADR-0031 (see its #947 amendment). "The countdown starts now" holds for every other link.
 
 Minting against the *current* stamp is only safe while nothing rotates the stamp after the
 outbox row becomes visible — and the relay is signal-driven, so "after commit" can mean

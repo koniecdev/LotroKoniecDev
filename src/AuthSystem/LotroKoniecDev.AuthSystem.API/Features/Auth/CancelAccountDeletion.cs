@@ -5,6 +5,7 @@ using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -60,6 +61,8 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
 
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly OutboxWriter _outboxWriter;
+        private readonly IAccountDeletionSchedule _deletionSchedule;
+        private readonly TimeProvider _timeProvider;
         private readonly IResponseTimeFloor _responseTimeFloor;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
@@ -67,12 +70,16 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
         public Handler(
             UserManager<ApplicationUser> userManager,
             OutboxWriter outboxWriter,
+            IAccountDeletionSchedule deletionSchedule,
+            TimeProvider timeProvider,
             IResponseTimeFloor responseTimeFloor,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
             _outboxWriter = outboxWriter;
+            _deletionSchedule = deletionSchedule;
+            _timeProvider = timeProvider;
             _responseTimeFloor = responseTimeFloor;
             _validator = validator;
             _logger = logger;
@@ -125,6 +132,20 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
                 return Result.Failure<CancelledDeletion>(AuthErrors.InvalidCancelDeletionToken);
             }
 
+            // A token from a late e-mail is still valid on its own, but the link ends with the window
+            // (#947, ADR-0031). The answer is the same as for any bad link.
+            DateTimeOffset scheduledAt = user.DeletionScheduledAt.Value;
+            if (!_deletionSchedule.IsCancellableAt(scheduledAt, _timeProvider.GetUtcNow()))
+            {
+                LogCancelWindowOver(
+                    _logger,
+                    user.Id,
+                    _deletionSchedule.CancellableUntil(scheduledAt),
+                    command.IpAddress,
+                    command.UserAgent);
+                return Result.Failure<CancelledDeletion>(AuthErrors.InvalidCancelDeletionToken);
+            }
+
             // Whoever asked for the deletion may hold the current password, so the password is
             // invalidated with the cancellation. Only the reset flow brings the account back.
             user.DeletionScheduledAt = null;
@@ -164,6 +185,9 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.GdprCancelTokenInvalid, Level = LogLevel.Warning, Message = "Invalid cancel-deletion token presented for {MaskedEmail}. IP: {IpAddress}, UserAgent: {UserAgent}")]
         private static partial void LogCancelTokenInvalid(ILogger logger, string maskedEmail, string? ipAddress, string? userAgent);
+
+        [LoggerMessage(EventId = EventIds.GdprCancelWindowOver, Level = LogLevel.Information, Message = "Cancel-deletion link refused for user {UserId}: the cancel window ended at {CancellableUntil}. IP: {IpAddress}, UserAgent: {UserAgent}")]
+        private static partial void LogCancelWindowOver(ILogger logger, Guid userId, DateTimeOffset cancellableUntil, string? ipAddress, string? userAgent);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

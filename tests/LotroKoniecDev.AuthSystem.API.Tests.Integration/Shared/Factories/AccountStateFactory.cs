@@ -69,6 +69,25 @@ internal static class AccountStateFactory
     }
 
     /// <summary>
+    /// Moves a scheduled deletion <paramref name="age"/> into the past and leaves the security stamp
+    /// alone, so the cancel token already mailed still verifies. That is the state of a cancel e-mail
+    /// that went out late (#947).
+    /// </summary>
+    public static async Task BackdateDeletionScheduleAsync(IServiceProvider services, string email, TimeSpan age)
+    {
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        ApplicationUser user = await FindAsync(userManager, email);
+
+        user.DeletionScheduledAt = DateTimeOffset.UtcNow - age;
+        IdentityResult result = await userManager.UpdateAsync(user);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException($"Could not backdate the deletion of test user '{email}'.");
+        }
+    }
+
+    /// <summary>
     /// Deletes the row the way an operator does by hand: nothing is revoked, so every token the account
     /// already holds is still valid in the database.
     /// </summary>

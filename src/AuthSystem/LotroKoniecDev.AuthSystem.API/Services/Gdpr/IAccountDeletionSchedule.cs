@@ -4,8 +4,8 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 
 /// <summary>
-/// The two dates a scheduled deletion runs on, and the query that finds the accounts those dates have
-/// caught up with (ADR-0031, amended by #685).
+/// The two dates a scheduled deletion runs on, whether its cancel link still works, and the query that
+/// finds the accounts those dates have caught up with (ADR-0031, amended by #685 and #947).
 /// </summary>
 /// <remarks>
 /// It exists because the erasure date was worked out in four places — the response header, the
@@ -16,10 +16,18 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 internal interface IAccountDeletionSchedule
 {
     /// <summary>
-    /// When the cancel link stops working. Its token's lifespan is the grace period, measured from the
-    /// moment the deletion was scheduled, so this is the grace window and nothing else.
+    /// When the cancel link stops working: the scheduled time plus the grace period, and nothing else.
+    /// The token in the link lives one grace period from the moment its e-mail is built, so a token
+    /// from a late e-mail outlives this date, and the cancel endpoint refuses it anyway (#947).
     /// </summary>
     DateTimeOffset CancellableUntil(DateTimeOffset scheduledAt);
+
+    /// <summary>
+    /// Whether the cancel link still works at <paramref name="moment"/>. The link is already dead at
+    /// <see cref="CancellableUntil"/> itself, the same boundary <see cref="IsDueBy"/> uses for the grace
+    /// period.
+    /// </summary>
+    bool IsCancellableAt(DateTimeOffset scheduledAt, DateTimeOffset moment);
 
     /// <summary>
     /// When the account is really erased: the later of the grace window and the undo window of

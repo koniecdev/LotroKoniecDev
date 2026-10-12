@@ -80,6 +80,29 @@ public sealed class AccountDeletionScheduledProcessorTests
     }
 
     [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 1)]
+    public async Task ProcessAsync_AtTheEndOfTheCancelWindow_SendsOnlyWhileTheLinkStillWorks(
+        int secondsLeftInTheWindow, int expectedSends)
+    {
+        // The cancel endpoint refuses the link at the end of the window itself (#947), so an e-mail
+        // built at that moment would carry a link that is already dead.
+        ApplicationUser user = CreateUser();
+        user.DeletionScheduledAt = Now - Gdpr.DeletionGracePeriod + TimeSpan.FromSeconds(secondsLeftInTheWindow);
+        StubUserAndToken(user);
+        _emailSender.SendDeletionScheduledEmailAsync(
+                user.Id, user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        AccountDeletionScheduledProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(new AccountDeletionScheduled(user.Id), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        await _emailSender.Received(expectedSends).SendDeletionScheduledEmailAsync(
+            user.Id, user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]

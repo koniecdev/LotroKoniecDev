@@ -246,32 +246,37 @@ finish() {
 # commits_after_merge — prints how many commits on HEAD or on the merged PR's branch the merged PR
 # does not hold, plus one when the worktree has uncommitted files, which `finish` saves as a commit
 # on a salvage branch. The session may commit a fix after the merge, for example for a CodeQL alert:
-# on the PR's branch, on a new branch or on a detached HEAD. That fix is then not on main. With no
-# worktree left, after an attempt the usage limit stopped and `finish` salvaged, it reads the PR's
-# branch and that attempt's salvage branch instead (#1096). Commits are matched by their change, not
-# by their id, so a rebase by GitHub before the merge still matches, and commits main already has
-# never count. The count can still be too high (a conflict fixed in a rebase, an empty commit), so
-# the log asks the owner to check, and never claims the commits are lost. Fails when it cannot
-# tell. The fetch runs where a stop is only noted, so a stalled transfer and a password prompt end
-# it.
+# on the PR's branch, on a new branch or on a detached HEAD. That fix is then not on main. When this
+# ticket has no worktree of its own any more, after an attempt the usage limit stopped and `finish`
+# salvaged, it reads the PR's branch and that attempt's salvage branch instead (#1096). Commits are
+# matched by their change, not by their id, so a rebase by GitHub before the merge still matches,
+# and commits main already has never count. The count can still be too high (a conflict fixed in a
+# rebase, an empty commit), so the log asks the owner to check, and never claims the commits are
+# lost. Fails when it cannot tell. The fetch runs where a stop is only noted, so a stalled transfer
+# and a password prompt end it. It goes to a ref of this run, not to FETCH_HEAD: outside a worktree,
+# FETCH_HEAD is shared with every ticket that fetches from the same checkout at the same time.
 commits_after_merge() {
-    local dir="$WT" tips="HEAD refs/heads/$pr_branch" tip listed found="" commit count=0
-    if [ ! -d "$WT" ]; then
+    local dir="$WT" tips="HEAD refs/heads/$pr_branch" ref="refs/loop-merged/$ISSUE-$$" merged_head
+    local tip listed found="" commit count=0
+    if [ "$own_worktree" -eq 0 ]; then
         dir="$REPO_ROOT"
         tips="refs/heads/$pr_branch${earlier_salvage:+ refs/heads/$earlier_salvage}"
     fi
     GIT_TERMINAL_PROMPT=0 git -C "$dir" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 \
-        fetch --quiet origin "refs/pull/$pr_num/head" 2>/dev/null < /dev/null || return 1
+        fetch --quiet --no-write-fetch-head origin "+refs/pull/$pr_num/head:$ref" 2>/dev/null < /dev/null || return 1
+    merged_head="$(git -C "$dir" rev-parse -q --verify "$ref^{commit}" 2>/dev/null || true)"
+    git -C "$dir" update-ref -d "$ref" 2>/dev/null || true
+    [ -n "$merged_head" ] || return 1
     for tip in $tips; do
         git -C "$dir" rev-parse -q --verify "$tip^{commit}" >/dev/null 2>&1 || continue
-        listed="$(git -C "$dir" cherry FETCH_HEAD "$tip" 2>/dev/null)" || return 1
+        listed="$(git -C "$dir" cherry "$merged_head" "$tip" 2>/dev/null)" || return 1
         found="$found$(sed -n 's/^+ //p' <<< "$listed")"$'\n'
     done
     for commit in $(printf '%s' "$found" | sort -u); do
         git -C "$dir" merge-base --is-ancestor "$commit" refs/remotes/origin/main 2>/dev/null \
             || count=$((count + 1))
     done
-    [ "$dir" != "$WT" ] || [ -z "$(git -C "$WT" status --porcelain 2>/dev/null)" ] || count=$((count + 1))
+    [ "$own_worktree" -eq 0 ] || [ -z "$(git -C "$WT" status --porcelain 2>/dev/null)" ] || count=$((count + 1))
     echo "$count"
 }
 
@@ -279,22 +284,25 @@ commits_after_merge() {
 # so its work is on main (#1082, #1096): it counts what the merge did not take, removes the worktree
 # as for an opened PR and exits 13. Call it only where a stop is only noted (see `ending`).
 finish_merged() {
-    local after_merge head_place where
+    local after_merge head_place where checked="branch ${pr_branch:-?}"
     meta outcome merged
     meta pr "$pr_num"
     after_merge="$(commits_after_merge)" || after_merge="?"
     meta unmerged "$after_merge"
-    where="branch ${pr_branch:-?}"
-    if [ -d "$WT" ]; then
+    where="$checked"
+    if [ "$own_worktree" -eq 1 ]; then
         head_place="$(git -C "$WT" branch --show-current 2>/dev/null || true)"
         where="$where, at the worktree's HEAD (${head_place:-detached}) and on any salvage branch named above"
+        finish
     elif [ -n "$earlier_salvage" ]; then
+        # The .meta started over, so the stopped attempt's leftovers are named again.
+        meta salvage "$earlier_salvage"
         where="$where and on branch $earlier_salvage"
+        checked="$checked or branch $earlier_salvage"
     fi
-    finish
     case "$after_merge" in
         0) log "PR #$pr_num was merged $1 — the work is on main$2" ;;
-        "?") log "PR #$pr_num was merged $1, but the loop could not check whether branch ${pr_branch:-?} has commits the merge did not take$2" ;;
+        "?") log "PR #$pr_num was merged $1, but the loop could not check whether $checked has commits the merge did not take$2" ;;
         *) log "PR #$pr_num was merged $1, but $after_merge commit(s) are not in the merged PR — look on $where$2" ;;
     esac
     exit 13
@@ -417,6 +425,9 @@ release_kept=0
 # attempt started (#1096). Its work is on main, so no session runs.
 merged_pr=""
 merged_branch=""
+# 0 when a ticket merged during a usage-limit nap has no worktree of its own any more: a folder that
+# appears under its name from then on is someone else's (#1096).
+own_worktree=1
 if [ -n "$marker_text" ]; then
     kept_session="$(marker_value session)"
     current_tree="$(tree_state)" || {
@@ -552,20 +563,26 @@ else
     # A worktree with no marker is someone's work, whatever was merged, so it is skipped below.
     if [ "$release_kept" -eq 1 ] || [ ! -e "$WT" ]; then
         merged_other=""
+        merged_other_pr=""
         while read -r number head; do
             [ -n "$number" ] || continue
             if [ "$head" = "$retry_branch" ]; then
                 merged_pr="${merged_pr:-$number}"
             else
-                merged_other="${merged_other:-PR #$number from another branch ($head)}"
+                if [ -z "$merged_other" ]; then
+                    merged_other="PR #$number from another branch ($head)"
+                    merged_other_pr="$number"
+                fi
             fi
         done <<< "$merged_prs"
         if [ -n "$merged_other" ]; then
             meta outcome skipped
+            meta pr "$merged_other_pr"
+            [ -z "$earlier_salvage" ] || [ "$release_kept" -eq 1 ] || meta salvage "$earlier_salvage"
             if [ "$release_kept" -eq 1 ]; then
                 log "SKIPPED — $merged_other was merged after the attempt that hit the usage limit started, so the work went on without it; the unfinished work of its session stays in $WT for you"
             else
-                log "SKIPPED — $merged_other was merged after the attempt that hit the usage limit started, so the work went on without it. Not starting over"
+                log "SKIPPED — $merged_other was merged after the attempt that hit the usage limit started, so the work went on without it. Not starting over${earlier_salvage:+; the leftovers of that attempt are on branch $earlier_salvage}"
             fi
             exit 12
         fi
@@ -758,7 +775,8 @@ stop_sleeper() {
 
 # While `ending` is 1, a stop is only noted. That holds from the claim or the making of the worktree
 # until the session starts, and again from the end of the last session, or while this script ends
-# one itself (a stop, the clock, a failed start). Before a session starts, run_session acts on the
+# one itself (a stop, the clock, a failed start), and while a ticket whose PR was merged during a
+# usage-limit nap ends with no session (#1096). Before a session starts, run_session acts on the
 # noted stop. After the last session it changes nothing: the script exits in moments anyway and
 # keeps its real outcome. A stop between a session and its resume cancels only the resume. Closing
 # a terminal sends HUP to the job and then TERM from the conductor: the second one lands here too,
@@ -826,6 +844,7 @@ if [ -n "$merged_pr" ]; then
     if [ -n "$resume_session" ]; then
         finish_merged "after the attempt that hit the usage limit started" " (session $resume_session is not resumed)"
     fi
+    [ "$release_kept" -eq 1 ] || own_worktree=0
     finish_merged "after the attempt that hit the usage limit started" " (no new session is started)"
 fi
 

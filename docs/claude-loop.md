@@ -401,19 +401,23 @@ Now:
     uncommitted files on a `loop-salvage/…` branch, removes the worktree (unless
     `LOOP_KEEP_WORKTREE=1`) and keeps the branch. The log line names the PR and where to look.
   - **From another branch:** someone else finished the ticket, so it is `skipped` (exit 12) with
-    no session, as for an open PR from another branch. A kept worktree stays for you, without its
-    marker.
+    no session, as for an open PR from another branch, and the row shows that PR. A kept worktree
+    stays for you, without its marker. With no worktree left, the log line and `salvage=` name the
+    branch that holds the stopped attempt's leftovers.
   - **An open PR from the kept branch goes first:** when the session opened a second PR from its
     branch after the first was merged, that one still waits for review, so the session is resumed
     to finish it, as at the end of a session (#1082).
   - A PR merged before the session first started is history from an earlier attempt and does not
-    count. A worktree with no marker is still skipped as "already exists", whatever was merged.
+    count. Another branch's PR, open or merged, goes before the session's own merged one: the
+    ticket is `skipped`. A worktree with no marker is still skipped as "already exists", whatever
+    was merged.
     When GitHub cannot list the merged PRs, the run is an `error` and a kept worktree keeps its
     marker for the next run.
   - A run in a new run folder (for example after the limit outlasted every nap and you name the
     ticket again) has no `.meta` from the limited run. With no kept worktree it cannot tell when
-    the attempt started, so it starts over as before. A PR that closes its issue keeps the picker
-    from offering the ticket again.
+    the attempt started, so it starts a new session even when the PR was merged. Check the ticket
+    before you name it again. The picker does not offer it in drain mode, because the merged PR
+    closed the issue.
 - **A DONE with no open PR for the ticket is resumed once**, with a prompt that says what the loop
   found and that it counts only an open PR whose branch starts with `<n>-`, and asks the session to
   push and open the PR. The prompt does not mention a merged PR, so it never points the session at
@@ -434,7 +438,8 @@ message would make a later crash look like a usage limit. `.meta` gets `session=
 ends on its own and its result names the session (a timeout or a stop leaves it only in
 `ticket-<n>.json`), and `worktree=kept` on a limit that kept one; `started=` (when the session first
 started, in seconds since 1970), `branch=` (the session's branch, empty when it had none) on every
-limit, and `salvage=` when a limit with no session to resume saved leftovers on a salvage branch;
+limit, and `salvage=` when a limit with no session to resume saved leftovers on a salvage branch
+(a retry that then ends `merged` or `skipped` without a worktree writes it again);
 `unmerged=` on a `merged` ticket (see "Outcomes & triage"); `resumes=` counts every resume, the one
 after the limit included, so the end-of-run table marks the ticket `resumed Nx`. When the resume
 happens in a later conductor run, both runs' totals count the part of the session before the limit.

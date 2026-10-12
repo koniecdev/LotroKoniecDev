@@ -717,7 +717,9 @@ The system uses the standard web login flow. In plain words:
 6. On every later request, a cookie validator (`CookieTokenRefresher`) silently keeps the
    session healthy: if the access token is near expiry, it uses the refresh token to get a new
    one; it also re-checks the token's signature against auth-api's published public keys, and it
-   rejects sessions that a previous 401 marked as dead. When nothing can be saved, you are
+   rejects sessions that a previous 401 marked as dead. If auth-api fails only for a moment
+   (busy, restarting, or rate-limiting a shared address), the session survives while its access
+   token still works, and the next page tries again (#1062). When nothing can be saved, you are
    signed out cleanly and see a one-time "session expired" note.
 
 If auth-api is down, the login button leads to a friendly **503 "login unavailable"** page (the

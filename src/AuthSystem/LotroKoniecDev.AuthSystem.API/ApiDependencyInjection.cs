@@ -112,7 +112,7 @@ internal static class ApiDependencyInjection
             services.AddScoped<IAccountDeletionFinalizer, AccountDeletionFinalizer>();
             services.AddHostedService<AccountDeletionFinalizerHostedService>();
 
-            // A second password validator next to Identity's own rules. It must be added after
+            // Another password validator next to Identity's own rules. It must be added after
             // AddIdentityCore, which uses TryAdd for the built-in one: added first, it would replace those
             // rules instead of joining them (ADR-0066).
             services.AddScoped<IPasswordValidator<ApplicationUser>, BreachedPasswordValidator>();

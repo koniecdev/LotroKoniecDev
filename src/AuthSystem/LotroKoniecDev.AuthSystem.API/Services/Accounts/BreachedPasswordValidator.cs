@@ -41,7 +41,8 @@ internal sealed partial class BreachedPasswordValidator : IPasswordValidator<App
         // A password that breaks another rule is already refused by that rule's validator, whose error
         // names the rule. Nearly every weak password is in a breach too, so asking would only cost a call
         // and add a vaguer message to the rule's own. The length limit is a validator of its own, not part
-        // of the built-in policy, so every other validator counts (#1110).
+        // of the built-in policy, so every other validator counts (#1110). Each one then runs twice, so a
+        // password validator must stay cheap and free of side effects.
         if (!await PassesEveryOtherRuleAsync(manager, user, password))
         {
             return IdentityResult.Success;

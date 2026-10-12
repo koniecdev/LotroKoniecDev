@@ -17,7 +17,9 @@ password. The 128-character maximum is not part of that policy. It is a validato
 it was in a breach the user got two messages for one mistake (#1110). Now the validator runs every
 other password validator Identity holds, and it skips the call when any of them refuses. A rule
 added later is covered with no change to the breach check. The validator skips itself by type, so it
-never calls itself.
+never calls itself. The cost: every other password validator now runs twice for each new password,
+once in Identity's own loop and once inside the breach check. So a password validator must stay cheap
+and free of side effects. Both of today's rules are pure checks in memory.
 
 ## Context
 

@@ -129,6 +129,7 @@ public sealed class BreachedPasswordValidatorTests
 
         // Assert
         result.Succeeded.ShouldBeTrue();
+        await _pwnedPasswordChecker.DidNotReceive().CheckAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     /// <summary>
@@ -190,6 +191,26 @@ public sealed class BreachedPasswordValidatorTests
         // Assert
         result.Succeeded.ShouldBeTrue();
         await _pwnedPasswordChecker.DidNotReceive().CheckAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// If the check skipped only this same instance, the second copy would call this one back, and the
+    /// test host would end in a stack overflow.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenASecondCopyOfTheValidatorIsRegistered_SkipsItAndStillRefusesABreachedPassword()
+    {
+        // Arrange
+        _pwnedPasswordChecker.CheckAsync(Password, Arg.Any<CancellationToken>())
+            .Returns(PwnedPasswordVerdict.Breached);
+        BreachedPasswordValidator validator = CreateValidator(
+            new BreachedPasswordValidator(_pwnedPasswordChecker, _httpContextAccessor, _logger));
+
+        // Act
+        IdentityResult result = await validator.ValidateAsync(_userManager, new ApplicationUser(), Password);
+
+        // Assert
+        result.Errors.ShouldHaveSingleItem().Code.ShouldBe(BreachedPasswordValidator.ErrorCode);
     }
 
     [Theory]

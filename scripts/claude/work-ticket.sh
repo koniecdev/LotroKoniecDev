@@ -48,15 +48,18 @@
 #   BASH_DEFAULT_TIMEOUT_MS the timeout of a Bash call that names none (default here: 600000,
 #                           ten minutes), because a call that runs out is stopped, not moved
 #   LOOP_KEEP_WORKTREE=1    keep the worktree after the run (default: remove it when it is clean;
-#                           the branch always stays)
+#                           the branch always stays). A worktree that blocks a fresh start goes
+#                           anyway: a kept one that cannot be resumed, or one a usage limit left
+#                           with no session to resume
 #   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE — see issue-trust.sh
 #
 # Exit codes: 0 PR opened · 2 blocked · 3 error (incl. a provenance gate that could not reach the API)
 #             4 timeout · 6 usage limit hit (the worktree is kept when the session can be resumed)
 #             10 could not prepare the worktree
 #             11 issue refused by the provenance gate (untrusted author or commenter)
-#             12 skipped: the ticket already has an open PR, its worktree already exists, or a
-#                worktree kept for a resume can no longer be resumed safely
+#             12 skipped: the ticket already has an open PR, its worktree already exists, a
+#                worktree kept for a resume can no longer be resumed safely, or a PR of the ticket
+#                was merged from another branch while a usage limit held it (#1096)
 #             13 the PR was merged before the session ended, or before a ticket stopped by a usage
 #                limit could resume or start over (#1096): a success, counted apart from 0
 set -euo pipefail
@@ -115,6 +118,11 @@ log() { echo "[loop] #$ISSUE $(date +%H:%M:%S) $*"; }
 
 meta() { echo "$1=$2" >> "$META"; }
 
+# key_value <text> <key> — the last value of a key in key=value lines, as the conductor reads them.
+key_value() {
+    sed -n "s/^$2=//p" <<< "$1" | tail -1
+}
+
 # The conductor runs a ticket stopped by a usage limit again in the same run folder. When that
 # attempt could not keep its worktree for a resume, its .meta is the only record of when its
 # session started, on which branch it worked and where its leftovers went. So it is read before the
@@ -123,13 +131,10 @@ earlier_text=""
 if [ "$(sed -n 's/^outcome=//p' "$META" 2>/dev/null | tail -1)" = "limit" ]; then
     earlier_text="$(cat "$META" 2>/dev/null || true)"
 fi
-earlier_value() {
-    sed -n "s/^$1=//p" <<< "$earlier_text" | tail -1
-}
-earlier_started="$(earlier_value started)"
+earlier_started="$(key_value "$earlier_text" started)"
 case "$earlier_started" in *[!0-9]*) earlier_started="" ;; esac
-earlier_branch="$(earlier_value branch)"
-earlier_salvage="$(earlier_value salvage)"
+earlier_branch="$(key_value "$earlier_text" branch)"
+earlier_salvage="$(key_value "$earlier_text" salvage)"
 
 # Every exit path writes its outcome here, so the conductor's roll-up lists skipped and refused
 # tickets too, not only the ones that got a session.
@@ -385,7 +390,7 @@ if [ -n "$marker" ]; then
     marker_text="$(cat "$marker" 2>/dev/null || true)"
 fi
 marker_value() {
-    sed -n "s/^$1=//p" <<< "$marker_text" | tail -1
+    key_value "$marker_text" "$1"
 }
 
 # ── Provenance gate: only maintainer-written issue text may become the worker's task ───────────
@@ -424,7 +429,6 @@ release_kept=0
 # A PR of this ticket from the branch of an attempt the usage limit stopped, merged since that
 # attempt started (#1096). Its work is on main, so no session runs.
 merged_pr=""
-merged_branch=""
 # 0 when a ticket merged during a usage-limit nap has no worktree of its own any more: a folder that
 # appears under its name from then on is someone else's (#1096).
 own_worktree=1
@@ -470,6 +474,7 @@ if [ -n "$resume_session" ]; then
         exit 3
     }
     blocker=""
+    closed_blocker=""
     own_open=0
     while read -r number state head oid ended; do
         [ -n "$number" ] || continue
@@ -499,12 +504,15 @@ if [ -n "$resume_session" ]; then
                 ;;
             CLOSED)
                 if [ "$head" = "$branch" ] && [ "$ended" -ge "$resume_started" ]; then
-                    blocker="PR #$number from this branch was closed"
+                    closed_blocker="${closed_blocker:-PR #$number from this branch was closed}"
                 fi
                 ;;
         esac
         [ -z "$blocker" ] || break
     done <<< "$ticket_prs"
+    # A PR from the kept branch that was merged holds the session's work even when another one from
+    # that branch was closed: the session may close a PR and open a new one (#1096).
+    [ -n "$blocker" ] || [ -n "$merged_pr" ] || blocker="$closed_blocker"
     if [ -n "$blocker" ]; then
         # The work went on without the session, so this will not change. Without the marker the
         # picker stops offering the ticket, and the worktree waits for a human like any other.
@@ -516,7 +524,7 @@ if [ -n "$resume_session" ]; then
     # An open PR from the kept branch goes before a merged one, as at the end of a session: the
     # session opened it after the merge, it waits for review, and the resume finishes it.
     [ "$own_open" -eq 0 ] || merged_pr=""
-    merged_branch="$branch"
+    pr_branch="$branch"
 else
     # A ticket with an open PR is waiting for the owner's review, and an existing worktree means a
     # manual `/ticket` session or an earlier run is still on it. Working it again would open a
@@ -539,7 +547,8 @@ else
     fi
     case "$retry_started" in *[!0-9]*) retry_started="" ;; esac
     merged_prs=""
-    if [ -n "$retry_started" ]; then
+    # A worktree with no marker is someone's work, whatever was merged, so it is skipped below.
+    if [ -n "$retry_started" ] && { [ "$release_kept" -eq 1 ] || [ ! -e "$WT" ]; }; then
         merged_prs="$(gh pr list --state merged --limit 200 --json number,headRefName,isCrossRepository,mergedAt \
             --jq ".[] | $OURS | select((.mergedAt // \"\") != \"\" and (.mergedAt | fromdateiso8601) >= $retry_started) | \"\(.number) \(.headRefName)\"")" || {
             meta outcome error
@@ -560,8 +569,7 @@ else
         fi
         exit 12
     fi
-    # A worktree with no marker is someone's work, whatever was merged, so it is skipped below.
-    if [ "$release_kept" -eq 1 ] || [ ! -e "$WT" ]; then
+    if [ -n "$merged_prs" ]; then
         merged_other=""
         merged_other_pr=""
         while read -r number head; do
@@ -586,7 +594,7 @@ else
             fi
             exit 12
         fi
-        merged_branch="$retry_branch"
+        pr_branch="$retry_branch"
     fi
     if [ -z "$merged_pr" ]; then
         if [ "$release_kept" -eq 1 ]; then
@@ -840,12 +848,13 @@ fi
 if [ -n "$merged_pr" ]; then
     ending=1
     pr_num="$merged_pr"
-    pr_branch="$merged_branch"
+    note=" (no new session is started)"
     if [ -n "$resume_session" ]; then
-        finish_merged "after the attempt that hit the usage limit started" " (session $resume_session is not resumed)"
+        note=" (session $resume_session is not resumed)"
+    elif [ "$release_kept" -eq 0 ]; then
+        own_worktree=0
     fi
-    [ "$release_kept" -eq 1 ] || own_worktree=0
-    finish_merged "after the attempt that hit the usage limit started" " (no new session is started)"
+    finish_merged "after the attempt that hit the usage limit started" "$note"
 fi
 
 # ── One headless session for the whole ticket ──────────────────────────────────────────────────
@@ -1211,7 +1220,11 @@ if [ "$api_error_status" = "429" ] \
         log "USAGE LIMIT hit — worktree kept, so the next run of #$ISSUE resumes session $known_session; the conductor will sleep and retry"
         exit 6
     fi
-    finish
+    # Only what this limit saves counts: a kept worktree salvaged at the start of this run is not
+    # this attempt's. The worktree goes even with LOOP_KEEP_WORKTREE=1, or the retry could never
+    # start over.
+    salvaged_branch=""
+    finish remove
     [ -z "$salvaged_branch" ] || meta salvage "$salvaged_branch"
     log "USAGE LIMIT hit — no session to resume, so the retry starts over; the conductor will sleep and retry"
     exit 6

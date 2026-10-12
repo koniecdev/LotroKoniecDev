@@ -195,7 +195,7 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_MAX_RESUMES` | `2` | how many times a session that ended normally without a `STATUS:` line is resumed before the ticket counts as `error`; `0` turns that resume off. The one resume of a DONE with no open PR and the resume after a usage limit do not count here |
 | `BASH_MAX_TIMEOUT_MS` | `3600000` | the longest Bash timeout the worker may ask for (one hour), so the whole test suite fits in one foreground call — see "A session that stops without a verdict" |
 | `BASH_DEFAULT_TIMEOUT_MS` | `600000` | the timeout of a worker Bash call that names none (ten minutes, not the CLI's two), because a call that runs out is stopped, not moved to the background |
-| `LOOP_KEEP_WORKTREE` | `0` | `1` = keep `.claude/worktrees/ticket-<n>` after the run (by default a clean worktree is removed; the branch always stays) |
+| `LOOP_KEEP_WORKTREE` | `0` | `1` = keep `.claude/worktrees/ticket-<n>` after the run (by default a clean worktree is removed; the branch always stays). A worktree that would block a fresh start is removed anyway: one kept for a resume that can no longer happen, and one a usage limit left with no session to resume (#1096) |
 | `LOOP_GH_USER` | `koniecdev` | gh account whose token backs the loop's gh write calls (labels, issue comments); an existing `GH_TOKEN` in the environment wins |
 | `LOOP_SKIP_LABELS` | `loop-blocked,epic,qa,post-mvp,audit` | picker label exclusions |
 | `LOOP_SKIP_TITLES` | `^M4-` | picker title-regex exclusion |
@@ -386,7 +386,8 @@ Now:
 - **A stop or a timeout during the resumed session** ends it like any other run: the work is
   salvaged, the worktree is removed, and the next run starts a fresh session.
 - **Without a session id, a limit still starts over**, as before: the worktree is salvaged and
-  removed, and the retry cuts a new one from `origin/main`. The limited run writes `started=`,
+  removed (also with `LOOP_KEEP_WORKTREE=1`, or the retry would find it and skip the ticket), and
+  the retry cuts a new one from `origin/main`. The limited run writes `started=`,
   `branch=` and `salvage=` to its `.meta`, because nothing else records them once the worktree is
   gone. The retry runs in the same run folder and reads them before it starts over.
 - **A PR merged during the nap (#1096).** The session may have opened its PR before the limit hit,
@@ -409,14 +410,15 @@ Now:
     to finish it, as at the end of a session (#1082).
   - A PR merged before the session first started is history from an earlier attempt and does not
     count. Another branch's PR, open or merged, goes before the session's own merged one: the
-    ticket is `skipped`. A worktree with no marker is still skipped as "already exists", whatever
+    ticket is `skipped`. The session's own merged PR goes before one closed from its branch, since
+    the session may have closed a PR and opened a new one. A worktree with no marker is still skipped as "already exists", whatever
     was merged.
     When GitHub cannot list the merged PRs, the run is an `error` and a kept worktree keeps its
     marker for the next run.
   - A run in a new run folder (for example after the limit outlasted every nap and you name the
     ticket again) has no `.meta` from the limited run. With no kept worktree it cannot tell when
-    the attempt started, so it starts a new session even when the PR was merged. Check the ticket
-    before you name it again. The picker does not offer it in drain mode, because the merged PR
+    the attempt started, so it starts a new session even when the PR was merged (#1138). Check the
+    ticket before you name it again. The picker does not offer it in drain mode, because the merged PR
     closed the issue.
 - **A DONE with no open PR for the ticket is resumed once**, with a prompt that says what the loop
   found and that it counts only an open PR whose branch starts with `<n>-`, and asks the session to

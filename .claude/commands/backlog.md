@@ -125,7 +125,8 @@ Then stop. **Do not run the command** — not in the background, not in the fore
      `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<pr>/merge&state=open" --jq length`,
    - tickets **blocked** — relay each ticket's open questions **verbatim** (they were posted as issue
      comments; `gh issue list --label loop-blocked` finds them),
-   - tickets **merged** — the PR was merged before its session ended (#1082). Nothing waits for
+   - tickets **merged** — the PR was merged before its session ended (#1082), or during a
+     usage-limit nap, so its session was not resumed or started again (#1096). Nothing waits for
      review there; list them with their PR so the owner sees the whole run. The merge may have
      skipped `/merge-train`'s gate, so read the row's checks and CodeQL alerts again as for an open
      PR: a red check or an open alert is now on `main` and needs a follow-up ticket. A row that says

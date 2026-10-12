@@ -398,6 +398,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Hasło może mieć co najwyżej 128 znaków.");
         html.ShouldNotContain("To hasło pojawiło się w wyciekach danych, wybierz inne.");
+        html.ShouldNotContain("Spróbuj jeszcze raz.");
         html.ShouldNotContain("Passwords must");
         html.ShouldNotContain("known data breaches");
     }

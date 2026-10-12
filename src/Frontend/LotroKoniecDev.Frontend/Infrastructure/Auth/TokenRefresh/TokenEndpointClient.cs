@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using LotroKoniecDev.Frontend.Settings;
 using Microsoft.Extensions.Options;
@@ -32,7 +33,7 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
         _logger = logger;
     }
 
-    public async Task<TokenResponse?> RefreshAsync(
+    public async Task<TokenRefreshResult> RefreshAsync(
         string refreshToken,
         CancellationToken cancellationToken = default)
     {
@@ -51,25 +52,33 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
             if (!response.IsSuccessStatusCode)
             {
                 await LogRefusalAsync(response, LogRefreshRefused, LogRefreshFailed);
-                return null;
+                return IsTemporaryRefusal(response.StatusCode)
+                    ? TokenRefreshResult.TemporaryFailure
+                    : TokenRefreshResult.FinalFailure;
             }
 
-            return await ReadJsonAsync<TokenResponse>(response.Content);
+            return await ReadJsonAsync<TokenResponse>(response.Content) is { } tokens
+                ? TokenRefreshResult.Renewed(tokens)
+                : TokenRefreshResult.FinalFailure;
         }
         catch (HttpRequestException ex)
         {
+            // PostAsync reads the whole body before it returns, so a body cut off on the way also lands
+            // here, as a network error (ADR-0067 decision 3).
             LogRefreshError(_logger, ex);
-            return null;
+            return TokenRefreshResult.TemporaryFailure;
         }
         catch (TaskCanceledException ex)
         {
             LogRefreshError(_logger, ex);
-            return null;
+            return TokenRefreshResult.TemporaryFailure;
         }
         catch (JsonException ex)
         {
+            // The whole body arrived and cannot be read. Only a broken sign-in server sends that, and a
+            // retry would get the same answer.
             LogRefreshError(_logger, ex);
-            return null;
+            return TokenRefreshResult.FinalFailure;
         }
     }
 
@@ -104,6 +113,13 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
             LogRevocationError(_logger, ex);
         }
     }
+
+    /// <summary>
+    /// The owner's list in #1062: a 429 or any 5xx goes away on its own. Every other refusal, a redirect
+    /// and <c>invalid_grant</c> included, is final.
+    /// </summary>
+    private static bool IsTemporaryRefusal(HttpStatusCode statusCode) =>
+        statusCode is HttpStatusCode.TooManyRequests || (int)statusCode is >= 500 and <= 599;
 
     /// <summary>
     /// Only the two OAuth fields are logged, never the raw body, so nothing else the answer carries can

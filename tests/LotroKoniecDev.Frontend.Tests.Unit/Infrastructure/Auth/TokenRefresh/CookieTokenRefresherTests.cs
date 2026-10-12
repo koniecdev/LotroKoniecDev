@@ -377,7 +377,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
     /// <summary>
     /// #1062: the session survives a temporary failure only while its access token still works. From the
     /// moment the token runs out, the failure is final, as the owner ruled. A user who comes back after an
-    /// hour is signed out by a failed refresh too.
+    /// hour is signed out by a failed refresh too. The call to the sign-in server is checked as well,
+    /// because a session that was never due for a refresh would also be kept.
     /// </summary>
     [Theory]
     [InlineData(59, true)]
@@ -393,9 +394,11 @@ public sealed class CookieTokenRefresherTests : IDisposable
         string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
         FakeTimeProvider time = new(Start);
 
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
         CookieTokenRefresher refresher = CreateRefresher(
             trustedKeys: [signingKey],
             discoveryIssuer: DiscoveryIssuer,
+            tokenEndpointClient: tokenEndpointClient,
             timeProvider: time,
             refreshFailure: TokenRefreshResult.TemporaryFailure);
         CookieValidatePrincipalContext context = CreateContext(
@@ -407,6 +410,7 @@ public sealed class CookieTokenRefresherTests : IDisposable
         await refresher.ValidateAsync(context);
 
         (context.Principal is not null).ShouldBe(sessionKept);
+        await tokenEndpointClient.Received(1).RefreshAsync("refresh-token", Arg.Any<CancellationToken>());
     }
 
     /// <summary>

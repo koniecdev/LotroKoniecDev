@@ -207,25 +207,11 @@ internal sealed class CookieTokenRefresher
 
         RefreshOutcome refreshOutcome = await TryRefreshIfNearExpiryAsync(
             context, expiresAt, refreshToken, cancellationToken);
-        if (refreshOutcome is RefreshOutcome.Stop)
-        {
-            return;
-        }
 
-        if (refreshOutcome is RefreshOutcome.Refreshed)
+        // Only a token this request left alone is checked below. Each other outcome says why it skips the
+        // check, so an outcome added later skips it too unless it is meant to run.
+        if (refreshOutcome is not RefreshOutcome.Unchanged)
         {
-            // A token we just refreshed came from the identity provider over TLS on this very request,
-            // so its signing key cannot have changed since. The signature check below would find nothing
-            // and could only fail wrongly against local keys that are a moment out of date. The refresh
-            // has already checked the token's shape instead (#1028).
-            return;
-        }
-
-        if (refreshOutcome is RefreshOutcome.Postponed)
-        {
-            // The sign-in server has just failed, and the check below may have to fetch its keys from it, so
-            // a page would fail where the session should survive. The kept token came from that server, and
-            // the translation API checks it on every call (ADR-0067 decision 2).
             return;
         }
 
@@ -531,14 +517,18 @@ internal sealed class CookieTokenRefresher
         Unchanged,
 
         /// <summary>
-        /// A new token was fetched from the identity provider on this request, so the signature check is
-        /// skipped.
+        /// A new token was fetched from the identity provider over TLS on this very request, so its signing
+        /// key cannot have changed since. The signature check would find nothing and could only fail wrongly
+        /// against local keys that are a moment out of date. The refresh has already checked the token's
+        /// shape instead (#1028).
         /// </summary>
         Refreshed,
 
         /// <summary>
         /// The refresh failed for a moment while the token still works. The session keeps the token, and the
-        /// next request tries the refresh again.
+        /// next request tries the refresh again. The signature check is skipped: it may have to fetch keys
+        /// from the sign-in server that has just failed, so a page would fail where the session should
+        /// survive. The translation API checks the kept token on every call (ADR-0067 decision 2).
         /// </summary>
         Postponed
     }

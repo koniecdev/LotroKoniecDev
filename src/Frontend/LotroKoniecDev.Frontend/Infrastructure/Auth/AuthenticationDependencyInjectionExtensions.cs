@@ -35,8 +35,8 @@ internal static class AuthenticationDependencyInjectionExtensions
     /// still works, the session is kept and the next request tries again (#1062). Once the token has run
     /// out, it signs the user out, and the revoke in that sign-out can wait
     /// <see cref="RefreshTokenRevoker.TimeLimit"/> more. The limit must stay above the sign-in server's 20
-    /// seconds for opening a database connection, and the renewal is tried once, with no retry. The sign-in
-    /// server's <c>AuthDatabaseConnectionString</c> explains both.
+    /// seconds for opening a database connection, and each renewal is sent once, with no retry inside the
+    /// request. The sign-in server's <c>AuthDatabaseConnectionString</c> explains both.
     /// </summary>
     internal static readonly TimeSpan AuthServerRequestTimeout = TimeSpan.FromSeconds(30);
 

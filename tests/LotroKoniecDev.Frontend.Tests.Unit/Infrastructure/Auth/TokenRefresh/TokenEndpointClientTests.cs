@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
@@ -145,6 +146,26 @@ public sealed class TokenEndpointClientTests
         TokenEndpointClient client = CreateClient(httpClient);
 
         TokenResponse? response = await client.RefreshAsync(RefreshToken);
+
+        response.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// #923: when the client's time limit runs out on a stuck sign-in server, the refresh fails like any
+    /// other failed refresh instead of throwing. The registration's limit is pinned in
+    /// <c>AuthenticationDependencyInjectionExtensionsTests</c>.
+    /// </summary>
+    [Fact]
+    public async Task RefreshAsync_WhenTheAuthApiNeverAnswers_ReturnsNullOnceTheClientTimesOut()
+    {
+        using HttpClient httpClient = new(new NeverAnsweringHttpMessageHandler())
+        {
+            BaseAddress = new Uri(AuthBaseUrl),
+            Timeout = TimeSpan.FromMilliseconds(50)
+        };
+        TokenEndpointClient client = CreateClient(httpClient);
+
+        TokenResponse? response = await client.RefreshAsync(RefreshToken).WaitAsync(TimeSpan.FromSeconds(10));
 
         response.ShouldBeNull();
     }
@@ -569,4 +590,16 @@ public sealed class TokenEndpointClientTests
             Scopes = ["openid", "email", "profile"]
         }),
         logger ?? NullLogger<TokenEndpointClient>.Instance);
+
+    /// <summary>A sign-in server that took the connection but never answers. Only cancellation ends the wait.</summary>
+    private sealed class NeverAnsweringHttpMessageHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new UnreachableException();
+        }
+    }
 }

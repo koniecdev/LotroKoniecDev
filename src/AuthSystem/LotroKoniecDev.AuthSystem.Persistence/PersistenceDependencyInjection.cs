@@ -24,7 +24,8 @@ public static class PersistenceDependencyInjection
             services.AddDbContext<AuthDbContext>((sp, options) =>
             {
                 options.UseNpgsql(
-                    sp.GetRequiredService<IOptions<ConnectionStringSettings>>().Value.AuthDatabase,
+                    AuthDatabaseConnectionString.CapOpenTimeout(
+                        sp.GetRequiredService<IOptions<ConnectionStringSettings>>().Value.AuthDatabase),
                     npgsqlOptions =>
                     {
                         npgsqlOptions.EnableRetryOnFailure(

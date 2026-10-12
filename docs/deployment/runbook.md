@@ -234,7 +234,7 @@ staging from prod in Grafana, because both boxes run `ASPNETCORE_ENVIRONMENT=Pro
 |---|---|---|---|---|---|
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation, ephemeral-vs-real keys, the CORS policy. |
 | `ASPNETCORE_URLS` | `https://localhost:5003` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); prod serves HTTP only (Caddy owns TLS). |
-| `ConnectionStrings__AuthDatabase` | `…;Database=lotro_auth;…;Password=changeme` (appsettings.Development) | Neon: `Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Timeout=60` | ✅ all | **secret** | Carries the DB password. **Keyword format only** — Npgsql does not parse `postgres://` URIs. `Timeout=60` rides out Neon's ~31 s scale-to-zero resume. |
+| `ConnectionStrings__AuthDatabase` | `…;Database=lotro_auth;…;Password=changeme` (appsettings.Development) | Neon: `Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Timeout=20` | ✅ all | **secret** | Carries the DB password. **Keyword format only** — Npgsql does not parse `postgres://` URIs. `Timeout` is the limit for opening a connection. The auth API caps it at 20 s in code (#923), so an older box's `Timeout=60` still works there; only the migrator reads the value as written. Wake times: Gotchas → *First cold hit*. |
 | `OpenIddict__Issuer` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ non-dev | plain | **THE token `iss`.** Absolute http(s), no `localhost`. Must equal tms `Auth__Issuer`. |
 | `OpenIddict__SigningKey__RsaPrivateKeyXml` | — (ephemeral) | base64 of RSA XML (≥2048-bit) | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
 | `OpenIddict__AccessTokenLifetimeMinutes` | `5` (appsettings) | `5` (appsettings) | ❌ optional | plain | **A security parameter, not a tuning knob.** The TMS validates JWTs locally, so this is how long a revoked session keeps working after a password change, an e-mail-change undo or a scheduled deletion. Raising it lengthens that window everywhere — read ADR-0049 first. The service refuses to start below `2` in every environment: a client that renews a token a minute before it runs out would renew a shorter token on every page (#1025). The website itself copes with a one-minute token, which it refreshes after 30 seconds, but the server does not count on that (ADR-0049, amendment of 2026-10-07). `compose.hetzner.yaml` does not pass this variable, so on the boxes the value comes from `appsettings.json` and changes only with a code change. |
@@ -268,7 +268,7 @@ staging from prod in Grafana, because both boxes run `ASPNETCORE_ENVIRONMENT=Pro
 |---|---|---|---|---|---|
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation + the CORS policy. |
 | `ASPNETCORE_URLS` | `https://localhost:5002` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); prod serves HTTP only (Caddy owns TLS). |
-| `ConnectionStrings__TranslationDatabase` | `…;Database=lotro_translation;…;Password=changeme` (appsettings.Development) | Neon: `Host=…;Database=lotro_translation;Username=…;Password=…;Ssl Mode=Require;Timeout=60` | ✅ all | **secret** | TMS write context. Same Neon format rules as the auth string. |
+| `ConnectionStrings__TranslationDatabase` | `…;Database=lotro_translation;…;Password=changeme` (appsettings.Development) | Neon: `Host=…;Database=lotro_translation;Username=…;Password=…;Ssl Mode=Require;Timeout=60` | ✅ all | **secret** | TMS write context. Same Neon format rules as the auth string. Here `Timeout=60` is the TMS API's own limit for opening a connection. |
 | `Auth__Issuer` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ all | plain | MUST equal auth `OpenIddict__Issuer` (the token `iss`); tokens are rejected otherwise. |
 | `Auth__Authority` | — (unset → falls back to `Issuer`) | `https://auth.lotro-translator.pl` | optional² | plain | Back-channel for OIDC metadata + JWKS. ²Unset → falls back to `Issuer`; the dev host run relies on that fallback. Prod: must be `https` (OpenIddict rejects plain HTTP) and reachable from the container — i.e. the **public Caddy origin**, never `http://auth-api:8080`. |
 | `Auth__Audience` | `lotrokoniecdev-api` | `lotrokoniecdev-api` | ✅ all | plain | Default in base `appsettings.json`. |
@@ -349,7 +349,7 @@ which is why they are named volumes and not bind mounts.
 
 | Variable | Consumed by | Source of truth | (Re)mint / rotate |
 |---|---|---|---|
-| `ConnectionStrings__AuthDatabase` | migrator, auth-api | **Neon** — the env's project (prod: `lotro-translator-prod`; staging has its own, ADR-0018), DB `lotro_auth` | Neon console → Roles → *Reset password* → rebuild the string by hand. **Keyword format only** — Npgsql does not parse `postgres://` URIs. Must carry `Ssl Mode=Require` and `Timeout=60` (rides out Neon's ~31 s scale-to-zero resume). |
+| `ConnectionStrings__AuthDatabase` | migrator, auth-api | **Neon** — the env's project (prod: `lotro-translator-prod`; staging has its own, ADR-0018), DB `lotro_auth` | Neon console → Roles → *Reset password* → rebuild the string by hand. **Keyword format only** — Npgsql does not parse `postgres://` URIs. Must carry `Ssl Mode=Require`. Use `Timeout=20`; an existing `Timeout=60` also works, because the auth API caps the open at 20 s in code and only the migrator reads the value as written (#923). |
 | `ConnectionStrings__TranslationDatabase` | migrator, tms-api | same Neon project, DB `lotro_translation` | same |
 | `OpenIddict__SigningKey__RsaPrivateKeyXml` | auth-api | **regenerate** — no canonical copy exists anywhere | `scripts/gen-openiddict-keys.sh` prints all three OpenIddict values as `KEY=VALUE` lines; append to the box `.env`. Pure config (never stored in the DB), so rotating just invalidates issued tokens → everyone re-logs in. Free pre-launch. |
 | `OpenIddict__EncryptionKey__Key` | auth-api | regenerate | same script, same blast radius. |
@@ -1164,7 +1164,7 @@ docker compose -f compose.prod.yaml --env-file .env.prod logs migrator   # watch
 ```bash
 docker run --rm \
   -e ConnectionStrings__TranslationDatabase="Host=…;Database=lotro_translation;Username=…;Password=…;Ssl Mode=Require;Timeout=60" \
-  -e ConnectionStrings__AuthDatabase="Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Timeout=60" \
+  -e ConnectionStrings__AuthDatabase="Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Timeout=20" \
   ghcr.io/koniecdev/lotrokoniecdev-migrator:<tag>
 ```
 
@@ -1932,9 +1932,12 @@ form works for `up` too. It does not.
   a higher number.
 - **ACME fails until DNS propagates** — that's retry-resolved, not an error to fix. Start DNS before
   bring-up; Caddy keeps retrying on its own.
-- **First cold hit after Neon scale-to-zero** can race auth's 20 s connection-open against Neon's
-  ~31 s resume (known pre-existing bug; connection strings carry `Timeout=60`). The always-on box
-  shrinks the window but does not fix it.
+- **First cold hit after Neon scale-to-zero** wakes the database in a few seconds. Measured on Hetzner
+  from 2026-09-26 to 2026-10-11: the auth database in 0.7 s typically and 4.7 s at worst, the
+  translation database in 7.7 s at worst. The old "~31 s" came from the Azure days, where it was the
+  whole container cold start. The auth API caps each connection open at 20 s in code. The website's
+  login renewal and its OIDC back-channel give up after 30 s per call, and its account client after
+  10 s per attempt (#923). EF's own retries can still keep the auth API working past 30 s (#1121).
 - **4 GB box + ~9 containers → swap is mandatory, and `bootstrap.sh` provisions it** (OBS-01 / #708).
   Hetzner images ship with none, and a box with no swap does not slow down under a memory spike — the
   kernel OOM-kills a container and picks the victim by score, not by importance. The bootstrap's first

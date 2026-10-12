@@ -297,7 +297,8 @@ try
         // is still available on the full /health, and a deploy proves the database through the smoke
         // test's real endpoints.
         .AddNpgSql(
-            connectionStringFactory: sp => sp.GetRequiredService<IOptions<ConnectionStringSettings>>().Value.AuthDatabase,
+            connectionStringFactory: sp => AuthDatabaseConnectionString.CapOpenTimeout(
+                sp.GetRequiredService<IOptions<ConnectionStringSettings>>().Value.AuthDatabase),
             name: "authdb",
             tags: ["db", "postgres"])
         // SMTP is not tagged "ready" either. A Brevo outage must not take the auth service out of the

@@ -28,6 +28,17 @@ internal static class AuthenticationDependencyInjectionExtensions
     internal const string AccessDeniedPath = "/auth/access-denied";
     private const string ErrorPath = "/Error";
 
+    /// <summary>
+    /// The longest the website waits for one answer from the sign-in server, per call: the login renewal and
+    /// each back-channel call (#923). A page that makes several calls in a row can wait for each of them.
+    /// ADR-0067 §3 counts a renewal that runs out of time as a temporary failure. Until #1062 lands, it
+    /// still signs the user out, and the revoke in that sign-out can wait
+    /// <see cref="RefreshTokenRevoker.TimeLimit"/> more. The limit must stay above the sign-in server's 20
+    /// seconds for opening a database connection, and the renewal is tried once, with no retry. The sign-in
+    /// server's <c>AuthDatabaseConnectionString</c> explains both.
+    /// </summary>
+    internal static readonly TimeSpan AuthServerRequestTimeout = TimeSpan.FromSeconds(30);
+
     private static readonly Action<ILogger, string?, Exception?> LogOidcRemoteFailure =
         LoggerMessage.Define<string?>(
             LogLevel.Warning,
@@ -64,6 +75,7 @@ internal static class AuthenticationDependencyInjectionExtensions
                     AuthSystemSettings settings = sp
                         .GetRequiredService<IOptions<AuthSystemSettings>>().Value;
                     client.BaseAddress = new Uri(settings.BaseUrl);
+                    client.Timeout = AuthServerRequestTimeout;
                 })
                 .ConfigurePrimaryHttpMessageHandler(HttpClientsDependencyInjectionExtensions.CreatePrimaryHandler)
                 .AddSameOriginHandler<AuthSystemSettings>(settings => settings.BaseUrl)
@@ -196,6 +208,7 @@ internal static class AuthenticationDependencyInjectionExtensions
                 InnerHandler = options.BackchannelHttpHandler ?? HttpClientsDependencyInjectionExtensions.CreatePrimaryHandler()
             }
         };
+        options.BackchannelTimeout = AuthServerRequestTimeout;
     }
 
     private static Task OnRemoteFailureAsync(RemoteFailureContext context)

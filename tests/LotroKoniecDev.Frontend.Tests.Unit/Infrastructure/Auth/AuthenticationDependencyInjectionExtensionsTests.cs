@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Security.Claims;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
@@ -124,6 +125,50 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         List<HttpMessageHandler> chain = HttpMessageHandlerChain.From(options.BackchannelHttpHandler);
 
         chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
+    }
+
+    /// <summary>#923: the owner's limit, not the 100-second default.</summary>
+    [Fact]
+    public void AddFrontendAuthentication_TokenEndpointClient_WaitsThirtySecondsAtMost()
+    {
+        using ServiceProvider provider = CreateFrontendAuthenticationServices().BuildServiceProvider();
+
+        using HttpClient client = provider
+            .GetRequiredService<IHttpClientFactory>()
+            .CreateClient(nameof(ITokenEndpointClient));
+
+        client.Timeout.ShouldBe(TimeSpan.FromSeconds(30));
+    }
+
+    /// <summary>
+    /// #923: the same for the code exchange, the userinfo call and the discovery and key fetch, not the
+    /// 60-second default.
+    /// </summary>
+    [Fact]
+    public void AddFrontendAuthentication_OpenIdConnectBackchannel_WaitsThirtySecondsAtMost()
+    {
+        OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
+
+        options.Backchannel.Timeout.ShouldBe(TimeSpan.FromSeconds(30));
+    }
+
+    /// <summary>
+    /// #923: the renewal is tried once. The website's other clients to the sign-in server retry a 503, and
+    /// this one must not.
+    /// </summary>
+    [Fact]
+    public async Task AddFrontendAuthentication_TokenEndpointClient_SendsAFailedRenewalOnlyOnce()
+    {
+        UnavailableSignInServer signInServer = new();
+        ServiceCollection services = CreateFrontendAuthenticationServices();
+        services.AddHttpClient<ITokenEndpointClient, TokenEndpointClient>()
+            .ConfigurePrimaryHttpMessageHandler(() => signInServer);
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        ITokenEndpointClient client = provider.GetRequiredService<ITokenEndpointClient>();
+
+        await client.RefreshAsync("the-refresh-token");
+
+        signInServer.Requests.ShouldBe(1);
     }
 
     /// <summary>#924: one handler serves every visitor's refresh.</summary>
@@ -341,5 +386,21 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         services.AddFrontendAuthentication();
 
         return services;
+    }
+
+    /// <summary>A sign-in server that answers every request with 503 and counts them.</summary>
+    private sealed class UnavailableSignInServer : HttpMessageHandler
+    {
+        private int _requests;
+
+        public int Requests => _requests;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _requests);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        }
     }
 }

@@ -52,6 +52,8 @@ public static class PersistenceDependencyInjection
                     options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
                     options.Lockout.MaxFailedAccessAttempts = 5;
                 })
+                // The breach check runs every password validator a second time (ADR-0066, 2026-10-12
+                // amendment), so each one must stay cheap and free of side effects.
                 .AddPasswordValidator<PasswordMaxLengthValidator>()
                 .AddRoles<ApplicationRole>()
                 .AddSignInManager()

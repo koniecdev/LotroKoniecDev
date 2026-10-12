@@ -209,7 +209,8 @@ Tests replace the checker in the container instead.
 
 - #694 — the ticket.
 - #1045 — the parked prompt for a password that leaks after it was set.
-- #1046 — the reset page skips the API's 128-character maximum (older than this ADR).
+- #1046 — the reset page skipped the API's 128-character maximum; the limit is now its own password
+  validator, `PasswordMaxLengthValidator`.
 - #1110 — the breach check still asked about a password that was already too long.
 - https://haveibeenpwned.com/API/v3#PwnedPasswords — the range API, its padding and its terms.
 - ADR-0056 — the admin is seeded without a password on deployed boxes.

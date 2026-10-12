@@ -199,7 +199,6 @@ internal sealed partial class ResetPasswordModel : PageModel
             nameof(IdentityErrorDescriber.PasswordRequiresUpper) => "Hasło musi zawierać wielką literę.",
             nameof(IdentityErrorDescriber.PasswordRequiresDigit) => "Hasło musi zawierać cyfrę.",
             nameof(IdentityErrorDescriber.PasswordRequiresNonAlphanumeric) => "Hasło musi zawierać znak specjalny.",
-            BreachedPasswordValidator.ErrorCode => BreachedPasswordMessage,
             _ => null
         };
 

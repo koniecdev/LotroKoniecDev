@@ -133,8 +133,7 @@ public sealed class BreachedPasswordValidatorTests
     }
 
     /// <summary>
-    /// The length limit is a validator of its own, not part of the built-in policy. A password it refuses
-    /// must not reach the outside service either, and must not get the breach message on top (#1110).
+    /// A password the length limit refuses must not reach the outside service either (#1110).
     /// </summary>
     [Theory]
     [InlineData(PasswordConstants.MaxLength + 1)]
@@ -194,8 +193,7 @@ public sealed class BreachedPasswordValidatorTests
     }
 
     /// <summary>
-    /// If the check skipped only this same instance, the second copy would call this one back, and the
-    /// test host would end in a stack overflow.
+    /// A broken skip ends this run in a stack overflow, not in a failed assert.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenASecondCopyOfTheValidatorIsRegistered_SkipsItAndStillRefusesABreachedPassword()
@@ -233,8 +231,8 @@ public sealed class BreachedPasswordValidatorTests
     private static string PasswordOfLength(int length) => "Aa1!" + new string('x', length - 4);
 
     /// <summary>
-    /// The manager holds the validators of the real registration, this one included, so every test also
-    /// shows that the validator does not call itself.
+    /// The manager mirrors the real registration, this validator included, so every test also shows that
+    /// the validator does not call itself.
     /// </summary>
     private BreachedPasswordValidator CreateValidator(params IPasswordValidator<ApplicationUser>[] otherRules)
     {

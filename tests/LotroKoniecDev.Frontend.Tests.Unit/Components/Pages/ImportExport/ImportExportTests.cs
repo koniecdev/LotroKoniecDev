@@ -7,10 +7,14 @@ using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
+using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
+using CompletedImport = LotroKoniecDev.Frontend.Components.Pages.ImportExport.ImportSummaryRedirect.CompletedImport;
 using ImportExportComponent = LotroKoniecDev.Frontend.Components.Pages.ImportExport.ImportExport;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 
@@ -36,6 +40,8 @@ public sealed class ImportExportTests : BunitContext
         Services.AddSingleton(_client);
         Services.AddSingleton(StubDiscoveryCache.AdvertisingGet(Rels.GameVersions, Rels.TranslationFile));
         Services.AddScoped<ImportExportLoader>();
+        Services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+        Services.AddSingleton<ImportSummaryRedirect>();
     }
 
     [Fact]
@@ -103,7 +109,7 @@ public sealed class ImportExportTests : BunitContext
         await component.Find("form").SubmitAsync();
 
         component.Find(".status-down").TextContent.ShouldContain("Wybierz plik exported.txt");
-        await _client.DidNotReceive().SendMultipartApiResultAsync<TranslationSystem.Contracts.Import.ImportSummary>(
+        await _client.DidNotReceive().SendMultipartApiResultAsync<ImportSummary>(
             Arg.Any<HttpMethod>(),
             Arg.Any<string>(),
             Arg.Any<MultipartFormDataContent>(),
@@ -188,6 +194,108 @@ public sealed class ImportExportTests : BunitContext
         component.Find("details.problem-tech .problem-tech-body").TextContent
             .ShouldBe("Catalog.SomethingNobodyMappedYet — Not your row.");
     }
+
+    [Fact]
+    public void Render_WhenTheRedirectAfterAnImportCarriesItsSummary_ShowsTheSixCountsAndTheNotes()
+    {
+        // The GET side of the redirect after an import (#933): the list loads again in this new request,
+        // and the summary of the import that sent the admin here is still on screen.
+        AuthorizeAs("Sam");
+        StubVersionsWithRegisterRel(ImportableVersion("48.0"));
+        ImportSummary summary = new(
+            Added: 11,
+            SourceChanged: 12,
+            Invalidated: 13,
+            Removed: 14,
+            Unchanged: 15,
+            Echoed: 16,
+            Warnings: ["1 older unprocessed version(s) marked superseded — they will never receive their own upload."]);
+        NavigateToTheRedirectAfter(new CompletedImport(Guid.NewGuid(), summary));
+
+        IRenderedComponent<ImportExportComponent> component = RenderPage();
+
+        component.Find(".status-ok").TextContent.ShouldContain("Import zakończony powodzeniem.");
+        component.FindAll(".stat-tile .num").Select(tile => tile.TextContent)
+            .ShouldBe(["11", "12", "13", "14", "15", "16"]);
+        component.Find(".notice-list").TextContent.ShouldContain("1 older unprocessed version(s) marked superseded");
+    }
+
+    [Theory]
+    [InlineData("/import-export?summary=forged")]
+    [InlineData("/import-export?summary=")]
+    [InlineData("/import-export")]
+    public void Render_WhenTheAddressCarriesNoSummaryThisPageWrote_ShowsNoSummary(string uri)
+    {
+        // A link that someone else wrote must not put counts or notes on the page.
+        AuthorizeAs("Sam");
+        StubVersionsWithRegisterRel(ImportableVersion("48.0"));
+        Navigation().NavigateTo(uri);
+
+        IRenderedComponent<ImportExportComponent> component = RenderPage();
+
+        component.FindAll(".status-ok").ShouldBeEmpty();
+        component.FindAll(".stat-tile").ShouldBeEmpty();
+        component.FindAll("input[type=file]").ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Submit_FromThePageARedirectLeftASummaryOn_ShowsOnlyTheNewOutcome()
+    {
+        // The form posts to the current address, which still carries the last import's summary (#933). A
+        // refused second attempt must not show its error next to the old counts.
+        AuthorizeAs("Sam");
+        StubVersionsWithRegisterRel(ImportableVersion("48.0"));
+        NavigateToTheRedirectAfter(new CompletedImport(Guid.NewGuid(), new ImportSummary(1, 2, 3, 4, 5, 6, ["Stara uwaga."])));
+        IRenderedComponent<ImportExportComponent> component = RenderPage();
+
+        await component.Find("form").SubmitAsync();
+
+        component.Find(".status-down").TextContent.ShouldContain("Wybierz plik exported.txt");
+        component.FindAll(".status-ok").ShouldBeEmpty();
+        component.FindAll(".stat-tile").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_WhenTheRedirectAfterAnImportNamesItsVersion_KeepsThatVersionSelected()
+    {
+        // Without this the browser selects the first option, and a second file could go to another
+        // version than the one the admin just used (#933).
+        AuthorizeAs("Sam");
+        GameVersionResponse newer = ImportableVersion("48.1");
+        GameVersionResponse imported = ImportableVersion("48.0");
+        StubVersionsWithRegisterRel(newer, imported);
+        NavigateToTheRedirectAfter(new CompletedImport(imported.Id.Value, new ImportSummary(1, 0, 0, 0, 0, 0, [])));
+
+        IRenderedComponent<ImportExportComponent> component = RenderPage();
+
+        component.Find("select[name=\"ImportInput.GameVersionId\"] option[selected]").GetAttribute("value")
+            .ShouldBe(imported.Id.Value.ToString());
+    }
+
+    [Fact]
+    public void Render_WhenTheRedirectAfterAnImportCannotLoadTheList_StillSaysTheImportWorked()
+    {
+        // The import committed in the request that redirected here. If this request cannot load the list,
+        // the admin must still see that, or they send the 80 MB file again (#933).
+        AuthorizeAs("Sam");
+        _client
+            .GetApiResultAsync<CollectionResponse<GameVersionResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<CollectionResponse<GameVersionResponse>>(new() { Title = "Nie udało się wczytać wersji." }));
+        NavigateToTheRedirectAfter(new CompletedImport(Guid.NewGuid(), new ImportSummary(31, 32, 33, 34, 35, 36, [])));
+
+        IRenderedComponent<ImportExportComponent> component = RenderPage();
+
+        component.Find(".status-ok").TextContent.ShouldContain("Import zakończony powodzeniem.");
+        component.FindAll(".stat-tile .num").Select(tile => tile.TextContent)
+            .ShouldBe(["31", "32", "33", "34", "35", "36"]);
+        component.Find(".error-message").TextContent.ShouldContain("Nie udało się wczytać wersji.");
+    }
+
+    private void NavigateToTheRedirectAfter(CompletedImport completedImport) =>
+        Navigation().NavigateTo(Services.GetRequiredService<ImportSummaryRedirect>().PageUriWith(completedImport));
+
+    private BunitNavigationManager Navigation() =>
+        (BunitNavigationManager)Services.GetRequiredService<NavigationManager>();
 
     private IRenderedComponent<ImportExportComponent> RenderPage() =>
         Render<ImportExportComponent>();

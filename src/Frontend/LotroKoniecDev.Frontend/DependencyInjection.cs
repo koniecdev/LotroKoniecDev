@@ -34,6 +34,7 @@ public static class DependencyInjection
             services.AddScoped<DashboardStatsLoader>();
             services.AddScoped<HomeProgressLoader>();
             services.AddScoped<ImportExportLoader>();
+            services.AddSingleton<ImportSummaryRedirect>();
             services.AddScoped<GameVersionsLoader>();
             services.AddScoped<AccountLoader>();
 

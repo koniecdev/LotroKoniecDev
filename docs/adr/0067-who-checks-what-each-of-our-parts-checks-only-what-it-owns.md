@@ -358,9 +358,9 @@ changes that.
 - **Changed by #1062:** `TokenEndpointClient.RefreshAsync` tells a temporary failure from a final one
   (decision 3).
 - **Changed by #933:** `ClockSkew = 0` and `ValidTypes` in
-  `TranslationSystem.API/ApiDependencyInjection.cs`, and `GdprSettingsValidator.TmsClockSkew` set to
-  zero. The comment there that says `JwtBearer` "avoids OpenIddict's own scope permission checks" is
-  wrong, and goes in the same change.
+  `TranslationSystem.API/ApiDependencyInjection.cs`, and `GdprSettingsValidator.TmsClockSkew` removed
+  (decision 6). The comment there that said `JwtBearer` "avoids OpenIddict's own scope permission
+  checks" is gone.
 - **#1114:** read the renewal and sign-out addresses from the discovery document (decision 5). A
   failed discovery fetch on that path is a temporary failure (decision 3); Microsoft's sample calls
   `GetConfigurationAsync`, which throws when nothing is cached yet (the #1058 failure).

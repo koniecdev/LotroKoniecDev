@@ -11,6 +11,8 @@
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate
 @using LotroKoniecDev.Frontend.Infrastructure.Errors
 @inject ImportExportLoader Loader
+@inject ImportSummaryRedirect SummaryRedirect
+@inject NavigationManager Navigation
 
 <PageTitle>Import / Eksport — lotro-translator.pl</PageTitle>
 
@@ -166,65 +168,71 @@
                 }
             </div>
         </section>
+    }
+    else if (_summary is not null)
+    {
+        @* The import committed in the request that redirected here. If this request cannot load the list,
+           the panel is hidden, but the admin must still see that the import worked, or they send the file
+           again (#933). *@
+        <p class="status-line status-ok" role="status">
+            <span class="dot"></span>Import zakończony powodzeniem.
+        </p>
+    }
 
-        @if (_summary is not null)
+    @if (_summary is not null)
+    {
+        ImportSummary summary = _summary;
+
+        <section class="stats-grid">
+            <article class="stat-tile">
+                <span class="num @(summary.Added == 0 ? "zero" : null)">@summary.Added</span>
+                <span class="lbl">Dodane</span>
+            </article>
+            <article class="stat-tile">
+                <span class="num @(summary.SourceChanged == 0 ? "zero" : null)">@summary.SourceChanged</span>
+                <span class="lbl">Zmieniony angielski</span>
+            </article>
+            <article class="stat-tile">
+                <span class="num @(summary.Invalidated == 0 ? "zero" : null)">@summary.Invalidated</span>
+                <span class="lbl">Unieważnione</span>
+            </article>
+            <article class="stat-tile">
+                <span class="num @(summary.Removed == 0 ? "zero" : null)">@summary.Removed</span>
+                <span class="lbl">Usunięte</span>
+            </article>
+            <article class="stat-tile">
+                <span class="num @(summary.Unchanged == 0 ? "zero" : null)">@summary.Unchanged</span>
+                <span class="lbl">Bez zmian</span>
+            </article>
+            <article class="stat-tile" title="Wiersze, których „źródłem” w pliku był nasz własny polski tekst (eksport z patchowanego DAT) — policzone jako bez zmian, angielski źródłowy nietknięty.">
+                <span class="num @(summary.Echoed == 0 ? "zero" : null)">@summary.Echoed</span>
+                <span class="lbl">W tym echo patcha</span>
+            </article>
+        </section>
+
+        @if (summary.Warnings.Count > 0)
         {
-            ImportSummary summary = _summary;
-
-            <section class="stats-grid">
-                <article class="stat-tile">
-                    <span class="num @(summary.Added == 0 ? "zero" : null)">@summary.Added</span>
-                    <span class="lbl">Dodane</span>
-                </article>
-                <article class="stat-tile">
-                    <span class="num @(summary.SourceChanged == 0 ? "zero" : null)">@summary.SourceChanged</span>
-                    <span class="lbl">Zmieniony angielski</span>
-                </article>
-                <article class="stat-tile">
-                    <span class="num @(summary.Invalidated == 0 ? "zero" : null)">@summary.Invalidated</span>
-                    <span class="lbl">Unieważnione</span>
-                </article>
-                <article class="stat-tile">
-                    <span class="num @(summary.Removed == 0 ? "zero" : null)">@summary.Removed</span>
-                    <span class="lbl">Usunięte</span>
-                </article>
-                <article class="stat-tile">
-                    <span class="num @(summary.Unchanged == 0 ? "zero" : null)">@summary.Unchanged</span>
-                    <span class="lbl">Bez zmian</span>
-                </article>
-                <article class="stat-tile" title="Wiersze, których „źródłem” w pliku był nasz własny polski tekst (eksport z patchowanego DAT) — policzone jako bez zmian, angielski źródłowy nietknięty.">
-                    <span class="num @(summary.Echoed == 0 ? "zero" : null)">@summary.Echoed</span>
-                    <span class="lbl">W tym echo patcha</span>
-                </article>
+            <section class="panel">
+                <header class="panel-head">
+                    <h2>Uwagi</h2>
+                </header>
+                <div class="panel-body">
+                    <ul class="notice-list">
+                        @foreach (string warning in summary.Warnings)
+                        {
+                            <li class="status-line status-warning">
+                                <span class="dot"></span>@warning
+                            </li>
+                        }
+                    </ul>
+                </div>
             </section>
-
-            @if (summary.Warnings.Count > 0)
-            {
-                <section class="panel">
-                    <header class="panel-head">
-                        <h2>Uwagi</h2>
-                    </header>
-                    <div class="panel-body">
-                        <ul class="notice-list">
-                            @foreach (string warning in summary.Warnings)
-                            {
-                                <li class="status-line status-warning">
-                                    <span class="dot"></span>@warning
-                                </li>
-                            }
-                        </ul>
-                    </div>
-                </section>
-            }
         }
     }
 </section>
 
 @code
 {
-    [SupplyParameterFromForm(FormName = "import-export")]
-    private ImportFormModel? ImportInput { get; set; }
-
     private IReadOnlyList<GameVersionResponse>? _versions;
 
     /// <summary>
@@ -238,11 +246,29 @@
     private ImportSummary? _summary;
     private bool _canImport;
 
+    [SupplyParameterFromForm(FormName = "import-export")]
+    private ImportFormModel? ImportInput { get; set; }
+
+    /// <summary>The import that redirected here (#933).</summary>
+    [SupplyParameterFromQuery(Name = ImportSummaryRedirect.SummaryParameter)]
+    private string? ProtectedSummary { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         // A property initializer is rejected for a [SupplyParameterFromForm] model (BL0008), so seed it
         // here: on a non-matching render the model stays empty, on a matching post the bound model wins.
         ImportInput ??= new ImportFormModel();
+
+        // The redirect after an import names the version it went into, so the selector keeps it and a
+        // second file is not sent to another version by accident (#933). A posted choice wins.
+        if (SummaryRedirect.Read(ProtectedSummary) is { } completedImport)
+        {
+            _summary = completedImport.Summary;
+            if (ImportInput.GameVersionId == Guid.Empty)
+            {
+                ImportInput.GameVersionId = completedImport.GameVersionId;
+            }
+        }
 
         // Any translator may see the game-versions list. Whether the import panel appears is decided by
         // the collection's admin-only `register` rel (#158) and not by a role check here.
@@ -280,17 +306,19 @@
 
         ImportFormModel input = ImportInput ?? new ImportFormModel();
 
+        // On every refusal below, the version list loaded at the start of this request stays on screen.
+        // A refused import changes nothing, because the import is all or nothing, and a second call would
+        // carry this request's token, which a long import may have outlived (#933). An import that timed
+        // out here may still finish on the TMS, so its result shows after a reload.
         if (input.File is null || input.File.Length == 0)
         {
             _importProblem = ApiProblemCopy.FrontendAuthored("Wybierz plik exported.txt do wgrania.");
-            await LoadVersionsAsync();
             return;
         }
 
         if (input.GameVersionId == Guid.Empty)
         {
             _importProblem = ApiProblemCopy.FrontendAuthored("Wybierz wersję gry.");
-            await LoadVersionsAsync();
             return;
         }
 
@@ -302,7 +330,6 @@
             _importProblem = ApiProblemCopy.FrontendAuthored(
                 "Nie można zaimportować do tej wersji gry.",
                 "Serwer nie udostępnia importu dla wybranej wersji. Odśwież stronę i wybierz inną wersję.");
-            await LoadVersionsAsync();
             return;
         }
 
@@ -317,16 +344,15 @@
 
         if (result.IsSuccess)
         {
-            _summary = result.Value;
-        }
-        else
-        {
-            _importProblem = result.ProblemDetails;
+            // Redirect after post (#933): the import changed the catalog and the version's status, so the
+            // list is loaded again, in a new request that renews the token first. The TMS refuses a token
+            // the moment it expires, and an import takes minutes. A browser reload is then a plain GET too.
+            Navigation.NavigateTo(SummaryRedirect.PageUriWith(
+                new ImportSummaryRedirect.CompletedImport(input.GameVersionId, result.Value)));
+            return;
         }
 
-        // The import mutated the catalog and the version's status; refresh the selector so it reflects
-        // the new state (e.g. the just-imported version flips to Processed).
-        await LoadVersionsAsync();
+        _importProblem = result.ProblemDetails;
     }
 
     /// <summary>

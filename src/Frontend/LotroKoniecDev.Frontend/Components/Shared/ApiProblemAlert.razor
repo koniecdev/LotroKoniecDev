@@ -50,8 +50,7 @@
         // An API error that shipped before its Polish text existed. The user already sees the fallback
         // message, so this is the moment to report the gap.
         // OnParametersSet runs every time a parameter is set, and a parent that renders again after
-        // setting the problem, as ImportExport does when it reloads its version list, would otherwise log
-        // the same gap twice per request.
+        // setting the problem would otherwise log the same gap twice per request.
         if (_view.UnmappedErrorCode is { } unmappedErrorCode && unmappedErrorCode != _reportedErrorCode)
         {
             _reportedErrorCode = unmappedErrorCode;

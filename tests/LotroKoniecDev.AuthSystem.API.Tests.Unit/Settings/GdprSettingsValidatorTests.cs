@@ -100,11 +100,11 @@ public sealed class GdprSettingsValidatorTests
 
     [Theory]
     [InlineData("00:01:00")]
+    [InlineData("00:04:59")]
     [InlineData("00:05:00")]
-    [InlineData("00:10:00")]
     public void Validate_GracePeriodNoLongerThanAnAccessTokenIsAccepted_FailsNamingTheSetting(string gracePeriod)
     {
-        // The default access token lives five minutes, and the TMS accepts it five more.
+        // The default access token lives five minutes, and the TMS accepts it not a second longer (#933).
         GdprSettings settings = new()
         {
             DeletionGracePeriod = Parse(gracePeriod),
@@ -116,16 +116,20 @@ public sealed class GdprSettingsValidatorTests
         result.Failed.ShouldBeTrue();
         result.Failures.ShouldNotBeNull();
         result.Failures.ShouldContain(failure =>
-            failure.Contains("DeletionGracePeriod must be longer than 10 minutes", StringComparison.Ordinal));
+            failure.Contains("DeletionGracePeriod must be longer than 5 minutes", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public void Validate_ShortGracePeriodForQa_SucceedsOnceItOutlivesAnAccessToken()
+    [Theory]
+    [InlineData("00:05:01")]
+    [InlineData("00:10:00")]
+    [InlineData("00:30:00")]
+    public void Validate_ShortGracePeriodForQa_SucceedsOnceItOutlivesAnAccessToken(string gracePeriod)
     {
-        // ADR-0031: QA shortens the grace period to watch a real erasure.
+        // ADR-0031: QA shortens the grace period to watch a real erasure. With no clock skew on the TMS
+        // (#933), a grace period just past the token lifetime is enough.
         GdprSettings settings = new()
         {
-            DeletionGracePeriod = Parse("00:30:00"),
+            DeletionGracePeriod = Parse(gracePeriod),
             DeletionFinalizationPollInterval = TimeSpan.FromMinutes(1)
         };
 

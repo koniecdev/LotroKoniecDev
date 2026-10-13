@@ -240,8 +240,9 @@ internal static class ApiDependencyInjection
             services.AddSingleton<IValidator<AuthSettings>, AuthSettingsValidator>();
             services.AddOptionsWithFluentValidation<AuthSettings>(AuthSettings.ConfigurationSection);
 
-            // Plain JWT Bearer authentication against the AuthSystem (OpenIddict) issuer. It avoids
-            // OpenIddict's own scope permission checks, which are hard to configure.
+            // ASP.NET Core's own JwtBearer handler against the AuthSystem (OpenIddict) issuer (ADR-0067,
+            // decision 5). OpenIddict's own validator has two rules built in that JwtBearer does not: no
+            // clock skew and access tokens only. Both are set by hand below (#933).
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer();
 
@@ -271,6 +272,17 @@ internal static class ApiDependencyInjection
                         ValidateAudience = true,
                         ValidAudience = settings.Audience,
                         ValidateLifetime = true,
+                        // The default is five minutes. It would keep a token working five minutes after
+                        // it expires and double the revocation window of ADR-0049. The auth server and
+                        // this API share one clock, so there is no difference to allow for.
+                        ClockSkew = TimeSpan.Zero,
+                        // The auth server also signs other tokens with this audience, for example an ID
+                        // token for the API client. Only an access token is a credential here (RFC 9068).
+                        ValidTypes =
+                        [
+                            AuthConstants.TokenTypes.AccessToken,
+                            AuthConstants.TokenTypes.AccessTokenMediaType
+                        ],
                         ValidateIssuerSigningKey = true,
                         NameClaimType = "name",
                         RoleClaimType = "role"

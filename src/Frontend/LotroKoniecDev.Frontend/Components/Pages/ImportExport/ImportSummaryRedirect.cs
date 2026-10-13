@@ -1,0 +1,69 @@
+using System.Security.Cryptography;
+using System.Text.Json;
+using LotroKoniecDev.TranslationSystem.Contracts.Import;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.WebUtilities;
+
+namespace LotroKoniecDev.Frontend.Components.Pages.ImportExport;
+
+/// <summary>
+/// Carries an import's summary, and the version it went into, across the redirect after the import
+/// (#933). The page redirects so that the version list loads in a new request with a renewed token: the
+/// token of the import request may already be dead when an import of several minutes ends, and the TMS
+/// allows no clock skew.
+/// Both travel in the query string, so the server keeps no state per user, like the other redirects
+/// after a post (#321). They are protected: a link that someone else wrote can neither put text on this
+/// page nor choose the version the next upload goes to.
+/// </summary>
+internal sealed class ImportSummaryRedirect
+{
+    internal const string SummaryParameter = "summary";
+
+    /// <summary>A new version here makes the page ignore links written for an older shape of the value.</summary>
+    internal const string Purpose = "LotroKoniecDev.Frontend.ImportSummary.v1";
+
+    private const string PagePath = "/import-export";
+
+    /// <summary>A value with a field missing or null is refused, so the page never reads a null list.</summary>
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true
+    };
+
+    private readonly IDataProtector _protector;
+
+    public string PageUriWith(CompletedImport completedImport) =>
+        QueryHelpers.AddQueryString(
+            PagePath,
+            SummaryParameter,
+            _protector.Protect(JsonSerializer.Serialize(completedImport, JsonOptions)));
+
+    /// <summary>
+    /// A value this page did not write, one written with a key the key ring no longer has, or one written
+    /// for another shape, shows no summary at all.
+    /// </summary>
+    public CompletedImport? Read(string? protectedValue)
+    {
+        if (string.IsNullOrEmpty(protectedValue))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<CompletedImport>(_protector.Unprotect(protectedValue), JsonOptions);
+        }
+        catch (Exception exception) when (exception is CryptographicException or FormatException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    public ImportSummaryRedirect(IDataProtectionProvider dataProtectionProvider)
+    {
+        _protector = dataProtectionProvider.CreateProtector(Purpose);
+    }
+
+    internal sealed record CompletedImport(Guid GameVersionId, ImportSummary Summary);
+}

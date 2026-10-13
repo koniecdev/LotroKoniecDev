@@ -28,6 +28,8 @@ REPO='ghcr.io/koniecdev'
 IMAGES='lotrokoniecdev-migrator lotrokoniecdev-auth-api lotrokoniecdev-tms-api lotrokoniecdev-frontend'
 GOOD_DIGEST='sha256:1111111111111111111111111111111111111111111111111111111111111111'
 OTHER_DIGEST='sha256:2222222222222222222222222222222222222222222222222222222222222222'
+STDIN_MARKER='stdin-of-deploy.sh'
+export STDIN_MARKER
 
 cases=0
 CASE=""
@@ -74,6 +76,11 @@ new_stack() {
 # The stub `docker`. Behavior is steered by env vars the cases set:
 #   STUB_CADDY_INVALID / STUB_PULL_FAIL / STUB_MIGRATE_FAIL / STUB_UP_FAIL — make that step exit 1
 #   STUB_DIGEST — the digest `docker image inspect` reports for every image
+#   STUB_BROKER_BOOTING_TRIES=<n> — the first n `rabbitmqctl set_operator_policy` calls fail, as on a
+#     broker that is still starting; STUB_BROKER_DOWN — every one of them fails;
+#     STUB_BROKER_RESTARTED — the first one returns 137, as a try does when the container restarts
+#   STUB_BROKER_HANGS — the stub `timeout` lets the call start, then stops it with 124, as it does on
+#     a broker that never answers
 # Every call is appended to $STUB_LOG *in order*, so a case can assert what ran, what did NOT, and
 # crucially in which sequence.
 install_stub_docker() {
@@ -112,6 +119,36 @@ if [ "$1" = compose ]; then
             ;;
         up)   [ -z "${STUB_UP_FAIL:-}" ] || { echo 'stub: up failed' >&2; exit 1; } ;;
         ps)   echo 'NAME   STATUS' ;;
+        exec)
+            case "$*" in
+                *set_operator_policy*)
+                    # run_deploy feeds a marker into deploy.sh's stdin. The policy call must never
+                    # read it (see deploy.sh: SIGTTIN under `timeout` in a hand-run deploy).
+                    if IFS= read -r line && [ "$line" = "$STDIN_MARKER" ]; then
+                        echo 'read-stdin' >> "$STUB_LOG"
+                        echo 'stub: the policy call read the stdin of deploy.sh' >&2
+                        exit 70
+                    fi
+                    # This call is already in the log, so the count includes it.
+                    tries="$(grep -c 'set_operator_policy' "$STUB_LOG")"
+                    # A broken wait bound would retry forever and hang the suite. Let a runaway loop
+                    # land instead, so the case that counts the tries fails fast.
+                    if [ "$tries" -gt 50 ]; then
+                        echo 'stub: runaway retry loop, letting it land'
+                        exit 0
+                    fi
+                    if [ -n "${STUB_BROKER_RESTARTED:-}" ] && [ "$tries" -eq 1 ]; then
+                        echo 'stub: the exec was killed with the container' >&2
+                        exit 137
+                    fi
+                    if [ -n "${STUB_BROKER_DOWN:-}" ] || [ "$tries" -le "${STUB_BROKER_BOOTING_TRIES:-0}" ]; then
+                        echo "stub: unable to perform an operation on node 'rabbit@lotro-rabbitmq'" >&2
+                        exit 69
+                    fi
+                    echo 'stub: policy set'
+                    ;;
+            esac
+            ;;
     esac
     exit 0
 fi
@@ -126,6 +163,23 @@ esac
 exit 0
 STUB
     chmod +x "$bin/docker"
+    # A stub `timeout` too: macOS has none, and the real one would make the hang case wait for real.
+    cat > "$bin/timeout" <<'STUB'
+#!/usr/bin/env bash
+kill_after=''
+if [ "$1" = -k ]; then
+    kill_after="-k $2 "
+    shift 2
+fi
+printf 'timeout %s%s\n' "$kill_after" "$1" >> "$STUB_LOG"
+shift
+if [ -n "${STUB_BROKER_HANGS:-}" ]; then
+    "$@" > /dev/null 2>&1
+    exit 124
+fi
+exec "$@"
+STUB
+    chmod +x "$bin/timeout"
     PATH="$bin:$PATH"
     export PATH
 }
@@ -137,7 +191,10 @@ run_deploy() {
     : > "$STUB_LOG"
     export STUB_LOG
     LAST_STATUS=0
-    LAST_OUTPUT="$(env STACK_DIR="$dir" "$@" bash "$DEPLOY_SH" 2>&1)" || LAST_STATUS=$?
+    # No pause between broker tries, so a broker that never answers costs no wall-clock time here. The
+    # marker on stdin stands in for an operator's terminal (see the stub's policy branch).
+    LAST_OUTPUT="$(printf '%s\n' "$STDIN_MARKER" \
+        | env STACK_DIR="$dir" BROKER_POLICY_RETRY_SECONDS=0 "$@" bash "$DEPLOY_SH" 2>&1)" || LAST_STATUS=$?
 }
 
 expected_digests() {
@@ -149,6 +206,7 @@ expected_digests() {
 }
 
 env_tag() { sed -n 's/^IMAGE_TAG=//p' "$1/.env" | head -1; }
+policy_tries() { grep -c 'set_operator_policy' "$TMP_ROOT/calls.log" || true; }
 called() { grep -qF -- "$1" "$TMP_ROOT/calls.log"; }
 # Line number of the first docker call containing $1 (0 = never called).
 call_line() { grep -nF -- "$1" "$TMP_ROOT/calls.log" | head -1 | cut -d: -f1; }
@@ -187,6 +245,14 @@ stack="$(new_stack novar)"
 run_deploy "$stack"
 [ "$LAST_STATUS" -eq 2 ] || fail 'expected exit 2 on a missing IMAGE_TAG' "got $LAST_STATUS"
 pass 'a missing IMAGE_TAG is a usage error (exit 2)'
+
+CASE='broker wait not a number'
+stack="$(new_stack badwait)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 BROKER_POLICY_WAIT_SECONDS=3m
+[ "$LAST_STATUS" -eq 2 ] || fail 'expected exit 2 on a broker wait that is not a whole number' "got $LAST_STATUS"
+called 'pull' && fail 'a bad setting still reached docker'
+[ "$(env_tag "$stack")" = 'sha-0000000' ] || fail '.env was rewritten although nothing rolled'
+pass 'a broker wait, retry or time limit that is not a whole number is a usage error before anything runs'
 
 CASE='hostile IMAGE_TAG'
 stack="$(new_stack hostile)"
@@ -325,5 +391,105 @@ grep -q 'PREVIOUS_IMAGE_TAG=sha-0000000' <<<"$LAST_OUTPUT" || fail 'CD was not t
 grep -q 'Deploy FAILED' <<<"$LAST_OUTPUT" || fail 'the failure banner (with container logs) was not printed'
 called 'logs' || fail 'container logs were not dumped on failure'
 pass 'a failed up -d exits non-zero, dumps logs, leaves .env on the live tag, and names the rollback target'
+
+# --- The parked e-mail expiry policy (ADR-0036 §6, #1085) ------------------------------------------
+
+AUTH_TOPOLOGY="$REPO_ROOT/src/AuthSystem/LotroKoniecDev.AuthSystem.Infrastructure/Messaging/RabbitMqTopology.cs"
+TMS_TOPOLOGY="$REPO_ROOT/src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Messaging/AccountEventsTopology.cs"
+# The owner's decision on #1085, word for word: only emails.send.dlq, 604800000 ms, as a policy. The CLI
+# runs as the `rabbitmq` user (see deploy.sh for the Erlang cookie trap a root CLI sets off).
+POLICY_CALL='exec -T --user rabbitmq rabbitmq rabbitmqctl set_operator_policy --apply-to queues emails-send-dlq-ttl ^emails\.send\.dlq$ {"message-ttl":604800000}'
+
+# Every queue name the apps declare: the `const string …Queue = "…"` lines of both topology files.
+declared_queues() {
+    sed -n 's/.*const string [A-Za-z]*Queue = "\([^"]*\)";.*/\1/p' "$AUTH_TOPOLOGY" "$TMS_TOPOLOGY"
+}
+queue_constant() {
+    sed -n "s/.*const string $1 = \"\([^\"]*\)\";.*/\1/p" "$AUTH_TOPOLOGY" "$TMS_TOPOLOGY"
+}
+
+CASE='parked e-mail expiry'
+stack="$(new_stack policy)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
+[ "$LAST_STATUS" -eq 0 ] || fail 'a clean roll should exit 0' "status $LAST_STATUS"
+called "$POLICY_CALL" || fail 'the 7-day expiry policy was not applied to emails.send.dlq as the owner decided'
+[ "$(policy_tries)" -eq 1 ] || fail 'a broker that answers needs exactly one try' "tries: $(policy_tries)"
+# The try runs under `timeout -k 5 20`: the line right before the policy call.
+[ "$(call_line 'timeout -k 5 20')" -eq $(($(call_line 'set_operator_policy') - 1)) ] \
+    || fail 'the policy try must run under a 20 s time limit with a KILL 5 s later'
+called 'read-stdin' && fail 'the policy call read the stdin of deploy.sh (SIGTTIN in a hand-run deploy)'
+grep -q '::warning::' <<<"$LAST_OUTPUT" && fail 'a policy that landed must not print a warning'
+pass 'every deploy sets the 7-day expiry policy on emails.send.dlq, as the rabbitmq user'
+
+CASE='policy after up -d'
+# `up -d` is what creates a new broker, so a policy set before it would miss a fresh volume.
+policy_at="$(call_line 'set_operator_policy')"
+up_at="$(call_line 'up -d --remove-orphans')"
+[ -n "$policy_at" ] && [ -n "$up_at" ] || fail 'expected both up -d and the policy step to run'
+[ "$policy_at" -gt "$up_at" ] \
+    || fail 'the policy must be set AFTER up -d, which creates a new broker' "policy at call #$policy_at, up -d at call #$up_at"
+pass 'the policy is set after up -d, so a broker that up -d just created gets it too'
+
+CASE='policy reach'
+# The policy must reach the e-mail parking lot and nothing else the apps declare: never the work queue
+# emails.send (a waiting e-mail would be dropped), and never tms.account-erased.dlq (erasure work waits
+# for a person, #1085). The names come from the C# constants, so a renamed queue fails here instead of
+# leaving the policy on nothing. RabbitMQ reads the pattern as a regular expression; this one uses only
+# syntax that grep -E reads the same way.
+pattern="$(sed -n "s/^EMAIL_DLQ_EXPIRY_PATTERN='\(.*\)'$/\1/p" "$DEPLOY_SH")"
+[ -n "$pattern" ] || fail 'could not read EMAIL_DLQ_EXPIRY_PATTERN from deploy.sh'
+queues="$(declared_queues)"
+email_dlq="$(queue_constant EmailDeadLetterQueue)"
+erased_dlq="$(queue_constant ErasedDeadLetterQueue)"
+[ -n "$email_dlq" ] && [ -n "$erased_dlq" ] \
+    || fail 'could not read EmailDeadLetterQueue and ErasedDeadLetterQueue from the topology files' "$queues"
+[ "$(printf '%s\n' "$queues" | grep -c .)" -ge 4 ] \
+    || fail 'expected at least the four queues of both topology files' "$queues"
+matched="$(printf '%s\n' "$queues" | grep -E -- "$pattern" || true)"
+[ "$matched" = "$email_dlq" ] \
+    || fail "the policy must match ${email_dlq} and nothing else" "matched: ${matched:-<nothing>}; declared: $(printf '%s\n' "$queues" | tr '\n' ' ')"
+pass "the policy matches ${email_dlq} only, not ${erased_dlq} or any other declared queue"
+
+CASE='broker still starting'
+stack="$(new_stack booting)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" STUB_BROKER_BOOTING_TRIES=2
+[ "$LAST_STATUS" -eq 0 ] || fail 'a broker that answers on a later try is a clean roll' "status $LAST_STATUS"
+[ "$(policy_tries)" -eq 3 ] || fail 'expected two failed tries and a third that lands' "tries: $(policy_tries)"
+grep -q '::warning::' <<<"$LAST_OUTPUT" && fail 'a policy that landed on a later try must not print a warning'
+pass 'a broker that is still starting is tried again until it answers'
+
+CASE='broker restarted'
+# 137 is also what a try returns when the broker container restarts under it. That is not a stuck
+# broker, so the step must try again rather than give up.
+stack="$(new_stack restarted)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" STUB_BROKER_RESTARTED=1
+[ "$LAST_STATUS" -eq 0 ] || fail 'a broker that restarted once is a clean roll' "status $LAST_STATUS"
+[ "$(policy_tries)" -eq 2 ] || fail 'expected the killed try and one more that lands' "tries: $(policy_tries)"
+grep -q '::warning::' <<<"$LAST_OUTPUT" && fail 'a policy that landed on the next try must not print a warning'
+pass 'a try killed with a restarting broker (137) is tried again, not taken for a time-out'
+
+CASE='broker never answers'
+stack="$(new_stack brokerdown)"
+# A wait of 0 s ends the step after the first refused try. A real wait would make this case slow.
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" STUB_BROKER_DOWN=1 BROKER_POLICY_WAIT_SECONDS=0
+[ "$LAST_STATUS" -eq 0 ] || fail 'a broker outage must never block an app deploy' "status $LAST_STATUS"
+[ "$(policy_tries)" -eq 1 ] || fail 'a wait that has run out must end the tries' "tries: $(policy_tries)"
+grep -q '::warning::.*emails-send-dlq-ttl' <<<"$LAST_OUTPUT" || fail 'the missing policy was not reported as a warning'
+grep -q 'unable to perform an operation' <<<"$LAST_OUTPUT" || fail "the broker's own error was not shown"
+[ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'the apps rolled, so the new tag must still be pinned' "$(env_tag "$stack")"
+grep -q 'Deploy FAILED' <<<"$LAST_OUTPUT" && fail 'the deploy did not fail, so no failure banner'
+pass 'a broker that never answers prints a warning, and the deploy still pins the new tag and exits 0'
+
+CASE='broker stuck'
+# A try that runs out of time ends the step at once: 36 stuck tries would hold the deploy for minutes,
+# and a CD job that hits its own time limit is cancelled with no rollback.
+stack="$(new_stack brokerstuck)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" STUB_BROKER_HANGS=1
+[ "$LAST_STATUS" -eq 0 ] || fail 'a stuck broker must never block an app deploy' "status $LAST_STATUS"
+[ "$(policy_tries)" -eq 1 ] || fail 'a try that ran out of time must be the last one' "tries: $(policy_tries)"
+grep -q 'did not answer within 20 s' <<<"$LAST_OUTPUT" || fail 'the time-out was not named'
+grep -q '::warning::.*emails-send-dlq-ttl' <<<"$LAST_OUTPUT" || fail 'the missing policy was not reported as a warning'
+[ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'the apps rolled, so the new tag must still be pinned' "$(env_tag "$stack")"
+pass 'a broker that holds the call past the time limit stops the step after one try, with a warning'
 
 printf '\nAll %d hetzner deploy.sh case(s) passed.\n' "$cases"

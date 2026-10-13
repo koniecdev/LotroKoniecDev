@@ -30,6 +30,10 @@ internal static class AccountEventsTopology
     /// </summary>
     public const string ErasedDeadLetterExchange = "tms.account-erased.dlx";
 
+    /// <summary>
+    /// No time limit, unlike the e-mail parking lot: a message parked here is erasure work, and it waits
+    /// for a person however long that takes. Never give it a <c>message-ttl</c> (ADR-0036 §6, #1085).
+    /// </summary>
     public const string ErasedDeadLetterQueue = "tms.account-erased.dlq";
 
     /// <summary>

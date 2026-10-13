@@ -357,7 +357,7 @@ which is why they are named volumes and not bind mounts.
 | `Email__Username` | auth-api | **Brevo** dashboard → SMTP & API → SMTP keys | The SMTP **login**, shaped `<id>@smtp-brevo.com` — **not** the Brevo account e-mail, which fails the handshake with `535`. |
 | `Email__Password` | auth-api | **Brevo** (owner pastes) | Generate a new SMTP key in Brevo. Shown **once** and never readable back — the copies in the box `.env` and in GitHub secrets are both write-only, so a lost key is re-generated, never recovered. |
 | The admin password | the admin `Users` row | **the admin's own password manager**, never a file on the box | Not a `.env` value any more (ADR-0056): the seeder creates the admin without one. The first password and every rotation go through the reset mail ([Admin account](#admin-account--first-sign-in-and-rotation)). A box `.env` that still has an `AUTH_ADMIN_PASSWORD` line predates #696: follow the migration steps there. |
-| `RABBITMQ_PASSWORD` (→ auth-api and tms-api `RabbitMq__Password` **and** the broker's `RABBITMQ_DEFAULT_PASS`) | rabbitmq, auth-api, tms-api | **box-local** — generate: `openssl rand -base64 24` | ⚠️ Same create-if-missing shape as the admin seed: the broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** (empty data volume), so editing `.env` later rotates what the apps present but **not** what the broker expects. Rotate in lockstep: `docker compose -f compose.hetzner.yaml exec rabbitmq rabbitmqctl change_password rabbitmq '<new>'` → update `.env` → `docker compose -f compose.hetzner.yaml up -d auth-api tms-api`. Leave tms-api out and it keeps working until its next reconnect, then is refused for good while erasures wait unseen in its queue (ADR-0065). |
+| `RABBITMQ_PASSWORD` (→ auth-api and tms-api `RabbitMq__Password` **and** the broker's `RABBITMQ_DEFAULT_PASS`) | rabbitmq, auth-api, tms-api | **box-local** — generate: `openssl rand -base64 24` | ⚠️ Same create-if-missing shape as the admin seed: the broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** (empty data volume), so editing `.env` later rotates what the apps present but **not** what the broker expects. Rotate in lockstep: `docker compose -f compose.hetzner.yaml exec --user rabbitmq rabbitmq rabbitmqctl change_password rabbitmq '<new>'` → update `.env` → `docker compose -f compose.hetzner.yaml up -d auth-api tms-api`. Leave tms-api out and it keeps working until its next reconnect, then is refused for good while erasures wait unseen in its queue (ADR-0065). |
 | `FRONTEND_CALLER_KEY` (→ auth-api and tms-api `FrontendCaller__Key`, frontend `AuthSystem__CallerKey` **and** `TranslationSystem__CallerKey`) | auth-api, tms-api, frontend | **box-local** — generate: `openssl rand -base64 32`, one per environment (not one per API) | Lets the auth API and the TMS API rate-limit a frontend call on the visitor's forwarded address instead of on the frontend container (ADR-0054, #823). Put a new value into the box `.env` and redeploy: all three services read the same line, so they disagree only for the seconds of the restart, and a call in that window merely counts against the frontend's own bucket. **Required** — compose refuses to render without it (`deploy.sh` stops at its first gate and the rollback keeps the old release serving), and all three apps refuse to boot outside Development/Testing. Write the value **unquoted**: base64 needs no quotes, and a key with whitespace at either end stops all three apps at boot, because the APIs would compare it with a trimmed header and never match (#857). A line break or a non-ASCII character anywhere in the key (a multi-line value, a pasted non-breaking space) stops them at boot too, because such a key cannot reach the API in a header. So does a tab: it could reach the API, but it is refused to keep one simple rule (#877). A leaked key lets its holder dodge the three auth back-channel limits and the TMS API's one limit by inventing addresses and nothing more — rotate it. |
 | `HEALTH_CHECK_KEY` (→ auth-api and tms-api `HealthCheck__Key`) | auth-api, tms-api, **and on the prod box the daily health ping** | **box-local** — generate: `openssl rand -base64 32`, one per environment (not one per API) | Opens the full `/health` (ADR-0058, #853); without it both APIs answer 404 there and run no check. **Required** — compose refuses to render without it (`deploy.sh` stops at its first gate and the rollback keeps the old release serving), and both APIs refuse to boot outside Development/Testing. **Prod only: the same value is the `PROD_HEALTH_CHECK_KEY` repository secret** the daily health ping sends. Set or rotate it without the value ever reaching argv or the screen: `ssh deploy@<prod-box> "grep '^HEALTH_CHECK_KEY=' /opt/lotro/.env \| cut -d= -f2-" \| tr -d '"\r\n' \| gh secret set PROD_HEALTH_CHECK_KEY` (gh reads stdin when there is no `--body`; **never `--body -`**). The command copies the raw `.env` line, so write the value **unquoted** — base64 needs no quotes; `tr` drops double quotes, but single quotes would reach the secret and turn the ping red. Both APIs refuse to boot with a key that has whitespace at either end or anything but printable ASCII inside it (#853, #877). Rotate: new value into the prod `.env` → redeploy → that command. Between the two steps the ping gets 404 and goes red, so rotate outside its 06:40 UTC slot. A leaked key lets its holder run the database, SMTP and broker checks at will, and nothing more — rotate it. |
 | `OBS_PUSH_PASSWORD` (prod `/opt/obs/.env`) ↔ `OBS_PUSH_PASSWORD_HASH` (staging `/opt/lotro/.env`) | the prod agent (Alloy, `ship.agent.alloy`) ↔ the staging Caddy's ingest vhost | **box-local** — generate: `openssl rand -base64 24`; hash it with `docker run --rm -it caddy:2-alpine caddy hash-password` (prompts, never on argv) | One password, two forms, and the plaintext exists on the prod box only. Rotate hash-first: new hash into staging `.env` → `deploy.sh` (reloads Caddy) → new password into prod `.env` → `docker compose -f compose.observability.yaml up -d` in `/opt/obs`. **The window in between loses telemetry, it does not delay it** — a 401 is a permanent error for all three writers and each drops the batch — so pick a window you are willing to have a hole in, or give the vhost a second `basic_auth` account first so the two credentials overlap. **Single-quote the hash in `.env`**: bare *and* double-quoted both corrupt it, compose expands the salt after the third `$` to nothing, and `caddy validate` accepts the wreckage — prove it landed with the probe in "Bringing up the prod agent" step 3. |
@@ -841,21 +841,27 @@ against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://
    (it converges them to the repo version), so fold any hand-tuned directive into the script first.
 
    **The Docker leg adopts the box's engine, it does not install one** — see [Gotchas](#gotchas).
-4. **Stack files:** copy `compose.hetzner.yaml` + `.docker/hetzner/` to `/opt/lotro/` (as `deploy`),
-   assemble the box's `.env` from `.env.hetzner.example` ([Secrets](#secrets) has every value's source
-   of truth and rotation command), `chmod 600` it.
-5. **Bring-up (staging box first as the rehearsal):** as `deploy`, on each box:
+4. **Stack files:** copy `compose.hetzner.yaml` + `.docker/hetzner/` to `/opt/lotro/` and
+   `scripts/hetzner/deploy.sh` to `/opt/lotro/deploy.sh` (as `deploy`), assemble the box's `.env` from
+   `.env.hetzner.example` ([Secrets](#secrets) has every value's source of truth and rotation command),
+   `chmod 600` it.
+5. **Bring-up (staging box first as the rehearsal):** as `deploy`, on each box, through `deploy.sh`
+   and not a plain `up -d`. It is the same rollout CD runs, and it is the one step that gives the new
+   broker its policy for parked e-mail (ADR-0036 §6). Name a `sha-<short sha>` tag of a green commit
+   on `main`, never `latest`: the script pins the tag in `.env`, CD's next rollback returns to whatever
+   `.env` names, and `latest` moves with every green CI run on `main`:
 
    ```bash
    cd /opt/lotro     # .env is picked up automatically; COMPOSE_PROJECT_NAME comes from it
-   docker compose -f compose.hetzner.yaml pull
-   docker compose -f compose.hetzner.yaml up -d
+   IMAGE_TAG=sha-<short sha> bash /opt/lotro/deploy.sh          # validate → pull → migrate → up -d → policy → pin
    docker compose -f compose.hetzner.yaml logs -f migrator caddy   # one-shot migration + ACME
    ```
 
-   Then re-check the [consistency rules](#consistency-rules-that-bite) across services, and run the
+   Then re-check the [consistency rules](#consistency-rules-that-bite) across services, run the
    [smoke test](#post-deploy-smoke-test) against the public origins from an external network —
-   remember `GET / -> 200` proves nothing; smoke's fingerprint leg is the real check.
+   remember `GET / -> 200` proves nothing; smoke's fingerprint leg is the real check — and check that
+   `emails.send.dlq` carries the policy
+   ([the dead-letter parking lot](#the-dead-letter-parking-lot-emailssenddlq)).
 6. **Re-pin the CD host key** (`ssh-keyscan`) — see
    [One-time setup per environment](#one-time-setup-per-environment). Swap is not a step here: step
    3's bootstrap provisions it ([Gotchas](#gotchas)).
@@ -998,7 +1004,10 @@ the live config into `/opt/lotro/.previous/`, scp's `compose.hetzner.yaml`, the 
    **previous release still serving** — it is a no-op for the live site;
 4. `up -d` — only now are the app containers recreated, onto an already-migrated schema;
 5. reloads Caddy (its Caddyfile is a bind mount — compose does not notice content changes);
-6. pins `IMAGE_TAG` in the box `.env` **last, on success only**, so the file always describes what is
+6. sets the broker policy that makes a parked e-mail message expire after 7 days (ADR-0036 §6) — see
+   [the dead-letter parking lot](#the-dead-letter-parking-lot-emailssenddlq). A broker that does not
+   answer only prints a warning: it never fails the deploy;
+7. pins `IMAGE_TAG` in the box `.env` **last, on success only**, so the file always describes what is
    actually running.
 
 Finally the runner waits for the public origins to answer, then smokes them. Red smoke ⇒ the box is
@@ -1355,8 +1364,10 @@ its own queue `tms.account-erased` and takes the person's name and address off t
 profile. Both use the one broker user `rabbitmq`; #1086 tracks a least-privilege user for tms-api.
 Everything each side needs — exchanges, quorum queues, bindings, the dead-letter wiring — is
 **declared idempotently by the app on channel open**, so a fresh broker needs zero manual
-provisioning. auth-api declares `lotro.accounts`; tms-api only checks that it exists, so until
-auth-api has started once, the tms-api consumer keeps retrying its connection.
+provisioning. The one thing an app does not declare, the 7-day expiry of parked e-mail messages, is
+a broker policy that `deploy.sh` sets on every deploy (ADR-0036 §6). auth-api declares
+`lotro.accounts`; tms-api only checks that it exists, so until auth-api has started once, the tms-api
+consumer keeps retrying its connection.
 
 The broker is deliberately a **soft dependency**:
 
@@ -1400,6 +1411,40 @@ queue with the *default* delivery limit (20) and no DLX of its own, so a reject-
 3. Only after the replay demonstrably processed (e-mail sent / inbox row present): remove the parked
    copy — *Get messages* with ack mode *Automatic ack*.
 
+**A parked message expires 7 days after it parks** (ADR-0036 §6, #1085), so replay within that week
+or it is gone for good. The limit exists because an e-mail change message holds the person's old and
+new address, and an account erasure cannot reach a queue. It is the RabbitMQ **operator** policy
+`emails-send-dlq-ttl` (pattern `^emails\.send\.dlq$`, `message-ttl` 604800000 ms; in the management UI
+under *Admin → Policies → Operator policies*). `deploy.sh` sets it on every deploy, on both boxes, so
+nobody sets it by hand. Check that it is on:
+
+```bash
+docker compose -f compose.hetzner.yaml exec -T --user rabbitmq rabbitmq rabbitmqctl list_queues name operator_policy messages
+# emails.send.dlq  emails-send-dlq-ttl  0   <- the operator_policy column must name it
+```
+
+Run `rabbitmqctl` as the `rabbitmq` user, as above. On a broker whose volume is new, a root CLI can
+write the Erlang cookie before the server does, and the server then stops at boot.
+
+- **A broker you start by hand has no policy.** `deploy.sh` is the only thing that sets it, so a broker
+  whose volume is new (a rebuilt box, a `down -v`, a deleted `rabbitmq-data`) gets it only when
+  `deploy.sh` runs. Bring such a broker up with `deploy.sh`, never with a plain `docker compose up -d`
+  ([bring-up](#reprovisioning-a-box), [disaster recovery](#disaster-recovery)), and check it with the
+  command above before anything can park.
+- **The deploy warned that the policy did not land.** The broker did not answer in time. A broker that
+  had the policy keeps it, so this matters only for a new broker. Deploy again once the broker is
+  healthy, then check `emails.send.dlq`: a message that parked while the policy was missing never
+  expires.
+- **A message with no expiry blocks the others.** A quorum queue gets a message's expiry when the
+  message parks, and it drops expired messages only from its head. So a message that parked before the
+  policy existed stays for good, and every message behind it stays too. Replay or remove such a message
+  by hand. Both parking lots were empty when checked on 2026-10-11, before the first deploy with the
+  policy.
+- **A user policy cannot switch it off.** An operator policy applies next to whatever user policy
+  matches the queue, and the lower `message-ttl` wins, so a policy added in the management UI can
+  shorten the limit but never lengthen or remove it. Change or remove the operator policy only through
+  `deploy.sh` and ADR-0036.
+
 ### The account events parking lot (`tms.account-erased.dlq`)
 
 Only a message tms-api can never handle lands here: an unknown type, an unreadable payload or a
@@ -1418,7 +1463,9 @@ AuthSystem never sends an erasure again once it was sent, so a message lost ther
 person's name on the profile for good. An erasure that is waiting out a database outage at that
 moment holds the attach back until its pause ends (about 15 minutes at most). Replay works as for `emails.send.dlq`, on the **`lotro.accounts`** exchange with the routing
 key `account.erased` and the `type` property `AccountErased`. Erasing a profile twice is harmless,
-so a replay never needs a duplicate check.
+so a replay never needs a duplicate check. This parking lot has **no time limit, on purpose**: a parked
+message is erasure work that must wait for a person. Never give it a policy (user or operator) with
+a `message-ttl`, and never widen the e-mail expiry pattern to reach it (ADR-0036 §6).
 
 ### Rolling back past ADR-0065
 
@@ -1855,16 +1902,18 @@ Each box is **fully disposable** — nothing on it is the source of truth for an
 |---|---|---|
 | Databases | Neon (prod + staging, PITR + MIGR-04 snapshots) | nothing to do |
 | Images | GHCR (built by `cd.yml`) | nothing to do |
-| Config | this repo (`compose.hetzner.yaml`, Caddyfile) | scp again |
+| Config | this repo (`compose.hetzner.yaml`, Caddyfile, `deploy.sh`) | scp again |
 | Secrets | `/opt/lotro/.env` per box — owner's backup + every value re-mintable ([Secrets](#secrets)) | restore or re-mint |
 | TLS certs | Caddy volume; Let's Encrypt re-issues | automatic on first bring-up |
 | DP keyrings | `auth-keys` / `frontend-keys` volumes | losing them logs everyone out; nothing to restore |
 | Telemetry history | the `obs_*` volumes on **lotro-staging** only | **nothing to restore, on purpose** — telemetry is not a source of truth. A rebuilt box gets the dashboards, datasources and alert rules back from this repo; the history is gone and that is accepted (ADR-0050) |
 
 Recovery = **new VPS → `bootstrap.sh` → scp stack files → restore/re-mint the box's `.env` →
-`docker compose -f compose.hetzner.yaml up -d` → re-point DNS A records → re-pin
-`HETZNER_SSH_KNOWN_HOSTS`**. Hetzner backups (prod box) are a shortcut for the same outcome, not a
-dependency. Neither stack file is named `compose.yaml`, so the `-f` is not optional here either —
+`IMAGE_TAG=<the tag the box ran> bash /opt/lotro/deploy.sh` as `deploy` → re-point DNS A records →
+re-pin `HETZNER_SSH_KNOWN_HOSTS`**. Use `deploy.sh`, not a plain `up -d`: the broker volume is new,
+and `deploy.sh` is what sets its policy for parked e-mail (ADR-0036 §6). Hetzner backups (prod box)
+are a shortcut for the same outcome, not a dependency. Neither stack file is named `compose.yaml`, so
+the `-f` is not optional in any hand-run compose command either —
 `docker compose ps` in `/opt/lotro` happens to work (it finds the project by the
 `COMPOSE_PROJECT_NAME` in `.env` and never reads a file), which makes it easy to believe the bare
 form works for `up` too. It does not.

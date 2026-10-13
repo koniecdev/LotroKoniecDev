@@ -112,7 +112,8 @@ e-mail leaves:
 | Replay of an already-processed message from the DLQ | **0** — inbox hit, ack | — |
 
 After the retries exhaust, the message waits intact in `emails.send.dlq` until a human returns
-and replays it (ack-and-republish, never reject-requeue — ADR-0036 Decision 5). Nothing loops,
+and replays it (ack-and-republish, never reject-requeue — ADR-0036 Decision 5), for at most 7 days
+since ADR-0036 §6 (#1085). Nothing loops,
 nothing is lost, and the reputation-burning flood is structurally impossible: the broker's
 delivery limit caps *total* deliveries per message id forever, across restarts and crash loops.
 

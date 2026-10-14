@@ -9,7 +9,6 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 internal static class TestIds
 {
     public const string RegisterAcceptPrivacy = "register-accept-privacy";
-    public const string RegisterAcceptDataProcessing = "register-accept-data-processing";
     public const string RegisterAcceptTerms = "register-accept-terms";
     public const string RegisterSuccess = "register-success";
     public const string ConfirmEmailSuccess = "confirm-email-success";

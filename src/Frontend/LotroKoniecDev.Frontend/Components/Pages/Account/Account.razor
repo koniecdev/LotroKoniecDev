@@ -131,20 +131,6 @@
                         </dd>
                     </div>
                     <div class="dl-row">
-                        <dt>Przetwarzanie danych</dt>
-                        <dd>
-                            @if (auth.DataProcessingConsentGiven)
-                            {
-                                <span class="badge badge-success"><span class="dot"></span>Wyrażona</span>
-                                <span class="mono dim">@FormatDateTime(auth.DataProcessingConsentDate)</span>
-                            }
-                            else
-                            {
-                                <span class="badge badge-neutral">Brak zgody</span>
-                            }
-                        </dd>
-                    </div>
-                    <div class="dl-row">
                         <dt><a href="/regulamin">Regulamin serwisu</a></dt>
                         <dd>
                             @if (auth.TermsOfServiceAccepted)

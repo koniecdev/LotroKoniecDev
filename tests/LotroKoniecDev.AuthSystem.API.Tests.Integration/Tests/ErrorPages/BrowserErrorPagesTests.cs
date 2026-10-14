@@ -439,7 +439,6 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
             Faker.Internet.Email(),
             "TestPass1!",
             AcceptedPrivacyPolicy: false,
-            AcceptedDataProcessingConsent: true,
             AcceptedTermsOfService: true);
 
         using HttpRequestMessage request = new(HttpMethod.Post, new Uri("/auth/register", UriKind.Relative));

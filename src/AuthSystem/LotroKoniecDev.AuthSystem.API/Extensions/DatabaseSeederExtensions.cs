@@ -150,8 +150,6 @@ internal static partial class DatabaseSeederExtensions
             UserName = username,
             Email = email,
             EmailConfirmed = true,
-            DataProcessingConsentGiven = true,
-            DataProcessingConsentDate = timeProvider.GetUtcNow(),
             PrivacyPolicyAccepted = true,
             PrivacyPolicyAcceptedDate = timeProvider.GetUtcNow(),
             TermsOfServiceAccepted = true,

@@ -230,12 +230,15 @@ które w id tokenie. `sub`/`email`/`name`/`role` idą do obu.
 `POST auth/register` (`RegisterUser.cs`, `AllowAnonymous`, rate-limited):
 1. walidacja (email unikalny/regex ≤250 — **to e-mail jest loginem**, ADR-0022; username: unikalny
    handle wyłącznie do wyświetlania, `^[a-zA-Z0-9]+$` ≤150 — `UsernameConstants`; hasło 8–128 +
-   złożoność, **wszystkie trzy zgody `true`** — privacy, data-processing i ToS od LEGAL-03);
-2. `userManager.CreateAsync` → przypisanie roli **`Translator`** (`:138-139`);
-3. wysyłka maila potwierdzającego; gdy mail padnie → **fallback auto-confirm** (`:146-155`);
+   złożoność, **obie akceptacje `true`** — privacy i ToS od LEGAL-03; zgody na przetwarzanie danych
+   nie ma od #1073);
+2. `userManager.CreateAsync` → przypisanie roli **`Translator`** (`:191-192`);
+3. wiadomość `EmailConfirmationRequested` trafia do outboxu w tej samej transakcji (`:213-216`), a mail
+   wysyła relay po commicie (ADR-0035) — rejestracja nie dotyka SMTP i nie ma już fallbacku
+   auto-confirm;
 4. zwraca **201** z gołym `IdentityId`.
 
-**Kluczowe (`RegisterUser.cs:228-230`):** *brak* cross-contextowej sagi, która przy rejestracji
+**Kluczowe (`RegisterUser.cs:222-224`):** *brak* cross-contextowej sagi, która przy rejestracji
 tworzyłaby też profil w TMS (świadoma decyzja, ADR-0002 §7). Profil tłumacza w TMS powstaje
 **leniwie** przy pierwszym uwierzytelnionym żądaniu (§7.3, ADR-0004). To świetny temat na
 rozmowę („dlaczego rozdzieliliście rejestrację od profilu domenowego").
@@ -468,9 +471,10 @@ HTTPS. Dev/test i wewnętrzne `http://…:8080` (compose) wyłączają wymóg.
 `Secure` — AUDIT-SEC-10/#400; w Development zostaje `SameAsRequest`), `Path=/` (sign-in/out zawsze
 trafiają w to samo cookie). 8 h sliding.
 
-### 10.7 Wymaganie zgód RODO przy rejestracji i kasowanie konta
-`RegisterUser.cs:49-57`: `acceptedPrivacyPolicy`, `acceptedDataProcessingConsent` i (od LEGAL-03)
-`acceptedTermsOfService` **muszą być `true`**, data każdej zgody stemplowana na `ApplicationUser`.
+### 10.7 Akceptacje przy rejestracji (umowa, nie zgoda) i kasowanie konta
+`RegisterUser.cs:52-56`: `acceptedPrivacyPolicy` i (od LEGAL-03) `acceptedTermsOfService` **muszą być
+`true`**, data każdej akceptacji stemplowana na `ApplicationUser`. Zgody na przetwarzanie danych nie ma
+od #1073: konto działa na podstawie umowy, a nie zgody, więc rejestracja o nią nie pyta (ADR-0068).
 `DeleteAccount` **planuje** kasowanie RODO z 14-dniowym oknem anulowania (ADR-0031): konto
 zablokowane na czas okna, sesje i tokeny rewokowane, jednorazowy link anulowania mailem;
 erasure wykonuje finalizer po upływie okna (usuwa też zapisane sesje cookie `auth-api` — ADR-0062),

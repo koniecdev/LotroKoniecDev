@@ -51,9 +51,6 @@ internal sealed partial class RegisterModel : PageModel
     public bool AcceptedPrivacyPolicy { get; set; }
 
     [BindProperty]
-    public bool AcceptedDataProcessingConsent { get; set; }
-
-    [BindProperty]
     public bool AcceptedTermsOfService { get; set; }
 
     public bool IsRegistered { get; set; }
@@ -114,12 +111,6 @@ internal sealed partial class RegisterModel : PageModel
             return Page();
         }
 
-        if (!AcceptedDataProcessingConsent)
-        {
-            ErrorMessage = "Musisz wyrazić zgodę na przetwarzanie danych, aby założyć konto.";
-            return Page();
-        }
-
         if (!AcceptedTermsOfService)
         {
             ErrorMessage = "Musisz zaakceptować regulamin serwisu, aby założyć konto.";
@@ -131,7 +122,6 @@ internal sealed partial class RegisterModel : PageModel
             Email.Trim(),
             Password,
             AcceptedPrivacyPolicy,
-            AcceptedDataProcessingConsent,
             AcceptedTermsOfService);
 
         Result<IdentityId> result = await _registerUserHandler.Handle(command, cancellationToken);

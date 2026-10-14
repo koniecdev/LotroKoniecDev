@@ -121,6 +121,26 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task RegisterPage_ShouldAskForNoDataProcessingConsent_WhenAccessed()
+    {
+        // The account runs on the contract, and a consent the user must give to get the service is not a
+        // valid consent (#1073). The privacy policy and the terms stay.
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.GetAsync(
+            new Uri("/Account/Register", UriKind.Relative));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldNotContain("AcceptedDataProcessingConsent");
+        html.ShouldNotContain("przetwarzanie moich danych");
+        html.ShouldContain("register-accept-privacy");
+        html.ShouldContain("register-accept-terms");
+    }
+
+    [Fact]
     public async Task RegisterPage_ShouldListTheLengthRuleTheApiApplies_WhenAccessed()
     {
         // The handler refuses a password over 128 characters, so the rule list must say so too (#1046).
@@ -271,7 +291,6 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         RegisterRequest request,
         string confirmPassword,
         bool acceptedPrivacyPolicy = true,
-        bool acceptedDataProcessingConsent = true,
         bool acceptedTermsOfService = true) => new()
         {
             ["Username"] = request.Username,
@@ -279,7 +298,6 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
             ["Password"] = request.Password,
             ["ConfirmPassword"] = confirmPassword,
             ["AcceptedPrivacyPolicy"] = acceptedPrivacyPolicy ? "true" : "false",
-            ["AcceptedDataProcessingConsent"] = acceptedDataProcessingConsent ? "true" : "false",
             ["AcceptedTermsOfService"] = acceptedTermsOfService ? "true" : "false"
         };
 

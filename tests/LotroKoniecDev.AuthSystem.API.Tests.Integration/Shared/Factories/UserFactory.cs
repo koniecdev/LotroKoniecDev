@@ -18,7 +18,6 @@ internal static class UserFactory
         faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N")),
         password ?? DefaultPassword,
         AcceptedPrivacyPolicy: true,
-        AcceptedDataProcessingConsent: true,
         AcceptedTermsOfService: true);
 
     public static async Task<IdentityId> RegisterRandomUserAsync(

@@ -114,7 +114,6 @@ public sealed class OutboxRelayTests : EndpointsTestBase
             existingRequest.Email,
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true,
             AcceptedTermsOfService: true);
 
         // Act

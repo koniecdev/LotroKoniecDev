@@ -175,7 +175,6 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
             ["Password"] = Password,
             ["ConfirmPassword"] = Password,
             ["AcceptedPrivacyPolicy"] = "true",
-            ["AcceptedDataProcessingConsent"] = "true",
             ["AcceptedTermsOfService"] = "true"
         };
 

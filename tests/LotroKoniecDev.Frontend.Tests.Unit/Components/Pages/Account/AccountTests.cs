@@ -65,6 +65,19 @@ public sealed class AccountTests : BunitContext
     }
 
     [Fact]
+    public void Render_WhenAnOlderAccountGaveTheDataProcessingConsent_ShowsNoRowForIt()
+    {
+        // The account runs on the contract, so the page never presents this consent as one the user has or
+        // lacks (#1073). The envelope still carries it until the column is dropped.
+        StubExport(AccountLoaderTests.CreateEnvelope());
+
+        IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
+
+        component.Markup.ShouldNotContain("Przetwarzanie danych");
+        component.Markup.ShouldNotContain("Wyrażona");
+    }
+
+    [Fact]
     public void Render_WhenEnvelopeAdvertisesTheDownload_LinksToThePasswordConfirmationPage()
     {
         // Not a direct download any more (#690): the export asks for the password first, so the row

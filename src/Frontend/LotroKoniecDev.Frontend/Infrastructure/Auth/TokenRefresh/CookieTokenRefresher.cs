@@ -30,7 +30,7 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// token. On the user's own sign-out (<c>/auth/logout</c> and <c>/auth/local-signout</c>) it checks nothing,
 /// so it never sets the notice there, and the sign-out revokes the token itself (#964, #1027).
 /// </summary>
-internal sealed class CookieTokenRefresher
+internal sealed partial class CookieTokenRefresher
 {
     private const string AccessTokenName = "access_token";
     private const string RefreshTokenName = "refresh_token";
@@ -38,90 +38,6 @@ internal sealed class CookieTokenRefresher
 
     private static readonly SearchValues<char> Base64UrlCharacters = SearchValues.Create(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_");
-
-    private static readonly Action<ILogger, Exception?> LogNoRefreshToken =
-        LoggerMessage.Define(
-            LogLevel.Information,
-            new EventId(1, nameof(LogNoRefreshToken)),
-            "Cookie has no refresh_token; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogRefreshFailed =
-        LoggerMessage.Define(
-            LogLevel.Information,
-            new EventId(2, nameof(LogRefreshFailed)),
-            "Refresh token grant returned no usable answer; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogProactiveInvalidToken =
-        LoggerMessage.Define(
-            LogLevel.Information,
-            new EventId(3, nameof(LogProactiveInvalidToken)),
-            "Access token failed local JWKS signature validation after a metadata refresh; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogReactiveDeadSession =
-        LoggerMessage.Define(
-            LogLevel.Information,
-            new EventId(4, nameof(LogReactiveDeadSession)),
-            "Session was marked dead by a prior 401; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogNoUsableAccessToken =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(5, nameof(LogNoUsableAccessToken)),
-            "Refresh token grant returned a missing, empty or blank access_token; principal rejected.");
-
-    private static readonly Action<ILogger, string, Exception?> LogNoPositiveLifetime =
-        LoggerMessage.Define<string>(
-            LogLevel.Warning,
-            new EventId(6, nameof(LogNoPositiveLifetime)),
-            "Refresh token grant returned a missing or non-positive expires_in; principal rejected. expires_in: {ExpiresIn}");
-
-    private static readonly Action<ILogger, Exception?> LogMalformedAccessToken =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(7, nameof(LogMalformedAccessToken)),
-            "Refresh token grant returned an access_token that is not a compact JWS; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogMalformedRefreshToken =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(8, nameof(LogMalformedRefreshToken)),
-            "Refresh token grant returned a refresh_token with characters outside printable ASCII; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogMalformedIdToken =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(9, nameof(LogMalformedIdToken)),
-            "Refresh token grant returned an id_token that is not a compact JWS; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogNoUsableExpiry =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(10, nameof(LogNoUsableExpiry)),
-            "Cookie has a missing or unreadable expires_at; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogNoStoredAccessToken =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(11, nameof(LogNoStoredAccessToken)),
-            "Cookie has a missing, empty or blank access_token; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogBlankStoredRefreshToken =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(12, nameof(LogBlankStoredRefreshToken)),
-            "Cookie has an empty or blank refresh_token; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogRefreshPostponed =
-        LoggerMessage.Define(
-            LogLevel.Information,
-            new EventId(13, nameof(LogRefreshPostponed)),
-            "Refresh token grant failed for a moment; the session keeps its access token and the next request tries again.");
-
-    private static readonly Action<ILogger, Exception?> LogRefreshFailedAfterExpiry =
-        LoggerMessage.Define(
-            LogLevel.Information,
-            new EventId(14, nameof(LogRefreshFailedAfterExpiry)),
-            "Refresh token grant failed for a moment after the access token ran out; principal rejected.");
 
     private readonly ITokenEndpointClient _tokenEndpointClient;
     private readonly IOptionsMonitor<OpenIdConnectOptions> _openIdConnectOptionsMonitor;
@@ -171,7 +87,7 @@ internal sealed class CookieTokenRefresher
         if (accessToken is not null
             && await _deadSessionRegistry.ConsumeAsync(accessToken, cancellationToken))
         {
-            LogReactiveDeadSession(_logger, null);
+            LogReactiveDeadSession(_logger);
             await RejectAsync(context);
             return;
         }
@@ -183,14 +99,14 @@ internal sealed class CookieTokenRefresher
         if (!AccessTokenRefreshSchedule.TryGetMoment(
                 context.Properties, AccessTokenRefreshSchedule.ExpiresAtName, out DateTimeOffset expiresAt))
         {
-            LogNoUsableExpiry(_logger, null);
+            LogNoUsableExpiry(_logger);
             await RejectAsync(context);
             return;
         }
 
         if (!TokenRules.IsUsable(accessToken))
         {
-            LogNoStoredAccessToken(_logger, null);
+            LogNoStoredAccessToken(_logger);
             await RejectAsync(context);
             return;
         }
@@ -200,7 +116,7 @@ internal sealed class CookieTokenRefresher
         string? refreshToken = context.Properties.GetTokenValue(RefreshTokenName);
         if (refreshToken is not null && !TokenRules.IsUsable(refreshToken))
         {
-            LogBlankStoredRefreshToken(_logger, null);
+            LogBlankStoredRefreshToken(_logger);
             await RejectAsync(context);
             return;
         }
@@ -222,7 +138,7 @@ internal sealed class CookieTokenRefresher
         // this frontend is not the token's audience.
         if (!await IsAccessTokenCryptographicallyValidAsync(accessToken, cancellationToken))
         {
-            LogProactiveInvalidToken(_logger, null);
+            LogProactiveInvalidToken(_logger);
             await RejectAsync(context);
         }
     }
@@ -249,7 +165,7 @@ internal sealed class CookieTokenRefresher
 
         if (refreshToken is null)
         {
-            LogNoRefreshToken(_logger, null);
+            LogNoRefreshToken(_logger);
             await RejectAsync(context);
             return RefreshOutcome.Stop;
         }
@@ -263,7 +179,7 @@ internal sealed class CookieTokenRefresher
         // The clock is read after the call, because a timeout takes 30 seconds.
         if (refreshResult.IsTemporaryFailure && _timeProvider.GetUtcNow() < expiresAt)
         {
-            LogRefreshPostponed(_logger, null);
+            LogRefreshPostponed(_logger);
             return RefreshOutcome.Postponed;
         }
 
@@ -271,11 +187,11 @@ internal sealed class CookieTokenRefresher
         {
             if (refreshResult.IsTemporaryFailure)
             {
-                LogRefreshFailedAfterExpiry(_logger, null);
+                LogRefreshFailedAfterExpiry(_logger);
             }
             else
             {
-                LogRefreshFailed(_logger, null);
+                LogRefreshFailed(_logger);
             }
 
             // When the browser left during the refresh, the failure says nothing about the token. The browser
@@ -287,7 +203,7 @@ internal sealed class CookieTokenRefresher
 
         if (!TokenRules.IsUsable(tokenResponse.AccessToken))
         {
-            LogNoUsableAccessToken(_logger, null);
+            LogNoUsableAccessToken(_logger);
             await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
             return RefreshOutcome.Stop;
         }
@@ -297,7 +213,7 @@ internal sealed class CookieTokenRefresher
         // encrypt them, so a good one is always a compact JWS.
         if (!IsCompactJws(tokenResponse.AccessToken))
         {
-            LogMalformedAccessToken(_logger, null);
+            LogMalformedAccessToken(_logger);
             await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
             return RefreshOutcome.Stop;
         }
@@ -305,9 +221,7 @@ internal sealed class CookieTokenRefresher
         if (!TokenRules.IsPositiveLifetime(tokenResponse.ExpiresIn))
         {
             LogNoPositiveLifetime(
-                _logger,
-                tokenResponse.ExpiresIn?.ToString(CultureInfo.InvariantCulture) ?? "missing",
-                null);
+                _logger, tokenResponse.ExpiresIn?.ToString(CultureInfo.InvariantCulture) ?? "missing");
             await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
             return RefreshOutcome.Stop;
         }
@@ -318,7 +232,7 @@ internal sealed class CookieTokenRefresher
         if (!string.IsNullOrWhiteSpace(tokenResponse.RefreshToken)
             && tokenResponse.RefreshToken.AsSpan().ContainsAnyExceptInRange(' ', '~'))
         {
-            LogMalformedRefreshToken(_logger, null);
+            LogMalformedRefreshToken(_logger);
             await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
             return RefreshOutcome.Stop;
         }
@@ -328,7 +242,7 @@ internal sealed class CookieTokenRefresher
         // a broken hint, so this device's session would not end there (#931).
         if (!string.IsNullOrWhiteSpace(tokenResponse.IdToken) && !IsCompactJws(tokenResponse.IdToken))
         {
-            LogMalformedIdToken(_logger, null);
+            LogMalformedIdToken(_logger);
             await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
             return RefreshOutcome.Stop;
         }
@@ -498,6 +412,90 @@ internal sealed class CookieTokenRefresher
 
         await _refreshTokenRevoker.RevokeAsync(storedRefreshToken, receivedRefreshToken);
     }
+
+    [LoggerMessage(
+        EventId = 1,
+        Level = LogLevel.Information,
+        Message = "Cookie has no refresh_token; principal rejected.")]
+    private static partial void LogNoRefreshToken(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 2,
+        Level = LogLevel.Information,
+        Message = "Refresh token grant returned no usable answer; principal rejected.")]
+    private static partial void LogRefreshFailed(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 3,
+        Level = LogLevel.Information,
+        Message = "Access token failed local JWKS signature validation after a metadata refresh; principal rejected.")]
+    private static partial void LogProactiveInvalidToken(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 4,
+        Level = LogLevel.Information,
+        Message = "Session was marked dead by a prior 401; principal rejected.")]
+    private static partial void LogReactiveDeadSession(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 5,
+        Level = LogLevel.Warning,
+        Message = "Refresh token grant returned a missing, empty or blank access_token; principal rejected.")]
+    private static partial void LogNoUsableAccessToken(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 6,
+        Level = LogLevel.Warning,
+        Message = "Refresh token grant returned a missing or non-positive expires_in; principal rejected. expires_in: {ExpiresIn}")]
+    private static partial void LogNoPositiveLifetime(ILogger logger, string expiresIn);
+
+    [LoggerMessage(
+        EventId = 7,
+        Level = LogLevel.Warning,
+        Message = "Refresh token grant returned an access_token that is not a compact JWS; principal rejected.")]
+    private static partial void LogMalformedAccessToken(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 8,
+        Level = LogLevel.Warning,
+        Message = "Refresh token grant returned a refresh_token with characters outside printable ASCII; principal rejected.")]
+    private static partial void LogMalformedRefreshToken(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 9,
+        Level = LogLevel.Warning,
+        Message = "Refresh token grant returned an id_token that is not a compact JWS; principal rejected.")]
+    private static partial void LogMalformedIdToken(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 10,
+        Level = LogLevel.Warning,
+        Message = "Cookie has a missing or unreadable expires_at; principal rejected.")]
+    private static partial void LogNoUsableExpiry(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 11,
+        Level = LogLevel.Warning,
+        Message = "Cookie has a missing, empty or blank access_token; principal rejected.")]
+    private static partial void LogNoStoredAccessToken(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 12,
+        Level = LogLevel.Warning,
+        Message = "Cookie has an empty or blank refresh_token; principal rejected.")]
+    private static partial void LogBlankStoredRefreshToken(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 13,
+        Level = LogLevel.Information,
+        Message = "Refresh token grant failed for a moment; the session keeps its access token and the next request tries again.")]
+    private static partial void LogRefreshPostponed(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 14,
+        Level = LogLevel.Information,
+        Message = "Refresh token grant failed for a moment after the access token ran out; principal rejected.")]
+    private static partial void LogRefreshFailedAfterExpiry(ILogger logger);
 
     /// <summary>
     /// The result of the refresh attempt, which tells <see cref="ValidateAsync"/> whether the signature

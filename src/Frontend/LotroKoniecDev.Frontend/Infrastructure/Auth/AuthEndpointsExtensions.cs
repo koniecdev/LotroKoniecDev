@@ -15,17 +15,11 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 /// cookie, revokes the refresh token and ends the session at the auth server. The navbar's login and
 /// logout buttons point here (M3-02).
 /// </summary>
-internal static class AuthEndpointsExtensions
+internal static partial class AuthEndpointsExtensions
 {
     private const string EndSessionPath = "connect/logout";
     private const string IdTokenName = "id_token";
     private const string RefreshTokenName = "refresh_token";
-
-    private static readonly Action<ILogger, Exception?> LogOidcAuthorityUnreachable =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(1, nameof(LogOidcAuthorityUnreachable)),
-            "OIDC authority unreachable during login challenge; serving the login-unavailable page.");
 
     extension(IEndpointRouteBuilder endpoints)
     {
@@ -147,4 +141,10 @@ internal static class AuthEndpointsExtensions
 
         return Results.Redirect(endSessionUrl);
     }
+
+    [LoggerMessage(
+        EventId = 1,
+        Level = LogLevel.Warning,
+        Message = "OIDC authority unreachable during login challenge; serving the login-unavailable page.")]
+    private static partial void LogOidcAuthorityUnreachable(ILogger logger, Exception exception);
 }

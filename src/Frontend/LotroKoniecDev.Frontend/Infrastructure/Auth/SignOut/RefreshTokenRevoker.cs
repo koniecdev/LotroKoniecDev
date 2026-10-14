@@ -16,7 +16,7 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
 /// The endpoint comes from the auth server's discovery document, never from a path of our own (#610).
 /// It is best effort: a failure is logged and never stops the sign-out.
 /// </summary>
-internal sealed class RefreshTokenRevoker
+internal sealed partial class RefreshTokenRevoker
 {
     /// <summary>
     /// The request that ends the session waits for this call, so a stuck auth server must not hold it for
@@ -89,7 +89,7 @@ internal sealed class RefreshTokenRevoker
             .ConfigurationManager;
         if (configurationManager is null)
         {
-            LogNoConfigurationManager(_logger, null);
+            LogNoConfigurationManager(_logger);
             return null;
         }
 
@@ -111,7 +111,7 @@ internal sealed class RefreshTokenRevoker
         if (!Uri.TryCreate(configuration.RevocationEndpoint, UriKind.Absolute, out Uri? revocationEndpoint)
             || !IsWebAddress(revocationEndpoint))
         {
-            LogNoRevocationEndpoint(_logger, null);
+            LogNoRevocationEndpoint(_logger);
             return null;
         }
 
@@ -121,27 +121,27 @@ internal sealed class RefreshTokenRevoker
     private static bool IsWebAddress(Uri address) =>
         address.Scheme == Uri.UriSchemeHttps || address.Scheme == Uri.UriSchemeHttp;
 
-    private static readonly Action<ILogger, Exception?> LogDiscoveryUnavailable =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(1, nameof(LogDiscoveryUnavailable)),
-            "The auth server's discovery document could not be read, so no refresh token was revoked.");
+    [LoggerMessage(
+        EventId = 1,
+        Level = LogLevel.Warning,
+        Message = "The auth server's discovery document could not be read, so no refresh token was revoked.")]
+    private static partial void LogDiscoveryUnavailable(ILogger logger, Exception exception);
 
-    private static readonly Action<ILogger, Exception?> LogNoRevocationEndpoint =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(2, nameof(LogNoRevocationEndpoint)),
-            "The auth server's discovery document has no usable revocation endpoint, so no refresh token was revoked.");
+    [LoggerMessage(
+        EventId = 2,
+        Level = LogLevel.Warning,
+        Message = "The auth server's discovery document has no usable revocation endpoint, so no refresh token was revoked.")]
+    private static partial void LogNoRevocationEndpoint(ILogger logger);
 
-    private static readonly Action<ILogger, Exception?> LogNoConfigurationManager =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(3, nameof(LogNoConfigurationManager)),
-            "The OIDC handler has no configuration manager, so no refresh token was revoked.");
+    [LoggerMessage(
+        EventId = 3,
+        Level = LogLevel.Warning,
+        Message = "The OIDC handler has no configuration manager, so no refresh token was revoked.")]
+    private static partial void LogNoConfigurationManager(ILogger logger);
 
-    private static readonly Action<ILogger, Exception?> LogRevocationFailedUnexpectedly =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(4, nameof(LogRevocationFailedUnexpectedly)),
-            "Refresh token revocation failed with an unexpected exception.");
+    [LoggerMessage(
+        EventId = 4,
+        Level = LogLevel.Warning,
+        Message = "Refresh token revocation failed with an unexpected exception.")]
+    private static partial void LogRevocationFailedUnexpectedly(ILogger logger, Exception exception);
 }

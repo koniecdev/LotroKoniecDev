@@ -718,6 +718,11 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   the spec, and never repeat the same explanation in a doc comment, an inline comment and a
   document at once.
 - Code & identifiers in **English**.
+- **Log lines use the `[LoggerMessage]` source generator (#1143).** Each one is a
+  `private static partial void Log…(ILogger logger, …)` method on a `partial` type, and it sits
+  with the private helper methods. Never write a `LoggerMessage.Define` delegate in a static
+  field: CA1848 accepts both styles, so the build does not stop it. The website was built in that
+  older style, and #1062 added two more because the file around them showed nothing else.
 - **Member order — one order for every type, tests included** (golden template:
   `TranslationSystem.Domain/Aggregates/GameVersionAggregate/Entities/GameVersion.cs`). Top to
   bottom: (1) constants, right under the type declaration, (2) fields, (3) properties,

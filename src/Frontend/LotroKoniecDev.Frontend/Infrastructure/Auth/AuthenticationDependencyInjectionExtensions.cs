@@ -20,7 +20,7 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 /// with the M3-02 slice. This file only puts the client infrastructure in place, so that slice just
 /// switches it on.
 /// </summary>
-internal static class AuthenticationDependencyInjectionExtensions
+internal static partial class AuthenticationDependencyInjectionExtensions
 {
     internal const string LoginPath = "/auth/login";
     internal const string LogoutPath = "/auth/logout";
@@ -39,18 +39,6 @@ internal static class AuthenticationDependencyInjectionExtensions
     /// request. The sign-in server's <c>AuthDatabaseConnectionString</c> explains both.
     /// </summary>
     internal static readonly TimeSpan AuthServerRequestTimeout = TimeSpan.FromSeconds(30);
-
-    private static readonly Action<ILogger, string?, Exception?> LogOidcRemoteFailure =
-        LoggerMessage.Define<string?>(
-            LogLevel.Warning,
-            new EventId(1, nameof(LogOidcRemoteFailure)),
-            "OIDC remote failure: {FailureMessage}");
-
-    private static readonly Action<ILogger, Exception?> LogOidcAccessDenied =
-        LoggerMessage.Define(
-            LogLevel.Information,
-            new EventId(2, nameof(LogOidcAccessDenied)),
-            "OIDC access denied by identity provider.");
 
     extension(IServiceCollection services)
     {
@@ -282,10 +270,22 @@ internal static class AuthenticationDependencyInjectionExtensions
         ILogger logger = context.HttpContext.RequestServices
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger(typeof(AuthenticationDependencyInjectionExtensions).FullName!);
-        LogOidcAccessDenied(logger, null);
+        LogOidcAccessDenied(logger);
 
         context.Response.Redirect(AccessDeniedPath);
         context.HandleResponse();
         return Task.CompletedTask;
     }
+
+    [LoggerMessage(
+        EventId = 1,
+        Level = LogLevel.Warning,
+        Message = "OIDC remote failure: {FailureMessage}")]
+    private static partial void LogOidcRemoteFailure(ILogger logger, string? failureMessage, Exception? exception);
+
+    [LoggerMessage(
+        EventId = 2,
+        Level = LogLevel.Information,
+        Message = "OIDC access denied by identity provider.")]
+    private static partial void LogOidcAccessDenied(ILogger logger);
 }

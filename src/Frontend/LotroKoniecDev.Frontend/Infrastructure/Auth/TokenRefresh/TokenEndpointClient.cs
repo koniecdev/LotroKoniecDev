@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 
-internal sealed class TokenEndpointClient : ITokenEndpointClient
+internal sealed partial class TokenEndpointClient : ITokenEndpointClient
 {
     private const string GrantTypeParam = "grant_type";
     private const string RefreshTokenGrantType = "refresh_token";
@@ -127,20 +127,19 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
     /// </summary>
     private async Task LogRefusalAsync(
         HttpResponseMessage response,
-        Action<ILogger, int, string?, string?, Exception?> logRefused,
-        Action<ILogger, int, Exception?> logFailed)
+        Action<ILogger, int, string?, string?> logRefused,
+        Action<ILogger, int> logFailed)
     {
         int statusCode = (int)response.StatusCode;
 
         if (await TryReadErrorAsync(response.Content) is { } errorResponse
             && !string.IsNullOrWhiteSpace(errorResponse.Error))
         {
-            logRefused(
-                _logger, statusCode, ForLog(errorResponse.Error), ForLog(errorResponse.ErrorDescription), null);
+            logRefused(_logger, statusCode, ForLog(errorResponse.Error), ForLog(errorResponse.ErrorDescription));
             return;
         }
 
-        logFailed(_logger, statusCode, null);
+        logFailed(_logger, statusCode);
     }
 
     /// <summary>
@@ -188,39 +187,39 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
         return kept.Length < value.Length ? $"{printable}..." : printable;
     }
 
-    private static readonly Action<ILogger, int, Exception?> LogRefreshFailed =
-        LoggerMessage.Define<int>(
-            LogLevel.Warning,
-            new EventId(1, nameof(LogRefreshFailed)),
-            "Refresh token grant failed with status {StatusCode}.");
+    [LoggerMessage(
+        EventId = 1,
+        Level = LogLevel.Warning,
+        Message = "Refresh token grant failed with status {StatusCode}.")]
+    private static partial void LogRefreshFailed(ILogger logger, int statusCode);
 
-    private static readonly Action<ILogger, int, string?, string?, Exception?> LogRefreshRefused =
-        LoggerMessage.Define<int, string?, string?>(
-            LogLevel.Warning,
-            new EventId(3, nameof(LogRefreshRefused)),
-            "Refresh token grant failed with status {StatusCode}. Error: {Error}. Description: {ErrorDescription}");
+    [LoggerMessage(
+        EventId = 3,
+        Level = LogLevel.Warning,
+        Message = "Refresh token grant failed with status {StatusCode}. Error: {Error}. Description: {ErrorDescription}")]
+    private static partial void LogRefreshRefused(ILogger logger, int statusCode, string? error, string? errorDescription);
 
-    private static readonly Action<ILogger, Exception> LogRefreshError =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(2, nameof(LogRefreshError)),
-            "Refresh token grant threw an exception.");
+    [LoggerMessage(
+        EventId = 2,
+        Level = LogLevel.Warning,
+        Message = "Refresh token grant threw an exception.")]
+    private static partial void LogRefreshError(ILogger logger, Exception exception);
 
-    private static readonly Action<ILogger, int, Exception?> LogRevocationFailed =
-        LoggerMessage.Define<int>(
-            LogLevel.Warning,
-            new EventId(4, nameof(LogRevocationFailed)),
-            "Refresh token revocation failed with status {StatusCode}.");
+    [LoggerMessage(
+        EventId = 4,
+        Level = LogLevel.Warning,
+        Message = "Refresh token revocation failed with status {StatusCode}.")]
+    private static partial void LogRevocationFailed(ILogger logger, int statusCode);
 
-    private static readonly Action<ILogger, int, string?, string?, Exception?> LogRevocationRefused =
-        LoggerMessage.Define<int, string?, string?>(
-            LogLevel.Warning,
-            new EventId(5, nameof(LogRevocationRefused)),
-            "Refresh token revocation failed with status {StatusCode}. Error: {Error}. Description: {ErrorDescription}");
+    [LoggerMessage(
+        EventId = 5,
+        Level = LogLevel.Warning,
+        Message = "Refresh token revocation failed with status {StatusCode}. Error: {Error}. Description: {ErrorDescription}")]
+    private static partial void LogRevocationRefused(ILogger logger, int statusCode, string? error, string? errorDescription);
 
-    private static readonly Action<ILogger, Exception> LogRevocationError =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(6, nameof(LogRevocationError)),
-            "Refresh token revocation threw an exception.");
+    [LoggerMessage(
+        EventId = 6,
+        Level = LogLevel.Warning,
+        Message = "Refresh token revocation threw an exception.")]
+    private static partial void LogRevocationError(ILogger logger, Exception exception);
 }

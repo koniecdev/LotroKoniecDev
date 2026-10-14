@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using LotroKoniecDev.AuthSystem.API.Extensions;
-using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -199,7 +198,6 @@ internal sealed partial class ResetPasswordModel : PageModel
             nameof(IdentityErrorDescriber.PasswordRequiresUpper) => "Hasło musi zawierać wielką literę.",
             nameof(IdentityErrorDescriber.PasswordRequiresDigit) => "Hasło musi zawierać cyfrę.",
             nameof(IdentityErrorDescriber.PasswordRequiresNonAlphanumeric) => "Hasło musi zawierać znak specjalny.",
-            BreachedPasswordValidator.ErrorCode => BreachedPasswordMessage,
             _ => null
         };
 

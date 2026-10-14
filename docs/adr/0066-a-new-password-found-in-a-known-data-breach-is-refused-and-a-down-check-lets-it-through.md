@@ -7,7 +7,19 @@
 `Features/Auth/{RegisterUser,ChangePassword,ResetPassword}`, `Pages/Account/{Register,ResetPassword}`),
 Frontend (`Infrastructure/Errors/ApiProblemCopy.cs`); ADR-0044 (the Frontend's Polish error copy),
 ADR-0053 (the password-confirmation budget), ADR-0059 (the time floor on the reset answer); tickets
-#694, #1045, #1046
+#694, #1045, #1046, #1110
+
+## Amendment (2026-10-12): every other password rule counts, not only the built-in policy
+
+**Narrows §1.** The validator skipped the call only when Identity's built-in policy refused the
+password. The 128-character maximum is not part of that policy. It is a validator of its own
+(`PasswordMaxLengthValidator`, #1046), so an over-long password still reached the service, and when
+it was in a breach the user got two messages for one mistake (#1110). Now the validator runs every
+other password validator Identity holds, and it skips the call when any of them refuses. A rule
+added later is covered with no change to the breach check. The validator skips itself by type, so it
+never calls itself. The cost: every other password validator now runs twice for each new password,
+once in Identity's own loop and once inside the breach check. So a password validator must stay cheap
+and free of side effects. Both of today's rules are pure checks in memory.
 
 ## Context
 
@@ -51,7 +63,8 @@ The policy rules come first. A password that breaks them is refused by the built
 error names the rule, so ours does not ask the service about it at all. Nearly every weak password is
 in a breach list too, and the reset page would otherwise show the vaguer breach message instead of
 the rule. The handlers and the reset page map a result to the breach message only when the breach is
-its one error.
+its one error. (Amended 2026-10-12, see the amendment above: every other password validator counts,
+the length limit included.)
 
 ### 2. Only the five-character prefix leaves the process
 
@@ -196,7 +209,9 @@ Tests replace the checker in the container instead.
 
 - #694 — the ticket.
 - #1045 — the parked prompt for a password that leaks after it was set.
-- #1046 — the reset page skips the API's 128-character maximum (older than this ADR).
+- #1046 — the reset page skipped the API's 128-character maximum; the limit is now its own password
+  validator, `PasswordMaxLengthValidator`.
+- #1110 — the breach check still asked about a password that was already too long.
 - https://haveibeenpwned.com/API/v3#PwnedPasswords — the range API, its padding and its terms.
 - ADR-0056 — the admin is seeded without a password on deployed boxes.
 - #1036 — an unknown charset in an answer must not throw.

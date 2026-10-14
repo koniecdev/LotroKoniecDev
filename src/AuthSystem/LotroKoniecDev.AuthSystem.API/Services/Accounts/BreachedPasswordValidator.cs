@@ -13,8 +13,6 @@ internal sealed partial class BreachedPasswordValidator : IPasswordValidator<App
 {
     internal const string ErrorCode = "PasswordFoundInBreaches";
 
-    private static readonly PasswordValidator<ApplicationUser> PolicyRules = new();
-
     private readonly IPwnedPasswordChecker _pwnedPasswordChecker;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<BreachedPasswordValidator> _logger;
@@ -40,11 +38,11 @@ internal sealed partial class BreachedPasswordValidator : IPasswordValidator<App
             return IdentityResult.Success;
         }
 
-        // A password that breaks the policy is already refused by the built-in validator, whose error
+        // A password that breaks another rule is already refused by that rule's validator, whose error
         // names the rule. Nearly every weak password is in a breach too, so asking would only cost a call
-        // and hide that rule behind a vaguer message on the reset page.
-        IdentityResult policyResult = await PolicyRules.ValidateAsync(manager, user, password);
-        if (!policyResult.Succeeded)
+        // and add a vaguer message to the rule's own. Every other validator counts, not only the built-in
+        // policy (ADR-0066, amended for #1110).
+        if (!await PassesEveryOtherRuleAsync(manager, user, password))
         {
             return IdentityResult.Success;
         }
@@ -71,6 +69,30 @@ internal sealed partial class BreachedPasswordValidator : IPasswordValidator<App
             Code = ErrorCode,
             Description = "This password appears in known data breaches. Choose a different one."
         });
+    }
+
+    private static async Task<bool> PassesEveryOtherRuleAsync(
+        UserManager<ApplicationUser> manager,
+        ApplicationUser user,
+        string password)
+    {
+        foreach (IPasswordValidator<ApplicationUser> validator in manager.PasswordValidators)
+        {
+            // Skipped by type, not by instance: any copy of this validator called from here would call
+            // this one back, without end.
+            if (validator is BreachedPasswordValidator)
+            {
+                continue;
+            }
+
+            IdentityResult result = await validator.ValidateAsync(manager, user, password);
+            if (!result.Succeeded)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     [LoggerMessage(EventId = EventIds.PasswordRefusedAsBreached, Level = LogLevel.Information, Message = "A new password was refused because it appears in known data breaches")]

@@ -8,6 +8,9 @@
 
     <ItemGroup>
       <PackageReference Include="MailKit" />
+      <!-- Direct pin forces the patched System.Security.Cryptography.Pkcs over the vulnerable version that
+           MimeKit pulls; the version and the advisories live in Directory.Packages.props. -->
+      <PackageReference Include="System.Security.Cryptography.Pkcs" />
       <PackageReference Include="FluentValidation" />
       <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
       <PackageReference Include="Microsoft.Extensions.Configuration" />

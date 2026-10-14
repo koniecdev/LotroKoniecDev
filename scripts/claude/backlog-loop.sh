@@ -252,7 +252,8 @@ handle_exit() {
     local ticket="$1" rc="$2"
     case "$rc" in
         0) opened=$((opened + 1)); consecutive_failures=0 ;;
-        # The PR was merged while its session still ran (#1082): done work, not a failure.
+        # The PR was merged while its session still ran (#1082), or while a usage limit held the
+        # ticket (#1096): done work, not a failure.
         13) merged=$((merged + 1)); consecutive_failures=0 ;;
         2) blocked=$((blocked + 1)); consecutive_failures=0 ;;
         12) skipped=$((skipped + 1)); consecutive_failures=0 ;;
@@ -376,7 +377,8 @@ for meta_file in "$RUN_DIR"/ticket-*.meta; do
     if [ "$outcome" = "limit" ] && [ "$worktree" = "kept" ]; then
         note="$note  worktree kept: run #$ticket again to resume its session"
     fi
-    # The PR was merged before its session ended, and the session went on committing (#1082).
+    # The PR was merged before its session ended or during a usage-limit nap, and the session made
+    # commits or left files the merge did not take (#1082, #1096).
     case "$outcome:$unmerged" in
         merged:0|merged:) ;;
         "merged:?") note="$note  could not check for commits after the merge" ;;

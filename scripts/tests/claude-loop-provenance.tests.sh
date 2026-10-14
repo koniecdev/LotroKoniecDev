@@ -16,6 +16,8 @@
 # A session that ends normally without a STATUS line is resumed a capped number of times (#925).
 # A usage limit keeps the worktree, and the next run resumes the session in it; a DONE with no
 # open PR is resumed once to open it; the picker does not hide a worktree kept that way (#934).
+# A PR merged while a usage limit holds the ticket makes it merged, with no session resumed or
+# started again (#1096).
 #
 # `gh` is stubbed from fixtures, so the suite is offline and hermetic. The stub applies the
 # caller's own `--jq` filter with real jq, which keeps the scripts' jq filters under test too.
@@ -1075,8 +1077,10 @@ run_case 0 "work-ticket: LOOP_KEEP_WORKTREE=1 does not block the fresh start aft
 [ -d "$WT_ROOT/ticket-121" ] || fail "the fresh run's own worktree should still be kept"
 git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-121"
 
-# Work that went on without the session: never resume it.
-for case_spec in "103:7103:103-fixture:MERGED:was merged" "104:7104:104-by-hand:OPEN:is open from another branch" \
+# Work that went on without the session: never resume it. A PR merged from the kept branch is the
+# session's own work, so that one is merged, not skipped (#1096, below).
+for case_spec in "103:7103:103-by-hand:MERGED:was merged from another branch (103-by-hand)" \
+    "104:7104:104-by-hand:OPEN:is open from another branch" \
     "109:7109:109-fixture:CLOSED:from this branch was closed" \
     "116:7116:116-fixture:OPEN:has commits the kept branch does not"; do
     IFS=: read -r ticket pr head state message <<< "$case_spec"
@@ -1096,6 +1100,281 @@ for case_spec in "103:7103:103-fixture:MERGED:was merged" "104:7104:104-by-hand:
     [ ! -e "$(kept_marker "$ticket")" ] || fail "the marker should be dropped, or the picker keeps offering the ticket"
     git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-$ticket"
 done
+
+# ── work-ticket.sh: a PR merged while a usage limit holds the ticket (#1096) ───────────────────
+# The session pushes its PR's head, and then the usage limit stops it. The owner merges the PR
+# during the nap. NO_SESSION=1 leaves the session id out of the result, so the retry has to start
+# over; LEFTOVER=1 leaves a file uncommitted.
+behavior "$TMP_ROOT/limit-after-pr.sh" 'ticket="${PWD##*ticket-}"
+case " $* " in
+*" --resume "*)
+    echo "{\"result\":\"STATUS: DONE\",\"is_error\":false,\"session_id\":\"s-$ticket\"}" ;;
+*)
+    git checkout -q -b "$ticket-fixture"
+    echo "work" > "work-$ticket.txt"
+    git add -A
+    git commit -q -m "reviewed work"
+    git push -q origin "HEAD:refs/pull/7$ticket/head"
+    [ "${LEFTOVER:-}" != 1 ] || echo "half a fix" > "leftover-$ticket.txt"
+    session=",\"session_id\":\"s-$ticket\""
+    [ "${NO_SESSION:-}" != 1 ] || session=""
+    echo "{\"result\":\"You have hit your session limit\",\"is_error\":true$session}" ;;
+esac'
+
+reset_fixtures
+fixture_issue 190 maintainer OWNER
+run_case 6 "work-ticket: a usage limit after #190 pushed its PR" \
+    env LEFTOVER=1 CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 190 "$TMP_ROOT/run"
+expect_meta 190 outcome=limit worktree=kept
+fixture_transcript s-190
+fixture_prs_state "7190,190-fixture,MERGED"
+run_case 13 "work-ticket: a kept session whose own PR was merged during the nap is merged, not resumed" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 190 "$TMP_ROOT/run"
+expect_in_output "PR #7190 was merged after the attempt that hit the usage limit started, but 1 commit(s) are not in the merged PR — look on branch 190-fixture, at the worktree's HEAD (190-fixture) and on any salvage branch named above (session s-190 is not resumed)"
+expect_meta 190 outcome=merged pr=7190 unmerged=1
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "the session of a merged ticket must not be resumed" "$LAST_OUTPUT"
+[ ! -e "$WT_ROOT/ticket-190" ] || fail "a merged ticket's kept worktree is removed"
+salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/190-*')"
+[ -n "$salvage_branch" ] && git -C "$FAKE_REPO" show "$salvage_branch:leftover-190.txt" >/dev/null 2>&1 \
+    || fail "the kept worktree's uncommitted file should be saved on a salvage branch first" "$LAST_OUTPUT"
+git -C "$FAKE_REPO" rev-parse -q --verify refs/heads/190-fixture >/dev/null || fail "the branch of a merged ticket stays"
+
+# The session opened a second PR from its branch after the first was merged: that one still waits
+# for review, so the session is resumed to finish it, as at the end of a session (#1082).
+reset_fixtures
+fixture_issue 197 maintainer OWNER
+run_case 6 "work-ticket: a usage limit after #197 pushed its PR" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 197 "$TMP_ROOT/run"
+fixture_transcript s-197
+fixture_prs_state "7197,197-fixture,MERGED" "9197,197-fixture,OPEN,$(git -C "$WT_ROOT/ticket-197" rev-parse 197-fixture)"
+run_case 0 "work-ticket: an open PR from the kept branch goes before a merged one, so the session is resumed" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 197 "$TMP_ROOT/run"
+expect_in_output "resuming session s-197 after a usage limit"
+expect_in_output "PR #9197 opened"
+expect_meta 197 outcome=pr-opened pr=9197 resumes=1
+
+# A PR from the kept branch merged before the session started is history from an earlier attempt
+# with the same branch name, so the session is still resumed. The resume opens its PR.
+behavior "$TMP_ROOT/limit-then-open.sh" 'ticket="${PWD##*ticket-}"
+case " $* " in
+*" --resume "*)
+    printf "[{\"number\":9$ticket,\"headRefName\":\"$ticket-fixture\",\"isCrossRepository\":false}]" > "$GH_FIXTURES/pr-list.json"
+    echo "{\"result\":\"STATUS: DONE\",\"is_error\":false,\"session_id\":\"s-$ticket\"}" ;;
+*) exec "'"$TMP_ROOT"'/limit-after-pr.sh" "$@" ;;
+esac'
+reset_fixtures
+fixture_issue 198 maintainer OWNER
+run_case 6 "work-ticket: a usage limit after #198 pushed its PR" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-then-open.sh" "$WORK" 198 "$TMP_ROOT/run"
+fixture_transcript s-198
+fixture_prs_state "6198,198-fixture,MERGED,,2020-01-01T00:00:00Z"
+run_case 0 "work-ticket: a PR from the kept branch merged before the session started does not stop the resume" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-then-open.sh" "$WORK" 198 "$TMP_ROOT/run"
+expect_in_output "resuming session s-198 after a usage limit"
+expect_in_output "PR #9198 opened"
+
+# The session's own PR was merged, but someone also opened a PR from another branch: the work went
+# on without the session, so the ticket is skipped and the worktree waits for a human.
+reset_fixtures
+fixture_issue 181 maintainer OWNER
+run_case 6 "work-ticket: a usage limit after #181 pushed its PR" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 181 "$TMP_ROOT/run"
+fixture_transcript s-181
+fixture_prs_state "7181,181-fixture,MERGED" "8181,181-by-hand,OPEN"
+run_case 12 "work-ticket: another branch's open PR goes before the kept branch's merged one" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 181 "$TMP_ROOT/run"
+expect_in_output "PR #8181 is open from another branch (181-by-hand)"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "nothing may be resumed" "$LAST_OUTPUT"
+[ -d "$WT_ROOT/ticket-181" ] || fail "the kept worktree must stay for a human"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-181"
+
+# The kept session has no transcript, so it cannot be resumed: its own PR merged during the nap
+# still means the ticket is merged, and no new session starts.
+reset_fixtures
+fixture_issue 191 maintainer OWNER
+run_case 6 "work-ticket: a usage limit after #191 pushed its PR" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 191 "$TMP_ROOT/run"
+fixture_prs_state "7191,191-fixture,MERGED"
+run_case 13 "work-ticket: a kept session with no transcript does not start over on a merged ticket" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 191 "$TMP_ROOT/run"
+expect_in_output "has no transcript"
+expect_in_output "PR #7191 was merged after the attempt that hit the usage limit started — the work is on main (no new session is started)"
+expect_meta 191 outcome=merged pr=7191 unmerged=0
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no new session may start on a merged ticket" "$LAST_OUTPUT"
+[ ! -e "$WT_ROOT/ticket-191" ] || fail "a merged ticket's kept worktree is removed"
+
+# The same, but the PR came from another branch: someone else's work. The kept work stays for the
+# owner, as it does next to an open PR.
+reset_fixtures
+fixture_issue 192 maintainer OWNER
+run_case 6 "work-ticket: a usage limit after #192 pushed its PR" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 192 "$TMP_ROOT/run"
+fixture_prs_state "8192,192-by-hand,MERGED"
+run_case 12 "work-ticket: a kept session with no transcript is skipped when another branch's PR was merged" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 192 "$TMP_ROOT/run"
+expect_in_output "PR #8192 from another branch (192-by-hand) was merged after the attempt that hit the usage limit started"
+expect_in_output "the unfinished work of its session stays in"
+expect_meta 192 outcome=skipped
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no new session may start" "$LAST_OUTPUT"
+[ -d "$WT_ROOT/ticket-192" ] || fail "the kept work should stay in its worktree for the owner"
+[ ! -e "$(kept_marker 192)" ] || fail "a session that cannot be resumed should lose its marker"
+[ -z "$(git -C "$FAKE_REPO" for-each-ref 'refs/heads/loop-salvage/192-*')" ] || fail "nothing should be salvaged"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-192"
+
+# GitHub cannot list the merged PRs: the kept worktree keeps its marker for the next run.
+reset_fixtures
+fixture_issue 199 maintainer OWNER
+run_case 6 "work-ticket: a usage limit after #199 pushed its PR" \
+    env LEFTOVER=1 CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 199 "$TMP_ROOT/run"
+printf x > "$GH_FIXTURES/pr-list-fail-merged.json"
+run_case 3 "work-ticket: a merged-PR list that fails after a lost transcript is an error, and the marker stays" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 199 "$TMP_ROOT/run"
+expect_in_output "could not list merged pull requests"
+expect_meta 199 outcome=error
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no new session may start" "$LAST_OUTPUT"
+[ -s "$(kept_marker 199)" ] || fail "the marker should stay until GitHub has answered"
+[ -f "$WT_ROOT/ticket-199/leftover-199.txt" ] || fail "nothing may be salvaged before GitHub has answered"
+[ -z "$(git -C "$FAKE_REPO" for-each-ref 'refs/heads/loop-salvage/199-*')" ] || fail "nothing should be salvaged"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-199"
+
+# No session id: the worktree is salvaged and removed, and the .meta records what the retry needs.
+# The retry finds the attempt's own PR merged during the nap and starts nothing.
+reset_fixtures
+fixture_issue 193 maintainer OWNER
+run_case 6 "work-ticket: a usage limit with no session id after #193 pushed its PR" \
+    env NO_SESSION=1 LEFTOVER=1 CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 193 "$TMP_ROOT/run"
+[ ! -e "$WT_ROOT/ticket-193" ] || fail "with no session to resume, the worktree is salvaged and removed"
+salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/193-*')"
+[ -n "$salvage_branch" ] || fail "the uncommitted file should be saved on a salvage branch" "$LAST_OUTPUT"
+expect_meta 193 outcome=limit branch=193-fixture "salvage=$salvage_branch"
+grep -qE '^started=[0-9]+$' "$TMP_ROOT/run/ticket-193.meta" \
+    || fail "the limit should record when the session started" "$(cat "$TMP_ROOT/run/ticket-193.meta")"
+fixture_prs_state "7193,193-fixture,MERGED"
+run_case 13 "work-ticket: a retry that starts over does not start a session on a ticket merged during the nap" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 193 "$TMP_ROOT/run"
+expect_in_output "PR #7193 was merged after the attempt that hit the usage limit started, but 1 commit(s) are not in the merged PR — look on branch 193-fixture and on branch $salvage_branch (no new session is started)"
+expect_meta 193 outcome=merged pr=7193 unmerged=1 "salvage=$salvage_branch"
+[ -z "$(git -C "$FAKE_REPO" for-each-ref refs/loop-merged)" ] || fail "the merged head's ref of the run should be gone"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no new session may start on a merged ticket" "$LAST_OUTPUT"
+[ ! -e "$WT_ROOT/ticket-193" ] || fail "no worktree may be made for a merged ticket"
+
+reset_fixtures
+fixture_issue 194 maintainer OWNER
+run_case 6 "work-ticket: a usage limit with no session id after #194 pushed its PR" \
+    env NO_SESSION=1 LEFTOVER=1 CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 194 "$TMP_ROOT/run"
+salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/194-*')"
+fixture_prs_state "8194,194-by-hand,MERGED"
+run_case 12 "work-ticket: a retry that starts over is skipped when another branch's PR was merged during the nap" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 194 "$TMP_ROOT/run"
+expect_in_output "PR #8194 from another branch (194-by-hand) was merged after the attempt that hit the usage limit started"
+expect_in_output "the leftovers of that attempt are on branch $salvage_branch"
+expect_meta 194 outcome=skipped pr=8194 "salvage=$salvage_branch"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no new session may start" "$LAST_OUTPUT"
+[ ! -e "$WT_ROOT/ticket-194" ] || fail "no worktree may be made for a skipped ticket"
+
+reset_fixtures
+fixture_issue 182 maintainer OWNER
+run_case 6 "work-ticket: a usage limit with no session id after #182 pushed its PR" \
+    env NO_SESSION=1 CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 182 "$TMP_ROOT/run"
+fixture_prs_state "7182,182-fixture,MERGED" "8182,182-by-hand,MERGED"
+run_case 12 "work-ticket: another branch's merged PR goes before the attempt's own one when a retry would start over" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 182 "$TMP_ROOT/run"
+expect_in_output "PR #8182 from another branch (182-by-hand) was merged"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no new session may start" "$LAST_OUTPUT"
+
+# The merged PR's head cannot be fetched: the ticket is still merged, and the log names both
+# branches the loop could not check.
+reset_fixtures
+fixture_issue 183 maintainer OWNER
+run_case 6 "work-ticket: a usage limit with no session id after #183 pushed its PR" \
+    env NO_SESSION=1 LEFTOVER=1 CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 183 "$TMP_ROOT/run"
+salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/183-*')"
+git -C "$TMP_ROOT/origin.git" update-ref -d refs/pull/7183/head
+fixture_prs_state "7183,183-fixture,MERGED"
+run_case 13 "work-ticket: a merged head the retry cannot read is still merged, with both branches named" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 183 "$TMP_ROOT/run"
+expect_in_output "but the loop could not check whether branch 183-fixture or branch $salvage_branch has commits the merge did not take (no new session is started)"
+expect_meta 183 outcome=merged pr=7183 'unmerged=?' "salvage=$salvage_branch"
+
+# LOOP_KEEP_WORKTREE=1 keeps finished worktrees, but not one that would make the retry skip the
+# ticket as "already exists".
+reset_fixtures
+fixture_issue 184 maintainer OWNER
+run_case 6 "work-ticket: a usage limit with no session id after #184 pushed its PR, with LOOP_KEEP_WORKTREE=1" \
+    env LOOP_KEEP_WORKTREE=1 NO_SESSION=1 CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 184 "$TMP_ROOT/run"
+[ ! -e "$WT_ROOT/ticket-184" ] || fail "a worktree with no session to resume must make room for the retry"
+fixture_prs_state "7184,184-fixture,MERGED"
+run_case 13 "work-ticket: LOOP_KEEP_WORKTREE=1 does not hide a PR merged during the nap" \
+    env LOOP_KEEP_WORKTREE=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 184 "$TMP_ROOT/run"
+expect_meta 184 outcome=merged pr=7184
+
+# The run salvages a kept worktree whose session has no transcript, starts fresh, and that session
+# hits a limit with nothing left to save: the first salvage is not this attempt's.
+behavior "$TMP_ROOT/limit-clean.sh" 'ticket="${PWD##*ticket-}"
+git checkout -q -B "$ticket-second"
+git commit -q --allow-empty -m "second attempt"
+echo "{\"result\":\"You have hit your session limit\",\"is_error\":true}"'
+reset_fixtures
+fixture_issue 185 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #185" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 185 "$TMP_ROOT/run"
+run_case 6 "work-ticket: a fresh start after a lost transcript hits a limit with nothing to save" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-clean.sh" "$WORK" 185 "$TMP_ROOT/run"
+expect_in_output "salvaging the kept worktree and starting fresh"
+[ -n "$(git -C "$FAKE_REPO" for-each-ref 'refs/heads/loop-salvage/185-*')" ] || fail "the kept worktree should be salvaged first"
+! grep -q '^salvage=' "$TMP_ROOT/run/ticket-185.meta" \
+    || fail "the limit saved nothing, so it must not name a salvage branch" "$(cat "$TMP_ROOT/run/ticket-185.meta")"
+expect_meta 185 outcome=limit branch=185-second
+
+# The session closed its first PR and opened another from the same branch, which was merged during
+# the nap: the work is on main.
+reset_fixtures
+fixture_issue 186 maintainer OWNER
+run_case 6 "work-ticket: a usage limit after #186 pushed its PR" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 186 "$TMP_ROOT/run"
+fixture_transcript s-186
+fixture_prs_state "6186,186-fixture,CLOSED" "7186,186-fixture,MERGED"
+run_case 13 "work-ticket: a merged PR from the kept branch goes before one closed from it" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 186 "$TMP_ROOT/run"
+expect_meta 186 outcome=merged pr=7186 unmerged=0
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "the session of a merged ticket must not be resumed" "$LAST_OUTPUT"
+
+# A worktree with no marker is someone's work: the merged PRs do not matter there, so a GitHub
+# failure on that list must not turn the skip into an error.
+reset_fixtures
+fixture_issue 187 maintainer OWNER
+run_case 6 "work-ticket: a usage limit with no session id on #187" \
+    env NO_SESSION=1 CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 187 "$TMP_ROOT/run"
+git -C "$FAKE_REPO" worktree add -q --detach "$WT_ROOT/ticket-187" origin/main
+printf x > "$GH_FIXTURES/pr-list-fail-merged.json"
+run_case 12 "work-ticket: someone's worktree after a limit is skipped, even when the merged PRs cannot be listed" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 187 "$TMP_ROOT/run"
+expect_in_output "already exists"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-187"
+
+# A PR merged before the attempt started is history, so the retry still starts over.
+reset_fixtures
+fixture_issue 195 maintainer OWNER
+run_case 6 "work-ticket: a usage limit with no session id after #195 pushed its PR" \
+    env NO_SESSION=1 CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 195 "$TMP_ROOT/run"
+fixture_prs_state "6195,195-fixture,MERGED,,2020-01-01T00:00:00Z"
+fixture_pr_view 7195 OPEN 195-fixture
+run_case 0 "work-ticket: a PR merged before the attempt started does not stop the retry from starting over" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 195 "$TMP_ROOT/run"
+expect_in_output "PR #7195 opened"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "the retry should start a new session" "$LAST_OUTPUT"
+
+# GitHub cannot list the merged PRs: the retry cannot tell whether the work is on main.
+reset_fixtures
+fixture_issue 196 maintainer OWNER
+run_case 6 "work-ticket: a usage limit with no session id after #196 pushed its PR" \
+    env NO_SESSION=1 CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 196 "$TMP_ROOT/run"
+printf x > "$GH_FIXTURES/pr-list-fail-merged.json"
+run_case 3 "work-ticket: a merged-PR list that fails before a retry starts over is an error" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 196 "$TMP_ROOT/run"
+expect_in_output "could not list merged pull requests"
+expect_meta 196 outcome=error
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no new session may start" "$LAST_OUTPUT"
 
 # Someone changed a file in the kept worktree since the limit, without a commit: the session no
 # longer knows that tree.

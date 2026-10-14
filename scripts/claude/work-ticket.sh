@@ -7,6 +7,7 @@
 #                                                             →  STATUS: BLOCKED (label `loop-blocked` + questions as issue comment)
 #                                                             →  no STATUS line: resume the same session (up to LOOP_MAX_RESUMES)
 #                                                             →  usage limit: keep the worktree, so the next run resumes the session
+#                                                                (its PR merged in the meantime: done, never resumed — #1096)
 #
 # The worktree is `.claude/worktrees/ticket-<n>` under the main checkout — the same name a manual
 # `/ticket` session uses — so the main checkout is never touched and several tickets can run at
@@ -47,16 +48,20 @@
 #   BASH_DEFAULT_TIMEOUT_MS the timeout of a Bash call that names none (default here: 600000,
 #                           ten minutes), because a call that runs out is stopped, not moved
 #   LOOP_KEEP_WORKTREE=1    keep the worktree after the run (default: remove it when it is clean;
-#                           the branch always stays)
+#                           the branch always stays). A worktree that blocks a fresh start goes
+#                           anyway: a kept one that cannot be resumed, or one a usage limit left
+#                           with no session to resume
 #   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE — see issue-trust.sh
 #
 # Exit codes: 0 PR opened · 2 blocked · 3 error (incl. a provenance gate that could not reach the API)
 #             4 timeout · 6 usage limit hit (the worktree is kept when the session can be resumed)
 #             10 could not prepare the worktree
 #             11 issue refused by the provenance gate (untrusted author or commenter)
-#             12 skipped: the ticket already has an open PR, its worktree already exists, or a
-#                worktree kept for a resume can no longer be resumed safely
-#             13 the PR was merged before the session ended: a success, counted apart from 0
+#             12 skipped: the ticket already has an open PR, its worktree already exists, a
+#                worktree kept for a resume can no longer be resumed safely, or a PR of the ticket
+#                was merged from another branch while a usage limit held it (#1096)
+#             13 the PR was merged before the session ended, or before a ticket stopped by a usage
+#                limit could resume or start over (#1096): a success, counted apart from 0
 set -euo pipefail
 
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
@@ -113,6 +118,24 @@ log() { echo "[loop] #$ISSUE $(date +%H:%M:%S) $*"; }
 
 meta() { echo "$1=$2" >> "$META"; }
 
+# key_value <text> <key> — the last value of a key in key=value lines, as the conductor reads them.
+key_value() {
+    sed -n "s/^$2=//p" <<< "$1" | tail -1
+}
+
+# The conductor runs a ticket stopped by a usage limit again in the same run folder. When that
+# attempt could not keep its worktree for a resume, its .meta is the only record of when its
+# session started, on which branch it worked and where its leftovers went. So it is read before the
+# file starts over: a PR merged since then must not get a second session (#1096).
+earlier_text=""
+if [ "$(sed -n 's/^outcome=//p' "$META" 2>/dev/null | tail -1)" = "limit" ]; then
+    earlier_text="$(cat "$META" 2>/dev/null || true)"
+fi
+earlier_started="$(key_value "$earlier_text" started)"
+case "$earlier_started" in *[!0-9]*) earlier_started="" ;; esac
+earlier_branch="$(key_value "$earlier_text" branch)"
+earlier_salvage="$(key_value "$earlier_text" salvage)"
+
 # Every exit path writes its outcome here, so the conductor's roll-up lists skipped and refused
 # tickets too, not only the ones that got a session.
 : > "$META"
@@ -165,7 +188,8 @@ operation_in_progress() {
 # the session got to (so partial commits on the ticket branch stay reachable from it too).
 # Removing a worktree also drops its reflog, so a commit that no branch and no remote-tracking ref
 # reaches (one made while detached) gets a salvage branch too. Returns 1 when it could not make
-# the worktree safe to remove.
+# the worktree safe to remove. Sets salvaged_branch to the branch it made.
+salvaged_branch=""
 salvage() {
     [ -d "$WT" ] || return 0
     local salvage_branch
@@ -176,11 +200,13 @@ salvage() {
         git -C "$WT" commit --quiet --no-verify \
             -m "claude-loop: salvage uncommitted work for #$ISSUE" \
             -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" >/dev/null 2>&1 || return 1
+        salvaged_branch="$salvage_branch"
         log "leftover changes committed on branch $salvage_branch"
         return 0
     fi
     if [ -z "$(git -C "$WT" for-each-ref --contains HEAD --format='%(refname)' refs/heads refs/remotes 2>/dev/null)" ]; then
         git -C "$WT" branch "$salvage_branch" HEAD 2>/dev/null || return 1
+        salvaged_branch="$salvage_branch"
         log "commits made on no branch kept on branch $salvage_branch"
     fi
 }
@@ -220,6 +246,71 @@ finish() {
     else
         log "worktree left in place (not clean): $WT"
     fi
+}
+
+# commits_after_merge — prints how many commits on HEAD or on the merged PR's branch the merged PR
+# does not hold, plus one when the worktree has uncommitted files, which `finish` saves as a commit
+# on a salvage branch. The session may commit a fix after the merge, for example for a CodeQL alert:
+# on the PR's branch, on a new branch or on a detached HEAD. That fix is then not on main. When this
+# ticket has no worktree of its own any more, after an attempt the usage limit stopped and `finish`
+# salvaged, it reads the PR's branch and that attempt's salvage branch instead (#1096). Commits are
+# matched by their change, not by their id, so a rebase by GitHub before the merge still matches,
+# and commits main already has never count. The count can still be too high (a conflict fixed in a
+# rebase, an empty commit), so the log asks the owner to check, and never claims the commits are
+# lost. Fails when it cannot tell. The fetch runs where a stop is only noted, so a stalled transfer
+# and a password prompt end it. It goes to a ref of this run, not to FETCH_HEAD: outside a worktree,
+# FETCH_HEAD is shared with every ticket that fetches from the same checkout at the same time.
+commits_after_merge() {
+    local dir="$WT" tips="HEAD refs/heads/$pr_branch" ref="refs/loop-merged/$ISSUE-$$" merged_head
+    local tip listed found="" commit count=0
+    if [ "$own_worktree" -eq 0 ]; then
+        dir="$REPO_ROOT"
+        tips="refs/heads/$pr_branch${earlier_salvage:+ refs/heads/$earlier_salvage}"
+    fi
+    GIT_TERMINAL_PROMPT=0 git -C "$dir" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 \
+        fetch --quiet --no-write-fetch-head origin "+refs/pull/$pr_num/head:$ref" 2>/dev/null < /dev/null || return 1
+    merged_head="$(git -C "$dir" rev-parse -q --verify "$ref^{commit}" 2>/dev/null || true)"
+    git -C "$dir" update-ref -d "$ref" 2>/dev/null || true
+    [ -n "$merged_head" ] || return 1
+    for tip in $tips; do
+        git -C "$dir" rev-parse -q --verify "$tip^{commit}" >/dev/null 2>&1 || continue
+        listed="$(git -C "$dir" cherry "$merged_head" "$tip" 2>/dev/null)" || return 1
+        found="$found$(sed -n 's/^+ //p' <<< "$listed")"$'\n'
+    done
+    for commit in $(printf '%s' "$found" | sort -u); do
+        git -C "$dir" merge-base --is-ancestor "$commit" refs/remotes/origin/main 2>/dev/null \
+            || count=$((count + 1))
+    done
+    [ "$own_worktree" -eq 0 ] || [ -z "$(git -C "$WT" status --porcelain 2>/dev/null)" ] || count=$((count + 1))
+    echo "$count"
+}
+
+# finish_merged <when> <note> — ends a ticket whose PR (pr_num, from the branch pr_branch) is merged,
+# so its work is on main (#1082, #1096): it counts what the merge did not take, removes the worktree
+# as for an opened PR and exits 13. Call it only where a stop is only noted (see `ending`).
+finish_merged() {
+    local after_merge head_place where checked="branch ${pr_branch:-?}"
+    meta outcome merged
+    meta pr "$pr_num"
+    after_merge="$(commits_after_merge)" || after_merge="?"
+    meta unmerged "$after_merge"
+    where="$checked"
+    if [ "$own_worktree" -eq 1 ]; then
+        head_place="$(git -C "$WT" branch --show-current 2>/dev/null || true)"
+        where="$where, at the worktree's HEAD (${head_place:-detached}) and on any salvage branch named above"
+        finish
+    elif [ -n "$earlier_salvage" ]; then
+        # The .meta started over, so the stopped attempt's leftovers are named again.
+        meta salvage "$earlier_salvage"
+        where="$where and on branch $earlier_salvage"
+        checked="$checked or branch $earlier_salvage"
+    fi
+    case "$after_merge" in
+        0) log "PR #$pr_num was merged $1 — the work is on main$2" ;;
+        "?") log "PR #$pr_num was merged $1, but the loop could not check whether $checked has commits the merge did not take$2" ;;
+        *) log "PR #$pr_num was merged $1, but $after_merge commit(s) are not in the merged PR — look on $where$2" ;;
+    esac
+    exit 13
 }
 
 # ── A worktree kept after a usage limit (#934) ─────────────────────────────────────────────────
@@ -299,7 +390,7 @@ if [ -n "$marker" ]; then
     marker_text="$(cat "$marker" 2>/dev/null || true)"
 fi
 marker_value() {
-    sed -n "s/^$1=//p" <<< "$marker_text" | tail -1
+    key_value "$marker_text" "$1"
 }
 
 # ── Provenance gate: only maintainer-written issue text may become the worker's task ───────────
@@ -335,6 +426,12 @@ resume_session=""
 resume_turns=0
 resume_started=""
 release_kept=0
+# A PR of this ticket from the branch of an attempt the usage limit stopped, merged since that
+# attempt started (#1096). Its work is on main, so no session runs.
+merged_pr=""
+# 0 when a ticket merged during a usage-limit nap has no worktree of its own any more: a folder that
+# appears under its name from then on is someone else's (#1096).
+own_worktree=1
 if [ -n "$marker_text" ]; then
     kept_session="$(marker_value session)"
     current_tree="$(tree_state)" || {
@@ -365,8 +462,10 @@ fi
 
 if [ -n "$resume_session" ]; then
     # The session may have opened its PR before the limit hit, so an open PR from the kept branch
-    # is its own, as long as nobody pushed to it since. Any other PR of the ticket that is open, or
-    # that was merged or closed after the session started, means the work went on without it.
+    # is its own, as long as nobody pushed to it since. When a PR from the kept branch was merged
+    # after the session started, its work is on main: the ticket is merged, and the session is not
+    # resumed (#1096). Any other PR of the ticket that is open or was merged since the session
+    # started, or a PR from the kept branch closed since then, means the work went on without it.
     branch="$(kept_branch)"
     ticket_prs="$(gh pr list --state all --limit 200 --json number,headRefName,headRefOid,isCrossRepository,state,mergedAt,closedAt \
         --jq ".[] | $OURS | \"\(.number) \(.state) \(.headRefName) \(.headRefOid) \((.mergedAt // .closedAt // \"\") | if . == \"\" then 0 else fromdateiso8601 end)\"")" || {
@@ -375,6 +474,8 @@ if [ -n "$resume_session" ]; then
         exit 3
     }
     blocker=""
+    closed_blocker=""
+    own_open=0
     while read -r number state head oid ended; do
         [ -n "$number" ] || continue
         case "$state" in
@@ -388,19 +489,30 @@ if [ -n "$resume_session" ]; then
                     # once had is the session's own push, before it rewrote the branch (a rebase
                     # before the force push); nobody else's push ever enters this reflog.
                     blocker="PR #$number has commits the kept branch does not"
+                else
+                    own_open=1
                 fi
                 ;;
             MERGED)
-                [ "$ended" -lt "$resume_started" ] || blocker="PR #$number was merged"
+                if [ "$ended" -ge "$resume_started" ]; then
+                    if [ "$head" = "$branch" ]; then
+                        merged_pr="${merged_pr:-$number}"
+                    else
+                        blocker="PR #$number was merged from another branch ($head)"
+                    fi
+                fi
                 ;;
             CLOSED)
                 if [ "$head" = "$branch" ] && [ "$ended" -ge "$resume_started" ]; then
-                    blocker="PR #$number from this branch was closed"
+                    closed_blocker="${closed_blocker:-PR #$number from this branch was closed}"
                 fi
                 ;;
         esac
         [ -z "$blocker" ] || break
     done <<< "$ticket_prs"
+    # A PR from the kept branch that was merged holds the session's work even when another one from
+    # that branch was closed: the session may close a PR and open a new one (#1096).
+    [ -n "$blocker" ] || [ -n "$merged_pr" ] || blocker="$closed_blocker"
     if [ -n "$blocker" ]; then
         # The work went on without the session, so this will not change. Without the marker the
         # picker stops offering the ticket, and the worktree waits for a human like any other.
@@ -409,6 +521,10 @@ if [ -n "$resume_session" ]; then
         log "SKIPPED — $WT was kept to resume session $resume_session, but $blocker. Not resuming. When you are done with it: git worktree remove \"$WT\""
         exit 12
     fi
+    # An open PR from the kept branch goes before a merged one, as at the end of a session: the
+    # session opened it after the merge, it waits for review, and the resume finishes it.
+    [ "$own_open" -eq 0 ] || merged_pr=""
+    pr_branch="$branch"
 else
     # A ticket with an open PR is waiting for the owner's review, and an existing worktree means a
     # manual `/ticket` session or an earlier run is still on it. Working it again would open a
@@ -419,6 +535,27 @@ else
         log "could not list open pull requests — treating as an error"
         exit 3
     }
+    # A retry that starts over after a usage limit has no session to resume, and its attempt may
+    # have opened a PR that was merged during the nap. A PR from that attempt's branch merged since
+    # it started holds its work, so the ticket is merged; one from another branch is someone else's
+    # work. Either way no new session starts (#1096).
+    retry_started="$earlier_started"
+    retry_branch="$earlier_branch"
+    if [ "$release_kept" -eq 1 ]; then
+        retry_started="$(marker_value started)"
+        retry_branch="$(kept_branch)"
+    fi
+    case "$retry_started" in *[!0-9]*) retry_started="" ;; esac
+    merged_prs=""
+    # A worktree with no marker is someone's work, whatever was merged, so it is skipped below.
+    if [ -n "$retry_started" ] && { [ "$release_kept" -eq 1 ] || [ ! -e "$WT" ]; }; then
+        merged_prs="$(gh pr list --state merged --limit 200 --json number,headRefName,isCrossRepository,mergedAt \
+            --jq ".[] | $OURS | select((.mergedAt // \"\") != \"\" and (.mergedAt | fromdateiso8601) >= $retry_started) | \"\(.number) \(.headRefName)\"")" || {
+            meta outcome error
+            log "could not list merged pull requests — treating as an error"
+            exit 3
+        }
+    fi
     # The marker goes only now: when GitHub cannot answer, the next run must still see a kept
     # worktree, not one that looks like someone's work.
     [ "$release_kept" -eq 0 ] || rm -f "$marker"
@@ -432,14 +569,43 @@ else
         fi
         exit 12
     fi
-    if [ "$release_kept" -eq 1 ]; then
-        log "salvaging the kept worktree and starting fresh"
-        finish remove
+    if [ -n "$merged_prs" ]; then
+        merged_other=""
+        merged_other_pr=""
+        while read -r number head; do
+            [ -n "$number" ] || continue
+            if [ "$head" = "$retry_branch" ]; then
+                merged_pr="${merged_pr:-$number}"
+            else
+                if [ -z "$merged_other" ]; then
+                    merged_other="PR #$number from another branch ($head)"
+                    merged_other_pr="$number"
+                fi
+            fi
+        done <<< "$merged_prs"
+        if [ -n "$merged_other" ]; then
+            meta outcome skipped
+            meta pr "$merged_other_pr"
+            [ -z "$earlier_salvage" ] || [ "$release_kept" -eq 1 ] || meta salvage "$earlier_salvage"
+            if [ "$release_kept" -eq 1 ]; then
+                log "SKIPPED — $merged_other was merged after the attempt that hit the usage limit started, so the work went on without it; the unfinished work of its session stays in $WT for you"
+            else
+                log "SKIPPED — $merged_other was merged after the attempt that hit the usage limit started, so the work went on without it. Not starting over${earlier_salvage:+; the leftovers of that attempt are on branch $earlier_salvage}"
+            fi
+            exit 12
+        fi
+        pr_branch="$retry_branch"
     fi
-    if [ -e "$WT" ]; then
-        meta outcome skipped
-        log "SKIPPED — $WT already exists: a session may be on this ticket. If none is, remove it with: git worktree remove \"$WT\""
-        exit 12
+    if [ -z "$merged_pr" ]; then
+        if [ "$release_kept" -eq 1 ]; then
+            log "salvaging the kept worktree and starting fresh"
+            finish remove
+        fi
+        if [ -e "$WT" ]; then
+            meta outcome skipped
+            log "SKIPPED — $WT already exists: a session may be on this ticket. If none is, remove it with: git worktree remove \"$WT\""
+            exit 12
+        fi
     fi
 fi
 
@@ -617,7 +783,8 @@ stop_sleeper() {
 
 # While `ending` is 1, a stop is only noted. That holds from the claim or the making of the worktree
 # until the session starts, and again from the end of the last session, or while this script ends
-# one itself (a stop, the clock, a failed start). Before a session starts, run_session acts on the
+# one itself (a stop, the clock, a failed start), and while a ticket whose PR was merged during a
+# usage-limit nap ends with no session (#1096). Before a session starts, run_session acts on the
 # noted stop. After the last session it changes nothing: the script exits in moments anyway and
 # keeps its real outcome. A stop between a session and its resume cancels only the resume. Closing
 # a terminal sends HUP to the job and then TERM from the conductor: the second one lands here too,
@@ -657,7 +824,7 @@ if [ -n "$resume_session" ]; then
         exit 12
     fi
     rm -f "$marker.claimed"
-else
+elif [ -z "$merged_pr" ]; then
     # ── A fresh worktree from origin/main ──────────────────────────────────────────────────────
     # Detached on purpose: the worker creates the ticket branch itself (`gh issue develop`).
     # Several runs fetch at once, and a fetch that loses the ref lock to another one succeeds on a
@@ -674,6 +841,20 @@ else
         log "could not create the worktree $WT"
         exit 10
     fi
+fi
+
+# The ticket's PR was merged while a usage limit held its attempt (#1096). From here a stop is only
+# noted (see `ending`): the ticket ends in moments anyway.
+if [ -n "$merged_pr" ]; then
+    ending=1
+    pr_num="$merged_pr"
+    note=" (no new session is started)"
+    if [ -n "$resume_session" ]; then
+        note=" (session $resume_session is not resumed)"
+    elif [ "$release_kept" -eq 0 ]; then
+        own_worktree=0
+    fi
+    finish_merged "after the attempt that hit the usage limit started" "$note"
 fi
 
 # ── One headless session for the whole ticket ──────────────────────────────────────────────────
@@ -888,32 +1069,6 @@ find_ticket_pr() {
     fi
 }
 
-# commits_after_merge — prints how many commits on HEAD or on the merged PR's branch the merged PR
-# does not hold, plus one when the worktree has uncommitted files, which `finish` saves as a commit
-# on a salvage branch. The session may commit a fix after the merge, for example for a CodeQL alert:
-# on the PR's branch, on a new branch or on a detached HEAD. That fix is then not on main. Commits
-# are matched by their change, not by their id, so a rebase by GitHub before the merge still
-# matches, and commits main already has never count. The count can still be too high (a conflict
-# fixed in a rebase, an empty commit), so the log asks the owner to check, and never claims the
-# commits are lost. Fails when it cannot tell. The fetch runs where a stop is only noted, so a
-# stalled transfer and a password prompt end it.
-commits_after_merge() {
-    local tip listed found="" commit count=0
-    GIT_TERMINAL_PROMPT=0 git -C "$WT" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 \
-        fetch --quiet origin "refs/pull/$pr_num/head" 2>/dev/null < /dev/null || return 1
-    for tip in HEAD "refs/heads/$pr_branch"; do
-        git -C "$WT" rev-parse -q --verify "$tip^{commit}" >/dev/null 2>&1 || continue
-        listed="$(git -C "$WT" cherry FETCH_HEAD "$tip" 2>/dev/null)" || return 1
-        found="$found$(sed -n 's/^+ //p' <<< "$listed")"$'\n'
-    done
-    for commit in $(printf '%s' "$found" | sort -u); do
-        git -C "$WT" merge-base --is-ancestor "$commit" refs/remotes/origin/main 2>/dev/null \
-            || count=$((count + 1))
-    done
-    [ -z "$(git -C "$WT" status --porcelain 2>/dev/null)" ] || count=$((count + 1))
-    echo "$count"
-}
-
 start_epoch="$(date +%s)"
 # 1 while run_session resumes a worktree kept after a usage limit: if that cannot start, the
 # worktree stays kept.
@@ -1056,12 +1211,21 @@ fi
 if [ "$api_error_status" = "429" ] \
     || { [ "$session_failed" -eq 1 ] && echo "$combined" | grep -qiE 'usage limit|session limit|rate.?limit|overloaded|quota'; }; then
     meta outcome limit
+    # The retry reads these when it has no kept worktree to resume, to find a PR merged during the
+    # nap (#1096). The branch is read before `finish`, which may move it to a salvage branch.
+    meta started "$session_started"
+    meta branch "$(kept_branch)"
     if keep_for_resume; then
         meta worktree kept
         log "USAGE LIMIT hit — worktree kept, so the next run of #$ISSUE resumes session $known_session; the conductor will sleep and retry"
         exit 6
     fi
-    finish
+    # Only what this limit saves counts: a kept worktree salvaged at the start of this run is not
+    # this attempt's. The worktree goes even with LOOP_KEEP_WORKTREE=1, or the retry could never
+    # start over.
+    salvaged_branch=""
+    finish remove
+    [ -z "$salvaged_branch" ] || meta salvage "$salvaged_branch"
     log "USAGE LIMIT hit — no session to resume, so the retry starts over; the conductor will sleep and retry"
     exit 6
 fi
@@ -1104,21 +1268,9 @@ if [ -z "$pr_num" ]; then
     log "worker reported DONE, but $pr_problem — treating as error"
     exit 3
 fi
-meta pr "$pr_num"
 stats="cost \$$cost, $turns turns, ${elapsed_min}m, $resumes resume(s)"
-if [ "$pr_merged" -eq 1 ]; then
-    meta outcome merged
-    after_merge="$(commits_after_merge)" || after_merge="?"
-    meta unmerged "$after_merge"
-    head_place="$(git -C "$WT" branch --show-current 2>/dev/null || true)"
-    finish
-    case "$after_merge" in
-        0) log "PR #$pr_num was merged before the session ended — the work is on main ($stats)" ;;
-        "?") log "PR #$pr_num was merged before the session ended, but the loop could not check whether branch ${pr_branch:-?} has commits the merge did not take ($stats)" ;;
-        *) log "PR #$pr_num was merged before the session ended, but $after_merge commit(s) are not in the merged PR — look on branch ${pr_branch:-?}, at the worktree's HEAD (${head_place:-detached}) and on any salvage branch named above ($stats)" ;;
-    esac
-    exit 13
-fi
+[ "$pr_merged" -eq 0 ] || finish_merged "before the session ended" " ($stats)"
+meta pr "$pr_num"
 meta outcome pr-opened
 finish
 log "PR #$pr_num opened — waiting for your review ($stats)"

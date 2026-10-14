@@ -50,7 +50,7 @@ produces PRs, and the one merge path is `/merge-train` over PRs the owner approv
 | `scripts/claude/backlog-loop.sh` | the conductor — up to `-j` tickets at once, lock, stop conditions, roll-up table of PRs |
 | `scripts/claude/next-ticket.sh` | deterministic picker: priority labels + `Depends on #X` gate + skip rules + "no open PR yet" (a worktree kept for a resume after a usage limit does not hide its ticket) |
 | `scripts/claude/issue-trust.sh` | the provenance gate: refuses an issue written by anyone without write access (ADR-0026) |
-| `scripts/claude/work-ticket.sh` | one ticket: provenance gate → resume the session of a worktree kept after a usage limit, or skip if already in flight → worktree from `origin/main` → fresh headless session → judge `STATUS:` (no line: resume the same session, at most `LOOP_MAX_RESUMES` times) → confirm the PR exists (merged while the session ran: done; DONE with no open PR: resume once) → remove the clean worktree (usage limit: keep it for the next run) |
+| `scripts/claude/work-ticket.sh` | one ticket: provenance gate → resume the session of a worktree kept after a usage limit, or skip if already in flight (its PR merged during the nap: done) → worktree from `origin/main` → fresh headless session → judge `STATUS:` (no line: resume the same session, at most `LOOP_MAX_RESUMES` times) → confirm the PR exists (merged while the session ran: done; DONE with no open PR: resume once) → remove the clean worktree (usage limit: keep it for the next run) |
 | `.claude/commands/work-ticket.md` | the per-ticket discipline prompt (the old `ticket-worker` agent, promoted to a slash command) |
 | `.claude/commands/backlog.md` | `/backlog <numbers>` prints the terminal command; `/backlog` with no arguments, after a run, reports the roll-up from the console copy and the run's `.meta` files. It never starts the loop |
 | `~/.claude-account1/skills/merge-train/` | the maintainer's merge path — merges PRs the owner approved by assigning themselves (lives outside this repo) |
@@ -195,7 +195,7 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_MAX_RESUMES` | `2` | how many times a session that ended normally without a `STATUS:` line is resumed before the ticket counts as `error`; `0` turns that resume off. The one resume of a DONE with no open PR and the resume after a usage limit do not count here |
 | `BASH_MAX_TIMEOUT_MS` | `3600000` | the longest Bash timeout the worker may ask for (one hour), so the whole test suite fits in one foreground call — see "A session that stops without a verdict" |
 | `BASH_DEFAULT_TIMEOUT_MS` | `600000` | the timeout of a worker Bash call that names none (ten minutes, not the CLI's two), because a call that runs out is stopped, not moved to the background |
-| `LOOP_KEEP_WORKTREE` | `0` | `1` = keep `.claude/worktrees/ticket-<n>` after the run (by default a clean worktree is removed; the branch always stays) |
+| `LOOP_KEEP_WORKTREE` | `0` | `1` = keep `.claude/worktrees/ticket-<n>` after the run (by default a clean worktree is removed; the branch always stays). A worktree that would block a fresh start is removed anyway: one kept for a resume that can no longer happen, and one a usage limit left with no session to resume (#1096) |
 | `LOOP_GH_USER` | `koniecdev` | gh account whose token backs the loop's gh write calls (labels, issue comments); an existing `GH_TOKEN` in the environment wins |
 | `LOOP_SKIP_LABELS` | `loop-blocked,epic,qa,post-mvp,audit` | picker label exclusions |
 | `LOOP_SKIP_TITLES` | `^M4-` | picker title-regex exclusion |
@@ -247,10 +247,19 @@ Per-ticket outcomes:
     session that merged its own PR would break ADR-0060, and it would show as `merged`, not as an
     `error`. The session's instructions forbid a merge, and that is the guard; this outcome does
     not police it.
+  - A ticket is `merged` too when its PR is merged while a usage limit holds it (#1096): the
+    session opened the PR, the limit stopped it, and you merged the PR during the nap. The next run
+    of the ticket does not resume the session and does not start a new one. It counts the commits
+    and files the merge did not take as above, saves uncommitted files on a `loop-salvage/…` branch,
+    removes the worktree and keeps the branch. Only a PR from the branch the stopped session worked
+    on counts, merged after that session first started. A PR merged from another branch of the
+    ticket is someone else's work, so the ticket is `skipped`. See "A session stopped by a usage
+    limit, or DONE without a PR" for each case.
 - **skipped** — the ticket already has an open PR, or `.claude/worktrees/ticket-<n>` already
   exists (a manual `/ticket` session or an earlier run is on it). Nothing is started. A worktree
-  kept for a resume after a usage limit is skipped too when resuming it is no longer safe (see
-  "A session stopped by a usage limit, or DONE without a PR").
+  kept for a resume after a usage limit is skipped too when resuming it is no longer safe, and so
+  is a ticket stopped by a usage limit when a PR of it was merged from another branch during the
+  nap (see "A session stopped by a usage limit, or DONE without a PR").
 - **blocked** — the worker hit a genuine business question / dependency / mis-scope / red build.
   The ticket gets the `loop-blocked` label and the exact questions as an issue comment. Triage:
   `gh issue list --label loop-blocked` → answer in a comment → remove the label → the loop can
@@ -354,30 +363,63 @@ Now:
   any other run. The conductor needs no change for this: after the nap it runs the ticket again,
   and the worker finds the kept worktree. So does a later run where you name the ticket, and the
   picker returns such a ticket in drain mode too.
-- **A kept worktree is resumed only when that is still safe.** The worker claims the marker with
-  one rename, so two runs can never resume one session (the CLI would mix both into one
-  transcript). When the session's transcript is not under `LOOP_CONFIG_DIR` (another account ran
-  it, or the CLI's cleanup deleted it after its default 30 days), the session cannot be resumed:
-  with an open PR for the ticket the run skips it and leaves the unfinished work in the worktree
-  for you; without one it salvages and removes the worktree and starts fresh. It skips the ticket
-  (exit 12), drops the marker and leaves the worktree for you when the HEAD or any file changed
-  since the limit (someone works there), when a PR of the ticket was merged, or closed from this
-  branch, after the session started, when one is open from another branch, or when the session's
-  own open PR has commits its branch does not (a review fix or a `/merge-train` rebase during the
-  nap: the session would build on a stale copy). A PR head the branch itself once had still counts
-  as the session's own: it pushed, then rewrote the branch (a rebase before the force push), and
-  nobody else's push enters that branch's reflog. An open PR from the kept branch is otherwise the
+- **A kept worktree is resumed only when that is still safe.** The worker claims the marker with one
+  rename, so two runs can never resume one session (the CLI would mix both into one transcript).
+  When the session's transcript is not under `LOOP_CONFIG_DIR` (another account ran it, or the CLI's
+  cleanup deleted it after its default 30 days), the session cannot be resumed: with an open PR for
+  the ticket the run skips it and leaves the unfinished work in the worktree for you; without one it
+  salvages and removes the worktree and starts fresh, unless a PR of the ticket was merged after the
+  session started (see "A PR merged during the nap" below). It skips the ticket (exit 12), drops the
+  marker and leaves the worktree for you when the HEAD or any file changed since the limit (someone
+  works there), when a PR of the ticket was merged from another branch, or closed from this branch,
+  after the session started, when one is open from another branch, or when the session's own open PR
+  has commits its branch does not (a review fix or a `/merge-train` rebase during the nap: the
+  session would build on a stale copy). A PR head the branch itself once had still counts as the
+  session's own: it pushed, then rewrote the branch (a rebase before the force push), and nobody
+  else's push enters that branch's reflog. An open PR from the kept branch is otherwise the
   session's own: the limit may have hit after `gh pr create`. A PR that ended before the session
-  started is history (an older attempt from the same branch name) and does not count. A rebase
-  that stopped half way detaches HEAD, so the kept branch is then read from the rebase's own
-  record. When GitHub cannot list the PRs, or the kept files cannot be read, the run is an `error`
-  and the marker stays for the next run. When the provenance gate refuses the ticket before the
-  resume, the kept work is salvaged and the worktree removed, since that session will never run
-  again.
+  started is history (an older attempt from the same branch name) and does not count. A rebase that
+  stopped half way detaches HEAD, so the kept branch is then read from the rebase's own record. When
+  GitHub cannot list the PRs, or the kept files cannot be read, the run is an `error` and the marker
+  stays for the next run. When the provenance gate refuses the ticket before the resume, the kept
+  work is salvaged and the worktree removed, since that session will never run again.
 - **A stop or a timeout during the resumed session** ends it like any other run: the work is
   salvaged, the worktree is removed, and the next run starts a fresh session.
 - **Without a session id, a limit still starts over**, as before: the worktree is salvaged and
-  removed, and the retry cuts a new one from `origin/main`.
+  removed (also with `LOOP_KEEP_WORKTREE=1`, or the retry would find it and skip the ticket), and
+  the retry cuts a new one from `origin/main`. The limited run writes `started=`,
+  `branch=` and `salvage=` to its `.meta`, because nothing else records them once the worktree is
+  gone. The retry runs in the same run folder and reads them before it starts over.
+- **A PR merged during the nap (#1096).** The session may have opened its PR before the limit hit,
+  and you may merge that PR while the loop naps. Its work is on `main` then, so a second session
+  would only redo it and maybe open a second PR. So before a resume, and before a retry that starts
+  over, the worker looks for a PR of the ticket merged after the session first started:
+  - **From the stopped session's branch** (the kept worktree's branch, or the `branch=` its
+    `.meta` recorded): the ticket is `merged` (exit 13) with that PR. Nothing is resumed or
+    started. As for a PR merged before the session ended, the worker counts the commits and files
+    the merge did not take: the kept worktree's HEAD, its uncommitted files and the PR's branch,
+    or, when the worktree is already gone, the PR's branch and the `salvage=` branch. It saves
+    uncommitted files on a `loop-salvage/…` branch, removes the worktree (unless
+    `LOOP_KEEP_WORKTREE=1`) and keeps the branch. The log line names the PR and where to look.
+  - **From another branch:** someone else finished the ticket, so it is `skipped` (exit 12) with
+    no session, as for an open PR from another branch, and the row shows that PR. A kept worktree
+    stays for you, without its marker. With no worktree left, the log line and `salvage=` name the
+    branch that holds the stopped attempt's leftovers.
+  - **An open PR from the kept branch goes first:** when the session opened a second PR from its
+    branch after the first was merged, that one still waits for review, so the session is resumed
+    to finish it, as at the end of a session (#1082).
+  - A PR merged before the session first started is history from an earlier attempt and does not
+    count. Another branch's PR, open or merged, goes before the session's own merged one: the
+    ticket is `skipped`. The session's own merged PR goes before one closed from its branch, since
+    the session may have closed a PR and opened a new one. A worktree with no marker is still skipped as "already exists", whatever
+    was merged.
+    When GitHub cannot list the merged PRs, the run is an `error` and a kept worktree keeps its
+    marker for the next run.
+  - A run in a new run folder (for example after the limit outlasted every nap and you name the
+    ticket again) has no `.meta` from the limited run. With no kept worktree it cannot tell when
+    the attempt started, so it starts a new session even when the PR was merged (#1138). Check the
+    ticket before you name it again. The picker does not offer it in drain mode, because the merged PR
+    closed the issue.
 - **A DONE with no open PR for the ticket is resumed once**, with a prompt that says what the loop
   found and that it counts only an open PR whose branch starts with `<n>-`, and asks the session to
   push and open the PR. The prompt does not mention a merged PR, so it never points the session at
@@ -394,12 +436,15 @@ Files: the resumed run keeps the limited attempt's results for debugging. `ticke
 replaced by the resume's result when it ends (the old one moves to `.before-resume-1`), because a
 resumed run reports the cost of the whole session. The attempt's older `.before-resume-*`,
 `.resume-*` and `.stderr` files get a `.limit-<time>` suffix. The stderr moves because its limit
-message would make a later crash look like a usage limit. `.meta` gets `session=` whenever the
-run ends on its own and its result names the session (a timeout or a stop leaves it only in
-`ticket-<n>.json`), and `worktree=kept` on a limit that kept one; `unmerged=` on a `merged`
-ticket (see "Outcomes & triage"); `resumes=` counts every resume, the one after the limit
-included, so the end-of-run table marks the ticket `resumed Nx`. When the resume happens in a
-later conductor run, both runs' totals count the part of the session before the limit.
+message would make a later crash look like a usage limit. `.meta` gets `session=` whenever the run
+ends on its own and its result names the session (a timeout or a stop leaves it only in
+`ticket-<n>.json`), and `worktree=kept` on a limit that kept one; `started=` (when the session first
+started, in seconds since 1970), `branch=` (the session's branch, empty when it had none) on every
+limit, and `salvage=` when a limit with no session to resume saved leftovers on a salvage branch
+(a retry that then ends `merged` or `skipped` without a worktree writes it again);
+`unmerged=` on a `merged` ticket (see "Outcomes & triage"); `resumes=` counts every resume, the one
+after the limit included, so the end-of-run table marks the ticket `resumed Nx`. When the resume
+happens in a later conductor run, both runs' totals count the part of the session before the limit.
 
 ## Safety model
 
@@ -507,13 +552,14 @@ later conductor run, both runs' totals count the part of the session before the 
   is still on disk: a manual session, or a run the loop could not clean up (a rebase or merge left
   half done, or leftovers it could not commit — the run's log line says which). Look inside, finish
   or abort what is there, then `git worktree remove .claude/worktrees/ticket-<n>`.
-- **"SKIPPED — … was kept to resume …"** — the worktree waits for a resume after a usage limit,
-  but resuming is no longer safe: its HEAD or its files changed, a PR of the ticket was merged, is
-  open from another branch, or was closed from this branch, or the session's own PR has commits
-  its branch does not. The line says which. Decide what happens to the
-  work in it, then remove the worktree (`--force` when it holds uncommitted files you no longer
-  need). To give up a kept resume on purpose, just remove the worktree: the marker goes with it,
-  and the next run starts a fresh session, which checks out the ticket branch.
+- **"SKIPPED — … was kept to resume …"** — the worktree waits for a resume after a usage limit, but
+  resuming is no longer safe: its HEAD or its files changed, a PR of the ticket was merged or is
+  open from another branch, or was closed from this branch, or the session's own PR has commits its
+  branch does not. The line says which. A PR merged from the kept branch is not a skip: the ticket
+  is `merged`. Decide what happens to the work in it, then remove the worktree (`--force` when it
+  holds uncommitted files you no longer need). To give up a kept resume on purpose, just remove the
+  worktree: the marker goes with it, and the next run starts a fresh session, which checks out the
+  ticket branch.
 - **The picker returns nothing but issues exist** — they're excluded (labels/titles/deps/provenance);
   run `LOOP_SKIP_LABELS= LOOP_SKIP_TITLES= LOOP_SKIP_ISSUES= scripts/claude/next-ticket.sh` to see the
   unfiltered choice (its stderr names every ticket the provenance gate refused), then fix

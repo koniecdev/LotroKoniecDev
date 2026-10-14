@@ -18,8 +18,8 @@
         <PackageReference Include="Microsoft.NET.Test.Sdk" />
         <PackageReference Include="NSubstitute" />
         <PackageReference Include="Shouldly" />
-        <!-- Direct pin forces the patched System.Security.Cryptography.Xml (CVE-2026-50648) over the vulnerable
-             10.0.7 pulled transitively by OpenIddict.*.DataProtection; version lives in Directory.Packages.props. -->
+        <!-- Direct pin forces the patched System.Security.Cryptography.Xml over the vulnerable version that
+             OpenIddict.*.DataProtection pulls; the version and the advisories live in Directory.Packages.props. -->
         <PackageReference Include="System.Security.Cryptography.Xml" />
         <PackageReference Include="Testcontainers" />
         <PackageReference Include="Testcontainers.PostgreSql"/>

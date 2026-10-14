@@ -16,7 +16,7 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Errors;
 /// sentence instead of a specific one, and never the bug this exists to prevent.
 /// </para>
 /// </summary>
-internal static class ApiProblemCopy
+internal static partial class ApiProblemCopy
 {
     internal const string ErrorCodeExtensionKey = "errorCode";
 
@@ -428,15 +428,9 @@ internal static class ApiProblemCopy
 
         if (view.UnmappedErrorCode is { } unmappedErrorCode)
         {
-            LogUnmappedErrorCode(logger, unmappedErrorCode, status, null);
+            LogUnmappedErrorCode(logger, unmappedErrorCode, status);
         }
     }
-
-    private static readonly Action<ILogger, string, int?, Exception?> LogUnmappedErrorCode =
-        LoggerMessage.Define<string, int?>(
-            LogLevel.Warning,
-            new EventId(1, nameof(LogUnmappedErrorCode)),
-            "API error code {ErrorCode} (status {StatusCode}) has no Polish copy; showed the status fallback.");
 
     /// <summary>
     /// The <c>errorCode</c> arrives as a <see cref="JsonElement"/> when the problem was read off the
@@ -493,4 +487,10 @@ internal static class ApiProblemCopy
 
     private static string? FirstNonBlank(params string?[] candidates)
         => Array.Find(candidates, candidate => !string.IsNullOrWhiteSpace(candidate));
+
+    [LoggerMessage(
+        EventId = 1,
+        Level = LogLevel.Warning,
+        Message = "API error code {ErrorCode} (status {StatusCode}) has no Polish copy; showed the status fallback.")]
+    private static partial void LogUnmappedErrorCode(ILogger logger, string errorCode, int? statusCode);
 }

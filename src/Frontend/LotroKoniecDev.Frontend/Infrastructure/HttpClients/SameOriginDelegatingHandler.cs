@@ -6,7 +6,7 @@ namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 /// client's base address, so without it a link to another host would carry both there. It must stay
 /// outside the resilience handler, so a refusal is never retried and never opens the circuit breaker.
 /// </summary>
-internal sealed class SameOriginDelegatingHandler : DelegatingHandler
+internal sealed partial class SameOriginDelegatingHandler : DelegatingHandler
 {
     private readonly Uri _origin;
     private readonly ILogger<SameOriginDelegatingHandler> _logger;
@@ -30,7 +30,7 @@ internal sealed class SameOriginDelegatingHandler : DelegatingHandler
             ? OriginOf(absoluteUri)
             : "(not an absolute address)";
         string configuredOrigin = OriginOf(_origin);
-        LogRefused(_logger, refusedOrigin, configuredOrigin, null);
+        LogRefused(_logger, refusedOrigin, configuredOrigin);
 
         throw new HttpRequestException(
             $"The request to '{refusedOrigin}' was refused, because it is not the configured origin '{configuredOrigin}'.");
@@ -47,9 +47,9 @@ internal sealed class SameOriginDelegatingHandler : DelegatingHandler
     /// </summary>
     private static string OriginOf(Uri uri) => $"{uri.Scheme}://{uri.Authority}";
 
-    private static readonly Action<ILogger, string, string, Exception?> LogRefused =
-        LoggerMessage.Define<string, string>(
-            LogLevel.Warning,
-            new EventId(1, nameof(LogRefused)),
-            "Refused an API request to {RefusedOrigin}: the client may only call {ConfiguredOrigin}.");
+    [LoggerMessage(
+        EventId = 1,
+        Level = LogLevel.Warning,
+        Message = "Refused an API request to {RefusedOrigin}: the client may only call {ConfiguredOrigin}.")]
+    private static partial void LogRefused(ILogger logger, string refusedOrigin, string configuredOrigin);
 }

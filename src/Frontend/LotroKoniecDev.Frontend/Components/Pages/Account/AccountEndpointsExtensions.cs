@@ -26,7 +26,7 @@ namespace LotroKoniecDev.Frontend.Components.Pages.Account;
 /// A TMS failure only makes the file incomplete (<c>isComplete: false</c>) and does not fail the
 /// download.
 /// </summary>
-internal static class AccountEndpointsExtensions
+internal static partial class AccountEndpointsExtensions
 {
     /// <summary>The page that asks for the password. The account page's export button links here.</summary>
     internal const string ExportPagePath = "/account/export";
@@ -98,8 +98,7 @@ internal static class AccountEndpointsExtensions
                 null,
                 "no password was sent",
                 ClientIpAddress(httpContext),
-                UserAgent(httpContext),
-                null);
+                UserAgent(httpContext));
             return RedirectToExportPage(PasswordRequiredErrorCode);
         }
 
@@ -114,8 +113,7 @@ internal static class AccountEndpointsExtensions
                 result.ProblemDetails?.Status,
                 RefusalReasonFor(result),
                 ClientIpAddress(httpContext),
-                UserAgent(httpContext),
-                null);
+                UserAgent(httpContext));
 
             // A dead session goes back to the page with no marker. The 401 already marked the session
             // dead, so that request signs the user out and sends them to log in, and they return to a
@@ -185,8 +183,7 @@ internal static class AccountEndpointsExtensions
             SensitiveDataRedactor.MaskEmail(result.Value.AuthData.Email),
             ClientIpAddress(httpContext),
             UserAgent(httpContext),
-            exportFile.IsComplete,
-            null);
+            exportFile.IsComplete);
 
         return Results.File(payload, "application/json", fileName);
     }
@@ -232,15 +229,17 @@ internal static class AccountEndpointsExtensions
     private static string UserAgent(HttpContext httpContext) =>
         httpContext.Request.Headers.UserAgent.ToString();
 
-    private static readonly Action<ILogger, Guid, string, string?, string, bool, Exception?> LogExportDownloaded =
-        LoggerMessage.Define<Guid, string, string?, string, bool>(
-            LogLevel.Information,
-            new EventId(1, nameof(LogExportDownloaded)),
-            "GDPR data export downloaded by user {UserId} ({MaskedEmail}). IP: {IpAddress}, UserAgent: {UserAgent}, complete: {IsComplete}");
+    [LoggerMessage(
+        EventId = 1,
+        Level = LogLevel.Information,
+        Message = "GDPR data export downloaded by user {UserId} ({MaskedEmail}). IP: {IpAddress}, UserAgent: {UserAgent}, complete: {IsComplete}")]
+    private static partial void LogExportDownloaded(
+        ILogger logger, Guid userId, string maskedEmail, string? ipAddress, string userAgent, bool isComplete);
 
-    private static readonly Action<ILogger, string?, int?, string, string?, string, Exception?> LogExportRefused =
-        LoggerMessage.Define<string?, int?, string, string?, string>(
-            LogLevel.Warning,
-            new EventId(2, nameof(LogExportRefused)),
-            "GDPR data export refused for subject {Subject} with status {Status}: {Reason}. IP: {IpAddress}, UserAgent: {UserAgent}");
+    [LoggerMessage(
+        EventId = 2,
+        Level = LogLevel.Warning,
+        Message = "GDPR data export refused for subject {Subject} with status {Status}: {Reason}. IP: {IpAddress}, UserAgent: {UserAgent}")]
+    private static partial void LogExportRefused(
+        ILogger logger, string? subject, int? status, string reason, string? ipAddress, string userAgent);
 }

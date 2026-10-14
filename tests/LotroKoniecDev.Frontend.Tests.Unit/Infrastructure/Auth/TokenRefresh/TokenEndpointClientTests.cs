@@ -31,9 +31,9 @@ public sealed class TokenEndpointClientTests
             $$"""{"access_token":"{{AccessToken}}","expires_in":3600}"""));
         TokenEndpointClient client = CreateClient(httpClient);
 
-        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
 
-        response.ShouldNotBeNull().AccessToken.ShouldBe(AccessToken);
+        result.Tokens.ShouldNotBeNull().AccessToken.ShouldBe(AccessToken);
     }
 
     /// <summary>
@@ -51,9 +51,9 @@ public sealed class TokenEndpointClientTests
         using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
         TokenEndpointClient client = CreateClient(httpClient);
 
-        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
 
-        response.ShouldNotBeNull().ExpiresIn.ShouldBe(expectedExpiresIn);
+        result.Tokens.ShouldNotBeNull().ExpiresIn.ShouldBe(expectedExpiresIn);
     }
 
     /// <summary>
@@ -73,9 +73,9 @@ public sealed class TokenEndpointClientTests
         using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, JsonBytes(body, charset)));
         TokenEndpointClient client = CreateClient(httpClient);
 
-        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
 
-        response.ShouldNotBeNull().AccessToken.ShouldBe(AccessToken);
+        result.Tokens.ShouldNotBeNull().AccessToken.ShouldBe(AccessToken);
     }
 
     public static TheoryData<byte[], string?> NonUtf8TokenAnswers => new()
@@ -88,23 +88,24 @@ public sealed class TokenEndpointClientTests
 
     /// <summary>
     /// #943: JSON between services is UTF-8 (RFC 8259 §8.1), so the answer is read as UTF-8 whatever
-    /// charset its header names. A UTF-16 body, or a token with bytes that are not UTF-8, is a failed
-    /// refresh. It never throws.
+    /// charset its header names. A UTF-16 body, or a token with bytes that are not UTF-8, is a final
+    /// failure (ADR-0067 decision 3). It never throws.
     /// </summary>
     [Theory]
     [MemberData(nameof(NonUtf8TokenAnswers))]
-    public async Task RefreshAsync_WhenTheTokenAnswerIsNotUtf8_ReturnsNull(byte[] body, string? charset)
+    public async Task RefreshAsync_WhenTheTokenAnswerIsNotUtf8_IsAFinalFailure(byte[] body, string? charset)
     {
         using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, JsonBytes(body, charset)));
         TokenEndpointClient client = CreateClient(httpClient);
 
-        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
 
-        response.ShouldBeNull();
+        result.ShouldBe(TokenRefreshResult.FinalFailure);
     }
 
     /// <summary>
-    /// A proxy can answer 200 with a body that carries no tokens. That is a failed refresh, never an exception.
+    /// A proxy can answer 200 with a body that carries no tokens. That is a final failure, never an exception:
+    /// the whole body arrived, so a retry would get the same answer (ADR-0067 decision 3).
     /// </summary>
     [Theory]
     [InlineData("")]
@@ -118,19 +119,19 @@ public sealed class TokenEndpointClientTests
     [InlineData("""{"access_token":"a","expires_in":2147483648}""")]
     [InlineData("""{"access_token":"a","expires_in":"soon"}""")]
     [InlineData("""{"access_token":"a","expires_in":true}""")]
-    public async Task RefreshAsync_WhenTheTokenAnswerIsNotATokenObject_ReturnsNull(string body)
+    public async Task RefreshAsync_WhenTheTokenAnswerIsNotATokenObject_IsAFinalFailure(string body)
     {
         using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
         TokenEndpointClient client = CreateClient(httpClient);
 
-        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
 
-        response.ShouldBeNull();
+        result.ShouldBe(TokenRefreshResult.FinalFailure);
     }
 
     /// <summary>
     /// #899: the primary handler follows no redirect, so a redirect reaches this client as it is. It has
-    /// to count as a failed refresh, the same as any other answer that carries no tokens.
+    /// to count as a final failure, the same as any other refusal that is not a 429 or a 5xx.
     /// </summary>
     [Theory]
     [InlineData(HttpStatusCode.MovedPermanently)]
@@ -138,25 +139,25 @@ public sealed class TokenEndpointClientTests
     [InlineData(HttpStatusCode.SeeOther)]
     [InlineData(HttpStatusCode.TemporaryRedirect)]
     [InlineData(HttpStatusCode.PermanentRedirect)]
-    public async Task RefreshAsync_WhenTheAuthApiAnswersWithARedirect_ReturnsNull(HttpStatusCode statusCode)
+    public async Task RefreshAsync_WhenTheAuthApiAnswersWithARedirect_IsAFinalFailure(HttpStatusCode statusCode)
     {
         using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWithHeaders(
             statusCode,
             new Dictionary<string, string> { ["Location"] = "https://attacker.example/connect/token" }));
         TokenEndpointClient client = CreateClient(httpClient);
 
-        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
 
-        response.ShouldBeNull();
+        result.ShouldBe(TokenRefreshResult.FinalFailure);
     }
 
     /// <summary>
-    /// #923: when the client's time limit runs out on a stuck sign-in server, the refresh fails like any
-    /// other failed refresh instead of throwing. The registration's limit is pinned in
+    /// #923: when the client's time limit runs out on a stuck sign-in server, the refresh is a temporary
+    /// failure (#1062) instead of an exception. The registration's limit is pinned in
     /// <c>AuthenticationDependencyInjectionExtensionsTests</c>.
     /// </summary>
     [Fact]
-    public async Task RefreshAsync_WhenTheAuthApiNeverAnswers_ReturnsNullOnceTheClientTimesOut()
+    public async Task RefreshAsync_WhenTheAuthApiNeverAnswers_IsATemporaryFailureOnceTheClientTimesOut()
     {
         using HttpClient httpClient = new(new NeverAnsweringHttpMessageHandler())
         {
@@ -165,9 +166,95 @@ public sealed class TokenEndpointClientTests
         };
         TokenEndpointClient client = CreateClient(httpClient);
 
-        TokenResponse? response = await client.RefreshAsync(RefreshToken).WaitAsync(TimeSpan.FromSeconds(10));
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken).WaitAsync(TimeSpan.FromSeconds(10));
 
-        response.ShouldBeNull();
+        result.ShouldBe(TokenRefreshResult.TemporaryFailure);
+    }
+
+    /// <summary>
+    /// #1062: the owner's list of failures that go away on their own: a busy or restarting sign-in server,
+    /// and the per-address limit that many users behind one address share.
+    /// </summary>
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.GatewayTimeout)]
+    [InlineData((HttpStatusCode)599)]
+    public async Task RefreshAsync_WhenTheAuthApiFailsForAMoment_IsATemporaryFailure(HttpStatusCode statusCode)
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
+            statusCode,
+            """{"error":"temporarily_unavailable"}"""));
+        TokenEndpointClient client = CreateClient(httpClient);
+
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
+
+        result.ShouldBe(TokenRefreshResult.TemporaryFailure);
+    }
+
+    /// <summary>
+    /// #1062: every other refusal is final, <c>invalid_grant</c> first of all. A 408 is not in the owner's list.
+    /// </summary>
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.RequestTimeout)]
+    [InlineData((HttpStatusCode)428)]
+    [InlineData((HttpStatusCode)430)]
+    [InlineData((HttpStatusCode)499)]
+    [InlineData((HttpStatusCode)600)]
+    public async Task RefreshAsync_WhenTheAuthApiRefusesForGood_IsAFinalFailure(HttpStatusCode statusCode)
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
+            statusCode,
+            """{"error":"invalid_grant"}"""));
+        TokenEndpointClient client = CreateClient(httpClient);
+
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
+
+        result.ShouldBe(TokenRefreshResult.FinalFailure);
+    }
+
+    public static TheoryData<Exception> RefreshTransportFailures() => new()
+    {
+        new HttpRequestException("Connection refused."),
+        new TaskCanceledException("The request was cancelled.")
+    };
+
+    /// <summary>
+    /// #1062: a sign-in server that cannot be reached, for example while it restarts during a deploy.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(RefreshTransportFailures))]
+    public async Task RefreshAsync_WhenTheAuthApiCannotBeReached_IsATemporaryFailure(Exception failure)
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.Throw(failure));
+        TokenEndpointClient client = CreateClient(httpClient);
+
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
+
+        result.ShouldBe(TokenRefreshResult.TemporaryFailure);
+    }
+
+    /// <summary>
+    /// ADR-0067 decision 3: a body cut off on the way fails as a network error, so it is temporary. Only a
+    /// whole body that cannot be read is final.
+    /// </summary>
+    [Fact]
+    public async Task RefreshAsync_WhenTheAnswerIsCutOffOnTheWay_IsATemporaryFailure()
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            () => new CutOffContent()));
+        TokenEndpointClient client = CreateClient(httpClient);
+
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
+
+        result.ShouldBe(TokenRefreshResult.TemporaryFailure);
     }
 
     /// <summary>
@@ -189,9 +276,9 @@ public sealed class TokenEndpointClientTests
         using LoggerFactory loggerFactory = new([logs]);
         TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
-        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
 
-        response.ShouldBeNull();
+        result.ShouldBe(TokenRefreshResult.FinalFailure);
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldContain(((int)statusCode).ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -209,9 +296,9 @@ public sealed class TokenEndpointClientTests
         using LoggerFactory loggerFactory = new([logs]);
         TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
-        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
 
-        response.ShouldBeNull();
+        result.ShouldBe(TokenRefreshResult.FinalFailure);
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldContain("400");
@@ -242,9 +329,9 @@ public sealed class TokenEndpointClientTests
         using LoggerFactory loggerFactory = new([logs]);
         TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
-        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
 
-        response.ShouldBeNull();
+        result.ShouldBe(TokenRefreshResult.FinalFailure);
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldBe("Refresh token grant failed with status 400.");
@@ -396,9 +483,9 @@ public sealed class TokenEndpointClientTests
         using LoggerFactory loggerFactory = new([logs]);
         TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
-        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
 
-        response.ShouldBeNull();
+        result.ShouldBe(TokenRefreshResult.FinalFailure);
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldContain("400");
@@ -421,9 +508,9 @@ public sealed class TokenEndpointClientTests
         using LoggerFactory loggerFactory = new([logs]);
         TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
-        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
 
-        response.ShouldBeNull();
+        result.ShouldBe(TokenRefreshResult.TemporaryFailure);
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldBe("Refresh token grant failed with status 502.");
@@ -600,6 +687,22 @@ public sealed class TokenEndpointClientTests
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new UnreachableException();
+        }
+    }
+
+    /// <summary>A success answer whose connection closes before the whole body has arrived.</summary>
+    private sealed class CutOffContent : HttpContent
+    {
+        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        {
+            await stream.WriteAsync("""{"access_token":"a"""u8.ToArray());
+            throw new IOException("The connection closed before the whole body arrived.");
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
         }
     }
 }

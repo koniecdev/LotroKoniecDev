@@ -23,6 +23,8 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// valid by the local clock, it also checks the token's signature against the cached OIDC keys, so a key
 /// that was rotated upstream signs the user out cleanly instead of letting a token that is already dead
 /// reach the API.
+/// A renewal that fails for a moment (a 429, a 5xx, a network error, a timeout) keeps the session while its
+/// access token still works, and the next request tries again (ADR-0067 decision 3, #1062).
 /// Every rejection sets the one-time "session expired" notice and revokes the session's refresh token
 /// (#1027). The one exception is a browser that left during the renewal, which comes back with the same
 /// token. On the user's own sign-out (<c>/auth/logout</c> and <c>/auth/local-signout</c>) it checks nothing,
@@ -36,6 +38,90 @@ internal sealed class CookieTokenRefresher
 
     private static readonly SearchValues<char> Base64UrlCharacters = SearchValues.Create(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_");
+
+    private static readonly Action<ILogger, Exception?> LogNoRefreshToken =
+        LoggerMessage.Define(
+            LogLevel.Information,
+            new EventId(1, nameof(LogNoRefreshToken)),
+            "Cookie has no refresh_token; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogRefreshFailed =
+        LoggerMessage.Define(
+            LogLevel.Information,
+            new EventId(2, nameof(LogRefreshFailed)),
+            "Refresh token grant returned no usable answer; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogProactiveInvalidToken =
+        LoggerMessage.Define(
+            LogLevel.Information,
+            new EventId(3, nameof(LogProactiveInvalidToken)),
+            "Access token failed local JWKS signature validation after a metadata refresh; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogReactiveDeadSession =
+        LoggerMessage.Define(
+            LogLevel.Information,
+            new EventId(4, nameof(LogReactiveDeadSession)),
+            "Session was marked dead by a prior 401; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogNoUsableAccessToken =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(5, nameof(LogNoUsableAccessToken)),
+            "Refresh token grant returned a missing, empty or blank access_token; principal rejected.");
+
+    private static readonly Action<ILogger, string, Exception?> LogNoPositiveLifetime =
+        LoggerMessage.Define<string>(
+            LogLevel.Warning,
+            new EventId(6, nameof(LogNoPositiveLifetime)),
+            "Refresh token grant returned a missing or non-positive expires_in; principal rejected. expires_in: {ExpiresIn}");
+
+    private static readonly Action<ILogger, Exception?> LogMalformedAccessToken =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(7, nameof(LogMalformedAccessToken)),
+            "Refresh token grant returned an access_token that is not a compact JWS; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogMalformedRefreshToken =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(8, nameof(LogMalformedRefreshToken)),
+            "Refresh token grant returned a refresh_token with characters outside printable ASCII; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogMalformedIdToken =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(9, nameof(LogMalformedIdToken)),
+            "Refresh token grant returned an id_token that is not a compact JWS; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogNoUsableExpiry =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(10, nameof(LogNoUsableExpiry)),
+            "Cookie has a missing or unreadable expires_at; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogNoStoredAccessToken =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(11, nameof(LogNoStoredAccessToken)),
+            "Cookie has a missing, empty or blank access_token; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogBlankStoredRefreshToken =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(12, nameof(LogBlankStoredRefreshToken)),
+            "Cookie has an empty or blank refresh_token; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogRefreshPostponed =
+        LoggerMessage.Define(
+            LogLevel.Information,
+            new EventId(13, nameof(LogRefreshPostponed)),
+            "Refresh token grant failed for a moment; the session keeps its access token and the next request tries again.");
+
+    private static readonly Action<ILogger, Exception?> LogRefreshFailedAfterExpiry =
+        LoggerMessage.Define(
+            LogLevel.Information,
+            new EventId(14, nameof(LogRefreshFailedAfterExpiry)),
+            "Refresh token grant failed for a moment after the access token ran out; principal rejected.");
 
     private readonly ITokenEndpointClient _tokenEndpointClient;
     private readonly IOptionsMonitor<OpenIdConnectOptions> _openIdConnectOptionsMonitor;
@@ -121,17 +207,11 @@ internal sealed class CookieTokenRefresher
 
         RefreshOutcome refreshOutcome = await TryRefreshIfNearExpiryAsync(
             context, expiresAt, refreshToken, cancellationToken);
-        if (refreshOutcome is RefreshOutcome.Stop)
-        {
-            return;
-        }
 
-        if (refreshOutcome is RefreshOutcome.Refreshed)
+        // Only a token this request left alone is checked below. Each other outcome says why it skips the
+        // check, so an outcome added later skips it too unless it is meant to run.
+        if (refreshOutcome is not RefreshOutcome.Unchanged)
         {
-            // A token we just refreshed came from the identity provider over TLS on this very request,
-            // so its signing key cannot have changed since. The signature check below would find nothing
-            // and could only fail wrongly against local keys that are a moment out of date. The refresh
-            // has already checked the token's shape instead (#1028).
             return;
         }
 
@@ -150,8 +230,9 @@ internal sealed class CookieTokenRefresher
     /// <returns>
     /// <see cref="RefreshOutcome.Stop"/> when the principal was already rejected.
     /// <see cref="RefreshOutcome.Refreshed"/> when a new token was just fetched, so the caller skips the
-    /// signature check. Otherwise <see cref="RefreshOutcome.Unchanged"/>, and the token that is still valid
-    /// should be checked.
+    /// signature check. <see cref="RefreshOutcome.Postponed"/> when the refresh failed for a moment and the
+    /// session keeps its token, so the caller skips the check too. Otherwise
+    /// <see cref="RefreshOutcome.Unchanged"/>, and the token that is still valid should be checked.
     /// </returns>
     private async Task<RefreshOutcome> TryRefreshIfNearExpiryAsync(
         CookieValidatePrincipalContext context,
@@ -173,12 +254,29 @@ internal sealed class CookieTokenRefresher
             return RefreshOutcome.Stop;
         }
 
-        TokenResponse? tokenResponse = await _tokenEndpointClient.RefreshAsync(
+        TokenRefreshResult refreshResult = await _tokenEndpointClient.RefreshAsync(
             refreshToken, cancellationToken);
 
-        if (tokenResponse is null)
+        // A failure that goes away on its own (a restart, a busy server, the per-address limit that many
+        // users behind one address share) does not end a session whose access token still works. Nothing is
+        // revoked and the refresh stays due, so the next request tries again (ADR-0067 decision 3, #1062).
+        // The clock is read after the call, because a timeout takes 30 seconds.
+        if (refreshResult.IsTemporaryFailure && _timeProvider.GetUtcNow() < expiresAt)
         {
-            LogRefreshFailed(_logger, null);
+            LogRefreshPostponed(_logger, null);
+            return RefreshOutcome.Postponed;
+        }
+
+        if (refreshResult.Tokens is not { } tokenResponse)
+        {
+            if (refreshResult.IsTemporaryFailure)
+            {
+                LogRefreshFailedAfterExpiry(_logger, null);
+            }
+            else
+            {
+                LogRefreshFailed(_logger, null);
+            }
 
             // When the browser left during the refresh, the failure says nothing about the token. The browser
             // never gets the deleted cookie and sends the same refresh token on its next request, so that
@@ -419,81 +517,19 @@ internal sealed class CookieTokenRefresher
         Unchanged,
 
         /// <summary>
-        /// A new token was fetched from the identity provider on this request, so the signature check is
-        /// skipped.
+        /// A new token was fetched from the identity provider over TLS on this very request, so its signing
+        /// key cannot have changed since. The signature check would find nothing and could only fail wrongly
+        /// against local keys that are a moment out of date. The refresh has already checked the token's
+        /// shape instead (#1028).
         /// </summary>
-        Refreshed
+        Refreshed,
+
+        /// <summary>
+        /// The refresh failed for a moment while the token still works. The session keeps the token, and the
+        /// next request tries the refresh again. The signature check is skipped: it may have to fetch keys
+        /// from the sign-in server that has just failed, so a page would fail where the session should
+        /// survive. The translation API checks the kept token on every call (ADR-0067 decision 2).
+        /// </summary>
+        Postponed
     }
-
-    private static readonly Action<ILogger, Exception?> LogNoRefreshToken =
-        LoggerMessage.Define(
-            LogLevel.Information,
-            new EventId(1, nameof(LogNoRefreshToken)),
-            "Cookie has no refresh_token; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogRefreshFailed =
-        LoggerMessage.Define(
-            LogLevel.Information,
-            new EventId(2, nameof(LogRefreshFailed)),
-            "Refresh token grant returned no usable answer; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogProactiveInvalidToken =
-        LoggerMessage.Define(
-            LogLevel.Information,
-            new EventId(3, nameof(LogProactiveInvalidToken)),
-            "Access token failed local JWKS signature validation after a metadata refresh; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogReactiveDeadSession =
-        LoggerMessage.Define(
-            LogLevel.Information,
-            new EventId(4, nameof(LogReactiveDeadSession)),
-            "Session was marked dead by a prior 401; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogNoUsableAccessToken =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(5, nameof(LogNoUsableAccessToken)),
-            "Refresh token grant returned a missing, empty or blank access_token; principal rejected.");
-
-    private static readonly Action<ILogger, string, Exception?> LogNoPositiveLifetime =
-        LoggerMessage.Define<string>(
-            LogLevel.Warning,
-            new EventId(6, nameof(LogNoPositiveLifetime)),
-            "Refresh token grant returned a missing or non-positive expires_in; principal rejected. expires_in: {ExpiresIn}");
-
-    private static readonly Action<ILogger, Exception?> LogMalformedAccessToken =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(7, nameof(LogMalformedAccessToken)),
-            "Refresh token grant returned an access_token that is not a compact JWS; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogMalformedRefreshToken =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(8, nameof(LogMalformedRefreshToken)),
-            "Refresh token grant returned a refresh_token with characters outside printable ASCII; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogMalformedIdToken =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(9, nameof(LogMalformedIdToken)),
-            "Refresh token grant returned an id_token that is not a compact JWS; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogNoUsableExpiry =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(10, nameof(LogNoUsableExpiry)),
-            "Cookie has a missing or unreadable expires_at; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogNoStoredAccessToken =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(11, nameof(LogNoStoredAccessToken)),
-            "Cookie has a missing, empty or blank access_token; principal rejected.");
-
-    private static readonly Action<ILogger, Exception?> LogBlankStoredRefreshToken =
-        LoggerMessage.Define(
-            LogLevel.Warning,
-            new EventId(12, nameof(LogBlankStoredRefreshToken)),
-            "Cookie has an empty or blank refresh_token; principal rejected.");
 }

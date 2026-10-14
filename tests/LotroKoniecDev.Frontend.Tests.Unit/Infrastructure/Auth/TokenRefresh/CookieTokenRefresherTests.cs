@@ -192,15 +192,18 @@ public sealed class CookieTokenRefresherTests : IDisposable
     }
 
     [Fact]
-    public async Task ValidateAsync_WhenNearExpiryAndRefreshFails_RejectsPrincipalAndSignsOut()
+    public async Task ValidateAsync_WhenNearExpiryAndTheRefreshIsRefused_RejectsPrincipalAndSignsOut()
     {
-        // No refresh result is set up, so the token client answers null. That is what it returns for any
-        // failed refresh grant, a redirect included (#899).
+        // A final failure: any refusal but a 429 or a 5xx, a redirect included (#899), or a whole answer
+        // that cannot be read (ADR-0067 decision 3).
         RsaSecurityKey signingKey = CreateRsaKey();
         string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
 
         IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
-        CookieTokenRefresher refresher = CreateRefresher(trustedKeys: [signingKey], discoveryIssuer: DiscoveryIssuer);
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshFailure: TokenRefreshResult.FinalFailure);
         CookieValidatePrincipalContext context = CreateContext(
             accessToken,
             authenticationService,
@@ -214,6 +217,356 @@ public sealed class CookieTokenRefresherTests : IDisposable
             Arg.Any<HttpContext>(),
             CookieAuthenticationDefaults.AuthenticationScheme,
             Arg.Any<AuthenticationProperties>());
+    }
+
+    /// <summary>
+    /// #1062: a sign-in server that restarts, is busy, or refuses the address many users share does not sign
+    /// anyone out while the access token still works. The cookie is not rewritten, so the refresh stays due.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenTheRefreshFailsForAMomentWhileTheAccessTokenWorks_KeepsTheSessionAsItIs()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshFailure: TokenRefreshResult.TemporaryFailure);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            authenticationService,
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldNotBeNull();
+        context.ShouldRenew.ShouldBeFalse();
+        context.Properties.GetTokenValue(AccessTokenName).ShouldBe(accessToken);
+        context.Properties.GetTokenValue(RefreshTokenName).ShouldBe("refresh-token");
+        await authenticationService.DidNotReceive().SignOutAsync(
+            Arg.Any<HttpContext>(),
+            Arg.Any<string>(),
+            Arg.Any<AuthenticationProperties>());
+    }
+
+    [Fact]
+    public async Task ValidateAsync_WhenTheRefreshFailsForAMomentWhileTheAccessTokenWorks_RevokesNothing()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            tokenEndpointClient: tokenEndpointClient,
+            refreshFailure: TokenRefreshResult.TemporaryFailure);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        RevokedRefreshTokens(tokenEndpointClient).ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// A refusal, and a failure once the access token has run out, end the session with the one-time
+    /// notice, the same as every other rejection.
+    /// </summary>
+    [Theory]
+    [InlineData(false, 30)]
+    [InlineData(true, -1)]
+    public async Task ValidateAsync_WhenTheRefreshFailsForGood_RaisesTheExpiryNotice(
+        bool temporaryFailure,
+        int secondsUntilExpiry)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        ISessionExpiryNotice sessionExpiryNotice = Substitute.For<ISessionExpiryNotice>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            sessionExpiryNotice: sessionExpiryNotice,
+            refreshFailure: temporaryFailure ? TokenRefreshResult.TemporaryFailure : TokenRefreshResult.FinalFailure);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(secondsUntilExpiry),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        sessionExpiryNotice.Received(1).Raise();
+    }
+
+    [Fact]
+    public async Task ValidateAsync_WhenTheRefreshFailsForAMomentWhileTheAccessTokenWorks_RaisesNoExpiryNotice()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        ISessionExpiryNotice sessionExpiryNotice = Substitute.For<ISessionExpiryNotice>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            sessionExpiryNotice: sessionExpiryNotice,
+            refreshFailure: TokenRefreshResult.TemporaryFailure);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        sessionExpiryNotice.DidNotReceive().Raise();
+    }
+
+    /// <summary>
+    /// #1062: the refresh stays due, so the next page tries again, and once the sign-in server answers, the
+    /// session gets its new tokens.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_OnTheNextPageAfterARefreshFailedForAMoment_TriesAgainAndStoresTheNewTokens()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+        FakeTimeProvider time = new(Start);
+
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        tokenEndpointClient
+            .RefreshAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(
+                TokenRefreshResult.TemporaryFailure,
+                TokenRefreshResult.Renewed(new TokenResponse
+                {
+                    AccessToken = RefreshedJws,
+                    RefreshToken = "rotated-refresh-token",
+                    ExpiresIn = 300
+                }));
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            tokenEndpointClient: tokenEndpointClient,
+            timeProvider: time);
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        CookieValidatePrincipalContext firstPage = CreateContext(
+            accessToken,
+            authenticationService,
+            expiresAt: Start.AddSeconds(30),
+            refreshToken: "refresh-token");
+        await refresher.ValidateAsync(firstPage);
+
+        time.Advance(TimeSpan.FromSeconds(5));
+        CookieValidatePrincipalContext nextPage = CreateContext(firstPage.Properties, authenticationService);
+        await refresher.ValidateAsync(nextPage);
+
+        nextPage.Principal.ShouldNotBeNull();
+        nextPage.ShouldRenew.ShouldBeTrue();
+        nextPage.Properties.GetTokenValue(AccessTokenName).ShouldBe(RefreshedJws);
+        nextPage.Properties.GetTokenValue(RefreshTokenName).ShouldBe("rotated-refresh-token");
+    }
+
+    /// <summary>
+    /// #1062: the session survives a temporary failure only while its access token still works. From the
+    /// moment the token runs out, the failure is final, as the owner ruled. A user who comes back after an
+    /// hour is signed out by a failed refresh too. The call to the sign-in server is checked as well,
+    /// because a session that was never due for a refresh would also be kept.
+    /// </summary>
+    [Theory]
+    [InlineData(59, true)]
+    [InlineData(1, true)]
+    [InlineData(0, false)]
+    [InlineData(-1, false)]
+    [InlineData(-3600, false)]
+    public async Task ValidateAsync_WhenTheRefreshFailsForAMoment_KeepsTheSessionOnlyWhileTheAccessTokenWorks(
+        int secondsUntilExpiry,
+        bool sessionKept)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+        FakeTimeProvider time = new(Start);
+
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            tokenEndpointClient: tokenEndpointClient,
+            timeProvider: time,
+            refreshFailure: TokenRefreshResult.TemporaryFailure);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: Start.AddSeconds(secondsUntilExpiry),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        (context.Principal is not null).ShouldBe(sessionKept);
+        await tokenEndpointClient.Received(1).RefreshAsync("refresh-token", Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// #1062: a timeout takes 30 seconds (#923), so the access token can run out while the website waits.
+    /// The clock is read after the call, so that failure is final.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenATemporaryFailureArrivesAfterTheAccessTokenRanOut_RejectsPrincipalAndSignsOut()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+        FakeTimeProvider time = new(Start);
+
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        tokenEndpointClient
+            .RefreshAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                time.Advance(TimeSpan.FromSeconds(30));
+                return TokenRefreshResult.TemporaryFailure;
+            });
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            tokenEndpointClient: tokenEndpointClient,
+            timeProvider: time);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            authenticationService,
+            expiresAt: Start.AddSeconds(20),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldBeNull();
+        await authenticationService.Received(1).SignOutAsync(
+            Arg.Any<HttpContext>(),
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            Arg.Any<AuthenticationProperties>());
+    }
+
+    /// <summary>
+    /// A failure after the access token ran out is final, so it ends the session the way a refusal does
+    /// (#1027).
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenTheRefreshFailsForAMomentAfterTheAccessTokenRanOut_RevokesTheStoredRefreshToken()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            tokenEndpointClient: tokenEndpointClient,
+            refreshFailure: TokenRefreshResult.TemporaryFailure);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(-1),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        RevokedRefreshTokens(tokenEndpointClient).ShouldBe(["refresh-token"]);
+    }
+
+    /// <summary>
+    /// #977: a refresh that fails for a moment is the normal result of a busy or restarting sign-in server,
+    /// so it is Information. The token client has already logged the cause as a warning.
+    /// </summary>
+    [Theory]
+    [InlineData(30, "the session keeps its access token and the next request tries again")]
+    [InlineData(-1, "after the access token ran out; principal rejected")]
+    public async Task ValidateAsync_WhenTheRefreshFailsForAMoment_LogsOneInformationLineWithTheOutcome(
+        int secondsUntilExpiry,
+        string expectedOutcome)
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            logger: loggerFactory.CreateLogger<CookieTokenRefresher>(),
+            refreshFailure: TokenRefreshResult.TemporaryFailure);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(secondsUntilExpiry),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Information);
+        entry.Message.ShouldContain(expectedOutcome);
+    }
+
+    /// <summary>
+    /// The token client cannot tell a browser that left from a timeout, so a cancelled refresh is a
+    /// temporary failure too. While the access token works the session is kept, and nothing else on this
+    /// request waits for the browser that is gone.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenTheBrowserLeavesDuringTheRefreshWhileTheAccessTokenWorks_KeepsTheSession()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshFailure: TokenRefreshResult.TemporaryFailure);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token",
+            requestAborted: new CancellationToken(canceled: true));
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// #1062: the website's own signature check may have to fetch the keys from the sign-in server that has
+    /// just failed. Right after a website restart no keys are cached, so the check would fail the page. A
+    /// token kept after a temporary failure skips the check, because a session that already exists never
+    /// gets the error page from the renewal (ADR-0067 decision 3).
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_WhenTheRefreshFailsForAMomentAndTheSignInServersKeysCannotBeFetched_KeepsTheSession()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            refreshFailure: TokenRefreshResult.TemporaryFailure,
+            configurationManager: new UnreachableConfigurationManager());
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldNotBeNull();
     }
 
     /// <summary>
@@ -877,18 +1230,18 @@ public sealed class CookieTokenRefresherTests : IDisposable
         tokenEndpointClient
             .RefreshAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(
-                new TokenResponse
+                TokenRefreshResult.Renewed(new TokenResponse
                 {
                     AccessToken = firstRefreshedAccessToken,
                     RefreshToken = "first-rotated-refresh-token",
                     ExpiresIn = 60
-                },
-                new TokenResponse
+                }),
+                TokenRefreshResult.Renewed(new TokenResponse
                 {
                     AccessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer),
                     RefreshToken = "second-rotated-refresh-token",
                     ExpiresIn = 60
-                });
+                }));
         CookieTokenRefresher refresher = CreateRefresher(
             trustedKeys: [signingKey],
             discoveryIssuer: DiscoveryIssuer,
@@ -930,18 +1283,18 @@ public sealed class CookieTokenRefresherTests : IDisposable
         tokenEndpointClient
             .RefreshAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(
-                new TokenResponse
+                TokenRefreshResult.Renewed(new TokenResponse
                 {
                     AccessToken = firstRefreshedAccessToken,
                     RefreshToken = "first-rotated-refresh-token",
                     ExpiresIn = expiresIn
-                },
-                new TokenResponse
+                }),
+                TokenRefreshResult.Renewed(new TokenResponse
                 {
                     AccessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer),
                     RefreshToken = "second-rotated-refresh-token",
                     ExpiresIn = expiresIn
-                });
+                }));
         CookieTokenRefresher refresher = CreateRefresher(
             trustedKeys: [signingKey],
             discoveryIssuer: DiscoveryIssuer,
@@ -1954,14 +2307,17 @@ public sealed class CookieTokenRefresherTests : IDisposable
     /// token works again once the lockout ends.
     /// </summary>
     [Fact]
-    public async Task ValidateAsync_WhenNearExpiryAndRefreshFails_RevokesTheStoredRefreshToken()
+    public async Task ValidateAsync_WhenNearExpiryAndTheRefreshIsRefused_RevokesTheStoredRefreshToken()
     {
         RsaSecurityKey signingKey = CreateRsaKey();
         string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
 
         ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
         CookieTokenRefresher refresher = CreateRefresher(
-            trustedKeys: [signingKey], discoveryIssuer: DiscoveryIssuer, tokenEndpointClient: tokenEndpointClient);
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            tokenEndpointClient: tokenEndpointClient,
+            refreshFailure: TokenRefreshResult.FinalFailure);
         CookieValidatePrincipalContext context = CreateContext(
             accessToken,
             Substitute.For<IAuthenticationService>(),
@@ -1974,23 +2330,27 @@ public sealed class CookieTokenRefresherTests : IDisposable
     }
 
     /// <summary>
-    /// A browser that leaves during the refresh makes the token client answer null, but the token is not
-    /// dead. The browser never gets the deleted cookie and sends the same refresh token on its next request,
-    /// so a revoke here would sign out a user who only clicked a second link.
+    /// A browser that leaves during the refresh cancels it, which the token client reports as a temporary
+    /// failure. Once the access token has run out, that ends the session, but the token is not dead. The
+    /// browser never gets the deleted cookie and sends the same refresh token on its next request, so a
+    /// revoke here would sign out a user who only clicked a second link.
     /// </summary>
     [Fact]
-    public async Task ValidateAsync_WhenTheBrowserLeavesDuringTheRefresh_KeepsTheStoredRefreshTokenAlive()
+    public async Task ValidateAsync_WhenTheBrowserLeavesDuringTheRefreshAfterTheAccessTokenRanOut_KeepsTheStoredRefreshTokenAlive()
     {
         RsaSecurityKey signingKey = CreateRsaKey();
         string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
 
         ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
         CookieTokenRefresher refresher = CreateRefresher(
-            trustedKeys: [signingKey], discoveryIssuer: DiscoveryIssuer, tokenEndpointClient: tokenEndpointClient);
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            tokenEndpointClient: tokenEndpointClient,
+            refreshFailure: TokenRefreshResult.TemporaryFailure);
         CookieValidatePrincipalContext context = CreateContext(
             accessToken,
             Substitute.For<IAuthenticationService>(),
-            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(-1),
             refreshToken: "refresh-token",
             requestAborted: new CancellationToken(canceled: true));
 
@@ -2171,14 +2531,20 @@ public sealed class CookieTokenRefresherTests : IDisposable
         ISessionExpiryNotice? sessionExpiryNotice = null,
         ILogger<CookieTokenRefresher>? logger = null,
         ITokenEndpointClient? tokenEndpointClient = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        TokenRefreshResult? refreshFailure = null,
+        IConfigurationManager<OpenIdConnectConfiguration>? configurationManager = null)
     {
+        // A token client the test passes in with no answer keeps the answer the test set up on it.
+        bool setsUpTheRefresh = tokenEndpointClient is null || refreshResult is not null || refreshFailure is not null;
         tokenEndpointClient ??= Substitute.For<ITokenEndpointClient>();
-        if (refreshResult is not null)
+        if (setsUpTheRefresh)
         {
             tokenEndpointClient
                 .RefreshAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-                .Returns(refreshResult);
+                .Returns(refreshResult is not null
+                    ? TokenRefreshResult.Renewed(refreshResult)
+                    : refreshFailure ?? TokenRefreshResult.FinalFailure);
         }
 
         OpenIdConnectConfiguration configuration = new() { RevocationEndpoint = RevocationEndpoint };
@@ -2194,7 +2560,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
 
         OpenIdConnectOptions openIdConnectOptions = new()
         {
-            ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(configuration)
+            ConfigurationManager = configurationManager
+                ?? new StaticConfigurationManager<OpenIdConnectConfiguration>(configuration)
         };
 
         IOptionsMonitor<OpenIdConnectOptions> optionsMonitor =
@@ -2362,5 +2729,17 @@ public sealed class CookieTokenRefresherTests : IDisposable
         RSA rsa = RSA.Create(2048);
         _rsaInstances.Add(rsa);
         return new RsaSecurityKey(rsa) { KeyId = Guid.NewGuid().ToString("N") };
+    }
+
+    /// <summary>A sign-in server that is down while the website holds no copy of its keys yet.</summary>
+    private sealed class UnreachableConfigurationManager : IConfigurationManager<OpenIdConnectConfiguration>
+    {
+        public Task<OpenIdConnectConfiguration> GetConfigurationAsync(CancellationToken cancel) =>
+            Task.FromException<OpenIdConnectConfiguration>(
+                new InvalidOperationException("IDX20803: Unable to obtain configuration."));
+
+        public void RequestRefresh()
+        {
+        }
     }
 }

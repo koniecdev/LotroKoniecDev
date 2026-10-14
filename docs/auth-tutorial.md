@@ -357,20 +357,26 @@ zaszyfrowanej sesji po stronie serwera (`SaveTokens = true`).
 ### 8.4 CookieTokenRefresher
 `Infrastructure/Auth/TokenRefresh/CookieTokenRefresher.cs` na `OnValidatePrincipal`: gdy access token
 bliski wygaśnięcia, wymienia refresh token na nowy w `connect/token` (przez `ITokenEndpointClient`) i
-aktualizuje sesję. Rolling refresh ⇒ stary refresh token unieważniony, nowy zapisany. Odrzucony
-refresh kończy sesję od razu. 401 z API zostawia znacznik w `DeadSessionRegistry`, a następne żądanie
+aktualizuje sesję. Rolling refresh ⇒ stary refresh token unieważniony, nowy zapisany. Nieudany refresh
+jest chwilowy albo ostateczny (ADR-0067 decyzja 3, #1062). **Chwilowy** (429, każdy 5xx, błąd sieci,
+timeout 30 s z #923) nie kończy sesji, dopóki bieżący access token działa: strona niczego nie rewokuje,
+nie pokazuje komunikatu i próbuje znowu przy następnym żądaniu. Okno to reszta życia tokenu, około
+minuty, bez osobnego ustawienia. Na tym żądaniu strona pomija też własne sprawdzenie podpisu, bo mogłoby
+pobierać klucze z serwera, który właśnie zawiódł. **Ostateczny** (każda inna odmowa, np. 400
+`invalid_grant`, odpowiedź 2xx, której nie da się przeczytać, albo chwilowy błąd już po wygaśnięciu
+tokenu) kończy sesję od razu. 401 z API zostawia znacznik w `DeadSessionRegistry`, a następne żądanie
 kończy po nim sesję (czysty re-login). Znacznik wisi pod skrótem SHA-256 tokenu dostępu, który niosło
 odrzucone wywołanie, a nie pod id użytkownika, więc kończy się tylko sesja urządzenia z tym tokenem, a
 ten sam użytkownik na innym urządzeniu zostaje zalogowany (#1061). Na `POST /auth/logout` i
 `POST /auth/local-signout` refresher niczego nie sprawdza, żeby wylogowanie rewokowało bieżący, nie
 zużyty refresh token (§10.3, #964, #1027).
-Gdy strona sama kończy sesję (zły podpis tokena, znacznik martwej sesji, odrzucony albo nieużyteczny
-refresh), rewokuje też refresh token z cookie przez `RefreshTokenRevoker` (#1027): samo usunięcie
-cookie zostawiłoby go ważnym na serwerze przez godziny. Przy nieużytecznej odpowiedzi refreshu rewokuje
-także nowy token z tej odpowiedzi, bo serwer już wymienił stary na nowy. Oba wywołania mają jeden limit
-5 s, ten sam co przy wylogowaniu. Wyjątek: przeglądarka zerwała żądanie w trakcie refreshu. Wtedy błąd
-nic nie mówi o tokenie, przeglądarka nie dostaje usuniętego cookie i wróci z tym samym tokenem, więc
-token zostaje ważny.
+Gdy strona sama kończy sesję (zły podpis tokena, znacznik martwej sesji, ostatecznie nieudany albo
+nieużyteczny refresh), rewokuje też refresh token z cookie przez `RefreshTokenRevoker` (#1027): samo
+usunięcie cookie zostawiłoby go ważnym na serwerze przez godziny. Przy nieużytecznej odpowiedzi refreshu
+rewokuje także nowy token z tej odpowiedzi, bo serwer już wymienił stary na nowy. Oba wywołania mają
+jeden limit 5 s, ten sam co przy wylogowaniu. Wyjątek: przeglądarka zerwała żądanie w trakcie refreshu,
+który kończy sesję (odmowa albo token już wygasł). Wtedy błąd nic nie mówi o tokenie, przeglądarka nie
+dostaje usuniętego cookie i wróci z tym samym tokenem, więc token zostaje ważny.
 
 ### 8.5 Wywołania do API z tokenem
 `TranslationContentNegotiationAndAuthDelegatingHandler` dokłada `Authorization: Bearer <access>` (z

@@ -152,15 +152,14 @@ internal static class EventIds
     public const int TokenGrantRefusedByOpenIddict = 2396;
     public const int TokenGrantRefusalUserLookupFailed = 2397;
 
-    // Change E-mail request / confirm / revert (2500-2519)
+    // Change E-mail request / confirm / revert (2500-2519). 2502 and 2507 are no longer used: the request
+    // no longer looks the new address up (#860), and the dispatch logs 2525 and 2526 instead.
     public const int EmailChangeRequested = 2500;
     public const int EmailChangeSameAddress = 2501;
-    public const int EmailChangeAddressTaken = 2502;
     public const int EmailChangeTokenInvalid = 2503;
     public const int EmailChangeApplied = 2504;
     public const int EmailChangeUpdateFailed = 2505;
     public const int EmailChangeConfirmRace = 2506;
-    public const int EmailChangeRequestAddressReserved = 2507;
     public const int EmailChangeConfirmAddressReserved = 2508;
     public const int EmailChangeRecipientThrottled = 2509;
     public const int EmailChangeRevertTokenInvalid = 2510;
@@ -178,6 +177,8 @@ internal static class EventIds
     public const int EmailChangeDispatchAddressMissing = 2522;
     public const int EmailChangeDispatchWarningFailed = 2523;
     public const int EmailChangeDispatchAccountErased = 2524;
+    public const int EmailChangeDispatchAddressTaken = 2525;
+    public const int EmailChangeDispatchAddressReserved = 2526;
 
     // Middleware (2400-2499)
     public const int UnauthorizedAccessAttempt = 2400;

@@ -126,8 +126,8 @@ internal sealed partial class RevertEmailChangeModel : PageModel
     /// Only a dead link is called dead (#869). A taken previous address is a different problem with a
     /// different answer: nothing was changed, the password still works, and only support can sort it
     /// out. Only a visitor who holds a valid revert link for this account gets this far, and the address
-    /// was this account's own a moment ago, so naming it tells a stranger nothing. Registration no longer
-    /// names a taken address (#860), and this page does not change that. A failed save keeps the
+    /// was this account's own before the change, so naming it tells a stranger nothing. A stranger never
+    /// gets here, so the rule of #860 still holds. A failed save keeps the
     /// form, because the link is still good and one more click can finish the undo.
     /// </summary>
     private void ShowRefusal(Error error)

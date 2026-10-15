@@ -350,7 +350,9 @@ every branch. Only the owner of the address learns which branch ran, from the ma
 A free address gets a real account, with the username and password the caller typed. The caller can
 then ask about that account: sign in with the password (an unconfirmed account answers "not activated
 yet", ADR-0046), or register again with the same username (it is now taken). Each probe costs two
-requests, creates an account on a free address and mails its owner. Closing it needs a UX change
+requests. Sent one after the other, they create an account on a free address and mail its owner. Sent
+at the same moment, with the second on an address the caller owns, the free address can lose the race
+for the username and keep no trace at all. Closing it needs a UX change
 (e-mail-first registration, or a sign-in page that stops naming an unconfirmed account), so it is the
 owner's call and is tracked in #1151.
 

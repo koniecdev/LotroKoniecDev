@@ -177,6 +177,27 @@ public sealed class EmailChangeRequestProcessorTests
     }
 
     [Fact]
+    public async Task ProcessAsync_NoticeToTheOwnerOfTheNewAddressFails_AsksForARetry()
+    {
+        ApplicationUser user = CreateUser();
+        ApplicationUser owner = new() { Id = Guid.NewGuid(), UserName = "sam", Email = NewEmail };
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
+        _userManager.FindByEmailAsync(NewEmail).Returns(owner);
+        Error smtpError = new("Email.SendFailed", "SMTP relay refused the message.");
+        _emailSender.SendChangeRequestedWarningAsync(user.Id, CurrentEmail, NewEmail, Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        _emailSender.SendAddressTakenNoticeAsync(owner.Id, NewEmail, Arg.Any<CancellationToken>())
+            .Returns(Result.Failure(smtpError));
+        EmailChangeRequestProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(
+            new EmailChangeRequested(user.Id, CurrentEmail, NewEmail), CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(smtpError);
+    }
+
+    [Fact]
     public async Task ProcessAsync_NewAddressIsReserved_SendsOnlyTheWarning()
     {
         ApplicationUser user = CreateUser();

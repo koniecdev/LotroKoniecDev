@@ -269,6 +269,10 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
         AccountStateFactory.SpendRegistrationBudget(host.Services, takenBudgetSpent.Email);
         string freeBudgetSpent = UnknownAddress();
         AccountStateFactory.SpendRegistrationBudget(host.Services, freeBudgetSpent);
+        (RegisterRequest secondOwner, _) = await RegisterConfirmedAsync();
+        string reservedBudgetSpent = UnknownAddress();
+        await AccountStateFactory.ReserveAddressAsync(Factory.Services, secondOwner.Email, reservedBudgetSpent);
+        AccountStateFactory.SpendRegistrationBudget(host.Services, reservedBudgetSpent);
 
         // Act
         IReadOnlyList<BranchAnswer> answers = await CollectAsync(new()
@@ -278,7 +282,9 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
             ["reserved address"] = PostJsonAsync(host, "auth/register", NewRegistration(reserved)),
             ["taken address, budget spent"] =
                 PostJsonAsync(host, "auth/register", NewRegistration(takenBudgetSpent.Email)),
-            ["free address, budget spent"] = PostJsonAsync(host, "auth/register", NewRegistration(freeBudgetSpent))
+            ["free address, budget spent"] = PostJsonAsync(host, "auth/register", NewRegistration(freeBudgetSpent)),
+            ["reserved address, budget spent"] =
+                PostJsonAsync(host, "auth/register", NewRegistration(reservedBudgetSpent))
         });
 
         // Assert

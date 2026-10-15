@@ -156,7 +156,7 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
         takenAddressResponse.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
         (await freeAddressResponse.Content.ReadAsStringAsync()).ShouldContain("Auth.UserAlreadyExistsByUsername");
         (await takenAddressResponse.Content.ReadAsStringAsync()).ShouldContain("Auth.UserAlreadyExistsByUsername");
-        AccountConfirmationEmailSpy.RegistrationAttemptedCallCount.ShouldBe(0);
+        (await CountNoticeRowsAsync()).ShouldBe(0);
     }
 
     /// <summary>
@@ -184,7 +184,7 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         json.RootElement.GetProperty("errorCode").GetString().ShouldBe("Auth.PasswordFoundInBreaches");
-        AccountConfirmationEmailSpy.RegistrationAttemptedCallCount.ShouldBe(0);
+        (await CountNoticeRowsAsync()).ShouldBe(0);
     }
 
     [Fact]
@@ -378,6 +378,19 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    /// <summary>
+    /// The notice is committed before the answer is sent, so a count right after the answer is final.
+    /// </summary>
+    private async Task<int> CountNoticeRowsAsync()
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+        return await db.OutboxMessages
+            .AsNoTracking()
+            .CountAsync(row => row.Type == nameof(RegistrationAttemptedOnExistingAccount));
     }
 
     private async Task<int> CountConfirmationRowsAsync()

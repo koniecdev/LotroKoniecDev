@@ -147,6 +147,13 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
             try
             {
+                // A known corner case: if the answer to CommitAsync is lost after the server really
+                // committed, the execution strategy replays, finds its own new username below, and
+                // answers "username taken" for a registration that in fact worked. A taken address
+                // replays into a second notice instead. We accept both. The committed outbox row still
+                // sends the confirmation, so the user can finish the flow, and a watertight fix with
+                // ExecuteInTransaction and a verification query would buy little.
+
                 // The username first. It is a public handle, so "taken" tells nothing, but checked after
                 // the address it would: a known taken username paired with any address would answer
                 // "username taken" for a free address and "check your inbox" for a taken one (#860).
@@ -302,8 +309,9 @@ internal sealed partial class RegisterUser : IApiEndpoint
         }
 
         /// <summary>
-        /// Every password validator, as <c>UserManager.CreateAsync(user, password)</c> would run them. That
-        /// method is protected on <see cref="UserManager{TUser}"/>, so the loop is written out here.
+        /// Every password validator, as <c>UserManager.CreateAsync(user, password)</c> would run them.
+        /// <c>UserManager.ValidatePasswordAsync</c>, which does this, is protected, so the loop is written
+        /// out here.
         /// </summary>
         private async Task<IdentityResult> ValidatePasswordAsync(ApplicationUser user, string password)
         {

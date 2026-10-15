@@ -21,16 +21,6 @@ internal sealed partial class RegistrationAttemptedProcessor : IEmailMessageProc
     private readonly IAccountConfirmationEmailSender _accountConfirmationEmailSender;
     private readonly ILogger<RegistrationAttemptedProcessor> _logger;
 
-    public RegistrationAttemptedProcessor(
-        UserManager<ApplicationUser> userManager,
-        IAccountConfirmationEmailSender accountConfirmationEmailSender,
-        ILogger<RegistrationAttemptedProcessor> logger)
-    {
-        _userManager = userManager;
-        _accountConfirmationEmailSender = accountConfirmationEmailSender;
-        _logger = logger;
-    }
-
     public object? TryDeserialize(ReadOnlySpan<byte> body)
     {
         try
@@ -90,6 +80,16 @@ internal sealed partial class RegistrationAttemptedProcessor : IEmailMessageProc
             user.Id,
             user.Email,
             cancellationToken);
+    }
+
+    public RegistrationAttemptedProcessor(
+        UserManager<ApplicationUser> userManager,
+        IAccountConfirmationEmailSender accountConfirmationEmailSender,
+        ILogger<RegistrationAttemptedProcessor> logger)
+    {
+        _userManager = userManager;
+        _accountConfirmationEmailSender = accountConfirmationEmailSender;
+        _logger = logger;
     }
 
     [LoggerMessage(

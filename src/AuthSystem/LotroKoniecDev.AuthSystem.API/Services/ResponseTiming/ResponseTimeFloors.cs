@@ -13,10 +13,9 @@ internal static class ResponseTimeFloors
     internal static readonly TimeSpan AccountLookup = TimeSpan.FromMilliseconds(500);
 
     /// <summary>
-    /// Creating an account takes about a dozen database round trips (the two lookups, the reservation
-    /// check, Identity's own lookups before the insert and before the role, the inserts and the commit),
-    /// three times what <see cref="AccountLookup"/> was sized for (#860). The password hash runs before the
-    /// clock starts, so it is not part of it.
+    /// Creating an account takes about 17 database round trips, about 170 ms on the network from the
+    /// staging box (ADR-0059, amendment decision 10). The password hash and the breach check run before
+    /// the clock starts, so they are not part of it.
     /// </summary>
     internal static readonly TimeSpan Registration = TimeSpan.FromSeconds(1);
 

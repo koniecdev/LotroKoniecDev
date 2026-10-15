@@ -43,6 +43,9 @@ public sealed class EmailChangeEndpointTests : EndpointsTestBase
         row.ShouldNotBeNull();
         row.Payload.ShouldContain(registerRequest.Email);
         (await CountOutboxRowsAsync(nameof(EmailChangeRequested))).ShouldBe(1);
+
+        // Wait for the delivery, so its link cannot land in the next test's spy (#950).
+        (await OutboxAssertions.WaitForInboxRowsAsync(Factory, row.Id)).ShouldBe(1);
     }
 
     [Fact]

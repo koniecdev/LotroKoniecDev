@@ -183,12 +183,7 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         // The delivery is recorded only after every send, so no link can still be on its way when the
         // checks below run.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        OutboxMessage? row = await OutboxAssertions.WaitForOutboxRowAsync(
-            Factory,
-            message => message.Type == nameof(EmailChangeRequested)
-                       && JsonSerializer.Deserialize<EmailChangeRequested>(message.Payload)!.NewEmail == owner.Email);
-        row.ShouldNotBeNull();
-        (await OutboxAssertions.WaitForInboxRowsAsync(Factory, row.Id)).ShouldBe(1);
+        (await WaitForChangeRequestsDeliveredAsync(owner.Email)).ShouldBe(1);
 
         EmailChangeEmailSpy.LastWarningRecipient.ShouldBe(other.Email);
         EmailChangeEmailSpy.VerificationCallCount.ShouldBe(0);
@@ -206,6 +201,9 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         HttpResponseMessage response = await RequestChangeAsync(accessToken, user.Email);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Wait for the delivery, so its link cannot land in the next test's spy (#950).
+        (await WaitForChangeRequestsDeliveredAsync(user.Email)).ShouldBe(1);
     }
 
     /// <summary>
@@ -239,6 +237,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         refused.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
         reverted.RequestMessage!.RequestUri!.ToString().ShouldContain("/Account/ResetPassword");
         (await LoadUserByIdAsync(ownerId)).Email.ShouldBe(owner.Email);
+        (await WaitForChangeRequestsDeliveredAsync(owner.Email))
+            .ShouldBe(AccountBudgets.EmailChangeRecipientPermitLimit);
     }
 
     [Fact]
@@ -469,6 +469,30 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
 
         return await db.Users.AsNoTracking().SingleAsync(user => user.Id == userId);
+    }
+
+    /// <summary>
+    /// Waits until every e-mail change request to <paramref name="newEmail"/> has been delivered, and
+    /// returns how many there were. A delivery is recorded only after all of its mails, so none of them
+    /// can land in the next test's spy (#950).
+    /// </summary>
+    private async Task<int> WaitForChangeRequestsDeliveredAsync(string newEmail)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+        List<OutboxMessage> rows = await db.OutboxMessages.AsNoTracking()
+            .Where(row => row.Type == nameof(EmailChangeRequested))
+            .ToListAsync();
+
+        int delivered = 0;
+        foreach (OutboxMessage row in rows.Where(
+                     row => JsonSerializer.Deserialize<EmailChangeRequested>(row.Payload)!.NewEmail == newEmail))
+        {
+            delivered += await OutboxAssertions.WaitForInboxRowsAsync(Factory, row.Id);
+        }
+
+        return delivered;
     }
 
     private async Task<int> CountAccountsOnAsync(string email)

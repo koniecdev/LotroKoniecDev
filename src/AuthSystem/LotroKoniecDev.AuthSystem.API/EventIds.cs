@@ -64,6 +64,8 @@ internal static class EventIds
     public const int RegisterConcurrentRace = 2271;
     public const int RegisterReservedAddressRefused = 2272;
     public const int RegisterMailboxThrottled = 2273;
+    public const int RegisterCompleted = 2274;
+    public const int RegisterAddressOwnerNotified = 2275;
 
     // Resend Confirmation (2280-2289)
     public const int ResendConfirmNonExistent = 2280;
@@ -182,7 +184,9 @@ internal static class EventIds
     public const int ForbiddenAccessAttempt = 2401;
 
     // Pages (2600-2699). 2610 was PasswordResetTokenGenerated until the page stopped creating tokens
-    // (ADR-0038). It now marks the outbox write that replaced sending inside the request.
+    // (ADR-0038). It now marks the outbox write that replaced sending inside the request. 2640
+    // (RegisterCompletedViaUi) is no longer used: the page cannot know whether an account was created
+    // (#860), so the registration handler logs 2274 or 2275 instead.
     public const int EmailConfirmedViaUi = 2600;
     public const int PasswordResetRequestQueued = 2610;
     public const int LoginUserNotFound = 2620;
@@ -193,7 +197,6 @@ internal static class EventIds
     public const int LoginDeletionScheduled = 2625;
     public const int LoginDeletionScheduledThrottled = 2626;
     public const int PasswordResetCompletedViaUi = 2630;
-    public const int RegisterCompletedViaUi = 2640;
     public const int DeletionCancelledViaUi = 2650;
     public const int EmailChangeConfirmedViaUi = 2660;
     public const int EmailChangeRevertedViaUi = 2661;
@@ -237,4 +240,9 @@ internal static class EventIds
 
     // Cancel-deletion link (2760-2769). The 2220-2239 range is full.
     public const int GdprCancelWindowOver = 2760;
+
+    // Registration-attempt notice dispatch (2770-2779, #860)
+    public const int RegistrationAttemptedNoticeUserGone = 2770;
+    public const int RegistrationAttemptedNoticeAccountErased = 2771;
+    public const int RegistrationAttemptedNoticeAddressMissing = 2772;
 }

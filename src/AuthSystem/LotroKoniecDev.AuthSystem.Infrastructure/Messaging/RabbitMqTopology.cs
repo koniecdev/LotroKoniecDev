@@ -33,6 +33,11 @@ public static class RabbitMqTopology
     public const string EmailConfirmationRoutingKey = "email.confirmation";
 
     /// <summary>
+    /// Routing key of the notice to an account's owner that someone tried to register with its address.
+    /// </summary>
+    public const string RegistrationAttemptedRoutingKey = "email.registration-attempted";
+
+    /// <summary>
     /// Routing key of the password reset e-mail.
     /// </summary>
     public const string PasswordResetRoutingKey = "email.password-reset";

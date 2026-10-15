@@ -47,9 +47,9 @@ internal sealed partial class BreachedPasswordValidator : IPasswordValidator<App
             return IdentityResult.Success;
         }
 
-        // Identity hands a validator no token. A visitor who gave up must not keep the registration's
-        // transaction open for the whole time limit, so the call stops with the request. The admin seed
-        // runs outside a request and waits.
+        // Identity hands a validator no token. A visitor who gave up must not keep the request busy for
+        // the whole time limit, so the call stops with the request. The admin seed runs outside a request
+        // and waits.
         CancellationToken requestAborted = _httpContextAccessor.HttpContext?.RequestAborted ?? CancellationToken.None;
 
         PwnedPasswordVerdict verdict = await _pwnedPasswordChecker.CheckAsync(password, requestAborted);

@@ -35,7 +35,7 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
     [InlineData("Users")]
     [InlineData("UserRoles")]
     [InlineData("OutboxMessages")]
-    public async Task Register_ShouldReturnCreated_WhenATransientFailureHitsAWrite(string table)
+    public async Task Register_ShouldReturnAccepted_WhenATransientFailureHitsAWrite(string table)
     {
         // Arrange
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
@@ -45,7 +45,7 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
         using HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(RegisterEndpoint, request);
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
 
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
@@ -125,18 +125,19 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Both requests pass every check before either one writes, so the unique index decides. The losing
-    /// request must name the field it really lost on. A value in other letter case clashes only on the
-    /// case-blind index, so both spellings are raced.
+    /// Both requests pass every check before either one writes, so the unique index decides. A value in
+    /// other letter case clashes only on the case-blind index, so both spellings are raced. A lost
+    /// username says so: the username is a public handle. A lost address answers as a taken address does,
+    /// with the same 202 as a free one (#860).
     /// </summary>
     [Theory]
-    [InlineData(Clash.Email, "Auth.UserAlreadyExistsByEmail")]
-    [InlineData(Clash.EmailInOtherCase, "Auth.UserAlreadyExistsByEmail")]
+    [InlineData(Clash.Email, null)]
+    [InlineData(Clash.EmailInOtherCase, null)]
     [InlineData(Clash.Username, "Auth.UserAlreadyExistsByUsername")]
     [InlineData(Clash.UsernameInOtherCase, "Auth.UserAlreadyExistsByUsername")]
-    public async Task Register_ShouldNameTheTakenField_WhenARegistrationCommitsTheSameValueJustBeforeTheInsert(
+    public async Task Register_ShouldAnswerAsTheCheckWould_WhenARegistrationCommitsTheSameValueJustBeforeTheInsert(
         Clash clash,
-        string expectedErrorCode)
+        string? expectedErrorCode)
     {
         // Arrange: the competitor goes through the suite's main host, whose contexts do not carry this
         // interceptor, so it registers normally while our request waits in front of its insert
@@ -178,10 +179,18 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
         using HttpResponseMessage response = await client.PostAsJsonAsync(RegisterEndpoint, request);
 
         // Assert
-        interceptor.CompetitorStatusCode.ShouldBe(HttpStatusCode.Created);
-        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        interceptor.CompetitorStatusCode.ShouldBe(HttpStatusCode.Accepted);
         string content = await response.Content.ReadAsStringAsync();
-        content.ShouldContain(expectedErrorCode);
+        if (expectedErrorCode is null)
+        {
+            response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+            content.ShouldBeEmpty();
+        }
+        else
+        {
+            response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+            content.ShouldContain(expectedErrorCode);
+        }
     }
 
     public enum Clash

@@ -151,7 +151,7 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
 
         using HttpResponseMessage registered = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/register", UriKind.Relative), request);
-        registered.StatusCode.ShouldBe(HttpStatusCode.Created);
+        registered.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         await AccountConfirmationEmailSpy.WaitForCaptureAsync();
         AccountConfirmationEmailSpy.Reset();
 

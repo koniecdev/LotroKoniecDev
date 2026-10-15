@@ -15,6 +15,7 @@ internal static class OutboxMessageRouting
     private static readonly Dictionary<string, OutboxRoute> RoutesByType = new(StringComparer.Ordinal)
     {
         [nameof(EmailConfirmationRequested)] = Email(RabbitMqTopology.EmailConfirmationRoutingKey),
+        [nameof(RegistrationAttemptedOnExistingAccount)] = Email(RabbitMqTopology.RegistrationAttemptedRoutingKey),
         [nameof(PasswordResetRequested)] = Email(RabbitMqTopology.PasswordResetRoutingKey),
         [nameof(AccountDeletionScheduled)] = Email(RabbitMqTopology.DeletionScheduledRoutingKey),
         [nameof(AccountDeletionCancelled)] = Email(RabbitMqTopology.DeletionCancelledRoutingKey),

@@ -16,9 +16,10 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
     public RegisterEndpointTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
     [Fact]
-    public async Task Register_ShouldReturnCreated_WhenValidDataIsProvided()
+    public async Task Register_ShouldReturnAcceptedWithNoBodyAndSendTheConfirmation_WhenValidDataIsProvided()
     {
         // Arrange
+        AccountConfirmationEmailSpy.Reset();
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
 
         // Act
@@ -26,34 +27,46 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             new Uri("auth/register", UriKind.Relative), request);
 
         // Assert
-        string content = await response.EnsureSuccessWithDetailsAsync();
-        response.StatusCode.ShouldBe(HttpStatusCode.Created);
-
-        IdentityId registerResponse =
-            JsonSerializer.Deserialize<IdentityId>(content, ApiClient.JsonOptions);
-        registerResponse.Value.ShouldNotBe(Guid.Empty);
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await response.Content.ReadAsStringAsync()).ShouldBeEmpty();
+        await AccountConfirmationEmailSpy.WaitForCaptureAsync();
+        AccountConfirmationEmailSpy.LastEmail.ShouldBe(request.Email);
     }
 
     [Fact]
-    public async Task Register_ShouldReturnUnprocessableEntity_WhenEmailAlreadyExists()
+    public async Task Register_ShouldAnswerAsForAFreeAddressAndNotifyTheOwner_WhenEmailAlreadyExists()
     {
         // Arrange
-        (RegisterRequest existingRequest, _) =
+        (RegisterRequest existingRequest, IdentityId existingId) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        AccountConfirmationEmailSpy.Reset();
 
-        RegisterRequest duplicateRequest = new(
-            Faker.Random.AlphaNumeric(16),
-            existingRequest.Email,
-            "TestPass1!",
-            AcceptedPrivacyPolicy: true,
-            AcceptedTermsOfService: true);
+        RegisterRequest freeRequest = UserFactory.GenerateRandomRegisterRequest(Faker);
+        RegisterRequest duplicateRequest = UserFactory.GenerateRandomRegisterRequest(Faker) with
+        {
+            Email = existingRequest.Email
+        };
 
         // Act
-        HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+        using HttpResponseMessage takenResponse = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/register", UriKind.Relative), duplicateRequest);
+        using HttpResponseMessage freeResponse = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), freeRequest);
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        takenResponse.StatusCode.ShouldBe(freeResponse.StatusCode);
+        (await takenResponse.Content.ReadAsStringAsync()).ShouldBe(await freeResponse.Content.ReadAsStringAsync());
+        takenResponse.Content.Headers.ContentType.ShouldBe(freeResponse.Content.Headers.ContentType);
+
+        await AccountConfirmationEmailSpy.WaitForRegistrationAttemptedCaptureAsync();
+        AccountConfirmationEmailSpy.LastRegistrationAttemptedRecipient.ShouldBe(existingRequest.Email);
+        AccountConfirmationEmailSpy.RegistrationAttemptedCallCount.ShouldBe(1);
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        (await db.Users.AnyAsync(user => user.UserName == duplicateRequest.Username)).ShouldBeFalse();
+        (await db.Users.SingleAsync(user => user.NormalizedEmail == existingRequest.Email.ToUpperInvariant()))
+            .Id.ShouldBe(existingId.Value);
     }
 
     [Fact]
@@ -74,7 +87,7 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             RegisterRequest duplicateRequest = UserFactory.GenerateRandomRegisterRequest(Faker) with { Email = email };
             using HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
                 new Uri("auth/register", UriKind.Relative), duplicateRequest);
-            response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+            response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         }
 
         // Assert
@@ -83,30 +96,95 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task Register_ShouldReturnUnprocessableEntity_WhenEmailDiffersOnlyByCase()
+    public async Task Register_ShouldNotifyTheOwnerAndCreateNoAccount_WhenEmailDiffersOnlyByCase()
     {
         // Arrange
         (RegisterRequest existingRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        AccountConfirmationEmailSpy.Reset();
 
         string caseVariantEmail = existingRequest.Email.ToUpperInvariant();
         caseVariantEmail.ShouldNotBe(existingRequest.Email);
 
-        RegisterRequest duplicateRequest = new(
-            Faker.Random.AlphaNumeric(16),
-            caseVariantEmail,
-            "TestPass1!",
-            AcceptedPrivacyPolicy: true,
-            AcceptedTermsOfService: true);
+        RegisterRequest duplicateRequest = UserFactory.GenerateRandomRegisterRequest(Faker) with
+        {
+            Email = caseVariantEmail
+        };
 
         // Act
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/register", UriKind.Relative), duplicateRequest);
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
-        string content = await response.Content.ReadAsStringAsync();
-        content.ShouldContain("Auth.UserAlreadyExistsByEmail");
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        await AccountConfirmationEmailSpy.WaitForRegistrationAttemptedCaptureAsync();
+        AccountConfirmationEmailSpy.LastRegistrationAttemptedRecipient.ShouldBe(existingRequest.Email);
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        (await db.Users.AnyAsync(user => user.UserName == duplicateRequest.Username)).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The username is checked before the address, so a known taken username tells nothing about the
+    /// address it is paired with: both answer "username taken" (#860).
+    /// </summary>
+    [Fact]
+    public async Task Register_ShouldAnswerUsernameTakenWhetherOrNotTheAddressIsTaken_WhenUsernameAlreadyExists()
+    {
+        // Arrange
+        (RegisterRequest existingRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        (RegisterRequest otherAccount, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        AccountConfirmationEmailSpy.Reset();
+
+        RegisterRequest withFreeAddress = UserFactory.GenerateRandomRegisterRequest(Faker) with
+        {
+            Username = existingRequest.Username
+        };
+        RegisterRequest withTakenAddress = withFreeAddress with { Email = otherAccount.Email };
+
+        // Act
+        using HttpResponseMessage freeAddressResponse = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), withFreeAddress);
+        using HttpResponseMessage takenAddressResponse = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), withTakenAddress);
+
+        // Assert
+        freeAddressResponse.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        takenAddressResponse.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await freeAddressResponse.Content.ReadAsStringAsync()).ShouldContain("Auth.UserAlreadyExistsByUsername");
+        (await takenAddressResponse.Content.ReadAsStringAsync()).ShouldContain("Auth.UserAlreadyExistsByUsername");
+        AccountConfirmationEmailSpy.RegistrationAttemptedCallCount.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// The breach check runs before the address is looked up, so a leaked password gets the same refusal
+    /// for a taken address as for a free one (#860).
+    /// </summary>
+    [Fact]
+    public async Task Register_ShouldRefuseTheLeakedPassword_WhenTheAddressAlreadyHasAnAccount()
+    {
+        // Arrange
+        (RegisterRequest existingRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        AccountConfirmationEmailSpy.Reset();
+        RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker) with
+        {
+            Email = existingRequest.Email
+        };
+        Factory.PwnedPasswords.MarkBreached(request.Password);
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), request);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        json.RootElement.GetProperty("errorCode").GetString().ShouldBe("Auth.PasswordFoundInBreaches");
+        AccountConfirmationEmailSpy.RegistrationAttemptedCallCount.ShouldBe(0);
     }
 
     [Fact]
@@ -193,7 +271,7 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
     [Theory]
     [InlineData("kasia92")]
     [InlineData("KASIA92")]
-    public async Task Register_ShouldReturnCreated_WhenUsernameIsAlphanumeric(string username)
+    public async Task Register_ShouldReturnAccepted_WhenUsernameIsAlphanumeric(string username)
     {
         // Arrange
         RegisterRequest request = new(
@@ -209,7 +287,7 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
 
         // Assert
         await response.EnsureSuccessWithDetailsAsync();
-        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
     }
 
     [Fact]
@@ -277,7 +355,7 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
 
         // Assert
         await response.EnsureSuccessWithDetailsAsync();
-        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
@@ -356,6 +434,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
 
         // Assert
         await response.EnsureSuccessWithDetailsAsync();
-        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
     }
 }

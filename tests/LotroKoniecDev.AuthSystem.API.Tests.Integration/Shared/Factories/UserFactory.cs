@@ -45,13 +45,11 @@ internal static class UserFactory
             new Uri("auth/register", UriKind.Relative),
             request);
 
-        string stringResponse = await httpResponseMessage.EnsureSuccessWithDetailsAsync();
-        httpResponseMessage.StatusCode.ShouldBe(HttpStatusCode.Created);
+        await httpResponseMessage.EnsureSuccessWithDetailsAsync();
+        httpResponseMessage.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
-        IdentityId identityId = JsonSerializer.Deserialize<IdentityId>(stringResponse, apiClient.JsonOptions);
-        identityId.Value.ShouldNotBe(Guid.Empty);
+        IdentityId identityId = await WaitForNewAccountIdAsync(accountConfirmationEmailSpy, request);
 
-        // Confirm email using token captured by spy
         await ConfirmEmailAsync(apiClient, accountConfirmationEmailSpy);
 
         return (request, identityId);
@@ -71,15 +69,10 @@ internal static class UserFactory
             new Uri("auth/register", UriKind.Relative),
             request);
 
-        string stringResponse = await httpResponseMessage.EnsureSuccessWithDetailsAsync();
-        httpResponseMessage.StatusCode.ShouldBe(HttpStatusCode.Created);
+        await httpResponseMessage.EnsureSuccessWithDetailsAsync();
+        httpResponseMessage.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
-        IdentityId identityId = JsonSerializer.Deserialize<IdentityId>(stringResponse, apiClient.JsonOptions);
-        identityId.Value.ShouldNotBe(Guid.Empty);
-
-        // The confirmation e-mail travels the outbox pipeline now (commit -> relay -> delivery),
-        // so wait for the capture instead of assuming the register response implies it.
-        await accountConfirmationEmailSpy.WaitForCaptureAsync();
+        IdentityId identityId = await WaitForNewAccountIdAsync(accountConfirmationEmailSpy, request);
 
         return (request, identityId);
     }
@@ -100,5 +93,23 @@ internal static class UserFactory
 
         await confirmResponse.EnsureSuccessWithDetailsAsync();
         confirmResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    /// <summary>
+    /// Registration answers 202 with no body, whether or not the address already had an account (#860), so
+    /// the new account's id comes from the confirmation mail. That mail travels the outbox pipeline
+    /// (commit -> relay -> delivery), so the helper waits for it.
+    /// </summary>
+    private static async Task<IdentityId> WaitForNewAccountIdAsync(
+        SpyAccountConfirmationEmailSender accountConfirmationEmailSpy,
+        RegisterRequest request)
+    {
+        await accountConfirmationEmailSpy.WaitForCaptureAsync();
+
+        accountConfirmationEmailSpy.LastEmail.ShouldBe(request.Email);
+        Guid userId = accountConfirmationEmailSpy.LastUserId.ShouldNotBeNull();
+        userId.ShouldNotBe(Guid.Empty);
+
+        return IdentityId.Create(userId);
     }
 }

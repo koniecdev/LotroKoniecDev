@@ -66,4 +66,36 @@ internal sealed class AccountConfirmationEmailSender : IAccountConfirmationEmail
 
         return sendResult;
     }
+
+    public async Task<Result> SendRegistrationAttemptedNoticeAsync(
+        Guid userId,
+        string email,
+        CancellationToken cancellationToken)
+    {
+        EmailTemplateModel template = new()
+        {
+            Preheader = "Ktoś próbował założyć konto na ten adres e-mail.",
+            Heading = "Ten adres ma już konto",
+            Paragraphs =
+            [
+                $"Ktoś próbował założyć nowe konto na {EmailBranding.Name}, podając ten adres e-mail. Ten adres ma już konto, więc nowe nie powstało.",
+                "Jeśli to Ty — po prostu się zaloguj. Jeśli nie pamiętasz hasła, wybierz na stronie logowania „Nie pamiętam hasła”. Jeśli konto nie jest jeszcze aktywne, zaloguj się, a strona pozwoli wysłać link aktywacyjny ponownie."
+            ],
+            SecurityNote =
+                "Jeśli to nie Ty — nie musisz nic robić. Twoje konto się nie zmieniło."
+        };
+
+        using IDisposable? scope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["EmailOperation"] = "RegistrationAttemptedNotice",
+            ["RecipientUserId"] = userId
+        });
+
+        return await _emailService
+            .SendAsync(
+                receiverEmail: email,
+                subject: $"Próba założenia konta na Twój adres — {EmailBranding.Name}",
+                body: _templateRenderer.Render(template),
+                cancellationToken: cancellationToken);
+    }
 }

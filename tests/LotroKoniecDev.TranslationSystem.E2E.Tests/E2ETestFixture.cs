@@ -1,6 +1,7 @@
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Networks;
+using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.Tests.Shared;
 using Testcontainers.PostgreSql;
 
@@ -116,20 +117,23 @@ public sealed class E2ETestFixture : IAsyncLifetime
     /// The real journey from register to e-mail link to confirm belongs to the frontend browser suite.
     /// This suite is about real tokens against the TMS loop, so it skips the delivery step the same way it
     /// resets data: through psql.
+    /// It returns the account's id, because registration answers 202 with no body (#860).
     /// </summary>
-    public async Task ConfirmUserEmailAsync(string email)
+    public async Task<IdentityId> ConfirmUserEmailAsync(string email)
     {
         ExecResult result = await _postgres.ExecAsync(
         [
-            "psql", "-v", "ON_ERROR_STOP=1", "-U", PostgresUser, "-d", AuthDatabaseName,
-            "-c", $"UPDATE authsystem.\"Users\" SET \"EmailConfirmed\" = TRUE WHERE \"Email\" = '{email}';"
+            "psql", "-v", "ON_ERROR_STOP=1", "-U", PostgresUser, "-d", AuthDatabaseName, "-q", "-t", "-A",
+            "-c", $"UPDATE authsystem.\"Users\" SET \"EmailConfirmed\" = TRUE WHERE \"Email\" = '{email}' RETURNING \"Id\";"
         ]);
 
-        if (result.ExitCode != 0)
+        if (result.ExitCode != 0 || !Guid.TryParse(result.Stdout.Trim(), out Guid userId))
         {
             throw new InvalidOperationException(
                 $"Failed to confirm user e-mail (exit code {result.ExitCode}).\nStdout:\n{result.Stdout}\nStderr:\n{result.Stderr}");
         }
+
+        return IdentityId.Create(userId);
     }
 
     public async Task<string> GetAuthApiLogsAsync()

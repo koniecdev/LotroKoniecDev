@@ -86,7 +86,7 @@ internal static class ApiDependencyInjection
             services.AddScoped<IQueryHandler<DownloadAccountData.Query, Result<AccountDataExportResponse>>, DownloadAccountData.Handler>();
             services.AddScoped<IQueryHandler<ExportAccountData.Query, Result<AccountDataExportResponse>>, ExportAccountData.Handler>();
             services.AddScoped<ICommandHandler<ForgotPassword.Command, Result>, ForgotPassword.Handler>();
-            services.AddScoped<ICommandHandler<RegisterUser.Command, Result<IdentityId>>, RegisterUser.Handler>();
+            services.AddScoped<ICommandHandler<RegisterUser.Command, Result>, RegisterUser.Handler>();
             services.AddScoped<ICommandHandler<RequestEmailChange.Command, Result>, RequestEmailChange.Handler>();
             services.AddScoped<ICommandHandler<RevertEmailChange.Command, Result<RevertEmailChange.RevertedEmailChange>>, RevertEmailChange.Handler>();
             services.AddScoped<ICommandHandler<ResendEmailConfirmation.Command, Result>, ResendEmailConfirmation.Handler>();
@@ -176,6 +176,8 @@ internal static class ApiDependencyInjection
             // request would. The consumer itself is a singleton hosted service.
             services.AddKeyedScoped<IEmailMessageProcessor, EmailConfirmationRequestProcessor>(
                 nameof(EmailConfirmationRequested));
+            services.AddKeyedScoped<IEmailMessageProcessor, RegistrationAttemptedProcessor>(
+                nameof(RegistrationAttemptedOnExistingAccount));
             services.AddKeyedScoped<IEmailMessageProcessor, PasswordResetRequestProcessor>(
                 nameof(PasswordResetRequested));
             services.AddKeyedScoped<IEmailMessageProcessor, AccountDeletionScheduledProcessor>(

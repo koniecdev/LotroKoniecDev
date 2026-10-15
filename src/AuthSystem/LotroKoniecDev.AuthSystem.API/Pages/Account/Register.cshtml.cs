@@ -9,7 +9,6 @@ using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
-using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 
@@ -21,18 +20,15 @@ internal sealed partial class RegisterModel : PageModel
     /// </summary>
     private const string TermsOfServicePath = "/regulamin";
 
-    private readonly ICommandHandler<RegisterUser.Command, Result<IdentityId>> _registerUserHandler;
+    private readonly ICommandHandler<RegisterUser.Command, Result> _registerUserHandler;
     private readonly IOptions<OpenIddictSettings> _openIddictSettings;
-    private readonly ILogger<RegisterModel> _logger;
 
     public RegisterModel(
-        ICommandHandler<RegisterUser.Command, Result<IdentityId>> registerUserHandler,
-        IOptions<OpenIddictSettings> openIddictSettings,
-        ILogger<RegisterModel> logger)
+        ICommandHandler<RegisterUser.Command, Result> registerUserHandler,
+        IOptions<OpenIddictSettings> openIddictSettings)
     {
         _registerUserHandler = registerUserHandler;
         _openIddictSettings = openIddictSettings;
-        _logger = logger;
     }
 
     [BindProperty]
@@ -124,7 +120,7 @@ internal sealed partial class RegisterModel : PageModel
             AcceptedPrivacyPolicy,
             AcceptedTermsOfService);
 
-        Result<IdentityId> result = await _registerUserHandler.Handle(command, cancellationToken);
+        Result result = await _registerUserHandler.Handle(command, cancellationToken);
 
         if (result.IsFailure)
         {
@@ -132,37 +128,31 @@ internal sealed partial class RegisterModel : PageModel
             return Page();
         }
 
-        LogRegisteredViaUi(_logger, result.Value);
-
+        // Also for an address that already has an account: the page must not tell the two apart (#860).
         IsRegistered = true;
         return Page();
     }
 
     /// <summary>
     /// Turns the handler's error into a Polish message for the user. The missing field, password match
-    /// and consent cases are handled above, so what is left is a name or e-mail that is already taken,
-    /// a spent registration budget of the inbox (ADR-0057), a password found in data breaches
-    /// (ADR-0066) and the password rules.
+    /// and consent cases are handled above, so what is left is a taken name, a spent registration budget
+    /// of the inbox (ADR-0057), a password found in data breaches (ADR-0066) and the password rules. A
+    /// taken e-mail address is not an error: it gets the same answer as a free one (#860).
     /// </summary>
     private static string MapErrorToMessage(Error error)
     {
         return error.Code switch
         {
-            "Auth.UserAlreadyExistsByEmail" =>
-                "Konto z tym adresem e-mail już istnieje. Zaloguj się lub zresetuj hasło.",
             "Auth.UserAlreadyExistsByUsername" =>
                 "Ta nazwa użytkownika jest już zajęta. Wybierz inną.",
             "Auth.RegistrationMailboxThrottled" =>
-                "Na tę skrzynkę pocztową założono ostatnio zbyt wiele kont. Odczekaj kwadrans i spróbuj ponownie.",
+                "Na tę skrzynkę pocztową było ostatnio zbyt wiele prób rejestracji. Odczekaj kwadrans i spróbuj ponownie.",
             "Auth.PasswordFoundInBreaches" =>
                 "To hasło pojawiło się w wyciekach danych, wybierz inne.",
             _ =>
                 "Nie udało się założyć konta. Upewnij się, że hasło spełnia wymagania, i spróbuj ponownie."
         };
     }
-
-    [LoggerMessage(EventId = EventIds.RegisterCompletedViaUi, Level = LogLevel.Information, Message = "User {UserId} registered via UI")]
-    private static partial void LogRegisteredViaUi(ILogger logger, IdentityId userId);
 
     [GeneratedRegex(UsernameConstants.RegexPattern)]
     private static partial Regex UsernameRegex();

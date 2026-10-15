@@ -64,8 +64,8 @@ public abstract class E2ETestBase : IAsyncLifetime
             AcceptedPrivacyPolicy: true,
             AcceptedTermsOfService: true);
 
-        IdentityId identityId = await AuthApi.RegisterAsync(request);
-        await Fixture.ConfirmUserEmailAsync(email);
+        await AuthApi.RegisterAsync(request);
+        IdentityId identityId = await Fixture.ConfirmUserEmailAsync(email);
         TokenResponse token = await AuthApi.LoginAsync(email, TranslatorPassword);
         return new RegisteredTranslator(identityId, username, email, token.AccessToken);
     }

@@ -14,6 +14,7 @@ public sealed class SpyPasswordHasher : IPasswordHasher<ApplicationUser>
     private readonly PasswordHasher<ApplicationUser> _inner = new();
     private int _verifyCount;
     private int _dummyVerifyCount;
+    private int _hashCount;
 
     public int VerifyCount => Volatile.Read(ref _verifyCount);
 
@@ -23,8 +24,17 @@ public sealed class SpyPasswordHasher : IPasswordHasher<ApplicationUser>
     /// </summary>
     public int DummyVerifyCount => Volatile.Read(ref _dummyVerifyCount);
 
-    public string HashPassword(ApplicationUser user, string password) =>
-        _inner.HashPassword(user, password);
+    /// <summary>
+    /// New hashes. Registration hashes the typed password on every branch, also where no account is
+    /// created, so a hash costs the same as a verification there (ADR-0059 §5).
+    /// </summary>
+    public int HashCount => Volatile.Read(ref _hashCount);
+
+    public string HashPassword(ApplicationUser user, string password)
+    {
+        Interlocked.Increment(ref _hashCount);
+        return _inner.HashPassword(user, password);
+    }
 
     public PasswordVerificationResult VerifyHashedPassword(
         ApplicationUser user,
@@ -44,5 +54,6 @@ public sealed class SpyPasswordHasher : IPasswordHasher<ApplicationUser>
     {
         Interlocked.Exchange(ref _verifyCount, 0);
         Interlocked.Exchange(ref _dummyVerifyCount, 0);
+        Interlocked.Exchange(ref _hashCount, 0);
     }
 }

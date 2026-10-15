@@ -55,7 +55,7 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         foreach (string spelling in spellings)
         {
             using HttpResponseMessage created = await RegisterAsync(spelling);
-            created.StatusCode.ShouldBe(HttpStatusCode.Created);
+            created.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         }
 
         // Act
@@ -68,31 +68,38 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         (await CountAccountsAsync(inbox.Tagged("2"))).ShouldBe(0);
     }
 
+    /// <summary>
+    /// A taken address mails its owner a notice instead of a confirmation, from the same budget (#860). So a
+    /// spent budget answers the same whether the address is free or taken, and only the inbox owner can
+    /// tell which mails arrived.
+    /// </summary>
     [Fact]
-    public async Task Register_ShouldNotSpendTheBudget_WhenTheRegistrationIsRefusedEarlier()
+    public async Task Register_ShouldSpendTheSameBudget_WhetherTheAddressIsFreeOrTaken()
     {
-        // Arrange: an address that is already taken sends no mail, so it must cost nothing
+        // Arrange
         GmailInbox inbox = GmailInbox.New();
         using HttpResponseMessage first = await RegisterAsync(inbox.Plain);
-        first.StatusCode.ShouldBe(HttpStatusCode.Created);
+        first.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
-        for (int i = 0; i < AccountBudgets.RegistrationPermitLimit; i++)
+        for (int i = 1; i < AccountBudgets.RegistrationPermitLimit; i++)
         {
             using HttpResponseMessage duplicate = await RegisterAsync(inbox.Plain);
-            duplicate.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+            duplicate.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         }
 
         // Act
-        HttpStatusCode[] statusCodes = new HttpStatusCode[AccountBudgets.RegistrationPermitLimit - 1];
-        for (int i = 0; i < statusCodes.Length; i++)
-        {
-            using HttpResponseMessage response = await RegisterAsync(inbox.Tagged($"later{i}"));
-            statusCodes[i] = response.StatusCode;
-        }
+        using HttpResponseMessage taken = await RegisterAsync(inbox.Plain);
+        using HttpResponseMessage free = await RegisterAsync(inbox.Tagged("later"));
 
         // Assert
-        statusCodes.ShouldAllBe(statusCode => statusCode == HttpStatusCode.Created);
-        (await CountOutboxRowsAsync(nameof(EmailConfirmationRequested))).ShouldBe(AccountBudgets.RegistrationPermitLimit);
+        taken.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        free.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        (await ReadErrorCodeAsync(taken)).ShouldBe(RegistrationThrottledErrorCode);
+        (await ReadErrorCodeAsync(free)).ShouldBe(RegistrationThrottledErrorCode);
+        (await CountOutboxRowsAsync(nameof(EmailConfirmationRequested))).ShouldBe(1);
+        (await CountOutboxRowsAsync(nameof(RegistrationAttemptedOnExistingAccount)))
+            .ShouldBe(AccountBudgets.RegistrationPermitLimit - 1);
+        (await CountAccountsAsync(inbox.Tagged("later"))).ShouldBe(0);
     }
 
     [Fact]
@@ -103,7 +110,7 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         GmailInbox inbox = GmailInbox.New();
         RegisterRequest first = UserFactory.GenerateRandomRegisterRequest(Faker, Password) with { Email = inbox.Plain };
         using HttpResponseMessage created = await ApiClient.Http.PostAsJsonAsync(RegisterEndpoint, first);
-        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+        created.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
         for (int i = 0; i < AccountBudgets.RegistrationPermitLimit; i++)
         {
@@ -121,7 +128,7 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         }
 
         // Assert
-        statusCodes.ShouldAllBe(statusCode => statusCode == HttpStatusCode.Created);
+        statusCodes.ShouldAllBe(statusCode => statusCode == HttpStatusCode.Accepted);
     }
 
     [Fact]
@@ -142,7 +149,7 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         using HttpClient client = host.CreateClient();
 
         using HttpResponseMessage replayed = await RegisterAsync(client, inbox.Tagged("1"));
-        replayed.StatusCode.ShouldBe(HttpStatusCode.Created);
+        replayed.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         interceptor.FailedCommits.ShouldBe(1);
 
         // Act
@@ -154,7 +161,7 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         }
 
         // Assert
-        statusCodes.ShouldAllBe(statusCode => statusCode == HttpStatusCode.Created);
+        statusCodes.ShouldAllBe(statusCode => statusCode == HttpStatusCode.Accepted);
     }
 
     [Fact]
@@ -165,7 +172,7 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         for (int i = 0; i < AccountBudgets.RegistrationPermitLimit; i++)
         {
             using HttpResponseMessage created = await RegisterAsync(inbox.Tagged($"api{i}"));
-            created.StatusCode.ShouldBe(HttpStatusCode.Created);
+            created.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         }
 
         Dictionary<string, string> form = new()
@@ -184,7 +191,7 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         // Assert
         refused.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = WebUtility.HtmlDecode(await refused.Content.ReadAsStringAsync());
-        html.ShouldContain("Na tę skrzynkę pocztową założono ostatnio zbyt wiele kont");
+        html.ShouldContain("Na tę skrzynkę pocztową było ostatnio zbyt wiele prób rejestracji");
         (await CountAccountsAsync(inbox.Dotted)).ShouldBe(0);
     }
 
@@ -343,7 +350,7 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         AccountConfirmationEmailSpy.Reset();
 
         using HttpResponseMessage created = await RegisterAsync(email);
-        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+        created.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
         // The confirmation mail travels the outbox, so wait for it before the next step reads the spy.
         await AccountConfirmationEmailSpy.WaitForCaptureAsync();

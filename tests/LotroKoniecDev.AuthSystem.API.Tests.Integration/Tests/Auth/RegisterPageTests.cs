@@ -39,9 +39,37 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         string html = await response.Content.ReadAsStringAsync();
-        html.ShouldContain("Konto zostało utworzone");
+        html.ShouldContain("Sprawdź skrzynkę e-mail");
         await AccountConfirmationEmailSpy.WaitForCaptureAsync();
         AccountConfirmationEmailSpy.LastEmail.ShouldBe(request.Email);
+    }
+
+    /// <summary>
+    /// A taken address gets the free address's answer, and its owner gets a notice instead (#860). The old
+    /// "an account with this address already exists" message told anyone which addresses have accounts.
+    /// </summary>
+    [Fact]
+    public async Task RegisterPage_ShouldShowTheSameSuccessAndNotifyTheOwner_WhenTheAddressAlreadyHasAnAccount()
+    {
+        // Arrange
+        (RegisterRequest existing, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        AccountConfirmationEmailSpy.Reset();
+        RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker) with { Email = existing.Email };
+
+        // Act
+        HttpResponseMessage response = await PostToRegisterPageAsync(BuildForm(request, request.Password));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Sprawdź skrzynkę e-mail");
+        html.ShouldContain("data-testid=\"register-success\"");
+        html.ShouldNotContain("już istnieje");
+        await AccountConfirmationEmailSpy.WaitForRegistrationAttemptedCaptureAsync();
+        AccountConfirmationEmailSpy.LastRegistrationAttemptedRecipient.ShouldBe(existing.Email);
+        AccountConfirmationEmailSpy.CallCount.ShouldBe(0);
     }
 
     [Fact]
@@ -79,7 +107,7 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
 
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("To hasło pojawiło się w wyciekach danych, wybierz inne.");
-        html.ShouldNotContain("Konto zostało utworzone");
+        html.ShouldNotContain("Sprawdź skrzynkę e-mail");
     }
 
     [Fact]
@@ -194,27 +222,6 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         AccountConfirmationEmailSpy.LastEmail.ShouldBeNull();
     }
 
-    [Fact]
-    public async Task RegisterPage_ShouldShowError_WhenEmailAlreadyExists()
-    {
-        // Arrange
-        (RegisterRequest existing, _) =
-            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
-
-        RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
-        Dictionary<string, string> form = BuildForm(request, request.Password);
-        form["Email"] = existing.Email;
-
-        // Act
-        HttpResponseMessage response = await PostToRegisterPageAsync(form);
-
-        // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        string html = await response.Content.ReadAsStringAsync();
-        html.ShouldContain("Konto z tym adresem e-mail już istnieje");
-    }
-
     /// <summary>
     /// The register half of #681. The target is a valid local path even with a quote in it, so the check
     /// keeps it and the page prints it; the encoding of the attribute is what makes it harmless, which is
@@ -283,7 +290,7 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
-        html.ShouldContain("Konto zostało utworzone");
+        html.ShouldContain("Sprawdź skrzynkę e-mail");
         html.ShouldContain($"/Account/Login?returnUrl={Uri.EscapeDataString(continuation)}");
     }
 

@@ -105,7 +105,8 @@ internal sealed partial class RegisterUser : IApiEndpoint
             // and a free address get the same answer to a weak or leaked password, and both wait for the
             // same call to the breach service (#860). They run outside the transaction and the floor:
             // nothing in them depends on the address.
-            IdentityResult passwordResult = await ValidatePasswordAsync(NewAccount(command), command.Password);
+            ApplicationUser candidate = NewAccount(command);
+            IdentityResult passwordResult = await ValidatePasswordAsync(candidate, command.Password);
             if (!passwordResult.Succeeded)
             {
                 return passwordResult.IsBreachedPassword
@@ -116,7 +117,7 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
             // The one hash of every branch, made before the branches split: a taken or reserved address
             // pays it too, although no account is created (ADR-0059 §5).
-            string passwordHash = _userManager.PasswordHasher.HashPassword(NewAccount(command), command.Password);
+            string passwordHash = _userManager.PasswordHasher.HashPassword(candidate, command.Password);
 
             // The context has EnableRetryOnFailure on, so EF refuses a transaction we start ourselves
             // unless the whole unit of work runs inside an execution strategy. A retry has to be able
@@ -203,12 +204,13 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
                     // Identity looks the address up once more before it writes, so a registration that
                     // started at the same moment can take it in between. That answers as a taken address
-                    // does, without the notice: the address got its account a moment ago (#860). It must
-                    // never reach the general message below, whose text would name the taken address.
+                    // does, permit included, without the notice: the address got its account a moment
+                    // ago (#860). It must never reach the general message below, whose text would name
+                    // the taken address.
                     if (result.Errors.Any(e => e.Code is nameof(IdentityErrorDescriber.DuplicateEmail)))
                     {
                         LogConcurrentRegistration(_logger, null, command.Email.MaskEmail());
-                        return Result.Success();
+                        return AnswerLostAddressRace(command, attempt);
                     }
 
                     string errors = string.Join(", ", result.Errors.Select(e => e.Description));
@@ -253,7 +255,7 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 // A lost race for the address answers as a taken address does (#860). The username is a
                 // public handle, so its race may still say "taken".
                 return lostRaceError == AuthErrors.UserAlreadyExistsByEmail
-                    ? Result.Success()
+                    ? AnswerLostAddressRace(command, attempt)
                     : Result.Failure(lostRaceError);
             }
         }
@@ -275,7 +277,7 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 return Result.Failure(AuthErrors.RegistrationMailboxThrottled);
             }
 
-            _outboxWriter.Enqueue(new RegistrationAttemptedOnExistingAccount(addressOwner.Id));
+            _outboxWriter.Enqueue(new RegistrationAttemptedOnExistingAccount(addressOwner.Id, command.Email));
             await _db.SaveChangesAsync(cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
@@ -285,6 +287,16 @@ internal sealed partial class RegisterUser : IApiEndpoint
             LogAddressOwnerNotified(_logger, addressOwner.Id);
             return Result.Success();
         }
+
+        /// <summary>
+        /// A registration that lost the race for its address spends a permit like a taken address, so the
+        /// budget does not show that the address was free a moment ago. It sends nothing: the winner's
+        /// confirmation already goes to that inbox.
+        /// </summary>
+        private Result AnswerLostAddressRace(Command command, RegistrationAttempt attempt) =>
+            TryTakeMailboxPermit(command, attempt)
+                ? Result.Success()
+                : Result.Failure(AuthErrors.RegistrationMailboxThrottled);
 
         /// <summary>
         /// One permit per registration, whichever branch it takes. A replay after a transient database

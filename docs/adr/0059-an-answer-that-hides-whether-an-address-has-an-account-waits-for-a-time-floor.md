@@ -272,12 +272,14 @@ id from the confirmation mail.
 
 - A free address creates the account and queues the confirmation, as before.
 - A taken address creates nothing and queues `RegistrationAttemptedOnExistingAccount` with the owner's
-  id. Its processor mails the owner a notice ("someone tried to register with this address; if it was
-  you, sign in or reset your password") at the address the account has when the mail goes out.
+  id and the typed address. Its processor mails the owner a notice ("someone tried to register with
+  this address; if it was you, sign in or reset your password"). If the account moved to another
+  address while the message waited, the notice is dropped: it would tell the new address about an
+  attempt on the old one.
 - A reserved address creates nothing and queues nothing: it has no account to tell.
 - A registration that loses the race for its address, at the unique index or at Identity's own check
-  inside `CreateAsync`, answers like a taken address, with no notice. A lost race for the username
-  still says "taken".
+  inside `CreateAsync`, answers like a taken address and spends a permit like it, with no notice: the
+  winner's confirmation already goes to that inbox. A lost race for the username still says "taken".
 
 ### 9. What runs before the address lookup, and in which order
 
@@ -312,8 +314,8 @@ The hash and the breach call are outside the clock (decision 9). A rare action c
 
 ### 11. Every branch spends the same registration permit
 
-The per-inbox budget (ADR-0057) is taken on the free, the taken and the reserved branch, as the last
-check before the enqueue, keyed on the typed address. A spent budget answers 429 on all three. If the
+The per-inbox budget (ADR-0057) is taken on the free, the taken and the reserved branch, and on a lost
+race for the address, as the last check before the enqueue, keyed on the typed address. A spent budget answers 429 on all three. If the
 taken branch spent nothing, as ADR-0055 §3 and ADR-0057 §4 said, the fourth try would answer 429 only
 for a free address. The owner of a taken inbox therefore gets at most three notices a quarter hour.
 

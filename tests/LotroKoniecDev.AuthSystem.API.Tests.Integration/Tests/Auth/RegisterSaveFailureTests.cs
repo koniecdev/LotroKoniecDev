@@ -155,15 +155,18 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
     /// Both requests pass every check before either one writes, so the unique index decides. A value in
     /// other letter case clashes only on the case-blind index, so both spellings are raced. A lost
     /// username says so: the username is a public handle. A lost address answers as a taken address does,
-    /// with the same 202 as a free one (#860).
+    /// with the same 202 as a free one, and spends a permit like it, so a spent budget answers 429 (#860).
     /// </summary>
     [Theory]
-    [InlineData(Clash.Email, null)]
-    [InlineData(Clash.EmailInOtherCase, null)]
-    [InlineData(Clash.Username, "Auth.UserAlreadyExistsByUsername")]
-    [InlineData(Clash.UsernameInOtherCase, "Auth.UserAlreadyExistsByUsername")]
+    [InlineData(Clash.Email, false, HttpStatusCode.Accepted, null)]
+    [InlineData(Clash.EmailInOtherCase, false, HttpStatusCode.Accepted, null)]
+    [InlineData(Clash.Email, true, HttpStatusCode.TooManyRequests, "Auth.RegistrationMailboxThrottled")]
+    [InlineData(Clash.Username, false, HttpStatusCode.UnprocessableEntity, "Auth.UserAlreadyExistsByUsername")]
+    [InlineData(Clash.UsernameInOtherCase, false, HttpStatusCode.UnprocessableEntity, "Auth.UserAlreadyExistsByUsername")]
     public async Task Register_ShouldAnswerAsTheCheckWould_WhenARegistrationCommitsTheSameValueJustBeforeTheInsert(
         Clash clash,
+        bool budgetSpent,
+        HttpStatusCode expectedStatus,
         string? expectedErrorCode)
     {
         // Arrange: the competitor goes through the suite's main host, whose contexts do not carry this
@@ -201,21 +204,24 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
                 services.ConfigureDbContext<AuthDbContext>(options => options.AddInterceptors(interceptor));
             }));
         using HttpClient client = host.CreateClient();
+        if (budgetSpent)
+        {
+            AccountStateFactory.SpendRegistrationBudget(host.Services, request.Email);
+        }
 
         // Act
         using HttpResponseMessage response = await client.PostAsJsonAsync(RegisterEndpoint, request);
 
         // Assert
         interceptor.CompetitorStatusCode.ShouldBe(HttpStatusCode.Accepted);
+        response.StatusCode.ShouldBe(expectedStatus);
         string content = await response.Content.ReadAsStringAsync();
         if (expectedErrorCode is null)
         {
-            response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
             content.ShouldBeEmpty();
         }
         else
         {
-            response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
             content.ShouldContain(expectedErrorCode);
         }
     }
@@ -223,11 +229,15 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
     /// <summary>
     /// Identity looks the address up once more inside <c>CreateAsync</c>. A registration that commits the
     /// same address between our lookup and that one makes Identity refuse with <c>DuplicateEmail</c>. That
-    /// answers like a taken address, and never with the general message, whose text names the address
-    /// (#860).
+    /// answers like a taken address, permit included, and never with the general message, whose text names
+    /// the address (#860).
     /// </summary>
-    [Fact]
-    public async Task Register_ShouldAnswerAcceptedWithNoBody_WhenIdentitysOwnCheckFindsTheAddressJustTaken()
+    [Theory]
+    [InlineData(false, HttpStatusCode.Accepted)]
+    [InlineData(true, HttpStatusCode.TooManyRequests)]
+    public async Task Register_ShouldAnswerAsATakenAddress_WhenIdentitysOwnCheckFindsTheAddressJustTaken(
+        bool budgetSpent,
+        HttpStatusCode expectedStatus)
     {
         // Arrange: the competitor commits while our request checks the reservation, which sits between
         // our address lookup and Identity's
@@ -251,14 +261,18 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
                 services.ConfigureDbContext<AuthDbContext>(options => options.AddInterceptors(interceptor));
             }));
         using HttpClient client = host.CreateClient();
+        if (budgetSpent)
+        {
+            AccountStateFactory.SpendRegistrationBudget(host.Services, request.Email);
+        }
 
         // Act
         using HttpResponseMessage response = await client.PostAsJsonAsync(RegisterEndpoint, request);
 
         // Assert
         interceptor.CompetitorStatusCode.ShouldBe(HttpStatusCode.Accepted);
-        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
-        (await response.Content.ReadAsStringAsync()).ShouldBeEmpty();
+        response.StatusCode.ShouldBe(expectedStatus);
+        (await response.Content.ReadAsStringAsync()).ShouldNotContain(request.Email, Case.Insensitive);
 
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();

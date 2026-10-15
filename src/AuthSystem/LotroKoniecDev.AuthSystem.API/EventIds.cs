@@ -246,4 +246,5 @@ internal static class EventIds
     public const int RegistrationAttemptedNoticeUserGone = 2770;
     public const int RegistrationAttemptedNoticeAccountErased = 2771;
     public const int RegistrationAttemptedNoticeAddressMissing = 2772;
+    public const int RegistrationAttemptedNoticeAddressMovedOn = 2773;
 }

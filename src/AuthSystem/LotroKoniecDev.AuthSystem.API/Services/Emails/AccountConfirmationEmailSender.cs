@@ -15,20 +15,6 @@ internal sealed class AccountConfirmationEmailSender : IAccountConfirmationEmail
     private readonly TimeSpan _linkLifespan;
     private readonly ILogger<AccountConfirmationEmailSender> _logger;
 
-    public AccountConfirmationEmailSender(
-        IEmailService emailService,
-        IEmailVerificationLinkFactory emailVerificationLinkFactory,
-        IEmailTemplateRenderer templateRenderer,
-        IOptions<DataProtectionTokenProviderOptions> tokenProviderOptions,
-        ILogger<AccountConfirmationEmailSender> logger)
-    {
-        _emailService = emailService;
-        _emailVerificationLinkFactory = emailVerificationLinkFactory;
-        _templateRenderer = templateRenderer;
-        _linkLifespan = tokenProviderOptions.Value.TokenLifespan;
-        _logger = logger;
-    }
-
     public async Task<Result> SendEmailConfirmationAsync(
         Guid userId,
         string email,
@@ -97,5 +83,19 @@ internal sealed class AccountConfirmationEmailSender : IAccountConfirmationEmail
                 subject: $"Próba założenia konta na Twój adres — {EmailBranding.Name}",
                 body: _templateRenderer.Render(template),
                 cancellationToken: cancellationToken);
+    }
+
+    public AccountConfirmationEmailSender(
+        IEmailService emailService,
+        IEmailVerificationLinkFactory emailVerificationLinkFactory,
+        IEmailTemplateRenderer templateRenderer,
+        IOptions<DataProtectionTokenProviderOptions> tokenProviderOptions,
+        ILogger<AccountConfirmationEmailSender> logger)
+    {
+        _emailService = emailService;
+        _emailVerificationLinkFactory = emailVerificationLinkFactory;
+        _templateRenderer = templateRenderer;
+        _linkLifespan = tokenProviderOptions.Value.TokenLifespan;
+        _logger = logger;
     }
 }

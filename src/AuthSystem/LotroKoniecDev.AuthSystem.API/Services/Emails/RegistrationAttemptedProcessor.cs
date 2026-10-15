@@ -27,7 +27,11 @@ internal sealed partial class RegistrationAttemptedProcessor : IEmailMessageProc
         {
             RegistrationAttemptedOnExistingAccount? message =
                 JsonSerializer.Deserialize<RegistrationAttemptedOnExistingAccount>(body);
-            return message is null || message.IdentityUserId == Guid.Empty ? null : message;
+            return message is null
+                   || message.IdentityUserId == Guid.Empty
+                   || string.IsNullOrWhiteSpace(message.AttemptedEmail)
+                ? null
+                : message;
         }
         catch (JsonException)
         {
@@ -46,8 +50,8 @@ internal sealed partial class RegistrationAttemptedProcessor : IEmailMessageProc
     /// <returns>
     /// This is not a business result. Success means "acknowledge it and drop it from the queue", either
     /// because the notice went out or because sending again could never change anything: the account is
-    /// gone, erased, or has no address. Failure means "worth another try", for example when the SMTP relay
-    /// is down.
+    /// gone, erased, has no address, or has moved off the address that was tried. Failure means "worth
+    /// another try", for example when the SMTP relay is down.
     /// </returns>
     public async Task<Result> ProcessAsync(
         RegistrationAttemptedOnExistingAccount message,
@@ -73,6 +77,15 @@ internal sealed partial class RegistrationAttemptedProcessor : IEmailMessageProc
         if (string.IsNullOrWhiteSpace(user.Email))
         {
             LogEmailMissing(_logger, message.IdentityUserId);
+            return Result.Success();
+        }
+
+        if (!string.Equals(
+                _userManager.NormalizeEmail(user.Email),
+                _userManager.NormalizeEmail(message.AttemptedEmail),
+                StringComparison.Ordinal))
+        {
+            LogAddressMovedOn(_logger, message.IdentityUserId);
             return Result.Success();
         }
 
@@ -103,6 +116,12 @@ internal sealed partial class RegistrationAttemptedProcessor : IEmailMessageProc
         Level = LogLevel.Information,
         Message = "Skipping registration-attempt notice for user {UserId}: the account was erased")]
     private static partial void LogAccountErased(ILogger logger, Guid userId);
+
+    [LoggerMessage(
+        EventId = EventIds.RegistrationAttemptedNoticeAddressMovedOn,
+        Level = LogLevel.Information,
+        Message = "Skipping registration-attempt notice for user {UserId}: the account moved off the address that was tried")]
+    private static partial void LogAddressMovedOn(ILogger logger, Guid userId);
 
     [LoggerMessage(
         EventId = EventIds.RegistrationAttemptedNoticeAddressMissing,

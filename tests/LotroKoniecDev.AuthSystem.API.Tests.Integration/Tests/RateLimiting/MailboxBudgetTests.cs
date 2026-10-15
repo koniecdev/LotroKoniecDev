@@ -105,8 +105,9 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
     [Fact]
     public async Task Register_ShouldNotSpendTheBudget_WhenTheUsernameIsTaken()
     {
-        // Arrange: the other refusals (a reserved address, an Identity error) also return before the
-        // permit; a taken name is the one a caller can reach at will
+        // Arrange: a password the rules refuse and Identity's own errors also return before the permit; a
+        // taken name is the one a caller can reach at will. A taken or reserved address is no refusal
+        // since #860: it spends a permit like a free one
         GmailInbox inbox = GmailInbox.New();
         RegisterRequest first = UserFactory.GenerateRandomRegisterRequest(Faker, Password) with { Email = inbox.Plain };
         using HttpResponseMessage created = await ApiClient.Http.PostAsJsonAsync(RegisterEndpoint, first);

@@ -6,8 +6,9 @@ namespace LotroKoniecDev.AuthSystem.API.Outbox;
 /// </summary>
 /// <remarks>
 /// Registration answers the same for a free and a taken address (#860), so the owner of a taken one
-/// learns about the attempt from this notice instead. It carries the id only, like
-/// <see cref="EmailConfirmationRequested"/>: the consumer reads the address off the account when it sends,
-/// so a notice that waited in the queue never goes to an address the account has left.
+/// learns about the attempt from this notice instead. It carries the typed address next to the id, like
+/// <see cref="EmailChangeRequested"/> carries the current one: if the account moved to another address
+/// while the message waited, the notice would tell the new address about an attempt on the old one, so
+/// the consumer drops it. An erasure cuts the payload back to the id (ADR-0065).
 /// </remarks>
-public sealed record RegistrationAttemptedOnExistingAccount(Guid IdentityUserId);
+public sealed record RegistrationAttemptedOnExistingAccount(Guid IdentityUserId, string AttemptedEmail);

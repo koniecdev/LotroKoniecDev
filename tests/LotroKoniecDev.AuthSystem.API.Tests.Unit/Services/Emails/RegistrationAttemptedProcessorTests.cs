@@ -13,9 +13,17 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.Emails;
 
 public sealed class RegistrationAttemptedProcessorTests
 {
+    private const string AttemptedEmail = "Frodo@Shire.me";
+
     private readonly UserManager<ApplicationUser> _userManager = CreateUserManager();
     private readonly IAccountConfirmationEmailSender _emailSender =
         Substitute.For<IAccountConfirmationEmailSender>();
+
+    public RegistrationAttemptedProcessorTests()
+    {
+        _userManager.NormalizeEmail(Arg.Any<string?>())
+            .Returns(callInfo => callInfo.Arg<string?>()?.ToUpperInvariant());
+    }
 
     [Fact]
     public async Task ProcessAsync_UserNoLongerExists_SucceedsWithoutSending()
@@ -25,7 +33,7 @@ public sealed class RegistrationAttemptedProcessorTests
         RegistrationAttemptedProcessor sut = CreateSut();
 
         Result result = await sut.ProcessAsync(
-            new RegistrationAttemptedOnExistingAccount(userId), CancellationToken.None);
+            new RegistrationAttemptedOnExistingAccount(userId, AttemptedEmail), CancellationToken.None);
 
         result.IsSuccess.ShouldBeTrue();
         await _emailSender.DidNotReceiveWithAnyArgs()
@@ -42,7 +50,7 @@ public sealed class RegistrationAttemptedProcessorTests
         RegistrationAttemptedProcessor sut = CreateSut();
 
         Result result = await sut.ProcessAsync(
-            new RegistrationAttemptedOnExistingAccount(user.Id), CancellationToken.None);
+            new RegistrationAttemptedOnExistingAccount(user.Id, AttemptedEmail), CancellationToken.None);
 
         result.IsSuccess.ShouldBeTrue();
         await _emailSender.DidNotReceiveWithAnyArgs()
@@ -61,7 +69,7 @@ public sealed class RegistrationAttemptedProcessorTests
         RegistrationAttemptedProcessor sut = CreateSut();
 
         Result result = await sut.ProcessAsync(
-            new RegistrationAttemptedOnExistingAccount(user.Id), CancellationToken.None);
+            new RegistrationAttemptedOnExistingAccount(user.Id, AttemptedEmail), CancellationToken.None);
 
         result.IsSuccess.ShouldBeTrue();
         await _emailSender.DidNotReceiveWithAnyArgs()
@@ -78,11 +86,31 @@ public sealed class RegistrationAttemptedProcessorTests
         RegistrationAttemptedProcessor sut = CreateSut();
 
         Result result = await sut.ProcessAsync(
-            new RegistrationAttemptedOnExistingAccount(user.Id), CancellationToken.None);
+            new RegistrationAttemptedOnExistingAccount(user.Id, AttemptedEmail), CancellationToken.None);
 
         result.IsSuccess.ShouldBeTrue();
         await _emailSender.Received(1)
             .SendRegistrationAttemptedNoticeAsync(user.Id, user.Email!, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// A notice that waited while the account moved to another address would tell the new address about an
+    /// attempt on the old one (#860).
+    /// </summary>
+    [Fact]
+    public async Task ProcessAsync_AccountMovedOffTheAddressThatWasTried_SucceedsWithoutSending()
+    {
+        ApplicationUser user = CreateUser();
+        user.Email = "frodo@rivendell.example";
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
+        RegistrationAttemptedProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(
+            new RegistrationAttemptedOnExistingAccount(user.Id, AttemptedEmail), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        await _emailSender.DidNotReceiveWithAnyArgs()
+            .SendRegistrationAttemptedNoticeAsync(default, default!, default);
     }
 
     [Fact]
@@ -96,7 +124,7 @@ public sealed class RegistrationAttemptedProcessorTests
         RegistrationAttemptedProcessor sut = CreateSut();
 
         Result result = await sut.ProcessAsync(
-            new RegistrationAttemptedOnExistingAccount(user.Id), CancellationToken.None);
+            new RegistrationAttemptedOnExistingAccount(user.Id, AttemptedEmail), CancellationToken.None);
 
         result.IsFailure.ShouldBeTrue();
         result.Error.ShouldBe(smtpError);
@@ -106,7 +134,9 @@ public sealed class RegistrationAttemptedProcessorTests
     [InlineData("this is not json at all")]
     [InlineData("{}")]
     [InlineData("""{"IdentityUserId":"not-a-guid"}""")]
-    [InlineData("""{"IdentityUserId":"00000000-0000-0000-0000-000000000000"}""")]
+    [InlineData("""{"IdentityUserId":"00000000-0000-0000-0000-000000000000","AttemptedEmail":"a@b.pl"}""")]
+    [InlineData("""{"IdentityUserId":"0195f0f6-0000-7000-8000-000000000000"}""")]
+    [InlineData("""{"IdentityUserId":"0195f0f6-0000-7000-8000-000000000000","AttemptedEmail":"  "}""")]
     public void TryDeserialize_PoisonPayload_ReturnsTheNullVerdict(string poisonPayload)
     {
         RegistrationAttemptedProcessor sut = CreateSut();
@@ -123,10 +153,12 @@ public sealed class RegistrationAttemptedProcessorTests
         RegistrationAttemptedProcessor sut = CreateSut();
 
         object? message = sut.TryDeserialize(
-            System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new RegistrationAttemptedOnExistingAccount(userId)));
+            System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+                new RegistrationAttemptedOnExistingAccount(userId, AttemptedEmail)));
 
         RegistrationAttemptedOnExistingAccount typed = message.ShouldBeOfType<RegistrationAttemptedOnExistingAccount>();
         typed.IdentityUserId.ShouldBe(userId);
+        typed.AttemptedEmail.ShouldBe(AttemptedEmail);
     }
 
     private static ApplicationUser CreateUser() =>

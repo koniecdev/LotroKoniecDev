@@ -315,9 +315,11 @@ The hash and the breach call are outside the clock (decision 9). A rare action c
 ### 11. Every branch spends the same registration permit
 
 The per-inbox budget (ADR-0057) is taken on the free, the taken and the reserved branch, and on a lost
-race for the address, as the last check before the enqueue, keyed on the typed address. A spent budget answers 429 on all three. If the
-taken branch spent nothing, as ADR-0055 §3 and ADR-0057 §4 said, the fourth try would answer 429 only
-for a free address. The owner of a taken inbox therefore gets at most three notices a quarter hour.
+race for the address, keyed on the typed address. It is the last check before the enqueue, and on the
+two branches that queue nothing it is the last check before the answer. A spent budget answers 429 on
+all four. If the taken branch spent nothing, as ADR-0055 §3 and ADR-0057 §4 said, the fourth try would
+answer 429 only for a free address. The owner of a taken inbox therefore gets at most three notices a
+quarter hour.
 
 ### 12. The e-mail change request never looks the new address up
 

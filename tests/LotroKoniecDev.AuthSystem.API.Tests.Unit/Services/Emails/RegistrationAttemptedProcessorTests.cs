@@ -19,12 +19,6 @@ public sealed class RegistrationAttemptedProcessorTests
     private readonly IAccountConfirmationEmailSender _emailSender =
         Substitute.For<IAccountConfirmationEmailSender>();
 
-    public RegistrationAttemptedProcessorTests()
-    {
-        _userManager.NormalizeEmail(Arg.Any<string?>())
-            .Returns(callInfo => callInfo.Arg<string?>()?.ToUpperInvariant());
-    }
-
     [Fact]
     public async Task ProcessAsync_UserNoLongerExists_SucceedsWithoutSending()
     {
@@ -159,6 +153,12 @@ public sealed class RegistrationAttemptedProcessorTests
         RegistrationAttemptedOnExistingAccount typed = message.ShouldBeOfType<RegistrationAttemptedOnExistingAccount>();
         typed.IdentityUserId.ShouldBe(userId);
         typed.AttemptedEmail.ShouldBe(AttemptedEmail);
+    }
+
+    public RegistrationAttemptedProcessorTests()
+    {
+        _userManager.NormalizeEmail(Arg.Any<string?>())
+            .Returns(callInfo => callInfo.Arg<string?>()?.ToUpperInvariant());
     }
 
     private static ApplicationUser CreateUser() =>

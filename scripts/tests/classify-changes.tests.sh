@@ -11,7 +11,7 @@
 #
 # Most cases feed a path list on stdin through the --files seam. The last group builds a scratch git
 # repo instead and runs the classifier the way pr-verify does, because the seam never runs git, and
-# git itself can hide a changed path: a moved file used to show only its new path (#1041).
+# git can hide a changed path (#1041).
 set -uo pipefail
 
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
@@ -24,6 +24,12 @@ TMP_ROOT="$(mktemp -d)" || exit 1
 TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || exit 1
 [ -d "$TMP_ROOT" ] || exit 1
 trap 'rm -rf "$TMP_ROOT"' EXIT
+
+# A git hook or `git rebase -x` exports GIT_DIR, GIT_INDEX_FILE and the like. Left in place, they
+# would point every scratch repo below at the real one, and its commits would land on your branch.
+for var in $(git rev-parse --local-env-vars); do
+    unset "$var"
+done
 
 # Isolate from the developer's git config (gpg signing, hooks, defaults).
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
@@ -69,47 +75,53 @@ expect_code() {
     fi
 }
 
-# pr_repo <change> → prints the path of a new scratch repo with two commits: a base that holds the
-# files named at the top of this script, and the PR, made by running the shell snippet <change>.
-pr_repo() {
-    local change="$1" repo
-    repo="$(mktemp -d "$TMP_ROOT/repo.XXXXXX")" || return 1
-    [ -d "$repo" ] || return 1
-    (
-        cd -- "$repo" || exit 1
-        git init -q -b main || exit 1
-        mkdir -p "$(dirname "$FIXTURE")" "$(dirname "$SOURCE")" "$(dirname "$GUARD")" \
-            "$(dirname "$DOCKERFILE")" "$(dirname "$DOC")" || exit 1
-        printf '1||2||Hello||NULL||1||NULL||0123456789abcdef\n' > "$FIXTURE"
-        printf 'namespace LotroKoniecDev.Domain;\n\npublic sealed class Result\n{\n}\n' > "$SOURCE"
-        printf '#!/usr/bin/env bash\necho "SSR purity"\n' > "$GUARD"
-        printf 'FROM mcr.microsoft.com/dotnet/aspnet:10.0\n' > "$DOCKERFILE"
-        printf '# ADR-0035\n\nThe decision.\n' > "$DOC"
-        git add -A && git commit -qm 'base' || exit 1
-        eval "$change" || exit 1
-        git add -A && git commit -qm 'the PR'
-    ) > /dev/null 2>&1 || return 1
-    printf '%s\n' "$repo"
-}
+# The base commit every git case starts from, built once and copied per case. It holds the files
+# named at the top of this script.
+BASE_REPO="$TMP_ROOT/base"
+build_base_repo() (
+    mkdir -p "$BASE_REPO" || exit 1
+    cd -- "$BASE_REPO" || exit 1
+    git init -q -b main || exit 1
+    mkdir -p "$(dirname "$FIXTURE")" "$(dirname "$SOURCE")" "$(dirname "$GUARD")" \
+        "$(dirname "$DOCKERFILE")" "$(dirname "$DOC")" || exit 1
+    printf '1||2||Hello||NULL||1||NULL||0123456789abcdef\n' > "$FIXTURE"
+    printf 'namespace LotroKoniecDev.Domain;\n\npublic sealed class Result\n{\n}\n' > "$SOURCE"
+    printf '#!/usr/bin/env bash\necho "SSR purity"\n' > "$GUARD"
+    printf 'FROM mcr.microsoft.com/dotnet/aspnet:10.0\n' > "$DOCKERFILE"
+    printf '# ADR-0035\n\nThe decision.\n' > "$DOC"
+    git add -A && git commit -qm 'base'
+)
 
-# expect_git <expected-verdicts> <description> <change> [<folder>]
-# Runs the classifier on the PR of pr_repo <change> as pr-verify does (`classify-changes.sh HEAD^1`),
-# from <folder> of the scratch repo, the repo root by default.
+# expect_git <expected-verdicts> <description> <change> [<folder>] [<base-ref>]
+# Copies the base repo, makes the PR commit by running the shell snippet <change> in it, and runs
+# the classifier from <folder> (the repo root by default) as pr-verify does:
+# `classify-changes.sh HEAD^1`, or <base-ref> in place of HEAD^1.
 expect_git() {
-    local expected="$1" description="$2" change="$3" folder="${4-.}"
-    local repo actual
+    local expected="$1" description="$2" change="$3" folder="${4-.}" base="${5-HEAD^1}"
+    local repo log actual
     cases=$((cases + 1))
-    if ! repo="$(pr_repo "$change")"; then
-        printf 'FAIL  %s\n        could not build the scratch repo\n' "$description"
+    if ! repo="$(mktemp -d "$TMP_ROOT/repo.XXXXXX")"; then
+        printf 'FAIL  %s\n        mktemp failed\n' "$description"
         failures=$((failures + 1))
         return
     fi
-    actual="$(cd -- "$repo/$folder" && "$CLASSIFY" HEAD^1 2>/dev/null | tr '\n' ' ')"
+    log="$repo.log"
+    if ! (
+        cp -R "$BASE_REPO/." "$repo" && cd -- "$repo" && eval "$change" \
+            && git add -A && git commit -qm 'the PR'
+    ) > "$log" 2>&1; then
+        printf 'FAIL  %s\n        could not make the PR commit:\n' "$description"
+        sed 's/^/          /' "$log"
+        failures=$((failures + 1))
+        return
+    fi
+    actual="$(cd -- "$repo/$folder" && "$CLASSIFY" "$base" 2>> "$log" | tr '\n' ' ')"
     actual="${actual% }"
     if [ "$actual" = "$expected" ]; then
         printf 'PASS  %s\n' "$description"
     else
         printf 'FAIL  %s\n        expected: %s\n        actual:   %s\n' "$description" "$expected" "$actual"
+        sed 's/^/          /' "$log"
         failures=$((failures + 1))
     fi
 }
@@ -185,11 +197,19 @@ expect 'code=true guards=true images=false' 'docs + source together still build'
 
 echo
 echo '── real git: every changed path reaches the rules, both ends of a move included (#1041) ──────'
-# The blind spot the cases below guard: git's own default lists only where a moved file went. If git
+if ! build_base_repo > "$BASE_REPO.log" 2>&1; then
+    printf 'FAIL  could not build the base repo:\n'
+    sed 's/^/          /' "$BASE_REPO.log"
+    printf '%d/%d cases FAILED\n' "$((failures + 1))" "$((cases + 1))"
+    exit 1
+fi
+# The blind spot the moves below guard: git's own default lists only where a moved file went. If git
 # ever stops doing that, this case fails, and the move cases no longer test anything.
 cases=$((cases + 1))
-if repo="$(pr_repo "git mv $FIXTURE docs/exported.txt")" \
-    && [ "$(git -C "$repo" diff --name-only HEAD^1 HEAD)" = 'docs/exported.txt' ]; then
+plain="$TMP_ROOT/plain-move"
+if mkdir -p "$plain" && cp -R "$BASE_REPO/." "$plain" \
+    && git -C "$plain" mv "$FIXTURE" docs/exported.txt && git -C "$plain" commit -qm 'the PR' \
+    && [ "$(git -C "$plain" diff --name-only HEAD^1 HEAD)" = 'docs/exported.txt' ]; then
     printf 'PASS  %s\n' 'plain git diff --name-only hides the old path of a move'
 else
     printf 'FAIL  %s\n' 'plain git diff --name-only hides the old path of a move'
@@ -209,6 +229,14 @@ expect_git 'code=true guards=true images=false'   'a copy into docs/ whose origi
     "git config diff.renames copies && cp $SOURCE docs/Result.cs && printf '// edited\n' >> $SOURCE"
 expect_git 'code=true guards=true images=false'   'diff.relative on, classified from inside docs/' \
     "git config diff.relative true && printf 'edited\n' >> $DOC && printf '// edited\n' >> $SOURCE" docs
+expect_git 'code=true guards=true images=false'   'a submodule pointer change, with ignore = all' \
+    "printf '[submodule \"lib/sub\"]\n\tpath = lib/sub\n\turl = ../sub\n\tignore = all\n' > .gitmodules && mkdir -p lib/sub \
+        && git update-index --add --cacheinfo 160000,1111111111111111111111111111111111111111,lib/sub \
+        && git add .gitmodules && git commit -qm 'add the submodule' \
+        && git update-index --cacheinfo 160000,2222222222222222222222222222222222222222,lib/sub \
+        && printf 'edited\n' >> $DOC"
+expect_git 'code=true guards=true images=true'    'a base ref git cannot resolve runs every gate' \
+    "printf 'edited\n' >> $DOC" . no-such-ref
 
 echo
 if [ "$failures" -gt 0 ]; then

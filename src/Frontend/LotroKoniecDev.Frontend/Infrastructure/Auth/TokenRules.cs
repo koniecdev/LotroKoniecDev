@@ -6,8 +6,9 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 /// <summary>
 /// One set of rules for the tokens the sign-in server sends, used by the first sign-in and by the
 /// background renewal alike. The two paths used to check on their own, and the first sign-in fell behind
-/// (#974, #1026). Our own sign-in server always sends a usable access token and a positive lifetime, so an
-/// answer without them means something between us and that server is broken.
+/// (#974, #1026). These rules only ask whether the website can use the answer: a token is there, and a
+/// lifetime the renewal schedule needs. They never check what a token holds (ADR-0067 decision 2), and an
+/// answer that fails them ends the session cleanly (decision 3).
 /// </summary>
 internal static class TokenRules
 {

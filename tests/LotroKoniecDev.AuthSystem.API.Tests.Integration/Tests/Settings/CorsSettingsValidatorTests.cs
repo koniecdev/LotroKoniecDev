@@ -67,7 +67,7 @@ public sealed class CorsSettingsValidatorTests
     [InlineData("https://lotro-translator.pl/")]
     [InlineData("https://lotro-translator.pl/api")]
     [InlineData("https://user:pass@lotro-translator.pl")]
-    public void Validate_ProductionWithMalformedOrigin_FailsNamingTheKey(string? origin)
+    public void Validate_ProductionWithMalformedOrigin_FailsNamingTheEntry(string? origin)
     {
         CorsSettingsValidator validator = CreateValidator(Production);
         // origin! is deliberate: configuration binding can put a null element into the array, and the
@@ -78,7 +78,36 @@ public sealed class CorsSettingsValidatorTests
 
         result.Failed.ShouldBeTrue();
         result.Failures.ShouldNotBeNull();
-        result.Failures.ShouldContain(failure => failure.Contains("Cors:AllowedOrigins", StringComparison.Ordinal));
+        result.Failures.ShouldContain(failure => failure.Contains("Cors:AllowedOrigins:0", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// #1131: the first and the last origin parse and are refused for their user name and password. In
+    /// the others a '/' or '?' in the password stops the origin from parsing, or a typo in the scheme
+    /// makes it the wrong kind.
+    /// </summary>
+    [Theory]
+    [InlineData(Production, "https://deploy:hunter2@lotro-translator.pl", "hunter2")]
+    [InlineData(Production, "https://deploy:hun/ter2@lotro-translator.pl", "hun/ter2")]
+    [InlineData(Production, "https://deploy:hunter2?@lotro-translator.pl", "hunter2")]
+    [InlineData(Production, "htps://deploy:hunter2@lotro-translator.pl", "hunter2")]
+    [InlineData(Staging, "https://deploy:hunter2@staging.lotro-translator.pl", "hunter2")]
+    public void Validate_DeployedEnvironmentWithOriginCarryingAPassword_FailsNamingTheEntryWithoutTheValue(
+        string environmentName,
+        string origin,
+        string password)
+    {
+        CorsSettingsValidator validator = CreateValidator(environmentName);
+        CorsSettings settings = new() { AllowedOrigins = ["https://lotro-translator.pl", origin] };
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        string failure = result.Failures.ShouldHaveSingleItem();
+        failure.ShouldContain("Cors:AllowedOrigins:1", Case.Sensitive);
+        failure.ShouldNotContain(origin, Case.Sensitive);
+        failure.ShouldNotContain(password);
     }
 
     private static CorsSettingsValidator CreateValidator(string environmentName)

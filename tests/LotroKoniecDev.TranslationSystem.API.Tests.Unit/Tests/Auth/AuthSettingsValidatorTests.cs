@@ -58,6 +58,28 @@ public sealed class AuthSettingsValidatorTests
         result.Errors.ShouldContain(error => error.ErrorMessage.Contains("Auth:Issuer", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// #1131: these messages never printed the address, and these tests keep it that way. A '/' in the
+    /// password stops the address from parsing, and a typo in the scheme makes it the wrong kind.
+    /// </summary>
+    [Theory]
+    [InlineData("https://deploy:hun/ter2@auth.lotro-translator.pl", "hun/ter2")]
+    [InlineData("htps://deploy:hunter2@auth.lotro-translator.pl", "hunter2")]
+    public void Validate_WithNonHttpIssuerCarryingAPassword_FailsNamingTheKeyWithoutTheValue(
+        string issuer,
+        string password)
+    {
+        AuthSettings settings = Settings(issuer: issuer);
+
+        ValidationResult result = _validator.Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        ValidationFailure error = result.Errors.ShouldHaveSingleItem();
+        error.ErrorMessage.ShouldContain("Auth:Issuer", Case.Sensitive);
+        error.ErrorMessage.ShouldNotContain(issuer, Case.Sensitive);
+        error.ErrorMessage.ShouldNotContain(password);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -85,6 +107,24 @@ public sealed class AuthSettingsValidatorTests
         result.IsValid.ShouldBeFalse();
         result.Errors.ShouldContain(error => error.PropertyName == nameof(AuthSettings.Authority));
         result.Errors.ShouldContain(error => error.ErrorMessage.Contains("Auth:Authority", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("https://deploy:hun/ter2@auth.lotro-translator.pl", "hun/ter2")]
+    [InlineData("htps://deploy:hunter2@auth.lotro-translator.pl", "hunter2")]
+    public void Validate_WithNonHttpAuthorityCarryingAPassword_FailsNamingTheKeyWithoutTheValue(
+        string authority,
+        string password)
+    {
+        AuthSettings settings = Settings(authority: authority);
+
+        ValidationResult result = _validator.Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        ValidationFailure error = result.Errors.ShouldHaveSingleItem();
+        error.ErrorMessage.ShouldContain("Auth:Authority", Case.Sensitive);
+        error.ErrorMessage.ShouldNotContain(authority, Case.Sensitive);
+        error.ErrorMessage.ShouldNotContain(password);
     }
 
     private static AuthSettings Settings(

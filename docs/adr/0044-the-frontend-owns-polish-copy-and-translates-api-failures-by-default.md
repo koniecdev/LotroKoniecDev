@@ -1,6 +1,6 @@
 # ADR-0044: The Frontend owns the Polish copy for API failures, and translates by default
 
-**Status:** Accepted (amended 2026-08-21 — #703 narrows §4 to the codes whose API message adds information; see the in-body amendment)
+**Status:** Accepted (amended 2026-08-21 — #703 narrows §4 to the codes whose API message adds information; amended 2026-10-17 — #1092 keeps the API English on any server, §1; see the in-body amendments)
 **Date:** 2026-08-06
 **Decision-makers:** Solo maintainer
 **Related:** #548 (the defect), #268 / #272 (the QA reports that found it), #703 (the §4 amendment) / #669 (the QA report that found it), ADR-0041 (no gateway — the API is a shared contract surface), ADR-0040 (rel names are a frozen public contract), `ApiProblemCopy`, `HttpClientApiExtensions`
@@ -54,6 +54,26 @@ Frontend a dumb renderer — was rejected:
 So `errorCode` becomes what a rel name is for links (ADR-0040): **a frozen contract token**.
 Additions are cheap; renaming a code silently degrades that failure to the generic message. The map
 covers every code both APIs can produce today.
+
+**Amendment (2026-10-17, #1092) — the API stays English on any server.**
+
+"The API stays English" held only because of the machines the API ran on. FluentValidation picks its
+default messages, such as `'Translated Text' must not be empty.`, by the UI culture of the process,
+and the process takes that culture from the OS. The containers set no OS language, so staging and
+prod answered in English. A developer machine with a Polish OS did not: the TMS API sent
+`Pole 'Translated Text' nie może być puste.`, and the snapshot test that pins the English text
+failed there.
+
+So both API hosts turn FluentValidation's translations off at the top of `Program.cs`:
+`ValidatorOptions.Global.LanguageManager.Enabled = false`. The setting lives in the API, not only in
+the test hosts, because the answer is a contract and must not depend on the machine that serves it.
+The integration tests boot the same `Program`, so they get it too. A new API host copies the line.
+`ProblemDetailsContractTests` sends the blank-text upsert with the server in Polish, German and
+French. `ValidationMessageLanguageBootTests` checks the auth host, where every rule has its own
+English message today.
+
+The Frontend's and the patcher's validators are not covered: they check settings and command
+arguments, and their messages never reach an API answer.
 
 ### 2. Translation is the default; only an explicitly marked Frontend problem passes through
 

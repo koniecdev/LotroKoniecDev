@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Threading.RateLimiting;
+using FluentValidation;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -39,6 +40,11 @@ Log.Logger = new LoggerConfiguration()
 try
 {
     Log.Information("Starting AuthSystem");
+
+    // The API answers in English, whatever the language of the server's OS (ADR-0044 §1, #1092).
+    // FluentValidation picks its default messages by the current UI culture. Every rule here has its
+    // own English message today, so this line covers a rule that is added later without one.
+    ValidatorOptions.Global.LanguageManager.Enabled = false;
 
     WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 

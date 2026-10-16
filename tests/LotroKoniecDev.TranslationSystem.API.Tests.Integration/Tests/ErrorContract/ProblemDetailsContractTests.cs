@@ -1,8 +1,14 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.ErrorContract;
 
@@ -20,11 +26,6 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
     private const string ProblemJson = "application/problem+json";
 
     private readonly TranslationSystemApiFactory _factory;
-
-    public ProblemDetailsContractTests(TranslationSystemApiFactory factory)
-    {
-        _factory = factory;
-    }
 
     public async Task InitializeAsync()
     {
@@ -85,6 +86,28 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         problem.GetProperty("title").GetString().ShouldBe("Validation Error");
         problem.GetProperty("errorCode").GetString().ShouldBe("Translations.Validation");
+    }
+
+    [Theory]
+    [InlineData("pl-PL")]
+    [InlineData("de-DE")]
+    [InlineData("fr-FR")]
+    public async Task UpsertTranslation_WithEmptyTextOnAServerInAnotherLanguage_ShouldAnswerInEnglish(string serverCulture)
+    {
+        // Arrange: on a server whose OS language is not English, every request runs in that culture
+        // (#1092).
+        await using WebApplicationFactory<Program> host =
+            HostWithRequestCulture(CultureInfo.GetCultureInfo(serverCulture));
+        using HttpClient client = TranslatorClient(host);
+
+        // Act
+        HttpResponseMessage response = await client.PutAsJsonAsync(
+            "/api/v1/translations", new UpsertTranslationRequest(620756992, 1, "   "));
+        JsonElement problem = await ReadProblemDetailsAsync(response);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        problem.GetProperty("detail").GetString().ShouldBe("'Translated Text' must not be empty.");
     }
 
     [Fact]
@@ -176,6 +199,11 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
         problem.TryGetProperty("errorCode", out _).ShouldBeFalse();
     }
 
+    public ProblemDetailsContractTests(TranslationSystemApiFactory factory)
+    {
+        _factory = factory;
+    }
+
     private static async Task<JsonElement> ReadProblemDetailsAsync(HttpResponseMessage response)
     {
         await using Stream stream = await response.Content.ReadAsStreamAsync();
@@ -183,13 +211,15 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
         return document.RootElement.Clone();
     }
 
-    private HttpClient TranslatorClient()
+    private static HttpClient TranslatorClient(WebApplicationFactory<Program> host)
     {
-        HttpClient client = _factory.CreateClient();
+        HttpClient client = host.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", TranslationSystemApiFactory.CreateAccessToken(AuthConstants.Roles.Translator));
         return client;
     }
+
+    private HttpClient TranslatorClient() => TranslatorClient(_factory);
 
     private HttpClient AdminClient()
     {
@@ -197,5 +227,40 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", TranslationSystemApiFactory.CreateAccessToken(AuthConstants.Roles.Admin));
         return client;
+    }
+
+    private WebApplicationFactory<Program> HostWithRequestCulture(CultureInfo culture)
+    {
+        return _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+                services.AddSingleton<IStartupFilter>(new RequestCultureStartupFilter(culture))));
+    }
+
+    /// <summary>
+    /// Runs every request in the given culture, as a server whose OS has that language does. Without
+    /// it, the test server takes the culture of the machine that runs the tests.
+    /// </summary>
+    private sealed class RequestCultureStartupFilter : IStartupFilter
+    {
+        private readonly CultureInfo _culture;
+
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next)
+        {
+            return app =>
+            {
+                app.Use(async (context, nextMiddleware) =>
+                {
+                    CultureInfo.CurrentCulture = _culture;
+                    CultureInfo.CurrentUICulture = _culture;
+                    await nextMiddleware(context);
+                });
+                next(app);
+            };
+        }
+
+        public RequestCultureStartupFilter(CultureInfo culture)
+        {
+            _culture = culture;
+        }
     }
 }

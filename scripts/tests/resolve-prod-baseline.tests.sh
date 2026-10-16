@@ -32,6 +32,16 @@ RESOLVE_SH="$SCRIPTS_DIR/ci/resolve-prod-baseline.sh"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
+# Git exports GIT_DIR, GIT_INDEX_FILE and the like to a hook or a `git rebase -x` command. Left in
+# place, they would point the fixture repo below at the real one, and its commits would land on your
+# branch.
+for var in $(git rev-parse --local-env-vars); do
+    unset "$var"
+done
+
+# Isolate from the developer's git config (gpg signing, hooks, defaults).
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+
 cases=0
 CASE=""
 LAST_OUTPUT=""

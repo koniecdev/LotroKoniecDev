@@ -12,7 +12,9 @@ namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHt
 /// access token. The token is only added once an OIDC session exists; anonymous requests, such as the
 /// public translation list, go through without one.
 /// A <c>401</c> on a logged-in call marks the session dead, so the next <c>OnValidatePrincipal</c> signs
-/// it out cleanly. That is the fallback behind the signature check we do ourselves.
+/// it out cleanly. The website does not check the token itself: the API checks every token it receives,
+/// and a 401 is one way its refusal ends the session (ADR-0067 decision 2). The service document without
+/// the signed-in links is the other (<c>DiscoveryCache</c>).
 /// </summary>
 internal sealed class TranslationContentNegotiationAndAuthDelegatingHandler : DelegatingHandler
 {
@@ -48,12 +50,9 @@ internal sealed class TranslationContentNegotiationAndAuthDelegatingHandler : De
 
         HttpResponseMessage response = await base.SendAsync(request, cancellationToken);
 
-        // The fallback path: the token was accepted here but refused by the API, usually in the window
-        // where our copy of the signing keys is out of date. Mark the session dead, so the next
-        // OnValidatePrincipal signs it out cleanly. We cannot call SignOutAsync here, because the SSR
-        // response may already be streaming.
-        // The signature check we do ourselves is the main path; this only covers the gap before the
-        // frontend fetches the new keys.
+        // The API refused the token: it expired, its signing key changed, or it is broken. Mark the session
+        // dead, so the next OnValidatePrincipal signs it out cleanly. We cannot call SignOutAsync here,
+        // because the SSR response may already be streaming.
         if (response.StatusCode == HttpStatusCode.Unauthorized && !string.IsNullOrWhiteSpace(accessToken))
         {
             await MarkSessionDeadAsync(httpContext, accessToken, cancellationToken);

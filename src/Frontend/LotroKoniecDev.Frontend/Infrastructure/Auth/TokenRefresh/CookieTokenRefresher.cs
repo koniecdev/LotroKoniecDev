@@ -1,13 +1,6 @@
-using System.Buffers;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
 
@@ -19,10 +12,11 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// cookie's access token, and signs the cookie out properly. A cookie with no expiry, no usable access
 /// token or a blank refresh token is signed out too.
 /// Otherwise it refreshes the access token shortly before it expires, at the time
-/// <see cref="AccessTokenRefreshSchedule"/> sets, using the stored refresh token. When the token is still
-/// valid by the local clock, it also checks the token's signature against the cached OIDC keys, so a key
-/// that was rotated upstream signs the user out cleanly instead of letting a token that is already dead
-/// reach the API.
+/// <see cref="AccessTokenRefreshSchedule"/> sets, using the stored refresh token. It never checks the
+/// access token itself: the token is opaque to the website, and the translation API checks every token it
+/// receives. A token the API refuses ends the session through the marker above (ADR-0067 decision 2,
+/// #1058). So for a session that is alive and not due for a renewal, this check never calls the sign-in
+/// server.
 /// A renewal that fails for a moment (a 429, a 5xx, a network error, a timeout) keeps the session while its
 /// access token still works, and the next request tries again (ADR-0067 decision 3, #1062).
 /// Every rejection sets the one-time "session expired" notice and revokes the session's refresh token
@@ -36,11 +30,7 @@ internal sealed partial class CookieTokenRefresher
     private const string RefreshTokenName = "refresh_token";
     private const string IdTokenName = "id_token";
 
-    private static readonly SearchValues<char> Base64UrlCharacters = SearchValues.Create(
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_");
-
     private readonly ITokenEndpointClient _tokenEndpointClient;
-    private readonly IOptionsMonitor<OpenIdConnectOptions> _openIdConnectOptionsMonitor;
     private readonly IDeadSessionRegistry _deadSessionRegistry;
     private readonly ISessionExpiryNotice _sessionExpiryNotice;
     private readonly RefreshTokenRevoker _refreshTokenRevoker;
@@ -49,7 +39,6 @@ internal sealed partial class CookieTokenRefresher
 
     public CookieTokenRefresher(
         ITokenEndpointClient tokenEndpointClient,
-        IOptionsMonitor<OpenIdConnectOptions> openIdConnectOptionsMonitor,
         IDeadSessionRegistry deadSessionRegistry,
         ISessionExpiryNotice sessionExpiryNotice,
         RefreshTokenRevoker refreshTokenRevoker,
@@ -57,7 +46,6 @@ internal sealed partial class CookieTokenRefresher
         ILogger<CookieTokenRefresher> logger)
     {
         _tokenEndpointClient = tokenEndpointClient;
-        _openIdConnectOptionsMonitor = openIdConnectOptionsMonitor;
         _deadSessionRegistry = deadSessionRegistry;
         _sessionExpiryNotice = sessionExpiryNotice;
         _refreshTokenRevoker = refreshTokenRevoker;
@@ -79,10 +67,11 @@ internal sealed partial class CookieTokenRefresher
 
         CancellationToken cancellationToken = context.HttpContext.RequestAborted;
 
-        // The fallback path: on an earlier request an API refused this cookie's access token, and the call
-        // marked that token dead. That response may already have been streaming, so the clean sign-out
-        // waits until here, where the response has not started. It runs first, so a session we know is
-        // dead never reaches the API again. The marker names this cookie's token, not the user (#1061).
+        // On an earlier request an API refused this cookie's access token, and the call marked that token
+        // dead. This is how a token the API refuses ends the session (ADR-0067 decision 2). That response may
+        // already have been streaming, so the clean sign-out waits until here, where the response has not
+        // started. It runs first, so a session we know is dead never reaches the API again. The marker names
+        // this cookie's token, not the user (#1061).
         string? accessToken = context.Properties.GetTokenValue(AccessTokenName);
         if (accessToken is not null
             && await _deadSessionRegistry.ConsumeAsync(accessToken, cancellationToken))
@@ -92,8 +81,8 @@ internal sealed partial class CookieTokenRefresher
             return;
         }
 
-        // A session the renewal cannot manage is dead (#1026). With no expiry it is never renewed or checked
-        // again, the API refuses a blank access token on every call, and a blank refresh token cannot renew
+        // A session the renewal cannot manage is dead (#1026). With no expiry it is never renewed again,
+        // the API refuses a blank access token on every call, and a blank refresh token cannot renew
         // anything. The first sign-in refuses all three as well. These checks end a session that got past
         // the sign-in, such as one that started before those rules.
         if (!AccessTokenRefreshSchedule.TryGetMoment(
@@ -121,36 +110,10 @@ internal sealed partial class CookieTokenRefresher
             return;
         }
 
-        RefreshOutcome refreshOutcome = await TryRefreshIfNearExpiryAsync(
-            context, expiresAt, refreshToken, cancellationToken);
-
-        // Only a token this request left alone is checked below. Each other outcome says why it skips the
-        // check, so an outcome added later skips it too unless it is meant to run.
-        if (refreshOutcome is not RefreshOutcome.Unchanged)
-        {
-            return;
-        }
-
-        // A check we do ourselves: even when the token is still valid by the local clock, its signing key
-        // may have been rotated upstream while the frontend still trusts the old keys. We check the
-        // signature against the cached OIDC keys, with no call to the API.
-        // Lifetime and audience are deliberately not checked here: the window above handles expiry, and
-        // this frontend is not the token's audience.
-        if (!await IsAccessTokenCryptographicallyValidAsync(accessToken, cancellationToken))
-        {
-            LogProactiveInvalidToken(_logger);
-            await RejectAsync(context);
-        }
+        await TryRefreshIfNearExpiryAsync(context, expiresAt, refreshToken, cancellationToken);
     }
 
-    /// <returns>
-    /// <see cref="RefreshOutcome.Stop"/> when the principal was already rejected.
-    /// <see cref="RefreshOutcome.Refreshed"/> when a new token was just fetched, so the caller skips the
-    /// signature check. <see cref="RefreshOutcome.Postponed"/> when the refresh failed for a moment and the
-    /// session keeps its token, so the caller skips the check too. Otherwise
-    /// <see cref="RefreshOutcome.Unchanged"/>, and the token that is still valid should be checked.
-    /// </returns>
-    private async Task<RefreshOutcome> TryRefreshIfNearExpiryAsync(
+    private async Task TryRefreshIfNearExpiryAsync(
         CookieValidatePrincipalContext context,
         DateTimeOffset expiresAt,
         string? refreshToken,
@@ -160,14 +123,14 @@ internal sealed partial class CookieTokenRefresher
 
         if (!AccessTokenRefreshSchedule.IsDue(properties, expiresAt, _timeProvider.GetUtcNow()))
         {
-            return RefreshOutcome.Unchanged;
+            return;
         }
 
         if (refreshToken is null)
         {
             LogNoRefreshToken(_logger);
             await RejectAsync(context);
-            return RefreshOutcome.Stop;
+            return;
         }
 
         TokenRefreshResult refreshResult = await _tokenEndpointClient.RefreshAsync(
@@ -180,7 +143,7 @@ internal sealed partial class CookieTokenRefresher
         if (refreshResult.IsTemporaryFailure && _timeProvider.GetUtcNow() < expiresAt)
         {
             LogRefreshPostponed(_logger);
-            return RefreshOutcome.Postponed;
+            return;
         }
 
         if (refreshResult.Tokens is not { } tokenResponse)
@@ -198,24 +161,17 @@ internal sealed partial class CookieTokenRefresher
             // never gets the deleted cookie and sends the same refresh token on its next request, so that
             // token must stay alive.
             await RejectAsync(context, revokeStoredRefreshToken: !cancellationToken.IsCancellationRequested);
-            return RefreshOutcome.Stop;
+            return;
         }
 
+        // The website reads only what it needs to use the answer: a token, and a lifetime for the renewal
+        // schedule. It does not check the shape or the characters of any token, and it does not validate the
+        // renewed ID token, which it keeps only as the sign-out's hint (ADR-0067 decision 2).
         if (!TokenRules.IsUsable(tokenResponse.AccessToken))
         {
             LogNoUsableAccessToken(_logger);
             await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
-            return RefreshOutcome.Stop;
-        }
-
-        // A renewed token skips the signature check (see ValidateAsync), so its shape is the only check
-        // before this page sends it to the API (#1028). Our sign-in server signs access tokens and does not
-        // encrypt them, so a good one is always a compact JWS.
-        if (!IsCompactJws(tokenResponse.AccessToken))
-        {
-            LogMalformedAccessToken(_logger);
-            await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
-            return RefreshOutcome.Stop;
+            return;
         }
 
         if (!TokenRules.IsPositiveLifetime(tokenResponse.ExpiresIn))
@@ -223,28 +179,7 @@ internal sealed partial class CookieTokenRefresher
             LogNoPositiveLifetime(
                 _logger, tokenResponse.ExpiresIn?.ToString(CultureInfo.InvariantCulture) ?? "missing");
             await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
-            return RefreshOutcome.Stop;
-        }
-
-        // A broken refresh or ID token means the answer was damaged on the way, so none of it is trusted
-        // (#1028). The refresh token is opaque to us (RFC 6749 §1.5), so only its characters are checked:
-        // printable ASCII, as RFC 6749 Appendix A.17 allows.
-        if (!string.IsNullOrWhiteSpace(tokenResponse.RefreshToken)
-            && tokenResponse.RefreshToken.AsSpan().ContainsAnyExceptInRange(' ', '~'))
-        {
-            LogMalformedRefreshToken(_logger);
-            await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
-            return RefreshOutcome.Stop;
-        }
-
-        // Our sign-in server signs ID tokens and never encrypts them, so a good one is always a compact JWS.
-        // A broken one stored here would be the sign-out's hint. The sign-in server finds no session behind
-        // a broken hint, so this device's session would not end there (#931).
-        if (!string.IsNullOrWhiteSpace(tokenResponse.IdToken) && !IsCompactJws(tokenResponse.IdToken))
-        {
-            LogMalformedIdToken(_logger);
-            await RejectAsync(context, receivedRefreshToken: tokenResponse.RefreshToken);
-            return RefreshOutcome.Stop;
+            return;
         }
 
         properties.UpdateTokenValue(AccessTokenName, tokenResponse.AccessToken);
@@ -268,105 +203,6 @@ internal sealed partial class CookieTokenRefresher
         AccessTokenRefreshSchedule.Schedule(properties, receivedAt, newExpiresAt);
 
         context.ShouldRenew = true;
-        return RefreshOutcome.Refreshed;
-    }
-
-    private async Task<bool> IsAccessTokenCryptographicallyValidAsync(
-        string accessToken,
-        CancellationToken cancellationToken)
-    {
-        OpenIdConnectOptions oidcOptions = _openIdConnectOptionsMonitor.Get(
-            OpenIdConnectDefaults.AuthenticationScheme);
-        if (oidcOptions.ConfigurationManager is null)
-        {
-            // Without a configuration manager we cannot fetch the keys, so we must not log the user out.
-            return true;
-        }
-
-        OpenIdConnectConfiguration configuration = await oidcOptions.ConfigurationManager
-            .GetConfigurationAsync(cancellationToken);
-
-        if (await TryValidateAsync(
-                accessToken, configuration.SigningKeys, configuration.Issuer, cancellationToken))
-        {
-            return true;
-        }
-
-        // A normal key change the frontend has not fetched yet would fail the first check. Force a
-        // metadata refresh and check once more before deciding the token is really dead.
-        oidcOptions.ConfigurationManager.RequestRefresh();
-        OpenIdConnectConfiguration refreshedConfiguration = await oidcOptions.ConfigurationManager
-            .GetConfigurationAsync(cancellationToken);
-
-        return await TryValidateAsync(
-            accessToken, refreshedConfiguration.SigningKeys, refreshedConfiguration.Issuer, cancellationToken);
-    }
-
-    [SuppressMessage(
-        "Security",
-        "CA5404:Do not disable token validation checks",
-        Justification =
-            "Intentional: this is a cryptographic-validity / key-rotation probe, not a full access-token "
-            + "validation. Audience is disabled because the FE is not the token's audience (the API is), "
-            + "and lifetime is disabled because the skew/refresh window above already owns expiry — "
-            + "re-checking it here would double-handle and could falsely reject.")]
-    private static async Task<bool> TryValidateAsync(
-        string accessToken,
-        IEnumerable<SecurityKey> signingKeys,
-        string? issuer,
-        CancellationToken cancellationToken)
-    {
-        // The issuer comes from the discovery document through ConfigurationManager, the same source the
-        // provider writes into the token's 'iss'. So the two cannot differ the way a hand-written
-        // Authority can, with a trailing slash, an internal URL or an empty value in production.
-        // If discovery has not given us an issuer yet, skip the check instead of logging the user out.
-        if (string.IsNullOrWhiteSpace(issuer))
-        {
-            return true;
-        }
-
-        TokenValidationParameters validationParameters = new()
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKeys = signingKeys,
-            ValidateIssuer = true,
-            ValidIssuer = issuer,
-            ValidateAudience = false,
-            ValidateLifetime = false
-        };
-
-        TokenValidationResult result = await new JsonWebTokenHandler()
-            .ValidateTokenAsync(accessToken, validationParameters);
-
-        cancellationToken.ThrowIfCancellationRequested();
-        return result.IsValid;
-    }
-
-    /// <summary>
-    /// Three non-empty base64url parts joined by dots, and nothing else: no padding, no whitespace, no line
-    /// break. <see cref="JsonWebTokenHandler.CanReadToken"/> is not enough, because its pattern also accepts a
-    /// trailing line feed, and a request header cannot carry one. The header and the payload must also read
-    /// as JSON, and the header must name an algorithm (RFC 7515 §4.1.1). The signature is not checked here.
-    /// </summary>
-    private static bool IsCompactJws(string token)
-    {
-        string[] parts = token.Split('.', 4);
-        if (parts.Length != 3
-            || !parts.All(part => part.Length > 0 && !part.AsSpan().ContainsAnyExcept(Base64UrlCharacters)))
-        {
-            return false;
-        }
-
-        try
-        {
-            return !string.IsNullOrEmpty(new JsonWebToken(token).Alg);
-        }
-        catch (ArgumentException)
-        {
-            // The constructor throws when the header or the payload is not base64url-encoded JSON, or when
-            // alg is not a string.
-            return false;
-        }
     }
 
     /// <summary>
@@ -426,12 +262,6 @@ internal sealed partial class CookieTokenRefresher
     private static partial void LogRefreshFailed(ILogger logger);
 
     [LoggerMessage(
-        EventId = 3,
-        Level = LogLevel.Information,
-        Message = "Access token failed local JWKS signature validation after a metadata refresh; principal rejected.")]
-    private static partial void LogProactiveInvalidToken(ILogger logger);
-
-    [LoggerMessage(
         EventId = 4,
         Level = LogLevel.Information,
         Message = "Session was marked dead by a prior 401; principal rejected.")]
@@ -448,24 +278,6 @@ internal sealed partial class CookieTokenRefresher
         Level = LogLevel.Warning,
         Message = "Refresh token grant returned a missing or non-positive expires_in; principal rejected. expires_in: {ExpiresIn}")]
     private static partial void LogNoPositiveLifetime(ILogger logger, string expiresIn);
-
-    [LoggerMessage(
-        EventId = 7,
-        Level = LogLevel.Warning,
-        Message = "Refresh token grant returned an access_token that is not a compact JWS; principal rejected.")]
-    private static partial void LogMalformedAccessToken(ILogger logger);
-
-    [LoggerMessage(
-        EventId = 8,
-        Level = LogLevel.Warning,
-        Message = "Refresh token grant returned a refresh_token with characters outside printable ASCII; principal rejected.")]
-    private static partial void LogMalformedRefreshToken(ILogger logger);
-
-    [LoggerMessage(
-        EventId = 9,
-        Level = LogLevel.Warning,
-        Message = "Refresh token grant returned an id_token that is not a compact JWS; principal rejected.")]
-    private static partial void LogMalformedIdToken(ILogger logger);
 
     [LoggerMessage(
         EventId = 10,
@@ -496,38 +308,4 @@ internal sealed partial class CookieTokenRefresher
         Level = LogLevel.Information,
         Message = "Refresh token grant failed for a moment after the access token ran out; principal rejected.")]
     private static partial void LogRefreshFailedAfterExpiry(ILogger logger);
-
-    /// <summary>
-    /// The result of the refresh attempt, which tells <see cref="ValidateAsync"/> whether the signature
-    /// check still has anything to look at.
-    /// </summary>
-    private enum RefreshOutcome
-    {
-        /// <summary>
-        /// Validation must stop: the refresh attempt has already rejected the principal.
-        /// </summary>
-        Stop,
-
-        /// <summary>
-        /// The token was not touched and is still valid by the local clock. This is the one case where a
-        /// key change upstream is worth checking for.
-        /// </summary>
-        Unchanged,
-
-        /// <summary>
-        /// A new token was fetched from the identity provider over TLS on this very request, so its signing
-        /// key cannot have changed since. The signature check would find nothing and could only fail wrongly
-        /// against local keys that are a moment out of date. The refresh has already checked the token's
-        /// shape instead (#1028).
-        /// </summary>
-        Refreshed,
-
-        /// <summary>
-        /// The refresh failed for a moment while the token still works. The session keeps the token, and the
-        /// next request tries the refresh again. The signature check is skipped: it may have to fetch keys
-        /// from the sign-in server that has just failed, so a page would fail where the session should
-        /// survive. The translation API checks the kept token on every call (ADR-0067 decision 2).
-        /// </summary>
-        Postponed
-    }
 }

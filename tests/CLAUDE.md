@@ -26,7 +26,7 @@ Full project inventory (15 projects):
 | `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api unit (cold-start seed retry policy) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
 | `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |
-| `LotroKoniecDev.Frontend.Tests.Integration` | in-process Frontend host in Staging (`WebApplicationFactory`): startup checks such as the caller keys (#915), and the real OIDC sign-in against a stand-in token endpoint: the token answer it accepts (#1026) and the refresh time it stores (#1025) | nothing (no Docker); a temp keyring folder |
+| `LotroKoniecDev.Frontend.Tests.Integration` | in-process Frontend host in Staging (`WebApplicationFactory`): startup checks such as the caller keys (#915), and the real OIDC sign-in against a stand-in token endpoint: the token answer it accepts (#1026) and the refresh time it stores (#1025); and a signed-in session's pages while the sign-in server is down right after a restart, plus the 401 that ends a session (#1058) | nothing (no Docker); a temp keyring folder |
 | `LotroKoniecDev.TranslationSystem.E2E.Tests` | real-process TMS stack over HTTP | Docker (3 images) |
 | `LotroKoniecDev.Frontend.E2E.Tests` | Playwright browser stack | Docker (4 images + browser) |
 | `LotroKoniecDev.Tests.Infrastructure` | patcher real-infrastructure adapters | Windows to run |

@@ -110,7 +110,7 @@ public sealed class AuthEndpointsExtensionsTests
     public async Task LoginAsync_WhenNoConfigurationManager_StillReturnsTheOidcChallenge()
     {
         // Once the OIDC handler post-configures, ConfigurationManager is always set; the null-guard
-        // mirrors CookieTokenRefresher so a missing manager can never turn a login into a false 503.
+        // mirrors RefreshTokenRevoker so a missing manager can never turn a login into a false 503.
         IResult result = await AuthEndpointsExtensions.LoginAsync(
             new DefaultHttpContext(),
             "/dashboard",

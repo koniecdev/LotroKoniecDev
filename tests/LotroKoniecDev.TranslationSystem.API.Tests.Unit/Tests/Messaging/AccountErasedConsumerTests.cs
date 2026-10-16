@@ -212,7 +212,31 @@ public sealed class AccountErasedConsumerTests
     }
 
     [Fact]
-    public void BuildConnectionFactory_ForAnySettings_TurnsOnAutomaticAndTopologyRecovery()
+    public void BuildConnectionFactory_FromTheSettings_ConnectsWhereTheyPoint()
+    {
+        // Arrange: no value is the client's default, so a setting the factory drops shows up.
+        RabbitMqSettings settings = new()
+        {
+            Host = "broker.internal",
+            Port = 5673,
+            Username = "tms-consumer",
+            Password = "a-broker-password",
+            VirtualHost = "/lotro"
+        };
+
+        // Act
+        ConnectionFactory connectionFactory = AccountErasedConsumer.BuildConnectionFactory(settings);
+
+        // Assert
+        connectionFactory.HostName.ShouldBe("broker.internal");
+        connectionFactory.Port.ShouldBe(5673);
+        connectionFactory.UserName.ShouldBe("tms-consumer");
+        connectionFactory.Password.ShouldBe("a-broker-password");
+        connectionFactory.VirtualHost.ShouldBe("/lotro");
+    }
+
+    [Fact]
+    public void BuildConnectionFactory_FromTheSettings_TurnsOnAutomaticAndTopologyRecovery()
     {
         // Arrange: the watch leaves a single closed look to automatic recovery, so recovery must be on.
         RabbitMqSettings settings = new()
@@ -275,6 +299,38 @@ public sealed class AccountErasedConsumerTests
         connectionFactory.CreateConnectionAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromException<IConnection>(failure), Task.FromResult(broker.Connection));
         using AccountErasedConsumer consumer = CreateConsumer(connectionFactory, TimeSpan.FromMinutes(1));
+
+        // Act
+        await consumer.StartAsync(CancellationToken.None);
+        bool attached = await broker.WaitUntilConsumingAsync();
+        await StopWithinLimitAsync(consumer);
+
+        // Assert
+        attached.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenTheAttachFailsMoreTimesThanThereArePauses_ShouldKeepRetrying()
+    {
+        // Arrange: four failed connects against two pauses. The last pause repeats for as long as the
+        // broker is down, so the consumer must never run past the end of the list.
+        BrokerStub broker = new(true);
+        Exception failure = new BrokerUnreachableException(new IOException("Connection refused"));
+        IConnectionFactory connectionFactory = Substitute.For<IConnectionFactory>();
+        connectionFactory.CreateConnectionAsync(Arg.Any<CancellationToken>())
+            .Returns(
+                Task.FromException<IConnection>(failure),
+                Task.FromException<IConnection>(failure),
+                Task.FromException<IConnection>(failure),
+                Task.FromException<IConnection>(failure),
+                Task.FromResult(broker.Connection));
+        using AccountErasedConsumer consumer = new(
+            connectionFactory,
+            Substitute.For<IServiceScopeFactory>(),
+            NullLogger<AccountErasedConsumer>.Instance,
+            [TimeSpan.Zero, TimeSpan.Zero],
+            [TimeSpan.Zero],
+            TimeSpan.FromMinutes(1));
 
         // Act
         await consumer.StartAsync(CancellationToken.None);

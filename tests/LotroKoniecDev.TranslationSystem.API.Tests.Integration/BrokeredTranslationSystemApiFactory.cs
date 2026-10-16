@@ -25,8 +25,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration;
 /// erasures, and the consumer runs faster than in production. It pauses 50 ms instead of up to 15
 /// minutes before a failed message goes back, waits 200 ms instead of up to a minute before it connects
 /// again, and checks its subscription every 200 ms instead of every 30 seconds. Its automatic recovery
-/// retries every 100 ms instead of every 5 seconds, so after a dropped connection recovery still comes
-/// first, before the second look, as it does in production.
+/// retries every 100 ms instead of every 5 seconds, so after a dropped connection recovery starts before
+/// the second look, as in production. The margin is small, so on a slow run the consumer may attach
+/// again instead. No test here drops a connection.
 /// </summary>
 #pragma warning disable CA1515
 public sealed class BrokeredTranslationSystemApiFactory : TranslationSystemApiFactory

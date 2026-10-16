@@ -24,7 +24,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration;
 /// Two seams make the slow paths testable in seconds: <see cref="ErasureFailures"/> fails the next
 /// erasures, and the consumer runs faster than in production. It pauses 50 ms instead of up to 15
 /// minutes before a failed message goes back, waits 200 ms instead of up to a minute before it connects
-/// again, and checks its subscription every 200 ms instead of every 30 seconds.
+/// again, and checks its subscription every 200 ms instead of every 30 seconds. Its automatic recovery
+/// retries every 100 ms instead of every 5 seconds, so after a dropped connection recovery still comes
+/// first, before the second look, as it does in production.
 /// </summary>
 #pragma warning disable CA1515
 public sealed class BrokeredTranslationSystemApiFactory : TranslationSystemApiFactory
@@ -33,6 +35,7 @@ public sealed class BrokeredTranslationSystemApiFactory : TranslationSystemApiFa
     private static readonly TimeSpan[] ShortConnectBackoffs = [TimeSpan.FromMilliseconds(200)];
     private static readonly TimeSpan[] ShortRetryBackoffs = [TimeSpan.FromMilliseconds(50)];
     private static readonly TimeSpan ShortWatchInterval = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan ShortRecoveryInterval = TimeSpan.FromMilliseconds(100);
 
     private readonly RabbitMqContainer _broker = new RabbitMqBuilder(RabbitMqImage.Name).Build();
 
@@ -74,14 +77,20 @@ public sealed class BrokeredTranslationSystemApiFactory : TranslationSystemApiFa
 
         builder.ConfigureTestServices(services =>
         {
-            services.AddHostedService(serviceProvider => new AccountErasedConsumer(
-                AccountErasedConsumer.BuildConnectionFactory(
-                    serviceProvider.GetRequiredService<IOptions<RabbitMqSettings>>().Value),
-                serviceProvider.GetRequiredService<IServiceScopeFactory>(),
-                serviceProvider.GetRequiredService<ILogger<AccountErasedConsumer>>(),
-                ShortConnectBackoffs,
-                ShortRetryBackoffs,
-                ShortWatchInterval));
+            services.AddHostedService(serviceProvider =>
+            {
+                ConnectionFactory connectionFactory = AccountErasedConsumer.BuildConnectionFactory(
+                    serviceProvider.GetRequiredService<IOptions<RabbitMqSettings>>().Value);
+                connectionFactory.NetworkRecoveryInterval = ShortRecoveryInterval;
+
+                return new AccountErasedConsumer(
+                    connectionFactory,
+                    serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+                    serviceProvider.GetRequiredService<ILogger<AccountErasedConsumer>>(),
+                    ShortConnectBackoffs,
+                    ShortRetryBackoffs,
+                    ShortWatchInterval);
+            });
 
             ServiceDescriptor handler = services.Single(descriptor =>
                 descriptor.ServiceType == typeof(ICommandHandler<EraseTranslatorProfile.Command, Result>));

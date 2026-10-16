@@ -1,25 +1,18 @@
 using System.Collections.Concurrent;
-using System.Globalization;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using LotroKoniecDev.Frontend.Tests.Integration.Shared;
 using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.TranslationSystem.Contracts.Discovery;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.DiscoveryResponse;
 using AuthRels = LotroKoniecDev.AuthSystem.Contracts.Hateoas.Rels;
 
@@ -34,10 +27,8 @@ namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Forms;
 /// </summary>
 public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<StagingFrontendFactory>
 {
-    private const string AuthCookieName = ".lotrokoniecdev.auth";
     private const string TmsOrigin = "https://tms.staging.invalid";
     private const string AuthOrigin = "https://auth.staging.invalid";
-    private const string Subject = "11111111-1111-1111-1111-111111111111";
     private const string RowId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 
     /// <summary>The Polish text a 503 from an API turns into (ApiProblemCopy).</summary>
@@ -49,14 +40,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
 
     private static readonly Uri UpsertHref = new($"{TmsOrigin}/advertised/upsert");
 
-    /// <summary>The options the Frontend reads the TMS answers with (HttpClientApiExtensions).</summary>
-    private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        Converters = { new JsonStringEnumConverter() }
-    };
-
     private readonly StagingFrontendFactory _factory;
-    private readonly Dictionary<string, string> _cookies = new(StringComparer.Ordinal);
 
     [Fact]
     public async Task Post_ImportForm_WhenTheVersionListFailsToLoad_ShowsTheImportPageWithTheLoadError()
@@ -66,11 +50,11 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         StubTranslationSystem translationSystem = new();
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
-        using HttpClient browser = CreateBrowser(host);
-        string antiforgeryToken = await SignInAndReadAntiforgeryTokenAsync(browser, host);
+        using CookieJarBrowser browser = SignedInBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
 
         // Act
-        using HttpResponseMessage posted = await SendAsync(browser, ImportPost(antiforgeryToken));
+        using HttpResponseMessage posted = await browser.SendAsync(StubAnswers.ImportPost(antiforgeryToken, Guid.NewGuid()));
 
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -97,11 +81,11 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         StubTranslationSystem translationSystem = new();
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
-        using HttpClient browser = CreateBrowser(host);
-        string antiforgeryToken = await SignInAndReadAntiforgeryTokenAsync(browser, host);
+        using CookieJarBrowser browser = SignedInBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
 
         // Act
-        using HttpResponseMessage posted = await SendAsync(browser, FormPost(path, formName, antiforgeryToken));
+        using HttpResponseMessage posted = await browser.SendAsync(FormPost(path, formName, antiforgeryToken));
 
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -124,11 +108,11 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         StubTranslationSystem translationSystem = new();
         StubAuthSystem authSystem = new(HttpStatusCode.Unauthorized);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
-        using HttpClient browser = CreateBrowser(host);
-        string antiforgeryToken = await SignInAndReadAntiforgeryTokenAsync(browser, host);
+        using CookieJarBrowser browser = SignedInBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
 
         // Act
-        using HttpResponseMessage posted = await SendAsync(browser, FormPost(path, formName, antiforgeryToken));
+        using HttpResponseMessage posted = await browser.SendAsync(FormPost(path, formName, antiforgeryToken));
 
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
@@ -146,11 +130,11 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         StubTranslationSystem translationSystem = new() { UpsertAnswer = HttpStatusCode.OK };
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
-        using HttpClient browser = CreateBrowser(host);
-        string antiforgeryToken = await SignInAndReadAntiforgeryTokenAsync(browser, host);
+        using CookieJarBrowser browser = SignedInBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
 
         // Act
-        using HttpResponseMessage posted = await SendAsync(browser, SavePost(antiforgeryToken, "Witaj, wędrowcze."));
+        using HttpResponseMessage posted = await browser.SendAsync(SavePost(antiforgeryToken, "Witaj, wędrowcze."));
 
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
@@ -165,11 +149,11 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         StubTranslationSystem translationSystem = new() { UpsertAnswer = HttpStatusCode.Conflict };
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
-        using HttpClient browser = CreateBrowser(host);
-        string antiforgeryToken = await SignInAndReadAntiforgeryTokenAsync(browser, host);
+        using CookieJarBrowser browser = SignedInBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
 
         // Act
-        using HttpResponseMessage posted = await SendAsync(browser, SavePost(antiforgeryToken, "Witaj, wędrowcze."));
+        using HttpResponseMessage posted = await browser.SendAsync(SavePost(antiforgeryToken, "Witaj, wędrowcze."));
 
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -180,20 +164,26 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         page.ShouldContain("name=\"GossipIdField\" value=\"1002\"");
     }
 
-    [Fact]
-    public async Task Post_NamingAFormThePageNeverHas_WhileTheLoadFails_StillGetsTheBadRequest()
+    [Theory]
+    [InlineData("/import-export", "no-such-form")]
+    [InlineData("/game-versions", "delete-")]
+    [InlineData("/game-versions", "delete-not-a-guid")]
+    [InlineData($"/editor/{RowId}", "save-translationx")]
+    [InlineData("/account/delete", "change-email")]
+    public async Task Post_NamingAFormThePageNeverHas_WhileTheLoadFails_StillGetsTheBadRequest(
+        string path,
+        string formName)
     {
-        // Arrange: only the page's own form names are kept. A post to a name no page ever drew is a broken
-        // request and keeps Blazor's own answer.
+        // Arrange: only the page's own form names are kept. A post to a name the page never drew is a
+        // broken request and keeps Blazor's own answer.
         StubTranslationSystem translationSystem = new();
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
-        using HttpClient browser = CreateBrowser(host);
-        string antiforgeryToken = await SignInAndReadAntiforgeryTokenAsync(browser, host);
+        using CookieJarBrowser browser = SignedInBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
 
         // Act
-        using HttpResponseMessage posted = await SendAsync(
-            browser, FormPost("/import-export", "no-such-form", antiforgeryToken));
+        using HttpResponseMessage posted = await browser.SendAsync(FormPost(path, formName, antiforgeryToken));
 
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -204,16 +194,9 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         _factory = factory;
     }
 
-    [GeneratedRegex("""name="__RequestVerificationToken" value="(?<token>[^"]+)""")]
-    private static partial Regex AntiforgeryTokenInput();
-
     [GeneratedRegex("""<textarea id="translated-recovery"[^>]*>(?<text>[^<]*)</textarea>""")]
     private static partial Regex RecoveryTextarea();
 
-    /// <summary>
-    /// The sign-in server is never called: the session cookie is made with the host's own keys, and its
-    /// access token is far from expiry, so the cookie check has no renewal to make.
-    /// </summary>
     private WebApplicationFactory<Program> CreateHost(
         StubTranslationSystem translationSystem,
         StubAuthSystem authSystem) =>
@@ -228,56 +211,15 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
                 .ConfigurePrimaryHttpMessageHandler(() => authSystem);
         }));
 
-    private static HttpClient CreateBrowser(WebApplicationFactory<Program> host) =>
-        host.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-            HandleCookies = false,
-            BaseAddress = new Uri("https://localhost")
-        });
-
     /// <summary>
-    /// Puts a signed-in session into the cookie jar and reads an antiforgery token from the sign-out form
-    /// every page has for a signed-in user. The token belongs to the session, not to one form.
+    /// A signed-in session needs no sign-in server: its cookie is made with the host's own keys. Each test
+    /// reads its antiforgery token from the sign-out form every page has for a signed-in user.
     /// </summary>
-    private async Task<string> SignInAndReadAntiforgeryTokenAsync(HttpClient browser, WebApplicationFactory<Program> host)
+    private static CookieJarBrowser SignedInBrowser(WebApplicationFactory<Program> host)
     {
-        _cookies[AuthCookieName] = ProtectedSessionTicket(host);
-
-        using HttpResponseMessage page = await SendAsync(browser, new HttpRequestMessage(HttpMethod.Get, "/terms"));
-        Match antiforgeryToken = AntiforgeryTokenInput().Match(await page.Content.ReadAsStringAsync());
-
-        return antiforgeryToken.Success
-            ? antiforgeryToken.Groups["token"].Value
-            : throw new InvalidOperationException($"The terms page answered {page.StatusCode} with no sign-out form.");
-    }
-
-    private static string ProtectedSessionTicket(WebApplicationFactory<Program> host)
-    {
-        ClaimsPrincipal user = new(new ClaimsIdentity(
-            [new Claim("sub", Subject), new Claim("name", "Anna")],
-            authenticationType: OpenIdConnectDefaults.AuthenticationScheme,
-            nameType: "name",
-            roleType: "role"));
-
-        AuthenticationProperties properties = new();
-        properties.StoreTokens(
-        [
-            new AuthenticationToken { Name = "access_token", Value = "opaque-access-token" },
-            new AuthenticationToken { Name = "refresh_token", Value = "opaque-refresh-token" },
-            new AuthenticationToken
-            {
-                Name = "expires_at",
-                Value = DateTimeOffset.UtcNow.AddMinutes(5).ToString("o", CultureInfo.InvariantCulture)
-            }
-        ]);
-
-        CookieAuthenticationOptions cookieOptions = host.Services
-            .GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>()
-            .Get(CookieAuthenticationDefaults.AuthenticationScheme);
-
-        return cookieOptions.TicketDataFormat.Protect(
-            new AuthenticationTicket(user, properties, CookieAuthenticationDefaults.AuthenticationScheme));
+        CookieJarBrowser browser = new(host);
+        browser.SetCookie(SignedInSession.CookieName, SignedInSession.ProtectedTicket(host));
+        return browser;
     }
 
     private static HttpRequestMessage FormPost(string path, string formName, string antiforgeryToken) =>
@@ -302,68 +244,6 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
                 ["DraftField"] = draft
             })
         };
-
-    /// <summary>The import form as a browser sends it: multipart, with the file.</summary>
-    private static HttpRequestMessage ImportPost(string antiforgeryToken)
-    {
-        ByteArrayContent file = new("1||1||Hello||NULL||NULL||0000000000000000\n"u8.ToArray());
-        file.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
-
-        MultipartFormDataContent content = new()
-        {
-            { new StringContent("import-export"), "_handler" },
-            { new StringContent(antiforgeryToken), "__RequestVerificationToken" },
-            { new StringContent(Guid.NewGuid().ToString()), "ImportInput.GameVersionId" },
-            { file, "ImportInput.File", "exported.txt" }
-        };
-
-        return new HttpRequestMessage(HttpMethod.Post, "/import-export") { Content = content };
-    }
-
-    /// <summary>A browser with a plain cookie jar: it keeps what the server sets and sends it back.</summary>
-    private async Task<HttpResponseMessage> SendAsync(HttpClient browser, HttpRequestMessage request)
-    {
-        using (request)
-        {
-            request.Headers.Add("Cookie", string.Join("; ", _cookies.Select(cookie => $"{cookie.Key}={cookie.Value}")));
-
-            HttpResponseMessage response = await browser.SendAsync(request);
-            if (response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? setCookies))
-            {
-                foreach (string[] pair in setCookies.Select(setCookie => setCookie.Split(';', 2)[0].Split('=', 2)))
-                {
-                    if (pair[1].Length == 0)
-                    {
-                        _cookies.Remove(pair[0]);
-                    }
-                    else
-                    {
-                        _cookies[pair[0]] = pair[1];
-                    }
-                }
-            }
-
-            return response;
-        }
-    }
-
-    private static HttpResponseMessage Json<T>(T body) =>
-        new(HttpStatusCode.OK)
-        {
-            Content = JsonContent.Create(
-                body,
-                mediaType: new MediaTypeHeaderValue(MediaTypes.HateoasJson),
-                options: ApiJsonOptions)
-        };
-
-    /// <summary>A sign-in server that is down: every call fails before an answer arrives.</summary>
-    private sealed class UnreachableServer : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            Task.FromException<HttpResponseMessage>(new HttpRequestException("Connection refused."));
-    }
 
     /// <summary>
     /// The translation API while it is down for page data: the service document still answers, so the
@@ -393,7 +273,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
 
             if (uri.GetLeftPart(UriPartial.Path) == $"{TmsOrigin}/")
             {
-                return Json(new DiscoveryResponse("tms")
+                return StubAnswers.HateoasJson(new DiscoveryResponse("tms")
                 {
                     Links =
                     [
@@ -421,7 +301,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
             _upserts.Enqueue(upsert);
 
             return UpsertAnswer == HttpStatusCode.OK
-                ? Json(new TranslationDetailResponse(
+                ? StubAnswers.HateoasJson(new TranslationDetailResponse(
                     TranslationId.Create(Guid.Parse(RowId)),
                     upsert.FileId,
                     upsert.GossipId,
@@ -465,7 +345,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
 
             HttpResponseMessage response = uri.GetLeftPart(UriPartial.Path) switch
             {
-                $"{AuthOrigin}/" => Json(new AuthDiscoveryResponse("auth")
+                $"{AuthOrigin}/" => StubAnswers.HateoasJson(new AuthDiscoveryResponse("auth")
                 {
                     Links = [new LinkDto(AccountHref, AuthRels.ExportAccountData, "GET")]
                 }),

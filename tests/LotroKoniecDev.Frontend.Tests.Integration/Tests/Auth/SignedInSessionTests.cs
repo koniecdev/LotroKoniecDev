@@ -1,19 +1,13 @@
-using System.Globalization;
 using System.Net;
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Security.Claims;
+using LotroKoniecDev.Frontend.Tests.Integration.Shared;
 using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.TranslationSystem.Contracts.Discovery;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Auth;
 
@@ -24,10 +18,7 @@ namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Auth;
 /// </summary>
 public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
 {
-    private const string AuthCookieName = ".lotrokoniecdev.auth";
     private const string TmsOrigin = "https://tms.staging.invalid";
-    private const string Subject = "11111111-1111-1111-1111-111111111111";
-    private const string UserName = "Anna";
     private const string SignOutButton = "Wyloguj";
 
     /// <summary>The name ASP.NET Core gives the typed client, which is internal to the Frontend.</summary>
@@ -40,16 +31,16 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
     {
         // Arrange
         using WebApplicationFactory<Program> host = CreateHost(new StubTranslationSystem());
-        using HttpClient browser = CreateBrowser(host);
+        using CookieJarBrowser browser = SignedInBrowser(host);
 
         // Act
-        using HttpResponseMessage page = await browser.SendAsync(PageRequest("/terms", SessionCookie(host)));
+        using HttpResponseMessage page = await browser.SendAsync(PageRequest("/terms"));
 
         // Assert
         page.StatusCode.ShouldBe(HttpStatusCode.OK);
-        SetCookies(page).ShouldNotContain(setCookie => setCookie.StartsWith(AuthCookieName, StringComparison.Ordinal));
+        SetCookies(page).ShouldNotContain(setCookie => setCookie.StartsWith(SignedInSession.CookieName, StringComparison.Ordinal));
         string markup = await page.Content.ReadAsStringAsync();
-        markup.ShouldContain(UserName);
+        markup.ShouldContain(SignedInSession.UserName);
         markup.ShouldContain(SignOutButton);
     }
 
@@ -61,21 +52,20 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
         // refuses the token there with a 401, and the refused call marks the session dead.
         StubTranslationSystem translationSystem = new();
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
-        using HttpClient browser = CreateBrowser(host);
-        string sessionCookie = SessionCookie(host);
-        await LoadAsync(browser, PageRequest("/dashboard", sessionCookie));
+        using CookieJarBrowser browser = SignedInBrowser(host);
+        await LoadAsync(browser, PageRequest("/dashboard"));
         translationSystem.AcceptsTheToken = false;
-        await LoadAsync(browser, PageRequest("/dashboard", sessionCookie));
+        await LoadAsync(browser, PageRequest("/dashboard"));
 
         // Act
-        using HttpResponseMessage nextPage = await browser.SendAsync(PageRequest("/terms", sessionCookie));
+        using HttpResponseMessage nextPage = await browser.SendAsync(PageRequest("/terms"));
 
         // Assert
         nextPage.StatusCode.ShouldBe(HttpStatusCode.OK);
         SetCookies(nextPage)
-            .ShouldContain(setCookie => setCookie.StartsWith($"{AuthCookieName}=;", StringComparison.Ordinal));
+            .ShouldContain(setCookie => setCookie.StartsWith($"{SignedInSession.CookieName}=;", StringComparison.Ordinal));
         string markup = await nextPage.Content.ReadAsStringAsync();
-        markup.ShouldNotContain(UserName);
+        markup.ShouldNotContain(SignedInSession.UserName);
         markup.ShouldNotContain(SignOutButton);
         translationSystem.Unauthorized.ShouldBe(1);
     }
@@ -86,19 +76,18 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
         // Arrange: nothing is cached yet, and the API refuses the token. Its service document is open to
         // everyone, so it answers with the anonymous links, which marks the session dead.
         using WebApplicationFactory<Program> host = CreateHost(new StubTranslationSystem { AcceptsTheToken = false });
-        using HttpClient browser = CreateBrowser(host);
-        string sessionCookie = SessionCookie(host);
-        await LoadAsync(browser, PageRequest("/dashboard", sessionCookie));
+        using CookieJarBrowser browser = SignedInBrowser(host);
+        await LoadAsync(browser, PageRequest("/dashboard"));
 
         // Act
-        using HttpResponseMessage nextPage = await browser.SendAsync(PageRequest("/terms", sessionCookie));
+        using HttpResponseMessage nextPage = await browser.SendAsync(PageRequest("/terms"));
 
         // Assert
         nextPage.StatusCode.ShouldBe(HttpStatusCode.OK);
         SetCookies(nextPage)
-            .ShouldContain(setCookie => setCookie.StartsWith($"{AuthCookieName}=;", StringComparison.Ordinal));
+            .ShouldContain(setCookie => setCookie.StartsWith($"{SignedInSession.CookieName}=;", StringComparison.Ordinal));
         string markup = await nextPage.Content.ReadAsStringAsync();
-        markup.ShouldNotContain(UserName);
+        markup.ShouldNotContain(SignedInSession.UserName);
         markup.ShouldNotContain(SignOutButton);
     }
 
@@ -122,79 +111,27 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
                 .ConfigurePrimaryHttpMessageHandler(() => translationSystem);
         }));
 
-    private static HttpClient CreateBrowser(WebApplicationFactory<Program> host) =>
-        host.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-            HandleCookies = false,
-            BaseAddress = new Uri("https://localhost")
-        });
-
-    /// <summary>
-    /// The session cookie a sign-in leaves, protected with the host's own keys. Its access token is far from
-    /// expiry, so the cookie check has no renewal to make. The token is opaque to the website, so any text
-    /// serves.
-    /// </summary>
-    private static string SessionCookie(WebApplicationFactory<Program> host)
+    private static CookieJarBrowser SignedInBrowser(WebApplicationFactory<Program> host)
     {
-        ClaimsPrincipal user = new(new ClaimsIdentity(
-            [new Claim("sub", Subject), new Claim("name", UserName)],
-            authenticationType: OpenIdConnectDefaults.AuthenticationScheme,
-            nameType: "name",
-            roleType: "role"));
-
-        AuthenticationProperties properties = new();
-        properties.StoreTokens(
-        [
-            new AuthenticationToken { Name = "access_token", Value = "opaque-access-token" },
-            new AuthenticationToken { Name = "refresh_token", Value = "opaque-refresh-token" },
-            new AuthenticationToken
-            {
-                Name = "expires_at",
-                Value = DateTimeOffset.UtcNow.AddMinutes(5).ToString("o", CultureInfo.InvariantCulture)
-            }
-        ]);
-
-        CookieAuthenticationOptions cookieOptions = host.Services
-            .GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>()
-            .Get(CookieAuthenticationDefaults.AuthenticationScheme);
-        string protectedTicket = cookieOptions.TicketDataFormat.Protect(
-            new AuthenticationTicket(user, properties, CookieAuthenticationDefaults.AuthenticationScheme));
-
-        return $"{AuthCookieName}={protectedTicket}";
+        CookieJarBrowser browser = new(host);
+        browser.SetCookie(SignedInSession.CookieName, SignedInSession.ProtectedTicket(host));
+        return browser;
     }
 
-    private static HttpRequestMessage PageRequest(string path, string sessionCookie)
-    {
-        HttpRequestMessage request = new(HttpMethod.Get, path);
-        request.Headers.Add("Cookie", sessionCookie);
-        return request;
-    }
+    private static HttpRequestMessage PageRequest(string path) => new(HttpMethod.Get, path);
 
     /// <summary>
     /// Reads the whole response: a streaming page makes its API calls while it streams, after the headers
     /// have arrived.
     /// </summary>
-    private static async Task LoadAsync(HttpClient browser, HttpRequestMessage request)
+    private static async Task LoadAsync(CookieJarBrowser browser, HttpRequestMessage request)
     {
-        using (request)
-        {
-            using HttpResponseMessage response = await browser.SendAsync(request);
-            await response.Content.ReadAsStringAsync();
-        }
+        using HttpResponseMessage response = await browser.SendAsync(request);
+        await response.Content.ReadAsStringAsync();
     }
 
     private static string[] SetCookies(HttpResponseMessage response) =>
         response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? setCookies) ? [.. setCookies] : [];
-
-    /// <summary>A sign-in server that is down: every call fails before an answer arrives.</summary>
-    private sealed class UnreachableServer : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            Task.FromException<HttpResponseMessage>(new HttpRequestException("Connection refused."));
-    }
 
     /// <summary>
     /// The translation API as the website's typed client sees it. The service document is open to everyone,
@@ -219,7 +156,7 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
             Uri uri = request.RequestUri ?? throw new InvalidOperationException("A call with no address.");
             HttpResponseMessage response = uri.GetLeftPart(UriPartial.Path) switch
             {
-                $"{TmsOrigin}/" => Json(new DiscoveryResponse("tms")
+                $"{TmsOrigin}/" => StubAnswers.HateoasJson(new DiscoveryResponse("tms")
                 {
                     Links = AcceptsTheToken
                         ?
@@ -229,7 +166,7 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
                         ]
                         : []
                 }),
-                StatsHref when AcceptsTheToken => Json(new TranslationStatsResponse(4, 3, 2, 1)),
+                StatsHref when AcceptsTheToken => StubAnswers.HateoasJson(new TranslationStatsResponse(4, 3, 2, 1)),
                 StatsHref => Refuse(),
                 _ => new HttpResponseMessage(HttpStatusCode.NotFound)
             };
@@ -242,11 +179,5 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
             Interlocked.Increment(ref _unauthorized);
             return new HttpResponseMessage(HttpStatusCode.Unauthorized);
         }
-
-        private static HttpResponseMessage Json<T>(T body) =>
-            new(HttpStatusCode.OK)
-            {
-                Content = JsonContent.Create(body, mediaType: new MediaTypeHeaderValue(MediaTypes.HateoasJson))
-            };
     }
 }

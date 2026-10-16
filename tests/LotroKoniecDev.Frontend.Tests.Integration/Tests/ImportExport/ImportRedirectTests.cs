@@ -4,9 +4,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using LotroKoniecDev.Frontend.Tests.Integration.Shared;
 using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.Discovery;
@@ -48,16 +47,9 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
     private static readonly GameVersionId GameVersion = GameVersionId.Create(Guid.NewGuid());
     private static readonly GameVersionId OtherGameVersion = GameVersionId.Create(Guid.NewGuid());
 
-    /// <summary>The options the Frontend reads the TMS answers with (HttpClientApiExtensions).</summary>
-    private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        Converters = { new JsonStringEnumConverter() }
-    };
-
     private readonly StagingFrontendFactory _factory;
     private readonly RSA _signingRsa = RSA.Create(2048);
     private readonly RsaSecurityKey _signingKey;
-    private readonly Dictionary<string, string> _cookies = new(StringComparer.Ordinal);
 
     [Fact]
     public async Task Post_WhenTheImportSucceeds_RedirectsToTheImportPageWithoutASecondListLoad()
@@ -68,13 +60,13 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
         StubTranslationSystem translationSystem = new(ImportAnswer.Accepted(new ImportSummary(1, 0, 0, 0, 0, 0, [])));
         StubSignInServer signInServer = new(_signingKey);
         using WebApplicationFactory<Program> host = CreateHost(signInServer, translationSystem);
-        using HttpClient browser = CreateBrowser(host);
+        using CookieJarBrowser browser = new(host);
         await SignInAsync(browser, signInServer);
-        string antiforgeryToken = await LoadImportFormAsync(browser);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/import-export");
         int listLoadsBeforePost = translationSystem.GameVersionsLoads;
 
         // Act
-        using HttpResponseMessage posted = await SendAsync(browser, ImportPost(antiforgeryToken, GameVersion));
+        using HttpResponseMessage posted = await browser.SendAsync(StubAnswers.ImportPost(antiforgeryToken, GameVersion.Value));
 
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
@@ -98,15 +90,15 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
             Warnings: ["3 previously-removed row(s) re-added with an unchanged source and restored."])));
         StubSignInServer signInServer = new(_signingKey);
         using WebApplicationFactory<Program> host = CreateHost(signInServer, translationSystem);
-        using HttpClient browser = CreateBrowser(host);
+        using CookieJarBrowser browser = new(host);
         await SignInAsync(browser, signInServer);
-        string antiforgeryToken = await LoadImportFormAsync(browser);
-        using HttpResponseMessage posted = await SendAsync(browser, ImportPost(antiforgeryToken, GameVersion));
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/import-export");
+        using HttpResponseMessage posted = await browser.SendAsync(StubAnswers.ImportPost(antiforgeryToken, GameVersion.Value));
         Uri redirectedTo = posted.Headers.Location
             ?? throw new InvalidOperationException($"The import answered {posted.StatusCode} with no redirect.");
 
         // Act
-        using HttpResponseMessage redirected = await SendAsync(browser, new HttpRequestMessage(HttpMethod.Get, redirectedTo));
+        using HttpResponseMessage redirected = await browser.SendAsync(new HttpRequestMessage(HttpMethod.Get, redirectedTo));
 
         // Assert
         redirected.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -125,17 +117,17 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
         StubTranslationSystem translationSystem = new(ImportAnswer.Accepted(new ImportSummary(1, 0, 0, 0, 0, 0, [])));
         StubSignInServer signInServer = new(_signingKey);
         using WebApplicationFactory<Program> host = CreateHost(signInServer, translationSystem);
-        using HttpClient browser = CreateBrowser(host);
+        using CookieJarBrowser browser = new(host);
         await SignInAsync(browser, signInServer);
-        using HttpResponseMessage firstImport = await SendAsync(
-            browser, ImportPost(await LoadImportFormAsync(browser), OtherGameVersion));
+        using HttpResponseMessage firstImport = await browser.SendAsync(StubAnswers.ImportPost(
+            await browser.ReadAntiforgeryTokenAsync("/import-export"), OtherGameVersion.Value));
         string redirectedTo = firstImport.Headers.Location?.OriginalString
             ?? throw new InvalidOperationException($"The first import answered {firstImport.StatusCode} with no redirect.");
-        string antiforgeryToken = await LoadImportFormAsync(browser, redirectedTo);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync(redirectedTo);
 
         // Act
-        using HttpResponseMessage secondImport = await SendAsync(
-            browser, ImportPost(antiforgeryToken, GameVersion, redirectedTo));
+        using HttpResponseMessage secondImport = await browser.SendAsync(
+            StubAnswers.ImportPost(antiforgeryToken, GameVersion.Value, redirectedTo));
 
         // Assert
         secondImport.StatusCode.ShouldBe(HttpStatusCode.Redirect);
@@ -150,13 +142,13 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
         StubTranslationSystem translationSystem = new(ImportAnswer.Refused("Import.EmptyUpload"));
         StubSignInServer signInServer = new(_signingKey);
         using WebApplicationFactory<Program> host = CreateHost(signInServer, translationSystem);
-        using HttpClient browser = CreateBrowser(host);
+        using CookieJarBrowser browser = new(host);
         await SignInAsync(browser, signInServer);
-        string antiforgeryToken = await LoadImportFormAsync(browser);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/import-export");
         int listLoadsBeforePost = translationSystem.GameVersionsLoads;
 
         // Act
-        using HttpResponseMessage posted = await SendAsync(browser, ImportPost(antiforgeryToken, GameVersion));
+        using HttpResponseMessage posted = await browser.SendAsync(StubAnswers.ImportPost(antiforgeryToken, GameVersion.Value));
 
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -165,6 +157,37 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
         page.ShouldContain("Plik nie zawiera żadnych tekstów do zaimportowania.");
         page.ShouldNotContain("Import zakończony powodzeniem.");
         (translationSystem.GameVersionsLoads - listLoadsBeforePost).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Post_FromTheRedirectAfterAnImport_WhenTheVersionListFailsToLoad_ShowsTheErrorAndNotTheLastSuccess()
+    {
+        // Arrange: the second import posts to the address the first one's redirect left, which carries the
+        // first summary. The list fails in the second request, so the second import never runs, and the
+        // page must not answer it with the first import's success (#1122).
+        StubTranslationSystem translationSystem = new(ImportAnswer.Accepted(new ImportSummary(21, 22, 23, 24, 25, 26, [])));
+        StubSignInServer signInServer = new(_signingKey);
+        using WebApplicationFactory<Program> host = CreateHost(signInServer, translationSystem);
+        using CookieJarBrowser browser = new(host);
+        await SignInAsync(browser, signInServer);
+        using HttpResponseMessage firstImport = await browser.SendAsync(StubAnswers.ImportPost(
+            await browser.ReadAntiforgeryTokenAsync("/import-export"), OtherGameVersion.Value));
+        string redirectedTo = firstImport.Headers.Location?.OriginalString
+            ?? throw new InvalidOperationException($"The first import answered {firstImport.StatusCode} with no redirect.");
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync(redirectedTo);
+        translationSystem.VersionListFails = true;
+
+        // Act
+        using HttpResponseMessage secondImport = await browser.SendAsync(
+            StubAnswers.ImportPost(antiforgeryToken, GameVersion.Value, redirectedTo));
+
+        // Assert
+        secondImport.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await secondImport.Content.ReadAsStringAsync());
+        page.ShouldContain("Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.");
+        page.ShouldNotContain("Import zakończony powodzeniem.");
+        StatTileNumbers().Matches(page).ShouldBeEmpty();
+        translationSystem.ImportedInto.ShouldBe([OtherGameVersion.Value]);
     }
 
     public void Dispose()
@@ -180,9 +203,6 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
 
     [GeneratedRegex("""<span class="num[^"]*">(?<number>\d+)</span>""")]
     private static partial Regex StatTileNumbers();
-
-    [GeneratedRegex("""name="__RequestVerificationToken" value="(?<token>[^"]+)""")]
-    private static partial Regex AntiforgeryTokenInput();
 
     private WebApplicationFactory<Program> CreateHost(
         StubSignInServer signInServer,
@@ -211,94 +231,23 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
         }));
     }
 
-    private static HttpClient CreateBrowser(WebApplicationFactory<Program> host) =>
-        host.CreateClient(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-            HandleCookies = false,
-            BaseAddress = new Uri("https://localhost")
-        });
-
-    private async Task SignInAsync(HttpClient browser, StubSignInServer signInServer)
+    private static async Task SignInAsync(CookieJarBrowser browser, StubSignInServer signInServer)
     {
-        using HttpResponseMessage challenge = await SendAsync(
-            browser, new HttpRequestMessage(HttpMethod.Get, "/auth/login"));
+        using HttpResponseMessage challenge = await browser.SendAsync(new HttpRequestMessage(HttpMethod.Get, "/auth/login"));
         Uri authorizeUri = challenge.Headers.Location
             ?? throw new InvalidOperationException($"The login answered {challenge.StatusCode} with no redirect.");
         Dictionary<string, string> authorizeQuery = ParseQuery(authorizeUri);
         signInServer.Nonce = authorizeQuery["nonce"];
 
-        using HttpResponseMessage signedIn = await SendAsync(
-            browser,
-            new HttpRequestMessage(
-                HttpMethod.Get,
-                $"/callback?code=test-code&state={Uri.EscapeDataString(authorizeQuery["state"])}"));
+        using HttpResponseMessage signedIn = await browser.SendAsync(new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/callback?code=test-code&state={Uri.EscapeDataString(authorizeQuery["state"])}"));
 
         // A failed callback also answers 302, but to the error page.
         if (signedIn.Headers.Location?.OriginalString != "/")
         {
             throw new InvalidOperationException(
                 $"The sign-in failed: the callback answered {signedIn.StatusCode} to {signedIn.Headers.Location}.");
-        }
-    }
-
-    private async Task<string> LoadImportFormAsync(HttpClient browser, string pageUri = "/import-export")
-    {
-        using HttpResponseMessage form = await SendAsync(browser, new HttpRequestMessage(HttpMethod.Get, pageUri));
-        string page = await form.Content.ReadAsStringAsync();
-        Match antiforgeryToken = AntiforgeryTokenInput().Match(page);
-
-        return antiforgeryToken.Success
-            ? antiforgeryToken.Groups["token"].Value
-            : throw new InvalidOperationException($"The import page answered {form.StatusCode} with no import form.");
-    }
-
-    private static HttpRequestMessage ImportPost(
-        string antiforgeryToken,
-        GameVersionId gameVersion,
-        string pageUri = "/import-export")
-    {
-        ByteArrayContent file = new("1||1||Hello||NULL||NULL||0000000000000000\n"u8.ToArray());
-        file.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
-
-        MultipartFormDataContent content = new()
-        {
-            { new StringContent("import-export"), "_handler" },
-            { new StringContent(antiforgeryToken), "__RequestVerificationToken" },
-            { new StringContent(gameVersion.Value.ToString()), "ImportInput.GameVersionId" },
-            { file, "ImportInput.File", "exported.txt" }
-        };
-
-        return new HttpRequestMessage(HttpMethod.Post, pageUri) { Content = content };
-    }
-
-    /// <summary>A browser with a plain cookie jar: it keeps what the server sets and sends it back.</summary>
-    private async Task<HttpResponseMessage> SendAsync(HttpClient browser, HttpRequestMessage request)
-    {
-        using (request)
-        {
-            if (_cookies.Count > 0)
-            {
-                request.Headers.Add("Cookie", string.Join("; ", _cookies.Select(cookie => $"{cookie.Key}={cookie.Value}")));
-            }
-
-            HttpResponseMessage response = await browser.SendAsync(request);
-            if (response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? setCookies))
-            {
-                foreach (string[] pair in setCookies.Select(setCookie => setCookie.Split(';', 2)[0].Split('=', 2)))
-                {
-                    if (pair[1].Length == 0)
-                    {
-                        _cookies.Remove(pair[0]);
-                    }
-                    else
-                    {
-                        _cookies[pair[0]] = pair[1];
-                    }
-                }
-            }
-
-            return response;
         }
     }
 
@@ -394,6 +343,9 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
 
         public int GameVersionsLoads => _gameVersionsLoads;
 
+        /// <summary>When set, the version list answers 503, as it does while the API is down.</summary>
+        public bool VersionListFails { get; set; }
+
         /// <summary>The versions the imports went into, in order, read from the import link each one followed.</summary>
         public IReadOnlyList<Guid> ImportedInto => [.. _importedInto];
 
@@ -404,7 +356,7 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
             Uri uri = request.RequestUri ?? throw new InvalidOperationException("A call with no address.");
             HttpResponseMessage response = uri.GetLeftPart(UriPartial.Path) switch
             {
-                $"{TmsOrigin}/" => Json(new DiscoveryResponse("tms")
+                $"{TmsOrigin}/" => StubAnswers.HateoasJson(new DiscoveryResponse("tms")
                 {
                     Links =
                     [
@@ -429,8 +381,12 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
         private HttpResponseMessage LoadGameVersions()
         {
             Interlocked.Increment(ref _gameVersionsLoads);
+            if (VersionListFails)
+            {
+                return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            }
 
-            return Json(new CollectionResponse<GameVersionResponse>
+            return StubAnswers.HateoasJson(new CollectionResponse<GameVersionResponse>
             {
                 Items = [ImportableVersion(OtherGameVersion, "48.1"), ImportableVersion(GameVersion, "48.0")],
                 Links = [new LinkDto(GameVersionsHref.AbsoluteUri, Rels.Register, "POST")]
@@ -448,7 +404,7 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
             _importedInto.Enqueue(gameVersionId);
 
             return _importAnswer.Summary is { } summary
-                ? Json(summary)
+                ? StubAnswers.HateoasJson(summary)
                 : new HttpResponseMessage(HttpStatusCode.UnprocessableEntity)
                 {
                     Content = JsonContent.Create(
@@ -462,13 +418,5 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
                 };
         }
 
-        private static HttpResponseMessage Json<T>(T body) =>
-            new(HttpStatusCode.OK)
-            {
-                Content = JsonContent.Create(
-                    body,
-                    mediaType: new MediaTypeHeaderValue(MediaTypes.HateoasJson),
-                    options: ApiJsonOptions)
-            };
     }
 }

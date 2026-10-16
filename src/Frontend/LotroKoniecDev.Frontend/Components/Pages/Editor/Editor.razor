@@ -220,6 +220,12 @@
     private const string SaveFormName = "save-translation";
     private const string ApproveFormName = "approve-translation";
 
+    private TranslationDetailResponse? _detail;
+    private ProblemDetails? _loadProblem;
+    private ProblemDetails? _saveProblem;
+    private ProblemDetails? _approveProblem;
+    private string? _draftText;
+
     [Parameter]
     public Guid Id { get; set; }
 
@@ -246,12 +252,6 @@
 
     [SupplyParameterFromQuery]
     private bool Approved { get; set; }
-
-    private TranslationDetailResponse? _detail;
-    private ProblemDetails? _loadProblem;
-    private ProblemDetails? _saveProblem;
-    private ProblemDetails? _approveProblem;
-    private string? _draftText;
 
     protected override async Task OnParametersSetAsync()
     {

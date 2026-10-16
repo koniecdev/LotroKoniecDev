@@ -31,8 +31,15 @@
 # pins both directions and runs UNCONDITIONALLY in the required pr-verify job, so a classifier that
 # starts skipping real builds goes red before it is ever trusted.
 #
+# Every changed path must reach the rules above, both ends of a move included (#1041). With rename
+# detection on (git's default, or `diff.renames` in a config), `--name-only` prints only where a
+# moved file went. A test fixture moved into docs/ then looked inert, and the PR skipped the build.
+# `--no-renames` lists a move as a delete of the old path plus an add of the new one, whatever the
+# config says. Copy detection hides nothing: the source of a copy is listed whenever it changed.
+# `--no-relative` stops `diff.relative` from dropping every path outside the current folder.
+#
 # Usage:
-#   classify-changes.sh <base-ref>   # classify `git diff --name-only <base-ref> HEAD`
+#   classify-changes.sh <base-ref>   # classify `git diff --name-only --no-renames --no-relative <base-ref> HEAD`
 #   classify-changes.sh --files      # classify the newline-separated paths on stdin (test seam)
 #
 # Prints `key=value` lines to stdout (and appends them to $GITHUB_OUTPUT when set); the human
@@ -78,7 +85,7 @@ case "${1-}" in
         exit 2
         ;;
     *)
-        if ! files="$(git diff --name-only "$1" HEAD)"; then
+        if ! files="$(git diff --name-only --no-renames --no-relative "$1" HEAD)"; then
             diffable=0
         fi
         ;;

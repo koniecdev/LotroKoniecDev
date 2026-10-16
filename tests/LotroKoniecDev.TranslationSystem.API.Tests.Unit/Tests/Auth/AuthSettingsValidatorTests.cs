@@ -76,6 +76,7 @@ public sealed class AuthSettingsValidatorTests
         result.IsValid.ShouldBeFalse();
         ValidationFailure error = result.Errors.ShouldHaveSingleItem();
         error.ErrorMessage.ShouldContain("Auth:Issuer", Case.Sensitive);
+        error.ErrorMessage.ShouldNotContain(issuer, Case.Sensitive);
         error.ErrorMessage.ShouldNotContain(password);
     }
 
@@ -122,6 +123,7 @@ public sealed class AuthSettingsValidatorTests
         result.IsValid.ShouldBeFalse();
         ValidationFailure error = result.Errors.ShouldHaveSingleItem();
         error.ErrorMessage.ShouldContain("Auth:Authority", Case.Sensitive);
+        error.ErrorMessage.ShouldNotContain(authority, Case.Sensitive);
         error.ErrorMessage.ShouldNotContain(password);
     }
 

@@ -211,6 +211,7 @@ public sealed class OpenIddictSettingsValidatorTests
         failure.ShouldContain("OpenIddict:Issuer", Case.Sensitive);
         failure.ShouldContain("absolute http(s) URL", Case.Sensitive);
         failure.ShouldContain(environmentName, Case.Sensitive);
+        failure.ShouldNotContain(issuer, Case.Sensitive);
         failure.ShouldNotContain(password);
     }
 
@@ -349,7 +350,8 @@ public sealed class OpenIddictSettingsValidatorTests
         result.Failures.ShouldNotBeNull();
         result.Failures.ShouldContain(failure =>
             failure.Contains("OpenIddict:WebClient:RedirectUris:0", StringComparison.Ordinal)
-            && failure.Contains("absolute", StringComparison.Ordinal));
+            && failure.Contains("absolute", StringComparison.Ordinal)
+            && !failure.Contains(redirectUri, StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -381,6 +383,7 @@ public sealed class OpenIddictSettingsValidatorTests
         failure.ShouldContain("OpenIddict:WebClient:RedirectUris:1", Case.Sensitive);
         failure.ShouldContain("absolute http(s) URL", Case.Sensitive);
         failure.ShouldContain(environmentName, Case.Sensitive);
+        failure.ShouldNotContain(redirectUri, Case.Sensitive);
         failure.ShouldNotContain(password);
     }
 
@@ -414,7 +417,8 @@ public sealed class OpenIddictSettingsValidatorTests
         result.Failures.ShouldNotBeNull();
         result.Failures.ShouldContain(failure =>
             failure.Contains("OpenIddict:WebClient:PostLogoutRedirectUris:0", StringComparison.Ordinal)
-            && failure.Contains("absolute", StringComparison.Ordinal));
+            && failure.Contains("absolute", StringComparison.Ordinal)
+            && !failure.Contains(postLogoutRedirectUri, StringComparison.Ordinal));
     }
 
     [Theory]
@@ -441,6 +445,7 @@ public sealed class OpenIddictSettingsValidatorTests
         failure.ShouldContain("OpenIddict:WebClient:PostLogoutRedirectUris:0", Case.Sensitive);
         failure.ShouldContain("absolute http(s) URL", Case.Sensitive);
         failure.ShouldContain(environmentName, Case.Sensitive);
+        failure.ShouldNotContain(postLogoutRedirectUri, Case.Sensitive);
         failure.ShouldNotContain(password);
     }
 

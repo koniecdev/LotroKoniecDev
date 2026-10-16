@@ -82,8 +82,9 @@ public sealed class CorsSettingsValidatorTests
     }
 
     /// <summary>
-    /// #1131: one origin is refused for its user name and password. In the others a '/' or '?' in the
-    /// password stops the origin from parsing, or a typo in the scheme makes it the wrong kind.
+    /// #1131: the first and the last origin parse and are refused for their user name and password. In
+    /// the others a '/' or '?' in the password stops the origin from parsing, or a typo in the scheme
+    /// makes it the wrong kind.
     /// </summary>
     [Theory]
     [InlineData(Production, "https://deploy:hunter2@lotro-translator.pl", "hunter2")]
@@ -105,6 +106,7 @@ public sealed class CorsSettingsValidatorTests
         result.Failures.ShouldNotBeNull();
         string failure = result.Failures.ShouldHaveSingleItem();
         failure.ShouldContain("Cors:AllowedOrigins:1", Case.Sensitive);
+        failure.ShouldNotContain(origin, Case.Sensitive);
         failure.ShouldNotContain(password);
     }
 

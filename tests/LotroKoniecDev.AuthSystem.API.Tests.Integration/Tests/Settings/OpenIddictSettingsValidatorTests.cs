@@ -190,6 +190,30 @@ public sealed class OpenIddictSettingsValidatorTests
             && failure.Contains("absolute", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(Production, "https://deploy:hun/ter2@auth.lotro-translator.pl", "hun/ter2")]
+    [InlineData(Production, "https://deploy:hunter2#@auth.lotro-translator.pl", "hunter2")]
+    [InlineData(Production, "htps://deploy:hunter2@auth.lotro-translator.pl", "hunter2")]
+    [InlineData(Staging, "https://deploy:hun/ter2@auth.staging.lotro-translator.pl", "hun/ter2")]
+    public void Validate_DeployedEnvironmentWithNonHttpIssuerCarryingAPassword_FailsNamingTheKeyWithoutTheValue(
+        string environmentName,
+        string issuer,
+        string password)
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(environmentName);
+        OpenIddictSettings settings = SettingsWith(issuer: issuer);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        string failure = result.Failures.ShouldHaveSingleItem();
+        failure.ShouldContain("OpenIddict:Issuer", Case.Sensitive);
+        failure.ShouldContain("absolute http(s) URL", Case.Sensitive);
+        failure.ShouldContain(environmentName, Case.Sensitive);
+        failure.ShouldNotContain(password);
+    }
+
     [Fact]
     public void Validate_ProductionWithLocalhostIssuer_FailsNamingTheKey()
     {
@@ -314,7 +338,7 @@ public sealed class OpenIddictSettingsValidatorTests
     [InlineData("not-a-url")]
     [InlineData("ftp://lotro-translator.pl/callback")]
     [InlineData("lotro-translator.pl/callback")]
-    public void Validate_ProductionWithNonHttpRedirectUri_FailsNamingTheKey(string redirectUri)
+    public void Validate_ProductionWithNonHttpRedirectUri_FailsNamingTheEntry(string redirectUri)
     {
         OpenIddictSettingsValidator validator = CreateValidator(Production);
         OpenIddictSettings settings = SettingsWith(redirectUris: [redirectUri]);
@@ -324,8 +348,40 @@ public sealed class OpenIddictSettingsValidatorTests
         result.Failed.ShouldBeTrue();
         result.Failures.ShouldNotBeNull();
         result.Failures.ShouldContain(failure =>
-            failure.Contains("OpenIddict:WebClient:RedirectUris", StringComparison.Ordinal)
+            failure.Contains("OpenIddict:WebClient:RedirectUris:0", StringComparison.Ordinal)
             && failure.Contains("absolute", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// #1131: a '/', '?', '#' or second '@' in the password stops the address from parsing, and a typo in
+    /// the scheme makes it an address of the wrong kind. The message goes to the startup log, so it names
+    /// the entry and never repeats the value.
+    /// </summary>
+    [Theory]
+    [InlineData(Production, "https://deploy:hun/ter2@lotro-translator.pl/callback", "hun/ter2")]
+    [InlineData(Production, "https://deploy:hunter2?@lotro-translator.pl/callback", "hunter2")]
+    [InlineData(Production, "https://deploy:hunter2#@lotro-translator.pl/callback", "hunter2")]
+    [InlineData(Production, "https://deploy:hun@ter2@lotro-translator.pl/callback", "hun@ter2")]
+    [InlineData(Production, "https://deploy:hunter2@lotro-translator.pl:99999/callback", "hunter2")]
+    [InlineData(Production, "htps://deploy:hunter2@lotro-translator.pl/callback", "hunter2")]
+    [InlineData(Staging, "https://deploy:hun/ter2@staging.lotro-translator.pl/callback", "hun/ter2")]
+    public void Validate_DeployedEnvironmentWithNonHttpRedirectUriCarryingAPassword_FailsNamingTheEntryWithoutTheValue(
+        string environmentName,
+        string redirectUri,
+        string password)
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(environmentName);
+        OpenIddictSettings settings = SettingsWith(redirectUris: ["https://lotro-translator.pl/callback", redirectUri]);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        string failure = result.Failures.ShouldHaveSingleItem();
+        failure.ShouldContain("OpenIddict:WebClient:RedirectUris:1", Case.Sensitive);
+        failure.ShouldContain("absolute http(s) URL", Case.Sensitive);
+        failure.ShouldContain(environmentName, Case.Sensitive);
+        failure.ShouldNotContain(password);
     }
 
     [Fact]
@@ -347,7 +403,7 @@ public sealed class OpenIddictSettingsValidatorTests
     [InlineData("not-a-url")]
     [InlineData("ftp://lotro-translator.pl")]
     [InlineData("lotro-translator.pl")]
-    public void Validate_ProductionWithNonHttpPostLogoutRedirectUri_FailsNamingTheKey(string postLogoutRedirectUri)
+    public void Validate_ProductionWithNonHttpPostLogoutRedirectUri_FailsNamingTheEntry(string postLogoutRedirectUri)
     {
         OpenIddictSettingsValidator validator = CreateValidator(Production);
         OpenIddictSettings settings = SettingsWith(postLogoutRedirectUris: [postLogoutRedirectUri]);
@@ -357,8 +413,35 @@ public sealed class OpenIddictSettingsValidatorTests
         result.Failed.ShouldBeTrue();
         result.Failures.ShouldNotBeNull();
         result.Failures.ShouldContain(failure =>
-            failure.Contains("OpenIddict:WebClient:PostLogoutRedirectUris", StringComparison.Ordinal)
+            failure.Contains("OpenIddict:WebClient:PostLogoutRedirectUris:0", StringComparison.Ordinal)
             && failure.Contains("absolute", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(Production, "https://deploy:hun/ter2@lotro-translator.pl", "hun/ter2")]
+    [InlineData(Production, "https://deploy:hunter2?@lotro-translator.pl", "hunter2")]
+    [InlineData(Production, "https://deploy:hunter2#@lotro-translator.pl", "hunter2")]
+    [InlineData(Production, "https://deploy:hun@ter2@lotro-translator.pl", "hun@ter2")]
+    [InlineData(Production, "htps://deploy:hunter2@lotro-translator.pl", "hunter2")]
+    [InlineData(Staging, "https://deploy:hun/ter2@staging.lotro-translator.pl", "hun/ter2")]
+    public void Validate_DeployedEnvironmentWithNonHttpPostLogoutRedirectUriCarryingAPassword_FailsNamingTheEntryWithoutTheValue(
+        string environmentName,
+        string postLogoutRedirectUri,
+        string password)
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(environmentName);
+        OpenIddictSettings settings = SettingsWith(
+            postLogoutRedirectUris: [postLogoutRedirectUri, "https://lotro-translator.pl/signed-out"]);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        string failure = result.Failures.ShouldHaveSingleItem();
+        failure.ShouldContain("OpenIddict:WebClient:PostLogoutRedirectUris:0", Case.Sensitive);
+        failure.ShouldContain("absolute http(s) URL", Case.Sensitive);
+        failure.ShouldContain(environmentName, Case.Sensitive);
+        failure.ShouldNotContain(password);
     }
 
     [Theory]

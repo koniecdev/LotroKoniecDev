@@ -15,6 +15,8 @@ namespace LotroKoniecDev.AuthSystem.API.Settings;
 /// <see cref="CorsSettingsValidator"/> and the Data Protection keyring check.
 /// The access token lifetime is checked in every environment, because a lifetime that is too short
 /// breaks the sign-in the same way everywhere (#1025).
+/// A message names the key, and for a list the entry number, but never repeats the value. A refused
+/// address can hold a user name and password, and the message goes to the startup log (#1131).
 /// </summary>
 internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictSettings>
 {
@@ -128,19 +130,16 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
         for (int index = 0; index < options.WebClient.RedirectUris.Length; index++)
         {
             string redirectUri = options.WebClient.RedirectUris[index];
+            string key = $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.WebClient)}:"
+                         + $"{nameof(WebClientSettings.RedirectUris)}:{index}";
 
             if (!BeAbsoluteHttpUrl(redirectUri))
             {
-                errors.Add(
-                    $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.WebClient)}:"
-                    + $"{nameof(WebClientSettings.RedirectUris)} entry '{redirectUri}' must be an absolute http(s) URL "
-                    + $"in {_environment.EnvironmentName}.");
+                errors.Add(NotAbsoluteHttpUrlError(key));
             }
             else if (CarriesUserInfo(redirectUri))
             {
-                errors.Add(UserInfoError(
-                    $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.WebClient)}:"
-                    + $"{nameof(WebClientSettings.RedirectUris)}:{index}"));
+                errors.Add(UserInfoError(key));
             }
         }
 
@@ -158,19 +157,16 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
         for (int index = 0; index < options.WebClient.PostLogoutRedirectUris.Length; index++)
         {
             string postLogoutRedirectUri = options.WebClient.PostLogoutRedirectUris[index];
+            string key = $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.WebClient)}:"
+                         + $"{nameof(WebClientSettings.PostLogoutRedirectUris)}:{index}";
 
             if (!BeAbsoluteHttpUrl(postLogoutRedirectUri))
             {
-                errors.Add(
-                    $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.WebClient)}:"
-                    + $"{nameof(WebClientSettings.PostLogoutRedirectUris)} entry '{postLogoutRedirectUri}' must be an "
-                    + $"absolute http(s) URL in {_environment.EnvironmentName}.");
+                errors.Add(NotAbsoluteHttpUrlError(key));
             }
             else if (CarriesUserInfo(postLogoutRedirectUri))
             {
-                errors.Add(UserInfoError(
-                    $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.WebClient)}:"
-                    + $"{nameof(WebClientSettings.PostLogoutRedirectUris)}:{index}"));
+                errors.Add(UserInfoError(key));
             }
         }
 
@@ -201,10 +197,11 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
         return AbsoluteHttpUri.TryParse(value, out Uri? uri) && !string.IsNullOrEmpty(uri.UserInfo);
     }
 
-    /// <summary>
-    /// This message names the key and never repeats the value, so the password does not land in the
-    /// startup log either.
-    /// </summary>
+    private string NotAbsoluteHttpUrlError(string key)
+    {
+        return $"{key} must be an absolute http(s) URL in {_environment.EnvironmentName}.";
+    }
+
     private string UserInfoError(string key)
     {
         return $"{key} must not carry a user name or password in {_environment.EnvironmentName}. Visitors can "

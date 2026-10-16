@@ -17,7 +17,7 @@ internal static class AuthErrors
 
     public static Error RegistrationMailboxThrottled =>
         new("Auth.RegistrationMailboxThrottled",
-            "Too many accounts were registered at this inbox recently. Try again in a quarter of an hour.",
+            "Too many registration attempts for this inbox recently. Try again in a quarter of an hour.",
             TypeOfError.TooManyRequests);
 
     public static Error RegistrationFailed(string details) =>

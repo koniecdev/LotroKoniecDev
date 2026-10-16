@@ -1477,6 +1477,14 @@ erased before it, and a run of 100 or more failing rows at the head of the outbo
 e-mail back on the old release. So roll forward rather than back once those rows exist, or roll
 back only long enough to fix forward.
 
+### Rolling back past #860
+
+The same holds for `RegistrationAttemptedOnExistingAccount`, the notice to the owner of an address
+someone tried to register with. A release from before #860 cannot route it: its relay marks the row
+failed with an Error line and keeps it, and its consumer sends a message already on the queue to the
+dead-letter queue as an unknown type. Nothing else breaks. The notices go out late, or from the
+dead-letter queue by hand, once a release that routes them runs again.
+
 ### Traps
 
 - **The broker-carrying release needs the box `.env` updated FIRST**: append `RABBITMQ_PASSWORD`

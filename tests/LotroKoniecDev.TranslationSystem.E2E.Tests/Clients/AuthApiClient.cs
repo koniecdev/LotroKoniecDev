@@ -1,7 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
-using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.E2E.Tests.Clients.Responses;
 using LotroKoniecDev.TranslationSystem.E2E.Tests.Extensions;
 
@@ -24,11 +23,10 @@ public sealed class AuthApiClient : IDisposable
         _jsonOptions = jsonOptions;
     }
 
-    public async Task<IdentityId> RegisterAsync(RegisterRequest request)
+    public async Task RegisterAsync(RegisterRequest request)
     {
         HttpResponseMessage response = await _client.PostAsJsonAsync("auth/register", request, _jsonOptions);
-        string content = await response.EnsureSuccessWithDetailsAsync();
-        return JsonSerializer.Deserialize<IdentityId>(content, _jsonOptions);
+        await response.EnsureSuccessWithDetailsAsync();
     }
 
     public async Task<HttpResponseMessage> RegisterRawAsync(RegisterRequest request) =>

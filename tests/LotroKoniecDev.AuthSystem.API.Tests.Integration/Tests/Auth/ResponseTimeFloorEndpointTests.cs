@@ -252,6 +252,72 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
         answers.ShouldAllBe(answer => answer.Status == HttpStatusCode.OK);
     }
 
+    /// <summary>
+    /// A free address creates an account and a taken one writes only a notice, so the timing would tell
+    /// them apart without the floor (#860). A spent budget answers 429 on both, and waits as well.
+    /// </summary>
+    [Fact]
+    public async Task RegisterEndpoint_ShouldWaitForTheRegistrationFloor_OnEveryBranch()
+    {
+        // Arrange
+        WebApplicationFactory<Program> host = await Factory.GetResponseTimeFloorHostAsync();
+        (RegisterRequest taken, _) = await RegisterConfirmedAsync();
+        (RegisterRequest owner, _) = await RegisterConfirmedAsync();
+        string reserved = UnknownAddress();
+        await AccountStateFactory.ReserveAddressAsync(Factory.Services, owner.Email, reserved);
+        (RegisterRequest takenBudgetSpent, _) = await RegisterConfirmedAsync();
+        AccountStateFactory.SpendRegistrationBudget(host.Services, takenBudgetSpent.Email);
+        string freeBudgetSpent = UnknownAddress();
+        AccountStateFactory.SpendRegistrationBudget(host.Services, freeBudgetSpent);
+        (RegisterRequest secondOwner, _) = await RegisterConfirmedAsync();
+        string reservedBudgetSpent = UnknownAddress();
+        await AccountStateFactory.ReserveAddressAsync(Factory.Services, secondOwner.Email, reservedBudgetSpent);
+        AccountStateFactory.SpendRegistrationBudget(host.Services, reservedBudgetSpent);
+
+        // Act
+        IReadOnlyList<BranchAnswer> answers = await CollectAsync(new()
+        {
+            ["free address"] = PostJsonAsync(host, "auth/register", NewRegistration(UnknownAddress())),
+            ["taken address"] = PostJsonAsync(host, "auth/register", NewRegistration(taken.Email)),
+            ["reserved address"] = PostJsonAsync(host, "auth/register", NewRegistration(reserved)),
+            ["taken address, budget spent"] =
+                PostJsonAsync(host, "auth/register", NewRegistration(takenBudgetSpent.Email)),
+            ["free address, budget spent"] = PostJsonAsync(host, "auth/register", NewRegistration(freeBudgetSpent)),
+            ["reserved address, budget spent"] =
+                PostJsonAsync(host, "auth/register", NewRegistration(reservedBudgetSpent))
+        });
+
+        // Assert
+        answers.ShouldAllBe(answer => answer.Elapsed >= ResponseTimeFloors.Registration);
+        answers.Where(answer => !answer.Branch.EndsWith("budget spent", StringComparison.Ordinal))
+            .ShouldAllBe(answer => answer.Status == HttpStatusCode.Accepted);
+        answers.Where(answer => answer.Branch.EndsWith("budget spent", StringComparison.Ordinal))
+            .ShouldAllBe(answer => answer.Status == HttpStatusCode.TooManyRequests);
+    }
+
+    [Fact]
+    public async Task RegisterPage_ShouldWaitForTheRegistrationFloor_WhetherOrNotTheAddressHasAnAccount()
+    {
+        // Arrange
+        WebApplicationFactory<Program> host = await Factory.GetResponseTimeFloorHostAsync();
+        (RegisterRequest taken, _) = await RegisterConfirmedAsync();
+        (RegisterRequest owner, _) = await RegisterConfirmedAsync();
+        string reserved = UnknownAddress();
+        await AccountStateFactory.ReserveAddressAsync(Factory.Services, owner.Email, reserved);
+
+        // Act
+        IReadOnlyList<BranchAnswer> answers = await CollectAsync(new()
+        {
+            ["free address"] = PostRegisterPageAsync(host, NewRegistration(UnknownAddress())),
+            ["taken address"] = PostRegisterPageAsync(host, NewRegistration(taken.Email)),
+            ["reserved address"] = PostRegisterPageAsync(host, NewRegistration(reserved))
+        });
+
+        // Assert
+        answers.ShouldAllBe(answer => answer.Elapsed >= ResponseTimeFloors.Registration);
+        answers.ShouldAllBe(answer => answer.Status == HttpStatusCode.OK);
+    }
+
     private static async Task<IReadOnlyList<BranchAnswer>> CollectAsync(Dictionary<string, Task<Answer>> pending)
     {
         // Wait for every request first, so none is still running when the next test cleans the database.
@@ -330,7 +396,21 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
         return new Answer(response.StatusCode, Stopwatch.GetElapsedTime(startedAt));
     }
 
+    private static async Task<Answer> PostRegisterPageAsync(WebApplicationFactory<Program> host, RegisterRequest request) =>
+        await PostPageAsync(host, "/Account/Register", new Dictionary<string, string>
+        {
+            ["Username"] = request.Username,
+            ["Email"] = request.Email,
+            ["Password"] = request.Password,
+            ["ConfirmPassword"] = request.Password,
+            ["AcceptedPrivacyPolicy"] = "true",
+            ["AcceptedTermsOfService"] = "true"
+        });
+
     private static ResetPasswordRequest ResetRequest(string email) => new(email, WrongToken, "NewPass99!");
+
+    private RegisterRequest NewRegistration(string email) =>
+        UserFactory.GenerateRandomRegisterRequest(Faker) with { Email = email };
 
     private string UnknownAddress() => "nobody-" + Faker.Random.AlphaNumeric(8) + "@example.com";
 

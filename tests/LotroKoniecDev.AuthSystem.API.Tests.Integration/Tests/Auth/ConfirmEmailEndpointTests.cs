@@ -214,7 +214,7 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
             new Uri("auth/register", UriKind.Relative), request);
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         await AccountConfirmationEmailSpy.WaitForCaptureAsync();
         AccountConfirmationEmailSpy.CallCount.ShouldBe(1);
         AccountConfirmationEmailSpy.LastEmail.ShouldBe(request.Email);

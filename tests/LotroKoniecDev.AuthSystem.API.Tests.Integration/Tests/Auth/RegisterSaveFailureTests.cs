@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
@@ -35,7 +36,7 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
     [InlineData("Users")]
     [InlineData("UserRoles")]
     [InlineData("OutboxMessages")]
-    public async Task Register_ShouldReturnCreated_WhenATransientFailureHitsAWrite(string table)
+    public async Task Register_ShouldReturnAccepted_WhenATransientFailureHitsAWrite(string table)
     {
         // Arrange
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
@@ -45,7 +46,7 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
         using HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(RegisterEndpoint, request);
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
 
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
@@ -55,6 +56,32 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
         ApplicationUser? user = await userManager.FindByEmailAsync(request.Email);
         user.ShouldNotBeNull();
         (await userManager.IsInRoleAsync(user, AuthConstants.Roles.Translator)).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// A taken address writes only the notice to its owner (#860), and a passing failure on that write is
+    /// replayed like the others: the caller gets the same 202, and the owner gets one notice, not two.
+    /// </summary>
+    [Fact]
+    public async Task Register_ShouldQueueOneNotice_WhenATransientFailureHitsTheNoticeWrite()
+    {
+        // Arrange
+        (RegisterRequest existing, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker) with { Email = existing.Email };
+        Factory.DbCommandFailures.FailNext(command => IsInsertInto(command, "OutboxMessages"), CreateTransientFailure);
+
+        // Act
+        using HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(RegisterEndpoint, request);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        (await db.OutboxMessages.AsNoTracking()
+            .CountAsync(row => row.Type == nameof(RegistrationAttemptedOnExistingAccount))).ShouldBe(1);
     }
 
     /// <summary>
@@ -125,18 +152,22 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Both requests pass every check before either one writes, so the unique index decides. The losing
-    /// request must name the field it really lost on. A value in other letter case clashes only on the
-    /// case-blind index, so both spellings are raced.
+    /// Both requests pass every check before either one writes, so the unique index decides. A value in
+    /// other letter case clashes only on the case-blind index, so both spellings are raced. A lost
+    /// username says so: the username is a public handle. A lost address answers as a taken address does,
+    /// with the same 202 as a free one, and spends a permit like it, so a spent budget answers 429 (#860).
     /// </summary>
     [Theory]
-    [InlineData(Clash.Email, "Auth.UserAlreadyExistsByEmail")]
-    [InlineData(Clash.EmailInOtherCase, "Auth.UserAlreadyExistsByEmail")]
-    [InlineData(Clash.Username, "Auth.UserAlreadyExistsByUsername")]
-    [InlineData(Clash.UsernameInOtherCase, "Auth.UserAlreadyExistsByUsername")]
-    public async Task Register_ShouldNameTheTakenField_WhenARegistrationCommitsTheSameValueJustBeforeTheInsert(
+    [InlineData(Clash.Email, false, HttpStatusCode.Accepted, null)]
+    [InlineData(Clash.EmailInOtherCase, false, HttpStatusCode.Accepted, null)]
+    [InlineData(Clash.Email, true, HttpStatusCode.TooManyRequests, "Auth.RegistrationMailboxThrottled")]
+    [InlineData(Clash.Username, false, HttpStatusCode.UnprocessableEntity, "Auth.UserAlreadyExistsByUsername")]
+    [InlineData(Clash.UsernameInOtherCase, false, HttpStatusCode.UnprocessableEntity, "Auth.UserAlreadyExistsByUsername")]
+    public async Task Register_ShouldAnswerAsTheCheckWould_WhenARegistrationCommitsTheSameValueJustBeforeTheInsert(
         Clash clash,
-        string expectedErrorCode)
+        bool budgetSpent,
+        HttpStatusCode expectedStatus,
+        string? expectedErrorCode)
     {
         // Arrange: the competitor goes through the suite's main host, whose contexts do not carry this
         // interceptor, so it registers normally while our request waits in front of its insert
@@ -157,7 +188,7 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
         };
 
         CompetitorCommitsFirstInterceptor interceptor = new(
-            request.Email,
+            command => IsTheAccountInsert(command, request.Email),
             async () =>
             {
                 using HttpResponseMessage response =
@@ -173,15 +204,80 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
                 services.ConfigureDbContext<AuthDbContext>(options => options.AddInterceptors(interceptor));
             }));
         using HttpClient client = host.CreateClient();
+        if (budgetSpent)
+        {
+            AccountStateFactory.SpendRegistrationBudget(host.Services, request.Email);
+        }
 
         // Act
         using HttpResponseMessage response = await client.PostAsJsonAsync(RegisterEndpoint, request);
 
         // Assert
-        interceptor.CompetitorStatusCode.ShouldBe(HttpStatusCode.Created);
-        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        interceptor.CompetitorStatusCode.ShouldBe(HttpStatusCode.Accepted);
+        response.StatusCode.ShouldBe(expectedStatus);
         string content = await response.Content.ReadAsStringAsync();
-        content.ShouldContain(expectedErrorCode);
+        if (expectedErrorCode is null)
+        {
+            content.ShouldBeEmpty();
+        }
+        else
+        {
+            content.ShouldContain(expectedErrorCode);
+        }
+    }
+
+    /// <summary>
+    /// Identity looks the address up once more inside <c>CreateAsync</c>. A registration that commits the
+    /// same address between our lookup and that one makes Identity refuse with <c>DuplicateEmail</c>. That
+    /// answers like a taken address, permit included, and never with the general message, whose text names
+    /// the address (#860).
+    /// </summary>
+    [Theory]
+    [InlineData(false, HttpStatusCode.Accepted)]
+    [InlineData(true, HttpStatusCode.TooManyRequests)]
+    public async Task Register_ShouldAnswerAsATakenAddress_WhenIdentitysOwnCheckFindsTheAddressJustTaken(
+        bool budgetSpent,
+        HttpStatusCode expectedStatus)
+    {
+        // Arrange: the competitor commits while our request checks the reservation, which sits between
+        // our address lookup and Identity's
+        RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
+        RegisterRequest competitor = UserFactory.GenerateRandomRegisterRequest(Faker) with { Email = request.Email };
+
+        CompetitorCommitsFirstInterceptor interceptor = new(
+            command => IsTheReservationCheck(command, request.Email),
+            async () =>
+            {
+                using HttpResponseMessage response =
+                    await ApiClient.Http.PostAsJsonAsync(RegisterEndpoint, competitor);
+                return response.StatusCode;
+            });
+
+        await using WebApplicationFactory<Program> host = Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                // A second relay on this database could take a row another test waits for.
+                AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
+                services.ConfigureDbContext<AuthDbContext>(options => options.AddInterceptors(interceptor));
+            }));
+        using HttpClient client = host.CreateClient();
+        if (budgetSpent)
+        {
+            AccountStateFactory.SpendRegistrationBudget(host.Services, request.Email);
+        }
+
+        // Act
+        using HttpResponseMessage response = await client.PostAsJsonAsync(RegisterEndpoint, request);
+
+        // Assert
+        interceptor.CompetitorStatusCode.ShouldBe(HttpStatusCode.Accepted);
+        response.StatusCode.ShouldBe(expectedStatus);
+        (await response.Content.ReadAsStringAsync()).ShouldNotContain(request.Email, Case.Insensitive);
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        (await db.Users.AsNoTracking().AnyAsync(user => user.UserName == request.Username)).ShouldBeFalse();
+        (await db.Users.AsNoTracking().AnyAsync(user => user.UserName == competitor.Username)).ShouldBeTrue();
     }
 
     public enum Clash
@@ -199,23 +295,41 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
     private static bool IsInsertInto(DbCommand command, string table) =>
         command.CommandText.Contains($"INSERT INTO {DatabaseSchemas.Auth}.\"{table}\"", StringComparison.Ordinal);
 
+    private static bool IsTheAccountInsert(DbCommand command, string email) =>
+        IsInsertInto(command, "Users")
+        && command.Parameters.Cast<DbParameter>()
+            .Any(parameter => parameter.Value is string value
+                              && string.Equals(value, email, StringComparison.Ordinal));
+
+    /// <summary>
+    /// The reservation check filters on the undo target; the account lookups only list that column. The
+    /// address has to match too, because the admin seed runs the same check when the host starts.
+    /// </summary>
+    private static bool IsTheReservationCheck(DbCommand command, string email) =>
+        command.CommandText.Contains("\"NormalizedEmailChangeRevertTo\" = ", StringComparison.Ordinal)
+        && command.Parameters.Cast<DbParameter>()
+            .Any(parameter => parameter.Value is string value
+                              && string.Equals(value, email, StringComparison.OrdinalIgnoreCase));
+
     private static NpgsqlException CreateTransientFailure() =>
         new("The operation has timed out", new TimeoutException());
 
     /// <summary>
-    /// Holds the insert of one registration's account until a competing registration has committed.
-    /// That is the moment two real requests can reach at the same time, and the only one this suite
-    /// cannot hit on purpose any other way.
+    /// Holds one chosen command of a registration until a competing registration has committed. Those are
+    /// the moments two real requests can reach at the same time, and this suite cannot hit them on purpose
+    /// any other way.
     /// </summary>
     private sealed class CompetitorCommitsFirstInterceptor : DbCommandInterceptor
     {
-        private readonly string _email;
+        private readonly Func<DbCommand, bool> _holdsBefore;
         private readonly Func<Task<HttpStatusCode>> _registerCompetitor;
         private int _raced;
 
-        public CompetitorCommitsFirstInterceptor(string email, Func<Task<HttpStatusCode>> registerCompetitor)
+        public CompetitorCommitsFirstInterceptor(
+            Func<DbCommand, bool> holdsBefore,
+            Func<Task<HttpStatusCode>> registerCompetitor)
         {
-            _email = email;
+            _holdsBefore = holdsBefore;
             _registerCompetitor = registerCompetitor;
         }
 
@@ -227,18 +341,12 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
             InterceptionResult<DbDataReader> result,
             CancellationToken cancellationToken = default)
         {
-            if (IsTheAccountInsert(command) && Interlocked.CompareExchange(ref _raced, 1, 0) == 0)
+            if (_holdsBefore(command) && Interlocked.CompareExchange(ref _raced, 1, 0) == 0)
             {
                 CompetitorStatusCode = await _registerCompetitor();
             }
 
             return await base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
         }
-
-        private bool IsTheAccountInsert(DbCommand command) =>
-            IsInsertInto(command, "Users")
-            && command.Parameters.Cast<DbParameter>()
-                .Any(parameter => parameter.Value is string value
-                                  && string.Equals(value, _email, StringComparison.Ordinal));
     }
 }

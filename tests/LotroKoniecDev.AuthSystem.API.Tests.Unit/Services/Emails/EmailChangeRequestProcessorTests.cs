@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging.Abstractions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
@@ -18,11 +19,15 @@ public sealed class EmailChangeRequestProcessorTests
 
     private readonly UserManager<ApplicationUser> _userManager = CreateUserManager();
     private readonly IEmailChangeEmailSender _emailSender = Substitute.For<IEmailChangeEmailSender>();
+    private readonly IEmailChangeRevertReservation _revertReservation = Substitute.For<IEmailChangeRevertReservation>();
 
     public EmailChangeRequestProcessorTests()
     {
         _userManager.NormalizeEmail(Arg.Any<string?>())
             .Returns(callInfo => callInfo.Arg<string?>()?.ToUpperInvariant());
+        _userManager.FindByEmailAsync(Arg.Any<string>()).Returns((ApplicationUser?)null);
+        _revertReservation.IsReservedAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(false);
     }
 
     [Fact]
@@ -124,12 +129,102 @@ public sealed class EmailChangeRequestProcessorTests
             .SendVerificationAsync(user.Id, NewEmail, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    /// <summary>
+    /// The warning goes out before anything else, on every branch (#860). The requester reads that inbox,
+    /// so a warning that came later only when a link went out would tell them the address was free.
+    /// </summary>
     [Fact]
-    public async Task ProcessAsync_VerificationSendFails_PropagatesTheFailureAndSkipsTheWarning()
+    public async Task ProcessAsync_OpenRequest_SendsTheWarningBeforeTheLink()
+    {
+        ApplicationUser user = CreateUser();
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
+        _emailSender.SendVerificationAsync(user.Id, NewEmail, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        _emailSender.SendChangeRequestedWarningAsync(user.Id, CurrentEmail, NewEmail, Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        EmailChangeRequestProcessor sut = CreateSut();
+
+        await sut.ProcessAsync(new EmailChangeRequested(user.Id, CurrentEmail, NewEmail), CancellationToken.None);
+
+        Received.InOrder(() =>
+        {
+            _emailSender.SendChangeRequestedWarningAsync(user.Id, CurrentEmail, NewEmail, Arg.Any<CancellationToken>());
+            _emailSender.SendVerificationAsync(user.Id, NewEmail, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Fact]
+    public async Task ProcessAsync_NewAddressHasAnAccount_SendsTheWarningAndANoticeToItsOwnerButNoLink()
+    {
+        ApplicationUser user = CreateUser();
+        ApplicationUser owner = new() { Id = Guid.NewGuid(), UserName = "sam", Email = NewEmail };
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
+        _userManager.FindByEmailAsync(NewEmail).Returns(owner);
+        _emailSender.SendChangeRequestedWarningAsync(user.Id, CurrentEmail, NewEmail, Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        _emailSender.SendAddressTakenNoticeAsync(owner.Id, NewEmail, Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        EmailChangeRequestProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(
+            new EmailChangeRequested(user.Id, CurrentEmail, NewEmail), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        await _emailSender.Received(1)
+            .SendChangeRequestedWarningAsync(user.Id, CurrentEmail, NewEmail, Arg.Any<CancellationToken>());
+        await _emailSender.Received(1).SendAddressTakenNoticeAsync(owner.Id, NewEmail, Arg.Any<CancellationToken>());
+        await _emailSender.DidNotReceiveWithAnyArgs().SendVerificationAsync(default, default!, default!, default);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_NoticeToTheOwnerOfTheNewAddressFails_AsksForARetry()
+    {
+        ApplicationUser user = CreateUser();
+        ApplicationUser owner = new() { Id = Guid.NewGuid(), UserName = "sam", Email = NewEmail };
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
+        _userManager.FindByEmailAsync(NewEmail).Returns(owner);
+        Error smtpError = new("Email.SendFailed", "SMTP relay refused the message.");
+        _emailSender.SendChangeRequestedWarningAsync(user.Id, CurrentEmail, NewEmail, Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        _emailSender.SendAddressTakenNoticeAsync(owner.Id, NewEmail, Arg.Any<CancellationToken>())
+            .Returns(Result.Failure(smtpError));
+        EmailChangeRequestProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(
+            new EmailChangeRequested(user.Id, CurrentEmail, NewEmail), CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(smtpError);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_NewAddressIsReserved_SendsOnlyTheWarning()
+    {
+        ApplicationUser user = CreateUser();
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
+        _revertReservation.IsReservedAsync(NewEmail, user.Id, Arg.Any<CancellationToken>()).Returns(true);
+        _emailSender.SendChangeRequestedWarningAsync(user.Id, CurrentEmail, NewEmail, Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        EmailChangeRequestProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(
+            new EmailChangeRequested(user.Id, CurrentEmail, NewEmail), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        await _emailSender.Received(1)
+            .SendChangeRequestedWarningAsync(user.Id, CurrentEmail, NewEmail, Arg.Any<CancellationToken>());
+        await _emailSender.DidNotReceiveWithAnyArgs().SendVerificationAsync(default, default!, default!, default);
+        await _emailSender.DidNotReceiveWithAnyArgs().SendAddressTakenNoticeAsync(default, default!, default);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_VerificationSendFails_AsksForARetry()
     {
         ApplicationUser user = CreateUser();
         _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
         Error smtpError = new("Email.SendFailed", "SMTP relay refused the message.");
+        _emailSender.SendChangeRequestedWarningAsync(user.Id, CurrentEmail, NewEmail, Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
         _emailSender.SendVerificationAsync(user.Id, NewEmail, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Result.Failure(smtpError));
         EmailChangeRequestProcessor sut = CreateSut();
@@ -139,20 +234,16 @@ public sealed class EmailChangeRequestProcessorTests
 
         result.IsFailure.ShouldBeTrue();
         result.Error.ShouldBe(smtpError);
-        await _emailSender.DidNotReceiveWithAnyArgs()
-            .SendChangeRequestedWarningAsync(default, default!, default!, default);
     }
 
     [Fact]
-    public async Task ProcessAsync_WarningSendFails_AsksForARetry()
+    public async Task ProcessAsync_WarningSendFails_AsksForARetryAndSendsNoLink()
     {
-        // The warning is the message this flow cannot afford to lose, so a failure on it has to keep
-        // the message on the queue even though the verification link already went out.
+        // The warning is the message this flow cannot afford to lose, so it goes first, and a failure on
+        // it keeps the message on the queue before any link exists.
         ApplicationUser user = CreateUser();
         _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
         Error smtpError = new("Email.SendFailed", "SMTP relay refused the message.");
-        _emailSender.SendVerificationAsync(user.Id, NewEmail, Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success());
         _emailSender.SendChangeRequestedWarningAsync(
                 user.Id, CurrentEmail, NewEmail, Arg.Any<CancellationToken>())
             .Returns(Result.Failure(smtpError));
@@ -163,6 +254,7 @@ public sealed class EmailChangeRequestProcessorTests
 
         result.IsFailure.ShouldBeTrue();
         result.Error.ShouldBe(smtpError);
+        await _emailSender.DidNotReceiveWithAnyArgs().SendVerificationAsync(default, default!, default!, default);
     }
 
     [Theory]
@@ -205,7 +297,7 @@ public sealed class EmailChangeRequestProcessorTests
         };
 
     private EmailChangeRequestProcessor CreateSut() =>
-        new(_userManager, _emailSender, NullLogger<EmailChangeRequestProcessor>.Instance);
+        new(_userManager, _emailSender, _revertReservation, NullLogger<EmailChangeRequestProcessor>.Instance);
 
     private static UserManager<ApplicationUser> CreateUserManager() =>
         Substitute.For<UserManager<ApplicationUser>>(

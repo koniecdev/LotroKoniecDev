@@ -43,6 +43,9 @@ public sealed class EmailChangeEndpointTests : EndpointsTestBase
         row.ShouldNotBeNull();
         row.Payload.ShouldContain(registerRequest.Email);
         (await CountOutboxRowsAsync(nameof(EmailChangeRequested))).ShouldBe(1);
+
+        // Wait for the delivery, so its link cannot land in the next test's spy (#950).
+        (await OutboxAssertions.WaitForInboxRowsAsync(Factory, row.Id)).ShouldBe(1);
     }
 
     [Fact]
@@ -92,17 +95,31 @@ public sealed class EmailChangeEndpointTests : EndpointsTestBase
         (await CountOutboxRowsAsync(nameof(EmailChangeRequested))).ShouldBe(0);
     }
 
+    /// <summary>
+    /// A taken address answers like a free one, and the requester's own inbox gets the same warning (#860).
+    /// Only the owner of the taken address learns about the request, from a notice that carries no link.
+    /// </summary>
     [Fact]
-    public async Task RequestEmailChange_ShouldReturnProblem_WhenTheAddressBelongsToAnotherAccount()
+    public async Task RequestEmailChange_ShouldAnswerAsForAFreeAddressAndNotifyTheOwner_WhenTheAddressBelongsToAnotherAccount()
     {
         RegisterRequest registerRequest = await RegisterAsync();
         RegisterRequest otherUser = await RegisterAsync();
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, Password);
+        EmailChangeEmailSpy.Reset();
 
-        HttpResponseMessage response = await RequestChangeAsync(accessToken, otherUser.Email, Password);
+        using HttpResponseMessage takenResponse = await RequestChangeAsync(accessToken, otherUser.Email, Password);
+        using HttpResponseMessage freeResponse = await RequestChangeAsync(accessToken, Faker.Internet.Email(), Password);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("Auth.UserAlreadyExistsByEmail");
+        takenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        takenResponse.StatusCode.ShouldBe(freeResponse.StatusCode);
+        (await takenResponse.Content.ReadAsStringAsync()).ShouldBe(await freeResponse.Content.ReadAsStringAsync());
+
+        await EmailChangeEmailSpy.WaitForAddressTakenNoticeCaptureAsync();
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
+        EmailChangeEmailSpy.LastAddressTakenNoticeRecipient.ShouldBe(otherUser.Email);
+        EmailChangeEmailSpy.AddressTakenNoticeCallCount.ShouldBe(1);
+        EmailChangeEmailSpy.VerificationCallCount.ShouldBe(1);
+        EmailChangeEmailSpy.WarningCallCount.ShouldBe(2);
     }
 
     [Fact]

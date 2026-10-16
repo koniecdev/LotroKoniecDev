@@ -104,17 +104,16 @@ public sealed class OutboxRelayTests : EndpointsTestBase
     [Fact]
     public async Task Registration_ShouldCommitNoOutboxRow_WhenRegistrationFails()
     {
-        // Arrange: a taken e-mail address makes the second registration fail inside the same
-        // transaction that would have written its outbox row
+        // Arrange: a taken username makes the second registration fail inside the same transaction
+        // that would have written its outbox row. A taken address is no failure since #860: it answers
+        // like a free one and queues a notice to the owner.
         (RegisterRequest existingRequest, _) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy);
 
-        RegisterRequest duplicateRequest = new(
-            Faker.Random.AlphaNumeric(16),
-            existingRequest.Email,
-            "TestPass1!",
-            AcceptedPrivacyPolicy: true,
-            AcceptedTermsOfService: true);
+        RegisterRequest duplicateRequest = UserFactory.GenerateRandomRegisterRequest(Faker) with
+        {
+            Username = existingRequest.Username
+        };
 
         // Act
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(

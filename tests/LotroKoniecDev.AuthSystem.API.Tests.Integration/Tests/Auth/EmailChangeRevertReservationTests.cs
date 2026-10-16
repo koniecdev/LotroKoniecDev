@@ -3,7 +3,9 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
@@ -11,6 +13,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
+using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
@@ -25,15 +28,22 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
 
     public EmailChangeRevertReservationTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
+    /// <summary>
+    /// The registration answers as for any other address and mails nobody, because the address has no
+    /// account to tell (#860). The account is what it must not create.
+    /// </summary>
     [Fact]
-    public async Task Register_ShouldBeRefused_WhileTheFreedAddressIsAnArmedRevertTarget()
+    public async Task Register_ShouldCreateNoAccount_WhileTheFreedAddressIsAnArmedRevertTarget()
     {
         (RegisterRequest user, _, _) = await CompleteChangeAsync();
 
         HttpResponseMessage response = await RegisterOnAsync(user.Email);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("Auth.UserAlreadyExistsByEmail");
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await CountAccountsOnAsync(user.Email)).ShouldBe(0);
+
+        // Only the confirmation of the account the arrange registered.
+        (await CountRegistrationOutboxRowsAsync()).ShouldBe(1);
     }
 
     [Fact]
@@ -44,7 +54,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
         string revertToken = EmailChangeEmailSpy.LastRevertToken!;
 
-        (await RegisterOnAsync(user.Email)).StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await RegisterOnAsync(user.Email)).StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await CountAccountsOnAsync(user.Email)).ShouldBe(0);
 
         HttpResponseMessage response = await PostToPageAsync(
             "/Account/RevertEmailChange",
@@ -82,7 +93,7 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task Register_ShouldBeRefused_WhateverCaseTheSquatterTypesTheAddressIn(bool upperCase)
+    public async Task Register_ShouldCreateNoAccount_WhateverCaseTheSquatterTypesTheAddressIn(bool upperCase)
     {
         // Both sides go through Identity's key normalizer, so a re-spelling is the same address. A
         // lookup that quietly degraded to a raw comparison would pass every other test in this file.
@@ -91,8 +102,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
 
         HttpResponseMessage response = await RegisterOnAsync(respelled);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("Auth.UserAlreadyExistsByEmail");
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await CountAccountsOnAsync(user.Email)).ShouldBe(0);
     }
 
     [Fact]
@@ -106,7 +117,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
 
         HttpResponseMessage response = await RegisterOnAsync(tagged);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await CountAccountsOnAsync(tagged)).ShouldBe(1);
     }
 
     [Fact]
@@ -118,7 +130,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
 
         HttpResponseMessage response = await RegisterOnAsync(user.Email);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await CountAccountsOnAsync(user.Email)).ShouldBe(1);
     }
 
     [Theory]
@@ -134,7 +147,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
 
         HttpResponseMessage response = await RegisterOnAsync(user.Email);
 
-        response.StatusCode.ShouldBe(allowed ? HttpStatusCode.Created : HttpStatusCode.UnprocessableEntity);
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await CountAccountsOnAsync(user.Email)).ShouldBe(allowed ? 1 : 0);
     }
 
     [Fact]
@@ -147,21 +161,33 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
 
         HttpResponseMessage response = await RegisterOnAsync(user.Email);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await CountAccountsOnAsync(user.Email)).ShouldBe(1);
     }
 
+    /// <summary>
+    /// The request answers as for any address, and only the warning to the requester's own address goes
+    /// out: a reserved address has no account to tell, and a link there could never land (#860).
+    /// </summary>
     [Fact]
-    public async Task RequestEmailChange_ShouldReturnProblem_WhenTheAddressIsAnotherAccountsRevertTarget()
+    public async Task RequestEmailChange_ShouldSendNoLink_WhenTheAddressIsAnotherAccountsRevertTarget()
     {
         (RegisterRequest owner, _, _) = await CompleteChangeAsync();
         (RegisterRequest other, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         string accessToken = await GetAccessTokenAsync(other.Email, Password);
+        EmailChangeEmailSpy.Reset();
 
         HttpResponseMessage response = await RequestChangeAsync(accessToken, owner.Email);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("Auth.UserAlreadyExistsByEmail");
+        // The delivery is recorded only after every send, so no link can still be on its way when the
+        // checks below run.
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await WaitForChangeRequestsDeliveredAsync(owner.Email)).ShouldBe(1);
+
+        EmailChangeEmailSpy.LastWarningRecipient.ShouldBe(other.Email);
+        EmailChangeEmailSpy.VerificationCallCount.ShouldBe(0);
+        EmailChangeEmailSpy.AddressTakenNoticeCallCount.ShouldBe(0);
     }
 
     [Fact]
@@ -175,29 +201,44 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         HttpResponseMessage response = await RequestChangeAsync(accessToken, user.Email);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Wait for the delivery, so its link cannot land in the next test's spy (#950).
+        (await WaitForChangeRequestsDeliveredAsync(user.Email)).ShouldBe(1);
     }
 
+    /// <summary>
+    /// A stranger's requests to a reserved address spend its inbox's budget like any other address, so the
+    /// budget cannot tell a reserved address apart (#860). That can make the owner's own move back through
+    /// the form wait a quarter of an hour, but the undo link in the mail, the path the reservation exists
+    /// for, takes no budget and still works.
+    /// </summary>
     [Fact]
-    public async Task RequestEmailChange_ShouldNotLetAStrangerSpendTheSendBudgetOfTheCallersOwnRevertTarget()
+    public async Task RequestEmailChange_ShouldSpendTheBudgetOfAReservedAddress_AndLeaveTheUndoLinkWorking()
     {
-        // The send budget for a new address is taken after the reservation check (ADR-0055). Taken
-        // earlier, a stranger's refused requests would spend it, and the owner could not go back.
-        (RegisterRequest owner, string newEmail, _) = await CompleteChangeAsync();
+        (RegisterRequest owner, string newEmail, Guid ownerId) = await CompleteChangeAsync();
+        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
         (RegisterRequest stranger, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         string strangerToken = await GetAccessTokenAsync(stranger.Email, Password);
 
-        for (int i = 0; i < AccountBudgets.EmailChangeRecipientPermitLimit + 1; i++)
+        for (int i = 0; i < AccountBudgets.EmailChangeRecipientPermitLimit; i++)
         {
-            HttpResponseMessage refused = await RequestChangeAsync(strangerToken, owner.Email);
-            refused.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+            HttpResponseMessage accepted = await RequestChangeAsync(strangerToken, owner.Email);
+            accepted.StatusCode.ShouldBe(HttpStatusCode.OK);
         }
 
-        string ownerToken = await GetAccessTokenAsync(newEmail, Password);
+        HttpResponseMessage refused = await RequestChangeAsync(strangerToken, owner.Email);
 
-        HttpResponseMessage response = await RequestChangeAsync(ownerToken, owner.Email);
+        HttpResponseMessage reverted = await PostToPageAsync(
+            "/Account/RevertEmailChange",
+            RevertUrl(ownerId, owner.Email, newEmail, revertToken),
+            RevertForm(ownerId, owner.Email, newEmail, revertToken));
 
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        refused.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        reverted.RequestMessage!.RequestUri!.ToString().ShouldContain("/Account/ResetPassword");
+        (await LoadUserByIdAsync(ownerId)).Email.ShouldBe(owner.Email);
+        (await WaitForChangeRequestsDeliveredAsync(owner.Email))
+            .ShouldBe(AccountBudgets.EmailChangeRecipientPermitLimit);
     }
 
     [Fact]
@@ -278,7 +319,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         reArmed.EmailChangeRevertArmedAt!.Value.ShouldBeGreaterThan(firstArming);
 
         // And the address the fresh link points at is reserved again.
-        (await RegisterOnAsync(user.Email)).StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await RegisterOnAsync(user.Email)).StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await CountAccountsOnAsync(user.Email)).ShouldBe(0);
     }
 
     [Fact]
@@ -427,6 +469,52 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
 
         return await db.Users.AsNoTracking().SingleAsync(user => user.Id == userId);
+    }
+
+    /// <summary>
+    /// Waits until every e-mail change request to <paramref name="newEmail"/> has been delivered, and
+    /// returns how many there were. A delivery is recorded only after all of its mails, so none of them
+    /// can land in the next test's spy (#950).
+    /// </summary>
+    private async Task<int> WaitForChangeRequestsDeliveredAsync(string newEmail)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+        List<OutboxMessage> rows = await db.OutboxMessages.AsNoTracking()
+            .Where(row => row.Type == nameof(EmailChangeRequested))
+            .ToListAsync();
+
+        int delivered = 0;
+        foreach (OutboxMessage row in rows.Where(
+                     row => JsonSerializer.Deserialize<EmailChangeRequested>(row.Payload)!.NewEmail == newEmail))
+        {
+            delivered += await OutboxAssertions.WaitForInboxRowsAsync(Factory, row.Id);
+        }
+
+        return delivered;
+    }
+
+    private async Task<int> CountAccountsOnAsync(string email)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+        return await db.Users.AsNoTracking().CountAsync(user => user.NormalizedEmail == email.ToUpperInvariant());
+    }
+
+    /// <summary>
+    /// The two rows a registration can write besides the account. A registration on the reserved address
+    /// may write neither: there is no account to confirm and nobody to tell.
+    /// </summary>
+    private async Task<int> CountRegistrationOutboxRowsAsync()
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+        return await db.OutboxMessages.AsNoTracking().CountAsync(
+            row => row.Type == nameof(RegistrationAttemptedOnExistingAccount)
+                   || row.Type == nameof(EmailConfirmationRequested));
     }
 
     private static Dictionary<string, string> RevertForm(Guid userId, string from, string to, string token) =>

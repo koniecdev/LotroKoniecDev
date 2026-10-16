@@ -99,6 +99,12 @@ So each handler takes its permit as the last check before the send or the enqueu
 earlier, for an unknown address, a confirmed account, a wrong password, a taken, reserved or unchanged
 address, spends nothing. That also means a stranger cannot empty the budget before the owner asks.
 
+> **Amended by ADR-0059 (2026-10-15, #860):** registration and the e-mail change request no longer tell
+> a taken or reserved address from a free one, so neither can skip the permit for it: a permit spent on
+> one branch and not on another would show the branch after a few tries. Both take the permit on every
+> branch, still as the last check before the enqueue. A wrong password, an unchanged address or a taken
+> username still spend nothing.
+
 ### 4. One class per kind of key, one instance per budget
 
 The ticket asked whether the throttles should become one service keyed by (flow, address). They

@@ -136,6 +136,38 @@ internal static class AccountStateFactory
     }
 
     /// <summary>
+    /// Registration keys its budget on the typed address, whether or not it has an account (#860).
+    /// </summary>
+    public static void SpendRegistrationBudget(IServiceProvider services, string email)
+    {
+        using IServiceScope scope = services.CreateScope();
+        UserManager<ApplicationUser> userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        IRegistrationMailboxThrottle throttle = services.GetRequiredService<IRegistrationMailboxThrottle>();
+        MailboxKey mailbox = MailboxKey.FromNormalizedEmail(userManager.NormalizeEmail(email));
+
+        SpendUntilRefused(() => throttle.TryAcquire(mailbox), AccountBudgets.RegistrationPermitLimit);
+    }
+
+    /// <summary>
+    /// Reserves <paramref name="reservedEmail"/> as the undo target of the account on <paramref name="email"/>,
+    /// the state an e-mail change leaves behind (#684), without running the change.
+    /// </summary>
+    public static async Task ReserveAddressAsync(IServiceProvider services, string email, string reservedEmail)
+    {
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        ApplicationUser user = await FindAsync(userManager, email);
+
+        user.ArmEmailChangeRevert(reservedEmail, userManager.NormalizeEmail(reservedEmail), DateTimeOffset.UtcNow);
+
+        IdentityResult result = await userManager.UpdateAsync(user);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException($"Could not reserve an address for test user '{email}'.");
+        }
+    }
+
+    /// <summary>
     /// Takes permits until the budget refuses one, so a "budget spent" test really reaches that branch.
     /// Throws when the budget still has permits after its whole limit.
     /// </summary>

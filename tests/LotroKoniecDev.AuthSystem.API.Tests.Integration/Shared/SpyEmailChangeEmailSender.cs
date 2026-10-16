@@ -17,6 +17,7 @@ public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
     private int _warningCallCount;
     private int _noticeCallCount;
     private int _revertOfferCallCount;
+    private int _addressTakenNoticeCallCount;
 
     public string? LastVerificationRecipient { get; private set; }
     public string? LastVerificationToken { get; private set; }
@@ -26,11 +27,13 @@ public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
     public string? LastRevertOfferRecipient { get; private set; }
     public string? LastRevertOfferTargetAddress { get; private set; }
     public string? LastRevertToken { get; private set; }
+    public string? LastAddressTakenNoticeRecipient { get; private set; }
 
     public int VerificationCallCount => Volatile.Read(ref _verificationCallCount);
     public int WarningCallCount => Volatile.Read(ref _warningCallCount);
     public int NoticeCallCount => Volatile.Read(ref _noticeCallCount);
     public int RevertOfferCallCount => Volatile.Read(ref _revertOfferCallCount);
+    public int AddressTakenNoticeCallCount => Volatile.Read(ref _addressTakenNoticeCallCount);
 
     public Task<Result> SendVerificationAsync(
         Guid userId, string newEmail, string verificationToken, CancellationToken cancellationToken)
@@ -40,6 +43,18 @@ public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
             LastVerificationRecipient = newEmail;
             LastVerificationToken = verificationToken;
             Interlocked.Increment(ref _verificationCallCount);
+        }
+
+        return Task.FromResult(Result.Success());
+    }
+
+    public Task<Result> SendAddressTakenNoticeAsync(
+        Guid ownerUserId, string ownerEmail, CancellationToken cancellationToken)
+    {
+        lock (_lock)
+        {
+            LastAddressTakenNoticeRecipient = ownerEmail;
+            Interlocked.Increment(ref _addressTakenNoticeCallCount);
         }
 
         return Task.FromResult(Result.Success());
@@ -97,11 +112,18 @@ public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
         WaitForAsync(() => VerificationCallCount > 0, timeout);
 
     /// <summary>
-    /// Waits for the warning to the current address. It is sent after the verification link, so a
-    /// test that has seen the link may not have seen the warning yet (#772).
+    /// Waits for the warning to the current address. It goes out first, before the link or the notice
+    /// (#860), so a test that has seen the warning may not have seen the mail to the new address yet.
     /// </summary>
     public Task WaitForChangeRequestedWarningCaptureAsync(TimeSpan? timeout = null) =>
         WaitForAsync(() => WarningCallCount > 0, timeout);
+
+    /// <summary>
+    /// Waits for the notice to the owner of a new address that already has an account, sent instead of
+    /// the link (#860).
+    /// </summary>
+    public Task WaitForAddressTakenNoticeCaptureAsync(TimeSpan? timeout = null) =>
+        WaitForAsync(() => AddressTakenNoticeCallCount > 0, timeout);
 
     /// <summary>
     /// Waits for the notice sent to the new address. Every confirmed change sends it, after the undo link
@@ -149,10 +171,12 @@ public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
             LastRevertOfferRecipient = null;
             LastRevertOfferTargetAddress = null;
             LastRevertToken = null;
+            LastAddressTakenNoticeRecipient = null;
             Interlocked.Exchange(ref _verificationCallCount, 0);
             Interlocked.Exchange(ref _warningCallCount, 0);
             Interlocked.Exchange(ref _noticeCallCount, 0);
             Interlocked.Exchange(ref _revertOfferCallCount, 0);
+            Interlocked.Exchange(ref _addressTakenNoticeCallCount, 0);
         }
     }
 }

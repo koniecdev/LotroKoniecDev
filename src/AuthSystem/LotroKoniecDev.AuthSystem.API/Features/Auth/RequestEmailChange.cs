@@ -6,7 +6,6 @@ using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
-using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -22,10 +21,16 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 /// nothing on the account changes here (ADR-0048).
 /// </summary>
 /// <remarks>
+/// It never looks the new address up. Whether that address has an account, or is reserved, is decided
+/// when the mail goes out (<see cref="Services.Emails.EmailChangeRequestProcessor"/>), so every new
+/// address gets the same answer and the same work here, and the answer tells the caller nothing about it
+/// (#860).
+/// <para>
 /// Because there is no change to the user row, this handler has to save the outbox row itself:
 /// <c>OutboxWriter.Enqueue</c> only adds it to the unit of work. <see cref="ForgotPassword"/> is the
 /// shape to copy here, not <see cref="DeleteAccount"/>, which gets its save for free from
 /// <c>UserManager.UpdateAsync</c>.
+/// </para>
 /// </remarks>
 internal sealed partial class RequestEmailChange : IApiEndpoint
 {
@@ -60,7 +65,6 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly AuthDbContext _db;
         private readonly OutboxWriter _outboxWriter;
-        private readonly IEmailChangeRevertReservation _revertReservation;
         private readonly IPasswordConfirmationThrottle _confirmationThrottle;
         private readonly IEmailChangeRecipientThrottle _recipientThrottle;
         private readonly IValidator<Command> _validator;
@@ -70,7 +74,6 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             UserManager<ApplicationUser> userManager,
             AuthDbContext db,
             OutboxWriter outboxWriter,
-            IEmailChangeRevertReservation revertReservation,
             IPasswordConfirmationThrottle confirmationThrottle,
             IEmailChangeRecipientThrottle recipientThrottle,
             IValidator<Command> validator,
@@ -79,7 +82,6 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             _userManager = userManager;
             _db = db;
             _outboxWriter = outboxWriter;
-            _revertReservation = revertReservation;
             _confirmationThrottle = confirmationThrottle;
             _recipientThrottle = recipientThrottle;
             _validator = validator;
@@ -145,28 +147,10 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
                 return Result.Failure(AuthErrors.EmailChangeSameAddress);
             }
 
-            // Registration already tells an anonymous caller that an address is taken, so saying it to
-            // a caller who just proved they know this account's password reveals nothing new.
-            ApplicationUser? addressOwner = await _userManager.FindByEmailAsync(newEmail);
-            if (addressOwner is not null)
-            {
-                LogAddressTaken(_logger, user.Id, newEmail.MaskEmail());
-                return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
-            }
-
-            // The confirm leg refuses a reserved address anyway (#684). Saying so here means the user
-            // learns it on the form instead of after following a link, and no mail goes out for a
-            // change that cannot land. Reserved reads as taken, which for this caller it was.
-            bool reserved = await _revertReservation.IsReservedAsync(newEmail, user.Id, cancellationToken);
-            if (reserved)
-            {
-                LogAddressReserved(_logger, user.Id, newEmail.MaskEmail());
-                return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
-            }
-
             // The last check, so a change refused above spends nothing. The budget belongs to the inbox of
             // the new address, whichever account asks, and its refusal is a 429 on purpose (ADR-0055,
-            // ADR-0057).
+            // ADR-0057). A taken or reserved new address spends a permit too: the request cannot tell
+            // them apart, and that is the point (#860).
             if (!_recipientThrottle.TryAcquire(MailboxKey.FromNormalizedEmail(normalizedNewEmail)))
             {
                 LogRecipientThrottled(_logger, user.Id, newEmail.MaskEmail());
@@ -191,12 +175,6 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.EmailChangeSameAddress, Level = LogLevel.Information, Message = "E-mail change refused for user {UserId}: the new address is the current one")]
         private static partial void LogSameAddress(ILogger logger, Guid userId);
-
-        [LoggerMessage(EventId = EventIds.EmailChangeAddressTaken, Level = LogLevel.Information, Message = "E-mail change refused for user {UserId}: {NewEmail} belongs to another account")]
-        private static partial void LogAddressTaken(ILogger logger, Guid userId, string newEmail);
-
-        [LoggerMessage(EventId = EventIds.EmailChangeRequestAddressReserved, Level = LogLevel.Information, Message = "E-mail change refused for user {UserId}: {NewEmail} is still reserved as another account's undo target")]
-        private static partial void LogAddressReserved(ILogger logger, Guid userId, string newEmail);
 
         [LoggerMessage(EventId = EventIds.EmailChangeRecipientThrottled, Level = LogLevel.Warning, Message = "E-mail change refused for user {UserId}: the send budget of the inbox of {NewEmail} is spent")]
         private static partial void LogRecipientThrottled(ILogger logger, Guid userId, string newEmail);

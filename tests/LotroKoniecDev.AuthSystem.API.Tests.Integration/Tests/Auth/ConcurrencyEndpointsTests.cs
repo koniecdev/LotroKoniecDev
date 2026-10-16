@@ -1,8 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.EmailConfirmation;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
+using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
@@ -49,10 +52,16 @@ public sealed class ConcurrencyEndpointsTests : EndpointsTestBase
                 $"Internal Server Error: {problemDetails?.Detail}");
         }
 
-        int createdCount = responses.Count(r => r.StatusCode == HttpStatusCode.Created);
-        int rejectedCount = responses.Count(r => r.StatusCode == HttpStatusCode.UnprocessableEntity);
-        (createdCount + rejectedCount).ShouldBe(concurrentRequests,
-            $"All responses should be either Created or UnprocessableEntity - but created: {createdCount}, rejected: {rejectedCount}");
+        // A taken address answers like a free one (#860), and every attempt spends a permit of the inbox's
+        // registration budget, so once it is spent the rest are told to wait (ADR-0057).
+        int acceptedCount = responses.Count(r => r.StatusCode == HttpStatusCode.Accepted);
+        int throttledCount = responses.Count(r => r.StatusCode == HttpStatusCode.TooManyRequests);
+        (acceptedCount + throttledCount).ShouldBe(concurrentRequests,
+            $"All responses should be either Accepted or TooManyRequests - but accepted: {acceptedCount}, throttled: {throttledCount}");
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        (await db.Users.CountAsync(user => user.NormalizedEmail == sharedEmail.ToUpperInvariant())).ShouldBe(1);
     }
 
     [Fact]

@@ -15,22 +15,6 @@ internal sealed class EmailChangeEmailSender : IEmailChangeEmailSender
     private readonly TimeSpan _verificationLinkLifespan;
     private readonly ILogger<EmailChangeEmailSender> _logger;
 
-    public EmailChangeEmailSender(
-        IEmailService emailService,
-        IEmailChangeVerificationLinkFactory verificationLinkFactory,
-        IEmailChangeRevertLinkFactory revertLinkFactory,
-        IEmailTemplateRenderer templateRenderer,
-        IOptions<EmailChangeTokenProviderOptions> tokenProviderOptions,
-        ILogger<EmailChangeEmailSender> logger)
-    {
-        _emailService = emailService;
-        _verificationLinkFactory = verificationLinkFactory;
-        _revertLinkFactory = revertLinkFactory;
-        _templateRenderer = templateRenderer;
-        _verificationLinkLifespan = tokenProviderOptions.Value.TokenLifespan;
-        _logger = logger;
-    }
-
     public Task<Result> SendVerificationAsync(
         Guid userId,
         string newEmail,
@@ -63,6 +47,33 @@ internal sealed class EmailChangeEmailSender : IEmailChangeEmailSender
             cancellationToken: cancellationToken);
     }
 
+    public Task<Result> SendAddressTakenNoticeAsync(
+        Guid ownerUserId,
+        string ownerEmail,
+        CancellationToken cancellationToken)
+    {
+        EmailTemplateModel template = new()
+        {
+            Preheader = "Ktoś chciał przenieść inne konto na ten adres e-mail.",
+            Heading = "Ten adres ma już konto",
+            Paragraphs =
+            [
+                $"Ktoś poprosił o przeniesienie innego konta w {EmailBranding.Name} na ten adres e-mail. Ten adres należy już do Twojego konta, więc nic się nie zmieniło i nikt nie dostał linku.",
+                "Jeśli to Ty chcesz przenieść drugie konto na ten adres — najpierw zmień adres tego konta albo je usuń."
+            ],
+            SecurityNote =
+                "Jeśli to nie Ty — nie musisz nic robić. Twoje konto się nie zmieniło."
+        };
+
+        return SendAsync(
+            ownerUserId,
+            operation: "EmailChangeAddressTakenNotice",
+            recipient: ownerEmail,
+            subject: $"Próba przeniesienia konta na Twój adres — {EmailBranding.Name}",
+            template: template,
+            cancellationToken: cancellationToken);
+    }
+
     public Task<Result> SendChangeRequestedWarningAsync(
         Guid userId,
         string currentEmail,
@@ -76,7 +87,7 @@ internal sealed class EmailChangeEmailSender : IEmailChangeEmailSender
             Paragraphs =
             [
                 $"Ktoś, kto zna hasło do Twojego konta w {EmailBranding.Name}, poprosił o przeniesienie go na adres {newEmail}.",
-                "Nic jeszcze się nie zmieniło. Adres zmieni się dopiero wtedy, gdy ktoś kliknie link wysłany na tamten adres.",
+                "Nic jeszcze się nie zmieniło. Adres zmieni się tylko wtedy, gdy ktoś potwierdzi zmianę z tamtej skrzynki.",
                 "Jeśli to Ty — nie musisz nic robić z tą wiadomością."
             ],
             SecurityNote =
@@ -155,6 +166,22 @@ internal sealed class EmailChangeEmailSender : IEmailChangeEmailSender
             subject: $"Adres e-mail Twojego konta został zmieniony — {EmailBranding.Name}",
             template: template,
             cancellationToken: cancellationToken);
+    }
+
+    public EmailChangeEmailSender(
+        IEmailService emailService,
+        IEmailChangeVerificationLinkFactory verificationLinkFactory,
+        IEmailChangeRevertLinkFactory revertLinkFactory,
+        IEmailTemplateRenderer templateRenderer,
+        IOptions<EmailChangeTokenProviderOptions> tokenProviderOptions,
+        ILogger<EmailChangeEmailSender> logger)
+    {
+        _emailService = emailService;
+        _verificationLinkFactory = verificationLinkFactory;
+        _revertLinkFactory = revertLinkFactory;
+        _templateRenderer = templateRenderer;
+        _verificationLinkLifespan = tokenProviderOptions.Value.TokenLifespan;
+        _logger = logger;
     }
 
     private async Task<Result> SendAsync(

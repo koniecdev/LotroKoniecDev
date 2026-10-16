@@ -17,6 +17,16 @@ public sealed class OutboxMessageRoutingTests
     }
 
     [Fact]
+    public void TryGetRoute_RegistrationAttemptedOnExistingAccount_MapsToTheEmailsExchangeAndRegistrationAttemptedRoutingKey()
+    {
+        bool found = OutboxMessageRouting.TryGetRoute(
+            nameof(RegistrationAttemptedOnExistingAccount), out OutboxRoute? route);
+
+        found.ShouldBeTrue();
+        route.ShouldBe(new OutboxRoute(RabbitMqTopology.EmailsExchange, RabbitMqTopology.RegistrationAttemptedRoutingKey));
+    }
+
+    [Fact]
     public void TryGetRoute_PasswordResetRequested_MapsToTheEmailsExchangeAndPasswordResetRoutingKey()
     {
         bool found = OutboxMessageRouting.TryGetRoute(
@@ -85,7 +95,7 @@ public sealed class OutboxMessageRoutingTests
             .Where(type => OutboxMessageRouting.TryGetRoute(type.Name, out _))
             .ToArray();
 
-        contracts.Length.ShouldBe(7);
+        contracts.Length.ShouldBe(8);
         contracts.ShouldAllBe(type => type.GetProperty("IdentityUserId") != null
                                       && type.GetProperty("IdentityUserId")!.PropertyType == typeof(Guid));
     }
@@ -98,6 +108,7 @@ public sealed class OutboxMessageRoutingTests
         string[] routingKeys =
         [
             RabbitMqTopology.EmailConfirmationRoutingKey,
+            RabbitMqTopology.RegistrationAttemptedRoutingKey,
             RabbitMqTopology.PasswordResetRoutingKey,
             RabbitMqTopology.DeletionScheduledRoutingKey,
             RabbitMqTopology.DeletionCancelledRoutingKey,

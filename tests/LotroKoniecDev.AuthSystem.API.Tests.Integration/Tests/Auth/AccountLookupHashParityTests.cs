@@ -201,6 +201,31 @@ public sealed partial class AccountLookupHashParityTests : EndpointsTestBase
         passwordHasher.VerifyCount.ShouldBe(1);
     }
 
+    /// <summary>
+    /// Registration hashes the typed password once, before it looks the address up, so a taken or reserved
+    /// address pays the same hash as a new account (#860).
+    /// </summary>
+    [Theory]
+    [InlineData("unknown address")]
+    [InlineData("confirmed")]
+    [InlineData("reserved address")]
+    public async Task Register_ShouldHashThePasswordExactlyOnce_OnEveryBranch(string branch)
+    {
+        // Arrange
+        string email = await ArrangeAddressAsync(branch);
+        RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker) with { Email = email };
+        SpyPasswordHasher passwordHasher = ResetPasswordHasherSpy();
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), request);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        passwordHasher.HashCount.ShouldBe(1);
+        passwordHasher.VerifyCount.ShouldBe(0);
+    }
+
     private async Task<string> ArrangeAddressAsync(string branch)
     {
         switch (branch)
@@ -225,6 +250,12 @@ public sealed partial class AccountLookupHashParityTests : EndpointsTestBase
                     await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
                 await AccountStateFactory.SpendPasswordResetBudgetAsync(Factory.Services, resetSpent.Email);
                 return resetSpent.Email;
+            case "reserved address":
+                (RegisterRequest owner, _) =
+                    await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+                string reserved = "nobody-" + Faker.Random.AlphaNumeric(8) + "@example.com";
+                await AccountStateFactory.ReserveAddressAsync(Factory.Services, owner.Email, reserved);
+                return reserved;
             case "deletion scheduled":
                 (RegisterRequest scheduled, _) =
                     await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);

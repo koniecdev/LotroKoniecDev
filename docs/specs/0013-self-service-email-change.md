@@ -252,6 +252,10 @@ outlier and explicitly **not** the pattern here.
   `UserAlreadyExistsByEmail` to an *anonymous* caller, so telling an authenticated,
   password-verified, rate-limited caller the same thing adds no exposure the product does not
   already accept.
+  > **Superseded 2026-10-15 (#860, ADR-0059 amendment):** registration no longer says it, so neither
+  > does this form. The request never looks the new address up and always answers 200. The dispatch
+  > processor decides: a taken address gets a notice to its owner instead of the link, a reserved one
+  > gets nothing, and the warning to the old address goes out first on every branch.
 - **A scheduled deletion blocks the change**, for ADR-0031's reason: the account is locked and the
   emailed cancel link is the only way back in; a stamp rotation here would break it.
 - **A deletion cannot be timed to outlive the undo (#685, SEC-07).** The block above runs one way
@@ -320,6 +324,8 @@ outlier and explicitly **not** the pattern here.
   `400 Auth.InvalidCurrentPassword` · `400 Auth.EmailChangeSameAddress` ·
   `422 Auth.UserAlreadyExistsByEmail` · `422 Auth.DeletionAlreadyScheduled` · `429` rate limit.
   (`ErrorExtensions` maps `Validation` → 400 and `DataConflict` → 422 repo-wide.)
+  > **Amended 2026-10-15 (#860):** the request leg no longer returns `Auth.UserAlreadyExistsByEmail`;
+  > the confirm and revert legs still do, to the holder of the link.
   Both pages render `Auth.InvalidEmailChangeToken` as "link wygasł lub jest nieprawidłowy".
   > **Amended 2026-09-26 (#869):** only a dead link reads as dead. `Auth.EmailChangeFailed` is a save
   > that another write on the same account beat, for example a failed login. Both pages then show the
@@ -357,6 +363,7 @@ outlier and explicitly **not** the pattern here.
       `Auth.InvalidCurrentPassword` and enqueues nothing.
 - [ ] A request for an address another account holds returns `Auth.UserAlreadyExistsByEmail`;
       a request for the caller's own current address returns `Auth.EmailChangeSameAddress`.
+      *(Superseded by #860: a taken address answers 200 and its owner gets a notice instead.)*
 - [ ] A valid request **commits** exactly one `EmailChangeRequested` row (asserted against the DB,
       not against the writer), and its processor sends the verification link to the **new** address
       and a warning naming that address to the **old** one.

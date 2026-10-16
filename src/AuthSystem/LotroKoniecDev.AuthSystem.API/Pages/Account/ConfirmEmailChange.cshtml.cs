@@ -116,8 +116,9 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
     /// <summary>
     /// Only a dead link is called dead, because the visitor acts on what the page says: a good link
     /// called dead sends them off for a new one, when one more click would have worked (#869). The
-    /// other answers come only after the token check, and asking for the change already tells the
-    /// owner about a taken address or a scheduled deletion, so naming them here reveals nothing new.
+    /// other answers come only after the token check, so only the holder of a link for this address sees
+    /// them, and that holder controls the inbox the address belongs to. The request form no longer names
+    /// a taken address (#860); this page may, because a stranger never gets this far.
     /// </summary>
     private void ShowRefusal(Error error)
     {

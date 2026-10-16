@@ -112,6 +112,12 @@ request, whatever her account budget says.
   Polish sentence. A silent success would tell the user to check an inbox that gets nothing. This is
   the same reasoning as ADR-0055 decision 5.
 
+> **Amended by ADR-0059 (2026-10-15, #860):** a taken or reserved address is no longer a refusal. It
+> answers like a free one and spends a permit too: a taken one queues a notice to its owner, a reserved
+> one queues nothing. The key is the typed address through `UserManager.NormalizeEmail` on every branch,
+> the same key the free branch had. A taken username, a password the rules or the breach check refuse,
+> and Identity's own errors still spend nothing.
+
 ### 5. The key is a type, not a string
 
 Every mail budget takes a `MailboxKey`, so every budget goes through the one fold that type owns. The key

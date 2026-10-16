@@ -2210,9 +2210,10 @@ grep -q '^ssh .*git-upload-pack' "$TMP_ROOT/ssh-calls" 2>/dev/null \
 expect_in_output "but the loop could not check whether branch 231-fixture has commits the merge did not take"
 expect_meta 231 outcome=merged pr=7231 'unmerged=?'
 
-# Batch mode does not reach the second ssh that OpenSSH starts for a jump host.
+# Batch mode does not reach the second ssh that OpenSSH starts for a jump host. The user's own
+# askpass program must not open for it either.
 merged_remote_case 237 "work-ticket: a jump host whose key needs a passphrase does not ask either" \
-    FAKE_SSH_PASSPHRASE=1 FAKE_SSH_JUMP=1
+    FAKE_SSH_PASSPHRASE=1 FAKE_SSH_JUMP=1 SSH_ASKPASS="$ASKPASS"
 grep -q '^jump -W' "$TMP_ROOT/ssh-calls" 2>/dev/null \
     || fail "the jump host's ssh should start, or the case proves nothing" "$(cat "$TMP_ROOT/ssh-calls" 2>/dev/null || true)"
 expect_meta 237 outcome=merged pr=7237 'unmerged=?'

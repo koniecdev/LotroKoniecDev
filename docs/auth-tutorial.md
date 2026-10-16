@@ -364,18 +364,22 @@ aktualizuje sesję. Rolling refresh ⇒ stary refresh token unieważniony, nowy 
 jest chwilowy albo ostateczny (ADR-0067 decyzja 3, #1062). **Chwilowy** (429, każdy 5xx, błąd sieci,
 timeout 30 s z #923) nie kończy sesji, dopóki bieżący access token działa: strona niczego nie rewokuje,
 nie pokazuje komunikatu i próbuje znowu przy następnym żądaniu. Okno to reszta życia tokenu, około
-minuty, bez osobnego ustawienia. Na tym żądaniu strona pomija też własne sprawdzenie podpisu, bo mogłoby
-pobierać klucze z serwera, który właśnie zawiódł. **Ostateczny** (każda inna odmowa, np. 400
-`invalid_grant`, odpowiedź 2xx, której nie da się przeczytać, albo chwilowy błąd już po wygaśnięciu
-tokenu) kończy sesję od razu. 401 z API zostawia znacznik w `DeadSessionRegistry`, a następne żądanie
-kończy po nim sesję (czysty re-login). Znacznik wisi pod skrótem SHA-256 tokenu dostępu, który niosło
+minuty, bez osobnego ustawienia. **Ostateczny** (każda inna odmowa, np. 400 `invalid_grant`, odpowiedź 2xx, której nie da się przeczytać, albo chwilowy błąd już po wygaśnięciu
+tokenu) kończy sesję od razu. Z odpowiedzi refreshu strona czyta tylko to, czego potrzebuje: token i
+`expires_in`. Nie sprawdza kształtu ani znaków tokenów i nie waliduje odnowionego ID tokenu.
+Sam access token jest dla frontendu nieprzezroczysty (ADR-0067 decyzja 2, #1058): frontend nie sprawdza
+jego podpisu, kształtu ani `exp`, więc żądanie, które nie odnawia tokenu, w ogóle nie woła `auth-api`.
+Token sprawdza `tms-api` przy każdym wywołaniu. 401 z API zostawia znacznik w `DeadSessionRegistry`, a
+następne żądanie kończy po nim sesję (czysty re-login). Tak kończy się też sesja po twardej wymianie
+klucza podpisu: pierwsza strona, która woła API, dostaje 401 i pokazuje dane jak dla gościa, a następna
+kończy sesję z komunikatem o wygaśnięciu. Znacznik wisi pod skrótem SHA-256 tokenu dostępu, który niosło
 odrzucone wywołanie, a nie pod id użytkownika, więc kończy się tylko sesja urządzenia z tym tokenem, a
 ten sam użytkownik na innym urządzeniu zostaje zalogowany (#1061). Na `POST /auth/logout` i
 `POST /auth/local-signout` refresher niczego nie sprawdza, żeby wylogowanie rewokowało bieżący, nie
 zużyty refresh token (§10.3, #964, #1027).
-Gdy strona sama kończy sesję (zły podpis tokena, znacznik martwej sesji, ostatecznie nieudany albo
-nieużyteczny refresh), rewokuje też refresh token z cookie przez `RefreshTokenRevoker` (#1027): samo
-usunięcie cookie zostawiłoby go ważnym na serwerze przez godziny. Przy nieużytecznej odpowiedzi refreshu
+Gdy strona sama kończy sesję (znacznik martwej sesji, ostatecznie nieudany albo nieużyteczny refresh),
+rewokuje też refresh token z cookie przez `RefreshTokenRevoker` (#1027): samo usunięcie cookie
+zostawiłoby go ważnym na serwerze przez godziny. Przy nieużytecznej odpowiedzi refreshu
 rewokuje także nowy token z tej odpowiedzi, bo serwer już wymienił stary na nowy. Oba wywołania mają
 jeden limit 5 s, ten sam co przy wylogowaniu. Wyjątek: przeglądarka zerwała żądanie w trakcie refreshu,
 który kończy sesję (odmowa albo token już wygasł). Wtedy błąd nic nie mówi o tokenie, przeglądarka nie
@@ -551,7 +555,8 @@ chroni przed wyścigiem). Zero runtime coupling read-path → Auth; bounded cont
 
 **Q: Co jak AuthSystem padnie?** — Nowe logowania/refreshe padają, ale już-wydane access tokeny działają
 do `exp` (stateless). `tms-api` cache'uje JWKS, więc walidacja istniejących tokenów przeżywa krótką
-niedostępność `auth-api`.
+niedostępność `auth-api`. Frontend nie sprawdza access tokenu sam, więc strony zalogowanego usera działają
+nawet po restarcie frontendu, gdy `auth-api` leży (#1058).
 
 ---
 

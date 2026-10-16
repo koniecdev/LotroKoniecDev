@@ -716,8 +716,9 @@ The system uses the standard web login flow. In plain words:
    JavaScript.
 6. On every later request, a cookie validator (`CookieTokenRefresher`) silently keeps the
    session healthy: if the access token is near expiry, it uses the refresh token to get a new
-   one; it also re-checks the token's signature against auth-api's published public keys, and it
-   rejects sessions that a previous 401 marked as dead. If auth-api fails only for a moment
+   one, and it rejects sessions that a previous 401 marked as dead. It never checks the access
+   token itself: tms-api checks every token it receives, and its 401 is what ends a session with a
+   bad token (ADR-0067, #1058). So a page that renews nothing never calls auth-api. If auth-api fails only for a moment
    (busy, restarting, or rate-limiting a shared address), the session survives while its access
    token still works, and the next page tries again (#1062). When nothing can be saved, you are
    signed out cleanly and see a one-time "session expired" note.

@@ -22,14 +22,17 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration;
 /// host where the TMS half of an erasure, broker to consumer to database, runs in one process
 /// (ADR-0065).
 /// Two seams make the slow paths testable in seconds: <see cref="ErasureFailures"/> fails the next
-/// erasures, and the consumer pauses 50 ms instead of up to 15 minutes and checks its subscription
-/// every 200 ms instead of every 30 seconds.
+/// erasures, and the consumer runs faster than in production. It pauses 50 ms instead of up to 15
+/// minutes before a failed message goes back, waits 200 ms instead of up to a minute before it connects
+/// again, and checks its subscription every 200 ms instead of every 30 seconds.
 /// </summary>
 #pragma warning disable CA1515
 public sealed class BrokeredTranslationSystemApiFactory : TranslationSystemApiFactory
 #pragma warning restore CA1515
 {
+    private static readonly TimeSpan[] ShortConnectBackoffs = [TimeSpan.FromMilliseconds(200)];
     private static readonly TimeSpan[] ShortRetryBackoffs = [TimeSpan.FromMilliseconds(50)];
+    private static readonly TimeSpan ShortWatchInterval = TimeSpan.FromMilliseconds(200);
 
     private readonly RabbitMqContainer _broker = new RabbitMqBuilder(RabbitMqImage.Name).Build();
 
@@ -72,11 +75,13 @@ public sealed class BrokeredTranslationSystemApiFactory : TranslationSystemApiFa
         builder.ConfigureTestServices(services =>
         {
             services.AddHostedService(serviceProvider => new AccountErasedConsumer(
-                serviceProvider.GetRequiredService<IOptions<RabbitMqSettings>>(),
+                AccountErasedConsumer.BuildConnectionFactory(
+                    serviceProvider.GetRequiredService<IOptions<RabbitMqSettings>>().Value),
                 serviceProvider.GetRequiredService<IServiceScopeFactory>(),
                 serviceProvider.GetRequiredService<ILogger<AccountErasedConsumer>>(),
+                ShortConnectBackoffs,
                 ShortRetryBackoffs,
-                TimeSpan.FromMilliseconds(200)));
+                ShortWatchInterval));
 
             ServiceDescriptor handler = services.Single(descriptor =>
                 descriptor.ServiceType == typeof(ICommandHandler<EraseTranslatorProfile.Command, Result>));

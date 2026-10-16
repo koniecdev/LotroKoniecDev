@@ -43,6 +43,9 @@ GUARD='scripts/check-ssr-purity.sh'
 DOCKERFILE='src/Frontend/LotroKoniecDev.Frontend/Dockerfile'
 DOC='docs/adr/0035.md'
 
+# In CI the classifier would append each case's verdicts to this step's real outputs.
+unset GITHUB_OUTPUT
+
 failures=0
 cases=0
 
@@ -185,6 +188,8 @@ echo '── images ────────────────────
 expect 'code=false guards=true images=true'  'a shipped Dockerfile (restore-graph guard reads it)' 'src/Frontend/LotroKoniecDev.Frontend/Dockerfile'
 expect 'code=false guards=true images=true'  'the migrator Dockerfile'                             'Dockerfile.migrator.prod'
 expect 'code=false guards=false images=true' 'the build-context filter'                            '.dockerignore'
+expect 'code=true guards=true images=true'   'a .dockerignore git printed in quotes'                '"src/we\"ird/.dockerignore"'
+expect 'code=false guards=true images=true'  'a Dockerfile git printed in quotes'                   '"src/we\"ird/Dockerfile"'
 
 echo
 echo '── the gate definitions validate themselves ─────────────────────────────────────────────────'
@@ -238,6 +243,12 @@ expect_git 'code=true guards=true images=false'   'a submodule pointer change, w
         && git add .gitmodules && git commit -qm 'add the submodule' \
         && git update-index --cacheinfo 160000,2222222222222222222222222222222222222222,lib/sub \
         && printf 'edited\n' >> $DOC"
+expect_git 'code=false guards=false images=false' 'a doc with Polish letters in its name'        "printf 'z\n' > 'docs/żółw.md'"
+expect_git 'code=false guards=false images=true'  'a .dockerignore in a folder with Polish letters' \
+    "mkdir -p 'src/Usługa' && printf 'bin/\n' > 'src/Usługa/.dockerignore'"
+expect_git 'code=true guards=true images=true'    'a .dockerignore in a folder with a quote in its name' \
+    "mkdir -p 'src/we\"ird' && printf 'bin/\n' > 'src/we\"ird/.dockerignore'"
+expect_git 'code=true guards=true images=false'   'a new file named HEAD'                          "printf 'x\n' > HEAD"
 expect_git 'code=true guards=true images=true'    'a base ref git cannot resolve runs every gate' \
     "printf 'edited\n' >> $DOC" . no-such-ref
 

@@ -38,9 +38,13 @@
 # config says. Copy detection hides nothing: the source of a copy is listed whenever it changed.
 # `--no-relative` stops `diff.relative` from dropping every path outside the current folder, and
 # `--ignore-submodules=none` stops an `ignore = all` from dropping a submodule's new commit.
+# `core.quotePath=false` prints a name with non-ASCII letters (Polish ones, say) as it is, so the
+# rules can read it. A name with a `"`, a `\` or a control character still comes out in quotes; see
+# IMAGE_INPUTS for that.
+# The `--` keeps a file named HEAD from making the call ambiguous.
 #
 # Usage:
-#   classify-changes.sh <base-ref>   # classify `git diff --name-only <flags above> <base-ref> HEAD`
+#   classify-changes.sh <base-ref>   # classify `git diff --name-only <flags above> <base-ref> HEAD --`
 #   classify-changes.sh --files      # classify the newline-separated paths on stdin (test seam)
 #
 # Prints `key=value` lines to stdout (and appends them to $GITHUB_OUTPUT when set); the human
@@ -71,8 +75,10 @@ CODE_INPUTS='^\.github/workflows/(pr-verify|ci)\.yml$'
 
 # Image-build inputs: ANY Dockerfile flavor (a dev-only flavor costs a redundant image build, never
 # a false skip), the build-context filter, and pr-verify.yml — the image job must validate its own
-# new definition.
-IMAGE_INPUTS='(^|/)Dockerfile[^/]*$|(^|/)\.dockerignore$|^\.github/workflows/pr-verify\.yml$'
+# new definition. A path git printed in quotes (`^"`) is here too, because the closing quote hides a
+# `.dockerignore` from the rule before it. The other verdicts need no such rule: INERT matches a
+# quoted path only when it is a Dockerfile, so any other quoted path counts as code.
+IMAGE_INPUTS='(^|/)Dockerfile[^/]*$|(^|/)\.dockerignore$|^\.github/workflows/pr-verify\.yml$|^"'
 
 files=''
 diffable=1
@@ -86,7 +92,8 @@ case "${1-}" in
         exit 2
         ;;
     *)
-        if ! files="$(git diff --name-only --no-renames --no-relative --ignore-submodules=none "$1" HEAD)"; then
+        if ! files="$(git -c core.quotePath=false diff --name-only --no-renames --no-relative \
+            --ignore-submodules=none "$1" HEAD --)"; then
             diffable=0
         fi
         ;;

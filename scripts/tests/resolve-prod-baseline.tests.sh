@@ -58,7 +58,7 @@ pass() {
 #   C4 adds src/App/Other.cs                 (no schema change — so C3..C4 is a migration-free span
 #                                             while C2..C4 is not: the difference between trusting a
 #                                             lying API record and taking the wider span)
-#   C5 moves the C3 migration into docs/      (a schema change git reports as a rename — #1041)
+#   C5 moves the C3 migration into docs/     (a schema change git reports as a rename — #1041)
 FIXTURE="$TMP_ROOT/repo"
 mkdir -p "$FIXTURE"
 git -C "$FIXTURE" init --quiet --initial-branch=main

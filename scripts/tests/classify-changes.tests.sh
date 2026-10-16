@@ -25,8 +25,9 @@ TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || exit 1
 [ -d "$TMP_ROOT" ] || exit 1
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
-# A git hook or `git rebase -x` exports GIT_DIR, GIT_INDEX_FILE and the like. Left in place, they
-# would point every scratch repo below at the real one, and its commits would land on your branch.
+# Git exports GIT_DIR, GIT_INDEX_FILE and the like to a hook or a `git rebase -x` command. Left in
+# place, they would point every scratch repo below at the real one, and its commits would land on
+# your branch.
 for var in $(git rev-parse --local-env-vars); do
     unset "$var"
 done
@@ -229,6 +230,8 @@ expect_git 'code=true guards=true images=false'   'a copy into docs/ whose origi
     "git config diff.renames copies && cp $SOURCE docs/Result.cs && printf '// edited\n' >> $SOURCE"
 expect_git 'code=true guards=true images=false'   'diff.relative on, classified from inside docs/' \
     "git config diff.relative true && printf 'edited\n' >> $DOC && printf '// edited\n' >> $SOURCE" docs
+# .gitmodules goes into the base. In the PR commit it would be a build input on its own, and the case
+# would pass without the flag.
 expect_git 'code=true guards=true images=false'   'a submodule pointer change, with ignore = all' \
     "printf '[submodule \"lib/sub\"]\n\tpath = lib/sub\n\turl = ../sub\n\tignore = all\n' > .gitmodules && mkdir -p lib/sub \
         && git update-index --add --cacheinfo 160000,1111111111111111111111111111111111111111,lib/sub \

@@ -22,7 +22,7 @@ public sealed class ValidationMessageLanguageBootTests
     public void Boot_OnAServerInAnotherLanguage_ShouldKeepDefaultValidationMessagesInEnglish(string serverCulture)
     {
         // Arrange: reading Services makes sure the host has started, so Program has run.
-        _factory.Services.ShouldNotBeNull();
+        _ = _factory.Services;
         InlineValidator<Probe> validator = new() { rules => rules.RuleFor(probe => probe.Text).NotEmpty() };
         CultureInfo originalCulture = CultureInfo.CurrentUICulture;
 

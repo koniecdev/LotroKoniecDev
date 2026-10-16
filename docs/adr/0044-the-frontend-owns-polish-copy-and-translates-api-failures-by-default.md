@@ -3,7 +3,7 @@
 **Status:** Accepted (amended 2026-08-21 — #703 narrows §4 to the codes whose API message adds information; amended 2026-10-17 — #1092 keeps the API English on any server, §1; see the in-body amendments)
 **Date:** 2026-08-06
 **Decision-makers:** Solo maintainer
-**Related:** #548 (the defect), #268 / #272 (the QA reports that found it), #703 (the §4 amendment) / #669 (the QA report that found it), ADR-0041 (no gateway — the API is a shared contract surface), ADR-0040 (rel names are a frozen public contract), `ApiProblemCopy`, `HttpClientApiExtensions`
+**Related:** #548 (the defect), #268 / #272 (the QA reports that found it), #703 (the §4 amendment) / #669 (the QA report that found it), #1092 (the §1 amendment), ADR-0041 (no gateway — the API is a shared contract surface), ADR-0040 (rel names are a frozen public contract), `ApiProblemCopy`, `HttpClientApiExtensions`
 
 ## Context
 
@@ -71,6 +71,10 @@ The integration tests boot the same `Program`, so they get it too. A new API hos
 `ProblemDetailsContractTests` sends the blank-text upsert with the server in Polish, German and
 French. `ValidationMessageLanguageBootTests` checks the auth host, where every rule has its own
 English message today.
+
+The line fixes the language of the messages, not the format of the values in them. Every value a
+rule puts in a message today is a whole number, which reads the same in every culture. A rule that
+puts a decimal or a date in its message should format it with `CultureInfo.InvariantCulture`.
 
 The Frontend's and the patcher's validators are not covered: they check settings and command
 arguments, and their messages never reach an API answer.

@@ -2118,7 +2118,11 @@ expect_meta 172 outcome=merged pr=7172 'unmerged=?'
 # does, it fails at once in batch mode, and it asks the askpass program instead when that is forced.
 # With FAKE_SSH_JUMP=1 it first starts a second ssh for a jump host, without its own options, as
 # OpenSSH does for ProxyJump. Each call is logged with the name of the command that started it.
-cat > "$TMP_ROOT/bin/ssh" <<STUB
+# The fakes for these cases sit in a folder that only merged_remote_case puts on PATH, so no other
+# case reaches them.
+REMOTE_BIN="$TMP_ROOT/remote-bin"
+mkdir -p "$REMOTE_BIN"
+cat > "$REMOTE_BIN/ssh" <<STUB
 #!/usr/bin/env bash
 echo "\${FAKE_SSH_VIA:-ssh} \$*" >> "$TMP_ROOT/ssh-calls"
 batch=0
@@ -2156,7 +2160,7 @@ STUB
 # A remote that wants a password, for `fakehttps::<anything>`: it asks git's credential code, as
 # git-remote-https does. The machine's credential helpers are skipped, so the developer's keychain is
 # never read. The fake askpass program writes the question to $TMP_ROOT/asked and waits five seconds.
-cat > "$TMP_ROOT/bin/git-remote-fakehttps" <<STUB
+cat > "$REMOTE_BIN/git-remote-fakehttps" <<STUB
 #!/usr/bin/env bash
 echo "\$*" >> "$TMP_ROOT/fakehttps-calls"
 printf 'protocol=https\nhost=fake-host\n\n' | git -c credential.helper= credential fill > /dev/null 2>&1
@@ -2169,7 +2173,7 @@ echo "askpass: \$1" >> "$TMP_ROOT/asked"
 "$REAL_SLEEP" 5
 exit 1
 STUB
-chmod +x "$TMP_ROOT/bin/ssh" "$TMP_ROOT/bin/git-remote-fakehttps" "$ASKPASS"
+chmod +x "$REMOTE_BIN/ssh" "$REMOTE_BIN/git-remote-fakehttps" "$ASKPASS"
 
 # ssh_wrapper <name> — the user's own ssh command, in a folder whose name has a space. Its calls are
 # logged under <name>. Prints its path.
@@ -2197,8 +2201,8 @@ merged_remote_case() {
     reset_fixtures
     rm -f "$TMP_ROOT/ssh-calls" "$TMP_ROOT/fakehttps-calls" "$TMP_ROOT/asked"
     fixture_issue "$ticket" maintainer OWNER
-    run_case 13 "$description" \
-        env "$@" CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged-remote.sh" "$WORK" "$ticket" "$TMP_ROOT/run"
+    run_case 13 "$description" env PATH="$REMOTE_BIN:$PATH" "$@" \
+        CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged-remote.sh" "$WORK" "$ticket" "$TMP_ROOT/run"
     git -C "$FAKE_REPO" remote set-url origin "$TMP_ROOT/origin.git"
     [ ! -e "$TMP_ROOT/asked" ] || fail "nothing may ask for an answer" "$(cat "$TMP_ROOT/asked")"
 }

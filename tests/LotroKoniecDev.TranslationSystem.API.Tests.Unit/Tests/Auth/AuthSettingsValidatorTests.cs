@@ -59,9 +59,8 @@ public sealed class AuthSettingsValidatorTests
     }
 
     /// <summary>
-    /// #1131: the boot prints these messages to the startup log, so they never repeat the address. A '/'
-    /// in the password stops it from parsing, and a typo in the scheme makes it an address of the wrong
-    /// kind.
+    /// #1131: these messages never printed the address, and these tests keep it that way. A '/' in the
+    /// password stops the address from parsing, and a typo in the scheme makes it the wrong kind.
     /// </summary>
     [Theory]
     [InlineData("https://deploy:hun/ter2@auth.lotro-translator.pl", "hun/ter2")]

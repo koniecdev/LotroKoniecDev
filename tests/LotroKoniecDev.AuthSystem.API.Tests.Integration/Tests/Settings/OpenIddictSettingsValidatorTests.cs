@@ -353,9 +353,9 @@ public sealed class OpenIddictSettingsValidatorTests
     }
 
     /// <summary>
-    /// #1131: a '/', '?', '#' or second '@' in the password stops the address from parsing, and a typo in
-    /// the scheme makes it an address of the wrong kind. The message goes to the startup log, so it names
-    /// the entry and never repeats the value.
+    /// #1131: a '/', '?', '#' or second '@' in the password stops the address from parsing, and so does a
+    /// port over 65535. A typo in the scheme makes it an address of the wrong kind. All of them reach the
+    /// message that used to print the value.
     /// </summary>
     [Theory]
     [InlineData(Production, "https://deploy:hun/ter2@lotro-translator.pl/callback", "hun/ter2")]

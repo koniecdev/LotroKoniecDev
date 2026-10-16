@@ -15,8 +15,9 @@ namespace LotroKoniecDev.AuthSystem.API.Settings;
 /// <see cref="CorsSettingsValidator"/> and the Data Protection keyring check.
 /// The access token lifetime is checked in every environment, because a lifetime that is too short
 /// breaks the sign-in the same way everywhere (#1025).
-/// A message names the key, and for a list the entry number, but never repeats the value. A refused
-/// address can hold a user name and password, and the message goes to the startup log (#1131).
+/// A message about an address names the key, and for a list the entry number, but never repeats the
+/// address. A refused address can hold a user name and password, and the message goes to the startup
+/// log (#1131).
 /// </summary>
 internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictSettings>
 {

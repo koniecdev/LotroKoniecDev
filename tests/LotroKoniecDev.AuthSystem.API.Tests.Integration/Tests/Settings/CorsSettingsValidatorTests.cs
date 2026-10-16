@@ -82,8 +82,8 @@ public sealed class CorsSettingsValidatorTests
     }
 
     /// <summary>
-    /// #1131: the message goes to the startup log, so it names the entry and never repeats the origin,
-    /// whether the user name and password parse or a '/' in the password stops the origin from parsing.
+    /// #1131: one origin is refused for its user name and password. In the others a '/' or '?' in the
+    /// password stops the origin from parsing, or a typo in the scheme makes it the wrong kind.
     /// </summary>
     [Theory]
     [InlineData(Production, "https://deploy:hunter2@lotro-translator.pl", "hunter2")]

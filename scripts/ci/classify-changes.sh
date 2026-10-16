@@ -38,9 +38,10 @@
 # config says. Copy detection hides nothing: the source of a copy is listed whenever it changed.
 # `--no-relative` stops `diff.relative` from dropping every path outside the current folder, and
 # `--ignore-submodules=none` stops an `ignore = all` from dropping a submodule's new commit.
-# `core.quotePath=false` prints a name with non-ASCII letters (Polish ones, say) as it is, so the
-# rules can read it. A name with a `"`, a `\` or a control character still comes out in quotes; see
-# IMAGE_INPUTS for that.
+# git prints a name that holds a non-ASCII byte (a Polish letter, say), a `"`, a `\` or a control
+# character in quotes, and the quotes make the rules fail safe (see IMAGE_INPUTS). Never pass
+# `core.quotePath=false` to save that extra build: GNU grep in a UTF-8 locale drops a line that is
+# not valid UTF-8, so a raw Latin-1 name would reach no rule at all.
 # The `--` keeps a file named HEAD from making the call ambiguous.
 #
 # Usage:
@@ -92,8 +93,8 @@ case "${1-}" in
         exit 2
         ;;
     *)
-        if ! files="$(git -c core.quotePath=false diff --name-only --no-renames --no-relative \
-            --ignore-submodules=none "$1" HEAD --)"; then
+        if ! files="$(git diff --name-only --no-renames --no-relative --ignore-submodules=none \
+            "$1" HEAD --)"; then
             diffable=0
         fi
         ;;

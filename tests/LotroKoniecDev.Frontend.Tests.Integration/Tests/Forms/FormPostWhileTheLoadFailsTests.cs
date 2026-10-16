@@ -19,10 +19,8 @@ using AuthRels = LotroKoniecDev.AuthSystem.Contracts.Hateoas.Rels;
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Forms;
 
 /// <summary>
-/// #1122: a page draws its form only when its data loaded. Blazor sends a post only to a form that is on
-/// the page, and outside Development it answers a post to a missing form with an empty 400, which the
-/// user sees as a blank page. These tests send each page's real form post, with antiforgery, while the API
-/// the page loads from is down, and check that the user gets the page with its Polish error instead.
+/// #1122: each page's real form post, with antiforgery, sent while the API the page loads from is down,
+/// must show the page with its Polish error and never the blank page (see <c>PostedFormTarget</c>).
 /// bUnit cannot show this: it calls a form's handler directly and never looks the form up by name.
 /// Each test reads its antiforgery token from the sign-out form, which every page has for a signed-in user.
 /// </summary>
@@ -163,6 +161,52 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         RecoveryTextarea().Match(page).Groups["text"].Value.ShouldBe("Witaj, wędrowcze.");
         page.ShouldContain("name=\"FileIdField\" value=\"620756992\"");
         page.ShouldContain("name=\"GossipIdField\" value=\"1002\"");
+    }
+
+    [Fact]
+    public async Task Get_TheRedirectAfterARecoverySave_WhenTheRowStillFailsToLoad_ShowsTheSaveConfirmation()
+    {
+        // Arrange: the outage that sent the save through the recovery form often lasts into the redirect,
+        // so the page must still say that the text was saved.
+        StubTranslationSystem translationSystem = new() { UpsertAnswer = HttpStatusCode.OK };
+        StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+        using HttpResponseMessage posted = await browser.SendAsync(SavePost(antiforgeryToken, "Witaj, wędrowcze."));
+        Uri redirectedTo = posted.Headers.Location
+            ?? throw new InvalidOperationException($"The save answered {posted.StatusCode} with no redirect.");
+
+        // Act
+        using HttpResponseMessage redirected = await browser.SendAsync(new HttpRequestMessage(HttpMethod.Get, redirectedTo));
+
+        // Assert
+        redirected.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await redirected.Content.ReadAsStringAsync());
+        page.ShouldContain("Tłumaczenie zapisano.");
+        page.ShouldContain(ServiceUnavailableMessage);
+    }
+
+    [Fact]
+    public async Task Post_ApproveForm_FromAnAddressWithTheSavedFlag_WhenTheRowFailsToLoad_ShowsNoOldConfirmation()
+    {
+        // Arrange: the approve posts to the address the save's redirect left. The approve does not run, so
+        // the old "saved" flag in that address must not read as an answer to it.
+        StubTranslationSystem translationSystem = new();
+        StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(
+            FormPost($"/editor/{RowId}?saved=true", "approve-translation", antiforgeryToken));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
+        page.ShouldContain(ServiceUnavailableMessage);
+        page.ShouldNotContain("Tłumaczenie zapisano.");
     }
 
     [Theory]

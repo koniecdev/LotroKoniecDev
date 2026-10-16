@@ -78,6 +78,21 @@
         }
         else if (_loadProblem is not null)
         {
+            @* The redirect after a save or an approve loads the row again. The action happened even when
+               that load fails, so its confirmation still shows (#1122). A post carries the flag only
+               because the address still has it, so it shows no old confirmation. *@
+            @if (_postedFormName is null && Saved)
+            {
+                <div class="status-message status-success" role="status">
+                    <p>Tłumaczenie zapisano.</p>
+                </div>
+            }
+            @if (_postedFormName is null && Approved)
+            {
+                <div class="status-message status-success" role="status">
+                    <p>Tłumaczenie zatwierdzono i dołączono do dystrybucji.</p>
+                </div>
+            }
             <div class="error-message" role="alert">
                 <span class="em-ico" aria-hidden="true">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -225,6 +240,7 @@
     private ProblemDetails? _saveProblem;
     private ProblemDetails? _approveProblem;
     private string? _draftText;
+    private string? _postedFormName;
 
     [Parameter]
     public Guid Id { get; set; }
@@ -255,6 +271,8 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        _postedFormName = PostedForm.NameOf(HttpContext);
+
         ApiResult<TranslationDetailResponse> result = await Loader.LoadAsync(TranslationId.FromValue(Id), CancellationToken.None);
         if (result.IsSuccess)
         {
@@ -267,7 +285,7 @@
             _loadProblem = result.ProblemDetails;
 
             // A save sent while the row cannot be loaded keeps its text, which draws the recovery form.
-            if (PostedForm.NameOf(HttpContext) == SaveFormName)
+            if (_postedFormName == SaveFormName)
             {
                 _draftText ??= DraftField ?? string.Empty;
             }

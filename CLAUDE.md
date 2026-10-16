@@ -490,9 +490,7 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   `scripts/tests/check-ssr-purity.tests.sh` proves the guard still fires. Deploy-time backstop: smoke
   leg 2 fails if a deployed page serves an inline script its own CSP blocks. Genuinely need
   interactivity, or an inline script? Both are ADR-first architecture changes. A page that draws a
-  named form only after its data loaded puts `<PostedFormTarget>` in its load-failure branch (#1122):
-  Blazor sends a post only to a form that is on the page, and answers anything else with an empty 400,
-  a blank page.
+  named form only after its data loaded puts `<PostedFormTarget>` in its load-failure branch (#1122).
 - **Never touch the request inside a `HybridCache` factory (#825; TheKittySaver #642).** For a token
   that can be cancelled, `HybridCache` runs the factory on the thread pool without the request's
   context, so `IHttpContextAccessor.HttpContext` is `null` in there: a typed client sends no bearer and

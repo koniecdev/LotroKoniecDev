@@ -31,7 +31,7 @@ public sealed partial class CookieJarBrowser : IDisposable
             {
                 foreach (string[] pair in setCookies.Select(setCookie => setCookie.Split(';', 2)[0].Split('=', 2)))
                 {
-                    if (pair[1].Length == 0)
+                    if (pair.Length < 2 || pair[1].Length == 0)
                     {
                         _cookies.Remove(pair[0]);
                     }

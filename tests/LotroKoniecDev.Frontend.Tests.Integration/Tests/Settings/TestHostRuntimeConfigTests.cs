@@ -3,9 +3,8 @@ using System.Text.Json.Nodes;
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Settings;
 
 /// <summary>
-/// The in-memory host runs with this project's runtimeconfig.json, not the Frontend's, so the csproj repeats
-/// the Frontend's navigation switch (#1122). This keeps the copy equal to the Frontend's own value, so the
-/// suite never quietly stops behaving like a deployed box.
+/// Keeps the csproj's copy of the Frontend's navigation switch equal to the Frontend's own value (#1122),
+/// so the suite never quietly stops behaving like a deployed box.
 /// </summary>
 public sealed class TestHostRuntimeConfigTests
 {

@@ -417,6 +417,5 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
                         mediaType: new MediaTypeHeaderValue("application/problem+json"))
                 };
         }
-
     }
 }

@@ -31,7 +31,7 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
     {
         // Arrange
         using WebApplicationFactory<Program> host = CreateHost(new StubTranslationSystem());
-        using CookieJarBrowser browser = SignedInBrowser(host);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
 
         // Act
         using HttpResponseMessage page = await browser.SendAsync(PageRequest("/terms"));
@@ -52,7 +52,7 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
         // refuses the token there with a 401, and the refused call marks the session dead.
         StubTranslationSystem translationSystem = new();
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
-        using CookieJarBrowser browser = SignedInBrowser(host);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         await LoadAsync(browser, PageRequest("/dashboard"));
         translationSystem.AcceptsTheToken = false;
         await LoadAsync(browser, PageRequest("/dashboard"));
@@ -76,7 +76,7 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
         // Arrange: nothing is cached yet, and the API refuses the token. Its service document is open to
         // everyone, so it answers with the anonymous links, which marks the session dead.
         using WebApplicationFactory<Program> host = CreateHost(new StubTranslationSystem { AcceptsTheToken = false });
-        using CookieJarBrowser browser = SignedInBrowser(host);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         await LoadAsync(browser, PageRequest("/dashboard"));
 
         // Act
@@ -110,13 +110,6 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
             services.AddHttpClient(TranslationSystemClientName)
                 .ConfigurePrimaryHttpMessageHandler(() => translationSystem);
         }));
-
-    private static CookieJarBrowser SignedInBrowser(WebApplicationFactory<Program> host)
-    {
-        CookieJarBrowser browser = new(host);
-        browser.SetCookie(SignedInSession.CookieName, SignedInSession.ProtectedTicket(host));
-        return browser;
-    }
 
     private static HttpRequestMessage PageRequest(string path) => new(HttpMethod.Get, path);
 

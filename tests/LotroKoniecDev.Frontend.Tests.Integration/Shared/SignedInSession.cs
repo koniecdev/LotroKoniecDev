@@ -20,6 +20,14 @@ public static class SignedInSession
     public const string Subject = "11111111-1111-1111-1111-111111111111";
     public const string UserName = "Anna";
 
+    /// <summary>A browser that already carries the session cookie.</summary>
+    public static CookieJarBrowser OpenBrowser(WebApplicationFactory<Program> host)
+    {
+        CookieJarBrowser browser = new(host);
+        browser.SetCookie(CookieName, ProtectedTicket(host));
+        return browser;
+    }
+
     public static string ProtectedTicket(WebApplicationFactory<Program> host)
     {
         ClaimsPrincipal user = new(new ClaimsIdentity(

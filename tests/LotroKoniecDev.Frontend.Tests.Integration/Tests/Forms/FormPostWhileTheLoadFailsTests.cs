@@ -24,6 +24,7 @@ namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Forms;
 /// user sees as a blank page. These tests send each page's real form post, with antiforgery, while the API
 /// the page loads from is down, and check that the user gets the page with its Polish error instead.
 /// bUnit cannot show this: it calls a form's handler directly and never looks the form up by name.
+/// Each test reads its antiforgery token from the sign-out form, which every page has for a signed-in user.
 /// </summary>
 public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<StagingFrontendFactory>
 {
@@ -50,7 +51,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         StubTranslationSystem translationSystem = new();
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
-        using CookieJarBrowser browser = SignedInBrowser(host);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
 
         // Act
@@ -81,7 +82,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         StubTranslationSystem translationSystem = new();
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
-        using CookieJarBrowser browser = SignedInBrowser(host);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
 
         // Act
@@ -108,7 +109,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         StubTranslationSystem translationSystem = new();
         StubAuthSystem authSystem = new(HttpStatusCode.Unauthorized);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
-        using CookieJarBrowser browser = SignedInBrowser(host);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
 
         // Act
@@ -130,7 +131,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         StubTranslationSystem translationSystem = new() { UpsertAnswer = HttpStatusCode.OK };
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
-        using CookieJarBrowser browser = SignedInBrowser(host);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
 
         // Act
@@ -149,7 +150,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         StubTranslationSystem translationSystem = new() { UpsertAnswer = HttpStatusCode.Conflict };
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
-        using CookieJarBrowser browser = SignedInBrowser(host);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
 
         // Act
@@ -179,7 +180,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         StubTranslationSystem translationSystem = new();
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
-        using CookieJarBrowser browser = SignedInBrowser(host);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
 
         // Act
@@ -210,17 +211,6 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
             services.AddHttpClient(AuthSystemClientName)
                 .ConfigurePrimaryHttpMessageHandler(() => authSystem);
         }));
-
-    /// <summary>
-    /// A signed-in session needs no sign-in server: its cookie is made with the host's own keys. Each test
-    /// reads its antiforgery token from the sign-out form every page has for a signed-in user.
-    /// </summary>
-    private static CookieJarBrowser SignedInBrowser(WebApplicationFactory<Program> host)
-    {
-        CookieJarBrowser browser = new(host);
-        browser.SetCookie(SignedInSession.CookieName, SignedInSession.ProtectedTicket(host));
-        return browser;
-    }
 
     private static HttpRequestMessage FormPost(string path, string formName, string antiforgeryToken) =>
         new(HttpMethod.Post, path)

@@ -1,6 +1,12 @@
 using System.Globalization;
 using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Security.Claims;
+using LotroKoniecDev.Hateoas.Abstractions;
+using LotroKoniecDev.TranslationSystem.Contracts.Discovery;
+using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
+using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
@@ -19,6 +25,7 @@ namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Auth;
 public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
 {
     private const string AuthCookieName = ".lotrokoniecdev.auth";
+    private const string TmsOrigin = "https://tms.staging.invalid";
     private const string Subject = "11111111-1111-1111-1111-111111111111";
     private const string UserName = "Anna";
     private const string SignOutButton = "Wyloguj";
@@ -32,7 +39,7 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
     public async Task Get_WhileTheSignInServerCannotBeReachedRightAfterARestart_ShowsThePageToTheSignedInUser()
     {
         // Arrange
-        using WebApplicationFactory<Program> host = CreateHost();
+        using WebApplicationFactory<Program> host = CreateHost(new StubTranslationSystem());
         using HttpClient browser = CreateBrowser(host);
 
         // Act
@@ -49,13 +56,39 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
     [Fact]
     public async Task Get_TheNextPageAfterTheTranslationApiRefusedTheAccessToken_EndsTheSession()
     {
-        // Arrange: the translation API refuses the token, as it does after the signing key changed. The
-        // dashboard calls it, and the refused call marks the session dead while that page is streaming.
-        using WebApplicationFactory<Program> host = CreateHost();
+        // Arrange: the dashboard loads while the API accepts the token, so the service document is cached for
+        // this account. Then the signing key changes. The cached document still names the statistics, the API
+        // refuses the token there with a 401, and the refused call marks the session dead.
+        StubTranslationSystem translationSystem = new();
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
         using HttpClient browser = CreateBrowser(host);
         string sessionCookie = SessionCookie(host);
-        using HttpResponseMessage refusedPage = await browser.SendAsync(PageRequest("/dashboard", sessionCookie));
-        await refusedPage.Content.ReadAsStringAsync();
+        await LoadAsync(browser, PageRequest("/dashboard", sessionCookie));
+        translationSystem.AcceptsTheToken = false;
+        await LoadAsync(browser, PageRequest("/dashboard", sessionCookie));
+
+        // Act
+        using HttpResponseMessage nextPage = await browser.SendAsync(PageRequest("/terms", sessionCookie));
+
+        // Assert
+        nextPage.StatusCode.ShouldBe(HttpStatusCode.OK);
+        SetCookies(nextPage)
+            .ShouldContain(setCookie => setCookie.StartsWith($"{AuthCookieName}=;", StringComparison.Ordinal));
+        string markup = await nextPage.Content.ReadAsStringAsync();
+        markup.ShouldNotContain(UserName);
+        markup.ShouldNotContain(SignOutButton);
+        translationSystem.Unauthorized.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Get_TheNextPageAfterTheServiceDocumentCameBackWithoutTheSignedInLinks_EndsTheSession()
+    {
+        // Arrange: nothing is cached yet, and the API refuses the token. Its service document is open to
+        // everyone, so it answers with the anonymous links, which marks the session dead.
+        using WebApplicationFactory<Program> host = CreateHost(new StubTranslationSystem { AcceptsTheToken = false });
+        using HttpClient browser = CreateBrowser(host);
+        string sessionCookie = SessionCookie(host);
+        await LoadAsync(browser, PageRequest("/dashboard", sessionCookie));
 
         // Act
         using HttpResponseMessage nextPage = await browser.SendAsync(PageRequest("/terms", sessionCookie));
@@ -77,16 +110,16 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
     /// <summary>
     /// <see cref="OpenIdConnectOptions.Configuration"/> stays unset, so the OIDC handler builds its real
     /// configuration manager, which has fetched nothing yet. Every call to the sign-in server fails the way a
-    /// call to a server that is down does. The translation API refuses every token.
+    /// call to a server that is down does.
     /// </summary>
-    private WebApplicationFactory<Program> CreateHost() =>
+    private WebApplicationFactory<Program> CreateHost(StubTranslationSystem translationSystem) =>
         _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.Configure<OpenIdConnectOptions>(
                 OpenIdConnectDefaults.AuthenticationScheme,
                 options => options.BackchannelHttpHandler = new UnreachableServer());
             services.AddHttpClient(TranslationSystemClientName)
-                .ConfigurePrimaryHttpMessageHandler(() => new RefusingTranslationSystem());
+                .ConfigurePrimaryHttpMessageHandler(() => translationSystem);
         }));
 
     private static HttpClient CreateBrowser(WebApplicationFactory<Program> host) =>
@@ -138,6 +171,19 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
         return request;
     }
 
+    /// <summary>
+    /// Reads the whole response: a streaming page makes its API calls while it streams, after the headers
+    /// have arrived.
+    /// </summary>
+    private static async Task LoadAsync(HttpClient browser, HttpRequestMessage request)
+    {
+        using (request)
+        {
+            using HttpResponseMessage response = await browser.SendAsync(request);
+            await response.Content.ReadAsStringAsync();
+        }
+    }
+
     private static string[] SetCookies(HttpResponseMessage response) =>
         response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? setCookies) ? [.. setCookies] : [];
 
@@ -150,11 +196,57 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
             Task.FromException<HttpResponseMessage>(new HttpRequestException("Connection refused."));
     }
 
-    private sealed class RefusingTranslationSystem : HttpMessageHandler
+    /// <summary>
+    /// The translation API as the website's typed client sees it. The service document is open to everyone,
+    /// so a refused token gets the anonymous links there, never a 401. The statistics need a sign-in, so a
+    /// refused token gets a 401 there.
+    /// </summary>
+    private sealed class StubTranslationSystem : HttpMessageHandler
     {
+        private const string StatsHref = $"{TmsOrigin}/advertised/translation-stats";
+
+        private int _unauthorized;
+
+        public bool AcceptsTheToken { get; set; } = true;
+
+        /// <summary>How many 401 answers the API sent, so a test can tell which path marked the session.</summary>
+        public int Unauthorized => _unauthorized;
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+            CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri ?? throw new InvalidOperationException("A call with no address.");
+            HttpResponseMessage response = uri.GetLeftPart(UriPartial.Path) switch
+            {
+                $"{TmsOrigin}/" => Json(new DiscoveryResponse("tms")
+                {
+                    Links = AcceptsTheToken
+                        ?
+                        [
+                            new LinkDto(StatsHref, Rels.TranslationStats, "GET"),
+                            new LinkDto($"{TmsOrigin}/advertised/contributions", Rels.ContributionDataExport, "GET")
+                        ]
+                        : []
+                }),
+                StatsHref when AcceptsTheToken => Json(new TranslationStatsResponse(4, 3, 2, 1)),
+                StatsHref => Refuse(),
+                _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+            };
+
+            return Task.FromResult(response);
+        }
+
+        private HttpResponseMessage Refuse()
+        {
+            Interlocked.Increment(ref _unauthorized);
+            return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+        }
+
+        private static HttpResponseMessage Json<T>(T body) =>
+            new(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(body, mediaType: new MediaTypeHeaderValue(MediaTypes.HateoasJson))
+            };
     }
 }

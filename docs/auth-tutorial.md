@@ -368,12 +368,15 @@ minuty, bez osobnego ustawienia. **Ostateczny** (każda inna odmowa, np. 400 `in
 2xx, której nie da się przeczytać, albo chwilowy błąd już po wygaśnięciu tokenu) kończy sesję od razu. Z odpowiedzi refreshu strona czyta tylko to, czego potrzebuje: token i
 `expires_in`. Nie sprawdza kształtu ani znaków tokenów i nie waliduje odnowionego ID tokenu.
 Sam access token jest dla frontendu nieprzezroczysty (ADR-0067 decyzja 2, #1058): frontend nie sprawdza
-jego podpisu, kształtu ani `exp`. Dla żywej sesji, której nie trzeba odnawiać, to sprawdzenie w ogóle
-nie woła `auth-api`.
-Token sprawdza `tms-api` przy każdym wywołaniu. 401 z API zostawia znacznik w `DeadSessionRegistry`, a
-następne żądanie kończy po nim sesję (czysty re-login). Tak kończy się też sesja po twardej wymianie
-klucza podpisu: pierwsza strona, która woła API, dostaje 401 i pokazuje dane jak dla gościa, a następna
-kończy sesję z komunikatem o wygaśnięciu. Znacznik wisi pod skrótem SHA-256 tokenu dostępu, który niosło
+jego podpisu, kształtu ani `exp`. Dla żywej sesji, której nie trzeba odnawiać, sprawdzenie cookie
+(`OnValidatePrincipal`) w ogóle nie woła `auth-api`.
+Token sprawdza `tms-api` przy każdym wywołaniu. Odmowę widać na dwa sposoby: 401 z endpointu, który
+wymaga logowania, albo dokument usługi (`GET /`, otwarty dla każdego) bez linków dla zalogowanego.
+Każda z nich zostawia znacznik w `DeadSessionRegistry`, a następne żądanie kończy po nim sesję (czysty
+re-login). Tak kończy się też sesja po twardej wymianie klucza podpisu: pierwsza strona, która woła taki
+endpoint (np. „Panel”), pokazuje błąd zamiast danych, a następna kończy sesję z komunikatem o
+wygaśnięciu. Strony publiczne same tego nie wykryją, bo endpoint otwarty dla gości odpowiada na zły
+token jak na gościa; wtedy sesję kończy najpóźniej odnowienie, po najwyżej 5 minutach. Znacznik wisi pod skrótem SHA-256 tokenu dostępu, który niosło
 odrzucone wywołanie, a nie pod id użytkownika, więc kończy się tylko sesja urządzenia z tym tokenem, a
 ten sam użytkownik na innym urządzeniu zostaje zalogowany (#1061). Na `POST /auth/logout` i
 `POST /auth/local-signout` refresher niczego nie sprawdza, żeby wylogowanie rewokowało bieżący, nie
@@ -558,7 +561,8 @@ chroni przed wyścigiem). Zero runtime coupling read-path → Auth; bounded cont
 do `exp` (stateless). `tms-api` cache'uje JWKS, więc walidacja istniejących tokenów przeżywa krótką
 niedostępność `auth-api`. Frontend nie sprawdza access tokenu sam, więc strony zalogowanego usera, które
 nie wołają `auth-api` (wszystko poza „Moje konto”), działają nawet po restarcie frontendu, gdy `auth-api`
-leży (#1058).
+leży (#1058). Działają, dopóki access token jest ważny (do 5 minut): potem odnowienie musi zawołać
+`auth-api`, a gdy ten dalej leży, sesja się kończy.
 
 ---
 

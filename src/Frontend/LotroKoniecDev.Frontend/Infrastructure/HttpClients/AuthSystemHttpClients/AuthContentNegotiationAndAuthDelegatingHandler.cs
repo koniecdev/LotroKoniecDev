@@ -13,7 +13,8 @@ namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClien
 /// the account endpoints.
 /// A <c>401</c> on a logged-in call marks the session dead, so the next <c>OnValidatePrincipal</c> signs
 /// it out cleanly. The website does not check the token itself: the API checks every token it receives,
-/// and this is how its refusal ends the session (ADR-0067 decision 2). The TMS handler works the same way.
+/// and a 401 is one way its refusal ends the session (ADR-0067 decision 2). The service document without
+/// the signed-in links is the other (<c>DiscoveryCache</c>). The TMS handler works the same way.
 /// </summary>
 internal sealed class AuthContentNegotiationAndAuthDelegatingHandler : DelegatingHandler
 {

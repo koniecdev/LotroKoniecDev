@@ -1504,6 +1504,37 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
+    /// A sign-out from a tab that is closing arrives with its request already cancelled. Off the sign-out, the
+    /// dead-session lookup honours that cancellation and throws. On the sign-out nothing may run first, or the
+    /// sign-out never reads the refresh token it has to revoke (#964).
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_OnTheSignOutRequestAfterTheBrowserLeft_KeepsTheSessionWithoutChecks()
+    {
+        string accessToken = "stored-access-token";
+
+        IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
+        deadSessionRegistry
+            .ConsumeAsync(Arg.Any<string>(), Arg.Is<CancellationToken>(token => token.IsCancellationRequested))
+            .Returns(_ => ValueTask.FromException<bool>(new OperationCanceledException()));
+
+        CookieTokenRefresher refresher = CreateRefresher(deadSessionRegistry: deadSessionRegistry);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            Substitute.For<IAuthenticationService>(),
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token",
+            path: "/auth/logout",
+            requestAborted: new CancellationToken(canceled: true),
+            method: "POST");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldNotBeNull();
+        context.Properties.GetTokenValue(RefreshTokenName).ShouldBe("refresh-token");
+    }
+
+    /// <summary>
     /// #1027: the 401 may come from the TMS API, which checks the access token alone and revokes nothing, so
     /// the refresh token can still be valid. When the auth server has already revoked it, the revoke does no
     /// harm: OpenIddict answers 200 for a token that is no longer valid. The session is ended for a real

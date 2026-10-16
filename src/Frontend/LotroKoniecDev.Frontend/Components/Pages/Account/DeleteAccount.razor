@@ -116,7 +116,7 @@
                     </div>
                 }
 
-                <form method="post" @formname="delete-account" @onsubmit="DeleteAsync" class="stacked-form">
+                <form method="post" @formname="@DeleteAccountFormName" @onsubmit="DeleteAsync" class="stacked-form">
                     <AntiforgeryToken/>
                     <div class="field">
                         <label for="delete-password">
@@ -140,6 +140,11 @@
             </div>
         </section>
     }
+
+    @if (_loadResult is { IsFailure: true })
+    {
+        <PostedFormTarget IsPageForm="@(static formName => formName == DeleteAccountFormName)"/>
+    }
 </section>
 
 @code
@@ -156,7 +161,9 @@
     /// </summary>
     internal const string DeletionFinalizesAtHeader = "X-Deletion-Finalizes-At";
 
-    [SupplyParameterFromForm(FormName = "delete-account")]
+    private const string DeleteAccountFormName = "delete-account";
+
+    [SupplyParameterFromForm(FormName = DeleteAccountFormName)]
     private DeleteFormModel? DeleteInput { get; set; }
 
     private ApiResult<AccountDataExportResponse>? _loadResult;

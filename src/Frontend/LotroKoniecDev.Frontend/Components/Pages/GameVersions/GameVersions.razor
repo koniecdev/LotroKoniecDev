@@ -42,6 +42,8 @@
                                  HeadlineClass="t"/>
             </div>
         </div>
+
+        <PostedFormTarget IsPageForm="IsOwnForm"/>
     }
 
     @if (_actionProblem is not null)
@@ -71,7 +73,7 @@
                     Podaj wersję w notacji LOTRO (np. <code class="mono">48.0</code>). Nowa wersja pojawi się jako
                     nieprzetworzona.
                 </p>
-                <form method="post" @formname="register-version" @onsubmit="RegisterAsync" class="form-row">
+                <form method="post" @formname="@RegisterFormName" @onsubmit="RegisterAsync" class="form-row">
                     <AntiforgeryToken/>
                     <div class="field">
                         <label for="new-version">Wersja</label>
@@ -160,7 +162,10 @@
     /// </summary>
     private const int MaxVersionLength = 11;
 
-    [SupplyParameterFromForm(FormName = "register-version")]
+    private const string RegisterFormName = "register-version";
+    private const string DeleteFormNamePrefix = "delete-";
+
+    [SupplyParameterFromForm(FormName = RegisterFormName)]
     private RegisterFormModel? RegisterInput { get; set; }
 
     private IReadOnlyList<GameVersionResponse>? _versions;
@@ -262,7 +267,16 @@
     /// loaded version id. The editor uses the same pattern for a single row.
     /// </summary>
     private static string DeleteFormName(GameVersionId id) =>
-        string.Create(CultureInfo.InvariantCulture, $"delete-{id.Value}");
+        string.Create(CultureInfo.InvariantCulture, $"{DeleteFormNamePrefix}{id.Value}");
+
+    /// <summary>
+    /// The register form or any row's delete form. A failed load leaves no row to read the ids from, so a
+    /// delete form is known by its name alone (#1122).
+    /// </summary>
+    private static bool IsOwnForm(string formName) =>
+        formName == RegisterFormName
+        || (formName.StartsWith(DeleteFormNamePrefix, StringComparison.Ordinal)
+            && Guid.TryParse(formName.AsSpan(DeleteFormNamePrefix.Length), out _));
 
     private sealed class RegisterFormModel
     {

@@ -4,6 +4,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Mvc
 @using LotroKoniecDev.Frontend.Components.Pages.Translations
+@using LotroKoniecDev.Frontend.Infrastructure.Forms
 @using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
 @using LotroKoniecDev.Hateoas.Abstractions
@@ -32,31 +33,35 @@
 <section class="container content-wrap">
     @if (_detail is null)
     {
-        @if (_saveProblem is not null && _draftText is not null)
+        @if (_draftText is not null)
         {
-            @* The recovery path: the row could not be loaded again and the save failed in the same
-               request. Show the error and keep what the translator typed in a form they can send
-               again, so it is never lost without a word. The hidden key fields survived the post. *@
-            <div class="error-message" role="alert">
-                <span class="em-ico" aria-hidden="true">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
-                        <path d="M12 9v4"/><path d="M12 17h.01"/>
-                    </svg>
-                </span>
-                <div class="em-body">
-                    <ApiProblemAlert Problem="@_saveProblem"
-                                     Fallback="Nie udało się zapisać tłumaczenia."
-                                     HeadlineClass="t"/>
+            @* The recovery path: a save was sent while the row could not be loaded. The form is drawn
+               here, so the save still runs (#1122). When it fails, the error shows with what the
+               translator typed, in a form they can send again, so the text is never lost without a
+               word. The hidden key fields survived the post. *@
+            @if (_saveProblem is not null)
+            {
+                <div class="error-message" role="alert">
+                    <span class="em-ico" aria-hidden="true">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                            <path d="M12 9v4"/><path d="M12 17h.01"/>
+                        </svg>
+                    </span>
+                    <div class="em-body">
+                        <ApiProblemAlert Problem="@_saveProblem"
+                                         Fallback="Nie udało się zapisać tłumaczenia."
+                                         HeadlineClass="t"/>
+                    </div>
                 </div>
-            </div>
+            }
             <section class="panel">
                 <header class="panel-head">
                     <h2>Tłumaczenie polskie</h2>
                     <span class="panel-aside">Wersja robocza</span>
                 </header>
                 <div class="panel-body">
-                    <form method="post" @formname="save-translation" @onsubmit="SaveAsync">
+                    <form method="post" @formname="@SaveFormName" @onsubmit="SaveAsync">
                         <AntiforgeryToken/>
                         <input type="hidden" name="FileIdField" value="@FileIdField"/>
                         <input type="hidden" name="GossipIdField" value="@GossipIdField"/>
@@ -86,6 +91,8 @@
                                      HeadlineClass="t"/>
                 </div>
             </div>
+
+            <PostedFormTarget IsPageForm="@(static formName => formName == ApproveFormName)"/>
         }
         else
         {
@@ -177,7 +184,7 @@
                     }
                     @if (upsertLink is not null)
                     {
-                        <form method="post" @formname="save-translation" @onsubmit="SaveAsync">
+                        <form method="post" @formname="@SaveFormName" @onsubmit="SaveAsync">
                             <AntiforgeryToken/>
                             <input type="hidden" name="FileIdField" value="@detail.FileId"/>
                             <input type="hidden" name="GossipIdField" value="@detail.GossipId"/>
@@ -197,7 +204,7 @@
 
                     @if (detail.Links.HasLink(Rels.Approve))
                     {
-                        <form method="post" @formname="approve-translation" @onsubmit="ApproveAsync" class="editor-approve">
+                        <form method="post" @formname="@ApproveFormName" @onsubmit="ApproveAsync" class="editor-approve">
                             <AntiforgeryToken/>
                             <button type="submit" class="btn btn-ghost">Zatwierdź</button>
                         </form>
@@ -210,16 +217,22 @@
 
 @code
 {
+    private const string SaveFormName = "save-translation";
+    private const string ApproveFormName = "approve-translation";
+
     [Parameter]
     public Guid Id { get; set; }
 
-    [SupplyParameterFromForm(FormName = "save-translation")]
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromForm(FormName = SaveFormName)]
     private string? DraftField { get; set; }
 
-    [SupplyParameterFromForm(FormName = "save-translation")]
+    [SupplyParameterFromForm(FormName = SaveFormName)]
     private int FileIdField { get; set; }
 
-    [SupplyParameterFromForm(FormName = "save-translation")]
+    [SupplyParameterFromForm(FormName = SaveFormName)]
     private long GossipIdField { get; set; }
 
     /// <summary>
@@ -252,6 +265,12 @@
         {
             _detail = null;
             _loadProblem = result.ProblemDetails;
+
+            // A save sent while the row cannot be loaded keeps its text, which draws the recovery form.
+            if (PostedForm.NameOf(HttpContext) == SaveFormName)
+            {
+                _draftText ??= DraftField ?? string.Empty;
+            }
         }
     }
 

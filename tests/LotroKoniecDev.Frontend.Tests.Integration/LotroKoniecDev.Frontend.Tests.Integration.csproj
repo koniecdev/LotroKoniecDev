@@ -31,4 +31,13 @@
       <ProjectReference Include="..\..\src\Frontend\LotroKoniecDev.Frontend\LotroKoniecDev.Frontend.csproj" />
     </ItemGroup>
 
+    <!-- The host runs with this project's runtimeconfig.json, not the Frontend's, so the Frontend's
+         BlazorDisableThrowNavigationException switch is repeated here. Without it, a page that redirects
+         while it renders throws, and the rest of that render is dropped, which never happens on a box
+         (#1122). -->
+    <ItemGroup>
+        <RuntimeHostConfigurationOption Include="Microsoft.AspNetCore.Components.Endpoints.NavigationManager.DisableThrowNavigationException"
+                                        Value="true" />
+    </ItemGroup>
+
 </Project>

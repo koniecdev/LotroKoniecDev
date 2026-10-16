@@ -65,6 +65,8 @@
                                  HeadlineClass="t"/>
             </div>
         </div>
+
+        <PostedFormTarget IsPageForm="@(static formName => formName == ImportFormName)"/>
     }
 
     @if (_canImport)
@@ -129,7 +131,7 @@
                        middleware reads the two joined by a comma as an invalid token. A plain <form>
                        post, as in Editor and NavMenu, still needs one. *@
                     <EditForm Model="ImportInput" OnValidSubmit="ImportAsync"
-                              FormName="import-export" method="post" enctype="multipart/form-data">
+                              FormName="@ImportFormName" method="post" enctype="multipart/form-data">
                         <div class="form-row">
                             <div class="field">
                                 <label for="game-version">Wersja gry</label>
@@ -233,6 +235,8 @@
 
 @code
 {
+    private const string ImportFormName = "import-export";
+
     private IReadOnlyList<GameVersionResponse>? _versions;
 
     /// <summary>
@@ -246,7 +250,7 @@
     private ImportSummary? _summary;
     private bool _canImport;
 
-    [SupplyParameterFromForm(FormName = "import-export")]
+    [SupplyParameterFromForm(FormName = ImportFormName)]
     private ImportFormModel? ImportInput { get; set; }
 
     /// <summary>The import that redirected here (#933).</summary>

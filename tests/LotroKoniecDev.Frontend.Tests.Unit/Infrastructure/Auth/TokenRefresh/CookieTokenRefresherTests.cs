@@ -989,9 +989,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1026: with no expiry the session would never be renewed or checked again, for the whole life of the
-    /// cookie, so it ends on the next request. The token is fresh and trusted, so the expiry is the only
-    /// reason.
+    /// #1026: with no expiry the session would never be renewed again, for the whole life of the cookie, so
+    /// it ends on the next request. The cookie holds both tokens, so the expiry is the only reason.
     /// </summary>
     [Theory]
     [InlineData(null)]

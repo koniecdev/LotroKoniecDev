@@ -17,7 +17,7 @@ internal sealed class DeadSessionRegistry : IDeadSessionRegistry
 
     // A short lifetime. The marker only has to survive from the request that saw the dead token to the
     // very next request, where the cookie validation reads it. A token that fixes itself, for example
-    // after a key change the frontend refetches, must not stay marked, so we keep it short.
+    // after a key change the API picks up, must not stay marked, so we keep it short.
     private static readonly HybridCacheEntryOptions MarkerEntryOptions = new()
     {
         Expiration = TimeSpan.FromMinutes(5),

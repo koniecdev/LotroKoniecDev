@@ -15,7 +15,8 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// <see cref="AccessTokenRefreshSchedule"/> sets, using the stored refresh token. It never checks the
 /// access token itself: the token is opaque to the website, and the translation API checks every token it
 /// receives. A token the API refuses ends the session through the marker above (ADR-0067 decision 2,
-/// #1058). So a request that is not due for a renewal never calls the sign-in server.
+/// #1058). So for a session that is alive and not due for a renewal, this check never calls the sign-in
+/// server.
 /// A renewal that fails for a moment (a 429, a 5xx, a network error, a timeout) keeps the session while its
 /// access token still works, and the next request tries again (ADR-0067 decision 3, #1062).
 /// Every rejection sets the one-time "session expired" notice and revokes the session's refresh token
@@ -164,8 +165,8 @@ internal sealed partial class CookieTokenRefresher
         }
 
         // The website reads only what it needs to use the answer: a token, and a lifetime for the renewal
-        // schedule. It checks neither token's shape or characters, and does not validate the renewed ID
-        // token, which it keeps only as the sign-out's hint (ADR-0067 decision 2).
+        // schedule. It does not check the shape or the characters of any token, and it does not validate the
+        // renewed ID token, which it keeps only as the sign-out's hint (ADR-0067 decision 2).
         if (!TokenRules.IsUsable(tokenResponse.AccessToken))
         {
             LogNoUsableAccessToken(_logger);

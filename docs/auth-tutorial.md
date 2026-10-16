@@ -364,11 +364,12 @@ aktualizuje sesję. Rolling refresh ⇒ stary refresh token unieważniony, nowy 
 jest chwilowy albo ostateczny (ADR-0067 decyzja 3, #1062). **Chwilowy** (429, każdy 5xx, błąd sieci,
 timeout 30 s z #923) nie kończy sesji, dopóki bieżący access token działa: strona niczego nie rewokuje,
 nie pokazuje komunikatu i próbuje znowu przy następnym żądaniu. Okno to reszta życia tokenu, około
-minuty, bez osobnego ustawienia. **Ostateczny** (każda inna odmowa, np. 400 `invalid_grant`, odpowiedź 2xx, której nie da się przeczytać, albo chwilowy błąd już po wygaśnięciu
-tokenu) kończy sesję od razu. Z odpowiedzi refreshu strona czyta tylko to, czego potrzebuje: token i
+minuty, bez osobnego ustawienia. **Ostateczny** (każda inna odmowa, np. 400 `invalid_grant`, odpowiedź
+2xx, której nie da się przeczytać, albo chwilowy błąd już po wygaśnięciu tokenu) kończy sesję od razu. Z odpowiedzi refreshu strona czyta tylko to, czego potrzebuje: token i
 `expires_in`. Nie sprawdza kształtu ani znaków tokenów i nie waliduje odnowionego ID tokenu.
 Sam access token jest dla frontendu nieprzezroczysty (ADR-0067 decyzja 2, #1058): frontend nie sprawdza
-jego podpisu, kształtu ani `exp`, więc żądanie, które nie odnawia tokenu, w ogóle nie woła `auth-api`.
+jego podpisu, kształtu ani `exp`. Dla żywej sesji, której nie trzeba odnawiać, to sprawdzenie w ogóle
+nie woła `auth-api`.
 Token sprawdza `tms-api` przy każdym wywołaniu. 401 z API zostawia znacznik w `DeadSessionRegistry`, a
 następne żądanie kończy po nim sesję (czysty re-login). Tak kończy się też sesja po twardej wymianie
 klucza podpisu: pierwsza strona, która woła API, dostaje 401 i pokazuje dane jak dla gościa, a następna
@@ -555,8 +556,9 @@ chroni przed wyścigiem). Zero runtime coupling read-path → Auth; bounded cont
 
 **Q: Co jak AuthSystem padnie?** — Nowe logowania/refreshe padają, ale już-wydane access tokeny działają
 do `exp` (stateless). `tms-api` cache'uje JWKS, więc walidacja istniejących tokenów przeżywa krótką
-niedostępność `auth-api`. Frontend nie sprawdza access tokenu sam, więc strony zalogowanego usera działają
-nawet po restarcie frontendu, gdy `auth-api` leży (#1058).
+niedostępność `auth-api`. Frontend nie sprawdza access tokenu sam, więc strony zalogowanego usera, które
+nie wołają `auth-api` (wszystko poza „Moje konto”), działają nawet po restarcie frontendu, gdy `auth-api`
+leży (#1058).
 
 ---
 

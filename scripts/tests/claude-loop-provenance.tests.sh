@@ -2114,9 +2114,10 @@ expect_meta 172 outcome=merged pr=7172 'unmerged=?'
 # ── work-ticket.sh: the merged head from a remote that asks for an answer (#1139) ─────────────────
 # A fake OpenSSH for the remote `fake-host:<path>`: it runs git's remote command here. With
 # FAKE_SSH_PASSPHRASE=1 the key needs a passphrase. Real ssh then asks on the terminal and waits for
-# an answer; this fake writes the question to $TMP_ROOT/asked and waits five seconds. In batch mode
-# it fails at once instead, as real ssh does. Each call is logged with the name of the command that
-# started it.
+# an answer; this fake writes the question to $TMP_ROOT/asked and waits five seconds. As real ssh
+# does, it fails at once in batch mode, and it asks the askpass program instead when that is forced.
+# With FAKE_SSH_JUMP=1 it first starts a second ssh for a jump host, without its own options, as
+# OpenSSH does for ProxyJump. Each call is logged with the name of the command that started it.
 cat > "$TMP_ROOT/bin/ssh" <<STUB
 #!/usr/bin/env bash
 echo "\${FAKE_SSH_VIA:-ssh} \$*" >> "$TMP_ROOT/ssh-calls"
@@ -2125,20 +2126,31 @@ while [ \$# -gt 0 ]; do
     case "\$1" in
         -G) exit 0 ;;  # git asks whether this is OpenSSH
         -o) [ "\${2:-}" != BatchMode=yes ] || batch=1; shift 2 ;;
-        -p) shift 2 ;;
+        -p|-W) shift 2 ;;
         -*) shift ;;
         *) break ;;
     esac
 done
+host="\$1"
+if [ "\${FAKE_SSH_JUMP:-}" = 1 ]; then
+    FAKE_SSH_JUMP= FAKE_SSH_VIA=jump ssh -W "[\$host]:22" jump-host < /dev/null || exit 255
+fi
 if [ "\${FAKE_SSH_PASSPHRASE:-}" = 1 ]; then
     if [ "\$batch" = 1 ]; then
-        echo "\$1: Permission denied (publickey)." >&2
+        echo "\$host: Permission denied (publickey)." >&2
+        exit 255
+    elif [ "\${SSH_ASKPASS_REQUIRE:-}" = force ]; then
+        if ! "\${SSH_ASKPASS:-ssh-askpass}" "the key's passphrase" > /dev/null; then
+            echo "\$host: Permission denied (publickey)." >&2
+            exit 255
+        fi
+    else
+        echo "\${FAKE_SSH_VIA:-ssh}: the key's passphrase" >> "$TMP_ROOT/asked"
+        "$REAL_SLEEP" 5
         exit 255
     fi
-    echo "\${FAKE_SSH_VIA:-ssh}: the key's passphrase" >> "$TMP_ROOT/asked"
-    "$REAL_SLEEP" 5
-    exit 255
 fi
+[ -n "\${2:-}" ] || exit 0  # a jump host only carries the connection
 PATH="\$(git --exec-path):\$PATH" exec sh -c "\$2"
 STUB
 # A remote that wants a password, for `fakehttps::<anything>`: it asks git's credential code, as
@@ -2197,6 +2209,13 @@ grep -q '^ssh .*git-upload-pack' "$TMP_ROOT/ssh-calls" 2>/dev/null \
     || fail "the merged head should be fetched over ssh, or the case proves nothing" "$LAST_OUTPUT"
 expect_in_output "but the loop could not check whether branch 231-fixture has commits the merge did not take"
 expect_meta 231 outcome=merged pr=7231 'unmerged=?'
+
+# Batch mode does not reach the second ssh that OpenSSH starts for a jump host.
+merged_remote_case 237 "work-ticket: a jump host whose key needs a passphrase does not ask either" \
+    FAKE_SSH_PASSPHRASE=1 FAKE_SSH_JUMP=1
+grep -q '^jump -W' "$TMP_ROOT/ssh-calls" 2>/dev/null \
+    || fail "the jump host's ssh should start, or the case proves nothing" "$(cat "$TMP_ROOT/ssh-calls" 2>/dev/null || true)"
+expect_meta 237 outcome=merged pr=7237 'unmerged=?'
 
 # A key that ssh can use with no question: batch mode does not stop the count.
 merged_remote_case 232 "work-ticket: the merged-PR count still works over ssh"

@@ -243,9 +243,10 @@ expect_git 'code=true guards=true images=false'   'a submodule pointer change, w
         && git add .gitmodules && git commit -qm 'add the submodule' \
         && git update-index --cacheinfo 160000,2222222222222222222222222222222222222222,lib/sub \
         && printf 'edited\n' >> $DOC"
-# git quotes this name, so every gate runs. If it ever gives all false, someone passed
-# core.quotePath=false: read the comment above the classifier's git call first.
-expect_git 'code=true guards=true images=true'    'a doc with Polish letters in its name'        "printf 'z\n' > 'docs/żółw.md'"
+# git quotes this name, so every gate runs. If it ever gives all false, someone turned
+# core.quotePath off: read the comment above the classifier's git call first.
+expect_git 'code=true guards=true images=true'    'a doc with Polish letters, quotePath off in the config' \
+    "git config core.quotePath false && printf 'z\n' > 'docs/żółw.md'"
 expect_git 'code=true guards=true images=true'    'a .dockerignore in a folder with a quote in its name' \
     "mkdir -p 'src/we\"ird' && printf 'bin/\n' > 'src/we\"ird/.dockerignore'"
 expect_git 'code=true guards=true images=false'   'a new file named HEAD'                          "printf 'x\n' > HEAD"

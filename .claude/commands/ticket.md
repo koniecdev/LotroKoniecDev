@@ -284,8 +284,9 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   reaches `main`.
   - `OPEN`: push.
   - `MERGED`: push nothing to that branch. Move the commits the merge did not take to a new branch
-    from `main`, named after the merged PR's branch with `-follow-up` added (then `-2`, `-3` when
-    that name is taken): by that name the backlog loop knows the merged PR is the session's own.
+    from `main`, named after the merged PR's branch with `-follow-up` added (a merged follow-up PR
+    gets `-follow-up` added again; `-2`, `-3` only when that exact name is taken): by that name the
+    backlog loop knows the merged PR is the session's own.
     Run `git fetch origin && git fetch origin "refs/pull/<pr>/head"`, then
     `git switch --no-track -c <branch>-follow-up origin/main`, then cherry-pick, oldest first, the
     commits that `git cherry <headRefOid> <ticket branch>` marks with `+`. `headRefOid` is what

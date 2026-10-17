@@ -6,9 +6,10 @@ internal sealed class GdprSettingsValidator : IValidateOptions<GdprSettings>
 {
     /// <summary>
     /// GDPR Art. 12(3): the erasure has to happen "without undue delay", and at most one month after
-    /// the request.
+    /// the request. A calendar month can be 28 days, so 27 days fits in every month with a day to spare.
+    /// The poll interval counts inside the 27 days, not on top of them (ADR-0031, #971).
     /// </summary>
-    private static readonly TimeSpan MaxErasureDelay = TimeSpan.FromDays(30);
+    private static readonly TimeSpan MaxErasureDelay = TimeSpan.FromDays(27);
 
     private readonly IOptions<OpenIddictSettings> _openIddictSettings;
 
@@ -44,7 +45,7 @@ internal sealed class GdprSettingsValidator : IValidateOptions<GdprSettings>
 
         // The erasure lands up to one interval after the date the user is shown, so a longer interval
         // than the grace period would make that wait longer than the window itself. This rule also keeps
-        // the email-change undo hold inside the limit below (ADR-0031, #946 amendment).
+        // the email-change undo hold inside one month (ADR-0031, #946 amendment).
         if (options.DeletionFinalizationPollInterval > options.DeletionGracePeriod)
         {
             errors.Add("DeletionFinalizationPollInterval must not exceed DeletionGracePeriod.");

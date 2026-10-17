@@ -27,12 +27,12 @@ public sealed class GdprSettingsValidatorTests
     [InlineData("00:01:00")]
     [InlineData("01:00:00")]
     [InlineData("1.00:00:00")]
-    [InlineData("14.00:00:00")]
+    [InlineData("13.00:00:00")]
     public void Validate_PollIntervalFromOneMinuteUpToTheGracePeriod_Succeeds(string pollInterval)
     {
         GdprSettings settings = new()
         {
-            DeletionGracePeriod = TimeSpan.FromDays(14),
+            DeletionGracePeriod = TimeSpan.FromDays(13),
             DeletionFinalizationPollInterval = Parse(pollInterval)
         };
 
@@ -59,15 +59,15 @@ public sealed class GdprSettingsValidatorTests
     }
 
     [Theory]
-    [InlineData("14.00:00:00.0000001")]
-    [InlineData("15.00:00:00")]
+    [InlineData("13.00:00:00.0000001")]
+    [InlineData("14.00:00:00")]
     // This is how one day is easy to get wrong in appsettings.json: it binds to 24 days (#780).
     [InlineData("24:00:00")]
     public void Validate_PollIntervalLongerThanTheGracePeriod_FailsNamingTheSetting(string pollInterval)
     {
         GdprSettings settings = new()
         {
-            DeletionGracePeriod = TimeSpan.FromDays(14),
+            DeletionGracePeriod = TimeSpan.FromDays(13),
             DeletionFinalizationPollInterval = Parse(pollInterval)
         };
 
@@ -82,10 +82,10 @@ public sealed class GdprSettingsValidatorTests
     [Theory]
     [InlineData("1.00:00:00", "1.00:00:00")]
     [InlineData("14.00:00:00", "1.00:00:00")]
-    [InlineData("29.00:00:00", "1.00:00:00")]
-    [InlineData("15.00:00:00", "15.00:00:00")]
-    [InlineData("29.23:59:00", "00:01:00")]
-    public void Validate_GracePeriodPlusPollIntervalUpToThirtyDays_Succeeds(string gracePeriod, string pollInterval)
+    [InlineData("26.00:00:00", "1.00:00:00")]
+    [InlineData("13.12:00:00", "13.12:00:00")]
+    [InlineData("26.23:59:00", "00:01:00")]
+    public void Validate_GracePeriodPlusPollIntervalUpToTwentySevenDays_Succeeds(string gracePeriod, string pollInterval)
     {
         GdprSettings settings = new()
         {
@@ -154,17 +154,20 @@ public sealed class GdprSettingsValidatorTests
     }
 
     [Theory]
-    [InlineData("29.00:00:00.0000001", "1.00:00:00")]
+    [InlineData("26.00:00:00.0000001", "1.00:00:00")]
+    [InlineData("27.00:00:00", "1.00:00:00")]
+    [InlineData("27.00:00:00", "00:01:00")]
+    // The old 30-day limit let this through, so a request made on 1 February could be erased on 3 March (#971).
+    [InlineData("29.00:00:00", "1.00:00:00")]
     // The erasure could land on day 31 with these two (#946).
     [InlineData("30.00:00:00", "1.00:00:00")]
     [InlineData("30.00:00:00", "00:01:00")]
-    [InlineData("31.00:00:00", "1.00:00:00")]
-    [InlineData("16.00:00:00", "15.00:00:00")]
-    [InlineData("31.00:00:00", "00:00:00")]
-    [InlineData("31.00:00:00", "-10675199.02:48:05.4775808")]
+    [InlineData("13.12:00:00.0000001", "13.12:00:00")]
+    [InlineData("27.00:00:00.0000001", "00:00:00")]
+    [InlineData("27.00:00:00.0000001", "-10675199.02:48:05.4775808")]
     [InlineData("10675199.02:48:05.4775807", "1.00:00:00")]
     [InlineData("14.00:00:00", "10675199.02:48:05.4775807")]
-    public void Validate_GracePeriodPlusPollIntervalLongerThanThirtyDays_FailsNamingBothSettings(
+    public void Validate_GracePeriodPlusPollIntervalLongerThanTwentySevenDays_FailsNamingBothSettings(
         string gracePeriod,
         string pollInterval)
     {
@@ -180,7 +183,7 @@ public sealed class GdprSettingsValidatorTests
         result.Failures.ShouldNotBeNull();
         result.Failures.ShouldContain(failure =>
             failure.Contains(
-                "DeletionGracePeriod plus DeletionFinalizationPollInterval must not exceed 30 days",
+                "DeletionGracePeriod plus DeletionFinalizationPollInterval must not exceed 27 days",
                 StringComparison.Ordinal));
     }
 

@@ -305,3 +305,16 @@ dotnet_diagnostic.IDE0305.severity = none
 # auto-property suggestion would drop that guard.
 [src/Patcher/LotroKoniecDev.Domain/Core/Monads/Result.cs]
 dotnet_diagnostic.IDE0032.severity = none
+
+# CA5393 flags DllImportSearchPath.AssemblyDirectory as unsafe, but restricting the native
+# search path to AssemblyDirectory | SafeDirectories IS the deliberate hardening decision from
+# AUDIT-SEC-03 (#425): datexport.dll ships next to the exe, and an attacker who can write to
+# the install directory already owns the process. Patcher Infrastructure owns all native interop.
+[src/Patcher/LotroKoniecDev.Infrastructure/**.cs]
+dotnet_diagnostic.CA5393.severity = none
+
+# CA2100 (SQL injection review) misfires on the N-1 schema seam: a table identifier is not
+# parameterizable, and the interpolated value is regex-captured from our own migration scripts
+# (plain identifier + fixed quoted table name), never user input — see the inline comment there.
+[tests/**/N1CompatSchemaSeam.cs]
+dotnet_diagnostic.CA2100.severity = none

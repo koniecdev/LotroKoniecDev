@@ -8,6 +8,11 @@
          analyzer wave; both match the SDK pinned in CI (10.0.100). -->
     <LangVersion>14</LangVersion>
     <AnalysisLevel>10.0</AnalysisLevel>
+    <!-- Security CA rules are mostly disabled by default, and a category severity bump in
+         .editorconfig cannot enable a disabled rule — this property can. With TreatWarningsAsErrors
+         every Security-category finding fails the build (the AUDIT-SEC-10/11 class: insecure
+         cookies, missing HTTPS, weak crypto). Per-rule opt-outs stay in .editorconfig with a reason. -->
+    <AnalysisModeSecurity>All</AnalysisModeSecurity>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- NuGet vulnerability audit (audit #0001 / H1): restore reports advisories on direct AND

@@ -1314,6 +1314,67 @@ expect_in_output "resuming session s-197 after a usage limit"
 expect_in_output "PR #9197 opened"
 expect_meta 197 outcome=pr-opened pr=9197 resumes=1
 
+# The PR was merged before the session pushed its last fix, so the session moved the fix to a new
+# branch from main named after the PR's branch, and then the usage limit stopped it (#1097). That
+# merged PR is still the session's own. FOLLOW_UP_PR=1 also opens the follow-up PR.
+behavior "$TMP_ROOT/limit-after-follow-up.sh" 'ticket="${PWD##*ticket-}"
+case " $* " in
+*" --resume "*)
+    echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/9$ticket\",\"is_error\":false,\"session_id\":\"s-$ticket\"}" ;;
+*)
+    git checkout -q -b "$ticket-fixture"
+    echo "work" > "work-$ticket.txt"
+    git add -A
+    git commit -q -m "reviewed work"
+    git push -q origin "HEAD:refs/pull/7$ticket/head"
+    git switch -q --no-track -c "$ticket-fixture-follow-up" origin/main
+    echo "fix" > "fix-$ticket.txt"
+    git add -A
+    git commit -q -m "code scan fix"
+    [ "${FOLLOW_UP_PR:-}" != 1 ] || git push -q origin "HEAD:refs/pull/9$ticket/head"
+    session=",\"session_id\":\"s-$ticket\""
+    [ "${NO_SESSION:-}" != 1 ] || session=""
+    echo "{\"result\":\"You have hit your session limit\",\"is_error\":true$session}" ;;
+esac'
+
+reset_fixtures
+fixture_issue 150 maintainer OWNER
+run_case 6 "work-ticket: a usage limit after #150 opened a follow-up PR" \
+    env FOLLOW_UP_PR=1 CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-follow-up.sh" "$WORK" 150 "$TMP_ROOT/run"
+fixture_transcript s-150
+fixture_prs_state "7150,150-fixture,MERGED" \
+    "9150,150-fixture-follow-up,OPEN,$(git -C "$WT_ROOT/ticket-150" rev-parse 150-fixture-follow-up)"
+fixture_pr_view 9150 OPEN 150-fixture-follow-up
+run_case 0 "work-ticket: a kept session on a follow-up branch is resumed to finish its follow-up PR" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-follow-up.sh" "$WORK" 150 "$TMP_ROOT/run"
+expect_in_output "resuming session s-150 after a usage limit"
+expect_in_output "PR #9150 opened"
+expect_meta 150 outcome=pr-opened pr=9150 resumes=1
+
+reset_fixtures
+fixture_issue 151 maintainer OWNER
+run_case 6 "work-ticket: a usage limit after #151 moved its fix to a follow-up branch" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-follow-up.sh" "$WORK" 151 "$TMP_ROOT/run"
+fixture_transcript s-151
+fixture_prs_state "7151,151-fixture,MERGED"
+run_case 13 "work-ticket: a kept session on a follow-up branch with no PR yet is merged, and its fix is counted" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-follow-up.sh" "$WORK" 151 "$TMP_ROOT/run"
+expect_in_output "PR #7151 was merged after the attempt that hit the usage limit started, but 1 commit(s) are not in the merged PR — look on branch 151-fixture-follow-up, at the worktree's HEAD (151-fixture-follow-up)"
+expect_meta 151 outcome=merged pr=7151 unmerged=1
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "the session of a merged ticket must not be resumed" "$LAST_OUTPUT"
+
+reset_fixtures
+fixture_issue 152 maintainer OWNER
+run_case 6 "work-ticket: a usage limit with no session id after #152 moved its fix to a follow-up branch" \
+    env NO_SESSION=1 CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-follow-up.sh" "$WORK" 152 "$TMP_ROOT/run"
+expect_meta 152 outcome=limit branch=152-fixture-follow-up
+fixture_prs_state "7152,152-fixture,MERGED"
+run_case 13 "work-ticket: a retry after a limit on a follow-up branch finds the merged PR it follows" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 152 "$TMP_ROOT/run"
+expect_in_output "PR #7152 was merged after the attempt that hit the usage limit started, but 1 commit(s) are not in the merged PR — look on branch 152-fixture-follow-up"
+expect_meta 152 outcome=merged pr=7152 unmerged=1
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no new session may start on a merged ticket" "$LAST_OUTPUT"
+
 # A PR from the kept branch merged before the session started is history from an earlier attempt
 # with the same branch name, so the session is still resumed. The resume opens its PR.
 behavior "$TMP_ROOT/limit-then-open.sh" 'ticket="${PWD##*ticket-}"
@@ -2516,6 +2577,39 @@ for spec in "164|MERGED|164-fixture||2020-01-01T00:00:00Z|merged before this ses
     expect_meta "$ticket" outcome=error resumes=1
     [ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "a DONE with no PR is resumed exactly once" "$LAST_OUTPUT"
 done
+
+# A follow-up PR from a new branch, for a fix the merged PR did not take, is the ticket's open PR,
+# even when the summary links the merged one first (#1097).
+behavior "$TMP_ROOT/done-follow-up.sh" 'ticket="${PWD##*ticket-}"
+git checkout -q -b "$ticket-fixture-follow-up"
+printf "[{\"number\":9$ticket,\"headRefName\":\"$ticket-fixture-follow-up\",\"isCrossRepository\":false}]" > "$GH_FIXTURES/pr-list.json"
+echo "{\"result\":\"STATUS: DONE\\nSUMMARY: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket was merged first\",\"is_error\":false,\"session_id\":\"s-$ticket\"}"'
+reset_fixtures
+fixture_issue 153 maintainer OWNER
+fixture_pr_view 7153 MERGED 153-fixture "" 2099-01-01T00:00:00Z
+run_case 0 "work-ticket: a follow-up PR from a new branch counts as the ticket's PR" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-follow-up.sh" "$WORK" 153 "$TMP_ROOT/run"
+expect_in_output "PR #9153 opened"
+expect_meta 153 outcome=pr-opened pr=9153 resumes=0
+
+# The owner closed the PR without a merge: the resume tells the session to push nothing, and its
+# BLOCKED answer blocks the ticket (#1097).
+behavior "$TMP_ROOT/done-then-closed.sh" 'ticket="${PWD##*ticket-}"
+case " $* " in
+*" --resume "*)
+    echo "{\"result\":\"STATUS: BLOCKED\\nCATEGORY: pr-closed\\nQUESTIONS:\\n- PR #7$ticket was closed without a merge\",\"is_error\":false,\"session_id\":\"s-$ticket\"}" ;;
+*)
+    git checkout -q -b "$ticket-fixture"
+    echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\",\"is_error\":false,\"session_id\":\"s-$ticket\"}" ;;
+esac'
+reset_fixtures
+fixture_issue 154 maintainer OWNER
+fixture_pr_view 7154 CLOSED 154-fixture "" 2099-01-01T00:00:00Z
+run_case 2 "work-ticket: a session whose PR was closed without a merge ends blocked" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-then-closed.sh" "$WORK" 154 "$TMP_ROOT/run"
+expect_in_output "resuming it once to open the PR"
+expect_in_output "BLOCKED — questions posted on the issue, labeled loop-blocked"
+expect_meta 154 outcome=blocked resumes=1
 
 # Found by its branch, neither a closed PR nor one merged before the session counts.
 behavior "$TMP_ROOT/done-unlinked.sh" 'ticket="${PWD##*ticket-}"

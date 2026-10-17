@@ -341,6 +341,13 @@ finish_merged() {
 # to another branch, so a re-created worktree would not be the tree the session knows. The marker
 # goes away with the worktree. next-ticket.sh reads the same marker, so change both together.
 
+# own_merged_branch <PR branch> <session branch> — true when a merged PR's branch is the session's
+# own: the same branch, or the session's branch is that one plus `-follow-up`. A session whose PR
+# was merged before its last fix was pushed moves the fix to such a branch from main (#1097).
+own_merged_branch() {
+    [ "$1" = "$2" ] || [[ "$2" == "$1-follow-up"* ]]
+}
+
 # Prints the marker's path. A folder that is not a worktree of its own resolves to the main .git,
 # so it has none.
 kept_marker() {
@@ -517,7 +524,7 @@ if [ -n "$resume_session" ]; then
                 ;;
             MERGED)
                 if [ "$ended" -ge "$resume_started" ]; then
-                    if [ "$head" = "$branch" ]; then
+                    if own_merged_branch "$head" "$branch"; then
                         merged_pr="${merged_pr:-$number}"
                     else
                         blocker="PR #$number was merged from another branch ($head)"
@@ -596,7 +603,7 @@ else
         merged_other_pr=""
         while read -r number head; do
             [ -n "$number" ] || continue
-            if [ "$head" = "$retry_branch" ]; then
+            if own_merged_branch "$head" "$retry_branch"; then
                 merged_pr="${merged_pr:-$number}"
             else
                 if [ -z "$merged_other" ]; then
@@ -908,11 +915,12 @@ resume_prompt() {
         no-status) why="Your last message has no STATUS line, so the loop cannot tell how ticket #$ISSUE ended." ;;
         no-pr) why="Your last message says STATUS: DONE, but the loop found no open pull request for ticket #$ISSUE${pr_named:+ (PR #$pr_named, which your message links, is not one)}. \
 The loop counts only an open PR in this repository whose branch name starts with \"$ISSUE-\". \
-Push the branch and open the PR now, or name the full URL of that PR if it already exists. \
 If the PR you opened in this session was closed without a merge, and you did not close it yourself, \
-push nothing and open no new PR: end with STATUS: BLOCKED, as step 8 of /work-ticket says." ;;
+push nothing and open no new PR: end with STATUS: BLOCKED, as step 8 of /work-ticket says. \
+Otherwise push the branch and open the PR now, or name the full URL of that PR if it already exists." ;;
         limit) why="The usage limit that stopped this session is over, and the loop resumes ticket #$ISSUE in the same worktree. \
-Time has passed since your last step, so check git status and whether the PR already exists before you go on. \
+Time has passed since your last step, so check git status, and whether the PR already exists and what state it is in \
+(step 8 of /work-ticket), before you go on. \
 A command that was running when the limit hit did not finish: run it again." ;;
     esac
     echo "$why \

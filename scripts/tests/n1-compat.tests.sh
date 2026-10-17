@@ -22,7 +22,11 @@ set -euo pipefail
 
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
 SCRIPT_SH="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)/n1-compat.sh"
-TMP_ROOT="$(cd "$(mktemp -d)" && pwd -P)"
+# Two steps on purpose: `cd ""` succeeds, so a failed mktemp inside one $(cd …) would point the
+# cleanup below at the current directory (#1042).
+TMP_ROOT="$(mktemp -d)" || exit 1
+TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || exit 1
+[ -d "$TMP_ROOT" ] || exit 1
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
 cases=0
@@ -320,5 +324,20 @@ run_proof BASH_ENV="$TMP_ROOT/lookup-fails.bash"
 [ ! -s "$STUB_LOG" ] || fail 'the proof must stop at the lookup, before any dotnet call'
 grep -q 'cannot find the checkout' <<<"$LAST_OUTPUT" || fail 'the proof must say why it stopped'
 pass 'a proof that cannot find its own tree exits 2, not the RED exit 1'
+
+# A real mktemp fails on demand only on Linux (TMPDIR=/nonexistent); macOS falls back to its own
+# folder. A failing stub first on PATH does the same on both. Before #1042 the proof took the
+# checkout as its temp folder and its cleanup deleted it, so this case runs last.
+CASE='no temp folder'
+mkdir -p "$TMP_ROOT/no-mktemp"
+printf '#!/bin/sh\necho "mktemp: cannot create a folder" >&2\nexit 1\n' > "$TMP_ROOT/no-mktemp/mktemp"
+chmod +x "$TMP_ROOT/no-mktemp/mktemp"
+run_proof PATH="$TMP_ROOT/no-mktemp:$STUB_BIN:$PATH"
+[ "$LAST_STATUS" -eq 2 ] || fail 'a proof that cannot make a temp folder proved nothing — exit 2, never RED' "status $LAST_STATUS"
+[ -f "$FIXTURE/scripts/n1-compat.sh" ] || fail 'the cleanup must never delete the checkout the proof runs in'
+[ -z "$(git -C "$FIXTURE" status --porcelain 2>&1)" ] || fail 'the proof must write nothing into the checkout' "$(git -C "$FIXTURE" status --porcelain 2>&1)"
+[ ! -s "$STUB_LOG" ] || fail 'the proof must stop at the temp folder, before any dotnet call'
+grep -q 'cannot create a temporary folder' <<<"$LAST_OUTPUT" || fail 'the proof must say why it stopped'
+pass 'a proof that cannot make a temp folder exits 2 and leaves its checkout alone'
 
 printf '\nAll %d n1-compat case(s) passed.\n' "$cases"

@@ -46,7 +46,10 @@ fail() {
 # to itself exactly as it does in the real tree. It holds the three projects and no Dockerfile.
 new_tree() {
     local tree
-    tree="$(mktemp -d "$TMP_ROOT/tree.XXXXXX")"
+    # Callers run this inside $(…), where set -e is off: an empty $tree would aim every step below
+    # at the root or the current folder (#1042).
+    tree="$(mktemp -d "$TMP_ROOT/tree.XXXXXX")" || return 1
+    [ -d "$tree" ] || return 1
     mkdir -p "$tree/scripts" "$tree/src/App" "$tree/src/Lib" "$tree/src/Core"
     cp "$GUARD_SH" "$GUARD_PS1" "$tree/scripts/"
     printf '%s\n' "$APP_CSPROJ" > "$tree/src/App/App.csproj"

@@ -100,10 +100,14 @@ trap cleanup EXIT
 # feeding the symlinked form to dotnet as an absolute project path makes restore and build
 # disagree about project identity — the compile then silently resolves ZERO references
 # (empirically: 646 CS errors via /var/..., a clean build via /private/var/...).
+# It runs inside $(…), where bash turns set -e off, so every step checks its own result: `cd ""`
+# succeeds, and a failed mktemp would make the checkout the temp folder that cleanup deletes (#1042).
+# It prints a path only on success, so a caller's variable stays empty and cleanup skips it.
 canonical_tmp_dir() {
   local dir
-  dir="$(mktemp -d)"
-  (cd "$dir" && pwd -P)
+  dir="$(mktemp -d)" && [ -d "$dir" ] && (cd -- "$dir" && pwd -P) && return 0
+  echo "ERROR: cannot create a temporary folder, so the proof could not run." >&2
+  return 1
 }
 
 # --- 0. The seam must exist AND be called in the CURRENT tree — losing either silences the ----
@@ -130,7 +134,7 @@ prev_sha="$(git rev-parse --verify --quiet "${CODE_REF}^{commit}")" || {
 }
 
 # --- 1. Generate the HEAD schema as idempotent scripts, one per context. ----------------------
-schema_dir="$(canonical_tmp_dir)"
+schema_dir="$(canonical_tmp_dir)" || exit 2
 echo "== Generating idempotent schema scripts from the current tree =="
 # `|| exit 2` on the generation phase keeps the exit-code contract honest: an infra failure here
 # is "cannot run", never the exit-1 "backward-incompatible migration" verdict.
@@ -166,7 +170,7 @@ for script in translation auth; do
 done
 
 # --- 2. Check out the previous release into a worktree. ---------------------------------------
-worktree_parent="$(canonical_tmp_dir)"
+worktree_parent="$(canonical_tmp_dir)" || exit 2
 worktree_dir="$worktree_parent/n1-prev"
 echo "== Previous release: $prev_sha ($(git log -1 --format=%s "$prev_sha")) =="
 git worktree add --detach --quiet "$worktree_dir" "$prev_sha" || exit 2
@@ -202,7 +206,7 @@ trx_executed_count() {
   echo "${count:-0}"
 }
 
-results_dir="$(canonical_tmp_dir)"
+results_dir="$(canonical_tmp_dir)" || exit 2
 status=0
 unbuildable=0
 unrun=0

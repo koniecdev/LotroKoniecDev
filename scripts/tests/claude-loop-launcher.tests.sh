@@ -31,7 +31,11 @@ SCRIPTS_DIR="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 REAL_SLEEP="$(command -v sleep)"
 export REAL_SLEEP
 
-TMP_ROOT="$(cd "$(mktemp -d)" && pwd -P)"
+# Two steps on purpose: `cd ""` succeeds, so a failed mktemp inside one $(cd …) would point the
+# cleanup below at the current directory (#1042).
+TMP_ROOT="$(mktemp -d)" || exit 1
+TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || exit 1
+[ -d "$TMP_ROOT" ] || exit 1
 cleanup() {
     # A failed case can leave a launcher, a fake worker or a fake loop running; never leave one
     # behind. Each launcher leads a process group of its own, and its console copy ignores TERM.

@@ -18,7 +18,9 @@
 # open PR is resumed once to open it; the picker does not hide a worktree kept that way (#934).
 # A PR merged while a usage limit holds the ticket makes it merged, with no session resumed or
 # started again (#1096). The count of commits the merge did not take fails instead of waiting for
-# an ssh passphrase or a password (#1139).
+# an ssh passphrase or a password (#1139). A relative run folder or LOOP_CONFIG_DIR means the
+# folder the caller started in, and a missing run folder or an empty LOOP_CONFIG_DIR keeps the
+# default (#1080).
 #
 # `gh` is stubbed from fixtures, so the suite is offline and hermetic. The stub applies the
 # caller's own `--jq` filter with real jq, which keeps the scripts' jq filters under test too.
@@ -200,6 +202,7 @@ printf '%s\n' "\$@" > "$TMP_ROOT/claude-args-\$run"
 echo "\${CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:-unset} \${BASH_MAX_TIMEOUT_MS:-unset} \${BASH_DEFAULT_TIMEOUT_MS:-unset}" \
     > "$TMP_ROOT/claude-env-\$run"
 pwd -P > "$TMP_ROOT/claude-cwd-\$run"
+echo "\${CLAUDE_CONFIG_DIR:-unset}" > "$TMP_ROOT/claude-config-\$run"
 # The lifecycle cases script what the session does in its worktree.
 if [ -n "\${CLAUDE_BEHAVIOR:-}" ]; then exec "\$CLAUDE_BEHAVIOR" "\$@"; fi
 echo '{"result":"STATUS: DONE","is_error":false}'
@@ -367,7 +370,7 @@ fixture_pr_view() {
 
 reset_fixtures() {
     rm -f "$GH_FIXTURES"/*.json "$CLAUDE_MARKER" "$TMP_ROOT"/claude-runs "$TMP_ROOT"/claude-args-* \
-        "$TMP_ROOT"/claude-env-* "$TMP_ROOT"/claude-cwd-*
+        "$TMP_ROOT"/claude-env-* "$TMP_ROOT"/claude-cwd-* "$TMP_ROOT"/claude-config-*
     rm -rf "$LOOP_CONFIG_DIR"
 }
 
@@ -411,6 +414,9 @@ expect_stdout() {
 # must not take that output for its own folder (#1048). Started through `env`, the script keeps
 # the relative path as $0; bash's own exec would hand it the full path.
 from_fake_repo() { (cd "$FAKE_REPO" && CDPATH=".:$TMP_ROOT" exec env "$@"); }
+
+# from_folder <folder> [NAME=value...] <command> <args...> — runs a command from another folder.
+from_folder() { local folder="$1"; shift; (cd "$folder" && exec env "$@"); }
 
 # ── issue-trust.sh: the policy ─────────────────────────────────────────────────────────────────
 for association in OWNER MEMBER COLLABORATOR; do
@@ -790,6 +796,46 @@ run_case 0 "work-ticket: an exported CDPATH does not confuse a worker started by
 expect_in_output "PR #7160 opened"
 [ "$(cat "$TMP_ROOT/session-cwd")" = "$(cd "$FAKE_REPO" && pwd -P)/.claude/worktrees/ticket-160" ] \
     || fail "the session should run in .claude/worktrees/ticket-160" "$(cat "$TMP_ROOT/session-cwd")"
+
+# A relative path means the folder the caller started in, not the repository the worker moves to
+# (#1080). The caller's folder has no symlink in it (on macOS the temp folder sits behind one), so
+# the worker sees the same path as this test.
+CALLER="$(cd "$TMP_ROOT" && pwd -P)/caller"
+mkdir -p "$CALLER"
+reset_fixtures
+fixture_issue 1080 maintainer OWNER
+fixture_pr_view 71080 OPEN 1080-fixture
+run_case 0 "work-ticket: a relative run folder is a folder under the caller's" \
+    from_folder "$CALLER" CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 1080 run1
+[ -f "$CALLER/run1/ticket-1080.meta" ] || fail "the run files should be in $CALLER/run1" "$LAST_OUTPUT"
+[ ! -e "$FAKE_REPO/run1" ] || fail "the run files must not land in the repository" "$(ls "$FAKE_REPO/run1")"
+
+reset_fixtures
+fixture_issue 1081 maintainer OWNER
+fixture_pr_view 71081 OPEN 1081-fixture
+run_case 0 "work-ticket: a relative LOOP_CONFIG_DIR is a folder under the caller's" \
+    from_folder "$CALLER" LOOP_CONFIG_DIR=account CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 1081 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/claude-config-1")" = "$CALLER/account" ] \
+    || fail "the session should get $CALLER/account, got $(cat "$TMP_ROOT/claude-config-1")" "$LAST_OUTPUT"
+
+# A hand run names no run folder, and an empty value is not a relative path: both keep the defaults.
+reset_fixtures
+fixture_issue 1084 maintainer OWNER
+fixture_pr_view 71084 OPEN 1084-fixture
+run_case 0 "work-ticket: with no run folder, the run files go to the logs of the main checkout" \
+    from_folder "$CALLER" CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 1084
+ls "$FAKE_REPO"/logs/claude-loop/adhoc-*/ticket-1084.meta >/dev/null 2>&1 \
+    || fail "the run files should be in logs/claude-loop/adhoc-* of the main checkout" "$LAST_OUTPUT"
+[ ! -e "$CALLER/ticket-1084.meta" ] || fail "the run files must not land in the caller's folder" "$(ls "$CALLER")"
+rm -rf "$FAKE_REPO/logs"
+
+reset_fixtures
+fixture_issue 1085 maintainer OWNER
+fixture_pr_view 71085 OPEN 1085-fixture
+run_case 0 "work-ticket: an empty LOOP_CONFIG_DIR keeps the default config folder" \
+    from_folder "$CALLER" LOOP_CONFIG_DIR='' CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 1085 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/claude-config-1")" = "$HOME/.claude-account1" ] \
+    || fail "the session should get $HOME/.claude-account1, got $(cat "$TMP_ROOT/claude-config-1")" "$LAST_OUTPUT"
 
 reset_fixtures
 fixture_issue 71 maintainer OWNER

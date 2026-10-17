@@ -34,7 +34,7 @@ export REAL_SLEEP
 # Two steps on purpose: `cd ""` succeeds, so a failed mktemp inside one $(cd …) would point the
 # cleanup below at the current directory (#1042).
 TMP_ROOT="$(mktemp -d)" || exit 1
-TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || exit 1
+TMP_ROOT="$(CDPATH='' cd -- "$TMP_ROOT" && pwd -P)" || exit 1
 [ -d "$TMP_ROOT" ] || exit 1
 cleanup() {
     # A failed case can leave a launcher, a fake worker or a fake loop running; never leave one

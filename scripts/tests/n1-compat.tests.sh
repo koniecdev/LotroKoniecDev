@@ -25,7 +25,7 @@ SCRIPT_SH="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)/n1-compat.sh"
 # Two steps on purpose: `cd ""` succeeds, so a failed mktemp inside one $(cd …) would point the
 # cleanup below at the current directory (#1042).
 TMP_ROOT="$(mktemp -d)" || exit 1
-TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || exit 1
+TMP_ROOT="$(CDPATH='' cd -- "$TMP_ROOT" && pwd -P)" || exit 1
 [ -d "$TMP_ROOT" ] || exit 1
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
@@ -327,10 +327,11 @@ pass 'a proof that cannot find its own tree exits 2, not the RED exit 1'
 
 # A real mktemp fails on demand only on Linux (TMPDIR=/nonexistent); macOS falls back to its own
 # folder. So a stub first on PATH makes real folders before call N and fails from call N on, on both.
+# It logs each folder it makes, so the case can check that cleanup removed every one of them.
 # The proof makes three temp folders, and each one must fail as "cannot run" (exit 2), never as
 # RED. Before #1042 the proof took the checkout as its temp folder and its cleanup deleted it, so
 # these cases run last.
-mkdir -p "$TMP_ROOT/late-mktemp" "$TMP_ROOT/proof-tmp"
+mkdir -p "$TMP_ROOT/late-mktemp"
 cat > "$TMP_ROOT/late-mktemp/mktemp" <<'STUB'
 #!/usr/bin/env bash
 calls=$(( $(cat "$MKTEMP_CALLS" 2>/dev/null || echo 0) + 1 ))
@@ -339,24 +340,30 @@ if [ "$calls" -ge "$MKTEMP_FAIL_AT" ]; then
     echo 'mktemp: cannot create a folder' >&2
     exit 1
 fi
-exec "$REAL_MKTEMP" "$@"
+made="$("$REAL_MKTEMP" "$@")" || exit 1
+echo "$made" >> "$MKTEMP_MADE"
+echo "$made"
 STUB
 chmod +x "$TMP_ROOT/late-mktemp/mktemp"
 for fail_at in 1 2 3; do
     CASE="temp folder $fail_at of 3 fails"
     rm -f "$TMP_ROOT/mktemp-calls"
+    : > "$TMP_ROOT/mktemp-made"
     run_proof PATH="$TMP_ROOT/late-mktemp:$STUB_BIN:$PATH" \
-        TMPDIR="$TMP_ROOT/proof-tmp" \
         REAL_MKTEMP="$(command -v mktemp)" \
         MKTEMP_CALLS="$TMP_ROOT/mktemp-calls" \
+        MKTEMP_MADE="$TMP_ROOT/mktemp-made" \
         MKTEMP_FAIL_AT="$fail_at"
     [ "$LAST_STATUS" -eq 2 ] || fail 'a proof that cannot make a temp folder proved nothing — exit 2, never RED' "status $LAST_STATUS"
     [ "$(cat "$TMP_ROOT/mktemp-calls")" -eq "$fail_at" ] || fail "the proof must stop at the first failed temp folder" "mktemp calls: $(cat "$TMP_ROOT/mktemp-calls")"
     [ -f "$FIXTURE/scripts/n1-compat.sh" ] || fail 'the cleanup must never delete the checkout the proof runs in'
     [ -z "$(git -C "$FIXTURE" status --porcelain 2>&1)" ] || fail 'the proof must write nothing into the checkout' "$(git -C "$FIXTURE" status --porcelain 2>&1)"
-    [ -z "$(ls -A "$TMP_ROOT/proof-tmp")" ] || fail 'the cleanup must still remove the temp folders made before the failure' "$(ls -A "$TMP_ROOT/proof-tmp")"
+    [ "$(wc -l < "$TMP_ROOT/mktemp-made")" -eq $((fail_at - 1)) ] || fail 'every temp folder before the failure must be made' "$(cat "$TMP_ROOT/mktemp-made")"
+    while IFS= read -r made; do
+        [ ! -e "$made" ] || fail 'the cleanup must still remove the temp folders made before the failure' "$made"
+    done < "$TMP_ROOT/mktemp-made"
     [ "$(git -C "$FIXTURE" worktree list | wc -l)" -eq 1 ] || fail 'the worktree of the previous release must be removed' "$(git -C "$FIXTURE" worktree list)"
-    grep -q 'cannot create a temporary folder' <<<"$LAST_OUTPUT" || fail 'the proof must say why it stopped'
+    grep -q 'cannot create or enter a temporary folder' <<<"$LAST_OUTPUT" || fail 'the proof must say why it stopped'
     if [ "$fail_at" -eq 1 ]; then
         [ ! -s "$STUB_LOG" ] || fail 'the proof must stop at its first temp folder, before any dotnet call'
     fi

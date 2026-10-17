@@ -107,7 +107,7 @@ trap cleanup EXIT
 canonical_tmp_dir() {
   local dir
   dir="$(mktemp -d)" && [ -d "$dir" ] && (CDPATH='' cd -- "$dir" && pwd -P) && return 0
-  echo "ERROR: cannot create a temporary folder, so the proof could not run." >&2
+  echo "ERROR: cannot create or enter a temporary folder, so the proof could not run." >&2
   return 1
 }
 

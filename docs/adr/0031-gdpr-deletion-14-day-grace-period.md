@@ -239,8 +239,9 @@ used to show the date that had passed next to the advice to click the cancel lin
 **The owner's decision (2026-10-11):**
 
 - Once `FinalizesAt` has passed, the login page says "Usuwanie Twojego konta jest w toku i nie można go
-  już anulować." with no date. It uses the same boundary as the finalizer's `IsDueBy`. Before that
-  moment the page still names the date and the cancel link.
+  już anulować." with no date. The page asks `IAccountDeletionSchedule.IsDueAt`, which the unit tests
+  check against the finalizer's `IsDueBy` on every combination of the two clocks. Before that moment
+  the page still names the date and the cancel link.
 - The dead-link page stays as it is. Its sentence, "działa do dnia zaplanowanego usunięcia konta", is
   true since #947.
 - No text points to the e-mail change undo link. The window where the cancel link is dead but the undo

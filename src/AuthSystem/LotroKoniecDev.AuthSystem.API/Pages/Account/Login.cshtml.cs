@@ -37,8 +37,8 @@ internal sealed partial class LoginModel : PageModel
 
     /// <summary>
     /// Shown once the deletion date has passed and the account only waits for the daily run (ADR-0031).
-    /// The cancel link and any e-mail change undo link are dead by then, so the message names no date
-    /// and no link (#916).
+    /// By then the cancel window (#947) and any e-mail change undo window (ADR-0048) have ended, so the
+    /// message names no date and no link. The owner chose this exact text (#916).
     /// </summary>
     private const string DeletionUnderwayMessage = "Usuwanie Twojego konta jest w toku i nie można go już anulować.";
 
@@ -159,8 +159,8 @@ internal sealed partial class LoginModel : PageModel
             LogDeletionScheduled(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
             DateTimeOffset deletionTime =
                 _deletionSchedule.FinalizesAt(user.DeletionScheduledAt.Value, user.EmailChangeRevertArmedAt);
-            // The same boundary the finalizer's IsDueBy uses, so the date never shows once it has passed.
-            ErrorMessage = deletionTime <= _timeProvider.GetUtcNow()
+            ErrorMessage = _deletionSchedule.IsDueAt(
+                    user.DeletionScheduledAt.Value, user.EmailChangeRevertArmedAt, _timeProvider.GetUtcNow())
                 ? DeletionUnderwayMessage
                 : $"Twoje konto jest zaplanowane do usunięcia dnia {deletionTime.ToPolandDateTimeText()}. " +
                   "Jeśli chcesz je zachować, kliknij w link anulujący usunięcie, który wysłaliśmy na Twój adres e-mail.";
@@ -205,7 +205,7 @@ internal sealed partial class LoginModel : PageModel
         ClaimsIdentity identity = new(claims, IdentityConstants.ApplicationScheme);
         ClaimsPrincipal principal = new(identity);
 
-        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset now = _timeProvider.GetUtcNow();
         await HttpContext.SignInAsync(
             IdentityConstants.ApplicationScheme,
             principal,

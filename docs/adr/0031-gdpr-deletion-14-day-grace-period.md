@@ -3,13 +3,14 @@
 **Status:** Accepted (amended 2026-09-19 by #685 — the cancel link reaches the armed address and the
 erasure waits for the undo; amended 2026-09-29 by #780 — the finalizer polls once a day; amended
 2026-09-30 by #946 — the 30-day cap covers the grace period plus the poll interval; amended 2026-10-11
-by #947 — the cancel link ends at the scheduled time plus the grace period; see the amendments below)
+by #947 — the cancel link ends at the scheduled time plus the grace period; amended 2026-10-17 by #916 —
+the login page says the deletion is under way once its date has passed; see the amendments below)
 **Date:** 2026-07-11
-**Decision-makers:** Solo maintainer (ticket #452, legal & GDPR compliance pack #459; amendment #685, SEC-07; amendment #780, #946, #947)
+**Decision-makers:** Solo maintainer (ticket #452, legal & GDPR compliance pack #459; amendment #685, SEC-07; amendment #780, #946, #947, #916)
 **Related:** `DeleteAccount` / `CancelAccountDeletion` (AuthSystem), `AccountErasureService`,
 `AccountDeletionFinalizer`, `AccountDeletionSchedule`, ADR-0048 (the undo this window has to survive),
 TKS ADR-0017 (the ported original), ADR-0035 (the Neon wake-up cost), ADR-0038 (tokens created at
-delivery), tickets #452, #459, #685, #780, #946, #947
+delivery), tickets #452, #459, #685, #780, #946, #947, #916
 
 ## Context
 
@@ -171,9 +172,9 @@ grace period. (When this amendment was written, the link lived one grace period 
 e-mail was built, so a late e-mail moved its end. #947 replaced that rule; see the #947 amendment.)
 Every door checks `DeletionScheduledAt`, not the lockout, so the account stays shut after
 `LockoutEnd` has passed too. The longer gap between the date and the erasure shows in two places: the address
-stays taken, so registering it again fails until the run, and the login page shows a date that has
-passed and points to a dead cancel link (#916). A run that fails is now retried a day later, not an
-hour later (#937).
+stays taken, so registering it again fails until the run, and the login page showed a date that had
+passed next to a dead cancel link. #916 replaced that message; see the #916 amendment. A run that
+fails is now retried a day later, not an hour later (#937).
 
 **The validator ties the two settings together.** The poll interval must not exceed the grace
 period, so an environment that shortens `Gdpr:DeletionGracePeriod` below one day, to watch a real
@@ -229,6 +230,22 @@ The cut-off is `CancellableUntil`, not `FinalizesAt`. The two differ only while 
 ADR-0048 outlasts the grace period, which the shipped configuration never reaches (see the #685
 amendment), and in that tail the undo link still cancels the deletion. What the login page and the
 dead-link page say once the link has stopped working is #916.
+
+## Amendment (2026-10-17, #916): the login page once the deletion date has passed
+
+After its date, the account can wait up to a day for the daily run (the #780 amendment). The login page
+used to show the date that had passed next to the advice to click the cancel link, which was dead.
+
+**The owner's decision (2026-10-11):**
+
+- Once `FinalizesAt` has passed, the login page says "Usuwanie Twojego konta jest w toku i nie można go
+  już anulować." with no date. The page asks `IAccountDeletionSchedule.IsDueAt`, which the unit tests
+  check against the finalizer's `IsDueBy` on every combination of the two clocks. Before that moment
+  the page still names the date and the cancel link.
+- The dead-link page stays as it is. Its sentence, "działa do dnia zaplanowanego usunięcia konta", is
+  true since #947.
+- No text points to the e-mail change undo link. The window where the cancel link is dead but the undo
+  link still works never opens with the shipped settings (see the #685 amendment).
 
 ## Consequences
 

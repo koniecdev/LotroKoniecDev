@@ -21,7 +21,7 @@ The handler's branches, in execution order, split cleanly by what a caller must 
 | # | Branch | Reachable without a valid password? |
 |---|---|---|
 | 1 | user not found | yes (+ dummy hash for timing parity) |
-| 2 | deletion scheduled | **no** — verifies the password first, then names the deletion date |
+| 2 | deletion scheduled | **no** — verifies the password first, then names the deletion date (or, once it has passed, that the deletion is under way: #916) |
 | 3 | locked out | yes (+ dummy hash) |
 | 4 | wrong password | yes |
 | 5 | **e-mail not confirmed** | **no** — runs *after* branch 4 |

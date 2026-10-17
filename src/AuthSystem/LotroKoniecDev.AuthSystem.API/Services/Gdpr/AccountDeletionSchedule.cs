@@ -26,6 +26,9 @@ internal sealed class AccountDeletionSchedule : IAccountDeletionSchedule
         return undoExpiresAt > afterGrace ? undoExpiresAt.Value : afterGrace;
     }
 
+    public bool IsDueAt(DateTimeOffset scheduledAt, DateTimeOffset? revertArmedAt, DateTimeOffset moment) =>
+        FinalizesAt(scheduledAt, revertArmedAt) <= moment;
+
     public Expression<Func<ApplicationUser, bool>> IsDueBy(DateTimeOffset moment)
     {
         // "The later of the two dates has passed" is the same statement as "both have passed", and

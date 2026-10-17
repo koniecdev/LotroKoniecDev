@@ -149,12 +149,13 @@ exit 0
 STUB
 chmod +x "$STUB_BIN/dotnet"
 
-# A case can start the proof by another path through $PROOF_AS, such as one without the leading ./
+# A case can start the proof by another path through $PROOF_AS, such as one without the leading ./,
+# and from another folder through $PROOF_FROM.
 run_proof() {
     : > "$STUB_LOG"
     : > "$TMP_ROOT/step_summary"
     LAST_STATUS=0
-    LAST_OUTPUT="$( (cd "$FIXTURE" && env \
+    LAST_OUTPUT="$( (cd "${PROOF_FROM:-$FIXTURE}" && env \
         PATH="$STUB_BIN:$PATH" \
         GITHUB_STEP_SUMMARY="$TMP_ROOT/step_summary" \
         N1_STUB_LOG="$STUB_LOG" \
@@ -300,6 +301,33 @@ CASE='step summary'
 run_proof STUB_RESTORE_FAIL_MATCH='AuthSystem'
 grep -q 'UNJUDGED' "$TMP_ROOT/step_summary" || fail 'the approver reads the summary — the verdict must land there too'
 pass 'a blocked proof writes its verdict to the job summary'
+
+# A relative summary file means a file seen from where the caller started (#1080). The proof moves
+# into its own checkout first, so before #1080 it wrote the summary inside the checkout.
+CASE='relative step summary'
+mkdir -p "$TMP_ROOT/caller"
+PROOF_FROM="$TMP_ROOT/caller" PROOF_AS="$FIXTURE/scripts/n1-compat.sh" \
+    run_proof STUB_RESTORE_FAIL_MATCH='AuthSystem' GITHUB_STEP_SUMMARY=summary.md
+[ "$LAST_STATUS" -eq 2 ] || fail 'a restore failure is still exit 2' "status $LAST_STATUS"
+grep -q 'UNJUDGED' "$TMP_ROOT/caller/summary.md" 2>/dev/null \
+    || fail 'the summary should be in the folder the proof was started from'
+[ ! -e "$FIXTURE/summary.md" ] || fail 'the summary must not land in the checkout'
+pass 'a relative step summary file means a file seen from where the caller started'
+
+# BASH_ENV deletes the folder the proof was started in, so the full path of the summary cannot be
+# built. The proof did not run, so that is exit 2, never the RED exit 1.
+CASE='caller folder gone'
+mkdir -p "$TMP_ROOT/gone"
+# SC2016: $PWD must expand in the proof's own shell, not here.
+# shellcheck disable=SC2016
+printf 'rmdir "$PWD"\n' > "$TMP_ROOT/folder-gone.bash"
+PROOF_FROM="$TMP_ROOT/gone" PROOF_AS="$FIXTURE/scripts/n1-compat.sh" \
+    run_proof BASH_ENV="$TMP_ROOT/folder-gone.bash" GITHUB_STEP_SUMMARY=summary.md
+[ ! -d "$TMP_ROOT/gone" ] || fail 'the case did not delete the folder, so it tested nothing'
+[ "$LAST_STATUS" -eq 2 ] || fail 'a proof that cannot read its own folder proved nothing — exit 2, never RED' "status $LAST_STATUS"
+[ ! -s "$STUB_LOG" ] || fail 'the proof must stop before any dotnet call'
+grep -q 'cannot read the folder it was started in' <<<"$LAST_OUTPUT" || fail 'the proof must say why it stopped'
+pass 'a relative step summary whose folder is gone exits 2, not the RED exit 1'
 
 # With CDPATH exported, `cd` to a relative folder can print it. Before #1048, the proof then failed
 # on its first `cd` with exit 1, which reads as a RED schema verdict. A path that starts with ./

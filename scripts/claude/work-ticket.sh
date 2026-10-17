@@ -257,17 +257,33 @@ finish() {
 # matched by their change, not by their id, so a rebase by GitHub before the merge still matches,
 # and commits main already has never count. The count can still be too high (a conflict fixed in a
 # rebase, an empty commit), so the log asks the owner to check, and never claims the commits are
-# lost. Fails when it cannot tell. The fetch runs where a stop is only noted, so a stalled transfer
-# and a password prompt end it. It goes to a ref of this run, not to FETCH_HEAD: outside a worktree,
-# FETCH_HEAD is shared with every ticket that fetches from the same checkout at the same time.
+# lost. Fails when it cannot tell. The fetch runs where a stop is only noted, so it must never wait
+# for an answer (#1139). A password prompt makes it fail, on the terminal or in an askpass program,
+# and so does an OpenSSH question about a key's passphrase or a new host key, also for a jump host. A
+# stalled https transfer ends it as well. It goes to a ref of this run, not to FETCH_HEAD: outside a
+# worktree, FETCH_HEAD is shared with every ticket that fetches from the same checkout at the same
+# time.
 commits_after_merge() {
     local dir="$WT" tips="HEAD refs/heads/$pr_branch" ref="refs/loop-merged/$ISSUE-$$" merged_head
-    local tip listed found="" commit count=0
+    local tip listed found="" commit count=0 ssh_command
     if [ "$own_worktree" -eq 0 ]; then
         dir="$REPO_ROOT"
         tips="refs/heads/$pr_branch${earlier_salvage:+ refs/heads/$earlier_salvage}"
     fi
-    GIT_TERMINAL_PROMPT=0 git -C "$dir" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 \
+    # Batch mode goes on the ssh command git would use anyway. Git takes GIT_SSH_COMMAND first, then
+    # core.sshCommand, then the GIT_SSH program, then plain ssh.
+    ssh_command="${GIT_SSH_COMMAND:-$(git -C "$dir" config core.sshCommand 2>/dev/null || true)}"
+    if [ -z "$ssh_command" ] && [ -n "${GIT_SSH:-}" ]; then
+        # shellcheck disable=SC2016  # the shell git starts expands it, so a path with spaces works too
+        ssh_command='"$GIT_SSH"'
+    fi
+    # Batch mode reaches only the ssh that git starts. A second ssh that it starts, for example for a
+    # jump host, asks an askpass program that always fails. SSH_ASKPASS_REQUIRE needs OpenSSH 8.4: an
+    # older one still asks on the terminal. For git's own prompt, an empty GIT_ASKPASS also turns off
+    # core.askPass and SSH_ASKPASS.
+    GIT_SSH_COMMAND="${ssh_command:-ssh} -o BatchMode=yes" SSH_ASKPASS_REQUIRE=force SSH_ASKPASS=false \
+        GIT_TERMINAL_PROMPT=0 GIT_ASKPASS='' \
+        git -C "$dir" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 \
         fetch --quiet --no-write-fetch-head origin "+refs/pull/$pr_num/head:$ref" 2>/dev/null < /dev/null || return 1
     merged_head="$(git -C "$dir" rev-parse -q --verify "$ref^{commit}" 2>/dev/null || true)"
     git -C "$dir" update-ref -d "$ref" 2>/dev/null || true

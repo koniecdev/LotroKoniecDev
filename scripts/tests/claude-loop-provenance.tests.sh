@@ -17,7 +17,8 @@
 # A usage limit keeps the worktree, and the next run resumes the session in it; a DONE with no
 # open PR is resumed once to open it; the picker does not hide a worktree kept that way (#934).
 # A PR merged while a usage limit holds the ticket makes it merged, with no session resumed or
-# started again (#1096).
+# started again (#1096). The count of commits the merge did not take fails instead of waiting for
+# an ssh passphrase or a password (#1139).
 #
 # `gh` is stubbed from fixtures, so the suite is offline and hermetic. The stub applies the
 # caller's own `--jq` filter with real jq, which keeps the scripts' jq filters under test too.
@@ -39,6 +40,8 @@ unset BASH_MAX_TIMEOUT_MS BASH_DEFAULT_TIMEOUT_MS CLAUDE_CODE_DISABLE_BACKGROUND
 # A developer may run this suite from a Claude Code session, whose CLAUDECODE the worker refuses
 # (#969); one case sets it on purpose.
 unset CLAUDECODE
+# The developer's own ssh and askpass settings must not reach the remote cases (#1139).
+unset GIT_SSH_COMMAND GIT_SSH GIT_SSH_VARIANT GIT_ASKPASS SSH_ASKPASS SSH_ASKPASS_REQUIRE
 export HOME="$TMP_ROOT/home"
 mkdir -p "$HOME"
 # The ticket clock when LOOP_TICKET_TIMEOUT_MIN is unset (#953).
@@ -2107,6 +2110,156 @@ run_case 13 "work-ticket: a merged PR whose head cannot be read is still merged,
     env NO_PR_REF=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged.sh" "$WORK" 172 "$TMP_ROOT/run"
 expect_in_output "but the loop could not check whether branch 172-fixture has commits the merge did not take"
 expect_meta 172 outcome=merged pr=7172 'unmerged=?'
+
+# ── work-ticket.sh: the merged head from a remote that asks for an answer (#1139) ─────────────────
+# A fake OpenSSH for the remote `fake-host:<path>`: it runs git's remote command here. With
+# FAKE_SSH_PASSPHRASE=1 the key needs a passphrase. Real ssh then asks on the terminal and waits for
+# an answer; this fake writes the question to $TMP_ROOT/asked and waits five seconds. As real ssh
+# does, it fails at once in batch mode, and it asks the askpass program instead when that is forced.
+# With FAKE_SSH_JUMP=1 it first starts a second ssh for a jump host, without its own options, as
+# OpenSSH does for ProxyJump. Each call is logged with the name of the command that started it.
+# The fakes for these cases sit in a folder that only merged_remote_case puts on PATH, so no other
+# case reaches them.
+REMOTE_BIN="$TMP_ROOT/remote-bin"
+mkdir -p "$REMOTE_BIN"
+cat > "$REMOTE_BIN/ssh" <<STUB
+#!/usr/bin/env bash
+echo "\${FAKE_SSH_VIA:-ssh} \$*" >> "$TMP_ROOT/ssh-calls"
+batch=0
+while [ \$# -gt 0 ]; do
+    case "\$1" in
+        -G) exit 0 ;;  # git asks whether this is OpenSSH
+        -o) [ "\${2:-}" != BatchMode=yes ] || batch=1; shift 2 ;;
+        -p|-W) shift 2 ;;
+        -*) shift ;;
+        *) break ;;
+    esac
+done
+host="\$1"
+if [ "\${FAKE_SSH_JUMP:-}" = 1 ]; then
+    FAKE_SSH_JUMP= FAKE_SSH_VIA=jump ssh -W "[\$host]:22" jump-host < /dev/null || exit 255
+fi
+if [ "\${FAKE_SSH_PASSPHRASE:-}" = 1 ]; then
+    if [ "\$batch" = 1 ]; then
+        echo "\$host: Permission denied (publickey)." >&2
+        exit 255
+    elif [ "\${SSH_ASKPASS_REQUIRE:-}" = force ]; then
+        if ! "\${SSH_ASKPASS:-ssh-askpass}" "the key's passphrase" > /dev/null; then
+            echo "\$host: Permission denied (publickey)." >&2
+            exit 255
+        fi
+    else
+        echo "\${FAKE_SSH_VIA:-ssh}: the key's passphrase" >> "$TMP_ROOT/asked"
+        "$REAL_SLEEP" 5
+        exit 255
+    fi
+fi
+[ -n "\${2:-}" ] || exit 0  # a jump host only carries the connection
+PATH="\$(git --exec-path):\$PATH" exec sh -c "\$2"
+STUB
+# A remote that wants a password, for `fakehttps::<anything>`: it asks git's credential code, as
+# git-remote-https does. The machine's credential helpers are skipped, so the developer's keychain is
+# never read. The fake askpass program writes the question to $TMP_ROOT/asked and waits five seconds.
+cat > "$REMOTE_BIN/git-remote-fakehttps" <<STUB
+#!/usr/bin/env bash
+echo "\$*" >> "$TMP_ROOT/fakehttps-calls"
+printf 'protocol=https\nhost=fake-host\n\n' | git -c credential.helper= credential fill > /dev/null 2>&1
+exit 1
+STUB
+ASKPASS="$TMP_ROOT/askpass"
+cat > "$ASKPASS" <<STUB
+#!/usr/bin/env bash
+echo "askpass: \$1" >> "$TMP_ROOT/asked"
+"$REAL_SLEEP" 5
+exit 1
+STUB
+chmod +x "$REMOTE_BIN/ssh" "$REMOTE_BIN/git-remote-fakehttps" "$ASKPASS"
+
+# ssh_wrapper <name> — the user's own ssh command, in a folder whose name has a space. Its calls are
+# logged under <name>. Prints its path.
+mkdir -p "$TMP_ROOT/user tools"
+ssh_wrapper() {
+    printf '#!/usr/bin/env bash\nFAKE_SSH_VIA=%s exec ssh "$@"\n' "$1" > "$TMP_ROOT/user tools/$1"
+    chmod +x "$TMP_ROOT/user tools/$1"
+    echo "$TMP_ROOT/user tools/$1"
+}
+ENV_SSH="$(ssh_wrapper env-ssh)"
+CONFIG_SSH="$(ssh_wrapper config-ssh)"
+PROGRAM_SSH="$(ssh_wrapper program-ssh)"
+
+# The session moves origin to MERGED_REMOTE as it ends (the ssh remote by default), so only the
+# merged head comes from there. The fresh start's fetch would ask too, but a stop still works there.
+behavior "$TMP_ROOT/done-merged-remote.sh" "\"$TMP_ROOT/done-merged.sh\" \"\$@\"
+git remote set-url origin \"\${MERGED_REMOTE:-fake-host:$TMP_ROOT/origin.git}\""
+
+# merged_remote_case <ticket> <description> [NAME=value...] — a PR merged before the session ended,
+# whose head the loop fetches from that remote. Nothing may ask for an answer. Origin goes back to the
+# local path afterwards.
+merged_remote_case() {
+    local ticket="$1" description="$2"
+    shift 2
+    reset_fixtures
+    rm -f "$TMP_ROOT/ssh-calls" "$TMP_ROOT/fakehttps-calls" "$TMP_ROOT/asked"
+    fixture_issue "$ticket" maintainer OWNER
+    run_case 13 "$description" env PATH="$REMOTE_BIN:$PATH" "$@" \
+        CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged-remote.sh" "$WORK" "$ticket" "$TMP_ROOT/run"
+    git -C "$FAKE_REPO" remote set-url origin "$TMP_ROOT/origin.git"
+    [ ! -e "$TMP_ROOT/asked" ] || fail "nothing may ask for an answer" "$(cat "$TMP_ROOT/asked")"
+}
+
+merged_remote_case 231 "work-ticket: an ssh key that needs a passphrase makes the merged-PR count fail at once" \
+    FAKE_SSH_PASSPHRASE=1
+grep -q '^ssh .*git-upload-pack' "$TMP_ROOT/ssh-calls" 2>/dev/null \
+    || fail "the merged head should be fetched over ssh, or the case proves nothing" "$LAST_OUTPUT"
+expect_in_output "but the loop could not check whether branch 231-fixture has commits the merge did not take"
+expect_meta 231 outcome=merged pr=7231 'unmerged=?'
+
+# Batch mode does not reach the second ssh that OpenSSH starts for a jump host. The user's own
+# askpass program must not open for it either.
+merged_remote_case 237 "work-ticket: a jump host whose key needs a passphrase does not ask either" \
+    FAKE_SSH_PASSPHRASE=1 FAKE_SSH_JUMP=1 SSH_ASKPASS="$ASKPASS"
+grep -q '^jump -W' "$TMP_ROOT/ssh-calls" 2>/dev/null \
+    || fail "the jump host's ssh should start, or the case proves nothing" "$(cat "$TMP_ROOT/ssh-calls" 2>/dev/null || true)"
+expect_meta 237 outcome=merged pr=7237 'unmerged=?'
+
+# A key that ssh can use with no question: batch mode does not stop the count.
+merged_remote_case 232 "work-ticket: the merged-PR count still works over ssh"
+grep -q '^ssh .*git-upload-pack' "$TMP_ROOT/ssh-calls" 2>/dev/null \
+    || fail "the merged head should be fetched over ssh, or the case proves nothing" "$LAST_OUTPUT"
+expect_in_output "PR #7232 was merged before the session ended — the work is on main"
+expect_meta 232 outcome=merged pr=7232 unmerged=0
+
+# The user's own ssh command stays, and gets batch mode. Git takes GIT_SSH_COMMAND first, then
+# core.sshCommand, then the GIT_SSH program, so each case also sets every one that comes later.
+git -C "$FAKE_REPO" config core.sshCommand "'$CONFIG_SSH'"
+merged_remote_case 233 "work-ticket: the merged-PR count keeps the user's GIT_SSH_COMMAND and adds batch mode" \
+    FAKE_SSH_PASSPHRASE=1 GIT_SSH_COMMAND="'$ENV_SSH'" GIT_SSH="$PROGRAM_SSH"
+grep -q '^env-ssh .*git-upload-pack' "$TMP_ROOT/ssh-calls" 2>/dev/null \
+    || fail "the user's GIT_SSH_COMMAND should fetch the merged head" "$(cat "$TMP_ROOT/ssh-calls" 2>/dev/null || true)"
+expect_meta 233 outcome=merged pr=7233 'unmerged=?'
+
+merged_remote_case 234 "work-ticket: the merged-PR count keeps the user's core.sshCommand and adds batch mode" \
+    FAKE_SSH_PASSPHRASE=1 GIT_SSH="$PROGRAM_SSH"
+git -C "$FAKE_REPO" config --unset core.sshCommand
+grep -q '^config-ssh .*git-upload-pack' "$TMP_ROOT/ssh-calls" 2>/dev/null \
+    || fail "the user's core.sshCommand should fetch the merged head" "$(cat "$TMP_ROOT/ssh-calls" 2>/dev/null || true)"
+expect_meta 234 outcome=merged pr=7234 'unmerged=?'
+
+merged_remote_case 235 "work-ticket: the merged-PR count keeps the user's GIT_SSH program and adds batch mode" \
+    FAKE_SSH_PASSPHRASE=1 GIT_SSH="$PROGRAM_SSH"
+grep -q '^program-ssh .*git-upload-pack' "$TMP_ROOT/ssh-calls" 2>/dev/null \
+    || fail "the user's GIT_SSH should fetch the merged head" "$(cat "$TMP_ROOT/ssh-calls" 2>/dev/null || true)"
+expect_meta 235 outcome=merged pr=7235 'unmerged=?'
+
+# A password prompt in an askpass program, set in each of the three places git reads it.
+git -C "$FAKE_REPO" config core.askPass "$ASKPASS"
+merged_remote_case 236 "work-ticket: an askpass program does not open for the merged-PR count" \
+    MERGED_REMOTE=fakehttps::fake-host GIT_ASKPASS="$ASKPASS" SSH_ASKPASS="$ASKPASS"
+git -C "$FAKE_REPO" config --unset core.askPass
+[ -s "$TMP_ROOT/fakehttps-calls" ] \
+    || fail "the merged head should come from the remote that wants a password, or the case proves nothing" "$LAST_OUTPUT"
+expect_in_output "but the loop could not check whether branch 236-fixture has commits the merge did not take"
+expect_meta 236 outcome=merged pr=7236 'unmerged=?'
 
 # A summary with no link finds the merged PR by its branch.
 behavior "$TMP_ROOT/done-merged-unlinked.sh" 'ticket="${PWD##*ticket-}"

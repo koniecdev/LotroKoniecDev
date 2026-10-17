@@ -241,8 +241,12 @@ Per-ticket outcomes:
     any salvage branch. Such commits usually need a new PR. The count can be too high, which is why
     the row asks you to check: a conflict fixed during a rebase, or an empty commit, counts too.
     When the merged head cannot be fetched, the row says `could not check for commits after the
-    merge`. Either way the ticket stays `merged`: it is not a failure of the machine. `.meta` holds
-    the count as `unmerged=` (`?` when it could not check).
+    merge`. An OpenSSH remote gets that row too when a key needs a passphrase or a host key is new,
+    also on a jump host. So does a remote that asks for a password. This fetch turns off the
+    questions of git and OpenSSH, on the terminal and in askpass programs, so it fails instead of
+    waiting (#1139). A jump host needs OpenSSH 8.4 or later for this. Either way the ticket stays
+    `merged`: it is not a failure of the machine. `.meta` holds the count as `unmerged=` (`?` when
+    it could not check).
   - The loop cannot tell who merged the PR: the worker's `gh` runs under the owner's account. A
     session that merged its own PR would break ADR-0060, and it would show as `merged`, not as an
     `error`. The session's instructions forbid a merge, and that is the guard; this outcome does

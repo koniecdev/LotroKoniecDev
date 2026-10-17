@@ -121,6 +121,25 @@ everything that matters must be committed and pushed.
    cancelled), update the body file, run step 9 on it again, then
    `gh pr edit <pr> --body-file <body file>`. When nothing changed the report, do not edit the PR
    after you open it.
+   **Once the PR is open, check its state right before every push** (#1097):
+   `gh pr view <pr> --json state --jq .state`. The owner may merge or close the PR while you wait
+   here. GitHub still accepts a push to its branch, but no PR takes it, so the fix never reaches
+   `main`.
+   - `OPEN`: push.
+   - `MERGED`: push nothing to that branch. Move the commits the merge did not take to a new branch
+     from `main`, named `<n>-follow-up` (any new name that starts with `<n>-`, so the loop counts
+     its PR): `git fetch origin && git switch -c <n>-follow-up origin/main`, then cherry-pick the
+     commits that `git cherry origin/<ticket branch> <ticket branch>` marks with `+`. It compares
+     changes, not commit ids, so commits GitHub rebased before the merge do not come back. Build
+     and run the whole suite on it, push it, and open a follow-up PR the way step 7 opens one,
+     from its own body file `/tmp/claude-ticket-$ARGUMENTS/follow-up-body.md`. Its body starts with
+     `Follow-up to #<pr>, which was merged before this fix was pushed.` instead of `Closes #<n>`
+     (the merge already closed the ticket), and it ends with its own `## Ticket report`. From here
+     the follow-up PR is the PR: this step goes on with it. The final message names it under `PR:`
+     and the merged PR in `SUMMARY:`.
+   - `CLOSED`, and you did not close it yourself: the owner rejected the change. Push nothing and
+     open no new PR. End with `STATUS: BLOCKED`, `CATEGORY: pr-closed`, and name the PR and the
+     commits that stay unpushed on the ticket branch.
 9. **Plain-English pass — on the body file, never on the open PR.** Only steps 7 and 8 send you
    here. After step 8, when nothing changed the report, skip this step and write the final message.
    Run **`/b2-english <body file>`**: it rewrites the file into plain B2 English for a non-native
@@ -153,7 +172,7 @@ LESSONS: <one line, or "none">
 
 ```
 STATUS: BLOCKED
-CATEGORY: business-questions | dependency | mis-scope | false-premise | red-build | review-unclean
+CATEGORY: business-questions | dependency | mis-scope | false-premise | red-build | review-unclean | pr-closed
 QUESTIONS:
 - <the exact 3-5 questions or the specific blocker the user must resolve>
 ```

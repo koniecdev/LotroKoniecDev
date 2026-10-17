@@ -7,13 +7,6 @@ internal sealed class OpenIddictSettings
     public required string Issuer { get; init; }
 
     /// <summary>
-    /// The issuer URL to use when this service calls itself, for example to get a client-credentials
-    /// token. When it is not set, <see cref="Issuer"/> is used. It helps in Docker, where the container
-    /// has to reach itself over localhost.
-    /// </summary>
-    public string? InternalIssuer { get; init; }
-
-    /// <summary>
     /// How long an access token stays valid. It is also how long any revocation takes to bite: the
     /// TMS validates JWTs on its own, so a token keeps working until it expires even after
     /// RevokeAllAsync has killed it in the database. Five minutes is the agreed window (ADR-0049).
@@ -38,8 +31,6 @@ internal sealed class OpenIddictSettings
     /// and only in production.
     /// </summary>
     public string ApiClientSecret { get; init; } = string.Empty;
-
-    public string EffectiveInternalIssuer => InternalIssuer ?? Issuer;
 
     public WebClientSettings WebClient { get; init; } = new();
 }

@@ -186,7 +186,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         HttpResponseMessage httpResponse = await ApiClient.Http.SendAsync(request);
         string stringResponse = await httpResponse.EnsureSuccessWithDetailsAsync();
 
-        httpResponse.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.HateoasJson);
+        httpResponse.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.HateoasJson);
 
         return JsonSerializer.Deserialize<AccountDataExportResponse>(stringResponse, ApiClient.JsonOptions)!;
     }

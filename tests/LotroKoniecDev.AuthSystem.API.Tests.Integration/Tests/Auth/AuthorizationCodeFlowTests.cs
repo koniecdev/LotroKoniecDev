@@ -94,7 +94,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
         Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Coś poszło nie tak</h1>");
     }
@@ -466,7 +466,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/json");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("application/json");
         using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
         body.RootElement.GetProperty("error_description").GetString().ShouldBe("The authorization code is no longer valid.");
@@ -841,7 +841,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-        response.Headers.Location?.ToString().ShouldStartWith(PostLogoutRedirectUri);
+        response.Headers.Location.ShouldNotBeNull().ToString().ShouldStartWith(PostLogoutRedirectUri);
         List<string?> authorizationStatuses =
             await OpenIddictTokenState.AuthorizationStatusesOfAsync(Factory.Services, session.UserId);
         authorizationStatuses.ShouldHaveSingleItem().ShouldBe(OpenIddictConstants.Statuses.Revoked);

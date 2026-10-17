@@ -177,7 +177,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
         string html = await page.Content.ReadAsStringAsync();
         html.ShouldContain("<script src=\"/login.js\"></script>");
         script.StatusCode.ShouldBe(HttpStatusCode.OK);
-        script.Content.Headers.ContentType?.MediaType.ShouldBe("text/javascript");
+        script.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/javascript");
         string body = await script.Content.ReadAsStringAsync();
         body.ShouldContain("password-toggle");
     }

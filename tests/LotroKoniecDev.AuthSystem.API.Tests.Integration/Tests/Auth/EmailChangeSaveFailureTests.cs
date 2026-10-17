@@ -114,7 +114,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Coś poszło nie tak</h1>");
     }
@@ -138,7 +138,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Coś poszło nie tak</h1>");
     }

@@ -38,7 +38,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Nie ma takiej strony</h1>");
         string nonce = StyleNonce(response).ShouldNotBeNull();
@@ -60,7 +60,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/problem+json");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("application/problem+json");
         using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         json.RootElement.GetProperty("status").GetInt32().ShouldBe((int)HttpStatusCode.NotFound);
     }
@@ -82,7 +82,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Formularz wygasł</h1>");
         string nonce = StyleNonce(response).ShouldNotBeNull();
@@ -117,7 +117,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/problem+json");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("application/problem+json");
         (await response.Content.ReadAsStringAsync()).ShouldNotContain("<!DOCTYPE html>");
     }
 
@@ -136,7 +136,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Nie udało się obsłużyć żądania</h1>");
         html.ShouldNotContain("Formularz wygasł");
@@ -156,7 +156,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/problem+json");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("application/problem+json");
         using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         json.RootElement.GetProperty("errorCode").GetString().ShouldBe("Http.BadRequest");
     }
@@ -176,7 +176,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/problem+json");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("application/problem+json");
         using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         json.RootElement.GetProperty("errorCode").GetString().ShouldNotBeNullOrWhiteSpace();
     }
@@ -192,7 +192,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/html");
         (await response.Content.ReadAsStringAsync()).ShouldContain("<h1>Nie udało się obsłużyć żądania</h1>");
     }
 
@@ -231,7 +231,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest, $"refused for '{rejectedParameter}'");
         response.Headers.Location.ShouldBeNull();
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Nie udało się obsłużyć żądania</h1>");
         string nonce = StyleNonce(response).ShouldNotBeNull();
@@ -269,7 +269,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/problem+json");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("application/problem+json");
         string body = await response.Content.ReadAsStringAsync();
         body.ShouldNotContain(CallerState);
         using JsonDocument json = JsonDocument.Parse(body);
@@ -298,7 +298,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/problem+json");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("application/problem+json");
         using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         json.RootElement.GetProperty("error").GetString().ShouldBe("invalid_request");
     }
@@ -318,7 +318,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/problem+json");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("application/problem+json");
         using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         json.RootElement.TryGetProperty("error", out _).ShouldBeFalse();
     }
@@ -345,7 +345,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/json");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("application/json");
         using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         json.RootElement.GetProperty("error").GetString().ShouldBe("invalid_client");
     }

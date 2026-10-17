@@ -182,7 +182,7 @@ public sealed class ForwardedHeadersTrustTests
         using HttpClient httpClient = factory.CreateClient();
         HttpResponseMessage httpResponse = await httpClient.SendAsync(request);
         string stringResponse = await httpResponse.EnsureSuccessWithDetailsAsync();
-        httpResponse.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.HateoasJson);
+        httpResponse.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.HateoasJson);
 
         return JsonSerializer.Deserialize<DiscoveryResponse>(stringResponse, jsonSerializerOptions)!;
     }

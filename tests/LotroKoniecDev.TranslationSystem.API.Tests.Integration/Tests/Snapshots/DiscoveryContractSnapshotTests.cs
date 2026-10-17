@@ -51,7 +51,7 @@ public sealed class DiscoveryContractSnapshotTests
         string body = await ApiSnapshot.IndentAsync(response);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.HateoasJson);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.HateoasJson);
         await Verifier.Verify(body, "json");
     }
 }

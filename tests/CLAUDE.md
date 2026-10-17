@@ -354,6 +354,10 @@ apply call) to be covered.
 - One reason to fail per test (may use multiple Shouldly calls for one concept)
 - `[Theory]` + `[InlineData]` for boundary/unhappy-path matrices
 - Shouldly style only, no raw `Assert.*`
+- Never put `?.` in front of a Shouldly call: when the value is null, `?.` skips the rest of the line,
+  so nothing is checked and the test passes. Write `ContentType.ShouldNotBeNull().MediaType.ShouldBe(…)`,
+  not `ContentType?.MediaType.ShouldBe(…)`. Where a null really is a pass, put the null-conditional part
+  in parentheses so the check always runs. #887 removed 55 such lines from the integration suites
 - `.Received()` only for side effects invisible in the return value (cleanup, "must NOT have
   been called on validation failure") — never to mirror internal call patterns
 - Shared test data builders go in `Shared/` (extend `TestDataFactory`, don't hand-roll bytes)

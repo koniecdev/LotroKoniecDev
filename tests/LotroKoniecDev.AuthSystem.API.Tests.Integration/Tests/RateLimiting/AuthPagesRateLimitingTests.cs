@@ -314,8 +314,7 @@ public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
         // Assert
         lastResponse.ShouldNotBeNull();
         lastResponse.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
-        // A missing content type passes on purpose: for a machine client only the HTML page is wrong.
-        (lastResponse.Content.Headers.ContentType?.MediaType).ShouldNotBe("text/html");
+        lastResponse.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("application/problem+json");
 
         string body = await lastResponse.Content.ReadAsStringAsync();
         body.ShouldNotContain("<!DOCTYPE html>");

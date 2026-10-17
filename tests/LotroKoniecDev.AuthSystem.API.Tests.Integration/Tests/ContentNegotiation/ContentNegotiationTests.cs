@@ -50,9 +50,7 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
 
         JsonNode? body = await ReadBodyAsJsonNodeAsync(response);
         body.ShouldNotBeNull();
-        JsonArray? links = body["links"]?.AsArray();
-        links.ShouldNotBeNull();
-        links.Count.ShouldBeGreaterThan(0);
+        body["links"].ShouldNotBeNull().AsArray().Count.ShouldBeGreaterThan(0);
     }
 
     [Fact]

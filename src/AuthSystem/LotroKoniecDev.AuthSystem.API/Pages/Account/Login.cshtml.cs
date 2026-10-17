@@ -43,6 +43,14 @@ internal sealed partial class LoginModel : PageModel
     private const string DeletionUnderwayMessage = "Usuwanie Twojego konta jest w toku i nie można go już anulować.";
 
     /// <summary>
+    /// The frontend's own login route. It turns the auth cookie we just issued into an application
+    /// session through a silent OIDC challenge. It copies the Frontend's
+    /// <c>AuthenticationDependencyInjectionExtensions.LoginPath</c>. The two contexts share no code, so
+    /// renaming it there has to be repeated here, like the register page's <c>/regulamin</c> link.
+    /// </summary>
+    private const string FrontendLoginPath = "/auth/login";
+
+    /// <summary>
     /// A hash computed up front for the failure paths that would otherwise skip password hashing: no
     /// such user, locked out, an account with no password, and a scheduled deletion whose login budget
     /// is spent (#881). They then cost as much CPU as the wrong-password path. That is the second layer
@@ -50,14 +58,6 @@ internal sealed partial class LoginModel : PageModel
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
-
-    /// <summary>
-    /// The frontend's own login route. It turns the auth cookie we just issued into an application
-    /// session through a silent OIDC challenge. It copies the Frontend's
-    /// <c>AuthenticationDependencyInjectionExtensions.LoginPath</c>. The two contexts share no code, so
-    /// renaming it there has to be repeated here, like the register page's <c>/regulamin</c> link.
-    /// </summary>
-    private const string FrontendLoginPath = "/auth/login";
 
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IOptions<OpenIddictSettings> _openIddictSettings;

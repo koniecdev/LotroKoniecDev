@@ -77,6 +77,23 @@ x-caddy-environment: &caddy-environment
   # `$$` is compose's escape for a literal `$`, and bcrypt hashes are full of them.
   OBS_PUSH_PASSWORD_HASH: ${OBS_PUSH_PASSWORD_HASH:-$$2a$$14$$4RPQokPEOhwXYs1Tbek6EuBbKEMGFJ2uCzRPSN.8xs2Cwctnu7kda}
 
+# How long Docker waits for an app to stop before it kills it (#1021). On every stop, and so on every
+# deploy, Docker sends the app its stop signal. Without this setting, Docker kills the app after
+# Docker's own default wait: 10 seconds on a Linux server, and only about 3 seconds on Docker Desktop
+# (measured on a Mac, October 2026). The app itself waits up to 30 seconds for open requests and
+# background work to finish. That is the .NET default, and no app changes it. An earlier kill could
+# cut that work off halfway: for example the final erasure of a deleted account, which no later run
+# comes back to. So the app's own 30 seconds is the real limit. Docker waits 5 seconds longer, for the
+# rest of the shutdown after that limit.
+# This does not slow a normal deploy: a healthy app stops in well under a second (0.2 to 0.4 s per
+# app in the October 2026 deploy logs). An app that is still busy can now hold a deploy for up to 35
+# seconds, and compose starts no app again until all three have stopped. That is the price of not
+# cutting the work off. If an app ever changes its own stop limit (HostOptions.ShutdownTimeout in
+# code, or the shutdownTimeoutSeconds setting), keep this value above it. compose.prod.yaml uses the
+# same value.
+x-app-stop-grace-period: &app-stop-grace-period
+  stop_grace_period: 35s
+
 # Who the kernel kills when the BOX runs out of memory (#786). A box-level OOM picks its victim by
 # size and nothing else, and on these boxes size barely speaks: the whole RSS spread across a box is
 # worth ~45 points of oom_score, while ONE unit of oom_score_adj is worth 0.66 of a point. The
@@ -149,6 +166,7 @@ services:
       start_period: 30s
 
   auth-api:
+    <<: *app-stop-grace-period
     image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/lotrokoniecdev-auth-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     # Application tier — see the header. Staging: expendable, it serves one developer and one
@@ -216,6 +234,7 @@ services:
         condition: service_completed_successfully
 
   tms-api:
+    <<: *app-stop-grace-period
     image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/lotrokoniecdev-tms-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     # Application tier — see the header (same reasoning as auth-api).
@@ -268,6 +287,7 @@ services:
         condition: service_healthy
 
   frontend:
+    <<: *app-stop-grace-period
     image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/lotrokoniecdev-frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     # Application tier — see the header (same reasoning as auth-api).

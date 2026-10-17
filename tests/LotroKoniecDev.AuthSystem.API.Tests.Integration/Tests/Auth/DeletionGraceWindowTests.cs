@@ -61,6 +61,26 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     }
 
     [Fact]
+    public async Task LoginPage_ShouldSayTheDeletionIsUnderway_OnceTheDeletionDateHasPassed()
+    {
+        // Arrange: #916: after its date the account waits up to a day for the daily run (ADR-0031, #780),
+        // and its cancel link is already dead
+        (RegisterRequest registerRequest, _) = await RegisterAndScheduleDeletionAsync();
+        TimeSpan gracePeriod = Factory.Services.GetRequiredService<IOptions<GdprSettings>>().Value.DeletionGracePeriod;
+        await AccountStateFactory.BackdateDeletionScheduleAsync(
+            Factory.Services, registerRequest.Email, gracePeriod + TimeSpan.FromMinutes(5));
+
+        // Act
+        HttpResponseMessage response = await PostLoginFormAsync(registerRequest.Email, TestPassword);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Usuwanie Twojego konta jest w toku i nie można go już anulować.");
+        html.ShouldNotContain("zaplanowane do usunięcia");
+    }
+
+    [Fact]
     public async Task LoginPage_ShouldShowGenericError_WhenPasswordIsWrongDuringGraceWindow()
     {
         // Arrange

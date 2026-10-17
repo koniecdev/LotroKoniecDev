@@ -230,6 +230,21 @@ ADR-0048 outlasts the grace period, which the shipped configuration never reache
 amendment), and in that tail the undo link still cancels the deletion. What the login page and the
 dead-link page say once the link has stopped working is #916.
 
+## Amendment (2026-10-17, #916): the login page once the deletion date has passed
+
+After its date, the account can wait up to a day for the daily run (the #780 amendment). The login page
+used to show the date that had passed next to the advice to click the cancel link, which was dead.
+
+**The owner's decision (2026-10-11):**
+
+- Once `FinalizesAt` has passed, the login page says "Usuwanie Twojego konta jest w toku i nie można go
+  już anulować." with no date. It uses the same boundary as the finalizer's `IsDueBy`. Before that
+  moment the page still names the date and the cancel link.
+- The dead-link page stays as it is. Its sentence, "działa do dnia zaplanowanego usunięcia konta", is
+  true since #947.
+- No text points to the e-mail change undo link. The window where the cancel link is dead but the undo
+  link still works never opens with the shipped settings (see the #685 amendment).
+
 ## Consequences
 
 - Account takeover can no longer irreversibly destroy an account: the attacker's deletion

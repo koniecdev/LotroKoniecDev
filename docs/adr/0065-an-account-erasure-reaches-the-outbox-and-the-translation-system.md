@@ -240,5 +240,5 @@ within a day. A shorter QA grace period leaves those encrypted rows until the pr
   parking queue; poison is parked), `Messaging/AccountEventsTopologyTests` (against RabbitMQ 4.3.4: a
   nack never parks, a reject parks at the limit).
 - Unit: `Translator.Erase`, the routing table and the `IdentityUserId` key of every routed contract,
-  the consumer's pauses and payload checks, the TMS broker settings, the late e-mail change notice,
-  the grace-period rule.
+  the consumer's pauses and payload checks, the consumer's attach and watch rules (#1105), the TMS
+  broker settings, the late e-mail change notice, the grace-period rule.

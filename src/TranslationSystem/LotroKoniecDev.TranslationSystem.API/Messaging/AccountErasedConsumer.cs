@@ -68,9 +68,10 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     /// </summary>
     private static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(30);
 
-    private readonly RabbitMqSettings _settings;
+    private readonly IConnectionFactory _connectionFactory;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<AccountErasedConsumer> _logger;
+    private readonly TimeSpan[] _connectBackoffs;
     private readonly TimeSpan[] _retryBackoffs;
     private readonly TimeSpan _watchInterval;
 
@@ -82,34 +83,6 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     /// database. A count for the consumer is the count for the message at the head of the queue.
     /// </summary>
     private int _failedAttemptsInARow;
-
-    public AccountErasedConsumer(
-        IOptions<RabbitMqSettings> options,
-        IServiceScopeFactory scopeFactory,
-        ILogger<AccountErasedConsumer> logger)
-        : this(options, scopeFactory, logger, RetryBackoffs, WatchInterval)
-    {
-    }
-
-    /// <summary>
-    /// Lets a test shorten the pauses and the watch, so it can run the slow paths in seconds. The
-    /// container only sees the public constructor.
-    /// </summary>
-    internal AccountErasedConsumer(
-        IOptions<RabbitMqSettings> options,
-        IServiceScopeFactory scopeFactory,
-        ILogger<AccountErasedConsumer> logger,
-        TimeSpan[] retryBackoffs,
-        TimeSpan watchInterval)
-    {
-        ArgumentOutOfRangeException.ThrowIfZero(retryBackoffs.Length);
-
-        _settings = options.Value;
-        _scopeFactory = scopeFactory;
-        _logger = logger;
-        _retryBackoffs = retryBackoffs;
-        _watchInterval = watchInterval;
-    }
 
     /// <summary>
     /// Reads the payload, or returns <c>null</c> when it can never be handled. It is internal so the
@@ -151,6 +124,23 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
         return false;
     }
 
+    /// <summary>
+    /// The broker client the container uses. It is internal so the brokered integration host connects
+    /// exactly the way production does.
+    /// </summary>
+    internal static ConnectionFactory BuildConnectionFactory(RabbitMqSettings settings) =>
+        new()
+        {
+            HostName = settings.Host,
+            Port = settings.Port,
+            UserName = settings.Username,
+            Password = settings.Password,
+            VirtualHost = settings.VirtualHost,
+            ClientProvidedName = "lotro-tms-api-account-consumer",
+            AutomaticRecoveryEnabled = true,
+            TopologyRecoveryEnabled = true
+        };
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
@@ -175,83 +165,6 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
         finally
         {
             await CloseAsync();
-        }
-    }
-
-    /// <summary>
-    /// Connects, declares the topology and registers the consumer as one attempt. Any exception
-    /// leaving <see cref="ExecuteAsync"/> would stop the whole host, and a broker problem must never
-    /// take the translation API down, so every failure is retried here after a pause, a timeout the
-    /// client reports as a cancellation included. A failed attempt disposes what it opened first, so no
-    /// half-attached connection is left behind.
-    /// </summary>
-    private async Task<AsyncEventingBasicConsumer> AttachConsumerWithRetryAsync(CancellationToken stoppingToken)
-    {
-        int failedAttempts = 0;
-
-        while (true)
-        {
-            try
-            {
-                ConnectionFactory connectionFactory = new()
-                {
-                    HostName = _settings.Host,
-                    Port = _settings.Port,
-                    UserName = _settings.Username,
-                    Password = _settings.Password,
-                    VirtualHost = _settings.VirtualHost,
-                    ClientProvidedName = "lotro-tms-api-account-consumer",
-                    AutomaticRecoveryEnabled = true,
-                    TopologyRecoveryEnabled = true
-                };
-
-                _connection = await connectionFactory.CreateConnectionAsync(stoppingToken);
-                IChannel channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
-                _channel = channel;
-                await AccountEventsTopology.DeclareAsync(channel, stoppingToken);
-
-                await channel.BasicQosAsync(
-                    prefetchSize: 0,
-                    prefetchCount: 1,
-                    global: false,
-                    cancellationToken: stoppingToken);
-
-                AsyncEventingBasicConsumer consumer = new(channel);
-                consumer.ReceivedAsync += (_, delivery) => OnDeliveredAsync(channel, delivery, stoppingToken);
-
-                await channel.BasicConsumeAsync(
-                    queue: AccountEventsTopology.ErasedQueue,
-                    autoAck: false,
-                    consumer: consumer,
-                    cancellationToken: stoppingToken);
-
-                return consumer;
-            }
-            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
-            {
-                await CloseAsync();
-                failedAttempts++;
-                TimeSpan wait = ConnectBackoffs[Math.Min(failedAttempts - 1, ConnectBackoffs.Length - 1)];
-                LogConnectFailed(_logger, ex, wait.TotalSeconds);
-                await Task.Delay(wait, stoppingToken);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Returns once the consumer has been detached for two looks in a row. The first look gives
-    /// automatic recovery its chance after a lost connection.
-    /// </summary>
-    private async Task WaitWhileAttachedAsync(AsyncEventingBasicConsumer consumer, CancellationToken stoppingToken)
-    {
-        int detachedLooks = 0;
-
-        while (detachedLooks < 2)
-        {
-            await Task.Delay(_watchInterval, stoppingToken);
-
-            bool attached = _channel is { IsOpen: true } && consumer.IsRunning;
-            detachedLooks = attached ? 0 : detachedLooks + 1;
         }
     }
 
@@ -318,6 +231,111 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
         {
             LogUnexpectedError(_logger, ex, messageId);
             await TryRequeueAsync(channel, delivery.DeliveryTag, stoppingToken);
+        }
+    }
+
+    public AccountErasedConsumer(
+        IOptions<RabbitMqSettings> options,
+        IServiceScopeFactory scopeFactory,
+        ILogger<AccountErasedConsumer> logger)
+        : this(
+            BuildConnectionFactory(options.Value),
+            scopeFactory,
+            logger,
+            ConnectBackoffs,
+            RetryBackoffs,
+            WatchInterval)
+    {
+    }
+
+    /// <summary>
+    /// Lets a test hand in its own broker client and shorten the pauses and the watch, so it can run the
+    /// slow paths in seconds. The container only sees the public constructor.
+    /// </summary>
+    internal AccountErasedConsumer(
+        IConnectionFactory connectionFactory,
+        IServiceScopeFactory scopeFactory,
+        ILogger<AccountErasedConsumer> logger,
+        TimeSpan[] connectBackoffs,
+        TimeSpan[] retryBackoffs,
+        TimeSpan watchInterval)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(connectBackoffs.Length);
+        ArgumentOutOfRangeException.ThrowIfLessThan(connectBackoffs.Min(), TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfZero(retryBackoffs.Length);
+        ArgumentOutOfRangeException.ThrowIfLessThan(retryBackoffs.Min(), TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(watchInterval, TimeSpan.Zero);
+
+        _connectionFactory = connectionFactory;
+        _scopeFactory = scopeFactory;
+        _logger = logger;
+        _connectBackoffs = connectBackoffs;
+        _retryBackoffs = retryBackoffs;
+        _watchInterval = watchInterval;
+    }
+
+    /// <summary>
+    /// Connects, declares the topology and registers the consumer as one attempt. Any exception
+    /// leaving <see cref="ExecuteAsync"/> would stop the whole host, and a broker problem must never
+    /// take the translation API down, so every failure is retried here after a pause, a timeout the
+    /// client reports as a cancellation included. A failed attempt disposes what it opened first, so no
+    /// half-attached connection is left behind.
+    /// </summary>
+    private async Task<AsyncEventingBasicConsumer> AttachConsumerWithRetryAsync(CancellationToken stoppingToken)
+    {
+        int failedAttempts = 0;
+
+        while (true)
+        {
+            try
+            {
+                _connection = await _connectionFactory.CreateConnectionAsync(stoppingToken);
+                IChannel channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
+                _channel = channel;
+                await AccountEventsTopology.DeclareAsync(channel, stoppingToken);
+
+                await channel.BasicQosAsync(
+                    prefetchSize: 0,
+                    prefetchCount: 1,
+                    global: false,
+                    cancellationToken: stoppingToken);
+
+                AsyncEventingBasicConsumer consumer = new(channel);
+                consumer.ReceivedAsync += (_, delivery) => OnDeliveredAsync(channel, delivery, stoppingToken);
+
+                await channel.BasicConsumeAsync(
+                    queue: AccountEventsTopology.ErasedQueue,
+                    autoAck: false,
+                    consumer: consumer,
+                    cancellationToken: stoppingToken);
+
+                return consumer;
+            }
+            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
+            {
+                await CloseAsync();
+                failedAttempts++;
+                TimeSpan wait = _connectBackoffs[Math.Min(failedAttempts - 1, _connectBackoffs.Length - 1)];
+                LogConnectFailed(_logger, ex, wait.TotalSeconds);
+                await Task.Delay(wait, stoppingToken);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns once the consumer has been detached for two looks in a row. The first look gives
+    /// automatic recovery its chance after a lost connection.
+    /// </summary>
+    private async Task WaitWhileAttachedAsync(AsyncEventingBasicConsumer consumer, CancellationToken stoppingToken)
+    {
+        int detachedLooks = 0;
+
+        while (detachedLooks < 2)
+        {
+            await Task.Delay(_watchInterval, stoppingToken);
+
+            bool attached = _channel is { IsOpen: true } && consumer.IsRunning;
+            detachedLooks = attached ? 0 : detachedLooks + 1;
         }
     }
 

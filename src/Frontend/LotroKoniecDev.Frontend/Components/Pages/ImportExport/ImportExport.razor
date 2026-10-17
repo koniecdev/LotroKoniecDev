@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Mvc
+@using LotroKoniecDev.Frontend.Infrastructure.Forms
 @using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
 @using LotroKoniecDev.TranslationSystem.Contracts.Common
@@ -65,6 +66,8 @@
                                  HeadlineClass="t"/>
             </div>
         </div>
+
+        <PostedFormTarget IsPageForm="@(static formName => formName == ImportFormName)"/>
     }
 
     @if (_canImport)
@@ -129,7 +132,7 @@
                        middleware reads the two joined by a comma as an invalid token. A plain <form>
                        post, as in Editor and NavMenu, still needs one. *@
                     <EditForm Model="ImportInput" OnValidSubmit="ImportAsync"
-                              FormName="import-export" method="post" enctype="multipart/form-data">
+                              FormName="@ImportFormName" method="post" enctype="multipart/form-data">
                         <div class="form-row">
                             <div class="field">
                                 <label for="game-version">Wersja gry</label>
@@ -233,6 +236,8 @@
 
 @code
 {
+    private const string ImportFormName = "import-export";
+
     private IReadOnlyList<GameVersionResponse>? _versions;
 
     /// <summary>
@@ -246,7 +251,10 @@
     private ImportSummary? _summary;
     private bool _canImport;
 
-    [SupplyParameterFromForm(FormName = "import-export")]
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromForm(FormName = ImportFormName)]
     private ImportFormModel? ImportInput { get; set; }
 
     /// <summary>The import that redirected here (#933).</summary>
@@ -260,14 +268,14 @@
         ImportInput ??= new ImportFormModel();
 
         // The redirect after an import names the version it went into, so the selector keeps it and a
-        // second file is not sent to another version by accident (#933). A posted choice wins.
-        if (SummaryRedirect.Read(ProtectedSummary) is { } completedImport)
+        // second file is not sent to another version by accident (#933). A post of the form is a new
+        // import, which keeps its own choice. The last summary never answers it, not even when this
+        // request cannot load the list and the new import does not run (#1122).
+        if (PostedForm.NameOf(HttpContext) != ImportFormName
+            && SummaryRedirect.Read(ProtectedSummary) is { } completedImport)
         {
             _summary = completedImport.Summary;
-            if (ImportInput.GameVersionId == Guid.Empty)
-            {
-                ImportInput.GameVersionId = completedImport.GameVersionId;
-            }
+            ImportInput.GameVersionId = completedImport.GameVersionId;
         }
 
         // Any translator may see the game-versions list. Whether the import panel appears is decided by

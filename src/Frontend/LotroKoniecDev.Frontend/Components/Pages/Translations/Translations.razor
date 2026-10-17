@@ -87,6 +87,8 @@
                                  HeadlineClass="t"/>
             </div>
         </div>
+
+        <PostedFormTarget IsPageForm="@(static formName => formName == BulkApproveFormName)"/>
     }
     else
     {
@@ -217,7 +219,7 @@
 
             @if (canBulkApprove)
             {
-                <form method="post" @formname="bulk-approve" @onsubmit="ApproveSelectedAsync">
+                <form method="post" @formname="@BulkApproveFormName" @onsubmit="ApproveSelectedAsync">
                     <AntiforgeryToken/>
                     @if (anyApprovable)
                     {
@@ -297,6 +299,8 @@
 
 @code
 {
+    private const string BulkApproveFormName = "bulk-approve";
+
     [SupplyParameterFromQuery]
     private string? Search { get; set; }
 
@@ -333,7 +337,7 @@
     // A few ticked checkboxes map to a dictionary keyed by row id. Blazor's static SSR form binding reads
     // keyed names such as `SelectedRows[<id>]`, and a plain name repeated many times does not bind to a
     // collection at all. Only the ticked rows are posted, so every entry that arrives is a selected row.
-    [SupplyParameterFromForm(FormName = "bulk-approve")]
+    [SupplyParameterFromForm(FormName = BulkApproveFormName)]
     private Dictionary<Guid, bool>? SelectedRows { get; set; }
 
     private TranslationListQuery _query = TranslationListQuery.From(null, null, 1);

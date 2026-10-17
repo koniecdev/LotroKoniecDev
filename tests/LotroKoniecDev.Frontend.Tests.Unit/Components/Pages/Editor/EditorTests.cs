@@ -229,6 +229,27 @@ public sealed class EditorTests : BunitContext
         component.Find(".status-message.status-success").TextContent.ShouldContain("Tłumaczenie zapisano");
     }
 
+    [Theory]
+    [InlineData("saved", "Tłumaczenie zapisano.")]
+    [InlineData("approved", "Tłumaczenie zatwierdzono i dołączono do dystrybucji.")]
+    public void Render_WhenTheRowFailsToLoadAfterTheRedirect_StillShowsTheConfirmationAboveTheLoadError(
+        string successFlag,
+        string confirmation)
+    {
+        // The action happened in the request that redirected here. If the row cannot be loaded again, the
+        // translator must still see that, or they send it again (#1122).
+        Guid id = Guid.NewGuid();
+        _client
+            .GetApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Nie znaleziono." }));
+        Navigation().NavigateTo($"/editor/{id}?{successFlag}=true");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.Find(".status-message.status-success").TextContent.ShouldContain(confirmation);
+        component.Find(".error-message").TextContent.ShouldContain("Nie znaleziono.");
+    }
+
     [Fact]
     public async Task Save_WhenSaveFails_DoesNotRedirectAndShowsTheErrorInline()
     {

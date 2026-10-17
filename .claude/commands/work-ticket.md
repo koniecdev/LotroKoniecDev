@@ -114,6 +114,17 @@ everything that matters must be committed and pushed.
    Fix every alert and push again (re-check after the re-run); dismissal instead of a fix is
    allowed only with a real stated reason. `/merge-train` refuses any PR with open alerts, so
    leaving one means the owner's review ends in a fix round, not in a merge.
+   **Once the PR is open, check its state right before every push** (#1097). The rule and the
+   recipe are the bullet "Once the PR is open, check its state" in `/ticket` step 8
+   (`.claude/commands/ticket.md`): read it before your first push after `gh pr create`. In the
+   loop it ends like this:
+   - `MERGED`: the follow-up PR is the PR from then on, so this step and step 9 go on with it. The
+     final message names it under `PR:` and the merged PR in `SUMMARY:`. With no commit to move,
+     name the merged PR under `PR:`.
+   - `CLOSED`, and you did not close it yourself: end with `STATUS: BLOCKED`,
+     `CATEGORY: pr-closed`, and put under `QUESTIONS:` what `/ticket` puts in the final reply.
+   - No state after the retries: end with `STATUS: BLOCKED`, `CATEGORY: pr-state-unknown`, and
+     name the check that failed.
 9. **Plain-English pass — after CodeQL is clear, before the final message.** Run
    **`/b2-english <PR number>`**: it rewrites the body into plain B2 English for a non-native
    reader and keeps every fact, heading and Polish string (same step as `/ticket` step 10).
@@ -143,7 +154,7 @@ LESSONS: <one line, or "none">
 
 ```
 STATUS: BLOCKED
-CATEGORY: business-questions | dependency | mis-scope | false-premise | red-build | review-unclean
+CATEGORY: business-questions | dependency | mis-scope | false-premise | red-build | review-unclean | pr-closed | pr-state-unknown
 QUESTIONS:
 - <the exact 3-5 questions or the specific blocker the user must resolve>
 ```

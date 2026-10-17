@@ -38,7 +38,10 @@ fail() {
 # with no auth page to check fails (#1079).
 new_tree() {
     local tree
-    tree="$(mktemp -d "$TMP_ROOT/tree.XXXXXX")"
+    # Callers run this inside $(…), where set -e is off: an empty $tree would aim every step below
+    # at the root or the current folder (#1042).
+    tree="$(mktemp -d "$TMP_ROOT/tree.XXXXXX")" || return 1
+    [ -d "$tree" ] || return 1
     mkdir -p "$tree/scripts" "$tree/src/Frontend/Components" "$tree/src/AuthSystem/Api/Pages/Account"
     cp "$GUARD_SH" "$GUARD_PS1" "$tree/scripts/"
     printf '%s\n' "$2" > "$tree/src/Frontend/Components/$1"

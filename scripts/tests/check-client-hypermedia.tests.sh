@@ -37,7 +37,10 @@ fail() {
 # source file.
 new_tree() {
     local tree
-    tree="$(mktemp -d "$TMP_ROOT/tree.XXXXXX")"
+    # Callers run this inside $(…), where set -e is off: an empty $tree would aim every step below
+    # at the root or the current folder (#1042).
+    tree="$(mktemp -d "$TMP_ROOT/tree.XXXXXX")" || return 1
+    [ -d "$tree" ] || return 1
     mkdir -p "$tree/scripts" "$tree/src/Frontend/Pages" "$tree/src/Patcher/Cli"
     cp "$GUARD_SH" "$GUARD_PS1" "$tree/scripts/"
     printf '%s\n' '<p>ok</p>' > "$tree/src/Frontend/Pages/Index.razor"

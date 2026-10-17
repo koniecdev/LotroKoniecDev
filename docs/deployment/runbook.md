@@ -1805,7 +1805,7 @@ interrupts anything (telemetry, for about a minute).
    ssh lotro-staging 'docker exec lotro-staging-caddy-1 printenv OBS_PUSH_PASSWORD_HASH' \
      | ssh lotro-prod 'umask 077; tr -d "\n" > /root/.obs-push-hash.deployed'
 
-   ssh lotro-prod 'd=$(mktemp -d); printf ":8899 {\n\tbasic_auth {\n\t\tprod-agent %s\n\t}\n\trespond \"ok\" 200\n}\n" \
+   ssh lotro-prod 'd=$(mktemp -d) || exit 1; printf ":8899 {\n\tbasic_auth {\n\t\tprod-agent %s\n\t}\n\trespond \"ok\" 200\n}\n" \
        "$(cat /root/.obs-push-hash.deployed)" > "$d/Caddyfile"; chmod 644 "$d/Caddyfile"
      docker run -d --rm --name obs-cred-probe -p 127.0.0.1:8899:8899 \
        -v "$d/Caddyfile:/etc/caddy/Caddyfile:ro" "$(docker inspect -f "{{.Config.Image}}" lotro-prod-caddy-1)" >/dev/null; sleep 2

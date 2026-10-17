@@ -39,7 +39,7 @@ US=$'\037'
 # Two steps on purpose: `cd ""` succeeds, so a failed mktemp inside one $(cd …) would point the
 # cleanup below at the current directory.
 TMP_ROOT="$(mktemp -d)" || exit 1
-TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || exit 1
+TMP_ROOT="$(CDPATH='' cd -- "$TMP_ROOT" && pwd -P)" || exit 1
 [ -d "$TMP_ROOT" ] || exit 1
 trap 'rm -rf "$TMP_ROOT"' EXIT
 

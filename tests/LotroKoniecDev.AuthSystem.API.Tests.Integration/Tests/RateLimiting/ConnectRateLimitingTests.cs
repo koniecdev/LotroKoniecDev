@@ -22,9 +22,9 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 /// Introspection and revocation are served entirely by OpenIddict middleware and cannot be handed to
 /// us at all, so their limits sit on routes that carry metadata only (#349,
 /// <c>MiddlewareServedEndpoints</c>). The suite's Testing host keeps the limiter middleware off; the
-/// burst tests force-arm it on a derived host to observe real 429 rejection, which a
-/// Staging-environment factory cannot do in-suite (outside Dev/Testing the settings validators demand
-/// production key material at startup).
+/// burst tests force-arm it on a derived host to observe real 429 rejection.
+/// <see cref="DeployedEnvironmentRateLimitingTests"/> boots Staging and Production hosts instead, to
+/// prove that the environment alone turns the limiter on there.
 /// </summary>
 public sealed class ConnectRateLimitingTests : EndpointsTestBase
 {

@@ -30,6 +30,8 @@ public sealed class LoginModelTests : IDisposable
 
     private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan Grace = new GdprSettings().DeletionGracePeriod;
+    private static readonly TimeSpan RevertLifespan = new EmailChangeRevertTokenProviderOptions().TokenLifespan;
+    private static readonly GdprSettings ShortGrace = new() { DeletionGracePeriod = TimeSpan.FromDays(1) };
 
     private readonly FakeTimeProvider _clock = new();
     private readonly PerAccountFixedWindowThrottle _deletionScheduledLoginThrottle = new(1, TimeSpan.FromMinutes(15));
@@ -209,17 +211,19 @@ public sealed class LoginModelTests : IDisposable
     }
 
     /// <summary>
-    /// The deletion date, not the end of the cancel window, decides. An e-mail change undo that outlives
-    /// the grace period holds the date back (#685), and the page keeps naming it until it arrives.
+    /// The deletion date decides, not the end of the cancel window. With a grace period shorter than
+    /// the undo window, an e-mail change made just before the deletion holds the date back past the end
+    /// of the cancel window (#685). The page then still names the date and the dead cancel link. The
+    /// owner chose no undo hint, because the shipped 14-day settings never reach this state (#916).
     /// </summary>
     [Fact]
     public async Task OnPostAsync_ShouldNameTheDeletionDate_WhileAnUndoHoldsItPastTheCancelWindow()
     {
         // Arrange
-        DateTimeOffset scheduledAt = _clock.GetUtcNow() - Grace - TimeSpan.FromMinutes(1);
+        DateTimeOffset revertArmedAt = _clock.GetUtcNow() - RevertLifespan + TimeSpan.FromHours(1);
         ApplicationUser user = ArrangeDeletionScheduledAccount(
-            scheduledAt, revertArmedAt: scheduledAt + TimeSpan.FromHours(1));
-        LoginModel sut = CreatePostingSut(user.Email!, Password);
+            scheduledAt: revertArmedAt + TimeSpan.FromHours(1), revertArmedAt);
+        LoginModel sut = CreatePostingSut(user.Email!, Password, ShortGrace);
 
         // Act
         await sut.OnPostAsync().WaitAsync(CompletionTimeout);
@@ -233,10 +237,10 @@ public sealed class LoginModelTests : IDisposable
     public async Task OnPostAsync_ShouldSayTheDeletionIsUnderway_OnceAnUndoThatHeldTheDateHasExpired()
     {
         // Arrange
-        DateTimeOffset scheduledAt = _clock.GetUtcNow() - Grace - TimeSpan.FromHours(2);
+        DateTimeOffset revertArmedAt = _clock.GetUtcNow() - RevertLifespan - TimeSpan.FromSeconds(1);
         ApplicationUser user = ArrangeDeletionScheduledAccount(
-            scheduledAt, revertArmedAt: scheduledAt + TimeSpan.FromHours(1));
-        LoginModel sut = CreatePostingSut(user.Email!, Password);
+            scheduledAt: revertArmedAt + TimeSpan.FromHours(1), revertArmedAt);
+        LoginModel sut = CreatePostingSut(user.Email!, Password, ShortGrace);
 
         // Act
         await sut.OnPostAsync().WaitAsync(CompletionTimeout);
@@ -315,6 +319,9 @@ public sealed class LoginModelTests : IDisposable
     }
 
     private LoginModel CreateSut(params string[] postLogoutRedirectUris) =>
+        CreateSut(new GdprSettings(), postLogoutRedirectUris);
+
+    private LoginModel CreateSut(GdprSettings gdprSettings, params string[] postLogoutRedirectUris) =>
         new(
             CreateUserManager(_store),
             Microsoft.Extensions.Options.Options.Create(new OpenIddictSettings
@@ -325,15 +332,15 @@ public sealed class LoginModelTests : IDisposable
             new AccountDeletionSchedule(
                 new EmailChangeRevertWindow(
                     Microsoft.Extensions.Options.Options.Create(new EmailChangeRevertTokenProviderOptions())),
-                Microsoft.Extensions.Options.Options.Create(new GdprSettings())),
+                Microsoft.Extensions.Options.Options.Create(gdprSettings)),
             _deletionScheduledLoginThrottle,
             new ResponseTimeFloor(_clock),
             _clock,
             NullLogger<LoginModel>.Instance);
 
-    private LoginModel CreatePostingSut(string email, string password)
+    private LoginModel CreatePostingSut(string email, string password, GdprSettings? gdprSettings = null)
     {
-        LoginModel sut = CreateSut();
+        LoginModel sut = CreateSut(gdprSettings ?? new GdprSettings());
         sut.PageContext = new PageContext { HttpContext = new DefaultHttpContext() };
         sut.Email = email;
         sut.Password = password;

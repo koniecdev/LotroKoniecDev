@@ -1881,6 +1881,9 @@ sed -n 2p "$TMP_ROOT/claude-args-2" | grep -qF 'no open pull request for ticket 
     || fail "the resume should say what the loop found" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
 sed -n 2p "$TMP_ROOT/claude-args-2" | grep -qF 'branch name starts with "106-"' \
     || fail "the resume should name the branch rule the loop checks" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
+# The owner may have closed the PR: then the session must not push or open a new one (#1097).
+sed -n 2p "$TMP_ROOT/claude-args-2" | grep -qF 'closed without a merge, and you did not close it yourself, push nothing and open no new PR: end with STATUS: BLOCKED' \
+    || fail "the resume should stop a session whose PR was closed" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
 [ "$(tail -2 "$TMP_ROOT/claude-args-2" | tr '\n' ' ')" = "--resume s-106 " ] \
     || fail "the resume should name the session" "$(cat "$TMP_ROOT/claude-args-2")"
 expect_meta 106 outcome=pr-opened pr=7106 resumes=1

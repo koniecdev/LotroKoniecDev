@@ -886,7 +886,9 @@ resume_prompt() {
         no-status) why="Your last message has no STATUS line, so the loop cannot tell how ticket #$ISSUE ended." ;;
         no-pr) why="Your last message says STATUS: DONE, but the loop found no open pull request for ticket #$ISSUE${pr_named:+ (PR #$pr_named, which your message links, is not one)}. \
 The loop counts only an open PR in this repository whose branch name starts with \"$ISSUE-\". \
-Push the branch and open the PR now, or name the full URL of that PR if it already exists." ;;
+Push the branch and open the PR now, or name the full URL of that PR if it already exists. \
+If the PR you opened in this session was closed without a merge, and you did not close it yourself, \
+push nothing and open no new PR: end with STATUS: BLOCKED, as step 8 of /work-ticket says." ;;
         limit) why="The usage limit that stopped this session is over, and the loop resumes ticket #$ISSUE in the same worktree. \
 Time has passed since your last step, so check git status and whether the PR already exists before you go on. \
 A command that was running when the limit hit did not finish: run it again." ;;

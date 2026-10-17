@@ -267,6 +267,24 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<pr>/merge&state=open"` and fix
   every alert (dismiss only with a stated reason) — green checks are not enough, the check
   succeeds even when it uploads findings (`CLAUDE.md` → Workflow §5).
+- **Once the PR is open, check its state right before every push** (#1097):
+  `gh pr view <pr> --json state --jq .state`. The owner may merge or close the PR while you wait
+  for CodeQL. GitHub still accepts a push to its branch, but no PR takes it, so the fix never
+  reaches `main`.
+  - `OPEN`: push.
+  - `MERGED`: push nothing to that branch. Move the commits the merge did not take to a new branch
+    from `main`, named `<n>-follow-up` (any new name that starts with `<n>-`, so the backlog loop
+    counts its PR): `git fetch origin && git switch -c <n>-follow-up origin/main`, then
+    cherry-pick the commits that `git cherry origin/<ticket branch> <ticket branch>` marks with
+    `+`. It compares changes, not commit ids, so commits GitHub rebased before the merge do not
+    come back. Build and run the whole suite on it, push it, and open a follow-up PR. Its body
+    starts with `Follow-up to #<pr>, which was merged before this fix was pushed.` instead of
+    `Closes #<n>` (the merge already closed the ticket), and it ends with its own
+    `## Ticket report`. From here the follow-up PR is the PR: the CodeQL check and step 10 go on
+    with it, and the final reply names both PRs.
+  - `CLOSED`, and you did not close it yourself: the owner rejected the change. Push nothing, open
+    no new PR, and stop: the final reply says the PR was closed and names the commits that stay
+    unpushed on the local ticket branch.
 - **Merging is the one step that always needs a separate explicit ask.** Never merge, and never
   commit to `main` directly. Never set an assignee either: the owner approves a PR by assigning
   themselves, and `/merge-train` merges only PRs approved that way (ADR-0060).

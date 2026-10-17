@@ -10,10 +10,11 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
 /// The limiter is off in Development and Testing, and every other test that needs a real 429 turns it on
-/// with the <c>RateLimiting:ForceEnable</c> test switch. These tests boot the host the way a box runs it:
-/// in Staging or Production, with the settings such a host needs to start, and without the switch
-/// (#827). A gate that needed the switch would leave both deployed environments with no limit at all.
-/// The TMS API has the same test (#823). Every test creates its own host, so its bucket is its own.
+/// with the <c>RateLimiting:ForceEnable</c> test switch. These tests boot the host without the switch,
+/// with the settings a deployed host needs to start (#827). They boot it in Production, which every box
+/// runs, and in Staging, the other deployed environment the code knows (ADR-0008 §1). A gate that needed
+/// the switch would leave the boxes with no limit at all. The TMS API has a Staging-only twin of this
+/// test (#823). Every test creates its own host, so its bucket is its own.
 /// </summary>
 public sealed class DeployedEnvironmentRateLimitingTests : EndpointsTestBase
 {
@@ -26,8 +27,10 @@ public sealed class DeployedEnvironmentRateLimitingTests : EndpointsTestBase
 
     private static readonly Uri ChangeEmailEndpoint = new("auth/account/change-email", UriKind.Relative);
 
-    // Built rather than written out, so no secret scanner mistakes test data for a key.
+    /// <summary>Built rather than written out, so no secret scanner mistakes test data for a key.</summary>
     private static readonly string FrontendKey = new('k', 40);
+
+    /// <inheritdoc cref="FrontendKey"/>
     private static readonly string HealthCheckKey = new('h', 40);
 
     private readonly string _keyRingPath = Path.Combine(
@@ -35,8 +38,8 @@ public sealed class DeployedEnvironmentRateLimitingTests : EndpointsTestBase
         $"lotro-auth-deployed-keyring-{Guid.NewGuid():N}");
 
     [Theory]
-    [InlineData("Staging")]
     [InlineData("Production")]
+    [InlineData("Staging")]
     public async Task DeployedEnvironment_ShouldEnforceTheLimitWithoutTheTestSwitch(string environmentName)
     {
         // Arrange: the requests carry no token, like in ChangeEmailRateLimitingTests. The limiter runs
@@ -92,8 +95,10 @@ public sealed class DeployedEnvironmentRateLimitingTests : EndpointsTestBase
     /// <summary>
     /// The base factory already sets the encryption key, the API client secret and the web client
     /// addresses. A deployed host also needs a signing key, an issuer that is not localhost, the CORS
-    /// origins, the frontend caller key, the health check key and a keyring folder. The test switch is
-    /// set to false here, so no other configuration source can turn the limiter on for these tests.
+    /// origins, the frontend caller key, the health check key and a keyring folder.
+    /// A null value reads as a missing setting and hides every source added before it. So the test
+    /// switch is missing, as on a box, and no other source can turn it on. The admin settings are
+    /// missing too, so the startup seeder adds no admin without a password to the shared database.
     /// </summary>
     private WebApplicationFactory<Program> CreateDeployedHost(string environmentName)
     {
@@ -112,7 +117,9 @@ public sealed class DeployedEnvironmentRateLimitingTests : EndpointsTestBase
                     { "Cors:AllowedOrigins:0", "https://app.lotro.test" },
                     { "FrontendCaller:Key", FrontendKey },
                     { "HealthCheck:Key", HealthCheckKey },
-                    { "RateLimiting:ForceEnable", "false" }
+                    { "RateLimiting:ForceEnable", null },
+                    { "AdminUser:Email", null },
+                    { "AdminUser:Password", null }
                 });
             });
         });

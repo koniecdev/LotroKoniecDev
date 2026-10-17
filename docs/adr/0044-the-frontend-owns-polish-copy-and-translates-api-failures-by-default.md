@@ -1,9 +1,9 @@
 # ADR-0044: The Frontend owns the Polish copy for API failures, and translates by default
 
-**Status:** Accepted (amended 2026-08-21 — #703 narrows §4 to the codes whose API message adds information; see the in-body amendment)
+**Status:** Accepted (amended 2026-08-21 — #703 narrows §4 to the codes whose API message adds information; amended 2026-10-17 — #1092 keeps the API English on any server, §1; see the in-body amendments)
 **Date:** 2026-08-06
 **Decision-makers:** Solo maintainer
-**Related:** #548 (the defect), #268 / #272 (the QA reports that found it), #703 (the §4 amendment) / #669 (the QA report that found it), ADR-0041 (no gateway — the API is a shared contract surface), ADR-0040 (rel names are a frozen public contract), `ApiProblemCopy`, `HttpClientApiExtensions`
+**Related:** #548 (the defect), #268 / #272 (the QA reports that found it), #703 (the §4 amendment) / #669 (the QA report that found it), #1092 (the §1 amendment), ADR-0041 (no gateway — the API is a shared contract surface), ADR-0040 (rel names are a frozen public contract), `ApiProblemCopy`, `HttpClientApiExtensions`
 
 ## Context
 
@@ -54,6 +54,39 @@ Frontend a dumb renderer — was rejected:
 So `errorCode` becomes what a rel name is for links (ADR-0040): **a frozen contract token**.
 Additions are cheap; renaming a code silently degrades that failure to the generic message. The map
 covers every code both APIs can produce today.
+
+**Amendment (2026-10-17, #1092) — the API stays English on any server.**
+
+"The API stays English" held only because of the machines the API ran on. FluentValidation picks its
+default messages, such as `'Translated Text' must not be empty.`, by the UI culture of the process,
+and the process takes that culture from the OS. The containers set no OS language, so staging and
+prod answered in English. A developer machine with a Polish OS did not: the TMS API sent
+`Pole 'Translated Text' nie może być puste.`, and the snapshot test that pins the English text
+failed there.
+
+So each API assembly turns FluentValidation's translations off in a module initializer,
+`ValidationMessageLanguage.KeepEnglish`: `ValidatorOptions.Global.LanguageManager.Enabled = false`.
+The setting lives in the API, not in the test hosts, because the answer is a contract and must not
+depend on the machine that serves it. It is a module initializer, not a line in `Program.cs`,
+because the runtime runs it before any other code of the assembly. The host, the integration tests and every
+unit test that builds one of the API's validators therefore all get the same English messages, and
+nobody has to remember a test setup. A new API project needs the same class. Nothing checks that:
+there are two API hosts and no third one is planned.
+
+The checks: `UpsertTranslationValidatorTests` runs the real validator with the machine in Polish,
+German and French. `ProblemDetailsContractTests` sends the blank-text upsert to a server in those
+languages. `ValidationMessageLanguageTests` covers the auth assembly, where every rule has its own
+English message today.
+
+The setting fixes the language of the messages, not the way the values in them are written.
+FluentValidation writes those values with the culture of the machine. Every value a rule puts in a
+message today is a whole number of zero or more, which reads the same in every culture. A negative
+number does not (some cultures write the minus sign as U+2212). Decimals and dates do not either. A
+rule whose message carries one of those should write the value itself, with
+`CultureInfo.InvariantCulture`, in its own `WithMessage`.
+
+The Frontend's and the patcher's validators are not covered: they check settings and command
+arguments, and their messages never reach an API answer.
 
 ### 2. Translation is the default; only an explicitly marked Frontend problem passes through
 

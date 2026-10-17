@@ -64,17 +64,27 @@ prod answered in English. A developer machine with a Polish OS did not: the TMS 
 `Pole 'Translated Text' nie może być puste.`, and the snapshot test that pins the English text
 failed there.
 
-So both API hosts turn FluentValidation's translations off at the top of `Program.cs`:
-`ValidatorOptions.Global.LanguageManager.Enabled = false`. The setting lives in the API, not only in
-the test hosts, because the answer is a contract and must not depend on the machine that serves it.
-The integration tests boot the same `Program`, so they get it too. A new API host copies the line.
-`ProblemDetailsContractTests` sends the blank-text upsert with the server in Polish, German and
-French. `ValidationMessageLanguageBootTests` checks the auth host, where every rule has its own
+So each API assembly turns FluentValidation's translations off in a module initializer,
+`ValidationMessageLanguage.KeepEnglish`: `ValidatorOptions.Global.LanguageManager.Enabled = false`.
+The setting lives in the API, not in the test hosts, because the answer is a contract and must not
+depend on the machine that serves it. A module initializer and not a line in `Program.cs`, because
+the runtime runs it before any other code of the assembly. The host, the integration tests and every
+unit test that builds one of the API's validators therefore all get the same English messages, and
+nobody has to remember a test setup. A new API project needs the same class. Nothing checks that:
+there are two API hosts and no third one is planned.
+
+The checks: `UpsertTranslationValidatorTests` runs the real validator with the machine in Polish,
+German and French. `ProblemDetailsContractTests` sends the blank-text upsert to a server in those
+languages. `ValidationMessageLanguageTests` covers the auth assembly, where every rule has its own
 English message today.
 
-The line fixes the language of the messages, not the format of the values in them. Every value a
-rule puts in a message today is a whole number, which reads the same in every culture. A rule that
-puts a decimal or a date in its message should format it with `CultureInfo.InvariantCulture`.
+The setting fixes the language of the messages, not the way the values in them are written.
+FluentValidation writes those values with the culture of the machine. Every value a rule puts in a
+message today is a whole number of zero or more, or a GUID, and those read the same in every
+culture. A negative
+number does not (some cultures write the minus sign as U+2212), and neither do a decimal or a date.
+A rule whose message carries one of those should write the value itself, with
+`CultureInfo.InvariantCulture`, in its own `WithMessage`.
 
 The Frontend's and the patcher's validators are not covered: they check settings and command
 arguments, and their messages never reach an API answer.

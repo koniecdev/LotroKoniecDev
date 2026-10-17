@@ -98,7 +98,7 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
         // (#1092).
         await using WebApplicationFactory<Program> host =
             HostWithRequestCulture(CultureInfo.GetCultureInfo(serverCulture));
-        using HttpClient client = TranslatorClient(host);
+        using HttpClient client = ClientForRole(host, AuthConstants.Roles.Translator);
 
         // Act
         HttpResponseMessage response = await client.PutAsJsonAsync(
@@ -211,23 +211,17 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
         return document.RootElement.Clone();
     }
 
-    private static HttpClient TranslatorClient(WebApplicationFactory<Program> host)
+    private static HttpClient ClientForRole(WebApplicationFactory<Program> host, string role)
     {
         HttpClient client = host.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", TranslationSystemApiFactory.CreateAccessToken(AuthConstants.Roles.Translator));
+            "Bearer", TranslationSystemApiFactory.CreateAccessToken(role));
         return client;
     }
 
-    private HttpClient TranslatorClient() => TranslatorClient(_factory);
+    private HttpClient TranslatorClient() => ClientForRole(_factory, AuthConstants.Roles.Translator);
 
-    private HttpClient AdminClient()
-    {
-        HttpClient client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", TranslationSystemApiFactory.CreateAccessToken(AuthConstants.Roles.Admin));
-        return client;
-    }
+    private HttpClient AdminClient() => ClientForRole(_factory, AuthConstants.Roles.Admin);
 
     private WebApplicationFactory<Program> HostWithRequestCulture(CultureInfo culture)
     {

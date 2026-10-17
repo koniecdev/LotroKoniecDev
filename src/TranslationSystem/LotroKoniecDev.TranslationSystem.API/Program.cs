@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Reflection;
 using System.Threading.RateLimiting;
-using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
@@ -37,11 +36,6 @@ Log.Logger = new LoggerConfiguration()
 try
 {
     Log.Information("Starting TranslationSystem");
-
-    // The API answers in English, whatever the language of the server's OS (ADR-0044 §1, #1092).
-    // FluentValidation picks its default messages by the current UI culture, so without this line a
-    // server with a Polish OS sends its validation messages in Polish.
-    ValidatorOptions.Global.LanguageManager.Enabled = false;
 
     WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 

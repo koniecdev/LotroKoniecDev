@@ -103,6 +103,9 @@ for setting in BROKER_POLICY_WAIT_SECONDS BROKER_POLICY_RETRY_SECONDS BROKER_POL
 done
 
 cd "$STACK_DIR" || { echo "deploy.sh: stack dir $STACK_DIR not found — is the box bootstrapped?" >&2; exit 2; }
+# The script reads STACK_DIR again below, when it writes the new .env. A relative value would then
+# point inside the stack dir, so from here on it is the folder the cd above went to (#1080).
+STACK_DIR="$PWD"
 
 for required in "$COMPOSE_FILE" .env; do
     if [ ! -f "$required" ]; then

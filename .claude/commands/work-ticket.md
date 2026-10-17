@@ -121,34 +121,18 @@ everything that matters must be committed and pushed.
    cancelled), update the body file, run step 9 on it again, then
    `gh pr edit <pr> --body-file <body file>`. When nothing changed the report, do not edit the PR
    after you open it.
-   **Once the PR is open, check its state right before every push** (#1097):
-   `gh pr view <pr> --json state,headRefOid`. The owner may merge or close the PR while you wait
-   here. GitHub still accepts a push to its branch, but no PR takes it, so the fix never reaches
-   `main`.
-   - `OPEN`: push.
-   - `MERGED`: push nothing to that branch. Move the commits the merge did not take to a new
-     branch from `main`, named after the merged PR's branch with `-follow-up` added (a merged
-     follow-up PR gets `-follow-up` added again; `-2`, `-3` only when that exact name is taken):
-     by that name the loop knows the merged PR is yours. Run
-     `git fetch origin && git fetch origin "refs/pull/<pr>/head"`, then
-     `git switch --no-track -c <branch>-follow-up origin/main`, then cherry-pick, oldest first,
-     the commits that `git cherry <headRefOid> <ticket branch>` marks with `+`. `headRefOid` is
-     what the merge took, and `git cherry` compares changes, not commit ids, so commits GitHub
-     rebased before the merge do not come back. Skip a pick that comes out empty, or that
-     conflicts only because `main` already has that change (`git cherry-pick --skip`). No commit
-     left: the merge holds all the work, so open no follow-up PR and name the merged PR under
-     `PR:`. Otherwise build and run the whole suite, `git push -u origin HEAD`, and open a
-     follow-up PR the way step 7 opens one, from its own body file
-     `/tmp/claude-ticket-$ARGUMENTS/follow-up-body.md`. Its body starts with
-     `Follow-up to #<pr> (ticket #<n>), which was merged before this fix was pushed.` instead of
-     `Closes #<n>` (the merge already closed the ticket), and it ends with its own
-     `## Ticket report`. From here the follow-up PR is the PR: this step goes on with it. The
-     final message names it under `PR:` and the merged PR in `SUMMARY:`.
-   - `CLOSED`, and you did not close it yourself: the owner rejected the change. Push nothing and
-     open no new PR. End with `STATUS: BLOCKED`, `CATEGORY: pr-closed`, and name the PR and the
-     commits that stay unpushed on the ticket branch.
-   - No state (an error, an empty answer): try once more. Still none: push nothing, and end with
-     `STATUS: BLOCKED`, `CATEGORY: pr-state-unknown`, naming the check that failed.
+   **Once the PR is open, check its state right before every push** (#1097). The rule and the
+   recipe are the bullet "Once the PR is open, check its state" in `/ticket` step 8
+   (`.claude/commands/ticket.md`): read it before your first push after `gh pr create`. In the
+   loop it ends like this:
+   - `MERGED`: the follow-up PR's body file is `/tmp/claude-ticket-$ARGUMENTS/follow-up-body.md`,
+     written as step 7 says, and step 9 runs on it before `gh pr create`. The follow-up PR is the
+     PR from then on, so this step goes on with it. The final message names it under `PR:` and
+     the merged PR in `SUMMARY:`. With no commit to move, name the merged PR under `PR:`.
+   - `CLOSED`, and you did not close it yourself: end with `STATUS: BLOCKED`,
+     `CATEGORY: pr-closed`, and put under `QUESTIONS:` what `/ticket` puts in the final reply.
+   - No state after the retries: end with `STATUS: BLOCKED`, `CATEGORY: pr-state-unknown`, and
+     name the check that failed.
 9. **Plain-English pass — on the body file, never on the open PR.** Only steps 7 and 8 send you
    here. After step 8, when nothing changed the report, skip this step and write the final message.
    Run **`/b2-english <body file>`**: it rewrites the file into plain B2 English for a non-native

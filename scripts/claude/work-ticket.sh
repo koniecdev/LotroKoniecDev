@@ -254,6 +254,16 @@ finish() {
     fi
 }
 
+# follows_up <PR branch> <session branch> — true when the session's branch is the PR's branch with
+# `-follow-up` added, once or more, each time maybe with `-<k>`. A session whose PR was merged
+# before its last fix was pushed moves the fix to such a branch from main (#1097).
+follows_up() {
+    local rest
+    [[ "$2" == "$1"?* ]] || return 1
+    rest="${2#"$1"}"
+    [[ "$rest" =~ ^(-follow-up(-[0-9]+)?)+$ ]]
+}
+
 # commits_after_merge — prints how many commits on HEAD or on the merged PR's branch the merged PR
 # does not hold, plus one when the worktree has uncommitted files, which `finish` saves as a commit
 # on a salvage branch. The session may commit a fix after the merge, for example for a CodeQL alert:
@@ -271,10 +281,11 @@ finish() {
 # time.
 commits_after_merge() {
     local dir="$WT" tips="HEAD refs/heads/$pr_branch" ref="refs/loop-merged/$ISSUE-$$" merged_head
-    local tip listed found="" commit count=0 ssh_command
+    local tip listed found="" commit count=0 ssh_command follow_tip="HEAD" moved
     if [ "$own_worktree" -eq 0 ]; then
         dir="$REPO_ROOT"
         tips="refs/heads/$pr_branch${earlier_salvage:+ refs/heads/$earlier_salvage}"
+        follow_tip="refs/heads/$pr_branch"
     fi
     # Batch mode goes on the ssh command git would use anyway. Git takes GIT_SSH_COMMAND first, then
     # core.sshCommand, then the GIT_SSH program, then plain ssh.
@@ -299,6 +310,16 @@ commits_after_merge() {
         listed="$(git -C "$dir" cherry "$merged_head" "$tip" 2>/dev/null)" || return 1
         found="$found$(sed -n 's/^+ //p' <<< "$listed")"$'\n'
     done
+    # The session followed the merged PR up (#1097): a fix may still sit on the PR's own branch,
+    # not moved yet. A change the follow-up branch already has counts once.
+    if [ -n "$merged_branch" ] && [ "$merged_branch" != "$pr_branch" ] \
+        && git -C "$dir" rev-parse -q --verify "refs/heads/$merged_branch^{commit}" >/dev/null 2>&1; then
+        listed="$(git -C "$dir" cherry "$merged_head" "refs/heads/$merged_branch" 2>/dev/null)" || return 1
+        moved="$(git -C "$dir" cherry "$follow_tip" "refs/heads/$merged_branch" 2>/dev/null)" || return 1
+        for commit in $(sed -n 's/^+ //p' <<< "$listed"); do
+            grep -qxF -- "- $commit" <<< "$moved" || found="$found$commit"$'\n'
+        done
+    fi
     for commit in $(printf '%s' "$found" | sort -u); do
         git -C "$dir" merge-base --is-ancestor "$commit" refs/remotes/origin/main 2>/dev/null \
             || count=$((count + 1))
@@ -317,6 +338,10 @@ finish_merged() {
     after_merge="$(commits_after_merge)" || after_merge="?"
     meta unmerged "$after_merge"
     where="$checked"
+    if [ -n "$merged_branch" ] && [ "$merged_branch" != "$pr_branch" ]; then
+        where="$where and on branch $merged_branch"
+        checked="$checked or branch $merged_branch"
+    fi
     if [ "$own_worktree" -eq 1 ]; then
         head_place="$(git -C "$WT" branch --show-current 2>/dev/null || true)"
         where="$where, at the worktree's HEAD (${head_place:-detached}) and on any salvage branch named above"
@@ -340,13 +365,6 @@ finish_merged() {
 # and a marker in the worktree's own git folder names the session. Salvage would move those files
 # to another branch, so a re-created worktree would not be the tree the session knows. The marker
 # goes away with the worktree. next-ticket.sh reads the same marker, so change both together.
-
-# own_merged_branch <PR branch> <session branch> — true when a merged PR's branch is the session's
-# own: the same branch, or the session's branch is that one plus `-follow-up`. A session whose PR
-# was merged before its last fix was pushed moves the fix to such a branch from main (#1097).
-own_merged_branch() {
-    [ "$1" = "$2" ] || [[ "$2" == "$1-follow-up"* ]]
-}
 
 # Prints the marker's path. A folder that is not a worktree of its own resolves to the main .git,
 # so it has none.
@@ -458,6 +476,8 @@ release_kept=0
 # A PR of this ticket from the branch of an attempt the usage limit stopped, merged since that
 # attempt started (#1096). Its work is on main, so no session runs.
 merged_pr=""
+# The branch of merged_pr, when the stopped session moved its work off it to a follow-up branch.
+merged_branch=""
 # 0 when a ticket merged during a usage-limit nap has no worktree of its own any more: a folder that
 # appears under its name from then on is someone else's (#1096).
 own_worktree=1
@@ -524,9 +544,11 @@ if [ -n "$resume_session" ]; then
                 ;;
             MERGED)
                 if [ "$ended" -ge "$resume_started" ]; then
-                    if own_merged_branch "$head" "$branch"; then
+                    if [ "$head" = "$branch" ]; then
                         merged_pr="${merged_pr:-$number}"
-                    else
+                    elif ! follows_up "$head" "$branch"; then
+                        # A PR the session follows up is its own: the resume finishes moving the fix
+                        # to the follow-up branch (#1097).
                         blocker="PR #$number was merged from another branch ($head)"
                     fi
                 fi
@@ -603,8 +625,11 @@ else
         merged_other_pr=""
         while read -r number head; do
             [ -n "$number" ] || continue
-            if own_merged_branch "$head" "$retry_branch"; then
-                merged_pr="${merged_pr:-$number}"
+            if [ "$head" = "$retry_branch" ] || follows_up "$head" "$retry_branch"; then
+                if [ -z "$merged_pr" ]; then
+                    merged_pr="$number"
+                    merged_branch="$head"
+                fi
             else
                 if [ -z "$merged_other" ]; then
                     merged_other="PR #$number from another branch ($head)"

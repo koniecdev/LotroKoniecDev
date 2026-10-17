@@ -230,7 +230,8 @@ Per-ticket outcomes:
   `done:` line counts it apart from `PR opened` and `failed`. Only a PR opened after the session
   started counts (on a resume after a usage limit: after the session first started). One merged
   before that is history from an earlier attempt, and a PR closed without a merge is still an
-  `error`. An open PR of the ticket goes first, even when the summary links a merged one.
+  `error`, unless the resumed session answers BLOCKED (#1097). An open PR of the ticket goes
+  first, even when the summary links a merged one.
   - The session may still commit after the merge, for example a fix for a CodeQL alert, on the
     PR's branch, on a new branch or on a detached HEAD. That commit is not on `main`. So the worker
     compares both the worktree's HEAD and the PR's own branch with the merged PR's head
@@ -257,13 +258,14 @@ Per-ticket outcomes:
     session that merged its own PR would break ADR-0060, and it would show as `merged`, not as an
     `error`. The session's instructions forbid a merge, and that is the guard; this outcome does
     not police it.
-  - A ticket is `merged` too when its PR is merged while a usage limit holds it (#1096): the
-    session opened the PR, the limit stopped it, and you merged the PR during the nap. The next run
-    of the ticket does not resume the session and does not start a new one. It counts the commits
-    and files the merge did not take as above, saves uncommitted files on a `loop-salvage/…` branch,
-    removes the worktree and keeps the branch. Only a PR from the branch the stopped session worked
-    on counts, merged after that session first started. A PR merged from another branch of the
-    ticket is someone else's work, so the ticket is `skipped`. See "A session stopped by a usage
+  - A ticket is `merged` too when its PR is merged while a usage limit holds it (#1096): the session
+    opened the PR, the limit stopped it, and you merged the PR during the nap. The next run of the
+    ticket does not resume the session and does not start a new one. It counts the commits and files
+    the merge did not take as above, saves uncommitted files on a `loop-salvage/…` branch, removes
+    the worktree and keeps the branch. Only a PR from the branch the stopped session worked on
+    counts, merged after that session first started. A PR that branch follows up (#1097) counts too,
+    but a kept session is then resumed to finish moving its fix. A PR merged from another branch of
+    the ticket is someone else's work, so the ticket is `skipped`. See "A session stopped by a usage
     limit, or DONE without a PR" for each case.
 - **skipped** — the ticket already has an open PR, or `.claude/worktrees/ticket-<n>` already
   exists (a manual `/ticket` session or an earlier run is on it). Nothing is started. A worktree
@@ -436,14 +438,19 @@ Now:
   and you may merge that PR while the loop naps. Its work is on `main` then, so a second session
   would only redo it and maybe open a second PR. So before a resume, and before a retry that starts
   over, the worker looks for a PR of the ticket merged after the session first started:
-  - **From the stopped session's branch** (the kept worktree's branch, or the `branch=` its `.meta`
-    recorded), or from the branch that one follows up (the session's branch is the PR's branch with
-    `-follow-up` added, #1097): the ticket is `merged` (exit 13) with that PR. Nothing is resumed or
+  - **From the stopped session's branch** (the kept worktree's branch, or the `branch=` its
+    `.meta` recorded): the ticket is `merged` (exit 13) with that PR. Nothing is resumed or
     started. As for a PR merged before the session ended, the worker counts the commits and files
-    the merge did not take: the kept worktree's HEAD, its uncommitted files and the PR's branch, or,
-    when the worktree is already gone, the PR's branch and the `salvage=` branch. It saves
+    the merge did not take: the kept worktree's HEAD, its uncommitted files and the PR's branch,
+    or, when the worktree is already gone, the PR's branch and the `salvage=` branch. It saves
     uncommitted files on a `loop-salvage/…` branch, removes the worktree (unless
     `LOOP_KEEP_WORKTREE=1`) and keeps the branch. The log line names the PR and where to look.
+  - **From the branch the stopped session follows up** (its branch is the PR's branch with
+    `-follow-up` added, #1097): the session was moving a fix off that merged PR to a new branch. A
+    kept session is resumed to finish the move. A retry with no session to resume ends `merged` as
+    above, and it also counts the commits on the merged PR's own branch that the follow-up branch
+    does not have yet. A branch that only starts with the PR's branch (`<branch>-follow-up-for-x`)
+    is not a follow-up.
   - **From another branch:** someone else finished the ticket, so it is `skipped` (exit 12) with
     no session, as for an open PR from another branch, and the row shows that PR. A kept worktree
     stays for you, without its marker. With no worktree left, the log line and `salvage=` name the
@@ -464,19 +471,19 @@ Now:
     ticket before you name it again. The picker does not offer it in drain mode, because the merged PR
     closed the issue.
 - **A DONE with no open PR for the ticket is resumed once**, with a prompt that says what the loop
-  found and that it counts only an open PR whose branch starts with `<n>-`. When the PR the session
-  opened was closed without a merge, and not by the session itself, the prompt tells it to push
-  nothing, open no new PR and end BLOCKED (#1097). Otherwise it asks the session to push and open
-  the PR. The prompt does not mention a merged PR, so it never points the session at a merge
-  (ADR-0060). The prompt names a PR the summary linked by its number only: that PR's branch name
-  is text anyone who opens a PR can choose, so it stays in the log (ADR-0026). The result is
-  judged again from the top: `pr-opened` when the PR now exists, `merged` when it was merged in the
-  meantime, `blocked` when the session answers BLOCKED, `error` when there is still none. The
-  resume needs a real "no PR" from GitHub: when the ticket's PRs cannot be listed, the ticket is an
-  `error` without it. A link to a wrong PR in the summary no longer fails a ticket whose own PR
-  exists: the branch list finds that one. This resume has the same guards as the no-STATUS one (a
-  session id, ten minutes of the clock, the provenance gate), but it does not count toward
-  `LOOP_MAX_RESUMES`.
+  found and that it counts only an open PR whose branch starts with `<n>-`. It first says that a
+  session whose PR was closed without a merge, and not by the session itself, pushes nothing, opens
+  no new PR and ends BLOCKED (#1097): only the session knows who closed it. Otherwise it asks the
+  session to push and open the PR. The prompt does not mention a merged PR, so it never points the
+  session at a merge (ADR-0060). The prompt names a PR the summary linked by its number only: that
+  PR's branch name is text anyone who opens a PR can choose, so it stays in the log (ADR-0026). The
+  result is judged again from the top: `pr-opened` when the PR now exists, `merged` when it was
+  merged in the meantime, `blocked` when the session answers BLOCKED, `error` when there is still
+  none. The resume needs a real "no PR" from GitHub: when the ticket's PRs cannot be listed, the
+  ticket is an `error` without it. A link to a wrong PR in the summary no longer fails a ticket
+  whose own PR exists: the branch list finds that one. This resume has the same guards as the
+  no-STATUS one (a session id, ten minutes of the clock, the provenance gate), but it does not count
+  toward `LOOP_MAX_RESUMES`.
 
 Files: the resumed run keeps the limited attempt's results for debugging. `ticket-<n>.json` is
 replaced by the resume's result when it ends (the old one moves to `.before-resume-1`), because a

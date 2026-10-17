@@ -283,28 +283,31 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   for CodeQL. GitHub still accepts a push to its branch, but no PR takes it, so the fix never
   reaches `main`.
   - `OPEN`: push.
-  - `MERGED`: push nothing to that branch. Move the commits the merge did not take to a new branch
-    from `main`, named after the merged PR's branch with `-follow-up` added (a merged follow-up PR
-    gets `-follow-up` added again; `-2`, `-3` only when that exact name is taken): by that name the
-    backlog loop knows the merged PR is the session's own.
-    Run `git fetch origin && git fetch origin "refs/pull/<pr>/head"`, then
-    `git switch --no-track -c <branch>-follow-up origin/main`, then cherry-pick, oldest first, the
-    commits that `git cherry <headRefOid> <ticket branch>` marks with `+`. `headRefOid` is what
-    the merge took, and `git cherry` compares changes, not commit ids, so commits GitHub rebased
-    before the merge do not come back. Skip a pick that comes out empty, or that conflicts only
-    because `main` already has that change (`git cherry-pick --skip`). No commit left: the merge
-    holds all the work, so open no follow-up PR. Otherwise run the build, the whole suite and the
-    guard scripts, `git push -u origin HEAD`, and open a follow-up PR the way "The PR opens with
-    its final text" says, from its own body file `/tmp/claude-ticket-<n>/follow-up-body.md`. Its
-    body starts with `Follow-up to #<pr> (ticket #<n>), which was merged before this fix was
-    pushed.` instead of `Closes #<n>` (the merge already closed the ticket), and it ends with its
-    own `## Ticket report`. From here the follow-up PR is the PR: the CodeQL check and the body
-    edits go on with it, and the final reply names both PRs.
+  - `MERGED`: push nothing to that branch. Run `git fetch origin` and
+    `git fetch origin "refs/pull/<pr>/head"`, then `git cherry <headRefOid> <ticket branch>`. The
+    commits it marks with `+` are the ones the merge did not take: `headRefOid` is what the merge
+    took, and `git cherry` compares changes, not commit ids, so commits GitHub rebased before the
+    merge do not come back. No `+` commit: the merge holds all the work, so make no new branch and
+    open no follow-up PR. Otherwise move them to a new branch from `main`, named after the merged
+    PR's branch with `-follow-up` added (a merged follow-up PR gets `-follow-up` added again; `-2`,
+    `-3` only when that exact name is taken). By that name the backlog loop knows the merged PR is
+    the session's own. Run `git switch --no-track -c <branch>-follow-up origin/main` and
+    cherry-pick the `+` commits, oldest first. Skip a pick that comes out empty, or that conflicts
+    only because `main` already has that change (`git cherry-pick --skip`). Then the gate of every
+    PR: the build, the whole suite and the guard scripts green, and the `code-reviewer` agent on
+    the follow-up diff until APPROVE. Then `git push -u origin HEAD` and open a follow-up PR the
+    way "The PR opens with its final text" says, from its own body file
+    `/tmp/claude-ticket-<n>/follow-up-body.md`. Its body starts with `Follow-up to #<pr> (ticket
+    #<n>), which was merged before this fix was pushed.` instead of `Closes #<n>` (the merge
+    already closed the ticket), and it ends with its own `## Ticket report`. From here the
+    follow-up PR is the PR: the CodeQL check and the body edits go on with it, and the final reply
+    names both PRs.
   - `CLOSED`, and you did not close it yourself: the owner rejected the change. Push nothing, open
-    no new PR, and stop: the final reply says the PR was closed and names the commits that stay
-    unpushed on the local ticket branch.
-  - No state (an error, an empty answer): try once more. Still none: push nothing, and stop with a
-    final reply that names the check that failed.
+    no new PR, and stop. The final reply says the PR was closed and names the commits that stay
+    unpushed on the local ticket branch. It also says that a new session for this ticket checks
+    that branch out again, rejected commits included, so the owner says where the next one starts.
+  - No state (an error, an empty answer): wait a minute and ask again, three times at most. Still
+    none: push nothing, and stop with a final reply that names the check that failed.
 - **Merging is the one step that always needs a separate explicit ask.** Never merge, and never
   commit to `main` directly. Never set an assignee either: the owner approves a PR by assigning
   themselves, and `/merge-train` merges only PRs approved that way (ADR-0060).

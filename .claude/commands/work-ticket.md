@@ -115,23 +115,31 @@ everything that matters must be committed and pushed.
    allowed only with a real stated reason. `/merge-train` refuses any PR with open alerts, so
    leaving one means the owner's review ends in a fix round, not in a merge.
    **Once the PR is open, check its state right before every push** (#1097):
-   `gh pr view <pr> --json state --jq .state`. The owner may merge or close the PR while you wait
+   `gh pr view <pr> --json state,headRefOid`. The owner may merge or close the PR while you wait
    here. GitHub still accepts a push to its branch, but no PR takes it, so the fix never reaches
    `main`.
    - `OPEN`: push.
-   - `MERGED`: push nothing to that branch. Move the commits the merge did not take to a new branch
-     from `main`, named `<n>-follow-up` (any new name that starts with `<n>-`, so the loop counts
-     its PR): `git fetch origin && git switch -c <n>-follow-up origin/main`, then cherry-pick the
-     commits that `git cherry origin/<ticket branch> <ticket branch>` marks with `+`. It compares
-     changes, not commit ids, so commits GitHub rebased before the merge do not come back. Build
-     and run the whole suite on it, push it, and open a follow-up PR. Its body starts with
-     `Follow-up to #<pr>, which was merged before this fix was pushed.` instead of `Closes #<n>`
-     (the merge already closed the ticket), and it ends with its own `## Ticket report`. From here
-     the follow-up PR is the PR: this step and step 9 go on with it. The final message names it
-     under `PR:` and the merged PR in `SUMMARY:`.
+   - `MERGED`: push nothing to that branch. Move the commits the merge did not take to a new
+     branch from `main`, named after the merged PR's branch with `-follow-up` added (then `-2`,
+     `-3` when that name is taken): by that name the loop knows the merged PR is yours. Run
+     `git fetch origin && git fetch origin "refs/pull/<pr>/head"`, then
+     `git switch --no-track -c <branch>-follow-up origin/main`, then cherry-pick, oldest first,
+     the commits that `git cherry <headRefOid> <ticket branch>` marks with `+`. `headRefOid` is
+     what the merge took, and `git cherry` compares changes, not commit ids, so commits GitHub
+     rebased before the merge do not come back. Skip a pick that comes out empty, or that
+     conflicts only because `main` already has that change (`git cherry-pick --skip`). No commit
+     left: the merge holds all the work, so open no follow-up PR and name the merged PR under
+     `PR:`. Otherwise build and run the whole suite, `git push -u origin HEAD`, and open a
+     follow-up PR. Its body starts with
+     `Follow-up to #<pr> (ticket #<n>), which was merged before this fix was pushed.` instead of
+     `Closes #<n>` (the merge already closed the ticket), and it ends with its own
+     `## Ticket report`. From here the follow-up PR is the PR: this step and step 9 go on with it.
+     The final message names it under `PR:` and the merged PR in `SUMMARY:`.
    - `CLOSED`, and you did not close it yourself: the owner rejected the change. Push nothing and
      open no new PR. End with `STATUS: BLOCKED`, `CATEGORY: pr-closed`, and name the PR and the
      commits that stay unpushed on the ticket branch.
+   - No state (an error, an empty answer): try once more. Still none: push nothing, and end with
+     `STATUS: BLOCKED`, `CATEGORY: pr-state-unknown`, naming the check that failed.
 9. **Plain-English pass — after CodeQL is clear, before the final message.** Run
    **`/b2-english <PR number>`**: it rewrites the body into plain B2 English for a non-native
    reader and keeps every fact, heading and Polish string (same step as `/ticket` step 10).
@@ -161,7 +169,7 @@ LESSONS: <one line, or "none">
 
 ```
 STATUS: BLOCKED
-CATEGORY: business-questions | dependency | mis-scope | false-premise | red-build | review-unclean | pr-closed
+CATEGORY: business-questions | dependency | mis-scope | false-premise | red-build | review-unclean | pr-closed | pr-state-unknown
 QUESTIONS:
 - <the exact 3-5 questions or the specific blocker the user must resolve>
 ```

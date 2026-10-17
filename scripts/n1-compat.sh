@@ -100,12 +100,13 @@ trap cleanup EXIT
 # feeding the symlinked form to dotnet as an absolute project path makes restore and build
 # disagree about project identity — the compile then silently resolves ZERO references
 # (empirically: 646 CS errors via /var/..., a clean build via /private/var/...).
-# It runs inside $(…), where bash turns set -e off, so every step checks its own result: `cd ""`
-# succeeds, and a failed mktemp would make the checkout the temp folder that cleanup deletes (#1042).
-# It prints a path only on success, so a caller's variable stays empty and cleanup skips it.
+# It runs inside $(…), where bash turns set -e off, so each step checks its own result. `cd ""`
+# succeeds and stays in the checkout. Without these checks a failed mktemp would make the checkout
+# the temp folder, and cleanup would delete it (#1042). It prints a path only on success, so on a
+# failure the caller's variable stays empty and cleanup skips it.
 canonical_tmp_dir() {
   local dir
-  dir="$(mktemp -d)" && [ -d "$dir" ] && (cd -- "$dir" && pwd -P) && return 0
+  dir="$(mktemp -d)" && [ -d "$dir" ] && (CDPATH='' cd -- "$dir" && pwd -P) && return 0
   echo "ERROR: cannot create a temporary folder, so the proof could not run." >&2
   return 1
 }

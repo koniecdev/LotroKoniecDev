@@ -196,7 +196,7 @@ public sealed class ForwardedHeadersTrustTests : IAsyncLifetime
     {
         HttpResponseMessage response = await client.SendAsync(request);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.HateoasJson);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.HateoasJson);
 
         return (await response.Content.ReadFromJsonAsync<T>(JsonOptions))!;
     }

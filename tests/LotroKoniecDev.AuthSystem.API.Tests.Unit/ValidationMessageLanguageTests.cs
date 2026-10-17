@@ -6,9 +6,9 @@ using FluentValidation.Results;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit;
 
 /// <summary>
-/// #1092: once this API's assembly is loaded, the default messages stay English on a machine whose OS
-/// has another language. No rule of this API uses a default message today, so a rule written here
-/// stands in for one.
+/// #1092: once any code of this API's assembly has run, the default messages stay English on a
+/// machine whose OS has another language. No rule of this API uses a default message today, so a rule
+/// written here stands in for one.
 /// </summary>
 public sealed class ValidationMessageLanguageTests
 {
@@ -18,8 +18,8 @@ public sealed class ValidationMessageLanguageTests
     [InlineData("fr-FR")]
     public void KeepEnglish_OnAMachineInAnotherLanguage_ShouldLeaveDefaultMessagesInEnglish(string machineCulture)
     {
-        // Arrange: the runtime runs the module initializer only once, before any other code of the
-        // assembly, so asking for it here is safe whatever ran first.
+        // Arrange: an InlineValidator runs no code of this assembly, so the runtime may not have run
+        // its initializer yet. Asking twice does nothing.
         RuntimeHelpers.RunModuleConstructor(typeof(ValidationMessageLanguage).Module.ModuleHandle);
         InlineValidator<Probe> validator = new() { rules => rules.RuleFor(probe => probe.Text).NotEmpty() };
         CultureInfo originalUiCulture = CultureInfo.CurrentUICulture;

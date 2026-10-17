@@ -67,8 +67,8 @@ failed there.
 So each API assembly turns FluentValidation's translations off in a module initializer,
 `ValidationMessageLanguage.KeepEnglish`: `ValidatorOptions.Global.LanguageManager.Enabled = false`.
 The setting lives in the API, not in the test hosts, because the answer is a contract and must not
-depend on the machine that serves it. A module initializer and not a line in `Program.cs`, because
-the runtime runs it before any other code of the assembly. The host, the integration tests and every
+depend on the machine that serves it. It is a module initializer, not a line in `Program.cs`,
+because the runtime runs it before any other code of the assembly. The host, the integration tests and every
 unit test that builds one of the API's validators therefore all get the same English messages, and
 nobody has to remember a test setup. A new API project needs the same class. Nothing checks that:
 there are two API hosts and no third one is planned.
@@ -80,10 +80,9 @@ English message today.
 
 The setting fixes the language of the messages, not the way the values in them are written.
 FluentValidation writes those values with the culture of the machine. Every value a rule puts in a
-message today is a whole number of zero or more, or a GUID, and those read the same in every
-culture. A negative
-number does not (some cultures write the minus sign as U+2212), and neither do a decimal or a date.
-A rule whose message carries one of those should write the value itself, with
+message today is a whole number of zero or more, which reads the same in every culture. A negative
+number does not (some cultures write the minus sign as U+2212). Decimals and dates do not either. A
+rule whose message carries one of those should write the value itself, with
 `CultureInfo.InvariantCulture`, in its own `WithMessage`.
 
 The Frontend's and the patcher's validators are not covered: they check settings and command

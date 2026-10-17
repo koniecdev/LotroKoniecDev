@@ -49,13 +49,13 @@ public sealed class UpsertTranslationValidatorTests
 
     private static ValidationResult ValidateIn(CultureInfo culture, UpsertTranslation.Command command)
     {
-        UpsertTranslation.Validator validator = new();
         CultureInfo originalCulture = CultureInfo.CurrentCulture;
         CultureInfo originalUiCulture = CultureInfo.CurrentUICulture;
         try
         {
             CultureInfo.CurrentCulture = culture;
             CultureInfo.CurrentUICulture = culture;
+            UpsertTranslation.Validator validator = new();
             return validator.Validate(command);
         }
         finally

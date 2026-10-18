@@ -514,9 +514,9 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   `AuthSystem.API/Middleware/SecurityHeadersMiddleware` adds CSP, `X-Frame-Options: DENY`, nosniff
   and `Referrer-Policy: no-referrer` to every response outside Development. `style-src` and
   `script-src` are plain `'self'`, with no nonce and no per-request state. The account pages share
-  `wwwroot/account.css`, and a rule only one page needs goes at its end under that page's body class
-  (`page-login`, `page-register`, `page-privacy`); the error pages that `BrowserErrorPage` writes use
-  `wwwroot/error-page.css`. Page script goes in a file under `wwwroot` too (`login.js`). An inline
+  `wwwroot/account.css`. A rule that changes a shared class for one page goes at its end under that
+  page's body class (`page-login`, `page-register`, `page-privacy`); a class only one page uses needs
+  no prefix. The error pages that `BrowserErrorPage` writes use `wwwroot/error-page.css`. Page script goes in a file under `wwwroot` too (`login.js`). An inline
   `<style>` is dropped by the browser and the page loads unstyled. `form-action` lists the web
   client's origins, because the login POST ends in a redirect to the frontend's `/callback` and
   Chrome checks every redirect of a form. That also makes the frontend's `ResponseMode.Query`

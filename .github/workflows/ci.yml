@@ -156,10 +156,10 @@ jobs:
             exit 1
           fi
 
-      # Runs every *.Tests.Integration project, found by name like the unit step above.
-      # The TranslationSystem.API and AuthSystem.API suites start real PostgreSQL (and, for
-      # their messaging tests, RabbitMQ) through Testcontainers, so they need Docker. The
-      # Frontend suite boots the Frontend host in memory, with no database and no Docker.
+      # Runs every *.Tests.Integration project, found by name, like the unit step above.
+      # The TranslationSystem.API and AuthSystem.API suites start real PostgreSQL through
+      # Testcontainers, so they need Docker. Their messaging tests also start RabbitMQ.
+      # The Frontend suite boots the Frontend host in memory, with no database and no Docker.
       - name: Run Integration Tests
         run: |
           set -euo pipefail

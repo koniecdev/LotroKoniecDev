@@ -6,6 +6,17 @@ namespace LotroKoniecDev.Tests.Unit.Tests.Models;
 
 public sealed class SubFileTests
 {
+    public static TheoryData<byte[]> RoundTripCases => new()
+    {
+        TestDataFactory.CreateTextSubFileData(0x25000001, "Test"),
+        TestDataFactory.CreateTextSubFileData(0x25000001, 1001UL, 3),
+        TestDataFactory.CreateTextSubFileDataWithArgs(
+            0x25000001,
+            42UL,
+            ["Hello ", " and ", "!"],
+            [BitConverter.GetBytes(7), BitConverter.GetBytes(9)]),
+    };
+
     [Theory]
     [InlineData(0x25000001, true)]  // Text file (0x25 high byte)
     [InlineData(0x25FFFFFF, true)]  // Text file
@@ -190,6 +201,21 @@ public sealed class SubFileTests
         reparsedSubFile.Parse(serialized);
         reparsedSubFile.FragmentCount.ShouldBe(1);
         reparsedSubFile.Fragments[12345UL].GetFullText().ShouldBe("Test");
+    }
+
+    [Theory]
+    [MemberData(nameof(RoundTripCases))]
+    public void Serialize_UnchangedParsedSubFile_ShouldReturnTheOriginalBytes(byte[] originalData)
+    {
+        // Arrange
+        SubFile subFile = new();
+        subFile.Parse(originalData);
+
+        // Act
+        byte[] serialized = subFile.Serialize();
+
+        // Assert
+        serialized.ShouldBe(originalData);
     }
 
     [Theory]

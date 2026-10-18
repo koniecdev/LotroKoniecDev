@@ -395,8 +395,8 @@ $HateoasAccept = 'application/vnd.dev-lotrokoniecdev.hateoas.json'
 
 # "scheme://host:port" for an absolute URL: the default port filled in, any user:password@ part dropped.
 # Those are the parts the frontend compares (#830), so for every link our APIs build, two spellings of
-# one origin match here when they match there. Empty for a relative URL. The scheme test comes first, because on Linux and
-# macOS [Uri] reads a path such as /api/v1 as an absolute file:// address.
+# one origin match here when they match there. Empty for a relative URL. The scheme test comes first,
+# because on Linux and macOS [Uri] reads a path such as /api/v1 as an absolute file:// address.
 function Get-Origin {
     param([string]$Url)
     $uri = $null

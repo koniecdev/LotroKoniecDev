@@ -1101,7 +1101,9 @@ expect_meta 208 reset_at=1791397200
 
 # Any other shape names no time, so the conductor takes the fixed nap. That includes a clock time
 # that does not exist (2:30am on 2026-03-29, when the clocks go forward) or exists twice (2:30am on
-# 2026-10-25, when they go back): the two kinds of date would not agree on it.
+# 2026-10-25, when they go back): the two kinds of date would not agree on it. It also includes an
+# earlier clock time seen in the hour after the clocks went back (2:00am seen at 02:20 CET), when
+# the order of clock times cannot tell today from tomorrow.
 for unreadable in \
     "1791393962|You've hit your session limit" \
     "1791393962|You've hit your weekly limit · resets Oct 20, 8pm (Europe/Warsaw)" \
@@ -1113,7 +1115,8 @@ for unreadable in \
     "1791393962|You've hit your session limit · resets 8:20pm (Mars/Olympus_Mons)" \
     "1791393962|You've hit your session limit · resets 8:20pm (../../../etc/passwd)" \
     "1774740600|You've hit your session limit · resets 2:30am (Europe/Warsaw)" \
-    "1792881000|You've hit your session limit · resets 2:30am (Europe/Warsaw)"; do
+    "1792881000|You've hit your session limit · resets 2:30am (Europe/Warsaw)" \
+    "1792891200|You've hit your session limit · resets 2:00am (Europe/Warsaw)"; do
     limit_at 209 "${unreadable%%|*}" "${unreadable#*|}"
     ! grep -q '^reset_at=' "$TMP_ROOT/run/ticket-209.meta" \
         || fail "'${unreadable#*|}' names no time the loop can trust" "$(cat "$TMP_ROOT/run/ticket-209.meta")"

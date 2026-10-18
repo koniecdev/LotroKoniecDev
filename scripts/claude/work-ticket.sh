@@ -1281,6 +1281,9 @@ reset_epoch() {
     # The day is chosen by the clock time alone, before any time is converted. So a time that does
     # not exist, or exists twice, on the first day still counts on the next day, when it is valid.
     if [ $(( hour * 60 + 10#$minute )) -lt $(( 10#${since%:*} * 60 + 10#${since#*:} )) ]; then
+        # Within an hour after the clocks went back, an hour ago shows the same clock time as now,
+        # so an earlier clock time may still be today's. Such a time is not read.
+        [ "$(zone_date "$zone" "$2" '%Y-%m-%d %H:%M')" != "$day $since" ] || return 1
         # Noon plus a day is always on the next day, also on a night when the clocks change.
         noon="$(moment_of "$zone" "$day" 12:00)" || return 1
         day="$(zone_date "$zone" $(( noon + 86400 )) %Y-%m-%d)" || return 1

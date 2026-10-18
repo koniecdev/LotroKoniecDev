@@ -305,17 +305,20 @@ Per-ticket outcomes:
     its time is older): the fixed `LOOP_LIMIT_SLEEP_MIN` nap, as before. A wake-up time already
     past never gives a nap of zero, so a retry that meets the limit again cannot run through every
     nap in a few minutes. A limit that ended less than two minutes ago gets a short nap until those
-    two minutes are over, and counts as one nap. Only the shape
-    above is read, `resets <h>[:<mm>]am|pm (<IANA zone>)`, with a zone this machine knows. Anything
-    else falls back, never a guess: a weekly limit with a date, a clock time that does not exist or
-    exists twice on the night the clocks change, or a zone that `date` would silently read as UTC.
+    two minutes are over, and counts as one nap. Only the shape above is read,
+    `resets <h>[:<mm>]am|pm (<IANA zone>)`, with a zone this machine knows. Anything else falls
+    back, never a guess: a weekly limit with a date, a clock time that does not exist or exists
+    twice on the night the clocks change, an earlier clock time seen in the hour after the clocks
+    went back (the clock order cannot tell today from tomorrow then), or a zone that `date` would
+    silently read as UTC.
   - A limit that ends later than the whole nap budget (`LOOP_LIMIT_RETRIES` naps of
     `LOOP_LIMIT_SLEEP_MIN`, eight hours by default) stops the run at once, with the reset time in
     the stop reason: `stopped early: usage limit resets at 2026-10-08 18:20, later than the whole
     nap budget (8 naps of 60m)`. The loop used to sleep the eight hours first and then stop anyway.
-    A session limit ends at most five hours after it starts, so with the default knobs this stop
-    needs a message whose time is further away than that. A weekly limit whose message has a date
-    is not read at all: it still takes the fixed naps until they run out.
+    A session limit ends at most five hours after it starts, so with the default knobs a session
+    limit never stops the run this way: the stop needs a time more than eight hours away. A weekly
+    limit whose message has a date is not read at all: it still takes the fixed naps until they
+    run out.
 - **untrusted** — the ticket failed the provenance gate, either at the start (no session is
   spawned) or before a resume (the work so far is kept on its branch). It does not count toward
   the failure circuit breaker (drain mode never selects one anyway).

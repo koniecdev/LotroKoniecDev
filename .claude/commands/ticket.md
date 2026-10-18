@@ -255,23 +255,27 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   commit and no open question, TODO or unverified assumption remains. Any gate unproven (Docker
   down, a suite skipped, review verdict missing) → **push the branch, write the report (step 9) as
   an issue comment instead, and stop before `gh pr create`** — no draft PR either: a bare branch
-  push is free, every later push to an open PR re-runs pr-verify on billed minutes. The comment
-  goes through step 10 as a file first, then `gh issue comment <n> --body-file <file>`.
+  push is free, every later push to an open PR re-runs pr-verify on billed minutes. Write the
+  comment to `/tmp/claude-<n>/report-comment.md`, run step 10 on it, then
+  `gh issue comment <n> --body-file <that file>`.
 - **Re-read the issue (body and comments) right before `gh pr create`.** A case added to it after
   you read it (`docs/labels.md` → **One bug class per ticket**) is not in this diff. Move it to a
   new ticket with the same labels, link the two both ways, and list it under Follow-ups, so
   `Closes #<n>` never closes a case nobody fixed.
 - **The PR opens with its final text.** `git push -u origin HEAD`. Write the body to
-  `<scratchpad>/<n>-pr-body.md`: `Closes #<n>`, a short what/why/test summary, and step 9's report.
-  Run step 10 on that file, then `gh pr create` with the title mirroring the ticket and
+  `/tmp/claude-<n>/pr-body.md`: outside the repo, so no commit picks it up, and one folder per
+  ticket, so two sessions never share a file. The body is `Closes #<n>`, then the problem in plain
+  words (`## Problem`, `## Why`, `## Fix`), then what changed and how it was tested, then step 9's
+  report. Run step 10 on that file, then `gh pr create` with the title mirroring the ticket and
   `--body-file <that file>`. The ticket is the authorization — do not stop to ask for permission
   to commit, push, or open the PR.
-- **CodeQL alerts block the merge, so clear them before you report.** Once the PR's `CodeQL` check
-  completes (docs-only diffs skip it), list
+- **CodeQL alerts block the merge, so clear them before your final reply.** Once the PR's
+  `CodeQL` check completes (docs-only diffs skip it), list
   `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<pr>/merge&state=open"` and fix
   every alert (dismiss only with a stated reason) — green checks are not enough, the check
-  succeeds even when it uploads findings (`CLAUDE.md` → Workflow §5). A fix commit or a dismissal
-  after the PR opens changes the report: update the body file, run step 10 on it again, then
+  succeeds even when it uploads findings (`CLAUDE.md` → Workflow §5). When something after the PR
+  opens makes the report wrong (a fix commit, a dismissal, a CodeQL run that fails or is
+  cancelled), update the body file, run step 10 on it again, then
   `gh pr edit <pr> --body-file <that file>`. When nothing changed the report, do not edit the PR
   after you open it.
 - **Merging is the one step that always needs a separate explicit ask.** Never merge, and never
@@ -285,7 +289,7 @@ The PR body (or the issue comment, when there is no PR) ends with:
 ```markdown
 ## Ticket report
 **Shipped:** <what changed, behaviorally, 1-3 lines>
-**Proof:** <each gate with its actual result: build, the suite counts, guards, review verdict, the second-pass `/code-review` split (fixed / filed / already decided / opinion, each rejection with its reason), CodeQL>
+**Proof:** <each gate with its actual result: build, the suite counts, guards, review verdict, the second-pass `/code-review` split (fixed / filed / already decided / opinion, each rejection with its reason), CodeQL (see below)>
 **Assumptions:** <every judgment call made without the user, each with why + risk — "none" is a valid entry, silence is not>
 **Doubts:** <anything not fully verified or that smells — same rule>
 **Follow-ups:** <tickets filed, or bullets worth one>
@@ -293,9 +297,9 @@ The PR body (or the issue comment, when there is no PR) ends with:
 
 The report is written before the PR opens, so CodeQL has not run yet. Its Proof entry says that
 CodeQL runs on the PR, or that the PR skips it because every changed file matches `paths-ignore`
-in `.github/workflows/codeql.yml` (Markdown, shell and PowerShell files, `docs/`, `.claude/`).
-A CodeQL fix or dismissal later replaces that entry with what was done (step 8). A report comment
-with no PR has no CodeQL entry.
+in `.github/workflows/codeql.yml`. When the CodeQL result makes that entry wrong (an alert, a
+failed run), step 8 replaces it with what happened. A report comment with no PR has no CodeQL
+entry.
 
 This report is the hand-off contract: a later session fixes what it lists without re-deriving the
 whole ticket. Your final reply to the user, once CodeQL is clear: the verdicts in one line each,
@@ -312,10 +316,11 @@ Write the body in steps 8–9 as usual — do not try to write B2 on the first p
 is what works (koniecdev/TheKittySaver#815 is the precedent).
 
 It runs on the file, not on the open PR, because the owner may treat an open PR as finished and
-merge it. PR #1081 had its body rewritten 14 minutes after it opened and was merged 8 seconds
-later (#1083). After the PR opens, run the pass again only when a fix commit or a dismissal
-changed the body (step 8). Editing a PR body re-runs no workflow, so that edit costs no runner
-minutes. If the pass fails, post the body as you wrote it and say so in the final reply.
+merge it. PR #1081 had its body rewritten 14 minutes after it opened and was merged 8 seconds later
+(#1083). After the PR opens, run the pass again only when step 8 changed the body. Its closing line
+does not end the turn: make the call that posts the file right away. Editing a PR body re-runs no
+workflow, so that edit costs no runner minutes. If the pass fails, post the body as you wrote it
+and say so in the final reply.
 
 ## Token discipline (applies to the whole run)
 

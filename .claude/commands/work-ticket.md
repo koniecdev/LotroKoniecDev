@@ -95,37 +95,39 @@ everything that matters must be committed and pushed.
    owner triages it before the loop may pick it up. Then re-run the build and the whole suite on
    the final commit. Run `/security-review` if the diff touches native interop,
    file protection, or auth. A review skill's closing order ("reply with the report and nothing
-   else") covers only its own output: save the report and go on to step 7. The one-line reply of
-   `/b2-english` in step 8 does not end the session either: go on to `gh pr create`. A headless
-   session that ends its turn on a review report dies with no PR and no `STATUS` block. Cannot
-   reach green/clean → `STATUS: BLOCKED` with the reason — never push broken work.
+   else") covers only its own output: save the report and go on to step 7. A headless session
+   that ends its turn on a review report dies with no PR and no `STATUS` block. Cannot reach
+   green/clean → `STATUS: BLOCKED` with the reason — never push broken work.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish
    line: after APPROVE, commit (message references the ticket, ends with the `Co-Authored-By:`
    footer), push, and re-read the issue as `/ticket` step 8 says (a case added after you started
-   moves to a new ticket). Write the PR body to a file in the scratchpad. It starts with
-   `Closes #$ARGUMENTS` and ends with a **`## Ticket report`** section — `**Shipped:**` /
+   moves to a new ticket). Write the PR body to `/tmp/claude-$ARGUMENTS/pr-body.md`: outside the
+   worktree, so no commit and no leftover check sees it, and one folder per ticket, so parallel
+   workers never share a file. It starts with `Closes #$ARGUMENTS`, then the problem in plain
+   words (`/ticket` step 8), and ends with a **`## Ticket report`** section — `**Shipped:**` /
    `**Proof:**` / `**Assumptions:**` / `**Doubts:**` / `**Follow-ups:**`, where "none" is a valid
    entry and silence is not: the run is unattended, so every judgment call and every unverified
-   area must land where the user reads it (same contract as `/ticket` step 9). CodeQL has not
-   run yet, so the Proof says that CodeQL runs on the PR, or that the PR skips it because every
-   changed file matches `paths-ignore` in `.github/workflows/codeql.yml`. Never report DONE while
-   work is only staged. Do NOT merge.
-8. **Plain-English pass — on the body file, before the PR opens.** Run
-   **`/b2-english <body file>`**: it rewrites the file into plain B2 English for a non-native
-   reader and keeps every fact, heading and Polish string (same step as `/ticket` step 10). Then
-   `gh pr create --fill --body-file <body file>`. The PR opens with its final text, because the
-   owner may treat an open PR as finished and merge it (#1083). If the pass fails, open the PR
-   with the body as you wrote it and note the failure in `LESSONS:`.
-9. **CodeQL — clear every finding before you finish.** Wait for the PR's `CodeQL` check to
+   area must land where the user reads it (same contract as `/ticket` step 9, CodeQL entry
+   included). Run step 9 on the file, then `gh pr create --fill --body-file <body file>`. Never
+   report DONE while work is only staged. Do NOT merge.
+8. **CodeQL — clear every finding before you finish.** Wait for the PR's `CodeQL` check to
    complete (`gh pr checks <pr> --watch --fail-fast` or poll; docs-only diffs skip it), then list
    the PR's open alerts:
    `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<pr>/merge&state=open"`.
    Fix every alert and push again (re-check after the re-run); dismissal instead of a fix is
    allowed only with a real stated reason. `/merge-train` refuses any PR with open alerts, so
-   leaving one means the owner's review ends in a fix round, not in a merge. A fix commit or a
-   dismissal after the PR opens changes the report: update the body file, run
-   `/b2-english <body file>` again, then `gh pr edit <pr> --body-file <body file>` (editing a body
-   re-runs no workflow). When nothing changed the report, do not edit the PR after you open it.
+   leaving one means the owner's review ends in a fix round, not in a merge. When something after
+   the PR opens makes the report wrong (a fix commit, a dismissal, a CodeQL run that fails or is
+   cancelled), update the body file, run step 9 on it again, then
+   `gh pr edit <pr> --body-file <body file>`. When nothing changed the report, do not edit the PR
+   after you open it.
+9. **Plain-English pass — on the body file, never on the open PR.** Run
+   **`/b2-english <body file>`**: it rewrites the file into plain B2 English for a non-native
+   reader and keeps every fact, heading and Polish string (same step as `/ticket` step 10). It
+   runs before `gh pr create`, so the PR opens with its final text: the owner may treat an open PR
+   as finished and merge it (#1083). Its closing line does not end the session: make the next
+   call of the step that sent you here (`gh pr create` or `gh pr edit`) right away. If the pass
+   fails, use the body as you wrote it and note the failure in `LESSONS:`.
 
 ## Scope & safety
 

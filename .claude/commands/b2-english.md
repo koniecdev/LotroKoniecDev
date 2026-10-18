@@ -21,7 +21,9 @@ to what people read on GitHub. A separate pass with one job fixes that.
   below exactly like a PR body: `Closes #<n>`, the `## Ticket report` headings and every number
   stay.
 
-Save the original to the scratchpad as `b2-original.md` before you change anything.
+Save the original to the scratchpad as `b2-original.md` before you change anything. For a file,
+the scratchpad is the folder of that file, so two sessions that each pass their own file never
+share `b2-original.md` or `b2-rewrite.md`.
 
 ## 2. Rewrite — the rules
 
@@ -73,10 +75,11 @@ python3 - b2-original.md b2-rewrite.md <<'PY'
 import re, sys
 old, new = (open(p, encoding="utf-8-sig").read() for p in sys.argv[1:3])
 patterns = [r"#\d+", r"`[^`\n]+`", r"https?://[^\s`)>\]]*[^\s`)>\].,;:]", r"„[^”\"\n]+[”\"]", r"\b\d[\d.,/]*\b", r"ADR-\d+"]
-labels = {"## Ticket report": r"^## Ticket report[ \t]*$"}
-labels |= {l: re.escape(l) for l in ["**Shipped:**", "**Proof:**", "**Assumptions:**", "**Doubts:**", "**Follow-ups:**"]}
-lost = {name for name, rx in labels.items() if re.search(rx, old, re.M) and not re.search(rx, new, re.M)}
-missing = sorted({m for p in patterns for m in re.findall(p, old) if m not in new} | lost)
+heading = re.compile(r"^## Ticket report[ \t]*$", re.M)
+labels = ["**Shipped:**", "**Proof:**", "**Assumptions:**", "**Doubts:**", "**Follow-ups:**"]
+missing = sorted({m for p in patterns for m in re.findall(p, old) if m not in new} | {l for l in labels if l in old and l not in new})
+if heading.search(old) and not heading.search(new):
+    missing.append("## Ticket report")
 first, new_first = (re.match(r"\s*(Closes #\d+)\b", t) for t in (old, new))
 if first and (not new_first or new_first.group(1) != first.group(1)):
     missing.append(f"{first.group(1)} is no longer the first line")
@@ -101,5 +104,6 @@ Run every `gh` command from the repo root and give the scratchpad file by its ab
 finds the repo (and fills `{owner}/{repo}`) only inside a git checkout.
 
 Reply with one line: what was rewritten, and the list from step 3 if anything was left on purpose.
-When `/ticket` or `/work-ticket` handed you a file, this reply does not end the turn. Go straight
-back to the caller's next step (`gh pr create`, `gh pr edit` or `gh issue comment`).
+When `/ticket` or `/work-ticket` handed you a file, do not end the turn on this line. Put it in the
+same message as the caller's next tool call (`gh pr create`, `gh pr edit` or `gh issue comment`),
+and make that call right away.

@@ -1514,7 +1514,7 @@ dead-letter queue by hand, once a release that routes them runs again.
 One command that gives a green/red signal that a deployed environment came up correctly, without
 manual clicking — run it as the final [bring-up](#bringing-the-stack-up) step and after every
 subsequent deploy (CD runs it for you). `scripts/smoke.sh` (with a `scripts/smoke.ps1` twin) takes the
-three base URLs + the OpenIddict API client secret and exercises the six legs that actually break on
+three base URLs + the OpenIddict API client secret and exercises the seven legs that actually break on
 a deploy:
 
 | # | Check | Pass condition |
@@ -1525,6 +1525,7 @@ a deploy:
 | 4 | **Token accepted by tms** | anonymous `GET {tms}/api/v1/game-versions` = **401**; the same call **with** the bearer token is **NOT 401** |
 | 5 | **File distribution** | `GET {tms}/api/v1/translation-files/{lang}` = 200 + `ETag`, then a re-GET with `If-None-Match` = 304 |
 | 6 | **Auth pages: headers + CSP** | `GET {auth}/Account/Login` (a form) and `/Account/ConfirmEmail` (no form) each send `X-Frame-Options: DENY` with `frame-ancestors 'none'`, `nosniff` and a `Referrer-Policy` of `no-referrer`, `same-origin`, `strict-origin` or `strict-origin-when-cross-origin`; every `<style>` carries the header's nonce, no inline `<script>`, no `'unsafe-inline'` (#693) |
+| 7 | **Discovery links** | `GET {tms}/` and `GET {auth}/` with the HATEOAS `Accept` header (`application/vnd.dev-lotrokoniecdev.hateoas.json`) = 200 with at least one link, and every `href` has the scheme, host and port of the configured URL (#898) |
 
 It prints a `✓`/`✗`/`⚠` per check and **exits non-zero (1) on any failure** (a usage/config problem
 exits 2). Two behaviours are deliberate and worth knowing before you read a result:
@@ -1591,6 +1592,13 @@ workflow stays runnable **on demand** (`workflow_dispatch` — enter the three U
 > catches the other invisible frontend break: an inline `<script>` the page's own CSP blocks, which
 > shows up nowhere but the browser console (#670). Leg 6 does the same for the auth pages, where the
 > styles are inline and each `<style>` must carry the nonce of its own response (#693).
+>
+> **A green API health check does not prove its links work either.** The APIs build each link from
+> the address the request came in on, which Caddy passes on in the forwarded headers. A change to
+> Caddy, to the forwarded-headers setup or to a domain variable can turn those links into `http://`,
+> an internal host name or another port. The website and the CLI refuse to follow a link off the
+> configured origin and follow no redirect (#830), so every page that follows a link would break,
+> while the health checks stay green. Leg 7 reads both discovery roots and catches that (#898).
 
 ## Observability & monitoring
 

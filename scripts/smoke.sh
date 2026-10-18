@@ -3,7 +3,7 @@
 # environment came up correctly, without manual clicking — run it after every deploy (staging or
 # production), or against the local prod-parity / dev stack.
 #
-# It exercises the six legs that actually break on a deploy:
+# It exercises the seven legs that actually break on a deploy:
 #   1. Health      — auth-api + tms-api /health/ready return 200; the frontend root responds (it has
 #                    no /health endpoint — it is a Static-SSR app, so "the page serves" is liveness).
 #   2. FE assets   — the frontend image actually shipped its static web assets. "The page serves" is
@@ -31,6 +31,10 @@
 #                    nosniff, a private Referrer-Policy. Its CSP must also admit the page's own inline
 #                    content: every <style> carries the header's nonce and no inline <script> is
 #                    served. As in leg 2, a blocked style or script shows up only in the console (#693).
+#   7. Discovery   — every link in the TMS and auth discovery roots sits on the configured origin. The
+#                    clients refuse a link to any other origin and follow no redirect (#830), so an API
+#                    that builds its links from the wrong address (http, an internal host, another
+#                    port) breaks every page that follows one, while every leg above still passes (#898).
 #
 # Clear pass/fail per check; NON-ZERO exit on any failure (exit 1). Usage / configuration problems
 # exit 2. A not-yet-seeded environment (no translation artifact built) WARNS on leg 5 rather than
@@ -147,7 +151,8 @@ PASS=0
 FAIL=0
 WARN=0
 HDR_FILE="$(mktemp)"
-trap 'rm -f "$HDR_FILE"' EXIT
+BODY_FILE="$(mktemp)"
+trap 'rm -f "$HDR_FILE" "$BODY_FILE"' EXIT
 
 pass() { PASS=$((PASS + 1)); printf '  \xe2\x9c\x93 %s\n' "$1"; }
 fail() { FAIL=$((FAIL + 1)); printf '  \xe2\x9c\x97 %s\n' "$1"; }
@@ -169,7 +174,7 @@ echo "  frontend = $FRONTEND_URL"
 [ "$INSECURE" = "1" ] && echo "  (TLS verification disabled: --insecure)"
 echo
 
-echo "[1/6] Health"
+echo "[1/7] Health"
 code="$(get_status "$AUTH_URL/health/ready")"
 [ "$code" = "200" ] && pass "auth /health/ready -> 200" || fail "auth /health/ready -> $code (expected 200)"
 code="$(get_status "$TMS_URL/health/ready")"
@@ -184,7 +189,7 @@ else
 fi
 echo
 
-echo "[2/6] Frontend static web assets + CSP consistency (#414, #670)"
+echo "[2/7] Frontend static web assets + CSP consistency (#414, #670)"
 : > "$HDR_FILE"
 home_html="$(curl -s -D "$HDR_FILE" --max-time "$TIMEOUT" $TLS_FLAG "$FRONTEND_URL/" 2>/dev/null || true)"
 # `@Assets["_framework/blazor.web.js"]` renders a fingerprinted src ONLY when MapStaticAssets
@@ -228,7 +233,7 @@ else
 fi
 echo
 
-echo "[3/6] OIDC token round-trip (client_credentials)"
+echo "[3/7] OIDC token round-trip (client_credentials)"
 TOKEN=""
 token_out="$(curl -s --max-time "$TIMEOUT" $TLS_FLAG \
     -X POST "$AUTH_URL/connect/token" \
@@ -249,7 +254,7 @@ else
 fi
 echo
 
-echo "[4/6] Token accepted by tms-api (authenticated read)"
+echo "[4/7] Token accepted by tms-api (authenticated read)"
 # Reads are role-gated; a client-credentials token has no role, so the value here is proving the
 # token is VALIDATED (403), not that it is rejected (401). Pair with an anonymous call (must 401)
 # so the check also proves the endpoint is genuinely protected.
@@ -268,7 +273,7 @@ else
 fi
 echo
 
-echo "[5/6] Translation-file distribution (ETag / 304)"
+echo "[5/7] Translation-file distribution (ETag / 304)"
 : > "$HDR_FILE"
 file_code="$(curl -s -o /dev/null -D "$HDR_FILE" -w '%{http_code}' --max-time "$TIMEOUT" $TLS_FLAG "$TMS_URL/api/v1/translation-files/$LANG_CODE" 2>/dev/null)" || file_code="000"
 if [ "$file_code" = "200" ]; then
@@ -390,7 +395,7 @@ check_auth_page() {
     fi
 }
 
-echo "[6/6] Auth pages: security headers + CSP consistency (#693)"
+echo "[6/7] Auth pages: security headers + CSP consistency (#693)"
 # Login renders a form; ConfirmEmail renders none. Antiforgery used to add a frame header to the first
 # kind only, so both are checked.
 for auth_page in /Account/Login /Account/ConfirmEmail; do
@@ -398,6 +403,99 @@ for auth_page in /Account/Login /Account/ConfirmEmail; do
     auth_html="$(curl -s -D "$HDR_FILE" --max-time "$TIMEOUT" $TLS_FLAG "$AUTH_URL$auth_page" 2>/dev/null || true)"
     check_auth_page "$auth_page" "$auth_html"
 done
+echo
+
+HATEOAS_ACCEPT='application/vnd.dev-lotrokoniecdev.hateoas.json'
+
+# Echoes "scheme://host:port" for the absolute URL in $1: scheme and host lower-cased, the default port
+# filled in, any user:password@ part dropped. Those are the parts the frontend compares (#830), so two
+# spellings of one origin match here exactly when they match there. Echoes nothing for a relative URL.
+origin_of() {
+    local url="$1" scheme authority host port
+    case "$url" in
+        [A-Za-z]*://*) ;;
+        *) return 0 ;;
+    esac
+    scheme="${url%%://*}"
+    case "$scheme" in
+        *[!A-Za-z0-9+.-]*) return 0 ;;
+    esac
+    authority="${url#*://}"
+    authority="${authority%%[/?#]*}"
+    authority="${authority##*@}"
+    case "$authority" in
+        *\]) host="$authority"; port="" ;;
+        *:*) host="${authority%:*}"; port="${authority##*:}" ;;
+        *)   host="$authority"; port="" ;;
+    esac
+    scheme="$(printf '%s' "$scheme" | tr '[:upper:]' '[:lower:]')"
+    host="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
+    case "$port" in
+        '')
+            case "$scheme" in
+                https) port=443 ;;
+                http)  port=80 ;;
+            esac
+            ;;
+        *[!0-9]*) return 0 ;;
+        *)
+            port=$((10#$port))
+            if [ "$port" -gt 65535 ]; then
+                return 0
+            fi
+            ;;
+    esac
+    printf '%s://%s:%s' "$scheme" "$host" "$port"
+}
+
+# $1 = label, $2 = the API's configured base URL. A root that sends no links proves nothing, so that
+# fails too.
+check_discovery_links() {
+    local name="$1" base="$2" expected code hrefs line origin total=0 off=0 first_off=""
+    expected="$(origin_of "$base")"
+    if [ -z "$expected" ]; then
+        fail "$name URL '$base' has no scheme://host to compare the links with"
+        return
+    fi
+
+    : > "$BODY_FILE"
+    code="$(curl -s -o "$BODY_FILE" -w '%{http_code}' --max-time "$TIMEOUT" $TLS_FLAG \
+        -H "Accept: $HATEOAS_ACCEPT" "$base/" 2>/dev/null)" || code="000"
+    if [ "$code" != "200" ]; then
+        fail "$name / (discovery) -> $code (expected 200)"
+        return
+    fi
+
+    # JSON may write a slash as \/, so that escape is undone first. Each href gets a leading '>' so an
+    # empty one still counts as a line.
+    hrefs="$(tr -d '\r\n' < "$BODY_FILE" | grep -oE '"href"[[:space:]]*:[[:space:]]*"[^"]*"' \
+        | sed -E 's/^"href"[[:space:]]*:[[:space:]]*"//; s/"$//; s#\\/#/#g; s/^/>/' || true)"
+    if [ -z "$hrefs" ]; then
+        fail "$name / sends no links with the HATEOAS Accept header (expected at least 'self')"
+        return
+    fi
+
+    while IFS= read -r line; do
+        origin="$(origin_of "${line#>}")"
+        total=$((total + 1))
+        if [ "$origin" != "$expected" ]; then
+            off=$((off + 1))
+            if [ -z "$first_off" ]; then
+                first_off="${origin:-(not an absolute address)}"
+            fi
+        fi
+    done <<< "$hrefs"
+
+    if [ "$off" -eq 0 ]; then
+        pass "$name / sends $total link(s), all on $expected"
+    else
+        fail "$name / sends $off of $total link(s) outside $expected, first $first_off — the clients refuse to follow them (#830)"
+    fi
+}
+
+echo "[7/7] Discovery links stay on the configured origin (#898)"
+check_discovery_links tms "$TMS_URL"
+check_discovery_links auth "$AUTH_URL"
 echo
 
 echo "=================================================="

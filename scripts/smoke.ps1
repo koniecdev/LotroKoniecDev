@@ -6,7 +6,7 @@
 .DESCRIPTION
     One command that gives a green/red signal that a deployed environment came up correctly, without
     manual clicking. Run it after every deploy (staging or production), or against the local
-    prod-parity / dev stack. It exercises the six legs that actually break on a deploy:
+    prod-parity / dev stack. It exercises the seven legs that actually break on a deploy:
 
       1. Health      auth-api + tms-api /health/ready return 200; the frontend root responds (it has
                      no /health endpoint — it is a Static-SSR app, so "the page serves" is liveness).
@@ -34,6 +34,10 @@
                      nosniff, a private Referrer-Policy. Its CSP must also admit the page's own inline
                      content: every <style> carries the header's nonce and no inline <script> is
                      served. As in leg 2, a blocked style or script shows up only in the console (#693).
+      7. Discovery   every link in the TMS and auth discovery roots sits on the configured origin. The
+                     clients refuse a link to any other origin and follow no redirect (#830), so an API
+                     that builds its links from the wrong address (http, an internal host, another
+                     port) breaks every page that follows one, while every leg above still passes (#898).
 
     Clear pass/fail per check; NON-ZERO exit on any failure (exit 1). Usage/config problems exit 2.
     A not-yet-seeded environment (no artifact built) WARNS on leg 5 rather than failing. Keep in
@@ -140,7 +144,7 @@ Write-Host "  frontend = $FrontendUrl"
 if ($Insecure) { Write-Host "  (TLS verification disabled: -Insecure)" }
 Write-Host ""
 
-Write-Host "[1/6] Health"
+Write-Host "[1/7] Health"
 $code = Get-Status "$AuthUrl/health/ready"
 if ($code -eq 200) { Add-Pass "auth /health/ready -> 200" } else { Add-Fail "auth /health/ready -> $code (expected 200)" }
 $code = Get-Status "$TmsUrl/health/ready"
@@ -150,7 +154,7 @@ $code = Get-Status "$FrontendUrl/"
 if ($code -ge 200 -and $code -lt 400) { Add-Pass "frontend / -> $code (serving)" } else { Add-Fail "frontend / -> $code (expected 2xx/3xx)" }
 Write-Host ""
 
-Write-Host "[2/6] Frontend static web assets + CSP consistency (#414, #670)"
+Write-Host "[2/7] Frontend static web assets + CSP consistency (#414, #670)"
 $homeHtml = ''
 $csp = ''
 $homeResponse = $null
@@ -211,7 +215,7 @@ if (-not $assetMatch.Success) {
 }
 Write-Host ""
 
-Write-Host "[3/6] OIDC token round-trip (client_credentials)"
+Write-Host "[3/7] OIDC token round-trip (client_credentials)"
 $token = $null
 $tokenCode = 0
 try {
@@ -231,7 +235,7 @@ if ($tokenCode -eq 200 -and $token) {
 }
 Write-Host ""
 
-Write-Host "[4/6] Token accepted by tms-api (authenticated read)"
+Write-Host "[4/7] Token accepted by tms-api (authenticated read)"
 $anonCode = Get-Status "$TmsUrl/api/v1/game-versions"
 if ($anonCode -eq 401) { Add-Pass "GET tms/api/v1/game-versions (no token) -> 401 (protected)" }
 else { Add-Fail "GET tms/api/v1/game-versions (no token) -> $anonCode (expected 401)" }
@@ -247,7 +251,7 @@ if ($token) {
 }
 Write-Host ""
 
-Write-Host "[5/6] Translation-file distribution (ETag / 304)"
+Write-Host "[5/7] Translation-file distribution (ETag / 304)"
 $fileCode = 0
 $etag = $null
 try {
@@ -372,7 +376,7 @@ function Test-AuthPage {
     }
 }
 
-Write-Host "[6/6] Auth pages: security headers + CSP consistency (#693)"
+Write-Host "[6/7] Auth pages: security headers + CSP consistency (#693)"
 # Login renders a form; ConfirmEmail renders none. Antiforgery used to add a frame header to the first
 # kind only, so both are checked.
 foreach ($authPage in @('/Account/Login', '/Account/ConfirmEmail')) {
@@ -385,6 +389,73 @@ foreach ($authPage in @('/Account/Login', '/Account/ConfirmEmail')) {
     if ($null -eq $authHtml) { $authHtml = '' }
     Test-AuthPage -Page $authPage -Response $authResponse -Html $authHtml
 }
+Write-Host ""
+
+$HateoasAccept = 'application/vnd.dev-lotrokoniecdev.hateoas.json'
+
+# "scheme://host:port" for an absolute URL: the default port filled in, any user:password@ part dropped.
+# Those are the parts the frontend compares (#830), so two spellings of one origin match here exactly
+# when they match there. Empty for a relative URL. The scheme test comes first, because on Linux and
+# macOS [Uri] reads a path such as /api/v1 as an absolute file:// address.
+function Get-Origin {
+    param([string]$Url)
+    $uri = $null
+    if ($Url -notmatch '^[A-Za-z][A-Za-z0-9+.-]*://' -or -not [Uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$uri)) {
+        return ''
+    }
+    return "$($uri.Scheme)://$($uri.Host):$($uri.Port)".ToLowerInvariant()
+}
+
+# A root that sends no links proves nothing, so that fails too.
+function Test-DiscoveryLinks {
+    param([string]$Name, [string]$BaseUrl)
+    $expected = Get-Origin $BaseUrl
+    if (-not $expected) {
+        Add-Fail "$Name URL '$BaseUrl' has no scheme://host to compare the links with"
+        return
+    }
+
+    $code = 0
+    $content = ''
+    try {
+        $response = Invoke-Smoke -Url "$BaseUrl/" -Headers @{ Accept = $HateoasAccept }
+        $code = [int]$response.StatusCode
+        $content = $response.Content
+    } catch {
+        # Same recovery as Get-Status: an older PS can throw on a 3xx despite -SkipHttpErrorCheck.
+        $failed = $_.Exception.Response
+        if ($failed -and $failed.StatusCode) { $code = [int]$failed.StatusCode }
+    }
+    if ($code -ne 200) {
+        Add-Fail "$Name / (discovery) -> $code (expected 200)"
+        return
+    }
+
+    # Invoke-WebRequest hands a vendor media type over as bytes, not as text.
+    if ($content -is [byte[]]) { $content = [System.Text.Encoding]::UTF8.GetString($content) }
+    if ($null -eq $content) { $content = '' }
+    # JSON may write a slash as \/, so that escape is undone first. Line breaks are dropped like the
+    # bash twin does.
+    $hrefs = @([regex]::Matches(($content -replace '[\r\n]', ''), '"href"\s*:\s*"([^"]*)"') |
+        ForEach-Object { $_.Groups[1].Value.Replace('\/', '/') })
+    if ($hrefs.Count -eq 0) {
+        Add-Fail "$Name / sends no links with the HATEOAS Accept header (expected at least 'self')"
+        return
+    }
+
+    $off = @($hrefs | Where-Object { (Get-Origin $_) -ne $expected })
+    if ($off.Count -eq 0) {
+        Add-Pass "$Name / sends $($hrefs.Count) link(s), all on $expected"
+    } else {
+        $firstOff = Get-Origin $off[0]
+        if (-not $firstOff) { $firstOff = '(not an absolute address)' }
+        Add-Fail "$Name / sends $($off.Count) of $($hrefs.Count) link(s) outside $expected, first $firstOff — the clients refuse to follow them (#830)"
+    }
+}
+
+Write-Host "[7/7] Discovery links stay on the configured origin (#898)"
+Test-DiscoveryLinks -Name 'tms' -BaseUrl $TmsUrl
+Test-DiscoveryLinks -Name 'auth' -BaseUrl $AuthUrl
 Write-Host ""
 
 Write-Host "=================================================="

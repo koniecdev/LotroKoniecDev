@@ -11,25 +11,7 @@ internal static class TestDataFactory
     /// Each fragment: FragmentId (8B) | PieceCount (int) | Piece (VarLen + UTF-16LE) | ArgRefCount (int) | ArgStringGroupCount (byte)
     /// </summary>
     internal static byte[] CreateTextSubFileData(int fileId, string text)
-    {
-        using MemoryStream stream = new();
-        using BinaryWriter writer = new(stream);
-
-        writer.Write(fileId);
-        writer.Write(new byte[4]); // Unknown1
-        writer.Write((byte)0); // Unknown2
-        writer.Write((byte)1); // numFragments (varlen)
-
-        // Fragment
-        writer.Write((ulong)1); // fragmentId
-        writer.Write(1); // numPieces
-        writer.Write((byte)text.Length); // piece length (varlen)
-        writer.Write(Encoding.Unicode.GetBytes(text));
-        writer.Write(0); // numArgRefs
-        writer.Write((byte)0); // numArgStringGroups
-
-        return stream.ToArray();
-    }
+        => CreateTextSubFileDataWithArgs(fileId, 1UL, [text], []);
 
     /// <summary>
     /// Creates binary SubFile data with a single fragment containing argument references.

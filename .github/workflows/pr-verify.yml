@@ -250,9 +250,9 @@ jobs:
       # Target the test projects by naming convention, not the whole solution. A solution-wide
       # `dotnet test` would also start the Docker E2E suites, which stay off the PR gate.
       # New suites are picked up automatically; the Windows-only ones (.Tests.Infrastructure /
-      # .Tests.E2E) are left out by name. Off Windows, `dotnet test` would leave out the x86
-      # .Tests.Infrastructure anyway (#816). The same name-based selection scopes the coverage
-      # report (CI-04): only the suites that actually run here feed it — E2E projects never do.
+      # .Tests.E2E) are left out by name. Off Windows, `dotnet test` would not run them anyway
+      # (#816). The same name-based selection scopes the coverage report (CI-04): only the
+      # suites that actually run here feed it — E2E projects never do.
       - name: Run Unit Tests
         if: steps.diff.outputs.code != 'false'
         run: |

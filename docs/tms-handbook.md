@@ -1160,7 +1160,7 @@ and a `<script src=…>` are the allowed exceptions. Wanting interactivity means
 | Integration | `TranslationSystem.API.Tests.Integration`, `AuthSystem.API.Tests.Integration`, `Frontend.Tests.Integration` | the real app in-process (`WebApplicationFactory`). The two API suites run against a **real PostgreSQL in Docker** (Testcontainers), with auth faked by self-signed test tokens; the Frontend suite boots the Frontend host alone, with no database, to check its startup rules (#915) |
 | End-to-end — TMS | `TranslationSystem.E2E.Tests` | the real container images on a private Docker network; **real tokens** issued by the real auth-api and validated by tms-api via live JWKS |
 | End-to-end — browser | `Frontend.E2E.Tests` | full stack + a headless Chromium via Playwright, all inside Testcontainers (ADR-0009): register → confirm email via mailpit → login → logout |
-| End-to-end — patcher | `Tests.E2E`, `Tests.Infrastructure` | Windows-only; `Tests.E2E` needs a real DAT file. Elsewhere `Tests.E2E` reports its tests as skipped (`SkippableFact`), and `dotnet test` leaves the x86 `Tests.Infrastructure` out of the run (#816) |
+| End-to-end — patcher | `Tests.E2E`, `Tests.Infrastructure` | Windows-only; `Tests.E2E` also needs a real DAT file and skips its tests without one (`SkippableFact`). Off Windows, `dotnet test` compiles both but runs neither (#816) |
 
 Also notable:
 

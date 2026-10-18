@@ -9,6 +9,7 @@ The `TestData/` subfolder holds real game files needed for end-to-end tests.
 3. Run: `dotnet test tests/LotroKoniecDev.Tests.E2E`
 
 If the DAT file is not present, all E2E tests will be **skipped** (not failed).
+The suite runs only on Windows: elsewhere `dotnet test` prints one "not run" line instead (#816).
 
 ## Notes
 

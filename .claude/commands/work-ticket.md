@@ -107,9 +107,9 @@ everything that matters must be committed and pushed.
    `**Proof:**` / `**Assumptions:**` / `**Doubts:**` / `**Follow-ups:**`, where "none" is a valid
    entry and silence is not: the run is unattended, so every judgment call and every unverified
    area must land where the user reads it (same contract as `/ticket` step 9). CodeQL has not
-   run yet, so the Proof says that CodeQL runs on the PR, or that the PR skips it because the diff
-   has only docs, scripts or `.claude/` files. Never report DONE while work is only staged. Do NOT
-   merge.
+   run yet, so the Proof says that CodeQL runs on the PR, or that the PR skips it because every
+   changed file matches `paths-ignore` in `.github/workflows/codeql.yml`. Never report DONE while
+   work is only staged. Do NOT merge.
 8. **Plain-English pass — on the body file, before the PR opens.** Run
    **`/b2-english <body file>`**: it rewrites the file into plain B2 English for a non-native
    reader and keeps every fact, heading and Polish string (same step as `/ticket` step 10). Then

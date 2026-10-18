@@ -238,12 +238,12 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   about 6 and 20 USD). A session below effort high should not count this pass as proof.
 - **A review skill's report does not end `/ticket`.** `/security-review` and `/code-review` end
   with an order like "your final reply must contain the report and nothing else". Inside
-  `/ticket` that order covers only the review's own output. The same holds for the one-line reply
-  of `/b2-english` in step 10: go straight on to `gh pr create`. Save the report to
+  `/ticket` that order covers only the review's own output. Save the report to
   `<scratchpad>/<n>-security.md` (or `-code-review.md`) and go straight on to the next step. The
-  turn ends only with step 9's final reply, never on a review report. Precedent:
-  #872 printed its security report as the final reply and stopped with five commits unpushed and
-  no PR.
+  same holds for the one-line reply of `/b2-english` in step 10: go straight on to the command
+  that posts the file. The turn ends only with step 9's final reply, never on a review report.
+  Precedent: #872 printed its security report as the final reply and stopped with five commits
+  unpushed and no PR.
 
 ## 8. Ship
 
@@ -292,9 +292,10 @@ The PR body (or the issue comment, when there is no PR) ends with:
 ```
 
 The report is written before the PR opens, so CodeQL has not run yet. Its Proof entry says that
-CodeQL runs on the PR, or that the PR skips it because the diff has only docs, scripts or
-`.claude/` files. A CodeQL fix or dismissal later replaces that entry with what was done (step 8).
-A report comment with no PR has no CodeQL entry.
+CodeQL runs on the PR, or that the PR skips it because every changed file matches `paths-ignore`
+in `.github/workflows/codeql.yml` (Markdown, shell and PowerShell files, `docs/`, `.claude/`).
+A CodeQL fix or dismissal later replaces that entry with what was done (step 8). A report comment
+with no PR has no CodeQL entry.
 
 This report is the hand-off contract: a later session fixes what it lists without re-deriving the
 whole ticket. Your final reply to the user, once CodeQL is clear: the verdicts in one line each,

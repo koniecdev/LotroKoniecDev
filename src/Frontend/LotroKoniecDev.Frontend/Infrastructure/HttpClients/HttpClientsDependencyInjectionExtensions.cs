@@ -3,6 +3,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Frontend.Settings;
+using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
 using Polly;
@@ -14,6 +15,25 @@ public static class HttpClientsDependencyInjectionExtensions
 {
     extension(IServiceCollection services)
     {
+        /// <summary>
+        /// Every client <see cref="IHttpClientFactory"/> builds in this app starts on
+        /// <see cref="CreatePrimaryHandler"/>. A client given its own standard transport still follows no
+        /// redirect and keeps no cookie. So a new client to either API is safe even when nobody remembers
+        /// the setting: #830 missed two clients, and #899 had to fix them (#922). It reaches the OTLP
+        /// exporter's clients too: the collector never redirects and needs no cookie.
+        /// </summary>
+        public IServiceCollection AddHttpClientDefaults()
+        {
+            services.ConfigureHttpClientDefaults(builder => builder.ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler));
+
+            // A post-configure runs after every client's own configuration, so it also reaches a transport
+            // that a later ConfigurePrimaryHttpMessageHandler put in place of the default.
+            services.PostConfigureAll<HttpClientFactoryOptions>(options =>
+                options.HttpMessageHandlerBuilderActions.Add(builder => SwitchOffRedirectsAndCookies(builder.PrimaryHandler)));
+
+            return services;
+        }
+
         public IServiceCollection AddHttpClients()
         {
             services.AddTransient<TranslationContentNegotiationAndAuthDelegatingHandler>();
@@ -29,7 +49,6 @@ public static class HttpClientsDependencyInjectionExtensions
                     // short. The per-attempt timeout below is chosen per kind of request instead.
                     client.Timeout = Timeout.InfiniteTimeSpan;
                 })
-                .ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler)
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
                 .AddSameOriginHandler<TranslationSystemSettings>(settings => settings.BaseUrl)
                 .AddHttpMessageHandler<TranslationContentNegotiationAndAuthDelegatingHandler>()
@@ -48,7 +67,6 @@ public static class HttpClientsDependencyInjectionExtensions
                     client.BaseAddress = new Uri(settings.BaseUrl);
                     client.Timeout = Timeout.InfiniteTimeSpan;
                 })
-                .ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler)
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
                 .AddSameOriginHandler<AuthSystemSettings>(settings => settings.BaseUrl)
                 .AddHttpMessageHandler<AuthContentNegotiationAndAuthDelegatingHandler>()
@@ -88,7 +106,7 @@ public static class HttpClientsDependencyInjectionExtensions
     /// When .NET follows a redirect, it drops the <c>Authorization</c> header but sends every other header
     /// again, the caller key too. A <c>307</c> or <c>308</c> also sends the form body again. So no frontend
     /// client to either API follows a redirect: the typed clients (#830), the token client and the OIDC
-    /// back-channel (#899).
+    /// back-channel (#899), and every client added later (#922).
     /// One handler serves every visitor, so a cookie it kept from one visitor's call would go out with
     /// other visitors' calls. No call to either API needs a cookie, so the handler keeps none (#924).
     /// </summary>
@@ -98,6 +116,32 @@ public static class HttpClientsDependencyInjectionExtensions
         AllowAutoRedirect = false,
         UseCookies = false
     };
+
+    /// <summary>
+    /// Switches redirects and cookies off on the standard transport at the end of
+    /// <paramref name="handler"/>, for the reasons on <see cref="CreatePrimaryHandler"/> (#922). Any other
+    /// transport, such as a test's stand-in server, is left as it is.
+    /// </summary>
+    internal static void SwitchOffRedirectsAndCookies(HttpMessageHandler handler)
+    {
+        HttpMessageHandler? transport = handler;
+        while (transport is DelegatingHandler delegatingHandler)
+        {
+            transport = delegatingHandler.InnerHandler;
+        }
+
+        switch (transport)
+        {
+            case SocketsHttpHandler socketsHandler:
+                socketsHandler.AllowAutoRedirect = false;
+                socketsHandler.UseCookies = false;
+                break;
+            case HttpClientHandler clientHandler:
+                clientHandler.AllowAutoRedirect = false;
+                clientHandler.UseCookies = false;
+                break;
+        }
+    }
 
     private static void ConfigureResiliencePipeline(ResiliencePipelineBuilder<HttpResponseMessage> pipeline)
     {

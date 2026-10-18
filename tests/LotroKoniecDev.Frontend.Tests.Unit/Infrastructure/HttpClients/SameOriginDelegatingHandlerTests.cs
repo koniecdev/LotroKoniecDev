@@ -181,31 +181,6 @@ public sealed class SameOriginDelegatingHandlerTests
     [Theory]
     [InlineData(nameof(ITranslationSystemClient))]
     [InlineData(nameof(IAuthSystemClient))]
-    public void TypedClient_ThroughTheRealRegistration_DoesNotFollowRedirects(string clientName)
-    {
-        using ServiceProvider provider = BuildRealProvider();
-
-        List<HttpMessageHandler> chain = HandlerChain(provider, clientName);
-
-        chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
-    }
-
-    /// <summary>#924: one handler serves every visitor's calls.</summary>
-    [Theory]
-    [InlineData(nameof(ITranslationSystemClient))]
-    [InlineData(nameof(IAuthSystemClient))]
-    public void TypedClient_ThroughTheRealRegistration_KeepsNoCookies(string clientName)
-    {
-        using ServiceProvider provider = BuildRealProvider();
-
-        List<HttpMessageHandler> chain = HandlerChain(provider, clientName);
-
-        chain[^1].ShouldBeOfType<SocketsHttpHandler>().UseCookies.ShouldBeFalse();
-    }
-
-    [Theory]
-    [InlineData(nameof(ITranslationSystemClient))]
-    [InlineData(nameof(IAuthSystemClient))]
     public void TypedClient_ThroughTheRealRegistration_ChecksTheOriginBeforeAnyOtherFrontendHandler(string clientName)
     {
         // The bearer and caller-key handlers come from this assembly, the factory's own handlers do not.

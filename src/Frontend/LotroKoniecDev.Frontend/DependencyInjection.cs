@@ -24,6 +24,7 @@ public static class DependencyInjection
 
             services.AddAntiforgery(options => options.Cookie.Path = "/");
 
+            services.AddHttpClientDefaults();
             services.AddHttpClients();
             services.AddDeadSessionRegistry();
             services.AddDiscoveryCache();

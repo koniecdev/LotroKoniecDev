@@ -35,7 +35,7 @@
                      content: every <style> carries the header's nonce and no inline <script> is
                      served. As in leg 2, a blocked style or script shows up only in the console (#693).
       7. Discovery   every link in the TMS and auth discovery roots sits on the configured origin. The
-                     clients refuse a link to any other origin and follow no redirect (#830), so an API
+                     clients refuse a link to any other origin and follow no redirect (#611, #830), so an API
                      that builds its links from the wrong address (http, an internal host, another
                      port) breaks every page that follows one, while every leg above still passes (#898).
 
@@ -394,8 +394,8 @@ Write-Host ""
 $HateoasAccept = 'application/vnd.dev-lotrokoniecdev.hateoas.json'
 
 # "scheme://host:port" for an absolute URL: the default port filled in, any user:password@ part dropped.
-# Those are the parts the frontend compares (#830), so two spellings of one origin match here exactly
-# when they match there. Empty for a relative URL. The scheme test comes first, because on Linux and
+# Those are the parts the frontend compares (#830), so for every link our APIs build, two spellings of
+# one origin match here when they match there. Empty for a relative URL. The scheme test comes first, because on Linux and
 # macOS [Uri] reads a path such as /api/v1 as an absolute file:// address.
 function Get-Origin {
     param([string]$Url)
@@ -449,7 +449,7 @@ function Test-DiscoveryLinks {
     } else {
         $firstOff = Get-Origin $off[0]
         if (-not $firstOff) { $firstOff = '(not an absolute address)' }
-        Add-Fail "$Name / sends $($off.Count) of $($hrefs.Count) link(s) outside $expected, first $firstOff — the clients refuse to follow them (#830)"
+        Add-Fail "$Name / sends $($off.Count) of $($hrefs.Count) link(s) outside $expected, first $firstOff — the clients refuse to follow them (#611, #830)"
     }
 }
 

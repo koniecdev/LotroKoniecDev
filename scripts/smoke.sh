@@ -32,7 +32,7 @@
 #                    content: every <style> carries the header's nonce and no inline <script> is
 #                    served. As in leg 2, a blocked style or script shows up only in the console (#693).
 #   7. Discovery   — every link in the TMS and auth discovery roots sits on the configured origin. The
-#                    clients refuse a link to any other origin and follow no redirect (#830), so an API
+#                    clients refuse a link to any other origin and follow no redirect (#611, #830), so an API
 #                    that builds its links from the wrong address (http, an internal host, another
 #                    port) breaks every page that follows one, while every leg above still passes (#898).
 #
@@ -408,8 +408,10 @@ echo
 HATEOAS_ACCEPT='application/vnd.dev-lotrokoniecdev.hateoas.json'
 
 # Echoes "scheme://host:port" for the absolute URL in $1: scheme and host lower-cased, the default port
-# filled in, any user:password@ part dropped. Those are the parts the frontend compares (#830), so two
-# spellings of one origin match here exactly when they match there. Echoes nothing for a relative URL.
+# filled in, any user:password@ part dropped. Those are the parts the frontend compares (#830), so for
+# every link our APIs build, two spellings of one origin match here when they match there. A backslash
+# in the host part or a port above 65535 gets nothing either, because [Uri] refuses both, so the twins
+# agree on them.
 origin_of() {
     local url="$1" scheme authority host port
     case "$url" in
@@ -422,6 +424,9 @@ origin_of() {
     esac
     authority="${url#*://}"
     authority="${authority%%[/?#]*}"
+    case "$authority" in
+        *\\*) return 0 ;;
+    esac
     authority="${authority##*@}"
     case "$authority" in
         *\]) host="$authority"; port="" ;;
@@ -439,7 +444,13 @@ origin_of() {
             ;;
         *[!0-9]*) return 0 ;;
         *)
-            port=$((10#$port))
+            # Leading zeros go first, so 000443 is 443 as it is for [Uri]. A longer number could wrap
+            # around in bash arithmetic and come out as 443.
+            port="${port#"${port%%[!0]*}"}"
+            if [ "${#port}" -gt 5 ]; then
+                return 0
+            fi
+            port=$((10#${port:-0}))
             if [ "$port" -gt 65535 ]; then
                 return 0
             fi
@@ -489,7 +500,7 @@ check_discovery_links() {
     if [ "$off" -eq 0 ]; then
         pass "$name / sends $total link(s), all on $expected"
     else
-        fail "$name / sends $off of $total link(s) outside $expected, first $first_off — the clients refuse to follow them (#830)"
+        fail "$name / sends $off of $total link(s) outside $expected, first $first_off — the clients refuse to follow them (#611, #830)"
     fi
 }
 

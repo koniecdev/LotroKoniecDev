@@ -102,8 +102,10 @@ function global:Invoke-WebRequest {
 & $env:SMOKE_SCRIPT
 STUB
 
-# The discovery roots answer this status; a leg-7 case may change it for one run.
+# The discovery roots answer this status, and the TMS URL the smoke is given is this one. A leg-7
+# case may change either for one run.
 ROOT_CODE=200
+CONFIGURED_TMS_URL=https://tms.invalid
 : > "$TMP_ROOT/tms-root"
 : > "$TMP_ROOT/auth-root"
 printf '{"name":"plain"}' > "$TMP_ROOT/plain-root"
@@ -148,7 +150,7 @@ run_smoke() {
             STUB_TMS_ROOT="$TMP_ROOT/tms-root" STUB_AUTH_ROOT="$TMP_ROOT/auth-root" \
             STUB_PLAIN_ROOT="$TMP_ROOT/plain-root" STUB_ROOT_CODE="$ROOT_CODE" \
             SMOKE_SCRIPT="$SCRIPTS_DIR/smoke.ps1" SMOKE_REQUIRE_CSP="$require_csp" \
-            SMOKE_AUTH_URL=https://auth.invalid SMOKE_TMS_URL=https://tms.invalid \
+            SMOKE_AUTH_URL=https://auth.invalid SMOKE_TMS_URL="$CONFIGURED_TMS_URL" \
             SMOKE_FRONTEND_URL=https://fe.invalid SMOKE_CLIENT_SECRET=stub-secret SMOKE_TIMEOUT=1 \
             pwsh -NoProfile -File "$STUB_DIR/smoke-stub.ps1" 2>&1
         return
@@ -158,7 +160,7 @@ run_smoke() {
         STUB_TMS_ROOT="$TMP_ROOT/tms-root" STUB_AUTH_ROOT="$TMP_ROOT/auth-root" \
         STUB_PLAIN_ROOT="$TMP_ROOT/plain-root" STUB_ROOT_CODE="$ROOT_CODE" \
         bash "$SCRIPTS_DIR/smoke.sh" \
-            --auth-url https://auth.invalid --tms-url https://tms.invalid \
+            --auth-url https://auth.invalid --tms-url "$CONFIGURED_TMS_URL" \
             --frontend-url https://fe.invalid --client-secret stub-secret \
             --timeout 1 "$@" 2>&1
 }
@@ -184,18 +186,21 @@ run_auth_case() {
 }
 
 # $1 description, $2 the TMS root body, $3 the auth root body, $4 the status both roots answer with
-# (default 200). The frontend and the auth pages get an empty answer, so only leg 7 is read.
+# (default 200), $5 the TMS URL the smoke is given (default https://tms.invalid). The frontend and
+# the auth pages get an empty answer, so only leg 7 is read.
 run_discovery_case() {
     local desc="$1"
     printf '%s' "$2" > "$TMP_ROOT/tms-root"
     printf '%s' "$3" > "$TMP_ROOT/auth-root"
     ROOT_CODE="${4:-200}"
+    CONFIGURED_TMS_URL="${5:-https://tms.invalid}"
     : > "$TMP_ROOT/headers"
     : > "$TMP_ROOT/body"
     : > "$TMP_ROOT/auth-headers"
     : > "$TMP_ROOT/auth-body"
     LAST_OUTPUT="$(run_smoke | sed -n '/\[7\/7\]/,/=====/p' || true)"
     ROOT_CODE=200
+    CONFIGURED_TMS_URL=https://tms.invalid
     cases=$((cases + 1))
     printf '✓ [%s] %s\n' "$TWIN" "$desc"
 }
@@ -411,10 +416,14 @@ run_suite() {
     expect_line "tms / sends 2 link(s), all on https://tms.invalid:443"
     reject_line "$FAIL_MARK"
 
-    # 26. JSON may escape a slash.
+    # 26. JSON may escape a slash, and may be spread over lines with spaces around the colon.
     run_discovery_case "an escaped slash is read as a slash" \
         "$(discovery_doc 'https:\/\/tms.invalid\/')" "$AUTH_OK"
     expect_line "tms / sends 1 link(s), all on https://tms.invalid:443"
+    run_discovery_case "pretty-printed JSON is read too" \
+        "$(printf '{\n  "links": [\n    { "href" : "https://tms.invalid/" },\n    { "href" :\n      "http://tms.invalid/" }\n  ]\n}')" \
+        "$AUTH_OK"
+    expect_line "tms / sends 1 of 2 link(s) outside https://tms.invalid:443, first http://tms.invalid:80"
 
     # 27. A relative link, or an empty one, is on no origin.
     run_discovery_case "a relative link fails" "$(discovery_doc https://tms.invalid/ /api/v1/progress)" "$AUTH_OK"
@@ -432,6 +441,12 @@ run_suite() {
     expect_line "tms / (discovery) -> 503 (expected 200)"
     expect_line "auth / (discovery) -> 503 (expected 200)"
     reject_line "link(s)"
+
+    # 30. A configured URL with no scheme, such as a typo in the on-demand workflow, has no origin to
+    # compare with. The leg must fail instead of skipping itself.
+    run_discovery_case "a configured URL with no scheme fails" "$TMS_OK" "$AUTH_OK" 200 tms.invalid
+    expect_line "tms URL 'tms.invalid' has no scheme://host to compare the links with"
+    expect_line "auth / sends 2 link(s), all on https://auth.invalid:443"
 }
 
 TWIN="sh"

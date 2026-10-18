@@ -1597,7 +1597,7 @@ workflow stays runnable **on demand** (`workflow_dispatch` — enter the three U
 > the address the request came in on, which Caddy passes on in the forwarded headers. A change to
 > Caddy, to the forwarded-headers setup or to a domain variable can turn those links into `http://`,
 > an internal host name or another port. The website and the CLI refuse to follow a link off the
-> configured origin and follow no redirect (#830), so every page that follows a link would break,
+> configured origin and follow no redirect (#611, #830), so every page that follows a link would break,
 > while the health checks stay green. Leg 7 reads both discovery roots and catches that (#898).
 
 ## Observability & monitoring

@@ -224,13 +224,13 @@ Per-ticket outcomes:
 - **merged** — the worker reported DONE, and its PR was merged before its session ended (#1082). A
   session opens its PR about 15 minutes before it ends: it still waits for CodeQL, and the PR looks
   finished in that time. Its body is final when it opens (#1083): the session edits it later only
-  when a CodeQL alert brings a fix. The work is on `main`, so the ticket is done:
-  its session is not resumed, it does not count toward the failure circuit breaker, and its
-  worktree is removed as for `pr-opened` (the branch stays). The table shows its PR, and the
-  `done:` line counts it apart from `PR opened` and `failed`. Only a PR opened after the session
-  started counts (on a resume after a usage limit: after the session first started). One merged
-  before that is history from an earlier attempt, and a PR closed without a merge is still an
-  `error`. An open PR of the ticket goes first, even when the summary links a merged one.
+  when a fix commit or a CodeQL dismissal changes its report. The work is on `main`, so the ticket
+  is done: its session is not resumed, it does not count toward the failure circuit breaker, and its
+  worktree is removed as for `pr-opened` (the branch stays). The table shows its PR, and the `done:`
+  line counts it apart from `PR opened` and `failed`. Only a PR opened after the session started
+  counts (on a resume after a usage limit: after the session first started). One merged before that
+  is history from an earlier attempt, and a PR closed without a merge is still an `error`. An open
+  PR of the ticket goes first, even when the summary links a merged one.
   - The session may still commit after the merge, for example a fix for a CodeQL alert, on the
     PR's branch, on a new branch or on a detached HEAD. That commit is not on `main`. So the worker
     compares both the worktree's HEAD and the PR's own branch with the merged PR's head

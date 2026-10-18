@@ -71,10 +71,12 @@ Write the rewrite to the scratchpad as `b2-rewrite.md`, then run this from the s
 ```bash
 python3 - b2-original.md b2-rewrite.md <<'PY'
 import re, sys
-old, new = (open(p, encoding="utf-8").read() for p in sys.argv[1:3])
+old, new = (open(p, encoding="utf-8-sig").read() for p in sys.argv[1:3])
 patterns = [r"#\d+", r"`[^`\n]+`", r"https?://[^\s`)>\]]*[^\s`)>\].,;:]", r"„[^”\"\n]+[”\"]", r"\b\d[\d.,/]*\b", r"ADR-\d+"]
-labels = ["## Ticket report", "**Shipped:**", "**Proof:**", "**Assumptions:**", "**Doubts:**", "**Follow-ups:**"]
-missing = sorted({m for p in patterns for m in re.findall(p, old) if m not in new} | {l for l in labels if l in old and l not in new})
+labels = {"## Ticket report": r"^## Ticket report[ \t]*$"}
+labels |= {l: re.escape(l) for l in ["**Shipped:**", "**Proof:**", "**Assumptions:**", "**Doubts:**", "**Follow-ups:**"]}
+lost = {name for name, rx in labels.items() if re.search(rx, old, re.M) and not re.search(rx, new, re.M)}
+missing = sorted({m for p in patterns for m in re.findall(p, old) if m not in new} | lost)
 first, new_first = (re.match(r"\s*(Closes #\d+)\b", t) for t in (old, new))
 if first and (not new_first or new_first.group(1) != first.group(1)):
     missing.append(f"{first.group(1)} is no longer the first line")
@@ -92,10 +94,12 @@ same order.
 - A PR → `gh pr edit <n> --body-file <absolute path>/b2-rewrite.md`. Editing the body does not
   re-run `pr-verify` or any other workflow (none listens to the `edited` event), so this is free.
 - An issue comment → `gh api -X PATCH repos/{owner}/{repo}/issues/comments/<id> -F body=@<absolute path>/b2-rewrite.md`
-- A file → overwrite it. A PR body file is then posted by the command that called you, so do not
-  run `gh` on it here.
+- A file → overwrite it. A file that a command handed you (a PR body or a report comment) is
+  posted by that command, so do not run `gh` on it here.
 
 Run every `gh` command from the repo root and give the scratchpad file by its absolute path. `gh`
 finds the repo (and fills `{owner}/{repo}`) only inside a git checkout.
 
 Reply with one line: what was rewritten, and the list from step 3 if anything was left on purpose.
+When `/ticket` or `/work-ticket` handed you a file, this reply does not end the turn. Go straight
+back to the caller's next step (`gh pr create`, `gh pr edit` or `gh issue comment`).

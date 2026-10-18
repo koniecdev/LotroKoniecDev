@@ -1941,10 +1941,10 @@ run_case 3 "work-ticket: DONE naming a PR that does not exist is an error" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 78 "$TMP_ROOT/run"
 expect_in_output "unreadable"
 
-# The owner may merge a PR while its session still waits for CodeQL and rewrites the PR body
-# (#1082). The work is on main then: the ticket is merged, not failed, and its session is not
-# resumed. Here the PR is opened and merged during the session, as in the run that found it. The
-# merged PR's head is the session's commit, unless NO_PR_REF=1 hides it from the loop.
+# The owner may merge a PR while its session still waits for CodeQL (#1082). The work is on main
+# then: the ticket is merged, not failed, and its session is not resumed. Here the PR is opened and
+# merged during the session, as in the run that found it. The merged PR's head is the session's
+# commit, unless NO_PR_REF=1 hides it from the loop.
 # FIX_AFTER_MERGE=1 adds one more commit after the merge, LEFTOVER=1 leaves a file uncommitted, and
 # MAIN_AFTER_MERGE=1 moves to a newer main (fetched as origin/main), DETACHED_FIX=1 commits a fix on
 # a detached HEAD, and FOLLOW_UP_FIX=1 commits a fix on a new branch cut from main.

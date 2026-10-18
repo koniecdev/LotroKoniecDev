@@ -95,9 +95,10 @@ everything that matters must be committed and pushed.
    owner triages it before the loop may pick it up. Then re-run the build and the whole suite on
    the final commit. Run `/security-review` if the diff touches native interop,
    file protection, or auth. A review skill's closing order ("reply with the report and nothing
-   else") covers only its own output: save the report and go on to step 7. A headless session that
-   ends its turn on a review report dies with no PR and no `STATUS` block. Cannot reach
-   green/clean → `STATUS: BLOCKED` with the reason — never push broken work.
+   else") covers only its own output: save the report and go on to step 7. The one-line reply of
+   `/b2-english` in step 8 does not end the session either: go on to `gh pr create`. A headless
+   session that ends its turn on a review report dies with no PR and no `STATUS` block. Cannot
+   reach green/clean → `STATUS: BLOCKED` with the reason — never push broken work.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish
    line: after APPROVE, commit (message references the ticket, ends with the `Co-Authored-By:`
    footer), push, and re-read the issue as `/ticket` step 8 says (a case added after you started
@@ -105,8 +106,10 @@ everything that matters must be committed and pushed.
    `Closes #$ARGUMENTS` and ends with a **`## Ticket report`** section — `**Shipped:**` /
    `**Proof:**` / `**Assumptions:**` / `**Doubts:**` / `**Follow-ups:**`, where "none" is a valid
    entry and silence is not: the run is unattended, so every judgment call and every unverified
-   area must land where the user reads it (same contract as `/ticket` step 9, CodeQL line
-   included). Never report DONE while work is only staged. Do NOT merge.
+   area must land where the user reads it (same contract as `/ticket` step 9). CodeQL has not
+   run yet, so the Proof says that CodeQL runs on the PR, or that the PR skips it because the diff
+   has only docs, scripts or `.claude/` files. Never report DONE while work is only staged. Do NOT
+   merge.
 8. **Plain-English pass — on the body file, before the PR opens.** Run
    **`/b2-english <body file>`**: it rewrites the file into plain B2 English for a non-native
    reader and keeps every fact, heading and Polish string (same step as `/ticket` step 10). Then
@@ -119,10 +122,10 @@ everything that matters must be committed and pushed.
    `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<pr>/merge&state=open"`.
    Fix every alert and push again (re-check after the re-run); dismissal instead of a fix is
    allowed only with a real stated reason. `/merge-train` refuses any PR with open alerts, so
-   leaving one means the owner's review ends in a fix round, not in a merge. A fix or a dismissal
-   changes the report: update the body file, run `/b2-english <body file>` again, then
-   `gh pr edit <pr> --body-file <body file>` (editing a body re-runs no workflow). With no alert,
-   do not edit the PR after you open it.
+   leaving one means the owner's review ends in a fix round, not in a merge. A fix commit or a
+   dismissal after the PR opens changes the report: update the body file, run
+   `/b2-english <body file>` again, then `gh pr edit <pr> --body-file <body file>` (editing a body
+   re-runs no workflow). When nothing changed the report, do not edit the PR after you open it.
 
 ## Scope & safety
 

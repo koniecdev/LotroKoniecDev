@@ -790,12 +790,13 @@ structure.
 - **The whole suite green locally before every push — unconditional.** `dotnet test`, no filter:
   everything runnable on this OS, and it exits 0 when all of that passes. Off Windows the two
   Windows-only patcher suites (`.Tests.Infrastructure`, `.Tests.E2E`) are compiled but not run,
-  and each prints one "not run" line (#816). Never narrow it to the touched area, and never run integration only "when the slice ships an endpoint" —
-  deciding from the diff which suites a change can reach is the mistake, not the shortcut.
-  `pr-verify` runs unit **and** integration on every PR here, so a leg you skip locally does not
-  disappear: it fails on a runner, at GitHub's expense, minutes after a local run would have shown
-  it for free. Precedent from the sibling repo: TheKittySaver #567, where a CSS-only frontend fix
-  broke four full-page snapshot tests nobody thought it could reach.
+  and each prints one "not run" line (#816). Never narrow it to the touched area, and never run
+  integration only "when the slice ships an endpoint" — deciding from the diff which suites a
+  change can reach is the mistake, not the shortcut. `pr-verify` runs unit **and** integration on
+  every PR here, so a leg you skip locally does not disappear: it fails on a runner, at GitHub's
+  expense, minutes after a local run would have shown it for free. Precedent from the sibling
+  repo: TheKittySaver #567, where a CSS-only frontend fix broke four full-page snapshot tests
+  nobody thought it could reach.
   A suite that genuinely cannot run here is unproven — say which, and do not open the PR.
 - **Edge cases are first-class.** Happy path is the floor. `[Theory]` + `[InlineData]` for the
   unhappy-path/boundary matrix (empty, max, malformed, already-in-state).

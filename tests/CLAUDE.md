@@ -281,8 +281,8 @@ counted as Skipped, because none of them start.
 
 Full-pipeline tests driving the CLI (`ExportE2ETests`, `PatchE2ETests`, `RoundtripE2ETests`,
 `ErrorPathE2ETests`) against a real DAT. They use `SkippableFact` and **skip automatically**
-when `TestData/` holds no DAT. Off Windows the project is not run at all, with or without a DAT,
-because the CLI it drives is a win-x86 program: `dotnet test` prints one
+when `TestData/client_local_English.dat` is missing. Off Windows the project is not run at all,
+with or without a DAT, because the CLI it drives is a win-x86 program: `dotnet test` prints one
 `LotroKoniecDev.Tests.E2E: not run` line instead (the same `WindowsOnlyTestRun.targets`, #816).
 
 ## TMS Real-Process E2E Tests (LotroKoniecDev.TranslationSystem.E2E.Tests)

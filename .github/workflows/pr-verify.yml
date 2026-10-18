@@ -1,9 +1,9 @@
 name: Pull Request Verification
 
 # Full gate on every PR push, BEFORE merge: Release build (the repo-wide zero-warning gate)
-# + unit tests + integration tests (real PostgreSQL via Testcontainers). In this repo the
-# author merges their own PRs (loop workflow), so the PR — not a post-merge job — is where
-# main is kept green. The CI workflow re-runs the same suite on main as a backstop.
+# + unit tests + integration tests (the two API suites on real PostgreSQL via Testcontainers).
+# In this repo the author merges their own PRs (loop workflow), so the PR — not a post-merge
+# job — is where main is kept green. The CI workflow re-runs the same suite on main as a backstop.
 #
 # Non-.NET-only PRs (and the former docs-only deadlock): the main ruleset REQUIRES the "Pull
 # Request Verification" check, but a workflow filtered out by `on.paths-ignore` never reports it —
@@ -270,8 +270,10 @@ jobs:
             exit 1
           fi
 
-      # Real PostgreSQL via Testcontainers (currently AuthSystem.API.Tests.Integration;
-      # the TranslationSystem.API suite joins by the same convention when M2-15 lands).
+      # Runs every *.Tests.Integration project, found by name like the unit step above.
+      # The TranslationSystem.API and AuthSystem.API suites start real PostgreSQL (and, for
+      # their messaging tests, RabbitMQ) through Testcontainers, so they need Docker. The
+      # Frontend suite boots the Frontend host in memory, with no database and no Docker.
       - name: Run Integration Tests
         if: steps.diff.outputs.code != 'false'
         run: |

@@ -3,7 +3,8 @@ name: CI
 # Post-merge backstop on main: re-runs the full gate (Release build + unit + integration)
 # to catch anything that slipped past PR verification — direct pushes to main, or a PR that
 # went green against an older main. The two API integration suites spin up postgres:18-alpine
-# via Testcontainers (tests/Shared/PostgresImage.cs); the ubuntu runner has Docker preinstalled.
+# via Testcontainers (tests/Shared/PostgresImage.cs), and their messaging tests also start
+# RabbitMQ (tests/Shared/RabbitMqImage.cs); the ubuntu runner has Docker preinstalled.
 #
 # Unlike pr-verify, this workflow does NOT self-skip its .NET steps via scripts/ci/classify-changes.sh:
 # CD is triggered by THIS workflow concluding `success` (cd.yml, workflow_run), so "CI was green"

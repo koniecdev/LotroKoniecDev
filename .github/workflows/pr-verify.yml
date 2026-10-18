@@ -1,10 +1,9 @@
 name: Pull Request Verification
 
 # Full gate on every PR push, BEFORE merge: Release build (the repo-wide zero-warning gate)
-# + unit tests + integration tests (three suites; the two API ones run on real PostgreSQL
-# via Testcontainers). In this repo the author merges their own PRs (loop workflow), so the
-# PR — not a post-merge job — is where main is kept green. The CI workflow re-runs the same
-# suite on main as a backstop.
+# + unit tests + integration tests (the note above that step says which suites need Docker).
+# In this repo the author merges their own PRs (loop workflow), so the PR — not a post-merge
+# job — is where main is kept green. The CI workflow re-runs the same suite on main as a backstop.
 #
 # Non-.NET-only PRs (and the former docs-only deadlock): the main ruleset REQUIRES the "Pull
 # Request Verification" check, but a workflow filtered out by `on.paths-ignore` never reports it —

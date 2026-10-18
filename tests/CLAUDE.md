@@ -273,8 +273,7 @@ PostgreSQL/EF Core coverage lives in the `*.Tests.Integration` projects. Asserti
 file output belongs here, never in `Tests.Unit`. Targets `net10.0-windows` with an x86
 `PlatformTarget`: builds everywhere, **runs on Windows only**. No other OS has an x86 test host,
 so off Windows the csproj sets `IsTestProject` to `false`: `dotnet test` leaves the project out,
-prints one `LotroKoniecDev.Tests.Infrastructure: not run` line and still exits 0 (#816). Before
-that, the run aborted and a plain `dotnet test` exited 1 even when everything else passed. None of
+prints one `LotroKoniecDev.Tests.Infrastructure: not run` line and still exits 0 (#816). None of
 its tests are counted as Skipped, because none of them start.
 
 ## E2E Tests (LotroKoniecDev.Tests.E2E)

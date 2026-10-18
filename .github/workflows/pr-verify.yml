@@ -247,12 +247,12 @@ jobs:
         if: steps.diff.outputs.code != 'false'
         run: dotnet build --configuration Release --no-restore
 
-      # Solution-wide `dotnet test` can't host the patcher's x86 native-interop suite
-      # (LotroKoniecDev.Tests.Infrastructure) on the Linux runner, so target the
-      # cross-platform test projects by naming convention. New suites are picked up
-      # automatically; the Windows-only ones (.Tests.Infrastructure / .Tests.E2E) are
-      # excluded by name. The same name-based selection scopes the coverage report (CI-04):
-      # only the suites that actually run here feed it — E2E projects never do.
+      # Target the test projects by naming convention, not the whole solution. A solution-wide
+      # `dotnet test` would also start the Docker E2E suites, which stay off the PR gate.
+      # New suites are picked up automatically; the Windows-only ones (.Tests.Infrastructure /
+      # .Tests.E2E) are left out by name. Off Windows, `dotnet test` would leave out the x86
+      # .Tests.Infrastructure anyway (#816). The same name-based selection scopes the coverage
+      # report (CI-04): only the suites that actually run here feed it — E2E projects never do.
       - name: Run Unit Tests
         if: steps.diff.outputs.code != 'false'
         run: |

@@ -130,7 +130,7 @@ dotnet run --project src/Frontend/LotroKoniecDev.Frontend                       
 
 ```bash
 dotnet build LotroKoniecDev.slnx   # zero-warning build gate
-dotnet test                        # everything runnable on this OS
+dotnet test                        # everything runnable on this OS; exits 0 when it all passes
 ```
 
 Full operator procedure (environment-variable matrix, secret generation, bring-up sequence, DB

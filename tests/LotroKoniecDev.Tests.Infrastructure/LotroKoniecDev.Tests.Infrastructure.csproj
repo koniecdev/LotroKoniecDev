@@ -9,9 +9,10 @@
         <RootNamespace>LotroKoniecDev.Tests.Infrastructure</RootNamespace>
     </PropertyGroup>
 
-    <!-- Only Windows has an x86 test host. Elsewhere the test run aborts, so a plain `dotnet test`
-         exits 1 even when every test that can run passed (#816). Off Windows, `dotnet test` leaves
-         this project out and says so. `dotnet build` still compiles it on every OS. -->
+    <!-- Only Windows has an x86 test host. Elsewhere the test run would abort, and a plain
+         `dotnet test` would exit 1 even when every test that can run passed (#816). Off Windows,
+         `dotnet test` leaves this project out and says so. `dotnet build` still compiles it on
+         every OS. -->
     <PropertyGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
         <IsTestProject>false</IsTestProject>
     </PropertyGroup>
@@ -43,7 +44,7 @@
         <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Infrastructure\LotroKoniecDev.Infrastructure.csproj"/>
     </ItemGroup>
 
-    <Target Name="ReportWindowsOnlyTestRunSkipped" BeforeTargets="VSTest" Condition="'$(IsTestProject)' != 'true'">
+    <Target Name="ReportWindowsOnlyTestsNotRun" BeforeTargets="VSTest" Condition="'$(IsTestProject)' != 'true'">
         <Message Importance="high" Text="$(MSBuildProjectName): not run. Its x86 tests run only on Windows." />
     </Target>
 

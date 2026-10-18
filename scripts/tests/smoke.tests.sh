@@ -65,6 +65,7 @@ case "$url" in
             *) body="$STUB_PLAIN_ROOT" ;;
         esac
         ;;
+    https://auth.invalid/account.css) headers="$STUB_AUTH_CSS_HEADERS"; body="$STUB_AUTH_CSS_BODY"; code="$STUB_AUTH_CSS_CODE" ;;
     https://auth.invalid/*) headers="$STUB_AUTH_HEADERS"; body="$STUB_AUTH_BODY" ;;
 esac
 [ -n "$header_target" ] && cat "$headers" > "$header_target"
@@ -94,7 +95,10 @@ function global:Invoke-WebRequest {
         }
         return [pscustomobject]@{ StatusCode = $code; Content = [System.IO.File]::ReadAllText($env:STUB_PLAIN_ROOT); Headers = @{} }
     }
-    $prefix = if ($Uri -like 'https://auth.invalid/*') { 'STUB_AUTH_' } else { 'STUB_' }
+    $prefix = if ($Uri -eq 'https://auth.invalid/account.css') { 'STUB_AUTH_CSS_' }
+              elseif ($Uri -like 'https://auth.invalid/*') { 'STUB_AUTH_' }
+              else { 'STUB_' }
+    $statusCode = if ($prefix -eq 'STUB_AUTH_CSS_') { [int]$env:STUB_AUTH_CSS_CODE } else { 200 }
     $responseHeaders = [System.Collections.Generic.Dictionary[string, string[]]]::new()
     foreach ($line in [System.IO.File]::ReadAllLines([Environment]::GetEnvironmentVariable($prefix + 'HEADERS'))) {
         if ($line -match '^([^:]+):\s*(.*)$') {
@@ -105,7 +109,7 @@ function global:Invoke-WebRequest {
         }
     }
     $content = [System.IO.File]::ReadAllText([Environment]::GetEnvironmentVariable($prefix + 'BODY'))
-    return [pscustomobject]@{ StatusCode = 200; Content = $content; Headers = $responseHeaders }
+    return [pscustomobject]@{ StatusCode = $statusCode; Content = $content; Headers = $responseHeaders }
 }
 & $env:SMOKE_SCRIPT
 exit $LASTEXITCODE
@@ -125,6 +129,9 @@ cases=0
 TWIN=""
 FAIL_MARK=""
 REQUIRE_LABEL=""
+# What the stub answers for /account.css. A case that needs another answer sets these and resets them.
+AUTH_CSS_CODE=200
+AUTH_CSS_TYPE="text/css"
 
 fail() {
     printf '✗ [%s] %s\n' "$TWIN" "$1"
@@ -145,9 +152,15 @@ run_case() {
     printf '%s' "$body" > "$TMP_ROOT/body"
     : > "$TMP_ROOT/auth-headers"
     : > "$TMP_ROOT/auth-body"
+    write_auth_css
     LAST_OUTPUT="$(run_smoke "$@" | sed -n '/\[2\/7\]/,/\[3\/7\]/p' || true)"
     cases=$((cases + 1))
     printf '✓ [%s] %s\n' "$TWIN" "$desc"
+}
+
+write_auth_css() {
+    printf 'HTTP/2 %s\r\ncontent-type: %s\r\n' "$AUTH_CSS_CODE" "$AUTH_CSS_TYPE" > "$TMP_ROOT/auth-css-headers"
+    printf '.auth-panel{}' > "$TMP_ROOT/auth-css-body"
 }
 
 # The only extra flag any case passes is --require-csp; smoke.ps1 gets it as SMOKE_REQUIRE_CSP.
@@ -159,6 +172,8 @@ run_smoke() {
             STUB_AUTH_HEADERS="$TMP_ROOT/auth-headers" STUB_AUTH_BODY="$TMP_ROOT/auth-body" \
             STUB_TMS_ROOT="$TMP_ROOT/tms-root" STUB_AUTH_ROOT="$TMP_ROOT/auth-root" \
             STUB_PLAIN_ROOT="$TMP_ROOT/plain-root" STUB_ROOT_CODE="$ROOT_CODE" \
+            STUB_AUTH_CSS_HEADERS="$TMP_ROOT/auth-css-headers" STUB_AUTH_CSS_BODY="$TMP_ROOT/auth-css-body" \
+            STUB_AUTH_CSS_CODE="$AUTH_CSS_CODE" \
             SMOKE_SCRIPT="$SCRIPTS_DIR/smoke.ps1" SMOKE_REQUIRE_CSP="$require_csp" \
             SMOKE_AUTH_URL="$CONFIGURED_AUTH_URL" SMOKE_TMS_URL="$CONFIGURED_TMS_URL" \
             SMOKE_FRONTEND_URL=https://fe.invalid SMOKE_CLIENT_SECRET=stub-secret SMOKE_TIMEOUT=1 \
@@ -169,6 +184,8 @@ run_smoke() {
         STUB_AUTH_HEADERS="$TMP_ROOT/auth-headers" STUB_AUTH_BODY="$TMP_ROOT/auth-body" \
         STUB_TMS_ROOT="$TMP_ROOT/tms-root" STUB_AUTH_ROOT="$TMP_ROOT/auth-root" \
         STUB_PLAIN_ROOT="$TMP_ROOT/plain-root" STUB_ROOT_CODE="$ROOT_CODE" \
+        STUB_AUTH_CSS_HEADERS="$TMP_ROOT/auth-css-headers" STUB_AUTH_CSS_BODY="$TMP_ROOT/auth-css-body" \
+        STUB_AUTH_CSS_CODE="$AUTH_CSS_CODE" \
         bash "$SCRIPTS_DIR/smoke.sh" \
             --auth-url "$CONFIGURED_AUTH_URL" --tms-url "$CONFIGURED_TMS_URL" \
             --frontend-url https://fe.invalid --client-secret stub-secret \
@@ -190,6 +207,7 @@ run_auth_case() {
     shift
     : > "$TMP_ROOT/headers"
     : > "$TMP_ROOT/body"
+    write_auth_css
     LAST_OUTPUT="$(run_smoke "$@" | sed -n '/\[6\/7\]/,/\[7\/7\]/p' || true)"
     cases=$((cases + 1))
     printf '✓ [%s] %s\n' "$TWIN" "$desc"
@@ -321,6 +339,7 @@ run_suite() {
     expect_line "auth /Account/Login serves no inline <script>"
     expect_line "auth /Account/Login serves no inline <style>"
     expect_line "auth /Account/ConfirmEmail serves no inline <style>"
+    expect_line "auth /account.css -> 200 text/css"
     reject_line "$FAIL_MARK"
 
     # 12. The state before #693: HSTS only. A Development stack warns, --require-csp fails.
@@ -396,7 +415,19 @@ run_suite() {
         "$(printf '<html><style\n media="all">p{}</style></html>')"
     expect_line "auth /Account/Login serves 1 inline <style> element(s)"
 
-    # 19. An empty body proves nothing, so it is a failure, not a pass.
+    # 19. A page whose stylesheet is missing from the image answers 200 and loads unstyled (#833).
+    AUTH_CSS_CODE=404
+    AUTH_CSS_TYPE="text/html; charset=utf-8"
+    run_auth_case "a missing /account.css fails" \
+        "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- "$AUTH_PAGE"
+    expect_line "auth /account.css -> 404 'text/html; charset=utf-8' (expected 200 text/css)"
+    AUTH_CSS_CODE=200
+    run_auth_case "an /account.css served as HTML fails" \
+        "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- "$AUTH_PAGE"
+    expect_line "auth /account.css -> 200 'text/html; charset=utf-8' (expected 200 text/css)"
+    AUTH_CSS_TYPE="text/css"
+
+    # 20. An empty body proves nothing, so it is a failure, not a pass.
     run_auth_case "an auth page with no HTML fails" \
         "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- ""
     expect_line "auth /Account/Login served no HTML page"

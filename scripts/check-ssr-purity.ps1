@@ -142,7 +142,7 @@ Test-SsrPurity -Files $authPages -Pattern '<[sS][cC][rR][iI][pP][tT][^>]*>' `
     -Message "Inline <script> in an auth page. The auth CSP sends script-src 'self', so the browser blocks it and only the console says so (#693). Move the code to a file under wwwroot, like login.js." `
     -AllowPattern '<[sS][cC][rR][iI][pP][tT][^>]*[sS][rR][cC]=[^>]*>'
 Test-SsrPurity -Files $authPages -Pattern '<[sS][tT][yY][lL][eE](\s|>)' `
-    -Message "Inline <style> in an auth page. The auth CSP sends style-src 'self', so the browser drops it and only the console says so (#833). Put the rules in wwwroot/account.css, under the page's body class if only one page needs them."
+    -Message "Inline <style> in an auth page. The auth CSP sends style-src 'self', so the browser drops it and only the console says so (#833). Put the rules in wwwroot/account.css; an override for one page goes under that page's body class."
 Test-SsrPurity -Files $authPages -Pattern '<[a-zA-Z][^>]*\s[oO][nN][a-zA-Z]+\s*=' `
     -Message "Inline event handler (onclick=, onsubmit=, ...) in an auth page. The auth CSP sends script-src 'self', which blocks it (#693). Attach the handler from a file under wwwroot, like login.js."
 Test-SsrPurity -Files $authPages -Pattern '<[a-zA-Z][^>]*\s[sS][tT][yY][lL][eE]\s*=' `

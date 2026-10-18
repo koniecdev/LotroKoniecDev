@@ -19,8 +19,9 @@ public static class HttpClientsDependencyInjectionExtensions
         /// Every client <see cref="IHttpClientFactory"/> builds in this app starts on
         /// <see cref="CreatePrimaryHandler"/>. A client given its own standard transport still follows no
         /// redirect and keeps no cookie. So a new client to either API is safe even when nobody remembers
-        /// the setting: #830 missed two clients, and #899 had to fix them (#922). It reaches the OTLP
-        /// exporter's clients too: the collector never redirects and needs no cookie.
+        /// the setting: #830 missed two clients, and #899 had to fix them (#922). Under the http/protobuf
+        /// protocol it also reaches the OTLP exporter's clients: the collector never redirects and needs
+        /// no cookie.
         /// </summary>
         public IServiceCollection AddHttpClientDefaults()
         {
@@ -109,6 +110,8 @@ public static class HttpClientsDependencyInjectionExtensions
     /// back-channel (#899), and every client added later (#922).
     /// One handler serves every visitor, so a cookie it kept from one visitor's call would go out with
     /// other visitors' calls. No call to either API needs a cookie, so the handler keeps none (#924).
+    /// The two typed clients never replace their handler, so their connections are renewed every 15
+    /// minutes instead, and a DNS change still reaches them.
     /// </summary>
     internal static SocketsHttpHandler CreatePrimaryHandler() => new()
     {

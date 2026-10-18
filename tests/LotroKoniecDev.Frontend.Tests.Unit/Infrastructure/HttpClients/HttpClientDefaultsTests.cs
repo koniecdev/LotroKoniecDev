@@ -48,6 +48,25 @@ public sealed class HttpClientDefaultsTests
     }
 
     /// <summary>
+    /// The app-wide transport renews its connections. The TMS and auth typed clients need that most: they
+    /// never replace their handler, so without it they would keep their connections forever and never see
+    /// a DNS change.
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(ITranslationSystemClient))]
+    [InlineData(nameof(IAuthSystemClient))]
+    [InlineData(nameof(ITokenEndpointClient))]
+    [InlineData(ClientAddedLater)]
+    public void CreateHandler_ThroughTheRealRegistration_RenewsItsConnectionsEveryFifteenMinutes(string clientName)
+    {
+        using ServiceProvider provider = CreateFrontendServices().BuildServiceProvider();
+
+        List<HttpMessageHandler> chain = HandlerChain(provider, clientName);
+
+        chain[^1].ShouldBeOfType<SocketsHttpHandler>().PooledConnectionLifetime.ShouldBe(TimeSpan.FromMinutes(15));
+    }
+
+    /// <summary>
     /// A client that needs a transport of its own, for a certificate or a proxy, keeps it, but not the
     /// redirects and cookies a new handler has by default.
     /// </summary>
@@ -84,7 +103,7 @@ public sealed class HttpClientDefaultsTests
 
     /// <summary>The tests' stand-in servers replace the transport the same way, and they must keep working.</summary>
     [Fact]
-    public void CreateHandler_ForAClientGivenAStandInServer_SendsThroughIt()
+    public void CreateHandler_ForAClientGivenAStandInServer_KeepsItAsTheTransport()
     {
         StubHttpMessageHandler standIn = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
         ServiceCollection services = CreateFrontendServices();

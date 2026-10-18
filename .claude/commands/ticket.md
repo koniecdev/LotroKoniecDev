@@ -174,7 +174,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
 
 - `dotnet build LotroKoniecDev.slnx` — green with **zero warnings** (TreatWarningsAsErrors).
 - **The whole suite, locally, on every ticket — unconditional.** `dotnet test` (no filter) runs
-  everything runnable on this OS; E2E auto-skips off-Windows. Never narrow it to
+  everything runnable on this OS and exits 0 when it all passes; off Windows the patcher's
+  `Tests.E2E` reports Skipped and the x86 `Tests.Infrastructure` prints "not run". Never narrow it to
   `tests/LotroKoniecDev.Tests.Unit` because the diff "cannot reach" the rest — that judgement is
   the mistake. New behavior covered (happy path + failure modes + boundary `[Theory]` cases), and
   report the counts rather than "tests pass". Local minutes cost nothing; GitHub Actions minutes

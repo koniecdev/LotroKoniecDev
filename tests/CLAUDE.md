@@ -3,10 +3,10 @@
 ## Run Tests
 
 ```bash
-dotnet test                                            # everything runnable on this OS
+dotnet test                                            # everything runnable on this OS; exits 0 when it all passes
 dotnet test tests/LotroKoniecDev.Tests.Unit            # unit only — always green, every OS
-dotnet test tests/LotroKoniecDev.Tests.Infrastructure  # real-infrastructure tests
-dotnet test tests/LotroKoniecDev.Tests.E2E             # full CLI pipeline — auto-skips off-Windows
+dotnet test tests/LotroKoniecDev.Tests.Infrastructure  # real-infrastructure tests — Windows only; elsewhere prints "not run"
+dotnet test tests/LotroKoniecDev.Tests.E2E             # full CLI pipeline — its tests report Skipped off-Windows
 dotnet test tests/LotroKoniecDev.TranslationSystem.E2E.Tests  # real-process TMS stack — REQUIRES Docker (builds 3 images)
 dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests          # browser stack via Testcontainers — REQUIRES Docker (4 images + Playwright)
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
@@ -29,7 +29,7 @@ Full project inventory (15 projects):
 | `LotroKoniecDev.Frontend.Tests.Integration` | in-process Frontend host in Staging (`WebApplicationFactory`): startup checks such as the caller keys (#915), and the real OIDC sign-in against a stand-in token endpoint: the token answer it accepts (#1026) and the refresh time it stores (#1025); and a signed-in session's pages while the sign-in server is down right after a restart, plus the 401 that ends a session (#1058); and every page's form post while the page's data fails to load (#1122). Its csproj repeats one Frontend runtime switch (#1122) | nothing (no Docker); a temp keyring folder |
 | `LotroKoniecDev.TranslationSystem.E2E.Tests` | real-process TMS stack over HTTP | Docker (3 images) |
 | `LotroKoniecDev.Frontend.E2E.Tests` | Playwright browser stack | Docker (4 images + browser) |
-| `LotroKoniecDev.Tests.Infrastructure` | patcher real-infrastructure adapters | Windows to run |
+| `LotroKoniecDev.Tests.Infrastructure` | patcher real-infrastructure adapters | Windows (x86 test host); elsewhere `dotnet test` leaves it out |
 | `LotroKoniecDev.Tests.E2E` | patcher CLI full pipeline | Windows + real DAT (else skipped) |
 
 > **Heads-up on bare `dotnet test`:** the TMS real-process E2E suite runs whenever the whole solution is
@@ -270,8 +270,12 @@ Tests that touch real infrastructure adapters (today: `GameLauncherTests`,
 adapters' integrity, response-size-cap and timeout enforcement points over an in-memory stub
 `HttpMessageHandler`, no real network). This project is patcher-side only — TMS
 PostgreSQL/EF Core coverage lives in the `*.Tests.Integration` projects. Asserting on real
-file output belongs here, never in `Tests.Unit`. Targets `net10.0-windows`: builds everywhere,
-**runs on Windows only** (on macOS the run aborts — expected).
+file output belongs here, never in `Tests.Unit`. Targets `net10.0-windows` with an x86
+`PlatformTarget`: builds everywhere, **runs on Windows only**. No other OS has an x86 test host,
+so off Windows the csproj sets `IsTestProject` to `false`: `dotnet test` leaves the project out,
+prints one `LotroKoniecDev.Tests.Infrastructure: not run` line and still exits 0 (#816). Before
+that, the run aborted and a plain `dotnet test` exited 1 even when everything else passed. None of
+its tests are counted as Skipped, because none of them start.
 
 ## E2E Tests (LotroKoniecDev.Tests.E2E)
 

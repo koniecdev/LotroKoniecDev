@@ -34,6 +34,7 @@
                      nosniff, a private Referrer-Policy. The page must also carry nothing inline that
                      its CSP blocks: no <style> (the styles live in /account.css, #833) and no inline
                      <script>. As in leg 2, a blocked style or script shows up only in the console (#693).
+                     /account.css itself must answer 200 text/css, or every account page loads unstyled.
       7. Discovery   every link in the TMS and auth discovery roots sits on the configured origin. The
                      clients refuse a link to any other origin and follow no redirect (#611, #830), so an API
                      that builds its links from the wrong address (http, an internal host, another
@@ -417,6 +418,19 @@ foreach ($authPage in @('/Account/Login', '/Account/ConfirmEmail')) {
     } catch { $authHtml = '' }
     if ($null -eq $authHtml) { $authHtml = '' }
     Test-AuthPage -Page $authPage -Response $authResponse -Html $authHtml
+}
+# A page whose stylesheet is missing still answers 200 and loads unstyled, so the file is fetched too (#833).
+$cssCode = 0
+$cssType = ''
+try {
+    $cssResponse = Invoke-Smoke -Url "$AuthUrl/account.css"
+    $cssCode = [int]$cssResponse.StatusCode
+    $cssType = Get-HeaderValues $cssResponse 'Content-Type'
+} catch { $cssCode = 0 }
+if ($cssCode -eq 200 -and $cssType -match '(?i)^text/css') {
+    Add-Pass "auth /account.css -> 200 $cssType"
+} else {
+    Add-Fail "auth /account.css -> $cssCode '$cssType' (expected 200 text/css): every account page would load unstyled (#833)"
 }
 Write-Host ""
 

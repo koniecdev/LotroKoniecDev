@@ -31,6 +31,7 @@
 #                    nosniff, a private Referrer-Policy. The page must also carry nothing inline that
 #                    its CSP blocks: no <style> (the styles live in /account.css, #833) and no inline
 #                    <script>. As in leg 2, a blocked style or script shows up only in the console (#693).
+#                    /account.css itself must answer 200 text/css, or every account page loads unstyled.
 #   7. Discovery   — every link in the TMS and auth discovery roots sits on the configured origin. The
 #                    clients refuse a link to any other origin and follow no redirect (#611, #830), so an API
 #                    that builds its links from the wrong address (http, an internal host, another
@@ -448,6 +449,15 @@ for auth_page in /Account/Login /Account/ConfirmEmail; do
     auth_html="$(curl -s -D "$HDR_FILE" --max-time "$TIMEOUT" $TLS_FLAG "$AUTH_URL$auth_page" 2>/dev/null || true)"
     check_auth_page "$auth_page" "$auth_html"
 done
+# A page whose stylesheet is missing still answers 200 and loads unstyled, so the file is fetched too (#833).
+: > "$HDR_FILE"
+css_code="$(curl -s -o /dev/null -D "$HDR_FILE" -w '%{http_code}' --max-time "$TIMEOUT" $TLS_FLAG "$AUTH_URL/account.css" 2>/dev/null)" || css_code="000"
+css_type="$(header_values 'content-type')"
+if [ "$css_code" = "200" ] && grep -qi '^text/css' <<< "$css_type"; then
+    pass "auth /account.css -> 200 $css_type"
+else
+    fail "auth /account.css -> $css_code '$css_type' (expected 200 text/css): every account page would load unstyled (#833)"
+fi
 echo
 
 HATEOAS_ACCEPT='application/vnd.dev-lotrokoniecdev.hateoas.json'

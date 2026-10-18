@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Test suite for the smoke test's own checks: the CSP checks of leg 2 on the frontend (#670) and
-# leg 6 on the auth pages (#693), and the discovery links of leg 7 (#898).
+# leg 6 on the auth pages (#693, #833), and the discovery links of leg 7 (#898).
 #
 # These legs decide whether a deploy is rolled back, and scripts/smoke.sh is otherwise INERT to
 # CI (no build, no unit test touches it), so without this file nothing checks them before
@@ -306,20 +306,21 @@ run_suite() {
 
     # --- Leg 6: the auth pages (#693) ---
 
-    AUTH_CSP="content-security-policy: default-src 'self'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'nonce-Ab_9-z'"
+    AUTH_CSP="content-security-policy: default-src 'self'; frame-ancestors 'none'; script-src 'self'; style-src 'self'"
     AUTH_OK_HEADERS_FRAME="x-frame-options: DENY"
     AUTH_OK_HEADERS_SNIFF="x-content-type-options: nosniff"
     AUTH_OK_HEADERS_REFERRER="referrer-policy: no-referrer"
-    AUTH_PAGE='<html><head><style nonce="Ab_9-z">p{}</style></head><body><script src="/login.js"></script></body></html>'
+    AUTH_PAGE='<html><head><link rel="stylesheet" href="/account.css" /></head><body><script src="/login.js"></script></body></html>'
 
     # 11. The fixed auth origin passes every check on both pages.
-    run_auth_case "the auth pages with their headers and a nonced style pass" \
+    run_auth_case "the auth pages with their headers and a linked stylesheet pass" \
         "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- "$AUTH_PAGE"
     expect_line "auth /Account/Login forbids framing"
     expect_line "auth /Account/ConfirmEmail forbids framing"
     expect_line "auth /Account/Login sends nosniff and Referrer-Policy 'no-referrer'"
     expect_line "auth /Account/Login serves no inline <script>"
-    expect_line "auth /Account/Login puts the header's nonce on every inline <style>"
+    expect_line "auth /Account/Login serves no inline <style>"
+    expect_line "auth /Account/ConfirmEmail serves no inline <style>"
     reject_line "$FAIL_MARK"
 
     # 12. The state before #693: HSTS only. A Development stack warns, --require-csp fails.
@@ -339,7 +340,7 @@ run_suite() {
         "$AUTH_OK_HEADERS_REFERRER" -- "$AUTH_PAGE"
     expect_line "can be framed: X-Frame-Options 'SAMEORIGIN, DENY'"
     run_auth_case "a CSP without frame-ancestors fails even with DENY" \
-        "content-security-policy: default-src 'self'; style-src 'self' 'nonce-Ab_9-z'" "$AUTH_OK_HEADERS_FRAME" \
+        "content-security-policy: default-src 'self'; style-src 'self'" "$AUTH_OK_HEADERS_FRAME" \
         "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- "$AUTH_PAGE"
     expect_line "auth /Account/Login can be framed"
 
@@ -360,15 +361,17 @@ run_suite() {
         "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "referrer-policy: unsafe-url, strict-origin-when-cross-origin" -- "$AUTH_PAGE"
     expect_line "auth /Account/Login sends nosniff and Referrer-Policy"
 
-    # 15. A style block without the nonce, or with another request's nonce, is blocked.
-    run_auth_case "a <style> without the nonce fails" \
+    # 15. The styles live in /account.css (#833): any style block is a regression, also one whose
+    # nonce the policy would admit.
+    run_auth_case "an inline <style> fails" \
         "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- \
-        '<html><style>p{}</style><STYLE nonce="Ab_9-z">a{}</STYLE></html>'
-    expect_line "auth /Account/Login serves 1 <style> element(s) without the header's nonce"
-    run_auth_case "a stale nonce fails" \
-        "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- \
-        '<html><style nonce="0ld">p{}</style></html>'
-    expect_line "serves 1 <style> element(s) without the header's nonce"
+        '<html><style>p{}</style><STYLE media="all">a{}</STYLE></html>'
+    expect_line "auth /Account/Login serves 2 inline <style> element(s); the styles belong in /account.css"
+    run_auth_case "a <style> the policy admits by nonce still fails" \
+        "content-security-policy: frame-ancestors 'none'; script-src 'self'; style-src 'self' 'nonce-Ab_9-z'" \
+        "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- \
+        '<html><style nonce="Ab_9-z">p{}</style></html>'
+    expect_line "auth /Account/Login serves 1 inline <style> element(s)"
 
     # 16. 'unsafe-inline' is the defect itself, in either directive.
     run_auth_case "style-src 'unsafe-inline' fails" \
@@ -376,27 +379,28 @@ run_suite() {
         "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- "$AUTH_PAGE"
     expect_line "auth /Account/Login style-src allows 'unsafe-inline'"
     run_auth_case "script-src 'unsafe-inline' fails" \
-        "content-security-policy: frame-ancestors 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'nonce-Ab_9-z'" \
+        "content-security-policy: frame-ancestors 'none'; script-src 'self' 'unsafe-inline'; style-src 'self'" \
         "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- "$AUTH_PAGE"
     expect_line "auth /Account/Login script-src allows 'unsafe-inline'"
 
     # 17. The old Login page: the password toggle as an inline script.
     run_auth_case "an inline script on an auth page fails" \
         "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- \
-        "$(printf '<html><style nonce="Ab_9-z">p{}</style><script>\n(function(){})();</script></html>')"
+        "$(printf '<html><link rel="stylesheet" href="/account.css" /><script>\n(function(){})();</script></html>')"
     expect_line "auth /Account/Login serves 1 inline <script> element(s)"
 
-    # 18. No style-src and no default-src nonce: any inline style is blocked by default-src.
-    run_auth_case "an inline style under a nonce-less policy fails" \
+    # 18. A style tag split over two lines must not slip through, under a policy with no style-src.
+    run_auth_case "a style tag split over two lines is still counted" \
         "content-security-policy: default-src 'self'; frame-ancestors 'none'" \
-        "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- "$AUTH_PAGE"
-    expect_line "auth /Account/Login serves 1 inline <style> element(s), which its own style-src blocks"
+        "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- \
+        "$(printf '<html><style\n media="all">p{}</style></html>')"
+    expect_line "auth /Account/Login serves 1 inline <style> element(s)"
 
     # 19. An empty body proves nothing, so it is a failure, not a pass.
     run_auth_case "an auth page with no HTML fails" \
         "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- ""
     expect_line "auth /Account/Login served no HTML page"
-    reject_line "puts the header's nonce"
+    reject_line "serves no inline <style>"
 
     # --- Leg 7: discovery links on the configured origin (#898) ---
 

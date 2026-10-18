@@ -28,9 +28,9 @@
 #                    honours If-None-Match with a 304 (the CLI/player relies on this; spec 0001).
 #   6. Auth pages  — the auth origin sends its security headers on a page with a form (Login) and on
 #                    one without (ConfirmEmail): X-Frame-Options DENY with frame-ancestors 'none',
-#                    nosniff, a private Referrer-Policy. Its CSP must also admit the page's own inline
-#                    content: every <style> carries the header's nonce and no inline <script> is
-#                    served. As in leg 2, a blocked style or script shows up only in the console (#693).
+#                    nosniff, a private Referrer-Policy. The page must also carry nothing inline that
+#                    its CSP blocks: no <style> (the styles live in /account.css, #833) and no inline
+#                    <script>. As in leg 2, a blocked style or script shows up only in the console (#693).
 #   7. Discovery   — every link in the TMS and auth discovery roots sits on the configured origin. The
 #                    clients refuse a link to any other origin and follow no redirect (#611, #830), so an API
 #                    that builds its links from the wrong address (http, an internal host, another
@@ -365,7 +365,7 @@ csp_directive() {
 
 # $1 = page path, $2 = its HTML. Reads the headers from $HDR_FILE.
 check_auth_page() {
-    local page="$1" html="$2" csp frame nosniff referrer referrer_last referrer_private script_src style_src nonce folded count
+    local page="$1" html="$2" csp frame nosniff referrer referrer_last referrer_private script_src style_src folded count
     # Here-strings, never `printf | grep -q`: grep -q quits at the first match, and under pipefail
     # the printf still writing a 28 KB page then dies of SIGPIPE and turns a match into a failure.
     if ! grep -qi '<html' <<< "$html"; then
@@ -427,25 +427,16 @@ check_auth_page() {
         fi
     fi
 
-    # The account pages keep their styles inline, so every <style> must carry the nonce style-src names.
+    # The account pages take their styles from /account.css (#833), so any inline <style> is a
+    # regression, whatever style-src says.
     style_src="$(csp_directive "$csp" 'style-src')"
-    nonce="$(printf '%s' "$style_src" | grep -oE "'nonce-[A-Za-z0-9+/_=-]+'" | head -n 1 | sed -E "s/^'nonce-//; s/'$//" || true)"
+    count="$(printf '%s' "$folded" | grep -oiE '<style[^>]*>' | grep -c . || true)"
     if grep -qi "unsafe-inline" <<< "$style_src"; then
         fail "auth $page style-src allows 'unsafe-inline' (#693)"
-    elif [ -n "$nonce" ]; then
-        count="$(printf '%s' "$folded" | grep -oiE '<style[^>]*>' | grep -c -vF "nonce=\"$nonce\"" || true)"
-        if [ "$count" = "0" ]; then
-            pass "auth $page puts the header's nonce on every inline <style>"
-        else
-            fail "auth $page serves $count <style> element(s) without the header's nonce, which style-src blocks (#693)"
-        fi
+    elif [ "$count" = "0" ]; then
+        pass "auth $page serves no inline <style> (#833)"
     else
-        count="$(printf '%s' "$folded" | grep -oiE '<style[^>]*>' | grep -c . || true)"
-        if [ "$count" = "0" ]; then
-            pass "auth $page serves no inline <style> (nothing for style-src to block)"
-        else
-            fail "auth $page serves $count inline <style> element(s), which its own style-src blocks (#693)"
-        fi
+        fail "auth $page serves $count inline <style> element(s); the styles belong in /account.css (#833)"
     fi
 }
 

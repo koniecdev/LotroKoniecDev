@@ -162,7 +162,6 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
         // Arrange
         using HttpResponseMessage first = await ApiClient.Http.GetAsync(new Uri("/account.css", UriKind.Relative));
         EntityTagHeaderValue etag = first.Headers.ETag.ShouldNotBeNull();
-        first.Headers.CacheControl?.NoStore.ShouldNotBe(true);
         using HttpRequestMessage repeat = new(HttpMethod.Get, new Uri("/account.css", UriKind.Relative));
         repeat.Headers.IfNoneMatch.Add(etag);
 
@@ -170,6 +169,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
         using HttpResponseMessage response = await ApiClient.Http.SendAsync(repeat);
 
         // Assert
+        first.Headers.CacheControl?.NoStore.ShouldNotBe(true);
         response.StatusCode.ShouldBe(HttpStatusCode.NotModified);
     }
 

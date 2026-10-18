@@ -8,8 +8,9 @@
 #
 #   work-ticket.sh <n> (worktree → session → PR)  ×  up to -j at once  →  roll-up table of PRs
 #
-# After a usage limit it waits for the running tickets, naps, and runs the limited tickets again;
-# work-ticket.sh then resumes each one's session in the worktree it kept (#934).
+# After a usage limit it waits for the running tickets, sleeps until two minutes after the time the
+# limit message names (#1078), and runs the limited tickets again; work-ticket.sh then resumes each
+# one's session in the worktree it kept (#934).
 #
 # Start a real run with scripts/claude/start-loop.sh, in a plain terminal: a Claude Code session
 # kills its background commands after two hours (#969). Running this script directly is for a
@@ -31,9 +32,11 @@
 #   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE (the provenance gate —
 #   ADR-0026; it also fires on explicitly-named tickets, which never touch the picker).
 #   Loop-only: LOOP_PARALLEL (default 3, same as -j), LOOP_ALLOW_LOCAL_SCRIPTS=1 (run even when
-#   scripts/claude/ here differs from origin/main), LOOP_LIMIT_SLEEP_MIN (default 60),
-#   LOOP_LIMIT_RETRIES (default 8 — a limit hit at the start of a 5h usage window needs up to
-#   ~5h of naps to outlive it), LOOP_MAX_CONSECUTIVE_FAILURES (default 2).
+#   scripts/claude/ here differs from origin/main), LOOP_LIMIT_SLEEP_MIN (default 60 — the nap
+#   when no limit message names a time still to come), LOOP_LIMIT_RETRIES (default 8 — a limit hit
+#   at the start of a 5h usage window needs up to ~5h of naps to outlive it; a limit that ends later
+#   than LOOP_LIMIT_RETRIES × LOOP_LIMIT_SLEEP_MIN from now stops the run at once),
+#   LOOP_MAX_CONSECUTIVE_FAILURES (default 2).
 #
 # Raw per-ticket session logs land in logs/claude-loop/<timestamp>/ (debugging only);
 # blocked-ticket triage is on GitHub: `gh issue list --label loop-blocked`.
@@ -178,8 +181,9 @@ stop_jobs() {
 }
 
 # Every wait here is a background sleep + `wait`, so a stop signal runs its trap at once instead
-# of after the nap (a usage-limit nap is an hour). The sleep writes nowhere: a nap left behind by a
-# conductor killed with SIGKILL must not keep the launcher's console copy, and its terminal, busy.
+# of after the nap (a usage-limit nap can last hours). The sleep writes nowhere: a nap left behind
+# by a conductor killed with SIGKILL must not keep the launcher's console copy, and its terminal,
+# busy.
 nap() {
     local timer
     sleep "$1" > /dev/null 2>&1 &
@@ -219,6 +223,30 @@ count_running() {
 # First word of a space-separated list, and the list without it.
 head_of() { set -- $1; echo "${1:-}"; }
 tail_of() { set -- $1; [ $# -gt 0 ] && shift; echo "$*"; }
+
+# Sets RESET_AT to the latest `reset_at` the tickets in RETRY wrote: the epoch at which their limit
+# message says the limit ends, or nothing (#1078). They all run on one account, so the latest one
+# is when every one of them can go on. A ticket whose message named no time does not change it.
+RESET_AT=""
+latest_reset() {
+    local ticket value
+    RESET_AT=""
+    for ticket in $RETRY; do
+        value="$(sed -n 's/^reset_at=//p' "$RUN_DIR/ticket-$ticket.meta" 2>/dev/null | tail -1)"
+        case "$value" in ''|*[!0-9]*) continue ;; esac
+        if [ -z "$RESET_AT" ] || [ "$value" -gt "$RESET_AT" ]; then RESET_AT="$value"; fi
+    done
+}
+
+# local_time <epoch> <format> — the moment in this machine's time zone. GNU date (Linux) reads it
+# with `-d @<epoch>`, BSD date (macOS) with `-r <epoch>`. Only GNU date knows --version.
+local_time() {
+    if date --version >/dev/null 2>&1; then
+        date -d "@$1" "+$2"
+    else
+        date -r "$1" "+$2"
+    fi
+}
 
 # Sets NEXT to the next ticket to start, or to nothing. Retries first, then the explicit list or
 # the picker. It sets a global instead of printing: `$(next_ticket)` would run in a subshell and
@@ -333,8 +361,23 @@ while :; do
                 stop_reason="usage limit persisted after $LIMIT_RETRIES naps"
                 break
             fi
-            echo "[conductor] usage limit — sleeping ${LIMIT_SLEEP_MIN}m (nap $limit_naps/$LIMIT_RETRIES)"
-            nap $(( LIMIT_SLEEP_MIN * 60 ))
+            # Until two minutes after the limit ends, when a message said when (#1078). A time
+            # already past gets the fixed nap, so a retry that meets the limit again cannot run
+            # through every nap in a few minutes.
+            latest_reset
+            now="$(date +%s)"
+            if [ -n "$RESET_AT" ] && [ $(( RESET_AT + 120 )) -gt "$now" ]; then
+                wake=$(( RESET_AT + 120 ))
+                if [ $(( wake - now )) -gt $(( LIMIT_RETRIES * LIMIT_SLEEP_MIN * 60 )) ]; then
+                    stop_reason="usage limit resets at $(local_time "$RESET_AT" '%Y-%m-%d %H:%M'), later than the whole nap budget ($LIMIT_RETRIES naps of ${LIMIT_SLEEP_MIN}m)"
+                    break
+                fi
+                echo "[conductor] usage limit — sleeping until $(local_time "$wake" %H:%M) (resets $(local_time "$RESET_AT" %H:%M), nap $limit_naps/$LIMIT_RETRIES)"
+                nap $(( wake - now ))
+            else
+                echo "[conductor] usage limit — sleeping ${LIMIT_SLEEP_MIN}m (nap $limit_naps/$LIMIT_RETRIES)"
+                nap $(( LIMIT_SLEEP_MIN * 60 ))
+            fi
             limit_hold=0
             continue
         fi

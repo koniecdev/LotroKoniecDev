@@ -20,7 +20,8 @@
 # started again (#1096). The count of commits the merge did not take fails instead of waiting for
 # an ssh passphrase or a password (#1139). A relative run folder or LOOP_CONFIG_DIR means the
 # folder the caller started in, and a missing run folder or an empty LOOP_CONFIG_DIR keeps the
-# default (#1080).
+# default (#1080). A usage limit whose message names its end writes that moment for the
+# conductor, and any other message writes none (#1078).
 #
 # `gh` is stubbed from fixtures, so the suite is offline and hermetic. The stub applies the
 # caller's own `--jq` filter with real jq, which keeps the scripts' jq filters under test too.
@@ -1027,6 +1028,79 @@ run_case 6 "work-ticket: a 429 without is_error is a usage limit, not a resume" 
 [ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a usage limit is resumed by the next run, not by this one" "$LAST_OUTPUT"
 expect_meta 94 outcome=limit worktree=kept
 git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-94"
+
+# ── work-ticket.sh: when the usage limit ends (#1078) ──────────────────────────────────────────
+# The worker reads the time the limit message names and writes it as reset_at= for the conductor.
+# A fake clock fixes the moment the worker sees the limit, so each case expects one exact epoch.
+# The suite runs on macOS (BSD date) and on Linux (GNU date), so the same epoch on both proves that
+# the two kinds of date agree. The results have the shape of a real limit, 429 included, but name
+# no session, so no case keeps a worktree.
+REAL_DATE="$(command -v date)"
+mkdir -p "$TMP_ROOT/clock-bin"
+cat > "$TMP_ROOT/clock-bin/date" <<STUB
+#!/usr/bin/env bash
+if [ "\$*" = "+%s" ]; then echo "\$FAKE_NOW"; exit 0; fi
+exec "$REAL_DATE" "\$@"
+STUB
+chmod +x "$TMP_ROOT/clock-bin/date"
+behavior "$TMP_ROOT/limit-says.sh" 'printf "%s\n" "${LIMIT_STDERR:-}" >&2
+jq -nc --arg result "$LIMIT_RESULT" "{result: \$result, is_error: true, api_error_status: 429}"'
+
+# limit_at <ticket> <seen epoch> <result> [stderr] — one limited run that sees the limit at <seen>.
+limit_at() {
+    reset_fixtures
+    fixture_issue "$1" maintainer OWNER
+    run_case 6 "work-ticket: a usage limit seen at epoch $2 that says '$3'${4:+ (stderr: '$4')}" \
+        env PATH="$TMP_ROOT/clock-bin:$PATH" FAKE_NOW="$2" LIMIT_RESULT="$3" LIMIT_STDERR="${4:-}" \
+        CLAUDE_BEHAVIOR="$TMP_ROOT/limit-says.sh" "$WORK" "$1" "$TMP_ROOT/run"
+    expect_meta "$1" outcome=limit
+}
+
+# The #1027 limit: seen at 19:26:02 Warsaw time (2026-10-07), the limit ends at 20:20 that day.
+limit_at 200 1791393962 "You've hit your session limit · resets 8:20pm (Europe/Warsaw)"
+expect_meta 200 reset_at=1791397200
+# Seen at 23:50, "1:20am" is 1:20 the next day, and "12:05am" is five past midnight.
+limit_at 201 1791409800 "You've hit your session limit · resets 1:20am (Europe/Warsaw)"
+expect_meta 201 reset_at=1791415200
+limit_at 202 1791409800 "You've hit your session limit · resets 12:05am (Europe/Warsaw)"
+expect_meta 202 reset_at=1791410700
+# Seen at 23:50 on 2026-10-24, before the clocks go back that night: 4:20am is 03:20 UTC, not 02:20.
+limit_at 203 1792878600 "You've hit your session limit · resets 4:20am (Europe/Warsaw)"
+expect_meta 203 reset_at=1792898400
+# A time without minutes, in other zones: 3pm in New York is 19:00 UTC, and noon in UTC is noon.
+limit_at 204 1791393962 "You've hit your session limit · resets 3pm (America/New_York)"
+expect_meta 204 reset_at=1791399600
+limit_at 205 1791367200 "You've hit your session limit · resets 12pm (UTC)"
+expect_meta 205 reset_at=1791374400
+# Seen a minute after the reset, the time is today's, already past, and the conductor takes the
+# fixed nap. Read as tomorrow's, it would stop the run for a limit that has already ended.
+limit_at 206 1791397270 "You've hit your session limit · resets 8:20pm (Europe/Warsaw)"
+expect_meta 206 reset_at=1791397200
+# The stderr is read only when the result names no time.
+limit_at 207 1791393962 "You've hit your session limit" "You've hit your session limit · resets 8:20pm (Europe/Warsaw)"
+expect_meta 207 reset_at=1791397200
+limit_at 208 1791393962 "You've hit your session limit · resets 8:20pm (Europe/Warsaw)" "resets 9:20pm (Europe/Warsaw)"
+expect_meta 208 reset_at=1791397200
+
+# Any other shape names no time, so the conductor takes the fixed nap. That includes a clock time
+# that does not exist (2:30am on 2026-03-29, when the clocks go forward) or exists twice (2:30am on
+# 2026-10-25, when they go back): the two kinds of date would not agree on it.
+for unreadable in \
+    "1791393962|You've hit your session limit" \
+    "1791393962|You've hit your weekly limit · resets Oct 20, 8pm (Europe/Warsaw)" \
+    "1791393962|You've hit your session limit · resets 13:20pm (Europe/Warsaw)" \
+    "1791393962|You've hit your session limit · resets 0:20am (Europe/Warsaw)" \
+    "1791393962|You've hit your session limit · resets 8:61pm (Europe/Warsaw)" \
+    "1791393962|You've hit your session limit · resets 8:20 pm (Europe/Warsaw)" \
+    "1791393962|You've hit your session limit · resets 8:20pm" \
+    "1791393962|You've hit your session limit · resets 8:20pm (Mars/Olympus_Mons)" \
+    "1791393962|You've hit your session limit · resets 8:20pm (../../../etc/passwd)" \
+    "1774740600|You've hit your session limit · resets 2:30am (Europe/Warsaw)" \
+    "1792881000|You've hit your session limit · resets 2:30am (Europe/Warsaw)"; do
+    limit_at 209 "${unreadable%%|*}" "${unreadable#*|}"
+    ! grep -q '^reset_at=' "$TMP_ROOT/run/ticket-209.meta" \
+        || fail "'${unreadable#*|}' names no time the loop can trust" "$(cat "$TMP_ROOT/run/ticket-209.meta")"
+done
 
 # ── work-ticket.sh: a usage limit keeps the session for the next run (#934) ────────────────────
 # The session commits, leaves a file it has not committed yet, and hits the limit. The worktree

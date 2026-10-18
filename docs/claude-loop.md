@@ -203,8 +203,8 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_TRUSTED_ASSOCIATIONS` | `OWNER,MEMBER,COLLABORATOR` | provenance gate: associations that carry write access |
 | `LOOP_TRUSTED_LOGINS` | (none) | provenance gate: extra logins (a second maintainer account, a bot) |
 | `LOOP_TRUST_GATE` | `1` | `0` = skip the provenance gate **for the whole run** (you read the issue *and* its comments yourself) — use it only on a single explicitly-named ticket |
-| `LOOP_LIMIT_SLEEP_MIN` | `60` | nap length when the usage limit is hit |
-| `LOOP_LIMIT_RETRIES` | `8` | max naps before giving up (a limit hit at the start of a 5h usage window needs up to ~5h of naps) |
+| `LOOP_LIMIT_SLEEP_MIN` | `60` | the fixed nap after a usage limit, now only the fallback: the loop sleeps until two minutes after the time the limit message names (#1078), and takes this nap when no message names a time still to come (the message cannot be read, or its time is already past) |
+| `LOOP_LIMIT_RETRIES` | `8` | max naps before giving up (a limit hit at the start of a 5h usage window needs up to ~5h of naps); a nap until the reset counts as one. A limit that ends later than `LOOP_LIMIT_RETRIES` × `LOOP_LIMIT_SLEEP_MIN` from now stops the run at once, with the reset time in the stop reason |
 | `LOOP_MAX_CONSECUTIVE_FAILURES` | `2` | systemic-failure circuit breaker |
 
 ## Outcomes & triage
@@ -284,11 +284,32 @@ Per-ticket outcomes:
   half way: it finishes on its own and keeps its real outcome (a PR, BLOCKED, a worktree kept after
   a usage limit). The stop only cancels a resume that has not started yet. A stopped conductor
   prints no table, so `/backlog` builds the roll-up of such a run from its `.meta` files.
-- **usage limit** — the loop starts nothing new, lets the running tickets finish, naps
-  (`LOOP_LIMIT_SLEEP_MIN`) and runs the limited tickets again. Each one whose result names its
-  session keeps its worktree, and the next run resumes that session there (see "A session stopped by a usage limit, or DONE without
-  a PR"). When the limit outlasts every nap, the table row says
-  `worktree kept: run #<n> again to resume its session`.
+- **usage limit** — the loop starts nothing new, lets the running tickets finish, sleeps until
+  the limit ends and runs the limited tickets again. Each one whose result names its session keeps
+  its worktree, and the next run resumes that session there (see "A session stopped by a usage
+  limit, or DONE without a PR"). When the limit outlasts every nap, the table row says
+  `worktree kept: run #<n> again to resume its session`. How long it sleeps (#1078):
+  - The limit message says when the limit ends: `You've hit your session limit · resets 8:20pm
+    (Europe/Warsaw)`. The worker reads that time and writes it to `.meta` as `reset_at=`, and the
+    conductor sleeps until two minutes after the latest `reset_at` of the limited tickets:
+    `usage limit — sleeping until 20:22 (resets 20:20, nap 1/8)`, in the machine's time zone. With
+    a fixed hour, the loop woke up to 38 minutes after the limit had ended, often after Claude had
+    dropped the session's cached context (it keeps it for one hour after the last request). Or it
+    woke before the end, met the limit again, and slept one more hour.
+  - The message gives no day. A time more than an hour before the moment the worker saw the limit
+    is tomorrow's (seen at 23:50, `resets 1:20am` is 1:20 the next day). A time less than an hour
+    before it is today's and already past: the limit has just ended, or the worker saw the session
+    end a little late.
+  - No time still to come (the message has another shape, or its time is already past): the fixed
+    `LOOP_LIMIT_SLEEP_MIN` nap, as before. A time already past never gives a nap of zero, so a
+    retry that meets the limit again cannot run through every nap in a few minutes. Only the shape
+    above is read, `resets <h>[:<mm>]am|pm (<IANA zone>)`, with a zone this machine knows. Anything
+    else falls back, never a guess: a weekly limit with a date, a clock time that does not exist or
+    exists twice on the night the clocks change, or a zone that `date` would silently read as UTC.
+  - A limit that ends later than the whole nap budget (`LOOP_LIMIT_RETRIES` naps of
+    `LOOP_LIMIT_SLEEP_MIN`, eight hours by default) stops the run at once, with the reset time in
+    the stop reason: `stopped early: usage limit resets at 2026-10-08 18:20, later than the whole
+    nap budget (8 naps of 60m)`. The loop used to sleep the eight hours first and then stop anyway.
 - **untrusted** — the ticket failed the provenance gate, either at the start (no session is
   spawned) or before a resume (the work so far is kept on its branch). It does not count toward
   the failure circuit breaker (drain mode never selects one anyway).
@@ -445,7 +466,8 @@ message would make a later crash look like a usage limit. `.meta` gets `session=
 ends on its own and its result names the session (a timeout or a stop leaves it only in
 `ticket-<n>.json`), and `worktree=kept` on a limit that kept one; `started=` (when the session first
 started, in seconds since 1970), `branch=` (the session's branch, empty when it had none) on every
-limit, and `salvage=` when a limit with no session to resume saved leftovers on a salvage branch
+limit, `reset_at=` (when the limit ends, in seconds since 1970) on a limit whose message names that
+time, and `salvage=` when a limit with no session to resume saved leftovers on a salvage branch
 (a retry that then ends `merged` or `skipped` without a worktree writes it again);
 `unmerged=` on a `merged` ticket (see "Outcomes & triage"); `resumes=` counts every resume, the one
 after the limit included, so the end-of-run table marks the ticket `resumed Nx`. When the resume
@@ -473,7 +495,7 @@ happens in a later conductor run, both runs' totals count the part of the sessio
   conflict fix do not count as a push), with green required checks and zero open CodeQL alerts —
   and it never deletes the branch.
 - Stopping the conductor (Ctrl-C, `kill`, closing the terminal) stops every running worker at
-  once, even in the middle of an hour-long usage-limit nap. Each worker then stops its session and
+  once, even in the middle of a usage-limit nap. Each worker then stops its session and
   every process group the session started: Claude Code runs each Bash command in a group of its
   own, so killing the session's own group would miss them. A group the session starts during the
   stop is ended too (#935): the worker pauses the session while it reads the groups, then reads

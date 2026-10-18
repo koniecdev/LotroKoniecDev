@@ -1218,6 +1218,73 @@ meta turns "$turns"
 meta minutes "$elapsed_min"
 [ -z "$known_session" ] || meta session "$known_session"
 
+# ── When the usage limit ends (#1078) ──────────────────────────────────────────────────────────
+# The limit message names the minute the limit ends: "resets 8:20pm (Europe/Warsaw)". The conductor
+# then sleeps until that time instead of a fixed hour. Only this shape is read. Anything else, a
+# weekly limit with a date for example, gives no time, and the conductor takes the fixed nap.
+
+# GNU date (Linux) reads a moment with `-d @<epoch>` and a clock time with `-d`. BSD date (macOS)
+# uses `-r <epoch>` and `-j -f`. Only GNU date knows --version.
+gnu_date=0
+if date --version >/dev/null 2>&1; then gnu_date=1; fi
+
+# zone_date <zone> <epoch> <format> — the moment as a clock time in the zone.
+zone_date() {
+    if [ "$gnu_date" -eq 1 ]; then
+        TZ="$1" date -d "@$2" "+$3" 2>/dev/null
+    else
+        TZ="$1" date -r "$2" "+$3" 2>/dev/null
+    fi
+}
+
+# moment_of <zone> <YYYY-mm-dd> <HH:MM> — the epoch of that clock time in the zone. BSD date takes
+# every field it is not given from the current time, so the seconds are given too. When the clocks
+# change, a clock time may not exist or may exist twice: such a time fails, so the two kinds of date
+# can never give different answers.
+moment_of() {
+    local moment
+    if [ "$gnu_date" -eq 1 ]; then
+        moment="$(TZ="$1" date -d "$2 $3:00" +%s 2>/dev/null)" || return 1
+    else
+        moment="$(TZ="$1" date -j -f '%Y-%m-%d %H:%M:%S' "$2 $3:00" +%s 2>/dev/null)" || return 1
+    fi
+    case "$moment" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$(zone_date "$1" "$moment" '%Y-%m-%d %H:%M')" = "$2 $3" ] || return 1
+    [ "$(zone_date "$1" $(( moment - 3600 )) %H:%M)" != "$3" ] || return 1
+    [ "$(zone_date "$1" $(( moment + 3600 )) %H:%M)" != "$3" ] || return 1
+    echo "$moment"
+}
+
+# reset_epoch <text> <seen> — prints the epoch at which the limit named in the text ends, or fails.
+# The message gives no day, so the day comes from <seen>, the moment the worker saw the limit. A
+# time more than an hour before that moment is tomorrow's: a limit seen at 23:50 that "resets
+# 1:20am". A time less than an hour before it is today's: the limit has just ended, or the worker
+# saw the session end a little late. The conductor takes the fixed nap for a time already past.
+reset_epoch() {
+    local pattern='resets ([0-9]{1,2})(:([0-9]{2}))?(am|pm) \(([A-Za-z]+(/[A-Za-z0-9_+-]+)*)\)'
+    local hour minute half zone day clock reset noon
+    [[ $1 =~ $pattern ]] || return 1
+    hour="$(( 10#${BASH_REMATCH[1]} ))"
+    minute="${BASH_REMATCH[3]:-00}"
+    half="${BASH_REMATCH[4]}"
+    zone="${BASH_REMATCH[5]}"
+    [ "$hour" -ge 1 ] && [ "$hour" -le 12 ] && [ "$(( 10#$minute ))" -le 59 ] || return 1
+    # date reads a zone it does not know as UTC, and does not fail.
+    [ -f "${TZDIR:-/usr/share/zoneinfo}/$zone" ] || return 1
+    hour=$(( hour % 12 ))
+    [ "$half" = am ] || hour=$(( hour + 12 ))
+    clock="$(printf '%02d:%s' "$hour" "$minute")"
+    day="$(zone_date "$zone" "$2" %Y-%m-%d)" || return 1
+    reset="$(moment_of "$zone" "$day" "$clock")" || return 1
+    if [ "$reset" -lt $(( $2 - 3600 )) ]; then
+        # Noon plus a day is always on the next day, also on a night when the clocks change.
+        noon="$(moment_of "$zone" "$day" 12:00)" || return 1
+        day="$(zone_date "$zone" $(( noon + 86400 )) %Y-%m-%d)" || return 1
+        reset="$(moment_of "$zone" "$day" "$clock")" || return 1
+    fi
+    echo "$reset"
+}
+
 # ── Usage-limit / hard-error detection ─────────────────────────────────────────────────────────
 # The CLI reports plan/rate limits as api_error_status 429 in the result JSON regardless of the
 # message wording ("usage limit", "session limit", …) — trust that first. The wording grep is the
@@ -1225,7 +1292,8 @@ meta minutes "$elapsed_min"
 # normally may well talk about rate limits (this repo has many such tickets), with or without a
 # STATUS block, and that must not read as a limit hit.
 api_error_status="$(jq -r '.api_error_status // 0' "$OUT" 2>/dev/null || echo 0)"
-combined="$result $(tail -c 2000 "$ERR" 2>/dev/null || true)"
+err_tail="$(tail -c 2000 "$ERR" 2>/dev/null || true)"
+combined="$result $err_tail"
 session_failed=0
 if [ "$claude_rc" -ne 0 ] || [ "$is_error" = "true" ]; then
     session_failed=1
@@ -1233,6 +1301,11 @@ fi
 if [ "$api_error_status" = "429" ] \
     || { [ "$session_failed" -eq 1 ] && echo "$combined" | grep -qiE 'usage limit|session limit|rate.?limit|overloaded|quota'; }; then
     meta outcome limit
+    # The conductor sleeps until this moment instead of a fixed nap (#1078). The stderr is read
+    # only when the result names no time, as for the limit check above.
+    seen="$(date +%s)"
+    reset_at="$(reset_epoch "$result" "$seen" || reset_epoch "$err_tail" "$seen" || true)"
+    [ -z "$reset_at" ] || meta reset_at "$reset_at"
     # The retry reads these when it has no kept worktree to resume, to find a PR merged during the
     # nap (#1096). The branch is read before `finish`, which may move it to a salvage branch.
     meta started "$session_started"

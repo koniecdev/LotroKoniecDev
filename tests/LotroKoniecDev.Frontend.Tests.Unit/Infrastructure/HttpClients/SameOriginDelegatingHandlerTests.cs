@@ -224,17 +224,14 @@ public sealed class SameOriginDelegatingHandlerTests
         return services.BuildServiceProvider();
     }
 
-    /// <summary>
-    /// The typed clients' own registration, with no stand-in transport. The app-wide transport comes from
-    /// <c>AddHttpClientDefaults</c> and is checked in HttpClientDefaultsTests.
-    /// </summary>
+    /// <summary>The registration exactly as the app wires it, with the real socket handler.</summary>
     private static ServiceProvider BuildRealProvider()
     {
         ServiceCollection services = new();
         services.AddLogging();
         services.AddSingleton(SignedInVisitor());
         AddSettings(services);
-        services.AddHttpClients();
+        services.AddFrontend();
 
         return services.BuildServiceProvider();
     }

@@ -13,6 +13,19 @@ namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 
 public static class HttpClientsDependencyInjectionExtensions
 {
+    /// <summary>How many calls the circuit breaker must see in its window before it may open.</summary>
+    internal const int CircuitBreakerMinimumThroughput = 10;
+
+    /// <summary>The time limit per attempt for ordinary JSON calls. It is short, so a stalled API fails fast.</summary>
+    internal static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// The time limit per attempt for a multipart upload. It has to cover sending exported.txt, about
+    /// 80 MB, plus the API's import, which parses the file, computes the whole diff, saves it and rebuilds
+    /// the artifact. So it is much longer than <see cref="DefaultRequestTimeout"/> (spec 0003, #208).
+    /// </summary>
+    internal static readonly TimeSpan UploadRequestTimeout = TimeSpan.FromMinutes(5);
+
     extension(IServiceCollection services)
     {
         /// <summary>
@@ -27,8 +40,8 @@ public static class HttpClientsDependencyInjectionExtensions
         {
             services.ConfigureHttpClientDefaults(builder => builder.ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler));
 
-            // A post-configure runs after every client's own configuration, so it also reaches a transport
-            // that a later ConfigurePrimaryHttpMessageHandler put in place of the default.
+            // A post-configure runs after every Configure, so it also reaches a transport that a client's own
+            // ConfigurePrimaryHttpMessageHandler put in place of the default.
             services.PostConfigureAll<HttpClientFactoryOptions>(options =>
                 options.HttpMessageHandlerBuilderActions.Add(builder => SwitchOffRedirectsAndCookies(builder.PrimaryHandler)));
 
@@ -146,6 +159,35 @@ public static class HttpClientsDependencyInjectionExtensions
         }
     }
 
+    /// <summary>
+    /// Picks the timeout for a request: the long upload one when the body is a multipart form, which is
+    /// the exported.txt upload, and otherwise the short default for ordinary JSON calls.
+    /// </summary>
+    internal static TimeSpan ResolveTimeout(HttpRequestMessage? request) =>
+        request?.Content is MultipartFormDataContent
+            ? UploadRequestTimeout
+            : DefaultRequestTimeout;
+
+    /// <summary>
+    /// Whether the pipeline may send a request a second time. Two kinds of request may not.
+    /// A multipart upload's body can only be read once, so a retry would send an already-consumed stream,
+    /// and an upload refused for being too large, which shows up as a broken pipe rather than a 413, will
+    /// not succeed on a second try either. Retrying it only multiplies the load and keeps the request
+    /// waiting through every attempt and timeout.
+    /// A request that carries a password confirmation spends one permit of the account's budget per
+    /// attempt (ADR-0053). The retry fires on the per-attempt timeout as well, and a slow auth API still
+    /// serves the first attempt, so one click would spend two or three permits.
+    /// The same answer feeds the circuit breaker, so a failure on one of these requests does not count
+    /// toward opening it, exactly as a multipart failure never did.
+    /// </summary>
+    internal static bool MayRetry(HttpRequestMessage? request) =>
+        request?.Content switch
+        {
+            MultipartFormDataContent => false,
+            JsonContent { ObjectType: { } bodyType } when bodyType.IsAssignableTo(typeof(IPasswordConfirmationRequest)) => false,
+            _ => true
+        };
+
     private static void ConfigureResiliencePipeline(ResiliencePipelineBuilder<HttpResponseMessage> pipeline)
     {
         pipeline.AddRetry(new HttpRetryStrategyOptions
@@ -176,48 +218,6 @@ public static class HttpClientsDependencyInjectionExtensions
             TimeoutGenerator = args => ValueTask.FromResult(ResolveTimeout(args.Context.GetRequestMessage()))
         });
     }
-
-    /// <summary>How many calls the circuit breaker must see in its window before it may open.</summary>
-    internal const int CircuitBreakerMinimumThroughput = 10;
-
-    /// <summary>The time limit per attempt for ordinary JSON calls. It is short, so a stalled API fails fast.</summary>
-    internal static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(10);
-
-    /// <summary>
-    /// The time limit per attempt for a multipart upload. It has to cover sending exported.txt, about
-    /// 80 MB, plus the API's import, which parses the file, computes the whole diff, saves it and rebuilds
-    /// the artifact. So it is much longer than <see cref="DefaultRequestTimeout"/> (spec 0003, #208).
-    /// </summary>
-    internal static readonly TimeSpan UploadRequestTimeout = TimeSpan.FromMinutes(5);
-
-    /// <summary>
-    /// Picks the timeout for a request: the long upload one when the body is a multipart form, which is
-    /// the exported.txt upload, and otherwise the short default for ordinary JSON calls.
-    /// </summary>
-    internal static TimeSpan ResolveTimeout(HttpRequestMessage? request) =>
-        request?.Content is MultipartFormDataContent
-            ? UploadRequestTimeout
-            : DefaultRequestTimeout;
-
-    /// <summary>
-    /// Whether the pipeline may send a request a second time. Two kinds of request may not.
-    /// A multipart upload's body can only be read once, so a retry would send an already-consumed stream,
-    /// and an upload refused for being too large, which shows up as a broken pipe rather than a 413, will
-    /// not succeed on a second try either. Retrying it only multiplies the load and keeps the request
-    /// waiting through every attempt and timeout.
-    /// A request that carries a password confirmation spends one permit of the account's budget per
-    /// attempt (ADR-0053). The retry fires on the per-attempt timeout as well, and a slow auth API still
-    /// serves the first attempt, so one click would spend two or three permits.
-    /// The same answer feeds the circuit breaker, so a failure on one of these requests does not count
-    /// toward opening it, exactly as a multipart failure never did.
-    /// </summary>
-    internal static bool MayRetry(HttpRequestMessage? request) =>
-        request?.Content switch
-        {
-            MultipartFormDataContent => false,
-            JsonContent { ObjectType: { } bodyType } when bodyType.IsAssignableTo(typeof(IPasswordConfirmationRequest)) => false,
-            _ => true
-        };
 
     private static bool IsHandledTransientFailure(Outcome<HttpResponseMessage> outcome, ResilienceContext context)
     {

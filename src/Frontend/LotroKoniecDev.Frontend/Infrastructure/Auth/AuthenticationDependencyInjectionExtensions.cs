@@ -187,8 +187,10 @@ internal static partial class AuthenticationDependencyInjectionExtensions
         // too (ADR-0054). Like the typed clients, it follows no redirect (#899) and keeps no cookies
         // (#924). The framework builds that client from this handler after every Configure has run. A
         // back-channel handler configured elsewhere is wrapped, never replaced, but a standard transport
-        // at its end gets redirects and cookies switched off as well (#922). The library reads these
-        // answers by the charset they name, so a name .NET cannot use is dropped first (#972).
+        // at its end gets redirects and cookies switched off as well (#922). One set after this Configure
+        // replaces the whole chain, because the last Configure wins; only tests do that, to put in a
+        // stand-in server. The library reads these answers by the charset they name, so a name .NET
+        // cannot use is dropped first (#972).
         HttpMessageHandler innerHandler =
             options.BackchannelHttpHandler ?? HttpClientsDependencyInjectionExtensions.CreatePrimaryHandler();
         HttpClientsDependencyInjectionExtensions.SwitchOffRedirectsAndCookies(innerHandler);

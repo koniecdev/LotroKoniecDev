@@ -435,9 +435,10 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   and Chrome checks every redirect of a form. That makes the frontend's `ResponseMode.Query`
   load-bearing: OpenIddict's form_post page uses an inline script this CSP blocks. Guards:
   `check-ssr-purity` scans `src/AuthSystem/**/*.cshtml` (inline script and event handlers, any
-  `<style>`, a `style=` attribute), smoke leg 6, the integration suite on every Razor page endpoint,
-  and the Frontend E2E suite (auth runs in Testing there, with the CSP on) fails on any
-  `securitypolicyviolation` or a stylesheet that did not load.
+  `<style>`, a `style=` attribute), smoke leg 6 (the deployed pages, and that both stylesheets are
+  served), the integration suite on every Razor page endpoint, and the Frontend E2E suite (auth runs
+  in Testing there, with the CSP on) fails on any `securitypolicyviolation` or a stylesheet that did
+  not load.
 - **Auth Razor Pages are rate limited by default; opting out is the explicit act (#692).**
   `app.MapRazorPages().RequireRateLimitingByDefault("auth-page-limit")` covers every account page,
   so a new page needs no attribute to be covered. A page that needs a different budget says

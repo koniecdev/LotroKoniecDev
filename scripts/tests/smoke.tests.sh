@@ -65,7 +65,7 @@ case "$url" in
             *) body="$STUB_PLAIN_ROOT" ;;
         esac
         ;;
-    https://auth.invalid/account.css) headers="$STUB_AUTH_CSS_HEADERS"; body="$STUB_AUTH_CSS_BODY"; code="$STUB_AUTH_CSS_CODE" ;;
+    https://auth.invalid/*.css) headers="$STUB_AUTH_CSS_HEADERS"; body="$STUB_AUTH_CSS_BODY"; code="$STUB_AUTH_CSS_CODE" ;;
     https://auth.invalid/*) headers="$STUB_AUTH_HEADERS"; body="$STUB_AUTH_BODY" ;;
 esac
 [ -n "$header_target" ] && cat "$headers" > "$header_target"
@@ -75,6 +75,8 @@ elif [ "$want_code" -eq 0 ]; then
     cat "$body"
 fi
 [ "$want_code" -eq 1 ] && printf '%s' "$code"
+# Like curl: an unreachable host prints 000 and exits non-zero.
+[ "$code" = "000" ] && exit 7
 exit 0
 STUB
 chmod +x "$STUB_DIR/curl"
@@ -95,10 +97,11 @@ function global:Invoke-WebRequest {
         }
         return [pscustomobject]@{ StatusCode = $code; Content = [System.IO.File]::ReadAllText($env:STUB_PLAIN_ROOT); Headers = @{} }
     }
-    $prefix = if ($Uri -eq 'https://auth.invalid/account.css') { 'STUB_AUTH_CSS_' }
+    $prefix = if ($Uri -like 'https://auth.invalid/*.css') { 'STUB_AUTH_CSS_' }
               elseif ($Uri -like 'https://auth.invalid/*') { 'STUB_AUTH_' }
               else { 'STUB_' }
     $statusCode = if ($prefix -eq 'STUB_AUTH_CSS_') { [int]$env:STUB_AUTH_CSS_CODE } else { 200 }
+    if ($statusCode -eq 0) { throw 'No such host is known.' }
     $responseHeaders = [System.Collections.Generic.Dictionary[string, string[]]]::new()
     foreach ($line in [System.IO.File]::ReadAllLines([Environment]::GetEnvironmentVariable($prefix + 'HEADERS'))) {
         if ($line -match '^([^:]+):\s*(.*)$') {
@@ -340,6 +343,7 @@ run_suite() {
     expect_line "auth /Account/Login serves no inline <style>"
     expect_line "auth /Account/ConfirmEmail serves no inline <style>"
     expect_line "auth /account.css -> 200 text/css"
+    expect_line "auth /error-page.css -> 200 text/css"
     reject_line "$FAIL_MARK"
 
     # 12. The state before #693: HSTS only. A Development stack warns, --require-csp fails.
@@ -425,9 +429,26 @@ run_suite() {
     run_auth_case "an /account.css served as HTML fails" \
         "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- "$AUTH_PAGE"
     expect_line "auth /account.css -> 200 'text/html; charset=utf-8' (expected 200 text/css)"
+    expect_line "auth /error-page.css -> 200 'text/html; charset=utf-8' (expected 200 text/css)"
     AUTH_CSS_TYPE="text/css"
+    AUTH_CSS_CODE=000
+    run_auth_case "an unreachable stylesheet fails and the leg still ends" \
+        "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- "$AUTH_PAGE"
+    expect_line "auth /account.css -> 000"
+    expect_line "auth /error-page.css -> 000"
+    AUTH_CSS_CODE=200
 
-    # 20. An empty body proves nothing, so it is a failure, not a pass.
+    # 20. A style-src without 'self' blocks the shared stylesheet, even with no inline style at all.
+    run_auth_case "a style-src that does not admit 'self' fails" \
+        "content-security-policy: default-src 'self'; frame-ancestors 'none'; script-src 'self'; style-src 'none'" \
+        "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- "$AUTH_PAGE"
+    expect_line "auth /Account/Login style-src 'none' does not admit 'self', so /account.css is blocked"
+    run_auth_case "a CSP with no style-src and no default-src restricts no style" \
+        "content-security-policy: frame-ancestors 'none'; script-src 'self'" \
+        "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- "$AUTH_PAGE"
+    expect_line "auth /Account/Login serves no inline <style>"
+
+    # 21. An empty body proves nothing, so it is a failure, not a pass.
     run_auth_case "an auth page with no HTML fails" \
         "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "$AUTH_OK_HEADERS_REFERRER" -- ""
     expect_line "auth /Account/Login served no HTML page"

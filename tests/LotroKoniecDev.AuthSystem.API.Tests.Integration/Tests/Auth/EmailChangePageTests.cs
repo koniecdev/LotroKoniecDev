@@ -90,9 +90,10 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             });
 
         string html = await response.Content.ReadAsStringAsync();
-        HttpResponseMessage stylesheet = await ApiClient.Http.GetAsync(new Uri("/account.css", UriKind.Relative));
+        using HttpResponseMessage stylesheet = await ApiClient.Http.GetAsync(new Uri("/account.css", UriKind.Relative));
         string css = await stylesheet.Content.ReadAsStringAsync();
 
+        stylesheet.StatusCode.ShouldBe(HttpStatusCode.OK);
         html.ShouldContain("class=\"auth-alert success\"");
         html.ShouldContain("<link rel=\"stylesheet\" href=\"/account.css\" />");
         css.ShouldContain(".auth-alert.success");

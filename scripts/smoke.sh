@@ -31,7 +31,8 @@
 #                    nosniff, a private Referrer-Policy. The page must also carry nothing inline that
 #                    its CSP blocks: no <style> (the styles live in /account.css, #833) and no inline
 #                    <script>. As in leg 2, a blocked style or script shows up only in the console (#693).
-#                    /account.css itself must answer 200 text/css, or every account page loads unstyled.
+#                    style-src must admit 'self', and /account.css and /error-page.css must answer
+#                    200 text/css, or the pages load unstyled.
 #   7. Discovery   — every link in the TMS and auth discovery roots sits on the configured origin. The
 #                    clients refuse a link to any other origin and follow no redirect (#611, #830), so an API
 #                    that builds its links from the wrong address (http, an internal host, another
@@ -429,11 +430,14 @@ check_auth_page() {
     fi
 
     # The account pages take their styles from /account.css (#833), so any inline <style> is a
-    # regression, whatever style-src says.
+    # regression, whatever style-src says, and a style-src without 'self' blocks the file itself.
+    # No style-src and no default-src at all restricts nothing.
     style_src="$(csp_directive "$csp" 'style-src')"
     count="$(printf '%s' "$folded" | grep -oiE '<style[^>]*>' | grep -c . || true)"
     if grep -qi "unsafe-inline" <<< "$style_src"; then
         fail "auth $page style-src allows 'unsafe-inline' (#693)"
+    elif [ -n "$style_src" ] && ! grep -qi "'self'" <<< "$style_src"; then
+        fail "auth $page $style_src does not admit 'self', so /account.css is blocked (#833)"
     elif [ "$count" = "0" ]; then
         pass "auth $page serves no inline <style> (#833)"
     else
@@ -449,15 +453,18 @@ for auth_page in /Account/Login /Account/ConfirmEmail; do
     auth_html="$(curl -s -D "$HDR_FILE" --max-time "$TIMEOUT" $TLS_FLAG "$AUTH_URL$auth_page" 2>/dev/null || true)"
     check_auth_page "$auth_page" "$auth_html"
 done
-# A page whose stylesheet is missing still answers 200 and loads unstyled, so the file is fetched too (#833).
-: > "$HDR_FILE"
-css_code="$(curl -s -o /dev/null -D "$HDR_FILE" -w '%{http_code}' --max-time "$TIMEOUT" $TLS_FLAG "$AUTH_URL/account.css" 2>/dev/null)" || css_code="000"
-css_type="$(header_values 'content-type')"
-if [ "$css_code" = "200" ] && grep -qi '^text/css' <<< "$css_type"; then
-    pass "auth /account.css -> 200 $css_type"
-else
-    fail "auth /account.css -> $css_code '$css_type' (expected 200 text/css): every account page would load unstyled (#833)"
-fi
+# A page whose stylesheet is missing still answers 200 and loads unstyled, so the files are fetched too
+# (#833): /account.css for the account pages, /error-page.css for the 4xx, 429 and 5xx pages.
+for stylesheet in /account.css /error-page.css; do
+    : > "$HDR_FILE"
+    css_code="$(curl -s -o /dev/null -D "$HDR_FILE" -w '%{http_code}' --max-time "$TIMEOUT" $TLS_FLAG "$AUTH_URL$stylesheet" 2>/dev/null)" || css_code="000"
+    css_type="$(header_values 'content-type')"
+    if [ "$css_code" = "200" ] && grep -qi '^text/css' <<< "$css_type"; then
+        pass "auth $stylesheet -> 200 $css_type"
+    else
+        fail "auth $stylesheet -> $css_code '$css_type' (expected 200 text/css): the pages that use it would load unstyled (#833)"
+    fi
+done
 echo
 
 HATEOAS_ACCEPT='application/vnd.dev-lotrokoniecdev.hateoas.json'

@@ -40,6 +40,8 @@
                      port) breaks every page that follows one, while every leg above still passes (#898).
 
     Clear pass/fail per check; NON-ZERO exit on any failure (exit 1). Usage/config problems exit 2.
+    The auth and tms URLs need a plain ASCII host name or IPv4 address, because leg 7 compares the
+    API links with them; any other value exits 2.
     A not-yet-seeded environment (no artifact built) WARNS on leg 5 rather than failing. Keep in
     sync with smoke.sh. Requires PowerShell 7+ (for -SkipHttpErrorCheck).
 

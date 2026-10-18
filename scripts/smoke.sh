@@ -54,6 +54,8 @@ Required (flag or env var):
   --tms-url       URL    tms-api base URL           (env SMOKE_TMS_URL)
   --frontend-url  URL    frontend base URL          (env SMOKE_FRONTEND_URL)
   --client-secret SECRET OpenIddict API client secret (env SMOKE_CLIENT_SECRET)
+  The auth and tms URLs need a plain ASCII host name or IPv4 address: leg 7 compares the API
+  links with them. Any other value exits 2.
 
 Options:
   --client-id     ID     OIDC client id             (env SMOKE_CLIENT_ID,  default lotrokoniecdev-api)

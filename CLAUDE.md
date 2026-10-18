@@ -516,14 +516,15 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   `script-src` are plain `'self'`, with no nonce and no per-request state. The account pages share
   `wwwroot/account.css`. A rule that changes a shared class for one page goes at its end under that
   page's body class (`page-login`, `page-register`, `page-privacy`); a class only one page uses needs
-  no prefix. The error pages that `BrowserErrorPage` writes use `wwwroot/error-page.css`. Page script goes in a file under `wwwroot` too (`login.js`). An inline
-  `<style>` is dropped by the browser and the page loads unstyled. `form-action` lists the web
-  client's origins, because the login POST ends in a redirect to the frontend's `/callback` and
-  Chrome checks every redirect of a form. That also makes the frontend's `ResponseMode.Query`
-  load-bearing: OpenIddict's form_post page submits itself with an inline script this CSP blocks. The
-  guards: `check-ssr-purity` scans `src/AuthSystem/**/*.cshtml` for everything this CSP blocks
-  (inline script and event handlers, any `<style>`, a `style=` attribute), smoke leg 6 checks the
-  deployed pages, the integration suite checks every Razor page endpoint, and the Frontend E2E suite
+  no prefix. The error pages that `BrowserErrorPage` writes use `wwwroot/error-page.css`. Page
+  script goes in a file under `wwwroot` too (`login.js`). An inline `<style>` is dropped by the
+  browser and the page loads unstyled. `form-action` lists the web client's origins, because the
+  login POST ends in a redirect to the frontend's `/callback` and Chrome checks every redirect of a
+  form. That also makes the frontend's `ResponseMode.Query` load-bearing: OpenIddict's form_post page
+  submits itself with an inline script this CSP blocks. The guards: `check-ssr-purity` scans
+  `src/AuthSystem/**/*.cshtml` for everything this CSP blocks (inline script and event handlers, any
+  `<style>`, a `style=` attribute), smoke leg 6 checks the deployed pages and that both stylesheets
+  are served, the integration suite checks every Razor page endpoint, and the Frontend E2E suite
   (auth runs in Testing there, with the CSP on) fails on any `securitypolicyviolation` or a
   stylesheet that did not load.
 - **Auth Razor Pages are rate limited by default; opting out is the explicit act (#692).**

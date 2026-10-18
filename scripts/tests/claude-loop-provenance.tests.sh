@@ -1087,6 +1087,12 @@ limit_at 212 1792360860 "You've hit your session limit · resets 11:59pm (Europe
 expect_meta 212 reset_at=1792360740
 limit_at 213 1792360860 "You've hit your session limit · resets 12:30am (Europe/Warsaw)"
 expect_meta 213 reset_at=1792362600
+# On the evening of a day the clocks changed, 2:30am did not exist that day (2026-03-29) or existed
+# twice (2026-10-25). The limit ends at 2:30 the next morning, which is a normal time.
+limit_at 214 1774821000 "You've hit your session limit · resets 2:30am (Europe/Warsaw)"
+expect_meta 214 reset_at=1774830600
+limit_at 215 1792968600 "You've hit your session limit · resets 2:30am (Europe/Warsaw)"
+expect_meta 215 reset_at=1792978200
 # The stderr is read only when the result names no time.
 limit_at 207 1791393962 "You've hit your session limit" "You've hit your session limit · resets 8:20pm (Europe/Warsaw)"
 expect_meta 207 reset_at=1791397200

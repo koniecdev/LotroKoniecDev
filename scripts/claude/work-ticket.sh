@@ -1263,7 +1263,7 @@ moment_of() {
 # day before. The conductor takes the fixed nap once two minutes after that time have passed.
 reset_epoch() {
     local pattern='resets ([0-9]{1,2})(:([0-9]{2}))?(am|pm) \(([A-Za-z]+(/[A-Za-z0-9_+-]+)*)\)'
-    local hour minute half zone day clock reset noon
+    local hour minute half zone day since clock noon
     [[ $1 =~ $pattern ]] || return 1
     hour="$(( 10#${BASH_REMATCH[1]} ))"
     minute="${BASH_REMATCH[3]:-00}"
@@ -1276,14 +1276,16 @@ reset_epoch() {
     [ "$half" = am ] || hour=$(( hour + 12 ))
     clock="$(printf '%02d:%s' "$hour" "$minute")"
     day="$(zone_date "$zone" $(( $2 - 3600 )) %Y-%m-%d)" || return 1
-    reset="$(moment_of "$zone" "$day" "$clock")" || return 1
-    if [ "$reset" -lt $(( $2 - 3600 )) ]; then
+    since="$(zone_date "$zone" $(( $2 - 3600 )) %H:%M)" || return 1
+    case "$since" in [0-9][0-9]:[0-9][0-9]) ;; *) return 1 ;; esac
+    # The day is chosen by the clock time alone, before any time is converted. So a time that does
+    # not exist, or exists twice, on the first day still counts on the next day, when it is valid.
+    if [ $(( hour * 60 + 10#$minute )) -lt $(( 10#${since%:*} * 60 + 10#${since#*:} )) ]; then
         # Noon plus a day is always on the next day, also on a night when the clocks change.
         noon="$(moment_of "$zone" "$day" 12:00)" || return 1
         day="$(zone_date "$zone" $(( noon + 86400 )) %Y-%m-%d)" || return 1
-        reset="$(moment_of "$zone" "$day" "$clock")" || return 1
     fi
-    echo "$reset"
+    moment_of "$zone" "$day" "$clock"
 }
 
 # ── Usage-limit / hard-error detection ─────────────────────────────────────────────────────────

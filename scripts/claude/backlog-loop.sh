@@ -244,14 +244,17 @@ latest_reset() {
 
 # local_time <epoch> <format> — sets CLOCK to the moment in this machine's time zone, for the
 # reason in latest_reset. GNU date (Linux) reads it with `-d @<epoch>`, BSD date (macOS) with
-# `-r <epoch>`. Only GNU date knows --version.
+# `-r <epoch>`. Only GNU date knows --version. The time is only shown, so a `date` that cannot
+# format it shows the epoch instead of ending the run.
+gnu_date=0
+if date --version >/dev/null 2>&1; then gnu_date=1; fi
 CLOCK=""
 local_time() {
     # shellcheck disable=SC2006  # backquotes on purpose, see latest_reset
-    if date --version >/dev/null 2>&1; then
-        CLOCK=`date -d "@$1" "+$2"`
+    if [ "$gnu_date" -eq 1 ]; then
+        CLOCK=`date -d "@$1" "+$2" 2>/dev/null` || CLOCK="$1"
     else
-        CLOCK=`date -r "$1" "+$2"`
+        CLOCK=`date -r "$1" "+$2" 2>/dev/null` || CLOCK="$1"
     fi
 }
 

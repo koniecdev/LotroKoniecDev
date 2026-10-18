@@ -1072,10 +1072,21 @@ limit_at 204 1791393962 "You've hit your session limit · resets 3pm (America/Ne
 expect_meta 204 reset_at=1791399600
 limit_at 205 1791367200 "You've hit your session limit · resets 12pm (UTC)"
 expect_meta 205 reset_at=1791374400
-# Seen a minute after the reset, the time is today's, already past, and the conductor takes the
-# fixed nap. Read as tomorrow's, it would stop the run for a limit that has already ended.
+# Seen a minute after the reset, the time is today's and already past. Read as tomorrow's, it would
+# stop the run for a limit that has already ended. Up to an hour after it, the time stays today's;
+# a minute later it is tomorrow's.
 limit_at 206 1791397270 "You've hit your session limit · resets 8:20pm (Europe/Warsaw)"
 expect_meta 206 reset_at=1791397200
+limit_at 210 1791400800 "You've hit your session limit · resets 8:20pm (Europe/Warsaw)"
+expect_meta 210 reset_at=1791397200
+limit_at 211 1791400860 "You've hit your session limit · resets 8:20pm (Europe/Warsaw)"
+expect_meta 211 reset_at=1791483600
+# The same holds across midnight: seen at 00:01 on 2026-10-19, "11:59pm" is two minutes before,
+# the day before, and "12:30am" is 29 minutes later.
+limit_at 212 1792360860 "You've hit your session limit · resets 11:59pm (Europe/Warsaw)"
+expect_meta 212 reset_at=1792360740
+limit_at 213 1792360860 "You've hit your session limit · resets 12:30am (Europe/Warsaw)"
+expect_meta 213 reset_at=1792362600
 # The stderr is read only when the result names no time.
 limit_at 207 1791393962 "You've hit your session limit" "You've hit your session limit · resets 8:20pm (Europe/Warsaw)"
 expect_meta 207 reset_at=1791397200

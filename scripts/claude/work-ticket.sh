@@ -1256,10 +1256,11 @@ moment_of() {
 }
 
 # reset_epoch <text> <seen> — prints the epoch at which the limit named in the text ends, or fails.
-# The message gives no day, so the day comes from <seen>, the moment the worker saw the limit. A
-# time more than an hour before that moment is tomorrow's: a limit seen at 23:50 that "resets
-# 1:20am". A time less than an hour before it is today's: the limit has just ended, or the worker
-# saw the session end a little late. The conductor takes the fixed nap for a time already past.
+# The message gives no day. So the limit ends at the first such clock time that is at most an hour
+# before <seen>, the moment the worker saw the limit. Seen at 23:50, "resets 1:20am" is 1:20 the
+# next day. Seen at 20:21, "resets 8:20pm" is 20:20 that day, already past: the limit has just
+# ended, or the worker saw the session end a little late. Seen at 00:01, "resets 11:59pm" is the
+# day before. The conductor takes the fixed nap once two minutes after that time have passed.
 reset_epoch() {
     local pattern='resets ([0-9]{1,2})(:([0-9]{2}))?(am|pm) \(([A-Za-z]+(/[A-Za-z0-9_+-]+)*)\)'
     local hour minute half zone day clock reset noon
@@ -1274,7 +1275,7 @@ reset_epoch() {
     hour=$(( hour % 12 ))
     [ "$half" = am ] || hour=$(( hour + 12 ))
     clock="$(printf '%02d:%s' "$hour" "$minute")"
-    day="$(zone_date "$zone" "$2" %Y-%m-%d)" || return 1
+    day="$(zone_date "$zone" $(( $2 - 3600 )) %Y-%m-%d)" || return 1
     reset="$(moment_of "$zone" "$day" "$clock")" || return 1
     if [ "$reset" -lt $(( $2 - 3600 )) ]; then
         # Noon plus a day is always on the next day, also on a night when the clocks change.

@@ -33,9 +33,10 @@
 #   ADR-0026; it also fires on explicitly-named tickets, which never touch the picker).
 #   Loop-only: LOOP_PARALLEL (default 3, same as -j), LOOP_ALLOW_LOCAL_SCRIPTS=1 (run even when
 #   scripts/claude/ here differs from origin/main), LOOP_LIMIT_SLEEP_MIN (default 60 — the nap
-#   when no limit message names a time still to come), LOOP_LIMIT_RETRIES (default 8 — a limit hit
-#   at the start of a 5h usage window needs up to ~5h of naps to outlive it; a limit that ends later
-#   than LOOP_LIMIT_RETRIES × LOOP_LIMIT_SLEEP_MIN from now stops the run at once),
+#   when no limit message names a time, or when two minutes after it have already passed),
+#   LOOP_LIMIT_RETRIES (default 8 — a limit hit at the start of a 5h usage window needs up to ~5h
+#   of naps to outlive it; a limit that ends later than LOOP_LIMIT_RETRIES × LOOP_LIMIT_SLEEP_MIN
+#   from now stops the run at once),
 #   LOOP_MAX_CONSECUTIVE_FAILURES (default 2).
 #
 # Raw per-ticket session logs land in logs/claude-loop/<timestamp>/ (debugging only);
@@ -227,24 +228,30 @@ tail_of() { set -- $1; [ $# -gt 0 ] && shift; echo "$*"; }
 # Sets RESET_AT to the latest `reset_at` the tickets in RETRY wrote: the epoch at which their limit
 # message says the limit ends, or nothing (#1078). They all run on one account, so the latest one
 # is when every one of them can go on. A ticket whose message named no time does not change it.
+# It reads with backquotes and sets a variable, for the reason in job_running: the nap that follows
+# can last hours, and a stop lost here would be lost for all of it.
 RESET_AT=""
 latest_reset() {
     local ticket value
     RESET_AT=""
     for ticket in $RETRY; do
-        value="$(sed -n 's/^reset_at=//p' "$RUN_DIR/ticket-$ticket.meta" 2>/dev/null | tail -1)"
+        # shellcheck disable=SC2006  # backquotes on purpose, see above
+        value=`sed -n 's/^reset_at=//p' "$RUN_DIR/ticket-$ticket.meta" 2>/dev/null | tail -1` || true
         case "$value" in ''|*[!0-9]*) continue ;; esac
         if [ -z "$RESET_AT" ] || [ "$value" -gt "$RESET_AT" ]; then RESET_AT="$value"; fi
     done
 }
 
-# local_time <epoch> <format> — the moment in this machine's time zone. GNU date (Linux) reads it
-# with `-d @<epoch>`, BSD date (macOS) with `-r <epoch>`. Only GNU date knows --version.
+# local_time <epoch> <format> — sets CLOCK to the moment in this machine's time zone, for the
+# reason in latest_reset. GNU date (Linux) reads it with `-d @<epoch>`, BSD date (macOS) with
+# `-r <epoch>`. Only GNU date knows --version.
+CLOCK=""
 local_time() {
+    # shellcheck disable=SC2006  # backquotes on purpose, see latest_reset
     if date --version >/dev/null 2>&1; then
-        date -d "@$1" "+$2"
+        CLOCK=`date -d "@$1" "+$2"`
     else
-        date -r "$1" "+$2"
+        CLOCK=`date -r "$1" "+$2"`
     fi
 }
 
@@ -361,18 +368,23 @@ while :; do
                 stop_reason="usage limit persisted after $LIMIT_RETRIES naps"
                 break
             fi
-            # Until two minutes after the limit ends, when a message said when (#1078). A time
-            # already past gets the fixed nap, so a retry that meets the limit again cannot run
-            # through every nap in a few minutes.
+            # Until two minutes after the limit ends, when a message said when (#1078). A wake-up
+            # time already past gets the fixed nap, so a retry that meets the limit again cannot
+            # run through every nap in a few minutes.
             latest_reset
-            now="$(date +%s)"
+            # shellcheck disable=SC2006  # backquotes on purpose, see latest_reset
+            now=`date +%s`
             if [ -n "$RESET_AT" ] && [ $(( RESET_AT + 120 )) -gt "$now" ]; then
                 wake=$(( RESET_AT + 120 ))
                 if [ $(( wake - now )) -gt $(( LIMIT_RETRIES * LIMIT_SLEEP_MIN * 60 )) ]; then
-                    stop_reason="usage limit resets at $(local_time "$RESET_AT" '%Y-%m-%d %H:%M'), later than the whole nap budget ($LIMIT_RETRIES naps of ${LIMIT_SLEEP_MIN}m)"
+                    local_time "$RESET_AT" '%Y-%m-%d %H:%M'
+                    stop_reason="usage limit resets at $CLOCK, later than the whole nap budget ($LIMIT_RETRIES naps of ${LIMIT_SLEEP_MIN}m)"
                     break
                 fi
-                echo "[conductor] usage limit — sleeping until $(local_time "$wake" %H:%M) (resets $(local_time "$RESET_AT" %H:%M), nap $limit_naps/$LIMIT_RETRIES)"
+                local_time "$wake" %H:%M
+                wake_clock="$CLOCK"
+                local_time "$RESET_AT" %H:%M
+                echo "[conductor] usage limit — sleeping until $wake_clock (resets $CLOCK, nap $limit_naps/$LIMIT_RETRIES)"
                 nap $(( wake - now ))
             else
                 echo "[conductor] usage limit — sleeping ${LIMIT_SLEEP_MIN}m (nap $limit_naps/$LIMIT_RETRIES)"

@@ -203,7 +203,7 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_TRUSTED_ASSOCIATIONS` | `OWNER,MEMBER,COLLABORATOR` | provenance gate: associations that carry write access |
 | `LOOP_TRUSTED_LOGINS` | (none) | provenance gate: extra logins (a second maintainer account, a bot) |
 | `LOOP_TRUST_GATE` | `1` | `0` = skip the provenance gate **for the whole run** (you read the issue *and* its comments yourself) — use it only on a single explicitly-named ticket |
-| `LOOP_LIMIT_SLEEP_MIN` | `60` | the fixed nap after a usage limit, now only the fallback: the loop sleeps until two minutes after the time the limit message names (#1078), and takes this nap when no message names a time still to come (the message cannot be read, or its time is already past) |
+| `LOOP_LIMIT_SLEEP_MIN` | `60` | the fixed nap after a usage limit, now only the fallback: the loop sleeps until two minutes after the time the limit message names (#1078), and takes this nap when no message names a time, or when those two minutes have already passed (the message cannot be read, or its time is older) |
 | `LOOP_LIMIT_RETRIES` | `8` | max naps before giving up (a limit hit at the start of a 5h usage window needs up to ~5h of naps); a nap until the reset counts as one. A limit that ends later than `LOOP_LIMIT_RETRIES` × `LOOP_LIMIT_SLEEP_MIN` from now stops the run at once, with the reset time in the stop reason |
 | `LOOP_MAX_CONSECUTIVE_FAILURES` | `2` | systemic-failure circuit breaker |
 
@@ -296,13 +296,16 @@ Per-ticket outcomes:
     a fixed hour, the loop woke up to 38 minutes after the limit had ended, often after Claude had
     dropped the session's cached context (it keeps it for one hour after the last request). Or it
     woke before the end, met the limit again, and slept one more hour.
-  - The message gives no day. A time more than an hour before the moment the worker saw the limit
-    is tomorrow's (seen at 23:50, `resets 1:20am` is 1:20 the next day). A time less than an hour
-    before it is today's and already past: the limit has just ended, or the worker saw the session
-    end a little late.
-  - No time still to come (the message has another shape, or its time is already past): the fixed
-    `LOOP_LIMIT_SLEEP_MIN` nap, as before. A time already past never gives a nap of zero, so a
-    retry that meets the limit again cannot run through every nap in a few minutes. Only the shape
+  - The message gives no day. The loop takes the first such clock time that is at most an hour
+    before the moment the worker saw the limit. Seen at 23:50, `resets 1:20am` is 1:20 the next
+    day. Seen at 20:21, `resets 8:20pm` is 20:20 that day, already past: the limit has just ended,
+    or the worker saw the session end a little late. Seen at 00:01, `resets 11:59pm` is the day
+    before, so a limit that ended just before midnight is never read as tomorrow's.
+  - No time, or the two minutes after it have already passed (the message has another shape, or
+    its time is older): the fixed `LOOP_LIMIT_SLEEP_MIN` nap, as before. A wake-up time already
+    past never gives a nap of zero, so a retry that meets the limit again cannot run through every
+    nap in a few minutes. A limit that ended less than two minutes ago gets a short nap until those
+    two minutes are over, and counts as one nap. Only the shape
     above is read, `resets <h>[:<mm>]am|pm (<IANA zone>)`, with a zone this machine knows. Anything
     else falls back, never a guess: a weekly limit with a date, a clock time that does not exist or
     exists twice on the night the clocks change, or a zone that `date` would silently read as UTC.

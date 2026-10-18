@@ -104,12 +104,51 @@ done
 
 cd "$STACK_DIR" || { echo "deploy.sh: stack dir $STACK_DIR not found — is the box bootstrapped?" >&2; exit 2; }
 
+# A root session can leave a stack file, or the stack dir itself, owned by root (#806). The site keeps
+# running, but this script then fails late, with a bare "Permission denied":
+#   - An .env it cannot read fails on the first `sed`. The trap is set by then, so it also prints
+#     container logs that have nothing to do with the problem.
+#   - A stack dir it cannot write to fails on the last step, after `up -d` has replaced the
+#     containers. CD's rollback then fails the same way.
+# So refuse it here, before the trap and before any docker call: no container and no .env has
+# changed yet. CD has already copied the new stack files by now, and it does not put them back
+# (#1205).
+reader="$(id -un 2>/dev/null || id -u)"
+# Usage: refuse_path <path in the stack dir> <what is wrong> <the mode it should have>
+refuse_path() {
+    local path="$1" problem="$2" wanted_mode="$3" shown mode owner
+    shown="$STACK_DIR/$path"
+    [ "$path" != . ] || shown="$STACK_DIR"
+    # SC2012 warns about reading `ls` output for unknown file names. These names come from this script,
+    # and GNU and BSD `ls` print the mode and the owner in the same fields; `stat` needs a different
+    # flag on each. `-L`: `-r` follows a link, so the message reports the file the link points to.
+    # shellcheck disable=SC2012
+    read -r mode _ owner _ < <(ls -ldL -- "$path")
+    echo "::error::deploy.sh: ${problem} (owner ${owner}, mode ${mode})." >&2
+    echo "  Fix it as root: chown deploy:deploy ${shown} && chmod ${wanted_mode} ${shown}" >&2
+    # A user other than deploy may not read the file even when its owner and mode are right.
+    if [ "$reader" != deploy ]; then
+        echo "  Then run this script as deploy: sudo -u deploy env IMAGE_TAG=${IMAGE_TAG} bash $0" >&2
+    fi
+    echo "  Nothing was pulled and no container was touched." >&2
+    exit 2
+}
+
 for required in "$COMPOSE_FILE" .env; do
     if [ ! -f "$required" ]; then
         echo "deploy.sh: $STACK_DIR/$required is missing (runbook → '(Re)provisioning a box')." >&2
         exit 2
     fi
+    if [ ! -r "$required" ]; then
+        wanted_mode=644
+        [ "$required" != .env ] || wanted_mode=600
+        refuse_path "$required" "$STACK_DIR/$required exists, but $reader cannot read it" "$wanted_mode"
+    fi
 done
+# The last step writes the new .env through a temp file in the stack dir.
+if [ ! -w . ]; then
+    refuse_path . "$reader cannot write to $STACK_DIR, and the last step writes .env there" 755
+fi
 
 # Every compose call below resolves ${IMAGE_TAG} from THIS exported value, which outranks the .env
 # file. That is deliberate: the .env is only rewritten at the very end, on success, so a roll that

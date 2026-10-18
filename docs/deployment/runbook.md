@@ -1937,6 +1937,9 @@ form works for `up` too. It does not.
   `scp` as `deploy` — or `chown -R deploy:deploy /opt/lotro` afterwards. The same applies to `deploy.sh`
   itself: run it **as `deploy`** (`sudo -u deploy env IMAGE_TAG=… bash /opt/lotro/deploy.sh`), because
   its final step rewrites `.env`, and a root-owned `.env` locks CD out of the box for good.
+  `deploy.sh` now refuses an `.env` or compose file it cannot read, and a `/opt/lotro` it cannot write
+  to (#806): it exits 2 before it pulls anything and prints the owner, the mode and the fix (for
+  `.env`: `chown deploy:deploy /opt/lotro/.env && chmod 600 /opt/lotro/.env`).
   (`/opt/tks` has no CD and is root-owned — that one is fine to touch as root.)
 - **The bootstrap Docker leg adopts the box's engine, it does not install one.** The live pair runs
   **Ubuntu's** `docker.io` + `containerd` + `docker-compose-v2`, not Docker's `docker-ce` stack — and

@@ -423,18 +423,20 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   current URL, and handler binding reads the form field before the query string.
   `LocalReturnUrl.Sanitize` only answers "is this target local"; the encoding at each print site
   keeps these pages safe. (`Html.Raw` is a sink of its own.)
-- **The auth origin sends its own CSP, so an auth page's inline `<style>` needs the nonce (#693).**
-  `AuthSystem.API/Middleware/SecurityHeadersMiddleware` adds CSP, `X-Frame-Options: DENY`, nosniff
-  and `Referrer-Policy: no-referrer` outside Development. Each account page writes
-  `<style nonce="@CspNonce.Get(HttpContext)">`; a `<style>` without it is dropped and the page loads
-  unstyled. `script-src` is `'self'` with no nonce, so page script goes in a file under `wwwroot`
-  (`login.js`). `form-action` lists the web client's origins, because the login POST ends in a
+- **The auth origin sends its own CSP, so an auth page has no inline `<style>` or script (#693,
+  #833).** `AuthSystem.API/Middleware/SecurityHeadersMiddleware` adds CSP, `X-Frame-Options: DENY`,
+  nosniff and `Referrer-Policy: no-referrer` outside Development. `style-src` and `script-src` are
+  plain `'self'`, with no nonce. The account pages share `wwwroot/account.css`, and a rule only one
+  page needs goes at its end under that page's body class (`page-login`, `page-register`,
+  `page-privacy`); the error pages that `BrowserErrorPage` writes use `wwwroot/error-page.css`. Page
+  script goes in a file under `wwwroot` too (`login.js`). An inline `<style>` is dropped and the page
+  loads unstyled. `form-action` lists the web client's origins, because the login POST ends in a
   redirect to the frontend's `/callback` and Chrome checks every redirect of a form. That makes the
   frontend's `ResponseMode.Query` load-bearing: OpenIddict's form_post page uses an inline script
   this CSP blocks. Guards: `check-ssr-purity` scans `src/AuthSystem/**/*.cshtml` (inline script and
-  event handlers, a nonce-less `<style>`, a `style=` attribute), smoke leg 6, the integration suite
-  on every Razor page endpoint, and the Frontend E2E suite (auth runs in Testing there, with the CSP
-  on) fails on any `securitypolicyviolation`.
+  event handlers, any `<style>`, a `style=` attribute), smoke leg 6, the integration suite on every
+  Razor page endpoint, and the Frontend E2E suite (auth runs in Testing there, with the CSP on)
+  fails on any `securitypolicyviolation` or a stylesheet that did not load.
 - **Auth Razor Pages are rate limited by default; opting out is the explicit act (#692).**
   `app.MapRazorPages().RequireRateLimitingByDefault("auth-page-limit")` covers every account page,
   so a new page needs no attribute to be covered. A page that needs a different budget says

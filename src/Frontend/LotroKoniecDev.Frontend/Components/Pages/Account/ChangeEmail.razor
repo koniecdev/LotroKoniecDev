@@ -94,7 +94,7 @@
                     </div>
                 }
 
-                <form method="post" @formname="change-email" @onsubmit="RequestChangeAsync" class="stacked-form">
+                <form method="post" @formname="@ChangeEmailFormName" @onsubmit="RequestChangeAsync" class="stacked-form">
                     <AntiforgeryToken/>
                     <div class="field">
                         <label for="new-email">
@@ -126,11 +126,18 @@
             </div>
         </section>
     }
+
+    @if (_loadResult is { IsFailure: true })
+    {
+        <PostedFormTarget IsPageForm="@(static formName => formName == ChangeEmailFormName)"/>
+    }
 </section>
 
 @code
 {
-    [SupplyParameterFromForm(FormName = "change-email")]
+    private const string ChangeEmailFormName = "change-email";
+
+    [SupplyParameterFromForm(FormName = ChangeEmailFormName)]
     private ChangeEmailFormModel? EmailInput { get; set; }
 
     private ApiResult<AccountDataExportResponse>? _loadResult;

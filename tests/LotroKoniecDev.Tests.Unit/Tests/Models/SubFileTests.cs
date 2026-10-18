@@ -12,6 +12,11 @@ public sealed class SubFileTests
         { "fragment ids in ascending order", TestDataFactory.CreateTextSubFileData(0x25000001, 1001UL, 3) },
         { "fragment ids out of order", TestDataFactory.CreateTextSubFileDataWithFragmentIds(0x25000001, 3UL, 1UL, 2UL) },
         { "no fragments", TestDataFactory.CreateTextSubFileDataWithFragmentIds(0x25000001) },
+        { "two-byte fragment count", TestDataFactory.CreateTextSubFileData(0x25000001, 1UL, 128) },
+        {
+            "two-byte piece length",
+            TestDataFactory.CreateTextSubFileDataWithArgs(0x25000001, 42UL, [new string('a', 128)], [])
+        },
         {
             "argument references",
             TestDataFactory.CreateTextSubFileDataWithArgs(
@@ -21,7 +26,7 @@ public sealed class SubFileTests
                 [BitConverter.GetBytes(7), BitConverter.GetBytes(9)])
         },
         {
-            "argument strings and non-zero header bytes",
+            "argument string groups and non-zero header bytes",
             TestDataFactory.CreateTextSubFileDataWithArgStrings(
                 0x25000001,
                 [0x01, 0x02, 0x03, 0x04],
@@ -29,7 +34,7 @@ public sealed class SubFileTests
                 42UL,
                 ["You have ", " items"],
                 [BitConverter.GetBytes(7)],
-                ["one", "two"])
+                [["one", "two"], [], ["three"]])
         },
     };
 

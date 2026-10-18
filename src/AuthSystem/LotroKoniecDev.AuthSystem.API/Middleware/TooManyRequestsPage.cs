@@ -21,8 +21,7 @@ internal static class TooManyRequestsPage
             return;
         }
 
-        await BrowserErrorPage.WriteAsync(
-            httpContext, BuildHtml(retryAfter, CspNonce.Get(httpContext)), cancellationToken);
+        await BrowserErrorPage.WriteAsync(httpContext, BuildHtml(retryAfter), cancellationToken);
     }
 
     /// <summary>
@@ -43,10 +42,9 @@ internal static class TooManyRequestsPage
             + PolishPlural.Pick(minutes, "minutę", "minuty", "minut") + ".";
     }
 
-    internal static string BuildHtml(TimeSpan retryAfter, string? nonce) =>
+    internal static string BuildHtml(TimeSpan retryAfter) =>
         BrowserErrorPage.BuildHtml(
             "Za dużo prób",
-            nonce,
             "Wysłano zbyt wiele żądań z tego połączenia. " + BuildWaitSentence(retryAfter),
             "Limit chroni konta przed zgadywaniem haseł i skrzynki przed zalewem wiadomości.",
             BrowserErrorPage.BackToLoginLink);

@@ -65,32 +65,21 @@ public sealed class TooManyRequestsPageTests
     {
         // Act: the wait is the one thing a throttled user can act on (#692). The limiter's number is an
         // upper bound, so the page names it as the longest wait, never as an estimate (#892).
-        string html = TooManyRequestsPage.BuildHtml(TimeSpan.FromMinutes(3), nonce: null);
+        string html = TooManyRequestsPage.BuildHtml(TimeSpan.FromMinutes(3));
 
         // Assert
         html.ShouldContain("Spróbuj ponownie później. Limit odnowi się najpóźniej za 3 minuty.");
     }
 
     [Fact]
-    public void BuildHtml_ShouldPutTheRequestsNonceOnItsStyleBlock()
+    public void BuildHtml_ShouldCarryNoInlineStyleOrScript()
     {
-        // Act: the page's only inline style must carry the nonce the CSP admits (#693)
-        string html = TooManyRequestsPage.BuildHtml(TimeSpan.FromMinutes(3), "r4nd0m-n0nce_value");
+        // Act: the limiter writes this page outside Razor, under the same CSP as every page (#693, #833)
+        string html = TooManyRequestsPage.BuildHtml(TimeSpan.FromMinutes(3));
 
         // Assert
-        html.ShouldContain("<style nonce=\"r4nd0m-n0nce_value\">");
-        html.ShouldNotContain("<style>");
+        html.ShouldContain("<link rel=\"stylesheet\" href=\"/error-page.css\" />");
+        html.ShouldNotContain("<style");
         html.ShouldNotContain("<script");
-    }
-
-    [Fact]
-    public void BuildHtml_ShouldLeaveTheNonceOut_WhenThereIsNoCsp()
-    {
-        // Act: Development runs without the security headers, so there is no nonce to match
-        string html = TooManyRequestsPage.BuildHtml(TimeSpan.FromMinutes(3), nonce: null);
-
-        // Assert
-        html.ShouldContain("<style>");
-        html.ShouldNotContain("nonce");
     }
 }

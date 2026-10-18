@@ -169,7 +169,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
 
     /// <summary>
     /// The exception handler clears the response before the page is written, so the security headers have
-    /// to arrive later, and the CSP still has to match the page's inline style (#693).
+    /// to arrive later, and the page has to take its styles from a file the CSP admits (#693, #833).
     /// </summary>
     [Fact]
     public async Task ConfirmPage_Post_ShouldKeepTheSecurityHeadersOnTheErrorPage_WhenTheSaveFailsForAnotherReason()
@@ -188,10 +188,10 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
         string policy = response.Headers.GetValues("Content-Security-Policy").ShouldHaveSingleItem();
-        Match nonce = StyleNonceRegex().Match(policy);
-        nonce.Success.ShouldBeTrue();
+        policy.Split("; ").ShouldContain("style-src 'self'");
         string html = await response.Content.ReadAsStringAsync();
-        html.ShouldContain($"<style nonce=\"{nonce.Groups[1].Value}\">");
+        html.ShouldContain("<link rel=\"stylesheet\" href=\"/error-page.css\" />");
+        html.ShouldNotContain("<style");
         response.Headers.GetValues("X-Frame-Options").ShouldHaveSingleItem().ShouldBe("DENY");
     }
 
@@ -951,9 +951,6 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
 
     [GeneratedRegex("""\svalue="([^"]*)""")]
     private static partial Regex ValueAttributeRegex();
-
-    [GeneratedRegex("""style-src [^;]*'nonce-([^']+)'""")]
-    private static partial Regex StyleNonceRegex();
 
     /// <summary>
     /// Holds one step of the account's save until a competing write has committed, the only race this suite

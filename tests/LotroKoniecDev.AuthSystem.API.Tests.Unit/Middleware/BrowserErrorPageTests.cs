@@ -9,8 +9,6 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Middleware;
 /// </summary>
 public sealed class BrowserErrorPageTests
 {
-    private const string Nonce = "r4nd0m-n0nce_value";
-
     [Theory]
     [InlineData("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")]
     [InlineData("text/html")]
@@ -63,32 +61,22 @@ public sealed class BrowserErrorPageTests
     }
 
     [Fact]
-    public void BuildHtml_ShouldPutTheRequestsNonceOnItsStyleBlock()
+    public void BuildHtml_ShouldLoadItsStylesFromAFile()
     {
-        // Act: the auth origin's CSP admits an inline style only with the request's nonce (#693)
-        string html = BrowserErrorPage.BuildHtml("Nagłówek", Nonce, "Akapit.");
+        // Act: the auth CSP's style-src is 'self', so an inline style would be blocked (#833)
+        string html = BrowserErrorPage.BuildHtml("Nagłówek", "Akapit.");
 
         // Assert
-        html.ShouldContain($"<style nonce=\"{Nonce}\">");
-        html.ShouldNotContain("<style>");
-    }
-
-    [Fact]
-    public void BuildHtml_ShouldLeaveTheNonceOut_WhenThereIsNoCsp()
-    {
-        // Act: Development runs without the security headers, so there is no nonce to match
-        string html = BrowserErrorPage.BuildHtml("Nagłówek", nonce: null, "Akapit.");
-
-        // Assert
-        html.ShouldContain("<style>");
-        html.ShouldNotContain("nonce");
+        html.ShouldContain("<link rel=\"stylesheet\" href=\"/error-page.css\" />");
+        html.ShouldNotContain("<style");
+        html.ShouldNotContain(" style=");
     }
 
     [Fact]
     public void BuildHtml_ShouldCarryNoScript()
     {
-        // Act: the CSP's script-src is 'self' with no nonce, so an inline script would be blocked
-        string html = BrowserErrorPage.BuildHtml("Nagłówek", Nonce, "Akapit.");
+        // Act: the CSP's script-src is 'self', so an inline script would be blocked
+        string html = BrowserErrorPage.BuildHtml("Nagłówek", "Akapit.");
 
         // Assert
         html.ShouldNotContain("<script");
@@ -98,7 +86,7 @@ public sealed class BrowserErrorPageTests
     public void BuildHtml_ShouldPutTheHeadingAndEachParagraphOnThePage()
     {
         // Act
-        string html = BrowserErrorPage.BuildHtml("Nagłówek", Nonce, "Pierwszy.", "Drugi.");
+        string html = BrowserErrorPage.BuildHtml("Nagłówek", "Pierwszy.", "Drugi.");
 
         // Assert
         html.ShouldContain("<title>Nagłówek — lotro-translator.pl</title>");

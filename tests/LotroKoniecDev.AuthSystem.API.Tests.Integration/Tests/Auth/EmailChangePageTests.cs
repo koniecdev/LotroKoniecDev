@@ -74,8 +74,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task ConfirmPage_Post_ShouldStyleTheDoneMessageAsASuccessNotAsAnError()
     {
-        // #719: each auth page ships its own copy of the stylesheet, so the success modifier must be
-        // defined in the document that uses it, or a done change shows in a red error box.
+        // #719: a done change showed in a red error box when the page lacked the success modifier. The rule
+        // lives in the shared stylesheet since #833, so the page has to load it.
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
 
@@ -90,9 +90,12 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             });
 
         string html = await response.Content.ReadAsStringAsync();
+        HttpResponseMessage stylesheet = await ApiClient.Http.GetAsync(new Uri("/account.css", UriKind.Relative));
+        string css = await stylesheet.Content.ReadAsStringAsync();
 
         html.ShouldContain("class=\"auth-alert success\"");
-        html.ShouldContain(".auth-alert.success");
+        html.ShouldContain("<link rel=\"stylesheet\" href=\"/account.css\" />");
+        css.ShouldContain(".auth-alert.success");
     }
 
     [Fact]

@@ -8,7 +8,6 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Middleware;
 
 public sealed class SecurityHeadersMiddlewareTests
 {
-    private const string Nonce = "r4nd0m-n0nce_value";
     private const string FrontendOrigin = "https://app.lotro-translator.pl";
 
     [Theory]
@@ -99,7 +98,7 @@ public sealed class SecurityHeadersMiddlewareTests
     public void BuildContentSecurityPolicy_ShouldContainTheLockedDownBaseline(string expectedDirective)
     {
         // Act
-        string policy = SecurityHeadersMiddleware.BuildContentSecurityPolicy(Nonce, [FrontendOrigin]);
+        string policy = SecurityHeadersMiddleware.BuildContentSecurityPolicy([FrontendOrigin]);
 
         // Assert
         policy.Split("; ").ShouldContain(expectedDirective);
@@ -109,22 +108,23 @@ public sealed class SecurityHeadersMiddlewareTests
     public void BuildContentSecurityPolicy_ShouldAdmitNoInlineScriptAtAll()
     {
         // Act
-        string policy = SecurityHeadersMiddleware.BuildContentSecurityPolicy(Nonce, [FrontendOrigin]);
+        string policy = SecurityHeadersMiddleware.BuildContentSecurityPolicy([FrontendOrigin]);
 
-        // Assert: the one script the pages need is a file, so script-src carries no nonce either
+        // Assert: the scripts the pages need are files
         policy.Split("; ").ShouldContain("script-src 'self'");
         policy.ShouldNotContain("unsafe-inline");
         policy.ShouldNotContain("unsafe-eval");
     }
 
     [Fact]
-    public void BuildContentSecurityPolicy_ShouldAdmitInlineStyleOnlyByTheRequestsNonce()
+    public void BuildContentSecurityPolicy_ShouldAdmitNoInlineStyleAtAll()
     {
         // Act
-        string policy = SecurityHeadersMiddleware.BuildContentSecurityPolicy(Nonce, [FrontendOrigin]);
+        string policy = SecurityHeadersMiddleware.BuildContentSecurityPolicy([FrontendOrigin]);
 
-        // Assert
-        policy.Split("; ").ShouldContain($"style-src 'self' 'nonce-{Nonce}'");
+        // Assert: the pages' styles are files under wwwroot (#833)
+        policy.Split("; ").ShouldContain("style-src 'self'");
+        policy.ShouldNotContain("nonce-");
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public sealed class SecurityHeadersMiddlewareTests
     {
         // Act
         string policy = SecurityHeadersMiddleware.BuildContentSecurityPolicy(
-            Nonce, [FrontendOrigin, "https://localhost:7017"]);
+            [FrontendOrigin, "https://localhost:7017"]);
 
         // Assert
         policy.Split("; ").ShouldContain($"form-action 'self' {FrontendOrigin} https://localhost:7017");
@@ -142,7 +142,7 @@ public sealed class SecurityHeadersMiddlewareTests
     public void BuildContentSecurityPolicy_ShouldKeepFormsOnThisOrigin_WhenNoFrontendIsConfigured()
     {
         // Act
-        string policy = SecurityHeadersMiddleware.BuildContentSecurityPolicy(Nonce, []);
+        string policy = SecurityHeadersMiddleware.BuildContentSecurityPolicy([]);
 
         // Assert
         policy.Split("; ").ShouldContain("form-action 'self'");
@@ -162,10 +162,9 @@ public sealed class SecurityHeadersMiddlewareTests
 
         // Assert
         IHeaderDictionary headers = responseFeature.Headers;
-        string nonce = CspNonce.Get(context).ShouldNotBeNull();
         headers.ContentSecurityPolicy.ToString().ShouldBe(
             "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; "
-            + $"style-src 'self' 'nonce-{nonce}'; font-src 'self'; form-action 'self' {FrontendOrigin}");
+            + $"style-src 'self'; font-src 'self'; form-action 'self' {FrontendOrigin}");
         headers.XContentTypeOptions.ToString().ShouldBe("nosniff");
         headers["Referrer-Policy"].ToString().ShouldBe("no-referrer");
         headers.XFrameOptions.ToString().ShouldBe("DENY");
@@ -219,46 +218,23 @@ public sealed class SecurityHeadersMiddlewareTests
     }
 
     [Fact]
-    public async Task InvokeAsync_ShouldIssueTheNonceBeforeThePageRenders()
+    public async Task InvokeAsync_ShouldSendTheSamePolicyOnEveryRequest()
     {
-        // Arrange
-        RecordingResponseFeature responseFeature = new();
-        DefaultHttpContext context = BuildContext(responseFeature);
-        string? nonceSeenByThePage = null;
-        SecurityHeadersMiddleware middleware = new(
-            httpContext =>
-            {
-                nonceSeenByThePage = CspNonce.Get(httpContext);
-                return Task.CompletedTask;
-            },
-            ConfiguredWebClient());
+        // Arrange: the policy holds no per-request value since the pages lost their inline styles (#833)
+        SecurityHeadersMiddleware middleware = new(_ => Task.CompletedTask, ConfiguredWebClient());
+        RecordingResponseFeature firstResponse = new();
+        RecordingResponseFeature secondResponse = new();
 
         // Act
-        await middleware.InvokeAsync(context);
-        await responseFeature.FireOnStartingAsync();
+        await middleware.InvokeAsync(BuildContext(firstResponse));
+        await firstResponse.FireOnStartingAsync();
+        await middleware.InvokeAsync(BuildContext(secondResponse));
+        await secondResponse.FireOnStartingAsync();
 
         // Assert
-        nonceSeenByThePage.ShouldNotBeNullOrWhiteSpace();
-        responseFeature.Headers.ContentSecurityPolicy.ToString().ShouldContain($"'nonce-{nonceSeenByThePage}'");
-    }
-
-    [Fact]
-    public async Task InvokeAsync_ShouldIssueADifferentBase64UrlNonceForEachRequest()
-    {
-        // Arrange
-        SecurityHeadersMiddleware middleware = new(_ => Task.CompletedTask, ConfiguredWebClient());
-        DefaultHttpContext first = BuildContext(new RecordingResponseFeature());
-        DefaultHttpContext second = BuildContext(new RecordingResponseFeature());
-
-        // Act
-        await middleware.InvokeAsync(first);
-        await middleware.InvokeAsync(second);
-
-        // Assert: base64url, because a '+' would be HTML-encoded in the attribute and stop matching
-        string firstNonce = CspNonce.Get(first).ShouldNotBeNull();
-        string secondNonce = CspNonce.Get(second).ShouldNotBeNull();
-        firstNonce.ShouldNotBe(secondNonce);
-        firstNonce.ShouldMatch("^[A-Za-z0-9_-]{43}$");
+        string firstPolicy = firstResponse.Headers.ContentSecurityPolicy.ToString();
+        firstPolicy.ShouldNotBeNullOrWhiteSpace();
+        secondResponse.Headers.ContentSecurityPolicy.ToString().ShouldBe(firstPolicy);
     }
 
     private static IOptions<OpenIddictSettings> ConfiguredWebClient() =>

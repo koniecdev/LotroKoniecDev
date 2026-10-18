@@ -8,7 +8,7 @@ public sealed class ServerErrorPageTests
     public void BuildHtml_ShouldTellTheUserTheFaultIsOnOurSide()
     {
         // Act
-        string html = ServerErrorPage.BuildHtml(nonce: null);
+        string html = ServerErrorPage.BuildHtml();
 
         // Assert
         html.ShouldContain("<h1>Coś poszło nie tak</h1>");

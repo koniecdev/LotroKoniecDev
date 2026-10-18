@@ -76,8 +76,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     {
         // #719: the done message carried the success modifier, but this page never defined the rule
         // for it, so the plain .auth-alert styling won and a completed change was reported in a red
-        // error box. Each auth page ships its own copy of the stylesheet, so the modifier has to be
-        // present in the very document that uses it.
+        // error box. The rule lives in the shared stylesheet since #833, so the page has to load it.
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
 
@@ -92,9 +91,12 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             });
 
         string html = await response.Content.ReadAsStringAsync();
+        HttpResponseMessage stylesheet = await ApiClient.Http.GetAsync(new Uri("/account.css", UriKind.Relative));
+        string css = await stylesheet.Content.ReadAsStringAsync();
 
         html.ShouldContain("class=\"auth-alert success\"");
-        html.ShouldContain(".auth-alert.success");
+        html.ShouldContain("<link rel=\"stylesheet\" href=\"/account.css\" />");
+        css.ShouldContain(".auth-alert.success");
     }
 
     [Fact]

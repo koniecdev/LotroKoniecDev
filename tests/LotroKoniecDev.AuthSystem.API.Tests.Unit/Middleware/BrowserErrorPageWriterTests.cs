@@ -185,18 +185,19 @@ public sealed class BrowserErrorPageWriterTests
     }
 
     [Fact]
-    public async Task WriteAsync_ShouldPutTheRequestsNonceOnItsStyleBlock()
+    public async Task WriteAsync_ShouldLoadThePageStylesFromAFile()
     {
-        // Arrange: the auth origin's CSP admits an inline style only with the request's nonce (#693)
+        // Arrange: the auth CSP's style-src is 'self', so an inline style would be blocked (#833)
         BrowserErrorPageWriter writer = new();
         ProblemDetailsContext context = BuildContext(BrowserAccept, StatusCodes.Status404NotFound);
-        string nonce = CspNonce.Issue(context.HttpContext);
 
         // Act
         await writer.WriteAsync(context);
 
         // Assert
-        ReadBody(context).ShouldContain($"<style nonce=\"{nonce}\">");
+        string html = ReadBody(context);
+        html.ShouldContain("<link rel=\"stylesheet\" href=\"/error-page.css\" />");
+        html.ShouldNotContain("<style");
     }
 
     [Fact]

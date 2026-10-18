@@ -1599,6 +1599,9 @@ workflow stays runnable **on demand** (`workflow_dispatch` — enter the three U
 > an internal host name or another port. The website and the CLI refuse to follow a link off the
 > configured origin and follow no redirect (#611, #830), so every page that follows a link would break,
 > while the health checks stay green. Leg 7 reads both discovery roots and catches that (#898).
+> ADR-0041 allows one link off the origin: after a service split, the root links to the root of the
+> service that left. The change that adds such a link must also allow it in leg 7, or every deploy
+> fails there and rolls back.
 
 ## Observability & monitoring
 

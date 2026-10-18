@@ -27,18 +27,21 @@ mkdir -p "$STUB_DIR"
 cat > "$STUB_DIR/curl" <<'STUB'
 #!/usr/bin/env bash
 # Minimal curl stand-in: -w prints a status code, -D writes the canned headers, the body
-# goes to -o when given and to stdout otherwise. Everything else is accepted and ignored.
+# goes to -o when given and to stdout otherwise. -L follows a redirecting root, as curl would.
+# Everything else is accepted and ignored.
 body_target=""
 header_target=""
 want_code=0
 url=""
 sent_headers=""
+follow=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -o) body_target="$2"; shift 2 ;;
         -D) header_target="$2"; shift 2 ;;
         -w) want_code=1; shift 2 ;;
         -H) sent_headers="$sent_headers|$2|"; shift 2 ;;
+        -L|--location) follow=1; shift ;;
         --max-time|--data-urlencode|-X) shift 2 ;;
         https://*) url="$1"; shift ;;
         *) shift ;;
@@ -51,6 +54,9 @@ case "$url" in
     https://tms.invalid/|https://auth.invalid/)
         # Like the real roots, links come only to a client that asks for the HATEOAS media type.
         code="$STUB_ROOT_CODE"
+        case "$code" in
+            3??) [ "$follow" -eq 1 ] && code=200 ;;
+        esac
         case "$sent_headers" in
             *"|Accept: application/vnd.dev-lotrokoniecdev.hateoas.json|"*)
                 body="$STUB_TMS_ROOT"
@@ -79,6 +85,8 @@ function global:Invoke-WebRequest {
           [switch]$SkipHttpErrorCheck, [switch]$SkipCertificateCheck)
     if ($Uri -eq 'https://tms.invalid/' -or $Uri -eq 'https://auth.invalid/') {
         $code = [int]$env:STUB_ROOT_CODE
+        # Without MaximumRedirection 0 the real cmdlet follows a redirect.
+        if ($code -ge 300 -and $code -lt 400 -and $MaximumRedirection -ne 0) { $code = 200 }
         if ($Headers -and $Headers['Accept'] -ceq 'application/vnd.dev-lotrokoniecdev.hateoas.json') {
             $root = if ($Uri -eq 'https://auth.invalid/') { $env:STUB_AUTH_ROOT } else { $env:STUB_TMS_ROOT }
             # The real cmdlet hands a vendor media type over as bytes, not as text.
@@ -100,12 +108,14 @@ function global:Invoke-WebRequest {
     return [pscustomobject]@{ StatusCode = 200; Content = $content; Headers = $responseHeaders }
 }
 & $env:SMOKE_SCRIPT
+exit $LASTEXITCODE
 STUB
 
-# The discovery roots answer this status, and the TMS URL the smoke is given is this one. A leg-7
-# case may change either for one run.
+# The discovery roots answer this status, and the smoke is given these two API URLs. A leg-7 case
+# may change them for one run.
 ROOT_CODE=200
 CONFIGURED_TMS_URL=https://tms.invalid
+CONFIGURED_AUTH_URL=https://auth.invalid
 : > "$TMP_ROOT/tms-root"
 : > "$TMP_ROOT/auth-root"
 printf '{"name":"plain"}' > "$TMP_ROOT/plain-root"
@@ -150,7 +160,7 @@ run_smoke() {
             STUB_TMS_ROOT="$TMP_ROOT/tms-root" STUB_AUTH_ROOT="$TMP_ROOT/auth-root" \
             STUB_PLAIN_ROOT="$TMP_ROOT/plain-root" STUB_ROOT_CODE="$ROOT_CODE" \
             SMOKE_SCRIPT="$SCRIPTS_DIR/smoke.ps1" SMOKE_REQUIRE_CSP="$require_csp" \
-            SMOKE_AUTH_URL=https://auth.invalid SMOKE_TMS_URL="$CONFIGURED_TMS_URL" \
+            SMOKE_AUTH_URL="$CONFIGURED_AUTH_URL" SMOKE_TMS_URL="$CONFIGURED_TMS_URL" \
             SMOKE_FRONTEND_URL=https://fe.invalid SMOKE_CLIENT_SECRET=stub-secret SMOKE_TIMEOUT=1 \
             pwsh -NoProfile -File "$STUB_DIR/smoke-stub.ps1" 2>&1
         return
@@ -160,7 +170,7 @@ run_smoke() {
         STUB_TMS_ROOT="$TMP_ROOT/tms-root" STUB_AUTH_ROOT="$TMP_ROOT/auth-root" \
         STUB_PLAIN_ROOT="$TMP_ROOT/plain-root" STUB_ROOT_CODE="$ROOT_CODE" \
         bash "$SCRIPTS_DIR/smoke.sh" \
-            --auth-url https://auth.invalid --tms-url "$CONFIGURED_TMS_URL" \
+            --auth-url "$CONFIGURED_AUTH_URL" --tms-url "$CONFIGURED_TMS_URL" \
             --frontend-url https://fe.invalid --client-secret stub-secret \
             --timeout 1 "$@" 2>&1
 }
@@ -186,21 +196,34 @@ run_auth_case() {
 }
 
 # $1 description, $2 the TMS root body, $3 the auth root body, $4 the status both roots answer with
-# (default 200), $5 the TMS URL the smoke is given (default https://tms.invalid). The frontend and
-# the auth pages get an empty answer, so only leg 7 is read.
+# (default 200). The frontend and the auth pages get an empty answer, so only leg 7 is read.
 run_discovery_case() {
     local desc="$1"
     printf '%s' "$2" > "$TMP_ROOT/tms-root"
     printf '%s' "$3" > "$TMP_ROOT/auth-root"
     ROOT_CODE="${4:-200}"
-    CONFIGURED_TMS_URL="${5:-https://tms.invalid}"
     : > "$TMP_ROOT/headers"
     : > "$TMP_ROOT/body"
     : > "$TMP_ROOT/auth-headers"
     : > "$TMP_ROOT/auth-body"
     LAST_OUTPUT="$(run_smoke | sed -n '/\[7\/7\]/,/=====/p' || true)"
     ROOT_CODE=200
+    cases=$((cases + 1))
+    printf '✓ [%s] %s\n' "$TWIN" "$desc"
+}
+
+# $1 description, $2 the TMS URL and $3 the auth URL the smoke is given. A URL leg 7 cannot read is a
+# usage problem, so the whole output is read and the exit status must be 2.
+run_usage_case() {
+    local desc="$1" status=0
+    CONFIGURED_TMS_URL="$2"
+    CONFIGURED_AUTH_URL="$3"
+    LAST_OUTPUT="$(run_smoke)" || status=$?
     CONFIGURED_TMS_URL=https://tms.invalid
+    CONFIGURED_AUTH_URL=https://auth.invalid
+    if [ "$status" != "2" ]; then
+        fail "the smoke should exit 2 (usage problem), not $status" "$LAST_OUTPUT"
+    fi
     cases=$((cases + 1))
     printf '✓ [%s] %s\n' "$TWIN" "$desc"
 }
@@ -442,11 +465,29 @@ run_suite() {
     expect_line "auth / (discovery) -> 503 (expected 200)"
     reject_line "link(s)"
 
-    # 30. A configured URL with no scheme, such as a typo in the on-demand workflow, has no origin to
-    # compare with. The leg must fail instead of skipping itself.
-    run_discovery_case "a configured URL with no scheme fails" "$TMS_OK" "$AUTH_OK" 200 tms.invalid
-    expect_line "tms URL 'tms.invalid' has no scheme://host to compare the links with"
-    expect_line "auth / sends 2 link(s), all on https://auth.invalid:443"
+    # 30. A root that redirects fails, because the clients follow no redirect. Both stubs follow it
+    # if the leg lets them, so this also proves the leg does not.
+    run_discovery_case "a redirecting root fails" "$TMS_OK" "$AUTH_OK" 308
+    expect_line "tms / (discovery) -> 308 (expected 200)"
+    expect_line "auth / (discovery) -> 308 (expected 200)"
+
+    # 31. Links the strict pattern cannot read are on no origin: a second @, an empty host label, a
+    # backslash.
+    run_discovery_case "a link with a second @ fails" "$(discovery_doc 'https://evil.invalid@x@tms.invalid/')" "$AUTH_OK"
+    expect_line "tms / sends 1 of 1 link(s) outside https://tms.invalid:443, first (not an absolute address)"
+    run_discovery_case "a link with an empty host label fails" "$(discovery_doc 'https://tms..invalid/')" "$AUTH_OK"
+    expect_line "tms / sends 1 of 1 link(s) outside https://tms.invalid:443, first (not an absolute address)"
+    run_discovery_case "a link with a backslash in the host part fails" \
+        "$(discovery_doc 'https://evil.invalid\\@tms.invalid/')" "$AUTH_OK"
+    expect_line "tms / sends 1 of 1 link(s) outside https://tms.invalid:443, first (not an absolute address)"
+
+    # 32. A configured URL leg 7 cannot read, such as a typo in the on-demand workflow, is a usage
+    # problem: exit 2 before any leg runs, so the leg can never skip itself.
+    run_usage_case "a TMS URL with no scheme exits 2" tms.invalid https://auth.invalid
+    expect_line "'tms.invalid' is not an absolute URL with a plain host name"
+    reject_line "[1/7]"
+    run_usage_case "an auth URL with a second @ exits 2" https://tms.invalid 'https://a@b@auth.invalid'
+    expect_line "'https://a@b@auth.invalid' is not an absolute URL with a plain host name"
 }
 
 TWIN="sh"

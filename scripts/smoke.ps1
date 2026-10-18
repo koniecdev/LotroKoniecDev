@@ -89,6 +89,41 @@ $AuthUrl     = $AuthUrl.TrimEnd('/')
 $TmsUrl      = $TmsUrl.TrimEnd('/')
 $FrontendUrl = $FrontendUrl.TrimEnd('/')
 
+# "scheme://host:port" for an absolute URL: scheme and host lower-cased, the default port filled in, any
+# user:password@ part dropped. Those are the parts the frontend compares (#830). Both twins read the URL
+# with this same strict pattern, so they agree by construction. It takes only plain ASCII host names and
+# IPv4 addresses, because our domains are plain ASCII. Anything else (an IPv6 address, a non-ASCII host,
+# a backslash, a second @, white space) gets nothing, like a relative URL. That errs on the safe side:
+# the leg may fail a link the frontend would follow, but it never passes one the frontend reads as
+# another origin. -cmatch, because a case-blind A-Z also takes in a few non-ASCII letters.
+$OriginPattern = '(?s)^([A-Za-z][A-Za-z0-9+.-]*)://([A-Za-z0-9._~:-]*@)?([A-Za-z0-9.-]+)(:([0-9]*))?([/?#].*)?\z'
+function Get-Origin {
+    param([string]$Url)
+    if ($Url -cnotmatch $OriginPattern) { return '' }
+    $scheme = $Matches[1].ToLowerInvariant()
+    $hostName = $Matches[3].ToLowerInvariant()
+    # An empty label (a.., .a) is not a host name for [Uri] either.
+    if ($hostName.StartsWith('.') -or $hostName.Contains('..')) { return '' }
+    if (-not $Matches[5]) {
+        $port = switch ($scheme) { 'https' { '443' } 'http' { '80' } default { '' } }
+    } else {
+        # Leading zeros go first, so 000443 is 443.
+        $digits = $Matches[5] -replace '^0+', ''
+        if ($digits.Length -gt 5 -or [int]('0' + $digits) -gt 65535) { return '' }
+        $port = [string][int]('0' + $digits)
+    }
+    return "${scheme}://${hostName}:$port"
+}
+
+# Leg 7 compares the links with the scheme, host and port of these two URLs, so a URL it cannot read is
+# a usage problem, like a missing one.
+foreach ($check in @(@('-AuthUrl', $AuthUrl), @('-TmsUrl', $TmsUrl))) {
+    if (-not (Get-Origin $check[1])) {
+        Write-Host "smoke: $($check[0]) '$($check[1])' is not an absolute URL with a plain host name (scheme://host[:port])"
+        exit 2
+    }
+}
+
 $script:SkipCert   = [bool]$Insecure
 $script:TimeoutSec = $TimeoutSec
 $script:Pass = 0
@@ -393,27 +428,11 @@ Write-Host ""
 
 $HateoasAccept = 'application/vnd.dev-lotrokoniecdev.hateoas.json'
 
-# "scheme://host:port" for an absolute URL: the default port filled in, any user:password@ part dropped.
-# Those are the parts the frontend compares (#830), so for every link our APIs build, two spellings of
-# one origin match here when they match there. Empty for a relative URL. The scheme test comes first,
-# because on Linux and macOS [Uri] reads a path such as /api/v1 as an absolute file:// address.
-function Get-Origin {
-    param([string]$Url)
-    $uri = $null
-    if ($Url -notmatch '^[A-Za-z][A-Za-z0-9+.-]*://' -or -not [Uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$uri)) {
-        return ''
-    }
-    return "$($uri.Scheme)://$($uri.Host):$($uri.Port)".ToLowerInvariant()
-}
-
-# A root that sends no links proves nothing, so that fails too.
+# $BaseUrl was already checked at the start. A root that sends no links proves nothing, so that fails
+# too.
 function Test-DiscoveryLinks {
     param([string]$Name, [string]$BaseUrl)
     $expected = Get-Origin $BaseUrl
-    if (-not $expected) {
-        Add-Fail "$Name URL '$BaseUrl' has no scheme://host to compare the links with"
-        return
-    }
 
     $code = 0
     $content = ''

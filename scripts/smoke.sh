@@ -142,6 +142,55 @@ AUTH_URL="${AUTH_URL%/}"
 TMS_URL="${TMS_URL%/}"
 FRONTEND_URL="${FRONTEND_URL%/}"
 
+# Echoes "scheme://host:port" for the absolute URL in $1: scheme and host lower-cased, the default port
+# filled in, any user:password@ part dropped. Those are the parts the frontend compares (#830). Both
+# twins read the URL with this same strict pattern, so they agree by construction. It takes only plain
+# ASCII host names and IPv4 addresses, because our domains are plain ASCII. Anything else (an IPv6
+# address, a non-ASCII host, a backslash, a second @, white space) gets nothing, like a relative URL.
+# That errs on the safe side: the leg may fail a link the frontend would follow, but it never passes
+# one the frontend reads as another origin.
+ORIGIN_PATTERN='^([A-Za-z][A-Za-z0-9+.-]*)://([A-Za-z0-9._~:-]*@)?([A-Za-z0-9.-]+)(:([0-9]*))?([/?#].*)?$'
+origin_of() {
+    # Bracket ranges such as A-Z can take in other letters outside the C locale.
+    local LC_ALL=C scheme host port
+    if ! [[ "$1" =~ $ORIGIN_PATTERN ]]; then
+        return 0
+    fi
+    scheme="$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')"
+    host="$(printf '%s' "${BASH_REMATCH[3]}" | tr '[:upper:]' '[:lower:]')"
+    # An empty label (a.., .a) is not a host name for [Uri] either.
+    case "$host" in
+        .*|*..*) return 0 ;;
+    esac
+    # Leading zeros go first, so 000443 is 443. A longer number could wrap around in bash arithmetic and
+    # come out as 443.
+    port="${BASH_REMATCH[5]}"
+    port="${port#"${port%%[!0]*}"}"
+    if [ -z "${BASH_REMATCH[5]}" ]; then
+        case "$scheme" in
+            https) port=443 ;;
+            http)  port=80 ;;
+        esac
+    elif [ "${#port}" -gt 5 ] || [ "$((10#${port:-0}))" -gt 65535 ]; then
+        return 0
+    else
+        port=$((10#${port:-0}))
+    fi
+    printf '%s://%s:%s' "$scheme" "$host" "$port"
+}
+
+# Leg 7 compares the links with the scheme, host and port of these two URLs, so a URL it cannot read is
+# a usage problem, like a missing one. $1 = flag, $2 = its value.
+require_origin() {
+    if [ -z "$(origin_of "$2")" ]; then
+        echo "smoke: $1 '$2' is not an absolute URL with a plain host name (scheme://host[:port])" >&2
+        exit 2
+    fi
+}
+
+require_origin --auth-url "$AUTH_URL"
+require_origin --tms-url "$TMS_URL"
+
 # Empty by default; "-k" when --insecure. Used UNQUOTED in curl calls so the empty case vanishes
 # (a single token never word-splits) — keeps this bash-3.2 safe (macOS system bash) without arrays.
 TLS_FLAG=""
@@ -150,9 +199,12 @@ TLS_FLAG=""
 PASS=0
 FAIL=0
 WARN=0
+# The trap comes first, so a failed second mktemp does not leave the first file behind.
+HDR_FILE=""
+BODY_FILE=""
+trap 'rm -f "$HDR_FILE" "$BODY_FILE"' EXIT
 HDR_FILE="$(mktemp)"
 BODY_FILE="$(mktemp)"
-trap 'rm -f "$HDR_FILE" "$BODY_FILE"' EXIT
 
 pass() { PASS=$((PASS + 1)); printf '  \xe2\x9c\x93 %s\n' "$1"; }
 fail() { FAIL=$((FAIL + 1)); printf '  \xe2\x9c\x97 %s\n' "$1"; }
@@ -407,67 +459,11 @@ echo
 
 HATEOAS_ACCEPT='application/vnd.dev-lotrokoniecdev.hateoas.json'
 
-# Echoes "scheme://host:port" for the absolute URL in $1: scheme and host lower-cased, the default port
-# filled in, any user:password@ part dropped. Those are the parts the frontend compares (#830), so for
-# every link our APIs build, two spellings of one origin match here when they match there. A backslash
-# in the host part or a port above 65535 gets nothing either, because [Uri] refuses both, so the twins
-# agree on them.
-origin_of() {
-    local url="$1" scheme authority host port
-    case "$url" in
-        [A-Za-z]*://*) ;;
-        *) return 0 ;;
-    esac
-    scheme="${url%%://*}"
-    case "$scheme" in
-        *[!A-Za-z0-9+.-]*) return 0 ;;
-    esac
-    authority="${url#*://}"
-    authority="${authority%%[/?#]*}"
-    case "$authority" in
-        *\\*) return 0 ;;
-    esac
-    authority="${authority##*@}"
-    case "$authority" in
-        *\]) host="$authority"; port="" ;;
-        *:*) host="${authority%:*}"; port="${authority##*:}" ;;
-        *)   host="$authority"; port="" ;;
-    esac
-    scheme="$(printf '%s' "$scheme" | tr '[:upper:]' '[:lower:]')"
-    host="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
-    case "$port" in
-        '')
-            case "$scheme" in
-                https) port=443 ;;
-                http)  port=80 ;;
-            esac
-            ;;
-        *[!0-9]*) return 0 ;;
-        *)
-            # Leading zeros go first, so 000443 is 443 as it is for [Uri]. A longer number could wrap
-            # around in bash arithmetic and come out as 443.
-            port="${port#"${port%%[!0]*}"}"
-            if [ "${#port}" -gt 5 ]; then
-                return 0
-            fi
-            port=$((10#${port:-0}))
-            if [ "$port" -gt 65535 ]; then
-                return 0
-            fi
-            ;;
-    esac
-    printf '%s://%s:%s' "$scheme" "$host" "$port"
-}
-
-# $1 = label, $2 = the API's configured base URL. A root that sends no links proves nothing, so that
-# fails too.
+# $1 = label, $2 = the API's configured base URL, already checked by require_origin. A root that sends
+# no links proves nothing, so that fails too.
 check_discovery_links() {
     local name="$1" base="$2" expected code hrefs line origin total=0 off=0 first_off=""
     expected="$(origin_of "$base")"
-    if [ -z "$expected" ]; then
-        fail "$name URL '$base' has no scheme://host to compare the links with"
-        return
-    fi
 
     : > "$BODY_FILE"
     code="$(curl -s -o "$BODY_FILE" -w '%{http_code}' --max-time "$TIMEOUT" $TLS_FLAG \

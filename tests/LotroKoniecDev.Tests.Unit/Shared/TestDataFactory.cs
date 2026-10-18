@@ -71,6 +71,83 @@ internal static class TestDataFactory
     }
 
     /// <summary>
+    /// Creates binary SubFile data with non-zero header bytes and a single fragment that carries
+    /// argument references and one argument string group.
+    /// </summary>
+    internal static byte[] CreateTextSubFileDataWithArgStrings(
+        int fileId,
+        byte[] unknown1,
+        byte unknown2,
+        ulong fragmentId,
+        string[] pieces,
+        byte[][] argRefs,
+        string[] argStrings)
+    {
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
+
+        writer.Write(fileId);
+        writer.Write(unknown1);
+        writer.Write(unknown2);
+        VarLenEncoder.Write(writer, 1); // numFragments (varlen)
+
+        // Fragment
+        writer.Write(fragmentId);
+        writer.Write(pieces.Length); // numPieces
+
+        foreach (string piece in pieces)
+        {
+            VarLenEncoder.Write(writer, piece.Length); // piece length (varlen)
+            writer.Write(Encoding.Unicode.GetBytes(piece));
+        }
+
+        writer.Write(argRefs.Length); // numArgRefs
+
+        foreach (byte[] argRef in argRefs)
+        {
+            writer.Write(argRef);
+        }
+
+        writer.Write((byte)1); // numArgStringGroups
+        writer.Write(argStrings.Length); // numStrings in the group
+
+        foreach (string argString in argStrings)
+        {
+            VarLenEncoder.Write(writer, argString.Length); // string length (varlen)
+            writer.Write(Encoding.Unicode.GetBytes(argString));
+        }
+
+        return stream.ToArray();
+    }
+
+    /// <summary>
+    /// Creates binary SubFile data with one "Test" fragment per id, in the given order. No ids gives a
+    /// valid subfile with no fragments.
+    /// </summary>
+    internal static byte[] CreateTextSubFileDataWithFragmentIds(int fileId, params ulong[] fragmentIds)
+    {
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
+
+        writer.Write(fileId);
+        writer.Write(new byte[4]); // Unknown1
+        writer.Write((byte)0); // Unknown2
+        VarLenEncoder.Write(writer, fragmentIds.Length); // numFragments (varlen)
+
+        foreach (ulong fragmentId in fragmentIds)
+        {
+            writer.Write(fragmentId);
+            writer.Write(1); // numPieces
+            writer.Write((byte)4); // piece length (varlen)
+            writer.Write(Encoding.Unicode.GetBytes("Test"));
+            writer.Write(0); // numArgRefs
+            writer.Write((byte)0); // numArgStringGroups
+        }
+
+        return stream.ToArray();
+    }
+
+    /// <summary>
     /// Builds binary SubFile data that says it has <paramref name="declaredFragmentCount"/> fragments but
     /// contains none. The count is impossible, which is what exercises the parser's bounds checks.
     /// </summary>

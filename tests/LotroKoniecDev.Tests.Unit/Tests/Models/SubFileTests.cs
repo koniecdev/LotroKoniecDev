@@ -6,15 +6,31 @@ namespace LotroKoniecDev.Tests.Unit.Tests.Models;
 
 public sealed class SubFileTests
 {
-    public static TheoryData<byte[]> RoundTripCases => new()
+    public static TheoryData<string, byte[]> RoundTripCases => new()
     {
-        TestDataFactory.CreateTextSubFileData(0x25000001, "Test"),
-        TestDataFactory.CreateTextSubFileData(0x25000001, 1001UL, 3),
-        TestDataFactory.CreateTextSubFileDataWithArgs(
-            0x25000001,
-            42UL,
-            ["Hello ", " and ", "!"],
-            [BitConverter.GetBytes(7), BitConverter.GetBytes(9)]),
+        { "one fragment", TestDataFactory.CreateTextSubFileData(0x25000001, "Test") },
+        { "fragment ids in ascending order", TestDataFactory.CreateTextSubFileData(0x25000001, 1001UL, 3) },
+        { "fragment ids out of order", TestDataFactory.CreateTextSubFileDataWithFragmentIds(0x25000001, 3UL, 1UL, 2UL) },
+        { "no fragments", TestDataFactory.CreateTextSubFileDataWithFragmentIds(0x25000001) },
+        {
+            "argument references",
+            TestDataFactory.CreateTextSubFileDataWithArgs(
+                0x25000001,
+                42UL,
+                ["Hello ", " and ", "!"],
+                [BitConverter.GetBytes(7), BitConverter.GetBytes(9)])
+        },
+        {
+            "argument strings and non-zero header bytes",
+            TestDataFactory.CreateTextSubFileDataWithArgStrings(
+                0x25000001,
+                [0x01, 0x02, 0x03, 0x04],
+                0x05,
+                42UL,
+                ["You have ", " items"],
+                [BitConverter.GetBytes(7)],
+                ["one", "two"])
+        },
     };
 
     [Theory]
@@ -205,7 +221,7 @@ public sealed class SubFileTests
 
     [Theory]
     [MemberData(nameof(RoundTripCases))]
-    public void Serialize_UnchangedParsedSubFile_ShouldReturnTheOriginalBytes(byte[] originalData)
+    public void Serialize_UnchangedParsedSubFile_ShouldReturnTheOriginalBytes(string scenario, byte[] originalData)
     {
         // Arrange
         SubFile subFile = new();
@@ -215,7 +231,7 @@ public sealed class SubFileTests
         byte[] serialized = subFile.Serialize();
 
         // Assert
-        serialized.ShouldBe(originalData);
+        serialized.ShouldBe(originalData, scenario);
     }
 
     [Theory]

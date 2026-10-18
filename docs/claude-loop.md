@@ -296,8 +296,8 @@ Per-ticket outcomes:
     a fixed hour, the loop woke up to 38 minutes after the limit had ended, often after Claude had
     dropped the session's cached context (it keeps it for one hour after the last request). Or it
     woke before the end, met the limit again, and slept one more hour.
-  - The message gives no day. The loop takes the first such clock time that is at most an hour
-    before the moment the worker saw the limit. Seen at 23:50, `resets 1:20am` is 1:20 the next
+  - The message gives no day. The loop takes the first such clock time from one hour before the
+    moment the worker saw the limit onward. Seen at 23:50, `resets 1:20am` is 1:20 the next
     day. Seen at 20:21, `resets 8:20pm` is 20:20 that day, already past: the limit has just ended,
     or the worker saw the session end a little late. Seen at 00:01, `resets 11:59pm` is the day
     before, so a limit that ended just before midnight is never read as tomorrow's.

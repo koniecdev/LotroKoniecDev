@@ -1256,8 +1256,8 @@ moment_of() {
 }
 
 # reset_epoch <text> <seen> — prints the epoch at which the limit named in the text ends, or fails.
-# The message gives no day. So the limit ends at the first such clock time that is at most an hour
-# before <seen>, the moment the worker saw the limit. Seen at 23:50, "resets 1:20am" is 1:20 the
+# The message gives no day. So the limit ends at the first such clock time from one hour before
+# <seen>, the moment the worker saw the limit, onward. Seen at 23:50, "resets 1:20am" is 1:20 the
 # next day. Seen at 20:21, "resets 8:20pm" is 20:20 that day, already past: the limit has just
 # ended, or the worker saw the session end a little late. Seen at 00:01, "resets 11:59pm" is the
 # day before. The conductor takes the fixed nap once two minutes after that time have passed.

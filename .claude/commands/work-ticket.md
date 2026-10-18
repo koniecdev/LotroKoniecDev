@@ -101,10 +101,10 @@ everything that matters must be committed and pushed.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish
    line: after APPROVE, commit (message references the ticket, ends with the `Co-Authored-By:`
    footer), push, and re-read the issue as `/ticket` step 8 says (a case added after you started
-   moves to a new ticket). Write the PR body to `/tmp/claude-$ARGUMENTS/pr-body.md`: outside the
-   worktree, so no commit and no leftover check sees it, and one folder per ticket, so parallel
-   workers never share a file. It starts with `Closes #$ARGUMENTS`, then the problem in plain
-   words (`/ticket` step 8), and ends with a **`## Ticket report`** section — `**Shipped:**` /
+   moves to a new ticket). Write the PR body to `/tmp/claude-ticket-$ARGUMENTS/pr-body.md`: outside
+   the worktree, so no commit and no leftover check sees it, and one folder per ticket, so parallel
+   workers never share a file. It starts with `Closes #$ARGUMENTS`, then the problem in plain words
+   (`/ticket` step 8), and ends with a **`## Ticket report`** section — `**Shipped:**` /
    `**Proof:**` / `**Assumptions:**` / `**Doubts:**` / `**Follow-ups:**`, where "none" is a valid
    entry and silence is not: the run is unattended, so every judgment call and every unverified
    area must land where the user reads it (same contract as `/ticket` step 9, CodeQL entry
@@ -121,13 +121,14 @@ everything that matters must be committed and pushed.
    cancelled), update the body file, run step 9 on it again, then
    `gh pr edit <pr> --body-file <body file>`. When nothing changed the report, do not edit the PR
    after you open it.
-9. **Plain-English pass — on the body file, never on the open PR.** Run
-   **`/b2-english <body file>`**: it rewrites the file into plain B2 English for a non-native
-   reader and keeps every fact, heading and Polish string (same step as `/ticket` step 10). It
-   runs before `gh pr create`, so the PR opens with its final text: the owner may treat an open PR
-   as finished and merge it (#1083). Its closing line does not end the session: make the next
-   call of the step that sent you here (`gh pr create` or `gh pr edit`) right away. If the pass
-   fails, use the body as you wrote it and note the failure in `LESSONS:`.
+9. **Plain-English pass — on the body file, never on the open PR.** Only steps 7 and 8 send you
+   here. After step 8, when nothing changed the report, skip this step and write the final message.
+   Run **`/b2-english <body file>`**: it rewrites the file into plain B2 English for a non-native
+   reader and keeps every fact, heading and Polish string (same step as `/ticket` step 10). It runs
+   before `gh pr create`, so the PR opens with its final text: the owner may treat an open PR as
+   finished and merge it (#1083). Its closing line does not end the session: make the next call of
+   the step that sent you here (`gh pr create` or `gh pr edit`) right away. If the pass fails, use
+   the body as you wrote it and note the failure in `LESSONS:`.
 
 ## Scope & safety
 

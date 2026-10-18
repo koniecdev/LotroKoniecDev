@@ -256,19 +256,19 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   down, a suite skipped, review verdict missing) → **push the branch, write the report (step 9) as
   an issue comment instead, and stop before `gh pr create`** — no draft PR either: a bare branch
   push is free, every later push to an open PR re-runs pr-verify on billed minutes. Write the
-  comment to `/tmp/claude-<n>/report-comment.md`, run step 10 on it, then
+  comment to `/tmp/claude-ticket-<n>/report-comment.md`, run step 10 on it, then
   `gh issue comment <n> --body-file <that file>`.
 - **Re-read the issue (body and comments) right before `gh pr create`.** A case added to it after
   you read it (`docs/labels.md` → **One bug class per ticket**) is not in this diff. Move it to a
   new ticket with the same labels, link the two both ways, and list it under Follow-ups, so
   `Closes #<n>` never closes a case nobody fixed.
 - **The PR opens with its final text.** `git push -u origin HEAD`. Write the body to
-  `/tmp/claude-<n>/pr-body.md`: outside the repo, so no commit picks it up, and one folder per
-  ticket, so two sessions never share a file. The body is `Closes #<n>`, then the problem in plain
-  words (`## Problem`, `## Why`, `## Fix`), then what changed and how it was tested, then step 9's
-  report. Run step 10 on that file, then `gh pr create` with the title mirroring the ticket and
-  `--body-file <that file>`. The ticket is the authorization — do not stop to ask for permission
-  to commit, push, or open the PR.
+  `/tmp/claude-ticket-<n>/pr-body.md`: outside the repo, so no commit picks it up, and one folder
+  per ticket, so two sessions never share a file. The body is `Closes #<n>`, then the problem in
+  plain words (`## Problem`, `## Why`, `## Fix`), then what changed and how it was tested, then
+  step 9's report. Run step 10 on that file, then `gh pr create` with the title mirroring the
+  ticket and `--body-file <that file>`. The ticket is the authorization — do not stop to ask for
+  permission to commit, push, or open the PR.
 - **CodeQL alerts block the merge, so clear them before your final reply.** Once the PR's
   `CodeQL` check completes (docs-only diffs skip it), list
   `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<pr>/merge&state=open"` and fix

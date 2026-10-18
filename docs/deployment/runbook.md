@@ -1524,7 +1524,7 @@ a deploy:
 | 3 | **OIDC token** | `POST {auth}/connect/token` (client_credentials) = 200 + an `access_token` |
 | 4 | **Token accepted by tms** | anonymous `GET {tms}/api/v1/game-versions` = **401**; the same call **with** the bearer token is **NOT 401** |
 | 5 | **File distribution** | `GET {tms}/api/v1/translation-files/{lang}` = 200 + `ETag`, then a re-GET with `If-None-Match` = 304 |
-| 6 | **Auth pages: headers + CSP** | `GET {auth}/Account/Login` (a form) and `/Account/ConfirmEmail` (no form) each send `X-Frame-Options: DENY` with `frame-ancestors 'none'`, `nosniff` and a `Referrer-Policy` of `no-referrer`, `same-origin`, `strict-origin` or `strict-origin-when-cross-origin`; every `<style>` carries the header's nonce, no inline `<script>`, no `'unsafe-inline'` (#693) |
+| 6 | **Auth pages: headers + CSP** | `GET {auth}/Account/Login` (a form) and `/Account/ConfirmEmail` (no form) each send `X-Frame-Options: DENY` with `frame-ancestors 'none'`, `nosniff` and a `Referrer-Policy` of `no-referrer`, `same-origin`, `strict-origin` or `strict-origin-when-cross-origin`; no inline `<style>` (the styles live in `/account.css`), no inline `<script>`, no `'unsafe-inline'` (#693, #833) |
 | 7 | **Discovery links** | `GET {tms}/` and `GET {auth}/` with the HATEOAS `Accept` header (`application/vnd.dev-lotrokoniecdev.hateoas.json`) = 200 with at least one link, and every `href` has the scheme, host and port of the configured URL (#898) |
 
 It prints a `✓`/`✗`/`⚠` per check and **exits non-zero (1) on any failure** (a usage/config problem
@@ -1590,8 +1590,8 @@ workflow stays runnable **on demand** (`workflow_dispatch` — enter the three U
 > **fingerprint** assertion — `@Assets[]` renders `_framework/blazor.web.<hash>.js` only when
 > `MapStaticAssets` resolved its manifest. That is the signature of a healthy image. Leg 2 also
 > catches the other invisible frontend break: an inline `<script>` the page's own CSP blocks, which
-> shows up nowhere but the browser console (#670). Leg 6 does the same for the auth pages, where the
-> styles are inline and each `<style>` must carry the nonce of its own response (#693).
+> shows up nowhere but the browser console (#670). Leg 6 does the same for the auth pages, which take
+> their styles from `/account.css` and must serve no inline `<style>` or `<script>` (#693, #833).
 >
 > **A green API health check does not prove its links work either.** The APIs build each link from
 > the address the request came in on, which Caddy passes on in the forwarded headers. A change to

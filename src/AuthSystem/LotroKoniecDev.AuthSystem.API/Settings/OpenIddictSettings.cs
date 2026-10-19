@@ -46,10 +46,16 @@ internal sealed class OpenIddictSettings
 
 internal sealed class WebClientSettings
 {
-    /// <summary>The web client's redirect URIs, used everywhere except Development.</summary>
+    /// <summary>
+    /// The web client's redirect URIs, used in every environment. OpenIddictSettingsValidator requires
+    /// at least one in every environment except Development and Testing, Staging included.
+    /// </summary>
     public string[] RedirectUris { get; init; } = [];
 
-    /// <summary>The web client's post-logout redirect URIs, used everywhere except Development.</summary>
+    /// <summary>
+    /// The web client's post-logout redirect URIs, used in every environment. OpenIddictSettingsValidator
+    /// requires at least one in every environment except Development and Testing, Staging included.
+    /// </summary>
     public string[] PostLogoutRedirectUris { get; init; } = [];
 }
 

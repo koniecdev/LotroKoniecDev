@@ -199,9 +199,8 @@ internal static class ApiDependencyInjection
             services.AddHostedService<SignInSessionPruneService>();
 
             // Checks the OpenIddict server config at startup and stops the app when it is wrong
-            // (ADR-0008 §3, M6-05). OpenIddictSettingsValidator requires real keys and an issuer in
-            // every environment except Development and Testing, Staging too, and names the key and
-            // environment at fault.
+            // (ADR-0008 §3, M6-05). OpenIddictSettingsValidator decides which values each environment
+            // must have, and names the key and the environment at fault.
             // There is no ValidateDataAnnotations() call: the settings carry no DataAnnotations
             // attributes, since the `required` issuer is enforced by the binder, so that call checked
             // nothing.

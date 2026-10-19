@@ -68,6 +68,13 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
             LogRefreshError(_logger, ex);
             return TokenRefreshResult.TemporaryFailure;
         }
+        catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The browser left, for example with a click on another link. That is a normal user action, not
+            // a broken sign-in server, so it is no warning (#977, #1141).
+            LogRefreshAbandoned(_logger);
+            return TokenRefreshResult.TemporaryFailure;
+        }
         catch (TaskCanceledException ex)
         {
             LogRefreshError(_logger, ex);
@@ -110,6 +117,8 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
         }
         catch (OperationCanceledException ex)
         {
+            // The only token a caller passes here is the sign-out's own time limit, never the request's
+            // abort (RefreshTokenRevoker), so a cancel means a stuck sign-in server and stays a warning.
             LogRevocationError(_logger, ex);
         }
     }
@@ -204,6 +213,12 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
         Level = LogLevel.Warning,
         Message = "Refresh token grant threw an exception.")]
     private static partial void LogRefreshError(ILogger logger, Exception exception);
+
+    [LoggerMessage(
+        EventId = 7,
+        Level = LogLevel.Information,
+        Message = "Refresh token grant was cancelled because the request was aborted.")]
+    private static partial void LogRefreshAbandoned(ILogger logger);
 
     [LoggerMessage(
         EventId = 4,

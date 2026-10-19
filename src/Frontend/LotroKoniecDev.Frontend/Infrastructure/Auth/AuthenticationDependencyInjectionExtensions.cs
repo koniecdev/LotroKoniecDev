@@ -6,6 +6,7 @@ using LotroKoniecDev.Frontend.Settings;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -46,6 +47,9 @@ internal static partial class AuthenticationDependencyInjectionExtensions
         {
             services.AddCascadingAuthenticationState();
             services.AddAuthorization();
+            services.AddSingleton<SignInAvailability>();
+            services.Replace(ServiceDescriptor
+                .Singleton<IAuthorizationMiddlewareResultHandler, SignInOutageAuthorizationResultHandler>());
 
             // Scoped and not singleton, because ITokenEndpointClient wraps an HttpClient that
             // IHttpClientFactory provides. Holding a short-lived typed client inside a singleton would

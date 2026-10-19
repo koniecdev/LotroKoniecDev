@@ -59,8 +59,7 @@ public sealed class AuthEndpointsExtensionsTests
         IResult result = await AuthEndpointsExtensions.LoginAsync(
             new DefaultHttpContext(),
             "/dashboard",
-            CreateOptionsMonitor(configurationManager),
-            NullLoggerFactory.Instance);
+            CreateSignInAvailability(configurationManager));
 
         StatusCodeHttpResult statusResult = result.ShouldBeOfType<StatusCodeHttpResult>();
         statusResult.StatusCode.ShouldBe(StatusCodes.Status503ServiceUnavailable);
@@ -72,8 +71,7 @@ public sealed class AuthEndpointsExtensionsTests
         IResult result = await AuthEndpointsExtensions.LoginAsync(
             new DefaultHttpContext(),
             "/dashboard",
-            CreateOptionsMonitor(CreateReachableConfigurationManager()),
-            NullLoggerFactory.Instance);
+            CreateSignInAvailability(CreateReachableConfigurationManager()));
 
         ChallengeHttpResult challenge = result.ShouldBeOfType<ChallengeHttpResult>();
         challenge.AuthenticationSchemes.ShouldHaveSingleItem()
@@ -98,8 +96,7 @@ public sealed class AuthEndpointsExtensionsTests
         IResult result = await AuthEndpointsExtensions.LoginAsync(
             new DefaultHttpContext(),
             returnUrl,
-            CreateOptionsMonitor(CreateReachableConfigurationManager()),
-            NullLoggerFactory.Instance);
+            CreateSignInAvailability(CreateReachableConfigurationManager()));
 
         ChallengeHttpResult challenge = result.ShouldBeOfType<ChallengeHttpResult>();
         challenge.Properties.ShouldNotBeNull();
@@ -114,8 +111,7 @@ public sealed class AuthEndpointsExtensionsTests
         IResult result = await AuthEndpointsExtensions.LoginAsync(
             new DefaultHttpContext(),
             "/dashboard",
-            CreateOptionsMonitor(configurationManager: null),
-            NullLoggerFactory.Instance);
+            CreateSignInAvailability(configurationManager: null));
 
         result.ShouldBeOfType<ChallengeHttpResult>();
     }
@@ -543,6 +539,10 @@ public sealed class AuthEndpointsExtensionsTests
             .Returns(new OpenIdConnectOptions { ConfigurationManager = configurationManager });
         return optionsMonitor;
     }
+
+    private static SignInAvailability CreateSignInAvailability(
+        IConfigurationManager<OpenIdConnectConfiguration>? configurationManager) =>
+        new(CreateOptionsMonitor(configurationManager), NullLogger<SignInAvailability>.Instance);
 
     private static IConfigurationManager<OpenIdConnectConfiguration> CreateReachableConfigurationManager()
     {

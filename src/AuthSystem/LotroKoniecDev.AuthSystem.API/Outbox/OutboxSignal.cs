@@ -27,14 +27,37 @@ internal sealed class OutboxSignal : IDisposable
         }
     }
 
+    /// <param name="timeProvider">
+    /// The clock that measures <paramref name="timeout"/>, so a test can move the time instead of waiting
+    /// hours for the safety sweep (#1185).
+    /// </param>
     /// <returns>
     /// <c>true</c> when <see cref="Notify"/> woke it, <c>false</c> when <paramref name="timeout"/>
     /// ran out first. The relay does the same thing either way. The timeout only limits how long a
     /// forgotten row can wait, one that was committed before a crash took its signal with it.
     /// </returns>
-    public Task<bool> WaitAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    public async Task<bool> WaitAsync(TimeSpan timeout, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
-        return _pendingWakeUp.WaitAsync(timeout, cancellationToken);
+        // A timeout of zero cancels its token at once, and a cancelled wait never takes a pending
+        // wake-up. So the wake-up that is already there is taken first.
+        if (_pendingWakeUp.Wait(TimeSpan.Zero, cancellationToken))
+        {
+            return true;
+        }
+
+        using CancellationTokenSource timeoutSource = new(timeout, timeProvider);
+        using CancellationTokenSource waitSource =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutSource.Token);
+
+        try
+        {
+            await _pendingWakeUp.WaitAsync(waitSource.Token);
+            return true;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
     }
 
     public void Dispose()

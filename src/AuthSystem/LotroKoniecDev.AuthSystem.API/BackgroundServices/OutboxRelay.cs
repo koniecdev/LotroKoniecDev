@@ -81,7 +81,7 @@ internal sealed partial class OutboxRelay : BackgroundService
                     ? SafetySweepInterval
                     : RetryBackoffs[Math.Min(failedPasses - 1, RetryBackoffs.Length - 1)];
 
-                await _outboxSignal.WaitAsync(maxWait, stoppingToken);
+                await _outboxSignal.WaitAsync(maxWait, _timeProvider, stoppingToken);
             }
         }
         catch (OperationCanceledException)

@@ -9,9 +9,9 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 /// The OIDC handler builds the sign-in redirect from the sign-in server's discovery document, and it loads
 /// that document the first time it needs it. When the website holds no copy yet and the sign-in server does
 /// not answer, the load throws inside the challenge, and the visitor gets the error page (#311, #1153).
-/// Loading the document here first, through the same configuration manager the handler uses, lets the caller
-/// show the "login temporarily unavailable" page instead. When the load works, the challenge reuses the copy
-/// and redirects exactly as before.
+/// Loading the document here first, through the same configuration manager the handler uses, lets the login
+/// route, and a failed return from the sign-in, show the "login temporarily unavailable" page instead. When
+/// the load works, the challenge reuses the copy and redirects exactly as before.
 /// </summary>
 internal sealed partial class SignInAvailability
 {
@@ -34,13 +34,18 @@ internal sealed partial class SignInAvailability
         }
 
         // A browser that left while it waited for the document is not an outage. Its abort goes up as a
-        // cancelled request, which the error handler drops without a warning.
+        // cancelled request, which the error handler drops without a warning. The manager runs its fetch
+        // without the token, so WaitAsync is what stops the wait, and a fetch that fails after the browser
+        // left is still an outage.
         try
         {
-            await configurationManager.GetConfigurationAsync(cancellationToken);
+            await configurationManager
+                .GetConfigurationAsync(cancellationToken)
+                .WaitAsync(cancellationToken);
             return true;
         }
-        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception exception) when (exception is not OperationCanceledException
+                                          || !cancellationToken.IsCancellationRequested)
         {
             LogSignInServerUnreachable(_logger, exception);
             return false;
@@ -58,6 +63,6 @@ internal sealed partial class SignInAvailability
     [LoggerMessage(
         EventId = 1,
         Level = LogLevel.Warning,
-        Message = "The sign-in server's discovery document could not be read; serving the login-unavailable page instead of the sign-in redirect.")]
+        Message = "The sign-in server's discovery document could not be read; the visitor gets the login-unavailable page.")]
     private static partial void LogSignInServerUnreachable(ILogger logger, Exception exception);
 }

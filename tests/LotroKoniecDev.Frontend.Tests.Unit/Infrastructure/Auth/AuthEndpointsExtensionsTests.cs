@@ -118,22 +118,46 @@ public sealed class AuthEndpointsExtensionsTests
 
     /// <summary>
     /// A browser that leaves while the document loads is not an outage, so it gets no warning and no 503:
-    /// the abort goes up like any other cancelled request.
+    /// the abort goes up like any other cancelled request. The real configuration manager runs its fetch
+    /// without the caller's token, so the fetch here never ends on its own.
     /// </summary>
     [Fact]
-    public async Task LoginAsync_WhenTheBrowserLeavesDuringTheDiscoveryFetch_LetsTheAbortGoUp()
+    public async Task LoginAsync_WhenTheBrowserLeavesWhileTheDiscoveryFetchHangs_LetsTheAbortGoUp()
     {
         using CancellationTokenSource browserLeft = new();
         await browserLeft.CancelAsync();
         IConfigurationManager<OpenIdConnectConfiguration> configurationManager =
             Substitute.For<IConfigurationManager<OpenIdConnectConfiguration>>();
         configurationManager.GetConfigurationAsync(Arg.Any<CancellationToken>())
-            .Returns(Task.FromCanceled<OpenIdConnectConfiguration>(browserLeft.Token));
+            .Returns(new TaskCompletionSource<OpenIdConnectConfiguration>().Task);
 
         await Should.ThrowAsync<OperationCanceledException>(() => AuthEndpointsExtensions.LoginAsync(
             new DefaultHttpContext { RequestAborted = browserLeft.Token },
             "/dashboard",
             CreateSignInAvailability(configurationManager)));
+    }
+
+    /// <summary>
+    /// The manager ignores the caller's token, so a fetch can fail with its own error after the browser left.
+    /// That is still the sign-in server being down, never an unhandled error.
+    /// </summary>
+    [Fact]
+    public async Task LoginAsync_WhenTheDiscoveryFetchFailsAfterTheBrowserLeft_ReturnsServiceUnavailable()
+    {
+        using CancellationTokenSource browserLeft = new();
+        await browserLeft.CancelAsync();
+        IConfigurationManager<OpenIdConnectConfiguration> configurationManager =
+            Substitute.For<IConfigurationManager<OpenIdConnectConfiguration>>();
+        configurationManager.GetConfigurationAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<OpenIdConnectConfiguration>(
+                new InvalidOperationException("IDX20803: Unable to obtain configuration from the authority.")));
+
+        IResult result = await AuthEndpointsExtensions.LoginAsync(
+            new DefaultHttpContext { RequestAborted = browserLeft.Token },
+            "/dashboard",
+            CreateSignInAvailability(configurationManager));
+
+        result.ShouldBeOfType<StatusCodeHttpResult>().StatusCode.ShouldBe(StatusCodes.Status503ServiceUnavailable);
     }
 
     [Fact]

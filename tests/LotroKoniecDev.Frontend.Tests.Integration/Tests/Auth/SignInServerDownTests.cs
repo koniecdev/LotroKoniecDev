@@ -1,26 +1,33 @@
 using System.Net;
 using System.Text;
 using LotroKoniecDev.Frontend.Tests.Integration.Shared;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// #1153: a page that needs a login sends the visitor to the sign-in server, and the redirect is built from
-/// the sign-in server's discovery document. Each host here has just started, so it holds no copy of that
+/// #1153: a page that needs a login sends the visitor to sign in, and the sign-in redirect is built from the
+/// sign-in server's discovery document. Each host here has just started, so it holds no copy of that
 /// document. While the sign-in server is down, the visitor must end on the "login temporarily unavailable"
-/// page that the login button shows (#311), never on the error page.
+/// page that the login route shows (#311), never on the error page.
 /// </summary>
 public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory>
 {
     private const string Authority = "https://auth.staging.invalid";
+    private const string LoginPath = "/auth/login";
     private const string LoginUnavailableTitle = "<title>Logowanie niedostępne — lotro-translator.pl</title>";
     private const string ErrorTitle = "<title>Błąd — lotro-translator.pl</title>";
     private const string SignOutButton = "Wyloguj";
+
+    /// <summary>The origin <see cref="CookieJarBrowser"/> sends to, for a redirect that names only a path.</summary>
+    private static readonly Uri Origin = new("https://localhost");
 
     private readonly StagingFrontendFactory _factory;
 
@@ -64,8 +71,9 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
 
         // Assert
         redirect.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-        redirect.Headers.Location.ShouldNotBeNull().OriginalString
-            .ShouldBe($"/auth/login?returnUrl={Uri.EscapeDataString(pathAndQuery)}");
+        Uri location = redirect.Headers.Location.ShouldNotBeNull();
+        location.AbsolutePath.ShouldBe(LoginPath);
+        QueryHelpers.ParseQuery(location.Query)["ReturnUrl"].ToString().ShouldBe(pathAndQuery);
         page.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
         string markup = await page.Content.ReadAsStringAsync();
         markup.ShouldContain(LoginUnavailableTitle);
@@ -88,23 +96,22 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
         DashboardTranslationSystem translationSystem = new();
         using WebApplicationFactory<Program> host = CreateHost(new StandInSignInServer(), translationSystem);
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
-        await LoadAsync(browser, PageRequest("/dashboard"));
+        await browser.LoadAsync("/dashboard");
         translationSystem.AcceptsTheToken = false;
-        await LoadAsync(browser, PageRequest("/dashboard"));
+        await browser.LoadAsync("/dashboard");
 
         // Act
         using HttpResponseMessage redirect = await browser.SendAsync(new HttpRequestMessage(new HttpMethod(method), path));
         using HttpResponseMessage page = await FollowAsync(browser, redirect);
 
         // Assert
-        SetCookies(redirect)
+        CookieJarBrowser.SetCookiesOf(redirect)
             .ShouldContain(setCookie => setCookie.StartsWith($"{SignedInSession.CookieName}=;", StringComparison.Ordinal));
         page.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
         string markup = await page.Content.ReadAsStringAsync();
         markup.ShouldContain(LoginUnavailableTitle);
         markup.ShouldNotContain(SignedInSession.UserName);
         markup.ShouldNotContain(SignOutButton);
-        translationSystem.Unauthorized.ShouldBe(1);
     }
 
     /// <summary>
@@ -123,7 +130,7 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
         using CookieJarBrowser browser = new(host);
 
         // Act
-        using HttpResponseMessage redirect = await browser.SendAsync(PageRequest("/dashboard"));
+        using HttpResponseMessage redirect = await browser.GetAsync("/dashboard");
         using HttpResponseMessage page = await FollowAsync(browser, redirect);
 
         // Assert
@@ -134,31 +141,35 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
 
     /// <summary>
     /// The page asks the visitor to try again in a moment. Once the sign-in server answers again, reloading
-    /// the page starts the sign-in.
+    /// the page starts the sign-in, and the sign-in still comes back to the page the visitor asked for.
     /// </summary>
     [Fact]
-    public async Task Get_TheLoginUnavailablePageAgainOnceTheSignInServerAnswers_RedirectsToTheSignInServer()
+    public async Task Get_TheLoginUnavailablePageAgainOnceTheSignInServerAnswers_StartsTheSignInForTheSamePage()
     {
         // Arrange
         StandInSignInServer signInServer = new();
         using WebApplicationFactory<Program> host = CreateHost(signInServer, new DashboardTranslationSystem());
         using CookieJarBrowser browser = new(host);
-        using HttpResponseMessage redirect = await browser.SendAsync(PageRequest("/dashboard"));
+        using HttpResponseMessage redirect = await browser.GetAsync("/game-versions?page=2");
         Uri loginUnavailable = redirect.Headers.Location
             ?? throw new InvalidOperationException($"The page answered {redirect.StatusCode} with no redirect.");
-        await LoadAsync(browser, PageRequest(loginUnavailable.OriginalString));
+        await browser.LoadAsync(loginUnavailable.OriginalString);
         signInServer.IsUp = true;
 
         // Act
-        using HttpResponseMessage reload = await browser.SendAsync(PageRequest(loginUnavailable.OriginalString));
+        using HttpResponseMessage reload = await browser.GetAsync(loginUnavailable.OriginalString);
 
         // Assert
         reload.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-        reload.Headers.Location.ShouldNotBeNull().OriginalString.ShouldStartWith($"{Authority}/connect/authorize?");
+        Uri authorize = reload.Headers.Location.ShouldNotBeNull();
+        authorize.OriginalString.ShouldStartWith($"{Authority}/connect/authorize?");
+        AuthenticationProperties? state = OpenIdConnectOptionsOf(host)
+            .StateDataFormat.Unprotect(QueryHelpers.ParseQuery(authorize.Query)["state"].ToString());
+        state.ShouldNotBeNull().RedirectUri.ShouldBe("/game-versions?page=2");
     }
 
     [Fact]
-    public async Task Get_APageThatNeedsALoginWhileTheSignInServerAnswers_RedirectsToTheSignInServer()
+    public async Task Get_APageThatNeedsALoginWhileTheSignInServerAnswers_SendsTheVisitorOnToTheSignInServer()
     {
         // Arrange
         using WebApplicationFactory<Program> host = CreateHost(
@@ -167,11 +178,46 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
         using CookieJarBrowser browser = new(host);
 
         // Act
-        using HttpResponseMessage page = await browser.SendAsync(PageRequest("/dashboard"));
+        using HttpResponseMessage redirect = await browser.GetAsync("/dashboard");
+        using HttpResponseMessage login = await FollowAsync(browser, redirect);
 
         // Assert
-        page.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-        page.Headers.Location.ShouldNotBeNull().OriginalString.ShouldStartWith($"{Authority}/connect/authorize?");
+        login.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        login.Headers.Location.ShouldNotBeNull().OriginalString.ShouldStartWith($"{Authority}/connect/authorize?");
+    }
+
+    /// <summary>
+    /// The website restarted while the visitor was at the sign-in server, so it holds no copy of the document
+    /// when the visitor comes back, and the sign-in server is down by then. The state and the correlation
+    /// cookie are the ones the sign-in redirect would have left, made with this host's own keys.
+    /// </summary>
+    [Fact]
+    public async Task Get_TheSignInReturnWhileTheSignInServerIsDown_EndsOnTheLoginUnavailablePageForTheSamePage()
+    {
+        // Arrange
+        const string correlationId = "the-correlation-id";
+        using WebApplicationFactory<Program> host = CreateHost(new StandInSignInServer(), new DashboardTranslationSystem());
+        using CookieJarBrowser browser = new(host);
+        OpenIdConnectOptions openIdConnectOptions = OpenIdConnectOptionsOf(host);
+        AuthenticationProperties properties = new() { RedirectUri = "/dashboard" };
+        properties.Items[".xsrf"] = correlationId;
+        browser.SetCookie(openIdConnectOptions.CorrelationCookie.Name + correlationId, "N");
+        string state = openIdConnectOptions.StateDataFormat.Protect(properties);
+
+        // Act
+        using HttpResponseMessage redirect = await browser.GetAsync(
+            $"{openIdConnectOptions.CallbackPath}?code=the-code&state={Uri.EscapeDataString(state)}");
+        using HttpResponseMessage page = await FollowAsync(browser, redirect);
+
+        // Assert
+        redirect.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        Uri location = new(Origin, redirect.Headers.Location.ShouldNotBeNull());
+        location.AbsolutePath.ShouldBe(LoginPath);
+        QueryHelpers.ParseQuery(location.Query)["returnUrl"].ToString().ShouldBe("/dashboard");
+        page.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        string markup = await page.Content.ReadAsStringAsync();
+        markup.ShouldContain(LoginUnavailableTitle);
+        markup.ShouldNotContain(ErrorTitle);
     }
 
     /// <summary>
@@ -186,7 +232,7 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
 
         // Act
-        using HttpResponseMessage page = await browser.SendAsync(PageRequest("/dashboard"));
+        using HttpResponseMessage page = await browser.GetAsync("/dashboard");
 
         // Assert
         page.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -212,7 +258,7 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
         // Assert
         logout.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         logout.Headers.Location.ShouldNotBeNull().OriginalString.ShouldStartWith($"{Authority}/connect/logout?");
-        SetCookies(logout)
+        CookieJarBrowser.SetCookiesOf(logout)
             .ShouldContain(setCookie => setCookie.StartsWith($"{SignedInSession.CookieName}=;", StringComparison.Ordinal));
     }
 
@@ -239,28 +285,18 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
             configureServices?.Invoke(services);
         }));
 
-    private static HttpRequestMessage PageRequest(string pathAndQuery) => new(HttpMethod.Get, pathAndQuery);
+    private static OpenIdConnectOptions OpenIdConnectOptionsOf(WebApplicationFactory<Program> host) =>
+        host.Services
+            .GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>()
+            .Get(OpenIdConnectDefaults.AuthenticationScheme);
 
     /// <summary>Follows a redirect the way a browser does: with a GET, whatever the method before it.</summary>
     private static Task<HttpResponseMessage> FollowAsync(CookieJarBrowser browser, HttpResponseMessage redirect)
     {
         Uri location = redirect.Headers.Location
             ?? throw new InvalidOperationException($"The route answered {redirect.StatusCode} with no redirect.");
-        return browser.SendAsync(PageRequest(location.OriginalString));
+        return browser.GetAsync(location.OriginalString);
     }
-
-    /// <summary>
-    /// Reads the whole response: a streaming page makes its API calls while it streams, after the headers
-    /// have arrived.
-    /// </summary>
-    private static async Task LoadAsync(CookieJarBrowser browser, HttpRequestMessage request)
-    {
-        using HttpResponseMessage response = await browser.SendAsync(request);
-        await response.Content.ReadAsStringAsync();
-    }
-
-    private static string[] SetCookies(HttpResponseMessage response) =>
-        response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? setCookies) ? [.. setCookies] : [];
 
     /// <summary>
     /// The sign-in server's back channel. While it is down, every call fails before an answer arrives. While

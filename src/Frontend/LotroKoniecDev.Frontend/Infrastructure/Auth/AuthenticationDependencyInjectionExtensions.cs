@@ -6,7 +6,6 @@ using LotroKoniecDev.Frontend.Settings;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -29,6 +28,9 @@ internal static partial class AuthenticationDependencyInjectionExtensions
     internal const string AccessDeniedPath = "/auth/access-denied";
     private const string ErrorPath = "/Error";
 
+    // A fixed local start with the "?" in it, so the return address can only ever land in the query.
+    private const string LoginWithReturnUrl = LoginPath + "?returnUrl=";
+
     /// <summary>
     /// The longest the website waits for one answer from the sign-in server, per call: the login renewal and
     /// each back-channel call (#923). A page that makes several calls in a row can wait for each of them.
@@ -48,8 +50,6 @@ internal static partial class AuthenticationDependencyInjectionExtensions
             services.AddCascadingAuthenticationState();
             services.AddAuthorization();
             services.AddSingleton<SignInAvailability>();
-            services.Replace(ServiceDescriptor
-                .Singleton<IAuthorizationMiddlewareResultHandler, SignInOutageAuthorizationResultHandler>());
 
             // Scoped and not singleton, because ITokenEndpointClient wraps an HttpClient that
             // IHttpClientFactory provides. Holding a short-lived typed client inside a singleton would
@@ -77,7 +77,12 @@ internal static partial class AuthenticationDependencyInjectionExtensions
             services.AddAuthentication(options =>
                 {
                     options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-                    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+                    // A page that needs a login sends the visitor to the login route (the cookie's
+                    // LoginPath), never straight to the sign-in server. The sign-in redirect needs the
+                    // sign-in server's discovery document, and only the login route checks first that it
+                    // can be loaded, so an outage shows the "login temporarily unavailable" page and not
+                    // the error page (#311, #1153).
+                    options.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
                     options.DefaultSignOutScheme = OpenIdConnectDefaults.AuthenticationScheme;
                 })
                 .AddCookie(options =>
@@ -204,16 +209,29 @@ internal static partial class AuthenticationDependencyInjectionExtensions
         options.BackchannelTimeout = AuthServerRequestTimeout;
     }
 
-    private static Task OnRemoteFailureAsync(RemoteFailureContext context)
+    /// <summary>
+    /// When the website restarts while the visitor is at the sign-in server, it has no copy of the discovery
+    /// document when the visitor comes back, and while the sign-in server is down that load fails here
+    /// (#1153). A failed sign-in while the sign-in server cannot be reached goes to the login route, which
+    /// shows the "login temporarily unavailable" page, and a reload there starts the sign-in again. Every
+    /// other failed sign-in ends on the error page.
+    /// </summary>
+    private static async Task OnRemoteFailureAsync(RemoteFailureContext context)
     {
         ILogger logger = context.HttpContext.RequestServices
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger(typeof(AuthenticationDependencyInjectionExtensions).FullName!);
         LogOidcRemoteFailure(logger, context.Failure?.Message, context.Failure);
 
-        context.Response.Redirect(ErrorPath);
+        SignInAvailability signInAvailability = context.HttpContext.RequestServices
+            .GetRequiredService<SignInAvailability>();
+        bool signInServerReachable = await signInAvailability.CanRedirectToSignInAsync(
+            context.HttpContext.RequestAborted);
+
+        context.Response.Redirect(signInServerReachable
+            ? ErrorPath
+            : LoginWithReturnUrl + Uri.EscapeDataString(context.Properties?.RedirectUri ?? "/"));
         context.HandleResponse();
-        return Task.CompletedTask;
     }
 
     /// <summary>

@@ -26,11 +26,11 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
 
         // Act
-        using HttpResponseMessage page = await browser.SendAsync(PageRequest("/terms"));
+        using HttpResponseMessage page = await browser.GetAsync("/terms");
 
         // Assert
         page.StatusCode.ShouldBe(HttpStatusCode.OK);
-        SetCookies(page).ShouldNotContain(setCookie => setCookie.StartsWith(SignedInSession.CookieName, StringComparison.Ordinal));
+        CookieJarBrowser.SetCookiesOf(page).ShouldNotContain(setCookie => setCookie.StartsWith(SignedInSession.CookieName, StringComparison.Ordinal));
         string markup = await page.Content.ReadAsStringAsync();
         markup.ShouldContain(SignedInSession.UserName);
         markup.ShouldContain(SignOutButton);
@@ -45,16 +45,16 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
         DashboardTranslationSystem translationSystem = new();
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
-        await LoadAsync(browser, PageRequest("/dashboard"));
+        await browser.LoadAsync("/dashboard");
         translationSystem.AcceptsTheToken = false;
-        await LoadAsync(browser, PageRequest("/dashboard"));
+        await browser.LoadAsync("/dashboard");
 
         // Act
-        using HttpResponseMessage nextPage = await browser.SendAsync(PageRequest("/terms"));
+        using HttpResponseMessage nextPage = await browser.GetAsync("/terms");
 
         // Assert
         nextPage.StatusCode.ShouldBe(HttpStatusCode.OK);
-        SetCookies(nextPage)
+        CookieJarBrowser.SetCookiesOf(nextPage)
             .ShouldContain(setCookie => setCookie.StartsWith($"{SignedInSession.CookieName}=;", StringComparison.Ordinal));
         string markup = await nextPage.Content.ReadAsStringAsync();
         markup.ShouldNotContain(SignedInSession.UserName);
@@ -69,14 +69,14 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
         // everyone, so it answers with the anonymous links, which marks the session dead.
         using WebApplicationFactory<Program> host = CreateHost(new DashboardTranslationSystem { AcceptsTheToken = false });
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
-        await LoadAsync(browser, PageRequest("/dashboard"));
+        await browser.LoadAsync("/dashboard");
 
         // Act
-        using HttpResponseMessage nextPage = await browser.SendAsync(PageRequest("/terms"));
+        using HttpResponseMessage nextPage = await browser.GetAsync("/terms");
 
         // Assert
         nextPage.StatusCode.ShouldBe(HttpStatusCode.OK);
-        SetCookies(nextPage)
+        CookieJarBrowser.SetCookiesOf(nextPage)
             .ShouldContain(setCookie => setCookie.StartsWith($"{SignedInSession.CookieName}=;", StringComparison.Ordinal));
         string markup = await nextPage.Content.ReadAsStringAsync();
         markup.ShouldNotContain(SignedInSession.UserName);
@@ -102,19 +102,4 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
             services.AddHttpClient(DashboardTranslationSystem.ClientName)
                 .ConfigurePrimaryHttpMessageHandler(() => translationSystem);
         }));
-
-    private static HttpRequestMessage PageRequest(string path) => new(HttpMethod.Get, path);
-
-    /// <summary>
-    /// Reads the whole response: a streaming page makes its API calls while it streams, after the headers
-    /// have arrived.
-    /// </summary>
-    private static async Task LoadAsync(CookieJarBrowser browser, HttpRequestMessage request)
-    {
-        using HttpResponseMessage response = await browser.SendAsync(request);
-        await response.Content.ReadAsStringAsync();
-    }
-
-    private static string[] SetCookies(HttpResponseMessage response) =>
-        response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? setCookies) ? [.. setCookies] : [];
 }

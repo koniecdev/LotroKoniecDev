@@ -23,8 +23,8 @@ internal static class AuthEndpointsExtensions
     {
         public IEndpointRouteBuilder MapAuthEndpoints()
         {
-            // A page that needs a login sends the visitor here while the sign-in server is down, so this
-            // route must never need a login itself, or that redirect would loop.
+            // Every page that needs a login sends the visitor here, so this route must never need a login
+            // itself, or that redirect would loop.
             endpoints.MapGet(
                 AuthenticationDependencyInjectionExtensions.LoginPath,
                 LoginAsync)
@@ -45,9 +45,8 @@ internal static class AuthEndpointsExtensions
     /// <summary>
     /// The login route's handler, internal so a unit test can call it without a web host.
     /// While the sign-in server is down, the challenge cannot build its redirect, so the route answers 503
-    /// and the status-code pages show the "login temporarily unavailable" page (#311). A page that needs a
-    /// login sends the visitor here in that case, through <see cref="SignInOutageAuthorizationResultHandler"/>
-    /// (#1153).
+    /// and the status-code pages show the "login temporarily unavailable" page (#311). Every page that needs
+    /// a login sends the visitor here first, through the cookie scheme's challenge (#1153).
     /// </summary>
     internal static async Task<IResult> LoginAsync(
         HttpContext context,

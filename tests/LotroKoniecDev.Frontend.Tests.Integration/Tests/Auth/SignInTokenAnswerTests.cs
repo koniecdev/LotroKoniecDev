@@ -23,16 +23,16 @@ namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Auth;
 /// a stand-in for the sign-in server's token endpoint. The stand-in advertises no userinfo endpoint, so the
 /// token answer is the only thing that decides the outcome.
 /// </summary>
-public sealed class SignInTokenAnswerTests : IClassFixture<StagingFrontendFactory>, IDisposable
+public sealed class SignInTokenAnswerTests : IClassFixture<ProductionFrontendFactory>, IDisposable
 {
     private const string Issuer = "https://auth.staging.invalid";
     private const string ErrorPath = "/Error";
 
-    private readonly StagingFrontendFactory _factory;
+    private readonly ProductionFrontendFactory _factory;
     private readonly RSA _rsa = RSA.Create(2048);
     private readonly RsaSecurityKey _signingKey;
 
-    public SignInTokenAnswerTests(StagingFrontendFactory factory)
+    public SignInTokenAnswerTests(ProductionFrontendFactory factory)
     {
         _factory = factory;
         _signingKey = new RsaSecurityKey(_rsa) { KeyId = Guid.NewGuid().ToString("N") };

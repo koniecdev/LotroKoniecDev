@@ -11,13 +11,14 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.RateLimit
 /// <summary>
 /// ADR-0054 (#823): every call the frontend makes reaches the TMS API from its one container, so the
 /// API meters it on the visitor's address the frontend forwards, but only next to the environment's
-/// key. The limiter is forced on for a derived host, as on the auth API; one test boots a Staging host
-/// instead, to prove the environment alone still turns it on there, and one proves that the same host
-/// refuses to start without the key. In Testing
-/// <c>UseForwardedHeaders</c> trusts every peer, so <c>X-Forwarded-For</c> plays the connection address
-/// Caddy resolves: <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses are visitors. Every
-/// test creates its own host, so its buckets are its own. The full matrix of calls short of a proven
-/// visitor is a unit test on the resolver; the rows here prove the wiring.
+/// key. The limiter is forced on for a derived host, as on the auth API. Two tests boot a deployed host
+/// instead: one proves the environment alone still turns the limiter on there, and one proves that the
+/// same host refuses to start without the key. Both run in Production, because every box runs it. Both
+/// also run in Staging, which stands for any other name outside Development and Testing (#1187).
+/// In Testing <c>UseForwardedHeaders</c> trusts every peer, so <c>X-Forwarded-For</c> plays the
+/// connection address Caddy resolves: <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses
+/// are visitors. Every test creates its own host, so its buckets are its own. The full matrix of calls
+/// short of a proven visitor is a unit test on the resolver; the rows here prove the wiring.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class FrontendCallerKeyTests : IAsyncLifetime
@@ -139,13 +140,15 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
         response.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
     }
 
-    [Fact]
-    public async Task DeployedEnvironment_ShouldEnforceTheLimitWithoutTheTestSwitch()
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    public async Task DeployedEnvironment_ShouldEnforceTheLimitWithoutTheTestSwitch(string environmentName)
     {
-        // Arrange: a Staging host, where only the environment turns the limiter on. A gate that
+        // Arrange: a deployed host, where only the environment turns the limiter on. A gate that
         // needed RateLimiting:ForceEnable would leave staging and prod with no TMS limit at all.
-        using WebApplicationFactory<Program> stagingHost = CreateStagingHost(FrontendKey);
-        using HttpClient client = stagingHost.CreateClient();
+        using WebApplicationFactory<Program> deployedHost = CreateDeployedHost(environmentName, FrontendKey);
+        using HttpClient client = deployedHost.CreateClient();
         Caller caller = Caller.Direct("203.0.113.60");
 
         for (int i = 0; i < Bucket; i++)
@@ -161,15 +164,17 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
         overTheLimit.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
     }
 
-    [Fact]
-    public void Boot_InADeployedEnvironmentWithoutTheKey_ShouldFailNamingTheKey()
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    public void Boot_InADeployedEnvironmentWithoutTheKey_ShouldFailNamingTheKey(string environmentName)
     {
-        // Arrange: the Staging host of the test above, without the key. That test boots it with the key,
-        // so the missing key is the one reason this boot can fail (#915).
-        using WebApplicationFactory<Program> stagingHost = CreateStagingHost(frontendKey: null);
+        // Arrange: the deployed host of the test above, without the key. That test boots it with the key
+        // in the same environment, so the missing key is the one reason this boot can fail (#915).
+        using WebApplicationFactory<Program> deployedHost = CreateDeployedHost(environmentName, frontendKey: null);
 
         // Act
-        OptionsValidationException exception = Should.Throw<OptionsValidationException>(() => stagingHost.CreateClient());
+        OptionsValidationException exception = Should.Throw<OptionsValidationException>(() => deployedHost.CreateClient());
 
         // Assert
         exception.Message.ShouldContain("FrontendCaller:Key", Case.Sensitive);
@@ -182,8 +187,10 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
         public static Caller ThroughTheFrontend(string visitorAddress) => new(FrontendAddress, [FrontendKey], [visitorAddress]);
     }
 
-    // One Add per value, so two values arrive as a repeated header rather than one comma-joined value.
-    // X-Forwarded-Proto is what Caddy sends; it keeps a Staging host's HTTPS redirect out of the way.
+    /// <summary>
+    /// One Add per value, so two values arrive as a repeated header rather than one comma-joined value.
+    /// X-Forwarded-Proto is what Caddy sends. It keeps a deployed host's HTTPS redirect out of the way.
+    /// </summary>
     private static async Task<HttpResponseMessage> GetAsync(
         HttpClient client,
         string path,
@@ -212,8 +219,10 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
         return await client.SendAsync(request);
     }
 
-    // Spends a whole bucket on the anonymous discovery root. Not an assertion: a bucket that did not
-    // fill is a broken precondition for the test that called this, so it throws.
+    /// <summary>
+    /// Spends a whole bucket on the anonymous discovery root. Not an assertion: a bucket that did not
+    /// fill is a broken precondition for the test that called this, so it throws.
+    /// </summary>
     private static async Task ExhaustBucketAsync(HttpClient client, Caller caller)
     {
         for (int i = 0; i < Bucket; i++)
@@ -244,13 +253,16 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
         });
     }
 
-    // Staging carries every setting a deployed host needs to boot except the frontend key, which the
-    // caller picks, and not the test switch.
-    private WebApplicationFactory<Program> CreateStagingHost(string? frontendKey)
+    /// <summary>
+    /// Sets everything a deployed host needs to start except the frontend key. So the key the caller
+    /// passes is the one thing that can stop the boot. The test switch stays out: on this host only the
+    /// environment may turn the limiter on.
+    /// </summary>
+    private WebApplicationFactory<Program> CreateDeployedHost(string environmentName, string? frontendKey)
     {
         return _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment("Staging");
+            builder.UseEnvironment(environmentName);
             builder.ConfigureAppConfiguration((_, configBuilder) =>
             {
                 configBuilder.AddInMemoryCollection(new Dictionary<string, string?>

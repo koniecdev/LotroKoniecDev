@@ -24,7 +24,7 @@ namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Auth;
 /// a stubbed sign-in server. It proves the event runs after the handler stored the tokens, and that its
 /// value reaches the cookie the browser gets.
 /// </summary>
-public sealed class FirstSignInRefreshTimeTests : IClassFixture<StagingFrontendFactory>, IDisposable
+public sealed class FirstSignInRefreshTimeTests : IClassFixture<ProductionFrontendFactory>, IDisposable
 {
     private const string AuthCookieName = ".lotrokoniecdev.auth";
     private const string ClientId = "lotrokoniecdev-web";
@@ -35,10 +35,10 @@ public sealed class FirstSignInRefreshTimeTests : IClassFixture<StagingFrontendF
     private static readonly Uri TokenEndpoint = new($"{Issuer}/connect/token");
     private static readonly Uri UserInfoEndpoint = new($"{Issuer}/connect/userinfo");
 
-    private readonly StagingFrontendFactory _factory;
+    private readonly ProductionFrontendFactory _factory;
     private readonly RSA _signingRsa = RSA.Create(2048);
 
-    public FirstSignInRefreshTimeTests(StagingFrontendFactory factory)
+    public FirstSignInRefreshTimeTests(ProductionFrontendFactory factory)
     {
         _factory = factory;
     }

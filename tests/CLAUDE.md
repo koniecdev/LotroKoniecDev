@@ -26,7 +26,7 @@ Full project inventory (15 projects):
 | `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api unit (cold-start seed retry policy) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
 | `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |
-| `LotroKoniecDev.Frontend.Tests.Integration` | in-process Frontend host in Staging (`WebApplicationFactory`): startup checks such as the caller keys (#915), and the real OIDC sign-in against a stand-in token endpoint: the token answer it accepts (#1026) and the refresh time it stores (#1025); and a signed-in session's pages while the sign-in server is down right after a restart, plus the 401 that ends a session (#1058); and a visitor sent to sign in, or coming back from it, while the sign-in server is down, who must end on the login-unavailable page (#1153); and every page's form post while the page's data fails to load (#1122). Its csproj repeats one Frontend runtime switch (#1122) | nothing (no Docker); a temp keyring folder |
+| `LotroKoniecDev.Frontend.Tests.Integration` | in-process Frontend host in Production, as every box runs it (`WebApplicationFactory`, #1187): startup checks such as the caller keys (#915), and the real OIDC sign-in against a stand-in token endpoint: the token answer it accepts (#1026) and the refresh time it stores (#1025); and a signed-in session's pages while the sign-in server is down right after a restart, plus the 401 that ends a session (#1058); and a visitor sent to sign in, or coming back from it, while the sign-in server is down, who must end on the login-unavailable page (#1153); and every page's form post while the page's data fails to load (#1122). Its csproj repeats one Frontend runtime switch (#1122) | nothing (no Docker); a temp keyring folder |
 | `LotroKoniecDev.TranslationSystem.E2E.Tests` | real-process TMS stack over HTTP | Docker (3 images) |
 | `LotroKoniecDev.Frontend.E2E.Tests` | Playwright browser stack | Docker (4 images + browser) |
 | `LotroKoniecDev.Tests.Infrastructure` | patcher real-infrastructure adapters | Windows + the x86 .NET runtime (elsewhere not run) |
@@ -371,3 +371,7 @@ apply call) to be covered.
 - Shared test data builders go in `Shared/` (extend `TestDataFactory`, don't hand-roll bytes)
 - Every test database starts from `PostgresImage.Name` (`tests/Shared/PostgresImage.cs`, linked into every
   suite that starts PostgreSQL), never from its own image tag (#1002)
+- A test that needs a host outside Development and Testing (because Testing turns the rule off) boots
+  it in **Production**. Both boxes run Production (`compose.hetzner.yaml`). A Staging row may sit next
+  to it, never in its place: a test that boots only Staging stays green when a change breaks the rule
+  in Production (#1187)

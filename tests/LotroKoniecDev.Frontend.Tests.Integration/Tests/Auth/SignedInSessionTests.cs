@@ -12,11 +12,11 @@ namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Auth;
 /// it receives (ADR-0067 decision 2). Each host here has just started, so it holds no copy of the sign-in
 /// server's metadata, and the sign-in server cannot be reached. The real cookie check runs on every request.
 /// </summary>
-public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
+public sealed class SignedInSessionTests : IClassFixture<ProductionFrontendFactory>
 {
     private const string SignOutButton = "Wyloguj";
 
-    private readonly StagingFrontendFactory _factory;
+    private readonly ProductionFrontendFactory _factory;
 
     [Fact]
     public async Task Get_WhileTheSignInServerCannotBeReachedRightAfterARestart_ShowsThePageToTheSignedInUser()
@@ -84,7 +84,7 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
         markup.ShouldNotContain(SignOutButton);
     }
 
-    public SignedInSessionTests(StagingFrontendFactory factory)
+    public SignedInSessionTests(ProductionFrontendFactory factory)
     {
         _factory = factory;
     }

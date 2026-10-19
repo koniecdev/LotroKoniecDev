@@ -28,7 +28,9 @@ internal static partial class AuthenticationDependencyInjectionExtensions
     internal const string AccessDeniedPath = "/auth/access-denied";
     private const string ErrorPath = "/Error";
 
-    // A fixed local start with the "?" in it, so the return address can only ever land in the query.
+    /// <summary>
+    /// A fixed local start with the "?" in it, so the return address can only ever land in the query.
+    /// </summary>
     private const string LoginWithReturnUrl = LoginPath + "?returnUrl=";
 
     /// <summary>

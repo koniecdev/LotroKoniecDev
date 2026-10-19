@@ -188,25 +188,33 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
 
     /// <summary>
     /// The website restarted while the visitor was at the sign-in server, so it holds no copy of the document
-    /// when the visitor comes back, and the sign-in server is down by then. The state and the correlation
-    /// cookie are the ones the sign-in redirect would have left, made with this host's own keys.
+    /// when the visitor comes back, and the sign-in server is down by then. The return loads the document
+    /// itself, and that load fails. The sign-in starts on a host whose sign-in server answers. The return
+    /// goes to a second host from the same factory, which shares its keys like the website after a restart.
     /// </summary>
     [Fact]
-    public async Task Get_TheSignInReturnWhileTheSignInServerIsDown_EndsOnTheLoginUnavailablePageForTheSamePage()
+    public async Task Get_TheSignInReturnAfterARestartWhileTheSignInServerIsDown_EndsOnTheLoginUnavailablePageForTheSamePage()
     {
         // Arrange
-        const string correlationId = "the-correlation-id";
-        using WebApplicationFactory<Program> host = CreateHost(new StandInSignInServer(), new DashboardTranslationSystem());
-        using CookieJarBrowser browser = new(host);
-        OpenIdConnectOptions openIdConnectOptions = OpenIdConnectOptionsOf(host);
-        AuthenticationProperties properties = new() { RedirectUri = "/dashboard" };
-        properties.Items[".xsrf"] = correlationId;
-        browser.SetCookie(openIdConnectOptions.CorrelationCookie.Name + correlationId, "N");
-        string state = openIdConnectOptions.StateDataFormat.Protect(properties);
+        using WebApplicationFactory<Program> beforeTheRestart = CreateHost(
+            new StandInSignInServer { IsUp = true },
+            new DashboardTranslationSystem());
+        using CookieJarBrowser signInStart = new(beforeTheRestart);
+        using HttpResponseMessage challenge = await signInStart.GetAsync($"{LoginPath}?returnUrl=/dashboard");
+        string state = QueryHelpers.ParseQuery(challenge.Headers.Location.ShouldNotBeNull().Query)["state"].ToString();
+        using WebApplicationFactory<Program> afterTheRestart = CreateHost(
+            new StandInSignInServer(),
+            new DashboardTranslationSystem());
+        using CookieJarBrowser browser = new(afterTheRestart);
+        foreach (string[] cookie in CookieJarBrowser.SetCookiesOf(challenge)
+                     .Select(setCookie => setCookie.Split(';', 2)[0].Split('=', 2)))
+        {
+            browser.SetCookie(cookie[0], cookie[1]);
+        }
 
         // Act
         using HttpResponseMessage redirect = await browser.GetAsync(
-            $"{openIdConnectOptions.CallbackPath}?code=the-code&state={Uri.EscapeDataString(state)}");
+            $"{OpenIdConnectOptionsOf(afterTheRestart).CallbackPath}?code=the-code&state={Uri.EscapeDataString(state)}");
         using HttpResponseMessage page = await FollowAsync(browser, redirect);
 
         // Assert
@@ -218,6 +226,34 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
         string markup = await page.Content.ReadAsStringAsync();
         markup.ShouldContain(LoginUnavailableTitle);
         markup.ShouldNotContain(ErrorTitle);
+    }
+
+    /// <summary>
+    /// Anyone can open the return address with no state or a broken one. While the sign-in server is down,
+    /// that failed sign-in has no page to come back to, so the sign-in starts again from the start page.
+    /// </summary>
+    [Theory]
+    [InlineData("code=the-code")]
+    [InlineData("code=the-code&state=not-a-state")]
+    public async Task Get_TheSignInReturnWithNoUsableStateWhileTheSignInServerIsDown_EndsOnTheLoginUnavailablePage(
+        string query)
+    {
+        // Arrange
+        using WebApplicationFactory<Program> host = CreateHost(new StandInSignInServer(), new DashboardTranslationSystem());
+        using CookieJarBrowser browser = new(host);
+
+        // Act
+        using HttpResponseMessage redirect = await browser.GetAsync($"{OpenIdConnectOptionsOf(host).CallbackPath}?{query}");
+        using HttpResponseMessage page = await FollowAsync(browser, redirect);
+
+        // Assert
+        redirect.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        Uri location = new(Origin, redirect.Headers.Location.ShouldNotBeNull());
+        location.AbsolutePath.ShouldBe(LoginPath);
+        QueryHelpers.ParseQuery(location.Query)["returnUrl"].ToString().ShouldBe("/");
+        page.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        string markup = await page.Content.ReadAsStringAsync();
+        markup.ShouldContain(LoginUnavailableTitle);
     }
 
     /// <summary>

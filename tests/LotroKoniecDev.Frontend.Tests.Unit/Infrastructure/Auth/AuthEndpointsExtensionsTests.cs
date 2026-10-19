@@ -117,12 +117,13 @@ public sealed class AuthEndpointsExtensionsTests
     }
 
     /// <summary>
-    /// A browser that leaves while the document loads is not an outage, so it gets no warning and no 503:
+    /// A browser that has left while the document loads is not an outage, so it gets no warning and no 503:
     /// the abort goes up like any other cancelled request. The real configuration manager runs its fetch
-    /// without the caller's token, so the fetch here never ends on its own.
+    /// without the caller's token, so the fetch here never ends on its own. The time limit turns a wait that
+    /// never ends into a failed test instead of a hung run.
     /// </summary>
     [Fact]
-    public async Task LoginAsync_WhenTheBrowserLeavesWhileTheDiscoveryFetchHangs_LetsTheAbortGoUp()
+    public async Task LoginAsync_WhenTheBrowserHasLeftAndTheDiscoveryFetchNeverEnds_LetsTheAbortGoUp()
     {
         using CancellationTokenSource browserLeft = new();
         await browserLeft.CancelAsync();
@@ -132,9 +133,10 @@ public sealed class AuthEndpointsExtensionsTests
             .Returns(new TaskCompletionSource<OpenIdConnectConfiguration>().Task);
 
         await Should.ThrowAsync<OperationCanceledException>(() => AuthEndpointsExtensions.LoginAsync(
-            new DefaultHttpContext { RequestAborted = browserLeft.Token },
-            "/dashboard",
-            CreateSignInAvailability(configurationManager)));
+                new DefaultHttpContext { RequestAborted = browserLeft.Token },
+                "/dashboard",
+                CreateSignInAvailability(configurationManager))
+            .WaitAsync(TimeSpan.FromSeconds(10)));
     }
 
     /// <summary>

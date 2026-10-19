@@ -354,8 +354,9 @@ zaszyfrowanej sesji po stronie serwera (`SaveTokens = true`).
 - **Login**: `GET /auth/login?returnUrl=…` → `Results.Challenge` na schemat OIDC → 302 do
   `connect/authorize`. `returnUrl` waliduje `LocalReturnUrl.Sanitize` (anti open-redirect). Najpierw
   `SignInAvailability` wczytuje discovery document przez configuration manager handlera OIDC; gdy
-  `auth-api` nie odpowiada, trasa zwraca 503 i status-code pages pokazują „Logowanie chwilowo
-  niedostępne” (#311). Tędy idzie każda strona wymagająca logowania (#1153), a także nieudany powrót z
+  `auth-api` nie odpowiada, a frontend nie ma jeszcze kopii tego dokumentu, trasa zwraca 503 i
+  status-code pages pokazują „Logowanie chwilowo niedostępne” (#311). Z kopią w pamięci użytkownik
+  trafia dalej do `auth-api` (#1208). Tędy idzie każda strona wymagająca logowania (#1153), a także nieudany powrót z
   logowania (`OnRemoteFailure`), gdy `auth-api` jest nieosiągalne.
 - **Logout**: `POST /auth/logout` → `SignOutAsync(cookie)`, potem frontend sam rewokuje swój refresh
   token w `connect/revoke` (serwer–serwer, `RefreshTokenRevoker`, #964), a na koniec redirect na

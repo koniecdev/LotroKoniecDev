@@ -41,6 +41,11 @@ set -euo pipefail
 
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
 REPO_ROOT="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
+# A relative path the caller gave means a folder seen from where they started this script, so it
+# becomes a full path before the cd below (#1080). pwd -P gives the real folder, so every program
+# reads a ".." in the path the same way. The value came from the environment, so the
+# workers get the new one.
+case "${LOOP_CONFIG_DIR:-}" in ''|/*) ;; *) LOOP_CONFIG_DIR="$(pwd -P)/$LOOP_CONFIG_DIR" ;; esac
 cd "$REPO_ROOT"
 SCRIPTS="$REPO_ROOT/scripts/claude"
 MAIN_ROOT="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
@@ -55,7 +60,8 @@ while [ $# -gt 0 ]; do
     case "$1" in
         -n) MAX="${2:?-n needs a number}"; shift 2 ;;
         -j) PARALLEL="${2:?-j needs a number}"; shift 2 ;;
-        -h|--help) sed -n '2,/^set /p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
+        # $0 may be relative to the caller's folder, which the cd above has left (#1080).
+        -h|--help) sed -n '2,/^set /p' "$SCRIPTS/backlog-loop.sh" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
         [0-9]*)
             # A number given twice would start two workers racing for one worktree.
             case " $QUEUE " in *" $1 "*) ;; *) QUEUE="$QUEUE $1" ;; esac

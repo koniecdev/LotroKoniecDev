@@ -66,6 +66,12 @@ set -euo pipefail
 
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
 REPO_ROOT="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
+# A relative path the caller gave means a folder seen from where they started this script, so the
+# run folder and the config folder become full paths before the cd below (#1080). pwd -P gives
+# the real folder, so every program reads a ".." in the path the same way.
+run_dir_arg="${2:-}"
+case "$run_dir_arg" in ''|/*) ;; *) run_dir_arg="$(pwd -P)/$run_dir_arg" ;; esac
+case "${LOOP_CONFIG_DIR:-}" in ''|/*) ;; *) LOOP_CONFIG_DIR="$(pwd -P)/$LOOP_CONFIG_DIR" ;; esac
 cd "$REPO_ROOT"
 
 ISSUE="${1:?usage: work-ticket.sh <issue-number> [run-dir]}"
@@ -86,7 +92,7 @@ MAIN_ROOT="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
 # The PRs of this ticket, as a jq filter: from this repository, on a branch named "<n>-…" (the name
 # `gh issue develop` gives it).
 OURS="select((.isCrossRepository | not) and (.headRefName | startswith(\"$ISSUE-\")))"
-RUN_DIR="${2:-$MAIN_ROOT/logs/claude-loop/adhoc-$(date +%Y%m%d-%H%M%S)}"
+RUN_DIR="${run_dir_arg:-$MAIN_ROOT/logs/claude-loop/adhoc-$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$RUN_DIR"
 
 # Central per-role model/effort policy (maintainer's machine); explicit LOOP_* env still wins,

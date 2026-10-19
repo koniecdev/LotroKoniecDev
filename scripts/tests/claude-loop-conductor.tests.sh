@@ -17,6 +17,9 @@
 #   * drain mode and -n still work, a number given twice runs once, and nothing calls `gh pr merge`,
 #   * the table names a ticket whose worker had to be resumed,
 #   * the loop refuses to run loop scripts that differ from origin/main,
+#   * a relative LOOP_CONFIG_DIR, or a relative path that started the conductor, means the folder
+#     the caller started in, and an absolute or empty LOOP_CONFIG_DIR reaches the worker as it is
+#     (#1080),
 #   * stopping the conductor stops its workers and its nap, also when a second stop comes during
 #     the cleanup,
 #   * a worker that has already ended gets no signal and frees its slot, even when its number now
@@ -89,6 +92,7 @@ trap '[ -n "$sleeper" ] && kill "$sleeper" 2>/dev/null; exit 143' TERM
 echo "$$" >> "$STATE/pids"
 echo "$$" > "$STATE/pid-$ticket"
 echo "$ticket" >> "$STATE/started"
+echo "${LOOP_CONFIG_DIR:-unset}" > "$STATE/config-$ticket"
 mkdir -p "$STATE/running"
 touch "$STATE/running/$ticket"
 ls "$STATE/running" | wc -l | tr -d ' ' >> "$STATE/concurrency"
@@ -303,6 +307,45 @@ CONDUCTOR="$relative_conductor" \
     run_conductor 0 "conductor: an exported CDPATH does not confuse a conductor started by a relative path" -j 1 26
 expect_started "26"
 expect_in_output "done: 1 PR opened"
+
+# A relative path means the folder the caller started in, not the repository the conductor moves
+# to (#1080). The caller's folder has no symlink in it (on macOS the temp folder sits behind one),
+# so the conductor sees the same path as this test.
+CALLER="$(cd "$TMP_ROOT" && pwd -P)/caller"
+mkdir -p "$CALLER"
+from_caller="$TMP_ROOT/from-caller.sh"
+printf '#!/usr/bin/env bash\ncd "%s" && exec "%s" "$@"\n' "$CALLER" "$FAKE_REPO/scripts/claude/backlog-loop.sh" > "$from_caller"
+chmod +x "$from_caller"
+reset_state
+CONDUCTOR="$from_caller" LOOP_CONFIG_DIR=account \
+    run_conductor 0 "conductor: a relative LOOP_CONFIG_DIR reaches the worker as a folder under the caller's" -j 1 27
+expect_started "27"
+[ "$(cat "$STATE/config-27")" = "$CALLER/account" ] \
+    || fail "the worker should get $CALLER/account, got $(cat "$STATE/config-27")" "$LAST_OUTPUT"
+reset_state
+CONDUCTOR="$from_caller" LOOP_CONFIG_DIR="$TMP_ROOT/absolute-account" \
+    run_conductor 0 "conductor: an absolute LOOP_CONFIG_DIR reaches the worker as it is" -j 1 28
+expect_started "28"
+[ "$(cat "$STATE/config-28")" = "$TMP_ROOT/absolute-account" ] \
+    || fail "the worker should get $TMP_ROOT/absolute-account, got $(cat "$STATE/config-28")" "$LAST_OUTPUT"
+# The fake worker writes "unset" for an empty value too: then the real one uses its default.
+reset_state
+CONDUCTOR="$from_caller" LOOP_CONFIG_DIR='' \
+    run_conductor 0 "conductor: an empty LOOP_CONFIG_DIR stays empty" -j 1 29
+expect_started "29"
+[ "$(cat "$STATE/config-29")" = "unset" ] \
+    || fail "the worker should get no config folder, got $(cat "$STATE/config-29")" "$LAST_OUTPUT"
+
+# The repro of #1080: `cd scripts && bash claude/backlog-loop.sh --help`.
+help_from_scripts="$TMP_ROOT/help-from-scripts.sh"
+printf '#!/usr/bin/env bash\ncd "%s/scripts" && exec bash claude/backlog-loop.sh "$@"\n' "$FAKE_REPO" > "$help_from_scripts"
+chmod +x "$help_from_scripts"
+reset_state
+CONDUCTOR="$help_from_scripts" \
+    run_conductor 0 "conductor: --help works when it was started by a path relative to another folder" --help
+expect_in_output "The CONDUCTOR"
+expect_in_output "Usage:"
+[ "$(started)" = "" ] || fail "--help must start nothing" "$(started)"
 
 # Before #992 the conductor kept a worker on its list while its number answered a probe, so a
 # number reused at once held the slot for good and hid that worker's result.

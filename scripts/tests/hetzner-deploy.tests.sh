@@ -329,6 +329,19 @@ run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
 [ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'IMAGE_TAG was not appended to a .env that lacked it'
 pass 'a .env without IMAGE_TAG gets the line appended, not lost'
 
+CASE='relative STACK_DIR'
+# A relative STACK_DIR means a folder seen from where the caller started (#1080). The script reads it
+# again after its cd, when it writes the new .env, so a roll that read it from the stack dir died
+# after `up -d`, with the old tag still pinned.
+stack="$(new_stack relative)"
+here="$PWD"
+cd "$(dirname "$stack")"
+run_deploy "$(basename "$stack")" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
+cd "$here"
+[ "$LAST_STATUS" -eq 0 ] || fail 'a relative STACK_DIR should roll like a full one' "status $LAST_STATUS"
+[ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'IMAGE_TAG was not pinned in the .env of the stack dir'
+pass 'a relative STACK_DIR means the stack dir seen from where the caller started'
+
 # --- A failed migration must be a NO-OP for the running site --------------------------------------
 
 CASE='migration fails'

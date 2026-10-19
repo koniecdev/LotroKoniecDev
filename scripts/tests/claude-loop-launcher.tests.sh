@@ -15,6 +15,8 @@
 #   * a lock whose process number now belongs to another program does not stop a run, and a worker
 #     of the last run that still salvages keeps the loop checkout where it is,
 #   * without caffeinate (Linux), and with CDPATH exported, the run still works,
+#   * a relative LOOP_CONFIG_DIR means the folder the caller started in, and an absolute or empty
+#     one reaches the worker as it is (#1080),
 #   * the console is copied to logs/claude-loop/console-<timestamp>.log in the main checkout,
 #   * Ctrl-C, a closed terminal, or TERM to the whole group stops the run, and each worker salvages
 #     its work first: the copy of the console outlives the stop, so a worker that writes its
@@ -98,6 +100,7 @@ trap on_stop INT TERM HUP
 echo "$$" >> "$STATE/pids"
 echo "$ticket" >> "$STATE/started"
 echo "$0" > "$STATE/copy-$ticket"
+echo "${LOOP_CONFIG_DIR:-unset}" > "$STATE/config-$ticket"
 "$REAL_SLEEP" "${FAKE_WORK_SEC:-0.3}" &
 sleeper=$!
 # A signal to the whole group ends this sleep as well. Like the real worker, which waits with errexit
@@ -330,6 +333,30 @@ echo "16 17" > "$STATE/backlog"
 run_launcher 0 "launcher: -n 1" "$LAUNCHER" -n 1
 expect_started "16"
 pass "launcher: -n N runs the next N ready tickets"
+
+# A relative path means the folder the caller started in, not the loop checkout the launcher moves
+# to (#1080).
+reset_state
+LOOP_CONFIG_DIR=account run_launcher 0 "launcher: a relative LOOP_CONFIG_DIR" "$LAUNCHER" 28
+expect_started "28"
+[ "$(cat "$STATE/config-28")" = "$ELSEWHERE/account" ] \
+    || fail "the worker should get $ELSEWHERE/account, got $(cat "$STATE/config-28")" "$LAST_OUTPUT"
+pass "launcher: a relative LOOP_CONFIG_DIR reaches the worker as a folder under the caller's"
+
+reset_state
+LOOP_CONFIG_DIR="$TMP_ROOT/absolute-account" run_launcher 0 "launcher: an absolute LOOP_CONFIG_DIR" "$LAUNCHER" 29
+expect_started "29"
+[ "$(cat "$STATE/config-29")" = "$TMP_ROOT/absolute-account" ] \
+    || fail "the worker should get $TMP_ROOT/absolute-account, got $(cat "$STATE/config-29")" "$LAST_OUTPUT"
+pass "launcher: an absolute LOOP_CONFIG_DIR reaches the worker as it is"
+
+# The fake worker writes "unset" for an empty value too: then the real one uses its default.
+reset_state
+LOOP_CONFIG_DIR='' run_launcher 0 "launcher: an empty LOOP_CONFIG_DIR" "$LAUNCHER" 80
+expect_started "80"
+[ "$(cat "$STATE/config-80")" = "unset" ] \
+    || fail "the worker should get no config folder, got $(cat "$STATE/config-80")" "$LAST_OUTPUT"
+pass "launcher: an empty LOOP_CONFIG_DIR stays empty"
 
 # A wrapper in ~/.local/bin is often a symlink.
 reset_state

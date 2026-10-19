@@ -147,6 +147,11 @@ mkdir -p "$(dirname "$log")"
 printf 'start-loop: loop code %s\nstart-loop: console copy in %s\n' \
     "$(git -C "$LOOP_CHECKOUT" log --oneline -1 | cut -c1-80)" "$log" | tee -a "$log"
 
+# A relative path the caller gave means a folder seen from where they started this script, so it
+# becomes a full path before the cd below (#1080). pwd -P gives the real folder, so every program
+# reads a ".." in the path the same way. The value came from the environment, so the
+# conductor gets the new one.
+case "${LOOP_CONFIG_DIR:-}" in ''|/*) ;; *) LOOP_CONFIG_DIR="$(pwd -P)/$LOOP_CONFIG_DIR" ;; esac
 cd "$LOOP_CHECKOUT"
 # The full path makes every script under it, which works out its own folder from that path, safe
 # from CDPATH. caffeinate keeps macOS awake for the whole run; other systems run the loop as it is.

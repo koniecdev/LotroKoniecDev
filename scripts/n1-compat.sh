@@ -61,6 +61,19 @@ SEAM_CALL_SITES=(
 # syntactically valid connection string (same mechanism as Dockerfile.migrator / apply-migrations.sh).
 DESIGN_TIME_CONNECTION='Host=localhost;Database=design_time_only;Username=postgres;Password=unused'
 
+# A relative summary file means a file seen from where the caller started this script, so it
+# becomes a full path before the cd below (#1080). GitHub always gives a full path. A failure here
+# is exit 2, never the RED exit 1: the proof did not run.
+case "${GITHUB_STEP_SUMMARY:-}" in
+  ''|/*) ;;
+  *)
+    GITHUB_STEP_SUMMARY="$(pwd -P)/$GITHUB_STEP_SUMMARY" || {
+      echo "ERROR: n1-compat.sh cannot read the folder it was started in, so the proof could not run." >&2
+      exit 2
+    }
+    ;;
+esac
+
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
 # Exit 2, never the RED exit 1: a proof that cannot find its own tree has proven nothing.
 repo_root="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)" && cd "$repo_root" || {

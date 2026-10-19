@@ -36,14 +36,16 @@ set -euo pipefail
 
 # git prints file names as raw bytes here (core.quotePath=false, below). In a UTF-8 locale GNU grep
 # hides a line that is not valid UTF-8, so a migration whose name held, say, a Latin-1 byte was never
-# scanned (#1162). The C locale reads every byte as a plain character.
+# scanned (#1162). The C locale reads every byte as a plain character. There [[:space:]] is ASCII
+# only, but C# also reads a Unicode space such as U+2003 or U+00A0 as a space. So the C# patterns use
+# [^!-~]: any byte that is not a visible ASCII character.
 export LC_ALL=C
 
 # The generic-args group is [^(] (not [^>]) so nested generics still match:
 # AlterColumn<Dictionary<string, string>>(. The trailing paren is a character
 # class, not \( — awk -v applies C-escape processing to the pattern, and BSD
 # awk turns \( into a bare group-opener.
-DESTRUCTIVE='(DropColumn|DropTable|RenameColumn|RenameTable|DropIndex|AlterColumn)[[:space:]]*(<[^(]*>)?[[:space:]]*[(]'
+DESTRUCTIVE='(DropColumn|DropTable|RenameColumn|RenameTable|DropIndex|AlterColumn)[^!-~]*(<[^(]*>)?[^!-~]*[(]'
 ACKNOWLEDGED='MIGRATION-SAFETY:[[:space:]]*acknowledged'
 
 if ! repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
@@ -101,6 +103,16 @@ if ! staged_deletions="$(git -c core.quotePath=false diff --no-renames --cached 
     exit 2
 fi
 
+# core.quotePath=false still quotes a name that holds a ", a \ or a control character. The filter
+# below would drop such a migration unscanned, so stop instead (#1162).
+if quoted="$(printf '%s\n%s\n%s\n' "$added_committed" "$added_staged" "$untracked" \
+        | grep -E '^"(.*/)?Migrations/[^/]+\.cs"$')"; then
+    echo "Migration-safety guard: git quotes the name of this new migration, so the guard cannot read it:" >&2
+    printf '%s\n' "$quoted" | sed 's/^/    /' >&2
+    echo "Rename it without a \", a \\ or a control character, then run the guard again." >&2
+    exit 2
+fi
+
 new_files="$(
     printf '%s\n%s\n%s\n' "$added_committed" "$added_staged" "$untracked" \
         | grep -E '(^|/)Migrations/[^/]+\.cs$' \
@@ -130,8 +142,8 @@ while IFS= read -r file; do
 
     # Only the Up() body: lines from `void Up(` up to (excluding) `void Down(` or EOF.
     if ! hits="$(awk -v pattern="$DESTRUCTIVE" '
-        /void[[:space:]]+Up[[:space:]]*\(/  { in_up = 1 }
-        /void[[:space:]]+Down[[:space:]]*\(/ { in_up = 0 }
+        /void[^!-~]+Up[^!-~]*\(/  { in_up = 1 }
+        /void[^!-~]+Down[^!-~]*\(/ { in_up = 0 }
         in_up && $0 ~ pattern {
             line = $0
             sub(/^[[:space:]]+/, "", line)

@@ -101,6 +101,16 @@ try {
         exit 2
     }
 
+    # core.quotePath=false still quotes a name that holds a ", a \ or a control character. The filter
+    # below would drop such a migration unscanned, so stop instead (#1162).
+    $quotedFiles = @($candidateFiles | Where-Object { $_ -cmatch '^"(.*/)?Migrations/[^/]+\.cs"$' })
+    if ($quotedFiles) {
+        Write-Host 'Migration-safety guard: git quotes the name of this new migration, so the guard cannot read it:'
+        $quotedFiles | ForEach-Object { Write-Host "    $_" }
+        Write-Host 'Rename it without a ", a \ or a control character, then run the guard again.'
+        exit 2
+    }
+
     $newFiles = $candidateFiles |
         Where-Object { $_ -cmatch '(^|/)Migrations/[^/]+\.cs$' } |
         Where-Object { $_ -cnotmatch '(\.Designer\.cs|ModelSnapshot\.cs)$' } |

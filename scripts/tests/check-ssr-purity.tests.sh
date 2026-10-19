@@ -226,6 +226,10 @@ run_suite() {
     expect_in_output "without the CSP nonce"
     run_auth_case 1 "a style without the nonce on a line that is not valid UTF-8 still fails" \
         Login.cshtml $'<style>p{} /* zmian\352 */</style>'
+    run_auth_case 1 "a style without the nonce after U+2003 fails" \
+        Login.cshtml $'<style\342\200\203media="screen">p{}</style>'
+    run_auth_case 0 "a nonced style after U+2003 passes" \
+        Login.cshtml $'<style\342\200\203nonce="@CspNonce.Get(HttpContext)">p{}</style>'
     run_auth_case 1 "an UPPERCASE style without the nonce fails" \
         Login.cshtml '<STYLE media="screen">p{}</STYLE>'
     run_auth_case 1 "a nonced style does not hide an unnonced one on the same line" \

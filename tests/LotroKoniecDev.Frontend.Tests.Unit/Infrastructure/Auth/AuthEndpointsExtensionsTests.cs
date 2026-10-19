@@ -116,6 +116,26 @@ public sealed class AuthEndpointsExtensionsTests
         result.ShouldBeOfType<ChallengeHttpResult>();
     }
 
+    /// <summary>
+    /// A browser that leaves while the document loads is not an outage, so it gets no warning and no 503:
+    /// the abort goes up like any other cancelled request.
+    /// </summary>
+    [Fact]
+    public async Task LoginAsync_WhenTheBrowserLeavesDuringTheDiscoveryFetch_LetsTheAbortGoUp()
+    {
+        using CancellationTokenSource browserLeft = new();
+        await browserLeft.CancelAsync();
+        IConfigurationManager<OpenIdConnectConfiguration> configurationManager =
+            Substitute.For<IConfigurationManager<OpenIdConnectConfiguration>>();
+        configurationManager.GetConfigurationAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromCanceled<OpenIdConnectConfiguration>(browserLeft.Token));
+
+        await Should.ThrowAsync<OperationCanceledException>(() => AuthEndpointsExtensions.LoginAsync(
+            new DefaultHttpContext { RequestAborted = browserLeft.Token },
+            "/dashboard",
+            CreateSignInAvailability(configurationManager)));
+    }
+
     [Fact]
     public async Task LocalSignOutAsync_SignsOutTheCookieAndRedirectsToTheLocalReturnUrl()
     {

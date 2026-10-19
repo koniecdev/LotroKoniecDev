@@ -33,12 +33,14 @@ internal sealed partial class SignInAvailability
             return true;
         }
 
+        // A browser that left while it waited for the document is not an outage. Its abort goes up as a
+        // cancelled request, which the error handler drops without a warning.
         try
         {
             await configurationManager.GetConfigurationAsync(cancellationToken);
             return true;
         }
-        catch (Exception exception)
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             LogSignInServerUnreachable(_logger, exception);
             return false;

@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Http.Extensions;
-using Microsoft.AspNetCore.WebUtilities;
 
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 
@@ -17,11 +16,14 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 /// request's own method, and Blazor answers a POST there with an empty 400 page (#1122). And after a session
 /// has just ended (#1058) that second run would read the deleted cookie again and show the user as signed in.
 /// The redirect answer still carries the header that deletes the cookie.
+/// The login route checks the sign-in server again, so a sign-in server that times out instead of refusing
+/// makes the visitor wait twice. A sign-in server that is just down is refused at once by the proxy.
 /// When the sign-in server answers, and for every other outcome, the framework's own handler runs unchanged.
 /// </remarks>
 internal sealed class SignInOutageAuthorizationResultHandler : IAuthorizationMiddlewareResultHandler
 {
-    private const string ReturnUrlParameter = "returnUrl";
+    // A fixed local start with the "?" in it, so the visitor's address can only ever land in the query.
+    private const string LoginWithReturnUrl = AuthenticationDependencyInjectionExtensions.LoginPath + "?returnUrl=";
 
     private readonly AuthorizationMiddlewareResultHandler _defaultHandler = new();
     private readonly SignInAvailability _signInAvailability;
@@ -40,10 +42,7 @@ internal sealed class SignInOutageAuthorizationResultHandler : IAuthorizationMid
                 context.Request.PathBase,
                 context.Request.Path,
                 context.Request.QueryString);
-            context.Response.Redirect(QueryHelpers.AddQueryString(
-                AuthenticationDependencyInjectionExtensions.LoginPath,
-                ReturnUrlParameter,
-                returnUrl));
+            context.Response.Redirect(LoginWithReturnUrl + Uri.EscapeDataString(returnUrl));
             return;
         }
 

@@ -23,9 +23,12 @@ internal static class AuthEndpointsExtensions
     {
         public IEndpointRouteBuilder MapAuthEndpoints()
         {
+            // A page that needs a login sends the visitor here while the sign-in server is down, so this
+            // route must never need a login itself, or that redirect would loop.
             endpoints.MapGet(
                 AuthenticationDependencyInjectionExtensions.LoginPath,
-                LoginAsync);
+                LoginAsync)
+                .AllowAnonymous();
 
             endpoints.MapPost(
                 AuthenticationDependencyInjectionExtensions.LogoutPath,

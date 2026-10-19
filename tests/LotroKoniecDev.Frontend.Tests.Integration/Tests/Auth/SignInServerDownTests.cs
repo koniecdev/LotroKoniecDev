@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using LotroKoniecDev.Frontend.Tests.Integration.Shared;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -107,6 +108,31 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
     }
 
     /// <summary>
+    /// The visitor is sent to the login route, so that route must stay open to everyone. Even a rule that
+    /// makes every page need a login must not send it back to itself.
+    /// </summary>
+    [Fact]
+    public async Task Get_APageThatNeedsALoginWhileTheSignInServerIsDownAndEveryPageNeedsALogin_EndsOnTheLoginUnavailablePage()
+    {
+        // Arrange
+        using WebApplicationFactory<Program> host = CreateHost(
+            new StandInSignInServer(),
+            new DashboardTranslationSystem(),
+            services => services.AddAuthorizationBuilder()
+                .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build()));
+        using CookieJarBrowser browser = new(host);
+
+        // Act
+        using HttpResponseMessage redirect = await browser.SendAsync(PageRequest("/dashboard"));
+        using HttpResponseMessage page = await FollowAsync(browser, redirect);
+
+        // Assert
+        page.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        string markup = await page.Content.ReadAsStringAsync();
+        markup.ShouldContain(LoginUnavailableTitle);
+    }
+
+    /// <summary>
     /// The page asks the visitor to try again in a moment. Once the sign-in server answers again, reloading
     /// the page starts the sign-in.
     /// </summary>
@@ -201,7 +227,8 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
     /// </summary>
     private WebApplicationFactory<Program> CreateHost(
         StandInSignInServer signInServer,
-        DashboardTranslationSystem translationSystem) =>
+        DashboardTranslationSystem translationSystem,
+        Action<IServiceCollection>? configureServices = null) =>
         _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.Configure<OpenIdConnectOptions>(
@@ -209,6 +236,7 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
                 options => options.BackchannelHttpHandler = signInServer);
             services.AddHttpClient(DashboardTranslationSystem.ClientName)
                 .ConfigurePrimaryHttpMessageHandler(() => translationSystem);
+            configureServices?.Invoke(services);
         }));
 
     private static HttpRequestMessage PageRequest(string pathAndQuery) => new(HttpMethod.Get, pathAndQuery);

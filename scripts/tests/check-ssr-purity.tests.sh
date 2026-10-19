@@ -205,6 +205,16 @@ run_suite() {
     run_case 1 "an @onclick handler on a line that is not valid UTF-8 still fails" \
         App.razor $'<button @onclick="Save">Zapisz zmian\352</button>'
 
+    # The guard runs in the C locale, where [[:space:]] is ASCII only. Razor also reads U+2003 and
+    # U+00A0 as spaces (#1162).
+    run_case 1 "an @onclick handler with U+2003 before = still fails" \
+        App.razor $'<button @onclick\342\200\203="Save">Go</button>'
+    run_case 1 "an @onclick handler with U+00A0 before = fails" \
+        App.razor $'<button @onclick\302\240="Save">Go</button>'
+    run_case 0 "an @onsubmit handler with U+2003 before = is still allowed" \
+        App.razor $'<form method="post" @onsubmit\342\200\203="Save"></form>'
+    run_case 1 "the import-map component with U+2003 after its name fails" App.razor $'<ImportMap\342\200\203/>'
+
     # --- the auth pages: the same CSP rules, over *.cshtml (#693) ---
     run_auth_case 0 "an auth page with a nonced style and an external script passes" \
         Login.cshtml '<style nonce="@CspNonce.Get(HttpContext)">p{}</style><script src="/login.js"></script>'

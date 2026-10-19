@@ -35,6 +35,8 @@ set -euo pipefail
 
 # In a UTF-8 locale GNU grep hides a matching line that is not valid UTF-8, so a line holding, say, a
 # Windows-1250 letter was never checked (#1162). The C locale reads every byte as a plain character.
+# There [[:space:]] is ASCII only, but Docker also skips a Unicode space such as U+2003 or U+00A0 at
+# the start of a line. So those patterns use [^!-~]: any byte that is not a visible ASCII character.
 export LC_ALL=C
 
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
@@ -110,7 +112,7 @@ EOF
 # `dotnet restore`), kept because without it a root wrapped onto a bare continuation line drops out
 # of the closure and the guard passes vacuously — the very failure mode it exists to catch.
 join_continuations() {
-    { grep -vE '^[[:space:]]*#' "$1" || true; } | awk '{
+    { grep -vE '^[^!-~]*#' "$1" || true; } | awk '{
         cur = $0
         if (cur ~ /\\$/) { sub(/\\$/, "", cur); buf = buf cur; next }
         print buf cur
@@ -135,7 +137,7 @@ while IFS= read -r dockerfile; do
     [ -n "$dockerfile" ] || continue
     rel="${dockerfile#"$REPO_ROOT"/}"
 
-    if ! copied="$(sed -nE 's/^[[:space:]]*COPY \["([^"]+\.csproj)".*/\1/p' "$dockerfile")"; then
+    if ! copied="$(sed -nE 's/^[^!-~]*COPY \["([^"]+\.csproj)".*/\1/p' "$dockerfile")"; then
         echo "Docker restore-graph guard: could not read $rel." >&2
         exit 2
     fi

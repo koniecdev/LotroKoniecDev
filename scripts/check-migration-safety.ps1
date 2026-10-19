@@ -116,7 +116,9 @@ try {
 
     foreach ($file in $newFiles) {
         # A byte that is not valid UTF-8 reaches us as U+FFFD, and .NET cannot open a file whose name
-        # holds one. The guard cannot scan such a migration, so it must not pass it (#1162).
+        # holds one. The guard cannot scan such a migration, so it must not pass it (#1162). This runs
+        # before the staged-deletion skip on purpose: two different bad bytes both become U+FFFD, so
+        # that skip could match the wrong file.
         if ($file.Contains([char]0xFFFD)) {
             Write-Host "Migration-safety guard: the name of $file is not valid UTF-8, so the guard cannot open it."
             Write-Host 'Rename the migration to a valid UTF-8 name, then run the guard again.'

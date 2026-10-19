@@ -31,6 +31,8 @@ set -euo pipefail
 
 # In a UTF-8 locale GNU grep hides a matching line that is not valid UTF-8, so a line holding, say, a
 # Windows-1250 letter was never checked (#1162). The C locale reads every byte as a plain character.
+# There [[:space:]] is ASCII only, but Razor also reads a Unicode space such as U+2003 or U+00A0 as a
+# space. So a rule for a space Razor skips uses [^!-~]: any byte that is not a visible ASCII character.
 export LC_ALL=C
 
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
@@ -111,9 +113,9 @@ report() {
 
 check '@rendermode' \
     'Render-mode directive forces a component into interactive mode. Remove it — SSR renders on the server.'
-check '@on[a-z]+[[:space:]]*[=:]' \
+check '@on[a-z]+[^!-~]*[=:]' \
     'Blazor event handler (@onclick / @onchange / @oninput …) does nothing in SSR. Use <form method="post" @onsubmit> or <EditForm OnValidSubmit>.' \
-    '@onsubmit[[:space:]]*[=:]'
+    '@onsubmit[^!-~]*[=:]'
 check 'StateHasChanged' \
     'StateHasChanged only works in interactive mode. In SSR the next request re-renders the page — delete the call.'
 check 'AddInteractiveServerComponents|AddInteractiveWebAssemblyComponents|AddInteractiveServerRenderMode|AddInteractiveWebAssemblyRenderMode' \
@@ -129,7 +131,7 @@ check '<[sS][cC][rR][iI][pP][tT][^>]*>' \
     "Inline <script> in the Frontend. Our CSP sends script-src 'self', so the browser blocks it and only the console says so (#670). Move the code to a file under wwwroot and load it with src=, or drop it." \
     '<[sS][cC][rR][iI][pP][tT][^>]*[sS][rR][cC]=[^>]*>'
 # The trailing class keeps List<ImportMapDefinition> and friends out of the match.
-check '<ImportMap[[:space:]/>]' \
+check '<ImportMap([^!-~]|[/>])' \
     "Blazor's import-map component renders an inline <script type=\"importmap\">, which script-src 'self' blocks on every page (#670). A Static SSR app never resolves a module specifier, so it has no job here."
 
 check_auth_pages '<[sS][cC][rR][iI][pP][tT][^>]*>' \

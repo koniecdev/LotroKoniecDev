@@ -17,7 +17,8 @@ public static class AuthDatabaseConnectionString
 
     public static string CapOpenTimeout(string connectionString)
     {
-        NpgsqlConnectionStringBuilder builder = new(connectionString);
+        NpgsqlConnectionStringBuilder builder =
+            ConnectionStringReader.Read(connectionString, ConnectionStringSettings.AuthDatabaseKey);
 
         // Npgsql reads Timeout=0 as "wait forever".
         if (builder.Timeout is <= 0 or > MaxOpenTimeoutSeconds)

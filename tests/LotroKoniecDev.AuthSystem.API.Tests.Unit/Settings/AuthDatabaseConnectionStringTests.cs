@@ -48,4 +48,27 @@ public sealed class AuthDatabaseConnectionStringTests
         result.Password.ShouldBe("changeme");
         result.SslMode.ShouldBe(SslMode.Require);
     }
+
+    /// <summary>
+    /// #1157: Npgsql's own error names the part it could not use, and the boot log writes inner errors
+    /// too. The error names the setting only.
+    /// </summary>
+    [Theory]
+    [InlineData("Host=db;Database=lotro_auth;Username=deploy;Password=Zq8;Wx3=Kp5", "Zq8", "Wx3", "Kp5")]
+    [InlineData("Host=db;Database=lotro_auth;Username=deploy;Password=Zq8;Wx3=", "Zq8", "Wx3")]
+    [InlineData("Host=db;Port=Zq8Wx3Kp5;Database=lotro_auth;Username=deploy;Password=x", "Zq8Wx3Kp5")]
+    public void CapOpenTimeout_UnreadableConnectionString_ThrowsNamingTheSettingWithoutThePassword(
+        string connectionString,
+        params string[] passwordParts)
+    {
+        InvalidOperationException exception = Should.Throw<InvalidOperationException>(
+            () => AuthDatabaseConnectionString.CapOpenTimeout(connectionString));
+
+        exception.Message.ShouldContain("ConnectionStrings:AuthDatabase", Case.Sensitive);
+        exception.InnerException.ShouldBeNull();
+        foreach (string passwordPart in passwordParts)
+        {
+            exception.Message.ShouldNotContain(passwordPart, Case.Insensitive);
+        }
+    }
 }

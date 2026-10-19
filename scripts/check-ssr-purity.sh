@@ -137,12 +137,15 @@ check '<ImportMap([^!-~]|[/>])' \
 check_auth_pages '<[sS][cC][rR][iI][pP][tT][^>]*>' \
     "Inline <script> in an auth page. The auth CSP sends script-src 'self', so the browser blocks it and only the console says so (#693). Move the code to a file under wwwroot, like login.js." \
     '<[sS][cC][rR][iI][pP][tT][^>]*[sS][rR][cC]=[^>]*>'
+# This tag rule keeps [[:space:]]: no tag helper renders <style>, and a browser ends a tag name only at
+# an ASCII space. The two attribute rules below use [^!-~], because the form tag helper rewrites
+# onsubmit<U+2003>= into a real onsubmit= (#1162).
 check_auth_pages '<[sS][tT][yY][lL][eE]([[:space:]]|>)' \
     "<style> without the CSP nonce in an auth page. The auth CSP admits an inline style only by the response's nonce, so the browser drops it (#693). Write <style nonce=\"@CspNonce.Get(HttpContext)\">." \
     '<[sS][tT][yY][lL][eE][^>]*[nN][oO][nN][cC][eE]=[^>]*>'
-check_auth_pages '<[a-zA-Z][^>]*[[:space:]][oO][nN][a-zA-Z]+[[:space:]]*=' \
+check_auth_pages '<[a-zA-Z][^>]*[^!-~][oO][nN][a-zA-Z]+[^!-~]*=' \
     "Inline event handler (onclick=, onsubmit=, …) in an auth page. The auth CSP sends script-src 'self', which blocks it (#693). Attach the handler from a file under wwwroot, like login.js."
-check_auth_pages '<[a-zA-Z][^>]*[[:space:]][sS][tT][yY][lL][eE][[:space:]]*=' \
+check_auth_pages '<[a-zA-Z][^>]*[^!-~][sS][tT][yY][lL][eE][^!-~]*=' \
     "Inline style= attribute in an auth page. The auth CSP admits inline styles only by nonce, and a nonce does not cover attributes (#693). Use a class in the page's <style> block."
 
 if [ "$fail" -ne 0 ]; then

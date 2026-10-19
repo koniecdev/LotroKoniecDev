@@ -239,9 +239,17 @@ run_suite() {
     expect_in_output "Inline event handler"
     run_auth_case 1 "an UPPERCASE inline event handler fails" \
         Login.cshtml '<form ONSUBMIT="go()"></form>'
+    # The form tag helper turns a Unicode space here into an ASCII one, so the browser gets a real
+    # handler (#1162).
+    run_auth_case 1 "an inline event handler with U+2003 before = fails" \
+        Login.cshtml $'<form method="post" onsubmit\342\200\203="go()"></form>'
+    run_auth_case 1 "an inline event handler after U+00A0 fails" \
+        Login.cshtml $'<form\302\240onsubmit="go()"></form>'
     run_auth_case 1 "a style attribute in an auth page fails" \
         Login.cshtml '<div style="width: 50%"></div>'
     expect_in_output "Inline style= attribute"
+    run_auth_case 1 "a style attribute with U+2003 before = fails" \
+        Login.cshtml $'<form method="post" style\342\200\203="width: 50%"></form>'
     run_auth_case 0 "an attribute value that starts with 'on' is not a handler" \
         Login.cshtml '<input autocomplete="one-time-code" class="icon only" />'
     run_auth_case 0 "a word like 'online' in text is not a handler" \

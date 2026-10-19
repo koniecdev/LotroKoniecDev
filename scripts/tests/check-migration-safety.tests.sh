@@ -63,7 +63,10 @@ EOF
 
 new_repo() {
     local repo
-    repo="$(mktemp -d "$TMP_ROOT/repo.XXXXXX")"
+    # Callers run this inside $(…), where set -e is off: an empty $repo would aim every step below
+    # at the root or the current folder (#1042).
+    repo="$(mktemp -d "$TMP_ROOT/repo.XXXXXX")" || return 1
+    [ -d "$repo" ] || return 1
     git -C "$repo" init -q -b main
     write_migration "$repo" "20260101000000_LegacyDropColumn.cs" \
         'migrationBuilder.DropColumn(name: "Old", table: "Legacy");' \

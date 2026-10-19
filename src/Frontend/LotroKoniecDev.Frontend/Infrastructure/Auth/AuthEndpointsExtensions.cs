@@ -46,7 +46,8 @@ internal static class AuthEndpointsExtensions
     /// The login route's handler, internal so a unit test can call it without a web host.
     /// While the sign-in server is down and the website has no copy of its discovery document yet, the
     /// challenge cannot build its redirect, so the route answers 503 and the status-code pages show the
-    /// "login temporarily unavailable" page (#311). With a copy, the visitor is still sent on (#1208). Every page that needs
+    /// "login temporarily unavailable" page (#311). With a copy, the visitor is still sent on
+    /// (#1208). Every page that needs
     /// a login sends the visitor here first, through the cookie scheme's challenge (#1153).
     /// </summary>
     internal static async Task<IResult> LoginAsync(

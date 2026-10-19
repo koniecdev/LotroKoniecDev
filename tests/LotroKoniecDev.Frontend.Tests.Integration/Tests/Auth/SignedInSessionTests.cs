@@ -30,7 +30,8 @@ public sealed class SignedInSessionTests : IClassFixture<StagingFrontendFactory>
 
         // Assert
         page.StatusCode.ShouldBe(HttpStatusCode.OK);
-        CookieJarBrowser.SetCookiesOf(page).ShouldNotContain(setCookie => setCookie.StartsWith(SignedInSession.CookieName, StringComparison.Ordinal));
+        CookieJarBrowser.SetCookiesOf(page)
+            .ShouldNotContain(setCookie => setCookie.StartsWith(SignedInSession.CookieName, StringComparison.Ordinal));
         string markup = await page.Content.ReadAsStringAsync();
         markup.ShouldContain(SignedInSession.UserName);
         markup.ShouldContain(SignOutButton);

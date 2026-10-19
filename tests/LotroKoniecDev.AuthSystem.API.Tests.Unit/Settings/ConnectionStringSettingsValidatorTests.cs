@@ -1,14 +1,11 @@
 using FluentValidation.Results;
 using LotroKoniecDev.AuthSystem.Persistence.Settings;
-using Shouldly;
 
-namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Settings;
+namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 
 /// <summary>
-/// Pure unit coverage for the AuthSystem connection-string startup guard (M6-05). It lives in the
-/// integration project only because the AuthSystem has no API unit project; it instantiates no
-/// factory and starts no container. The connection string is required in every environment, so the
-/// rule is unconditional.
+/// The AuthSystem connection-string startup guard (M6-05). The connection string is required in every
+/// environment, so the rule is unconditional.
 /// </summary>
 public sealed class ConnectionStringSettingsValidatorTests
 {

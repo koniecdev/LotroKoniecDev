@@ -1,20 +1,20 @@
 using System.Security.Cryptography;
 using System.Text;
 using LotroKoniecDev.AuthSystem.API.Extensions;
-using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
+using NSubstitute;
 using OpenIddict.Server;
-using Shouldly;
 
-namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Settings;
+namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 
 /// <summary>
 /// Regression coverage for the production signing-key wiring in <see cref="ConfigureOpenIddictServerSettings"/>.
 /// The RSA loaded from configuration must outlive <c>Configure</c>: OpenIddict keeps it for the app's
 /// lifetime to sign tokens and to export the public key on /.well-known/jwks. Disposing it (a stray
 /// <c>using</c>) made the JWKS endpoint throw <see cref="ObjectDisposedException"/>, which the prod-parity
-/// stack (M6-07) surfaced as IDX20807 at every relying party. Pure test; it starts no container.
+/// stack (M6-07) surfaced as IDX20807 at every relying party.
 /// </summary>
 public sealed class ConfigureOpenIddictServerSettingsTests
 {
@@ -88,6 +88,9 @@ public sealed class ConfigureOpenIddictServerSettingsTests
             .AddInMemoryCollection(values)
             .Build();
 
-        return new ConfigureOpenIddictServerSettings(configuration, new FakeWebHostEnvironment(Production));
+        IWebHostEnvironment environment = Substitute.For<IWebHostEnvironment>();
+        environment.EnvironmentName.Returns(Production);
+
+        return new ConfigureOpenIddictServerSettings(configuration, environment);
     }
 }

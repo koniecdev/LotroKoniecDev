@@ -16,9 +16,14 @@ to what people read on GitHub. A separate pass with one job fixes that.
 
 - A PR number → `gh pr view <n> --json body -q .body`
 - An issue comment URL (`…/issues/<n>#issuecomment-<id>`) → `gh api repos/{owner}/{repo}/issues/comments/<id> -q .body`
-- A file path → read the file.
+- A file path → read the file. `/ticket` and `/work-ticket` pass the PR body this way, before
+  `gh pr create`, so the PR opens with its final text (#1083). A body file follows every rule
+  below exactly like a PR body: `Closes #<n>`, the `## Ticket report` headings and every number
+  stay.
 
-Save the original to the scratchpad as `b2-original.md` before you change anything.
+Save the original to the scratchpad as `b2-original.md` before you change anything. For a file,
+the scratchpad is the folder of that file, so two sessions that each pass their own file never
+share `b2-original.md` or `b2-rewrite.md`.
 
 ## 2. Rewrite — the rules
 
@@ -68,10 +73,17 @@ Write the rewrite to the scratchpad as `b2-rewrite.md`, then run this from the s
 ```bash
 python3 - b2-original.md b2-rewrite.md <<'PY'
 import re, sys
-old, new = (open(p, encoding="utf-8").read() for p in sys.argv[1:3])
+old, new = (open(p, encoding="utf-8-sig").read() for p in sys.argv[1:3])
 patterns = [r"#\d+", r"`[^`\n]+`", r"https?://[^\s`)>\]]*[^\s`)>\].,;:]", r"„[^”\"\n]+[”\"]", r"\b\d[\d.,/]*\b", r"ADR-\d+"]
-missing = sorted({m for p in patterns for m in re.findall(p, old) if m not in new})
-print("\n".join(missing) if missing else "OK: every number, identifier, URL and UI string is still there")
+heading = re.compile(r"^## Ticket report[ \t]*$", re.M)
+labels = ["**Shipped:**", "**Proof:**", "**Assumptions:**", "**Doubts:**", "**Follow-ups:**"]
+missing = sorted({m for p in patterns for m in re.findall(p, old) if m not in new} | {l for l in labels if l in old and l not in new})
+if heading.search(old) and not heading.search(new):
+    missing.append("## Ticket report")
+first, new_first = (re.match(r"\s*(Closes #\d+)\b", t) for t in (old, new))
+if first and (not new_first or new_first.group(1) != first.group(1)):
+    missing.append(f"{first.group(1)} is no longer the first line")
+print("\n".join(missing) if missing else "OK: every number, identifier, URL, UI string and report heading is still there")
 PY
 ```
 
@@ -85,9 +97,13 @@ same order.
 - A PR → `gh pr edit <n> --body-file <absolute path>/b2-rewrite.md`. Editing the body does not
   re-run `pr-verify` or any other workflow (none listens to the `edited` event), so this is free.
 - An issue comment → `gh api -X PATCH repos/{owner}/{repo}/issues/comments/<id> -F body=@<absolute path>/b2-rewrite.md`
-- A file → overwrite it.
+- A file → overwrite it. A file that a command handed you (a PR body or a report comment) is
+  posted by that command, so do not run `gh` on it here.
 
 Run every `gh` command from the repo root and give the scratchpad file by its absolute path. `gh`
 finds the repo (and fills `{owner}/{repo}`) only inside a git checkout.
 
 Reply with one line: what was rewritten, and the list from step 3 if anything was left on purpose.
+When `/ticket` or `/work-ticket` handed you a file, do not end the turn on this line. Put it in the
+same message as the caller's next tool call (`gh pr create`, `gh pr edit` or `gh issue comment`),
+and make that call right away.

@@ -222,8 +222,9 @@ Per-ticket outcomes:
   checks them again before any merge. A DONE with no open PR for the ticket is resumed once to
   open it (see "A session stopped by a usage limit, or DONE without a PR").
 - **merged** — the worker reported DONE, and its PR was merged before its session ended (#1082). A
-  session opens its PR about 15 minutes before it ends: it still waits for CodeQL and rewrites the
-  PR body, and the PR looks finished in that time. The work is on `main`, so the ticket is done:
+  session still waits for CodeQL after it opens its PR, and the PR looks finished in that time.
+  Its body is final when it opens (#1083): the session edits it later only when something makes
+  its report wrong, such as a fix commit. The work is on `main`, so the ticket is done:
   its session is not resumed, it does not count toward the failure circuit breaker, and its
   worktree is removed as for `pr-opened` (the branch stays). The table shows its PR, and the
   `done:` line counts it apart from `PR opened` and `failed`. Only a PR opened after the session

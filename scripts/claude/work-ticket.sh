@@ -918,7 +918,7 @@ This is a headless run: when you end your turn, the process exits and nothing wa
 Background runs are switched off here. If you were waiting for something, such as the test suite, \
 run it again now in the foreground, with a Bash timeout long enough for it (at most $BASH_MAX_TIMEOUT_MS ms). \
 The loop stops this session in about $2 minutes. \
-Then finish the /work-ticket steps that are still open (commit, push, PR, CodeQL, the plain-English pass) \
+Then finish the /work-ticket steps that are still open (commit, push, the plain-English pass on the PR body file, PR, CodeQL) \
 and end with the STATUS: DONE or STATUS: BLOCKED block from /work-ticket, with nothing after it."
 }
 

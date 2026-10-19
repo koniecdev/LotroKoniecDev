@@ -33,9 +33,9 @@ internal sealed class OpenIddictSettings
     public SigningKeySettings SigningKey { get; init; } = new();
 
     /// <summary>
-    /// The client secret of the API service, used for calls between services. It should be long and
-    /// randomly generated. OpenIddictSettingsValidator checks it in every environment except Development
-    /// and Testing, so Staging needs it as well as Production.
+    /// The client secret of the API service, used for calls between services. It must be a long random
+    /// value. OpenIddictSettingsValidator refuses an empty or too short secret in every environment except
+    /// Development and Testing, so Staging needs it as well as Production.
     /// </summary>
     public string ApiClientSecret { get; init; } = string.Empty;
 
@@ -53,8 +53,10 @@ internal sealed class WebClientSettings
     public string[] RedirectUris { get; init; } = [];
 
     /// <summary>
-    /// The web client's post-logout redirect URIs, used in every environment. OpenIddictSettingsValidator
-    /// requires at least one in every environment except Development and Testing, Staging included.
+    /// The web client's post-logout redirect URIs, used in every environment. The first one is also the
+    /// website's root address: the account pages and the e-mails build their links to the website from it
+    /// (<see cref="Common.FrontendUrl"/>), so the order matters. OpenIddictSettingsValidator requires at
+    /// least one in every environment except Development and Testing, Staging included.
     /// </summary>
     public string[] PostLogoutRedirectUris { get; init; } = [];
 }

@@ -67,8 +67,8 @@ internal static class OpenIddictExtensions
                 // and OIDC, and leaving it off is common.
                 options.DisableAccessTokenEncryption();
 
-                // Development and Testing use throwaway keys. Every other environment, Staging too,
-                // takes its keys from configuration in ConfigureOpenIddictServerSettings.
+                // Development and Testing use throwaway keys. Every other environment takes its keys
+                // from configuration in ConfigureOpenIddictServerSettings.
                 if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
                 {
                     options.AddEphemeralSigningKey()
@@ -132,9 +132,9 @@ internal sealed class ConfigureOpenIddictServerSettings(IConfiguration configura
         options.AccessTokenLifetime = TimeSpan.FromMinutes(settings.AccessTokenLifetimeMinutes);
         options.RefreshTokenLifetime = TimeSpan.FromMinutes(settings.RefreshTokenLifetimeMinutes);
 
-        // Development and Testing use throwaway keys only, set up in AddServer. Every other environment,
-        // Staging too, uses the keys from configuration, and the public signing key is published through
-        // JWKS so tokens can be validated.
+        // Development and Testing use throwaway keys only, set up in AddServer. Every other environment
+        // uses the keys from configuration, and the public signing key is published through JWKS so
+        // tokens can be validated.
         if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
         {
             return;

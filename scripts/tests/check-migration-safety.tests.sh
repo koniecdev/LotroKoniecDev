@@ -333,8 +333,19 @@ run_suite() {
         'migrationBuilder.CreateTable(name: "T");'
     migration="$repo/src/App.Persistence/Migrations/20260705000023_UnicodeSpaceUp.cs"
     sed "s/void Up(/void"$'\302\240'"Up(/" "$migration" > "$migration.tmp" && mv "$migration.tmp" "$migration"
+    LC_ALL=C grep -qF $'void\302\240Up(' "$migration" || fail "fixture: U+00A0 was not put after void"
     commit_all "$repo" "Up() declared with U+00A0"
     run_case 1 "an Up() declared with U+00A0 after void is still scanned" "$repo" HEAD^1
+    expect_in_output "Destructive operation"
+
+    # 21. A local function whose name starts with a non-ASCII letter and ends in Down must not end the
+    #     scan of Up(): only a real `void Down(` does.
+    repo="$(new_repo)"
+    write_migration "$repo" "20260705000024_LocalFunction.cs" \
+        $'void \303\234Down() { }\n            migrationBuilder.DropTable(name: "T");' \
+        'migrationBuilder.CreateTable(name: "T");'
+    commit_all "$repo" "local function named ÜDown inside Up()"
+    run_case 1 "a local function named ÜDown inside Up() does not end the scan" "$repo" HEAD^1
     expect_in_output "Destructive operation"
 }
 

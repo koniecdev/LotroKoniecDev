@@ -137,8 +137,8 @@ check '<ImportMap([^!-~]|[/>])' \
 check_auth_pages '<[sS][cC][rR][iI][pP][tT][^>]*>' \
     "Inline <script> in an auth page. The auth CSP sends script-src 'self', so the browser blocks it and only the console says so (#693). Move the code to a file under wwwroot, like login.js." \
     '<[sS][cC][rR][iI][pP][tT][^>]*[sS][rR][cC]=[^>]*>'
-# A tag helper rewrites a Unicode space inside a tag into an ASCII one: the form tag helper turns
-# onsubmit<U+2003>= into a real onsubmit=. So the auth rules read [^!-~] as a space too (#1162).
+# A tag helper can rewrite a Unicode space inside a tag into an ASCII one: the form tag helper turns
+# onsubmit<U+2003>= into a real onsubmit=. So every auth rule reads [^!-~] as a space too (#1162).
 check_auth_pages '<[sS][tT][yY][lL][eE]([^!-~]|>)' \
     "<style> without the CSP nonce in an auth page. The auth CSP admits an inline style only by the response's nonce, so the browser drops it (#693). Write <style nonce=\"@CspNonce.Get(HttpContext)\">." \
     '<[sS][tT][yY][lL][eE][^>]*[nN][oO][nN][cC][eE]=[^>]*>'

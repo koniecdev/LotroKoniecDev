@@ -37,8 +37,10 @@ set -euo pipefail
 # git prints file names as raw bytes here (core.quotePath=false, below). In a UTF-8 locale GNU grep
 # hides a line that is not valid UTF-8, so a migration whose name held, say, a Latin-1 byte was never
 # scanned (#1162). The C locale reads every byte as a plain character. There [[:space:]] is ASCII
-# only, but C# also reads a Unicode space such as U+2003 or U+00A0 as a space. So the C# patterns use
-# [^!-~]: any byte that is not a visible ASCII character.
+# only, but C# also reads a Unicode space such as U+2003 or U+00A0 as a space. So the patterns that
+# find a destructive call or the start of Up() use [^!-~]: any byte that is not a visible ASCII
+# character. The end of Up() and the acknowledgment keep [[:space:]], because [^!-~] also matches a
+# letter, and a wider match there would hide lines: `void ÜDown(` would end the scan.
 export LC_ALL=C
 
 # The generic-args group is [^(] (not [^>]) so nested generics still match:
@@ -143,7 +145,7 @@ while IFS= read -r file; do
     # Only the Up() body: lines from `void Up(` up to (excluding) `void Down(` or EOF.
     if ! hits="$(awk -v pattern="$DESTRUCTIVE" '
         /void[^!-~]+Up[^!-~]*\(/  { in_up = 1 }
-        /void[^!-~]+Down[^!-~]*\(/ { in_up = 0 }
+        /void[[:space:]]+Down[[:space:]]*\(/ { in_up = 0 }
         in_up && $0 ~ pattern {
             line = $0
             sub(/^[[:space:]]+/, "", line)

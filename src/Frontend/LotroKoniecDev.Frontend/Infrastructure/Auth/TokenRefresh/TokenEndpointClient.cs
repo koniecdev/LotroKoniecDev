@@ -71,8 +71,9 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
         catch (TaskCanceledException ex)
             when (cancellationToken.IsCancellationRequested && ex.CancellationToken == cancellationToken)
         {
-            // HttpClient puts the caller's token on the exception only when the caller cancelled first. So a
-            // timeout stays a warning even when the request is aborted a moment later.
+            // HttpClient puts the caller's token on the exception only when that token was already cancelled
+            // as it handled the failure, so a timeout stays a warning. A token that can never cancel matches an
+            // exception with no token at all, hence the first check.
             LogRefreshAbandoned(_logger);
             return TokenRefreshResult.TemporaryFailure;
         }

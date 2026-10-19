@@ -250,6 +250,25 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
+    /// #1141: only a cancel through the caller's own token means the browser left. A cancel that carries no
+    /// token, from a caller whose token can never cancel, stays a warning.
+    /// </summary>
+    [Fact]
+    public async Task RefreshAsync_WhenACancelArrivesThatTheCallerDidNotAskFor_LogsOneWarning()
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.Throw(
+            new TaskCanceledException("The request was cancelled.")));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
+
+        await client.RefreshAsync(RefreshToken);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+    }
+
+    /// <summary>
     /// #1062: the owner's list of failures that go away on their own: a busy or restarting sign-in server,
     /// and the per-address limit that many users behind one address share.
     /// </summary>

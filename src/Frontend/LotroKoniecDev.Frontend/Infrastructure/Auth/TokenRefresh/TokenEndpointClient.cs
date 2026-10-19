@@ -71,7 +71,7 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
         catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // The browser left, for example with a click on another link. That is a normal user action, not
-            // a broken sign-in server, so it is no warning (#977, #1141).
+            // a broken sign-in server, so it is not a warning (#977, #1141).
             LogRefreshAbandoned(_logger);
             return TokenRefreshResult.TemporaryFailure;
         }

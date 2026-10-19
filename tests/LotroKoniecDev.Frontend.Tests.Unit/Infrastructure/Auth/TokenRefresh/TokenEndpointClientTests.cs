@@ -187,8 +187,9 @@ public sealed class TokenEndpointClientTests
         using CapturingLoggerProvider logs = new();
         using LoggerFactory loggerFactory = new([logs]);
         TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
+        using CancellationTokenSource requestAborted = new();
 
-        await client.RefreshAsync(RefreshToken).WaitAsync(TestTimeout);
+        await client.RefreshAsync(RefreshToken, requestAborted.Token).WaitAsync(TestTimeout);
 
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);

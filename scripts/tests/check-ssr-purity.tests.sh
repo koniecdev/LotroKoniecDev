@@ -200,6 +200,11 @@ run_suite() {
         App.razor '<form method="post" @onsubmit="Save"></form>'
     run_case 1 "StateHasChanged still fails" Thing.cs 'StateHasChanged();'
 
+    # In a UTF-8 locale GNU grep hides a matching line that is not valid UTF-8 (#1162). Here ę is
+    # saved as one Windows-1250 byte.
+    run_case 1 "an @onclick handler on a line that is not valid UTF-8 still fails" \
+        App.razor $'<button @onclick="Save">Zapisz zmian\352</button>'
+
     # --- the auth pages: the same CSP rules, over *.cshtml (#693) ---
     run_auth_case 0 "an auth page with a nonced style and an external script passes" \
         Login.cshtml '<style nonce="@CspNonce.Get(HttpContext)">p{}</style><script src="/login.js"></script>'
@@ -209,6 +214,8 @@ run_suite() {
     run_auth_case 1 "a style without the nonce in an auth page fails" \
         Login.cshtml '<style>p{}</style>'
     expect_in_output "without the CSP nonce"
+    run_auth_case 1 "a style without the nonce on a line that is not valid UTF-8 still fails" \
+        Login.cshtml $'<style>p{} /* zmian\352 */</style>'
     run_auth_case 1 "an UPPERCASE style without the nonce fails" \
         Login.cshtml '<STYLE media="screen">p{}</STYLE>'
     run_auth_case 1 "a nonced style does not hide an unnonced one on the same line" \

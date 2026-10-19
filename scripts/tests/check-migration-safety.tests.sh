@@ -95,12 +95,13 @@ run_case() {
 }
 
 expect_in_output() {
-    printf '%s' "$LAST_OUTPUT" | grep -qF "$1" \
+    # The output may hold a file name that is not valid UTF-8, which grep skips in a UTF-8 locale (#1162).
+    printf '%s' "$LAST_OUTPUT" | LC_ALL=C grep -qF "$1" \
         || fail "output should contain '$1'" "$LAST_OUTPUT"
 }
 
 run_suite() {
-    local repo
+    local repo blob
 
     # 1. Additive migration passes — and the destructive legacy file is not re-flagged.
     repo="$(new_repo)"
@@ -267,6 +268,36 @@ run_suite() {
         chmod 644 "$repo/src/App.Persistence/Migrations/20260705000017_Unreadable.cs"
     else
         printf 'i [%s] running as root, which reads any file — skipped the unreadable-migration case.\n' "$LABEL"
+    fi
+
+    # 17. A name that is not valid UTF-8 (é saved as one Latin-1 byte) must reach the scan. In a
+    #     UTF-8 locale GNU grep hides such a line, and the guard passed (#1162).
+    #     macOS refuses the name on disk, so this case puts it in git only.
+    repo="$(new_repo)"
+    blob="$(printf '%s\n' 'migrationBuilder.DropTable(name: "T");' | git -C "$repo" hash-object -w --stdin)"
+    git -C "$repo" update-index --add --cacheinfo \
+        "100644,$blob,src/App.Persistence/Migrations/"$'20260705000018_Caf\351.cs'
+    git -C "$repo" commit -qm "migration name that is not valid UTF-8, in git only"
+    run_case 2 "a migration whose name is not valid UTF-8 reaches the scan" "$repo" HEAD^1
+    expect_in_output "20260705000018_Caf"
+
+    # 18. The same name on disk is scanned. It runs only where the file system takes the name (Linux).
+    if (: > "$TMP_ROOT/"$'20260705000019_Caf\351.cs') 2>/dev/null; then
+        repo="$(new_repo)"
+        write_migration "$repo" $'20260705000019_Caf\351.cs' \
+            'migrationBuilder.DropTable(name: "T");' \
+            'migrationBuilder.CreateTable(name: "T");'
+        commit_all "$repo" "migration name that is not valid UTF-8"
+        if [ "$LABEL" = "sh" ]; then
+            run_case 1 "a destructive migration whose name is not valid UTF-8 is caught" "$repo" HEAD^1
+            expect_in_output "Destructive operation"
+        else
+            # .NET cannot open a file whose name is not valid UTF-8, so the twin cannot scan it.
+            run_case 2 "a migration whose name is not valid UTF-8 fails the twin instead of passing" "$repo" HEAD^1
+            expect_in_output "not valid UTF-8"
+        fi
+    else
+        printf 'i [%s] this file system refuses a name that is not valid UTF-8 — skipped the on-disk case.\n' "$LABEL"
     fi
 }
 

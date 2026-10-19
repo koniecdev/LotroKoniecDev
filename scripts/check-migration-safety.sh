@@ -34,6 +34,11 @@
 
 set -euo pipefail
 
+# git prints file names as raw bytes here (core.quotePath=false, below). In a UTF-8 locale GNU grep
+# hides a line that is not valid UTF-8, so a migration whose name held, say, a Latin-1 byte was never
+# scanned (#1162). The C locale reads every byte as a plain character.
+export LC_ALL=C
+
 # The generic-args group is [^(] (not [^>]) so nested generics still match:
 # AlterColumn<Dictionary<string, string>>(. The trailing paren is a character
 # class, not \( — awk -v applies C-escape processing to the pattern, and BSD

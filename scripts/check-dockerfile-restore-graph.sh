@@ -33,6 +33,10 @@
 
 set -euo pipefail
 
+# In a UTF-8 locale GNU grep hides a matching line that is not valid UTF-8, so a line holding, say, a
+# Windows-1250 letter was never checked (#1162). The C locale reads every byte as a plain character.
+export LC_ALL=C
+
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
 REPO_ROOT="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 

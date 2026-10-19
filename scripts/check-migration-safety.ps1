@@ -115,6 +115,13 @@ try {
     $scanned = 0
 
     foreach ($file in $newFiles) {
+        # A byte that is not valid UTF-8 reaches us as U+FFFD, and .NET cannot open a file whose name
+        # holds one. The guard cannot scan such a migration, so it must not pass it (#1162).
+        if ($file.Contains([char]0xFFFD)) {
+            Write-Host "Migration-safety guard: the name of $file is not valid UTF-8, so the guard cannot open it."
+            Write-Host 'Rename the migration to a valid UTF-8 name, then run the guard again.'
+            exit 2
+        }
         if (-not (Test-Path -LiteralPath $file)) {
             # Removed from disk only, the file is still in git and would ship unscanned (#1079).
             if ($stagedDeletions -ccontains $file) { continue }

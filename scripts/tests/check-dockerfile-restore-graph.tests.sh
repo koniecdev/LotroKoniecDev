@@ -214,6 +214,14 @@ run_suite() {
     run_tree 1 "a Dockerfile without the COPY line of a direct reference fails" "$tree"
     expect_in_output "missing: src/Lib/Lib.csproj"
 
+    # In a UTF-8 locale GNU grep hides a matching line that is not valid UTF-8, so a restore root on
+    # such a line went unchecked (#1162). Here ż, ś and ć are Windows-1250 bytes.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" \
+        'RUN dotnet restore "src/Core/Core.csproj"' $'RUN dotnet restore "src/App/App.csproj" # zale\277no\234\346'
+    run_tree 1 "a restore root on a line that is not valid UTF-8 is still read" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY ["src/lib/lib.csproj", "src/lib/"]' "$COPY_CORE" "$RESTORE_APP"
     run_tree 1 "a COPY path that differs only in case fails, as on the Linux image build" "$tree"

@@ -33,9 +33,9 @@ internal sealed class OpenIddictSettings
     public SigningKeySettings SigningKey { get; init; } = new();
 
     /// <summary>
-    /// The client secret of the API service, used for calls between services. It must be set in
-    /// production, and it should be long and randomly generated. OpenIddictSettingsValidator checks it,
-    /// and only in production.
+    /// The client secret of the API service, used for calls between services. It should be long and
+    /// randomly generated. OpenIddictSettingsValidator checks it in every environment except Development
+    /// and Testing, so Staging needs it as well as Production.
     /// </summary>
     public string ApiClientSecret { get; init; } = string.Empty;
 
@@ -56,8 +56,8 @@ internal sealed class WebClientSettings
 internal sealed class EncryptionKeySettings
 {
     /// <summary>
-    /// The 256-bit symmetric encryption key, base64 encoded. Only production needs it; development and
-    /// testing use throwaway keys.
+    /// The 256-bit symmetric encryption key, base64 encoded. Every environment except Development and
+    /// Testing needs it, Staging too; those two use throwaway keys.
     /// </summary>
     public string Key { get; init; } = string.Empty;
 }
@@ -66,8 +66,8 @@ internal sealed class SigningKeySettings
 {
     /// <summary>
     /// The RSA private key as XML (RSA.ToXmlString(true)), base64 encoded. It signs the access tokens,
-    /// and the public half is published at the JWKS endpoint. Only production needs it; development and
-    /// testing use throwaway keys.
+    /// and the public half is published at the JWKS endpoint. Every environment except Development and
+    /// Testing needs it, Staging too; those two use throwaway keys.
     /// </summary>
     public string RsaPrivateKeyXml { get; init; } = string.Empty;
 

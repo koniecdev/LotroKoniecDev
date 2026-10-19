@@ -200,7 +200,8 @@ internal static class ApiDependencyInjection
 
             // Checks the OpenIddict server config at startup and stops the app when it is wrong
             // (ADR-0008 §3, M6-05). OpenIddictSettingsValidator requires real keys and an issuer in
-            // production and names the key and environment at fault.
+            // every environment except Development and Testing, Staging too, and names the key and
+            // environment at fault.
             // There is no ValidateDataAnnotations() call: the settings carry no DataAnnotations
             // attributes, since the `required` issuer is enforced by the binder, so that call checked
             // nothing.

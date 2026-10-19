@@ -68,10 +68,11 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
             LogRefreshError(_logger, ex);
             return TokenRefreshResult.TemporaryFailure;
         }
-        catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (TaskCanceledException ex)
+            when (cancellationToken.IsCancellationRequested && ex.CancellationToken == cancellationToken)
         {
-            // The browser left, for example with a click on another link. That is a normal user action, not
-            // a broken sign-in server, so it is not a warning (#977, #1141).
+            // HttpClient puts the caller's token on the exception only when the caller cancelled first. So a
+            // timeout stays a warning even when the request is aborted a moment later.
             LogRefreshAbandoned(_logger);
             return TokenRefreshResult.TemporaryFailure;
         }
@@ -117,8 +118,6 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
         }
         catch (OperationCanceledException ex)
         {
-            // The only token a caller passes here is the sign-out's own time limit, never the request's
-            // abort (RefreshTokenRevoker), so a cancel means a stuck sign-in server and stays a warning.
             LogRevocationError(_logger, ex);
         }
     }

@@ -161,11 +161,7 @@ public sealed class TokenEndpointClientTests
     [Fact]
     public async Task RefreshAsync_WhenTheAuthApiNeverAnswers_IsATemporaryFailureOnceTheClientTimesOut()
     {
-        using HttpClient httpClient = new(new NeverAnsweringHttpMessageHandler())
-        {
-            BaseAddress = new Uri(AuthBaseUrl),
-            Timeout = TimeSpan.FromMilliseconds(50)
-        };
+        using HttpClient httpClient = CreateTimingOutHttpClient();
         TokenEndpointClient client = CreateClient(httpClient);
 
         TokenRefreshResult result = await client.RefreshAsync(RefreshToken).WaitAsync(TestTimeout);
@@ -179,11 +175,7 @@ public sealed class TokenEndpointClientTests
     [Fact]
     public async Task RefreshAsync_WhenTheClientTimesOut_LogsOneWarning()
     {
-        using HttpClient httpClient = new(new NeverAnsweringHttpMessageHandler())
-        {
-            BaseAddress = new Uri(AuthBaseUrl),
-            Timeout = TimeSpan.FromMilliseconds(50)
-        };
+        using HttpClient httpClient = CreateTimingOutHttpClient();
         using CapturingLoggerProvider logs = new();
         using LoggerFactory loggerFactory = new([logs]);
         TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
@@ -217,7 +209,7 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// #1141: a browser that leaves is a normal user action, so it is no warning (#977).
+    /// #1141: a browser that leaves is a normal user action, so it is not a warning (#977).
     /// </summary>
     [Fact]
     public async Task RefreshAsync_WhenTheBrowserLeavesDuringTheRenewal_LogsOneInformationLine()
@@ -237,6 +229,24 @@ public sealed class TokenEndpointClientTests
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Information);
         entry.Message.ShouldBe("Refresh token grant was cancelled because the request was aborted.");
+    }
+
+    /// <summary>
+    /// #1141: the browser can leave before the cookie check reaches the renewal, so the request is already
+    /// aborted when the call starts.
+    /// </summary>
+    [Fact]
+    public async Task RefreshAsync_WhenTheBrowserLeftBeforeTheRenewal_LogsOneInformationLine()
+    {
+        using HttpClient httpClient = CreateHttpClient(new NeverAnsweringHttpMessageHandler());
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
+
+        await client.RefreshAsync(RefreshToken, new CancellationToken(canceled: true)).WaitAsync(TestTimeout);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Information);
     }
 
     /// <summary>
@@ -730,6 +740,13 @@ public sealed class TokenEndpointClientTests
 
     private static HttpClient CreateHttpClient(HttpMessageHandler transport) =>
         new(transport) { BaseAddress = new Uri(AuthBaseUrl) };
+
+    private static HttpClient CreateTimingOutHttpClient() =>
+        new(new NeverAnsweringHttpMessageHandler())
+        {
+            BaseAddress = new Uri(AuthBaseUrl),
+            Timeout = TimeSpan.FromMilliseconds(50)
+        };
 
     private static TokenEndpointClient CreateClient(
         HttpClient httpClient,

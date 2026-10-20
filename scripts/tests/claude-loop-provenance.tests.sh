@@ -224,10 +224,24 @@ printf '#!/usr/bin/env bash\nexec "%s" 0.05\n' "$REAL_SLEEP" > "$TMP_ROOT/bin/sl
 # whole process table acts on it. That read is the worker's first one in a stop, made while the
 # session is paused, so a case can put something exactly there (#935). The rename makes it fire
 # once and is the case's proof that it fired.
+# A read of one process's parent can lag too. While $TMP_ROOT/ppid-lag holds a count above 0, it
+# names the worker in $TMP_ROOT/worker-pid, as the system does for a moment after the worker has
+# died (#1227). Each such answer goes to $KILL_LOG, so a case can see what came after it.
 REAL_PS="$(command -v ps)"
 cat > "$TMP_ROOT/bin/ps" <<STUB
 #!/usr/bin/env bash
-case " \$* " in *" -A "*) ;; *) exec "$REAL_PS" "\$@" ;; esac
+case " \$* " in
+    *" -A "*) ;;
+    *" -o ppid= -p "*)
+        left="\$(cat "$TMP_ROOT/ppid-lag" 2>/dev/null || echo 0)"
+        [ "\$left" -gt 0 ] 2>/dev/null || exec "$REAL_PS" "\$@"
+        echo "\$((left - 1))" > "$TMP_ROOT/ppid-lag"
+        echo "ppid-lag \$left" >> "\$KILL_LOG"
+        cat "$TMP_ROOT/worker-pid"
+        exit 0
+        ;;
+    *) exec "$REAL_PS" "\$@" ;;
+esac
 mv "$TMP_ROOT/ps-hook" "$TMP_ROOT/ps-hook.fired" 2>/dev/null || exec "$REAL_PS" "\$@"
 case "\$(cat "$TMP_ROOT/ps-hook.fired")" in
     kill-worker)
@@ -2653,6 +2667,51 @@ expect_session_gone "$TMP_ROOT/hung.sh" "a hung session outlived a worker that d
 expect_watchdog_gone
 git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-128"
 cases=$((cases + 1)); printf '✓ work-ticket: a worker that dies while the session is paused still leaves the watchdog to end it\n'
+
+# A SIGKILLed worker closes the lifeline a moment before the system gives the session a new parent.
+# A pause in that moment makes the system send HUP to the session's group, and the session's
+# commands then outlive it (#1227). No test can make the system wait there, so the ps stub names
+# the dead worker as the session's parent for a few reads, and the kill log shows when the pause
+# came. The kill wrapper is the one of case 130.
+# lag_case <ticket> <reads that name the worker> <what failed if the session outlives the worker>
+# — sets left: the reads the watchdog did not make.
+lag_case() {
+    reset_fixtures
+    fixture_issue "$1" maintainer OWNER
+    rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/session-children" "$TMP_ROOT/kills"
+    (
+        export KILL_LOG="$TMP_ROOT/kills"
+        kill() { printf '%s %s\n' "$(exec sh -c 'echo "$PPID"')" "$*" >> "$KILL_LOG"; builtin kill "$@"; }
+        export -f kill
+        exec env CLAUDE_BEHAVIOR="$TMP_ROOT/long.sh" "$WORK" "$1" "$TMP_ROOT/run" > "$TMP_ROOT/kill.out" 2>&1
+    ) &
+    worker=$!
+    echo "$worker" > "$TMP_ROOT/worker-pid"
+    for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-children" ] && break; "$REAL_SLEEP" 0.1; done
+    [ -s "$TMP_ROOT/session-children" ] \
+        || { kill -KILL "$worker" 2>/dev/null; fail "the fake session never started" "$(cat "$TMP_ROOT/kill.out")"; }
+    echo "$2" > "$TMP_ROOT/ppid-lag"
+    kill -KILL "$worker"
+    wait "$worker" 2>/dev/null || true
+    for _ in $(seq 1 300); do alive "$(cat "$TMP_ROOT/session-pid")" || break; "$REAL_SLEEP" 0.1; done
+    left="$(cat "$TMP_ROOT/ppid-lag")"
+    rm -f "$TMP_ROOT/ppid-lag"
+    expect_session_gone "$TMP_ROOT/long.sh" "$3"
+    expect_watchdog_gone
+    awk '$1 == "ppid-lag" { last = NR } $2 == "-STOP" && !first { first = NR } END { exit !(last && first > last) }' \
+        "$TMP_ROOT/kills" \
+        || fail "the watchdog paused the session while the system still named the dead worker as its parent" \
+            "$(cat "$TMP_ROOT/kills")"
+    git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-$1"
+    cases=$((cases + 1))
+}
+lag_case 146 3 "the session outlived a SIGKILL of its worker"
+[ "$left" -eq 0 ] || fail "the watchdog paused the session before the system named its new parent"
+printf '✓ work-ticket: after a SIGKILLed worker, the watchdog pauses the session only once it has a new parent\n'
+# A parent that never changes must not keep the session running.
+lag_case 147 1000 "the session outlived its worker while the system kept naming the worker as its parent"
+[ "$left" -gt 0 ] || fail "the watchdog waited for the session's new parent with no limit"
+printf '✓ work-ticket: after a SIGKILLed worker, the watchdog waits only a few seconds for the session to get a new parent\n'
 
 # The system may give an ended worker's number to another program at once, and a check by number
 # cannot tell the two apart (#995, #997). No test can make the system reuse a number, so the worker

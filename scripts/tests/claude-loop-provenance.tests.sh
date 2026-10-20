@@ -225,9 +225,10 @@ printf '#!/usr/bin/env bash\nexec "%s" 0.05\n' "$REAL_SLEEP" > "$TMP_ROOT/bin/sl
 # session is paused, so a case can put something exactly there (#935). The rename makes it fire
 # once and is the case's proof that it fired.
 # A read of one process's parent can lag too. While $TMP_ROOT/ppid-lag holds a count above 0, it
-# names the worker in $TMP_ROOT/worker-pid, as the system does for a moment after the worker has
-# died (#1227). It pads the number, as real ps does. Each such answer goes to $KILL_LOG, so a case
-# can see what came after it.
+# names the worker in $TMP_ROOT/worker-pid as the parent of the session in $TMP_ROOT/session-pid,
+# as the system does for a moment after the worker has died (#1227). A read of any other process
+# gets the real answer. It pads the number, as real ps does. Each such answer goes to $KILL_LOG, so
+# a case can see what came after it.
 REAL_PS="$(command -v ps)"
 cat > "$TMP_ROOT/bin/ps" <<STUB
 #!/usr/bin/env bash
@@ -235,7 +236,9 @@ case " \$* " in
     *" -A "*) ;;
     *" -o ppid= -p "*)
         left="\$(cat "$TMP_ROOT/ppid-lag" 2>/dev/null || echo 0)"
+        session="\$(cat "$TMP_ROOT/session-pid" 2>/dev/null)"
         [ "\$left" -gt 0 ] 2>/dev/null || exec "$REAL_PS" "\$@"
+        [ -n "\$session" ] && [ "\$*" = "-o ppid= -p \$session" ] || exec "$REAL_PS" "\$@"
         echo "\$((left - 1))" > "$TMP_ROOT/ppid-lag"
         echo "ppid-lag \$left" >> "\$KILL_LOG"
         printf '%7s\n' "\$(cat "$TMP_ROOT/worker-pid")"
@@ -2669,24 +2672,34 @@ expect_watchdog_gone
 git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-128"
 cases=$((cases + 1)); printf '✓ work-ticket: a worker that dies while the session is paused still leaves the watchdog to end it\n'
 
+# start_logged_worker <output file> <env argument...> — starts `env <env argument...>` in the
+# background with every `kill` below it logged to $TMP_ROOT/kills, and sets worker. An exported
+# function wins over the builtin in each bash below it. It notes the real PID of the shell that
+# called it, because `$$` is the worker's PID in the watchdog subshell too.
+start_logged_worker() {
+    local out="$1"
+    shift
+    (
+        export KILL_LOG="$TMP_ROOT/kills"
+        kill() { printf '%s %s\n' "$(exec sh -c 'echo "$PPID"')" "$*" >> "$KILL_LOG"; builtin kill "$@"; }
+        export -f kill
+        exec env "$@" > "$out" 2>&1
+    ) &
+    worker=$!
+}
+
 # A SIGKILLed worker closes the lifeline a moment before the system gives the session a new parent.
 # A pause in that moment makes the system send HUP to the session's group, and the session's
 # commands then outlive it (#1227). No test can make the system wait there, so the ps stub names
 # the dead worker as the session's parent for a few reads, and the kill log shows when the pause
-# came. The kill wrapper is the one of case 130.
+# came.
 # lag_case <ticket> <reads that name the worker> <what failed if the session outlives the worker>
 # — sets left: the reads the watchdog did not make.
 lag_case() {
     reset_fixtures
     fixture_issue "$1" maintainer OWNER
     rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/session-children" "$TMP_ROOT/kills"
-    (
-        export KILL_LOG="$TMP_ROOT/kills"
-        kill() { printf '%s %s\n' "$(exec sh -c 'echo "$PPID"')" "$*" >> "$KILL_LOG"; builtin kill "$@"; }
-        export -f kill
-        exec env CLAUDE_BEHAVIOR="$TMP_ROOT/long.sh" "$WORK" "$1" "$TMP_ROOT/run" > "$TMP_ROOT/kill.out" 2>&1
-    ) &
-    worker=$!
+    start_logged_worker "$TMP_ROOT/kill.out" CLAUDE_BEHAVIOR="$TMP_ROOT/long.sh" "$WORK" "$1" "$TMP_ROOT/run"
     echo "$worker" > "$TMP_ROOT/worker-pid"
     for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-children" ] && break; "$REAL_SLEEP" 0.1; done
     [ -s "$TMP_ROOT/session-children" ] \
@@ -2714,8 +2727,7 @@ lag_case 146 3 "the session outlived a SIGKILL of its worker"
 [ "$left" -eq 0 ] || fail "the watchdog paused the session before the system named its new parent"
 printf '✓ work-ticket: after a SIGKILLed worker, the watchdog pauses the session only once it has a new parent\n'
 # A parent that never changes must not keep the session running.
-lag_case 147 1000 "the session outlived its worker while the system kept naming the worker as its parent"
-[ "$left" -gt 0 ] || fail "the watchdog waited for the session's new parent with no limit"
+lag_case 147 1000 "the watchdog waited for the session's new parent with no limit, so the session outlived its worker"
 printf '✓ work-ticket: after a SIGKILLed worker, the watchdog waits only a few seconds for the session to get a new parent\n'
 
 # The system may give an ended worker's number to another program at once, and a check by number
@@ -2814,9 +2826,8 @@ cases=$((cases + 1)); printf '✓ work-ticket: what a finished session left runn
 # A session that has ended gets no more signals (#983). Bash reaps a finished background job at
 # once, not at `wait`, and from then on the system may give its number to another program. The
 # worker looks at its session only every 30 seconds, so a stop in that nap must not use the number.
-# No test can make the system reuse a number, so every `kill` is logged instead: an exported
-# function wins over the builtin in each bash below it. It notes the real PID of the shell that
-# called it, because `$$` is the worker's PID in the watchdog subshell too.
+# No test can make the system reuse a number, so every `kill` is logged instead
+# (start_logged_worker).
 reset_fixtures
 fixture_issue 130 maintainer OWNER
 rm -f "$TMP_ROOT/session-pid" "$TMP_ROOT/session-child" "$TMP_ROOT/kills" "$TMP_ROOT/in-poll-nap"
@@ -2850,14 +2861,8 @@ await_ended_session() {
     return 1
 }
 
-(
-    export KILL_LOG="$TMP_ROOT/kills"
-    kill() { printf '%s %s\n' "$(exec sh -c 'echo "$PPID"')" "$*" >> "$KILL_LOG"; builtin kill "$@"; }
-    export -f kill
-    exec env PATH="$TMP_ROOT/poll-nap-bin:$PATH" CLAUDE_BEHAVIOR="$TMP_ROOT/ends-leaving-child.sh" \
-        "$WORK" 130 "$TMP_ROOT/run" > "$TMP_ROOT/ended.out" 2>&1
-) &
-worker=$!
+start_logged_worker "$TMP_ROOT/ended.out" PATH="$TMP_ROOT/poll-nap-bin:$PATH" \
+    CLAUDE_BEHAVIOR="$TMP_ROOT/ends-leaving-child.sh" "$WORK" 130 "$TMP_ROOT/run"
 await_ended_session || { kill -KILL "$worker" 2>/dev/null || true; fail "$why" "$(cat "$TMP_ROOT/ended.out")"; }
 # The worker naps and still holds the lifeline, so it may still signal the group. The watchdog must
 # leave the group alone: once the group is empty, its number is free.

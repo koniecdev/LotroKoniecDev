@@ -969,11 +969,12 @@ run_session() {
             # its last parent outside it, so the system sends HUP to the whole group. The session
             # dies at once, and its commands move to PID 1, where the watchdog no longer finds them
             # (#1227). So the pause waits until the worker ($$, also in this subshell) is no longer
-            # the session's parent, five seconds at most. Linux gives the new parent and decides on
-            # that HUP in one step, and a `ps` that has seen the new parent cannot exit before that
-            # step ends. When this script lets go of the lifeline itself, its session has already
-            # ended, so there is no wait. The one exception is a stop the moment the session starts:
-            # then the wait lasts until this script exits, five seconds at most.
+            # the session's parent, for 50 naps of 0.1 seconds at most: about five seconds, a little
+            # more when the box is busy. Linux gives the new parent and decides on that HUP in one
+            # step, and a `ps` that has seen the new parent cannot exit before that step ends. When
+            # this script lets go of the lifeline itself, its session has already ended, so there is
+            # no wait. The one exception is a stop the moment the session starts: then the wait
+            # lasts until this script exits, or until the 50 naps are over.
             tries=0
             while [ "$tries" -lt 50 ] && kill -0 "$group" 2>/dev/null; do
                 parent="$(ps -o ppid= -p "$group" 2>/dev/null)" || break

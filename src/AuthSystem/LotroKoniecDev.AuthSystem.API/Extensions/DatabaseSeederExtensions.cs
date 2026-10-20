@@ -256,6 +256,8 @@ internal static partial class DatabaseSeederExtensions
 
             // Every environment takes the addresses from configuration. OpenIddictSettingsValidator
             // requires at least one of each outside Development and Testing (ADR-0008 §3, note 6).
+            // They are written only here, when the client is created, so a later change needs a reseed
+            // (runbook, "Reseed traps").
             foreach (string redirectUri in settings.WebClient.RedirectUris)
             {
                 webClient.RedirectUris.Add(new Uri(redirectUri));
@@ -291,7 +293,7 @@ internal static partial class DatabaseSeederExtensions
 
         // The test client, used by integration and E2E tests only. It uses the password flow and is
         // created only in the Testing environment.
-        if (environment.IsEnvironment("Testing"))
+        if (environment.IsTesting())
         {
             const string testClientId = "lotrokoniecdev-test";
             if (await applicationManager.FindByClientIdAsync(testClientId) is null)

@@ -93,6 +93,11 @@ public sealed class WebClientSeedingTests : EndpointsTestBase
         OpenIddictSettings settings = new()
         {
             Issuer = hostSettings.Issuer,
+            InternalIssuer = hostSettings.InternalIssuer,
+            AccessTokenLifetimeMinutes = hostSettings.AccessTokenLifetimeMinutes,
+            RefreshTokenLifetimeMinutes = hostSettings.RefreshTokenLifetimeMinutes,
+            EncryptionKey = hostSettings.EncryptionKey,
+            SigningKey = hostSettings.SigningKey,
             ApiClientSecret = hostSettings.ApiClientSecret,
             WebClient = webClient
         };

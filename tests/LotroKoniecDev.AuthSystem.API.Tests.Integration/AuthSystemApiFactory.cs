@@ -320,8 +320,8 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         // then no-ops and this suite exercises its (older) code against the newer schema.
         await N1CompatSchemaSeam.ApplyIfConfiguredAsync(_postgresContainer, "auth.sql");
 
-        // Reading Services starts the host. The seeder is skipped in the Testing environment, so we
-        // seed here using the test host's own services, which have the right connection string.
+        // Reading Services starts the host, and the host runs the seeder at startup in every environment,
+        // Testing included. The seed only creates what is missing, so this second run changes nothing.
         IWebHostEnvironment environment = Services.GetRequiredService<IWebHostEnvironment>();
         await DatabaseSeederExtensions.SeedAuthDatabaseAsync(Services, environment);
     }

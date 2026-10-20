@@ -35,6 +35,8 @@ internal static partial class DatabaseSeederExtensions
         string adminUsername = ReadAdminUsername(configuration);
         string? adminPassword = ReadBootstrapPassword(configuration, environment, logger);
 
+        OpenIddictSettings openIddictSettings = services.GetRequiredService<IOptions<OpenIddictSettings>>().Value;
+
         // The whole seed can be run twice without harm, so retrying after a temporary failure is
         // safe. Each attempt gets a new scope, and with it a new AuthDbContext, because a context that
         // failed during a migration must not be reused.
@@ -48,7 +50,7 @@ internal static partial class DatabaseSeederExtensions
 
                 await SeedRolesAsync(scope.ServiceProvider);
                 await SeedAdminUserAsync(scope.ServiceProvider, adminEmail, adminUsername, adminPassword, logger);
-                await SeedOAuthApplicationsAsync(scope.ServiceProvider, environment);
+                await SeedOAuthApplicationsAsync(scope.ServiceProvider, openIddictSettings, environment);
             },
             logger);
     }
@@ -217,15 +219,13 @@ internal static partial class DatabaseSeederExtensions
         return null;
     }
 
-    private static async Task SeedOAuthApplicationsAsync(IServiceProvider serviceProvider, IWebHostEnvironment environment)
+    private static async Task SeedOAuthApplicationsAsync(
+        IServiceProvider serviceProvider,
+        OpenIddictSettings settings,
+        IWebHostEnvironment environment)
     {
         IOpenIddictApplicationManager applicationManager =
             serviceProvider.GetRequiredService<IOpenIddictApplicationManager>();
-
-        OpenIddictSettings settings = serviceProvider
-            .GetRequiredService<IOptions<OpenIddictSettings>>().Value;
-
-        bool isProduction = !environment.IsDevelopment() && !environment.IsEnvironment("Testing");
 
         // Web Application Client
         if (await applicationManager.FindByClientIdAsync(AuthConstants.ClientIds.Web) is null)
@@ -254,14 +254,8 @@ internal static partial class DatabaseSeederExtensions
                 }
             };
 
-            // Add the localhost URIs only in development and testing.
-            if (!isProduction)
-            {
-                webClient.RedirectUris.Add(new Uri(settings.WebClient.RedirectUris[0]));
-                webClient.PostLogoutRedirectUris.Add(new Uri(settings.WebClient.PostLogoutRedirectUris[0]));
-            }
-
-            // The production URIs come from configuration.
+            // Every environment takes the addresses from configuration. OpenIddictSettingsValidator
+            // requires at least one of each outside Development and Testing (ADR-0008 §3, note 6).
             foreach (string redirectUri in settings.WebClient.RedirectUris)
             {
                 webClient.RedirectUris.Add(new Uri(redirectUri));

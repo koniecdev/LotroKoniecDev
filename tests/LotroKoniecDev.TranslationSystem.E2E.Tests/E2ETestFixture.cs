@@ -186,8 +186,8 @@ public sealed class E2ETestFixture : IAsyncLifetime
             // The token iss; tms-api validates against this and fetches its JWKS from the same in-network address.
             .WithEnvironment("OpenIddict__Issuer", "http://auth-api:8080")
             .WithEnvironment("OpenIddict__ApiClientSecret", ApiClientSecret)
-            // The web client's addresses. Testing skips the startup check that requires them, so the host
-            // starts without them too; they keep the seeded client like the one on a real box.
+            // The web client's addresses. Testing skips the startup check that asks for them, so the host
+            // would start without them. They are set so the seeded client looks like the one on a real box.
             .WithEnvironment("OpenIddict__WebClient__RedirectUris__0", "http://localhost:8080/callback")
             .WithEnvironment("OpenIddict__WebClient__PostLogoutRedirectUris__0", "http://localhost:8080")
             .WithEnvironment("AdminUser__Username", AdminUsername)

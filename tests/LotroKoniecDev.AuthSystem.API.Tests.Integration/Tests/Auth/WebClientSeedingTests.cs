@@ -32,7 +32,7 @@ public sealed class WebClientSeedingTests : EndpointsTestBase
         WebClientSettings webClient = new()
         {
             RedirectUris = [LocalAppRoot + "/callback", DeployedAppRoot + "/callback"],
-            PostLogoutRedirectUris = [LocalAppRoot + "/", DeployedAppRoot + "/"]
+            PostLogoutRedirectUris = [LocalAppRoot, DeployedAppRoot + "/"]
         };
         await DeleteWebClientAsync();
 
@@ -72,12 +72,17 @@ public sealed class WebClientSeedingTests : EndpointsTestBase
 
     public override async Task DisposeAsync()
     {
-        await DeleteWebClientAsync();
-        await DatabaseSeederExtensions.SeedAuthDatabaseAsync(
-            Factory.Services,
-            Factory.Services.GetRequiredService<IWebHostEnvironment>());
-
-        await base.DisposeAsync();
+        try
+        {
+            await DeleteWebClientAsync();
+            await DatabaseSeederExtensions.SeedAuthDatabaseAsync(
+                Factory.Services,
+                Factory.Services.GetRequiredService<IWebHostEnvironment>());
+        }
+        finally
+        {
+            await base.DisposeAsync();
+        }
     }
 
     public WebClientSeedingTests(AuthSystemApiFactory appFactory) : base(appFactory) { }

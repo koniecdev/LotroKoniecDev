@@ -226,7 +226,8 @@ printf '#!/usr/bin/env bash\nexec "%s" 0.05\n' "$REAL_SLEEP" > "$TMP_ROOT/bin/sl
 # once and is the case's proof that it fired.
 # A read of one process's parent can lag too. While $TMP_ROOT/ppid-lag holds a count above 0, it
 # names the worker in $TMP_ROOT/worker-pid, as the system does for a moment after the worker has
-# died (#1227). Each such answer goes to $KILL_LOG, so a case can see what came after it.
+# died (#1227). It pads the number, as real ps does. Each such answer goes to $KILL_LOG, so a case
+# can see what came after it.
 REAL_PS="$(command -v ps)"
 cat > "$TMP_ROOT/bin/ps" <<STUB
 #!/usr/bin/env bash
@@ -237,7 +238,7 @@ case " \$* " in
         [ "\$left" -gt 0 ] 2>/dev/null || exec "$REAL_PS" "\$@"
         echo "\$((left - 1))" > "$TMP_ROOT/ppid-lag"
         echo "ppid-lag \$left" >> "\$KILL_LOG"
-        cat "$TMP_ROOT/worker-pid"
+        printf '%7s\n' "\$(cat "$TMP_ROOT/worker-pid")"
         exit 0
         ;;
     *) exec "$REAL_PS" "\$@" ;;
@@ -2695,8 +2696,12 @@ lag_case() {
     wait "$worker" 2>/dev/null || true
     for _ in $(seq 1 300); do alive "$(cat "$TMP_ROOT/session-pid")" || break; "$REAL_SLEEP" 0.1; done
     left="$(cat "$TMP_ROOT/ppid-lag")"
+    # Read before the stub lets go: once it gives the real parent, even a wait with no limit ends.
+    ended_in_lag=0
+    alive "$(cat "$TMP_ROOT/session-pid")" || ended_in_lag=1
     rm -f "$TMP_ROOT/ppid-lag"
     expect_session_gone "$TMP_ROOT/long.sh" "$3"
+    [ "$ended_in_lag" -eq 1 ] || fail "$3"
     expect_watchdog_gone
     awk '$1 == "ppid-lag" { last = NR } $2 == "-STOP" && !first { first = NR } END { exit !(last && first > last) }' \
         "$TMP_ROOT/kills" \

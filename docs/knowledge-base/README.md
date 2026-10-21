@@ -35,6 +35,11 @@ Detailed analysis: [e7-full-corpus-survival-2026-10-10.md](e7-full-corpus-surviv
 - **Guarded re-patch (ADR-0047) on a real update:** 785,070 written = every survivor + every collateral revert repaired; all 2,347 changed rows skipped as `source moved`; **0 Polish over changed English**; 0.41% of the corpus left in English
 - 60 of the changes are letter case only — the guard treats them as changed English (compare case-sensitively in tooling: PowerShell `-eq` is not)
 
+### Every subfile of the live English DAT round-trips byte for byte (2026-10-21)
+Detailed analysis: [subfile-round-trip-scan-2026-10-21.md](subfile-round-trip-scan-2026-10-21.md) (#1194)
+- Read-only scan of 311,970 subfiles (282,190 text, 806,120 fragments): **0 repeated fragment ids, 0 bytes after the last fragment, 0 round-trip mismatches, so 0 subfiles the #1194 write check refuses** (text and non-text)
+- **46% of text subfiles (129,165) store fragment ids out of ascending order** — a rebuild must keep file order, never sort by id
+
 ### DAT Protection: NOT NEEDED — Translations Survive Updates (incl. MAJOR), per-SubFile
 Detailed analysis: [dat-protection.md](dat-protection.md)
 - **PROVEN by 9 independent tests** including majors 47.2→48.0 (2026-04-23) and 48.8→49.1 (2026-08-02)

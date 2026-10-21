@@ -219,6 +219,15 @@ box down once (#988). (Workflow files are parsed by actionlint before the merge,
 github-actions entry stays without a hold.) The train itself is unchanged. It cannot know which
 files this repo's CI tests, so the entry that opens such a PR carries the hold.
 
+(Added 2026-10-18, #1006.) This one changes the train: a hold counts until the merge call. The
+train used to read the labels only when it picked the PRs, so a hold the owner added while the
+train waited for that PR's checks did not stop the merge. Now it checks the labels and the draft
+state on every poll while it waits, and once more on a fresh read right before the merge call,
+after all the other checks. That fresh read also stops the merge when a push landed or the owner
+unassigned themselves during those checks. If the train cannot read the PR there, it does not
+merge. Label names match in any letter case, as on GitHub. The session that fixes conflicts checks
+the hold and the approval again before it starts on a PR and before it pushes.
+
 ### 5. The train never deletes a branch here
 
 `merge-train` merges without `--delete-branch` in this repo, as the house rule requires. Other
@@ -261,7 +270,8 @@ session.
 - The `on-hold` label of §4 is not tied to the code the owner read. When the train asks Dependabot
   to rebase a PR after the label is gone, Dependabot builds the change again and can pin a newer
   digest of the same tag, a rebuild the owner has not seen. The version stays the same. An owner
-  who wants to see that digest first adds the label again (added 2026-10-04, #1001).
+  who wants to see that digest first adds the label again (added 2026-10-04, #1001). This also
+  works when the train is already waiting for that PR (#1006).
 
 ## Alternatives Considered
 
@@ -316,7 +326,10 @@ the same either way, so serial only costs wall-clock time. `-j 1` stays availabl
   refusal, `--match-head-commit`, and no `--delete-branch` for this repo, with its own offline
   self-test `merge-train.tests.sh` next to it. Since 2026-10-05 also the "to resolve" list, the
   `--record-resolution` call and the ledger of the train's own conflict fixes
-  (`~/.local/state/merge-train/`).
+  (`~/.local/state/merge-train/`). Since 2026-10-18 the skip labels and the draft state are read
+  again on every poll and on a fresh read right before the merge call; that fresh read also
+  refuses a moved head or a missing assignee, and the conflict-fix steps check the hold and the
+  approval again (#1006).
 
 ## References
 

@@ -254,6 +254,16 @@ finish() {
     fi
 }
 
+# follows_up <PR branch> <session branch> — true when the session's branch is the PR's branch with
+# `-follow-up` added, once or more, each time maybe with `-<k>`. A session whose PR was merged
+# before its last fix was pushed moves the fix to such a branch from main (#1097).
+follows_up() {
+    local rest
+    [[ "$2" == "$1"?* ]] || return 1
+    rest="${2#"$1"}"
+    [[ "$rest" =~ ^(-follow-up(-[0-9]+)?)+$ ]]
+}
+
 # commits_after_merge — prints how many commits on HEAD or on the merged PR's branch the merged PR
 # does not hold, plus one when the worktree has uncommitted files, which `finish` saves as a commit
 # on a salvage branch. The session may commit a fix after the merge, for example for a CodeQL alert:
@@ -271,10 +281,11 @@ finish() {
 # time.
 commits_after_merge() {
     local dir="$WT" tips="HEAD refs/heads/$pr_branch" ref="refs/loop-merged/$ISSUE-$$" merged_head
-    local tip listed found="" commit count=0 ssh_command
+    local tip listed found="" commit count=0 ssh_command follow_tip="HEAD" moved
     if [ "$own_worktree" -eq 0 ]; then
         dir="$REPO_ROOT"
         tips="refs/heads/$pr_branch${earlier_salvage:+ refs/heads/$earlier_salvage}"
+        follow_tip="refs/heads/$pr_branch"
     fi
     # Batch mode goes on the ssh command git would use anyway. Git takes GIT_SSH_COMMAND first, then
     # core.sshCommand, then the GIT_SSH program, then plain ssh.
@@ -299,6 +310,16 @@ commits_after_merge() {
         listed="$(git -C "$dir" cherry "$merged_head" "$tip" 2>/dev/null)" || return 1
         found="$found$(sed -n 's/^+ //p' <<< "$listed")"$'\n'
     done
+    # The session followed the merged PR up (#1097): a fix may still sit on the PR's own branch,
+    # not moved yet. A change the follow-up branch already has counts once.
+    if [ -n "$merged_branch" ] && [ "$merged_branch" != "$pr_branch" ] \
+        && git -C "$dir" rev-parse -q --verify "refs/heads/$merged_branch^{commit}" >/dev/null 2>&1; then
+        listed="$(git -C "$dir" cherry "$merged_head" "refs/heads/$merged_branch" 2>/dev/null)" || return 1
+        moved="$(git -C "$dir" cherry "$follow_tip" "refs/heads/$merged_branch" 2>/dev/null)" || return 1
+        for commit in $(sed -n 's/^+ //p' <<< "$listed"); do
+            grep -qxF -- "- $commit" <<< "$moved" || found="$found$commit"$'\n'
+        done
+    fi
     for commit in $(printf '%s' "$found" | sort -u); do
         git -C "$dir" merge-base --is-ancestor "$commit" refs/remotes/origin/main 2>/dev/null \
             || count=$((count + 1))
@@ -317,6 +338,10 @@ finish_merged() {
     after_merge="$(commits_after_merge)" || after_merge="?"
     meta unmerged "$after_merge"
     where="$checked"
+    if [ -n "$merged_branch" ] && [ "$merged_branch" != "$pr_branch" ]; then
+        where="$where and on branch $merged_branch"
+        checked="$checked or branch $merged_branch"
+    fi
     if [ "$own_worktree" -eq 1 ]; then
         head_place="$(git -C "$WT" branch --show-current 2>/dev/null || true)"
         where="$where, at the worktree's HEAD (${head_place:-detached}) and on any salvage branch named above"
@@ -451,6 +476,8 @@ release_kept=0
 # A PR of this ticket from the branch of an attempt the usage limit stopped, merged since that
 # attempt started (#1096). Its work is on main, so no session runs.
 merged_pr=""
+# The branch of merged_pr, when the stopped session moved its work off it to a follow-up branch.
+merged_branch=""
 # 0 when a ticket merged during a usage-limit nap has no worktree of its own any more: a folder that
 # appears under its name from then on is someone else's (#1096).
 own_worktree=1
@@ -519,7 +546,9 @@ if [ -n "$resume_session" ]; then
                 if [ "$ended" -ge "$resume_started" ]; then
                     if [ "$head" = "$branch" ]; then
                         merged_pr="${merged_pr:-$number}"
-                    else
+                    elif ! follows_up "$head" "$branch"; then
+                        # A PR the session follows up is its own: the resume finishes moving the fix
+                        # to the follow-up branch (#1097).
                         blocker="PR #$number was merged from another branch ($head)"
                     fi
                 fi
@@ -596,8 +625,11 @@ else
         merged_other_pr=""
         while read -r number head; do
             [ -n "$number" ] || continue
-            if [ "$head" = "$retry_branch" ]; then
-                merged_pr="${merged_pr:-$number}"
+            if [ "$head" = "$retry_branch" ] || follows_up "$head" "$retry_branch"; then
+                if [ -z "$merged_pr" ]; then
+                    merged_pr="$number"
+                    merged_branch="$head"
+                fi
             else
                 if [ -z "$merged_other" ]; then
                     merged_other="PR #$number from another branch ($head)"
@@ -908,9 +940,12 @@ resume_prompt() {
         no-status) why="Your last message has no STATUS line, so the loop cannot tell how ticket #$ISSUE ended." ;;
         no-pr) why="Your last message says STATUS: DONE, but the loop found no open pull request for ticket #$ISSUE${pr_named:+ (PR #$pr_named, which your message links, is not one)}. \
 The loop counts only an open PR in this repository whose branch name starts with \"$ISSUE-\". \
-Push the branch and open the PR now, or name the full URL of that PR if it already exists." ;;
+If the PR you opened in this session was closed without a merge, and you did not close it yourself, \
+push nothing and open no new PR: end with STATUS: BLOCKED, as step 8 of /work-ticket says. \
+Otherwise push the branch and open the PR now, or name the full URL of that PR if it already exists." ;;
         limit) why="The usage limit that stopped this session is over, and the loop resumes ticket #$ISSUE in the same worktree. \
-Time has passed since your last step, so check git status and whether the PR already exists before you go on. \
+Time has passed since your last step, so check git status, and whether the PR already exists and what state it is in \
+(step 8 of /work-ticket), before you go on. \
 A command that was running when the limit hit did not finish: run it again." ;;
     esac
     echo "$why \

@@ -4,6 +4,18 @@
        Windows reports an older version to the process. -->
   <assemblyIdentity version="1.0.0.0" name="LotroPoPolsku.Desktop"/>
 
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <!-- asInvoker, as in the default manifest the CLI gets. Without this entry Windows treats a
+             32-bit app as a legacy one and quietly redirects its writes under Program Files to the
+             VirtualStore folder, so a patch would never reach the real DAT. Elevation is #42's job,
+             behind an abstraction (ADR-0033 §2). -->
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
     <application>
       <!-- Windows 10 and Windows 11 -->

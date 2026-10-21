@@ -272,8 +272,9 @@ Tests that touch real infrastructure adapters (today: `GameLauncherTests`,
 `AuthenticodeLauncherSignatureVerifierTests`, `DatExportNativeTests`,
 `TranslationFileDownloaderTests` and `ForumPageFetcherTests` — the network ones drive the
 adapters' integrity, response-size-cap and timeout enforcement points over an in-memory stub
-`HttpMessageHandler`, no real network). `DesktopAppDependencyInjectionTests` sits here too: the
-desktop app's composition root wires the real x86 adapters, so only this Windows suite can load it.
+`HttpMessageHandler`, no real network). Two desktop app suites sit here too, because only this
+Windows suite can load the x86 exe: `DesktopAppDependencyInjectionTests` builds its composition root
+with the real adapters, and `DesktopAppManifestTests` reads the built `LotroPoPolsku.exe`.
 This project is patcher-side only — TMS PostgreSQL/EF Core coverage lives in the
 `*.Tests.Integration` projects. Asserting on real
 file output belongs here, never in `Tests.Unit`. Targets `net10.0-windows`: builds everywhere,

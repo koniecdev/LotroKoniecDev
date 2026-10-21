@@ -73,6 +73,13 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
             return ErrorMapper.MapErrorToExitCode(preflightCheckResponse.Error);
         }
 
+        Result canPatchResult = preflightCheckResponse.Value.EnsureCanPatch(actualResolvedPaths.Value.DatFilePath);
+        if (canPatchResult.IsFailure)
+        {
+            _reporter.Report(canPatchResult.Error.ToString());
+            return ErrorMapper.MapErrorToExitCode(canPatchResult.Error);
+        }
+
         // Read the DAT version before patching, so we do not have to reopen the file after the native
         // DLL closes it.
         Result<DatVersionInfo> datVersionResult = _datVersionReader.ReadVersion(actualResolvedPaths.Value.DatFilePath);

@@ -211,6 +211,7 @@ Tests/
     ApplyPatchCommandHandlerTests.cs   Patch handler (mocked IPatchingService, real validator)
     GameLaunchingCommandHandlerTests.cs Launch handler + SimplifiedGameLaunchingStrategy branches
     PreflightCheckQueryHandlerTests.cs Preflight checks (process, write access, update check)
+    PreflightReportResponseTests.cs    When `patch` may write: game closed + folder writable; the update check never blocks
     PatchingServiceTests.cs            Patch orchestration (mocked IDatFileHandler + ITranslationParser)
     SyncTranslationFileCommandHandlerTests.cs TMS file sync (HTTPS-only URL guard, integrity rejection, ETag/304, offline fallback)
     TranslationFileContentIntegrityTests.cs   Downloaded-file SHA-256/ETag integrity check (AUDIT-SEC-01)

@@ -12,14 +12,9 @@ namespace LotroKoniecDev.DesktopApp;
 /// </summary>
 internal static class DesktopAppDependencyInjection
 {
-    public static string LogFilePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "LotroPoPolsku",
-        "LotroPoPolsku.log");
-
     /// <remarks>
-    /// The handlers' log lines go to Serilog's static logger, which <see cref="Program"/> points at
-    /// <see cref="LogFilePath"/>, as the CLI does.
+    /// The handlers' log lines go to Serilog's static logger, which <see cref="Program"/> points at the
+    /// log file, as the CLI does.
     /// </remarks>
     public static ServiceProvider BuildServiceProvider()
     {

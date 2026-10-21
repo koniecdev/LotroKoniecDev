@@ -290,6 +290,9 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   handlers (`AddSingleton` + a root-provider resolve is a captive dependency that refuses to
   build). A new CLI command follows suit. No CI covers that graph (the CLI is
   `net10.0-windows/win-x86`), so changes to it need a Windows `export`/`patch`/`launch` smoke.
+  The desktop app (#41) is the same case: `DesktopAppDependencyInjection` validates the same way and
+  resolves its view models from one app-wide scope. `DesktopAppDependencyInjectionTests` checks that
+  graph, but only in the Windows-only `Tests.Infrastructure` suite, which CI does not run.
 - **CQRS read/write split, day 1 (ADR-0002 amendment).** Query handlers read POCO `ReadModels`
   through `IApplicationReadDbContext`; command handlers load and mutate aggregates via
   repositories + `IUnitOfWork`. The write model never serves list/search queries; every new

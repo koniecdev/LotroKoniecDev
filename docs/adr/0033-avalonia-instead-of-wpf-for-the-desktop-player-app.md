@@ -150,11 +150,12 @@ M4-01 put the app in two projects under `src/Player/`:
 
 **Why two.** A `net10.0` project cannot reference a `net10.0-windows` one, and an x86 assembly
 cannot load into the x64 test host of a Linux runner. With one x86 Windows project, the Linux UI
-tests this ADR counts on (#46) could not exist. The split also makes §2 a build rule instead of a
-review habit: in a plain `net10.0` project the platform analyzer (CA1416) fails the build on a
-Windows-only call, such as the registry. So Windows-only code can only live in the exe, behind an
-interface the UI injects. The architecture suite adds the rest: the UI never reaches the patcher
-Infrastructure or the Cli, and, like the rest of the patcher, never reaches the TMS.
+tests this ADR counts on (#46) could not exist. The split also makes most of §2 a build rule: in a
+plain `net10.0` project the platform analyzer (CA1416) fails the build on a .NET API marked
+Windows-only, such as the registry. A P/Invoke into a Windows DLL or a hard-coded Windows path still
+compiles there, so those stay a review rule: Windows-only code lives in the exe, behind an interface
+the UI injects. The architecture suite adds the rest: the UI never reaches the patcher Infrastructure
+or the Cli, and, like the rest of the patcher, never reaches the TMS.
 
 **Tests follow the same line.** `DesktopApp.Tests.Unit` runs the real windows on Avalonia's headless
 platform, on any OS. The composition root needs the x86 Windows graph, so its test lives in the

@@ -26,7 +26,7 @@ Full project inventory (16 projects):
 | `LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` | TMS domain unit | nothing (pure); Stryker target |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handlers, auth and endpoints (fake read DbContext, stub accessor and provisioner), and the account event consumer's pauses on a fake clock (#1223) | nothing (pure) |
 | `LotroKoniecDev.Frontend.Tests.Unit` | Blazor SSR components and infrastructure (bUnit) | nothing (pure) |
-| `LotroKoniecDev.DesktopApp.Tests.Unit` | desktop app UI (#41): view model, progress reporter, main window layout and the splash hand-over, on Avalonia's headless platform | nothing (no screen; runs on Linux too) |
+| `LotroKoniecDev.DesktopApp.Tests.Unit` | desktop app UI (#41): the view models (incl. the progress bar the patcher handlers report to), the main window layout and the splash hand-over, on Avalonia's headless platform | nothing (no screen; runs on Linux too) |
 | `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api: startup settings checks, handlers, middleware, pages, services, outbox and inbox, seed retry policy, when the timed jobs run (#948) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
 | `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |

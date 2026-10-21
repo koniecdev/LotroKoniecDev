@@ -104,7 +104,8 @@ everything that matters must be committed and pushed.
    moves to a new ticket). Write the PR body to `/tmp/claude-ticket-$ARGUMENTS/pr-body.md`: outside
    the worktree, so no commit and no leftover check sees it, and one folder per ticket, so parallel
    workers never share a file. It starts with `Closes #$ARGUMENTS`, then the problem in plain words
-   (`/ticket` step 8), and ends with a **`## Ticket report`** section — `**Shipped:**` /
+   (`/ticket` step 8, with its `## Before merge, on Windows` steps when the diff changes
+   Windows-only code), and ends with a **`## Ticket report`** section — `**Shipped:**` /
    `**Proof:**` / `**Assumptions:**` / `**Doubts:**` / `**Follow-ups:**`, where "none" is a valid
    entry and silence is not: the run is unattended, so every judgment call and every unverified
    area must land where the user reads it (same contract as `/ticket` step 9, CodeQL entry

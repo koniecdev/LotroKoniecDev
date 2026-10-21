@@ -267,7 +267,9 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   `/tmp/claude-ticket-<n>/pr-body.md`: outside the repo, so no commit picks it up, and one folder
   per ticket, so two sessions never share a file. The body is `Closes #<n>`, then the problem in
   plain words (`## Problem`, `## Why`, `## Fix`), then what changed and how it was tested, then
-  step 9's report. Run step 10 on that file, then `gh pr create` with the title mirroring the
+  step 9's report. A diff that changes Windows-only code, made in a session that does not run on
+  Windows, also lists the manual steps under `## Before merge, on Windows`: the PR gets
+  `needs-windows-check` when it opens (`docs/labels.md`). Run step 10 on that file, then `gh pr create` with the title mirroring the
   ticket and `--body-file <that file>`. The ticket is the authorization — do not stop to ask for
   permission to commit, push, or open the PR.
 - **CodeQL alerts block the merge, so clear them before your final reply.** Once the PR's

@@ -41,7 +41,7 @@ public sealed class SimplifiedGameLaunchingStrategyWipeRepairTests
     private readonly SimplifiedGameLaunchingStrategy _sut;
 
     [Fact]
-    public async Task Launch_AfterAnUpdateReplacedOnePatchedSubFileAndRemovedAnother_ShouldDetectBothAndRestoreTheRows()
+    public async Task ExecuteAsync_AfterAnUpdateReplacedOnePatchedSubFileAndRemovedAnother_ShouldDetectBothAndRestoreTheRows()
     {
         // Arrange: the update puts A back with the same English and a new iteration (a collateral
         // revert), and removes B. C is untouched and keeps its Polish.
@@ -61,7 +61,7 @@ public sealed class SimplifiedGameLaunchingStrategyWipeRepairTests
     }
 
     [Fact]
-    public async Task Launch_AfterAnUpdateThatChangedTheEnglishOfARow_ShouldLeaveThatRowInEnglishAndRepairTheRest()
+    public async Task ExecuteAsync_AfterAnUpdateThatChangedTheEnglishOfARow_ShouldLeaveThatRowInEnglishAndRepairTheRest()
     {
         // Arrange: the repair writes through the source guard (ADR-0047), so the translation of
         // English that SSG changed must not come back.
@@ -78,7 +78,7 @@ public sealed class SimplifiedGameLaunchingStrategyWipeRepairTests
     }
 
     [Fact]
-    public async Task Launch_RightAfterARepair_ShouldFindNothingAndWriteNothing()
+    public async Task ExecuteAsync_RightAfterARepair_ShouldFindNothingAndWriteNothing()
     {
         // Arrange: the repair saved a new snapshot, which is what stops it from running again.
         Patch();
@@ -96,7 +96,7 @@ public sealed class SimplifiedGameLaunchingStrategyWipeRepairTests
     }
 
     [Fact]
-    public async Task Launch_WithNoUpdateSinceThePatch_ShouldNotTouchTheDat()
+    public async Task ExecuteAsync_WithNoUpdateSinceThePatch_ShouldNotTouchTheDat()
     {
         // Arrange: the E5 negative control. Nothing moved the iterations after our patch.
         Patch();
@@ -113,7 +113,7 @@ public sealed class SimplifiedGameLaunchingStrategyWipeRepairTests
     }
 
     [Fact]
-    public async Task Launch_WhenTheRepairCannotOpenTheDatForWriting_ShouldStillStartTheGame()
+    public async Task ExecuteAsync_WhenTheRepairCannotOpenTheDatForWriting_ShouldStillStartTheGame()
     {
         // Arrange: a launch without elevation. Before Tier 0 it started the game, so it still must.
         Patch();
@@ -132,7 +132,7 @@ public sealed class SimplifiedGameLaunchingStrategyWipeRepairTests
     }
 
     [Fact]
-    public async Task Launch_AfterARepairThatFailed_ShouldTryAgain()
+    public async Task ExecuteAsync_AfterARepairThatFailed_ShouldTryAgain()
     {
         // Arrange: the failed repair saved no snapshot, so the old one still shows the wiped set.
         Patch();
@@ -150,7 +150,7 @@ public sealed class SimplifiedGameLaunchingStrategyWipeRepairTests
     }
 
     [Fact]
-    public async Task Launch_OnAnInstallPatchedBeforeSnapshotsExisted_ShouldBehaveAsBefore()
+    public async Task ExecuteAsync_OnAnInstallPatchedBeforeSnapshotsExisted_ShouldBehaveAsBefore()
     {
         // Arrange: an older patcher wrote the DAT and saved no snapshot, and an update has replaced A
         // since then. Nothing tells us what our patch left, so nothing may be forced.
@@ -167,7 +167,7 @@ public sealed class SimplifiedGameLaunchingStrategyWipeRepairTests
     }
 
     [Fact]
-    public async Task Launch_WithADamagedSnapshot_ShouldNeverForceARepair()
+    public async Task ExecuteAsync_WithADamagedSnapshot_ShouldNeverForceARepair()
     {
         // Arrange
         Patch();
@@ -185,7 +185,7 @@ public sealed class SimplifiedGameLaunchingStrategyWipeRepairTests
     }
 
     [Fact]
-    public async Task Launch_WithRowsThePatcherSkips_ShouldDetectNothingWithoutAnUpdate()
+    public async Task ExecuteAsync_WithRowsThePatcherSkips_ShouldDetectNothingWithoutAnUpdate()
     {
         // Arrange: every row class the patch skips (#565, owner comment of 2026-08-16): not approved,
         // a subfile the DAT does not hold, a non-text subfile, a piece that is too long and a fragment

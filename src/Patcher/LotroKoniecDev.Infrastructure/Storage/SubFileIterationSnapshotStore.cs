@@ -13,9 +13,10 @@ namespace LotroKoniecDev.Infrastructure.Storage;
 /// <remarks>
 /// Unlike the ledger, one broken line makes the whole file unreadable. The file is always written in
 /// one step, so a broken line means it is not the file we wrote, and its other lines cannot be
-/// trusted either. An unreadable snapshot only turns detection off until the next patch saves a new
-/// one. A wrong one could report replaced subfiles that nobody replaced and force a repair on every
-/// launch.
+/// trusted either. An unreadable snapshot turns detection off until the next patch saves a new one,
+/// with a warning on every launch until then. A wrong one could report subfiles that nobody replaced
+/// and force a repair that nothing justifies. That repair would pass the source guard and save a
+/// fresh snapshot, but spec 0012 asks for no forced repair at all from a snapshot we cannot trust.
 /// </remarks>
 public sealed class SubFileIterationSnapshotStore : ISubFileIterationSnapshotStore
 {
@@ -47,7 +48,7 @@ public sealed class SubFileIterationSnapshotStore : ISubFileIterationSnapshotSto
                 {
                     return Result.Failure<SubFileIterationSnapshot?>(DomainErrors.IterationSnapshot.ReadError(
                         snapshotPath,
-                        $"line {lineNumber} is not a 'file_id||iteration' entry with a file id of its own"));
+                        $"line {lineNumber} is not a 'file_id||iteration' entry for a text subfile with a file id of its own"));
                 }
             }
         }
@@ -100,9 +101,12 @@ public sealed class SubFileIterationSnapshotStore : ISubFileIterationSnapshotSto
 
         string[] fields = line.Split(FieldSeparator);
 
+        // The iteration is a signed int from the DAT, so a minus sign is ours too. Every file id we
+        // write belongs to a text subfile.
         return fields.Length == FieldCount
             && int.TryParse(fields[0], NumberStyles.None, CultureInfo.InvariantCulture, out fileId)
-            && int.TryParse(fields[1], NumberStyles.None, CultureInfo.InvariantCulture, out iteration);
+            && SubFile.IsTextFile(fileId)
+            && int.TryParse(fields[1], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out iteration);
     }
 
     private static string SnapshotPath(string translationFilePath) => translationFilePath + ".iterations";

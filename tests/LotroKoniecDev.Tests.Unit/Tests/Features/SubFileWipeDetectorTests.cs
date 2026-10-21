@@ -96,6 +96,21 @@ public sealed class SubFileWipeDetectorTests
     }
 
     [Fact]
+    public void Detect_WithAnEmptySnapshot_ShouldReturnAnEmptySet()
+    {
+        // Arrange: the patch never saves an empty snapshot, so this is a damaged file. It must not
+        // report "all is well" either, which is why it gets its own warning in the log.
+        GivenSnapshotAfterPatch();
+        GivenDatNow((TextFileA, 2));
+
+        // Act
+        WipedSubFileSet wiped = _sut.Detect(DatFilePath, TranslationFilePath);
+
+        // Assert
+        wiped.IsEmpty.ShouldBeTrue();
+    }
+
+    [Fact]
     public void Detect_WhenTheDatCannotBeOpened_ShouldReturnAnEmptySet()
     {
         // Arrange
@@ -137,6 +152,18 @@ public sealed class SubFileWipeDetectorTests
         _sut.Detect(DatFilePath, TranslationFilePath);
 
         // Assert
+        _datFileHandler.Received(1).Close(ReadOnlyHandle);
+    }
+
+    [Fact]
+    public void Detect_WhenReadingTheIterationsThrows_ShouldStillCloseTheDat()
+    {
+        // Arrange
+        GivenSnapshotAfterPatch((TextFileA, 1));
+        _datFileHandler.GetAllSubfileSizes(ReadOnlyHandle).Returns(_ => throw new InvalidOperationException("native fault"));
+
+        // Act & Assert
+        Should.Throw<InvalidOperationException>(() => _sut.Detect(DatFilePath, TranslationFilePath));
         _datFileHandler.Received(1).Close(ReadOnlyHandle);
     }
 

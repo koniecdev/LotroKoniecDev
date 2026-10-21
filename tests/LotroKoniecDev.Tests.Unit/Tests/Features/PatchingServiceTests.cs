@@ -1090,4 +1090,82 @@ public sealed class PatchingServiceTests
         result.Value.AppliedTranslations.ShouldBe(1);
         result.Value.Warnings.ShouldContain(saveError.Message);
     }
+
+    [Fact]
+    public void ApplyTranslations_WhenTheDatListsNoTextSubFileAfterTheWrites_ShouldKeepTheOldSnapshotAndWarn()
+    {
+        // Arrange: a failed read after the patch. Saving it would replace a good snapshot with one that
+        // can never detect anything.
+        SetupAllPassingDefaults();
+        _datFileHandler.GetAllSubfileSizes(DatHandle).Returns(
+            new Dictionary<int, (int, int)> { { TextFileId, (100, 1) } },
+            new Dictionary<int, (int, int)>());
+        SetupTranslations(CreateTranslation());
+
+        // Act
+        Result<PatchSummaryResponse> result =
+            _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Warnings.ShouldContain(warning => warning.Contains("iteration snapshot was not saved"));
+        _snapshotStore.DidNotReceive().Save(Arg.Any<string>(), Arg.Any<SubFileIterationSnapshot>());
+    }
+
+    [Fact]
+    public void ApplyTranslations_WhenASubFileFailsToWrite_ShouldStillSaveTheSnapshot()
+    {
+        // Arrange: on purpose. A subfile that can never be written would otherwise start a full repair
+        // on every launch; this way it waits for the next patch, with a warning now.
+        SetupAllPassingDefaults();
+        Error writeError = new("DatFile.WriteError", "PutSubfileData failed", ErrorType.IoError);
+        _datFileHandler.PutSubfileData(DatHandle, Arg.Any<int>(), Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(Result.Failure(writeError));
+        SetupTranslations(CreateTranslation());
+
+        // Act
+        Result<PatchSummaryResponse> result =
+            _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.Value.Warnings.ShouldContain(writeError.Message);
+        _snapshotStore.Received(1).Save("/translations/polish.txt", Arg.Any<SubFileIterationSnapshot>());
+    }
+
+    [Fact]
+    public void ApplyTranslations_ShouldFlushTheDatBeforeItSavesTheLedger()
+    {
+        // Arrange: if the process died between the two, a ledger saved first would describe writes the
+        // DAT never got.
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation());
+
+        // Act
+        _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        Received.InOrder(() =>
+        {
+            _datFileHandler.Flush(DatHandle);
+            _translationLedger.Save("/translations/polish.txt", Arg.Any<IReadOnlyDictionary<LedgerKey, string>>());
+        });
+    }
+
+    [Fact]
+    public void ApplyTranslations_ShouldFlushTheDatBeforeItSavesTheSnapshot()
+    {
+        // Arrange
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation());
+
+        // Act
+        _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        Received.InOrder(() =>
+        {
+            _datFileHandler.Flush(DatHandle);
+            _snapshotStore.Save("/translations/polish.txt", Arg.Any<SubFileIterationSnapshot>());
+        });
+    }
 }

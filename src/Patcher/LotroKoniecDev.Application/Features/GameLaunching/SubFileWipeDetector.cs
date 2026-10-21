@@ -34,6 +34,14 @@ internal sealed partial class SubFileWipeDetector : ISubFileWipeDetector
             return WipedSubFileSet.None;
         }
 
+        // The patch never saves an empty snapshot, so an empty one is a damaged file. Comparing with
+        // it would find nothing on every launch and say all is well.
+        if (stored.Count == 0)
+        {
+            LogSnapshotEmpty(_logger);
+            return WipedSubFileSet.None;
+        }
+
         Result<int> openResult = _datFileHandler.Open(datFilePath, DatFileAccess.Read);
         if (openResult.IsFailure)
         {
@@ -92,6 +100,9 @@ internal sealed partial class SubFileWipeDetector : ISubFileWipeDetector
 
     [LoggerMessage(EventId = EventIds.LaunchWipeSnapshotUnreadable, Level = LogLevel.Warning, Message = "Tier 0: the iteration snapshot cannot be read ({Error}). No update detection until the next patch saves a new one")]
     private static partial void LogSnapshotUnreadable(ILogger logger, string error);
+
+    [LoggerMessage(EventId = EventIds.LaunchWipeSnapshotEmpty, Level = LogLevel.Warning, Message = "Tier 0: the iteration snapshot lists no text subfile, so it is damaged. No update detection until the next patch saves a new one")]
+    private static partial void LogSnapshotEmpty(ILogger logger);
 
     [LoggerMessage(EventId = EventIds.LaunchWipeNoSnapshot, Level = LogLevel.Information, Message = "Tier 0: no iteration snapshot yet. Update detection starts after the next patch")]
     private static partial void LogNoSnapshot(ILogger logger);

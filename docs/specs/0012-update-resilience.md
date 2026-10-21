@@ -120,7 +120,10 @@ corrections with stale Polish — and TMS imports stay correct at any corpus sca
   file is unchanged, because a changed file is patched anyway. No snapshot, a damaged one, a DAT
   that cannot be opened read-only, or a DAT that lists no text subfile means no detection, never a
   repair. A failed repair does not stop the launch: before Tier 0 that launch started the game
-  without writing the DAT. The old snapshot stays, so the next launch tries again.
+  without writing the DAT. The old snapshot stays, so the next launch tries again. A patch that
+  succeeds while one subfile failed to load or to write still saves the snapshot, so that subfile
+  waits for the next patch; otherwise a subfile our parser cannot read would start a full repair on
+  every launch.
 
 ### Tier 1 — update-day orchestrator (atomic UX; branches A/B/C)
 

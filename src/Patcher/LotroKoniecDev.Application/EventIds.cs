@@ -46,6 +46,7 @@ internal static class EventIds
     public const int LaunchRepairingWipedSubFiles = 5132;
     public const int LaunchRepairFailed = 5133;
     public const int LaunchWipedSubFilesRepaired = 5134;
+    public const int LaunchWipeSnapshotEmpty = 5135;
 
     // Translation File Syncing (5200–5299)
     public const int TranslationFileEndpointFallbackToCache = 5200;

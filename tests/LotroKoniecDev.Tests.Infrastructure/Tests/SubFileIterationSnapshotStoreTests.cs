@@ -45,8 +45,9 @@ public sealed class SubFileIterationSnapshotStoreTests : IDisposable
     [Fact]
     public void Save_ThenRead_ShouldRoundTripEveryIteration()
     {
-        // Arrange: int.MaxValue and 0 as the two ends of the column.
-        SubFileIterationSnapshot snapshot = Snapshot((TextFileA, 26751), (TextFileB, int.MaxValue), (0x25000003, 0));
+        // Arrange: the column is a signed int from the DAT, so both ends and zero have to come back.
+        SubFileIterationSnapshot snapshot = Snapshot(
+            (TextFileA, 26751), (TextFileB, int.MaxValue), (0x25000003, 0), (0x25000004, int.MinValue));
 
         // Act
         Result saveResult = _sut.Save(TranslationFilePath, snapshot);
@@ -55,10 +56,11 @@ public sealed class SubFileIterationSnapshotStoreTests : IDisposable
         // Assert
         saveResult.IsSuccess.ShouldBeTrue();
         read.Value.ShouldNotBeNull();
-        read.Value.Count.ShouldBe(3);
+        read.Value.Count.ShouldBe(4);
         read.Value.Iterations[TextFileA].ShouldBe(26751);
         read.Value.Iterations[TextFileB].ShouldBe(int.MaxValue);
         read.Value.Iterations[0x25000003].ShouldBe(0);
+        read.Value.Iterations[0x25000004].ShouldBe(int.MinValue);
     }
 
     [Fact]
@@ -125,7 +127,8 @@ public sealed class SubFileIterationSnapshotStoreTests : IDisposable
     [InlineData("||7")]
     [InlineData("notanumber||7")]
     [InlineData("620756993||notanumber")]
-    [InlineData("620756993||-7")]
+    [InlineData("33554433||7")]
+    [InlineData("-620756993||7")]
     [InlineData("620756993|| 7")]
     [InlineData("620756993||7||8")]
     [InlineData("620756993||99999999999")]
@@ -133,7 +136,8 @@ public sealed class SubFileIterationSnapshotStoreTests : IDisposable
     [InlineData("620756994||8")]
     public void Read_WithALineThatIsNotOursOrRepeatsAFileId_ShouldFailInsteadOfGuessing(string badLine)
     {
-        // Arrange: the last case repeats the file id of the first line. Unlike the ledger, one bad line
+        // Arrange: 33554433 is a non-text subfile, which the patch never saves. The last case repeats
+        // the file id of the first line. Unlike the ledger, one bad line
         // makes the whole file unusable: if the file is not what we wrote, its good-looking lines are
         // not trustworthy either, and trusting them could force a repair on every launch.
         Directory.CreateDirectory(Path.GetDirectoryName(SnapshotPath)!);

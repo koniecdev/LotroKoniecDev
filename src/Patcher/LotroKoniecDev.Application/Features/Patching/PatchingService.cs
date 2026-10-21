@@ -14,8 +14,9 @@ namespace LotroKoniecDev.Application.Features.Patching;
 /// </summary>
 /// <remarks>
 /// Every successful run ends by saving the DAT's iteration snapshot (spec 0012 Tier 0). Every path
-/// that writes the DAT comes through here, so none of them can forget it, and the launch always
-/// compares the DAT with the state our last write left.
+/// of ours that patches the DAT comes through here, so none of them can forget it, and the launch
+/// always compares the DAT with the state our last patch left. The one other write, the backup that
+/// <c>patch</c> restores after an exception, happens before the save, so the old snapshot stays.
 /// </remarks>
 internal sealed class PatchingService : IPatchingService
 {
@@ -343,16 +344,30 @@ internal sealed class PatchingService : IPatchingService
             // Read again after the writes instead of reusing the list from the start. Our patch keeps
             // every iteration (E5, E7), but if a write ever moved one, the old list would report that
             // subfile as replaced on every launch and force a repair each time.
+            // The snapshot is saved even when a subfile above failed to load or to write. That subfile
+            // is then not repaired again until the next patch, and this is on purpose: a subfile our
+            // parser cannot read would otherwise start a full repair on every launch.
             SubFileIterationSnapshot snapshot =
                 SubFileIterationSnapshot.FromSubfileSizes(_datFileHandler.GetAllSubfileSizes(datFileHandle));
 
-            Result snapshotSaveResult = _snapshotStore.Save(translationsPath, snapshot);
-
-            if (snapshotSaveResult.IsFailure)
+            if (snapshot.Count == 0)
             {
-                // Not fatal either: the DAT is already written. The old snapshot stays, so the next
-                // launch may repair once more, and that repair passes the same guard.
-                warnings.Add(snapshotSaveResult.Error.Message);
+                // A DAT that lists no text subfile after we patched it is a failed read. Saving it would
+                // replace a good snapshot with one that can never detect anything.
+                warnings.Add(
+                    "The DAT listed no text subfile after the patch, so the iteration snapshot was not saved. "
+                    + "The next launch compares the DAT with the snapshot of the patch before this one.");
+            }
+            else
+            {
+                Result snapshotSaveResult = _snapshotStore.Save(translationsPath, snapshot);
+
+                if (snapshotSaveResult.IsFailure)
+                {
+                    // Not fatal either: the DAT is already written. The old snapshot stays, so the next
+                    // launch may repair once more, and that repair passes the same guard.
+                    warnings.Add(snapshotSaveResult.Error.Message);
+                }
             }
 
             PatchSummaryResponse summary = new(

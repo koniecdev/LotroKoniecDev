@@ -13,5 +13,9 @@ public interface ISubFileWipeDetector
     /// can be compared: no saved snapshot, a damaged one, or a DAT that cannot be read. A missing
     /// answer must never force a repair.
     /// </returns>
+    /// <remarks>
+    /// An exception from the DAT adapter is not caught. It means a programmer error or a native fault,
+    /// and the patch that would follow calls the same adapter in the same way.
+    /// </remarks>
     WipedSubFileSet Detect(string datFilePath, string translationFilePath);
 }

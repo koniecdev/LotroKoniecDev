@@ -15,8 +15,9 @@ namespace LotroKoniecDev.Application.Features.Patching;
 /// <remarks>
 /// Every successful run ends by saving the DAT's iteration snapshot (spec 0012 Tier 0). Every path
 /// of ours that patches the DAT comes through here, so none of them can forget it, and the launch
-/// always compares the DAT with the state our last patch left. The one other write, the backup that
-/// <c>patch</c> restores after an exception, happens before the save, so the old snapshot stays.
+/// always compares the DAT with the state our last patch left. The one other write is the backup that
+/// <c>patch</c> restores after an exception. An exception inside this method comes before the save,
+/// so the old snapshot stays.
 /// </remarks>
 internal sealed class PatchingService : IPatchingService
 {

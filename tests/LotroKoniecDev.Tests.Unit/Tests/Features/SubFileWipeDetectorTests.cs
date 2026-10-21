@@ -106,8 +106,9 @@ public sealed class SubFileWipeDetectorTests
         // Act
         WipedSubFileSet wiped = _sut.Detect(DatFilePath, TranslationFilePath);
 
-        // Assert
+        // Assert: an empty set comes back either way, so the proof is that nothing was compared.
         wiped.IsEmpty.ShouldBeTrue();
+        _datFileHandler.DidNotReceive().Open(Arg.Any<string>(), Arg.Any<DatFileAccess>());
     }
 
     [Fact]

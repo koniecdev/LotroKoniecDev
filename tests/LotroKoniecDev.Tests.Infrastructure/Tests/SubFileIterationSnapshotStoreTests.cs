@@ -137,9 +137,9 @@ public sealed class SubFileIterationSnapshotStoreTests : IDisposable
     public void Read_WithALineThatIsNotOursOrRepeatsAFileId_ShouldFailInsteadOfGuessing(string badLine)
     {
         // Arrange: 33554433 is a non-text subfile, which the patch never saves. The last case repeats
-        // the file id of the first line. Unlike the ledger, one bad line
-        // makes the whole file unusable: if the file is not what we wrote, its good-looking lines are
-        // not trustworthy either, and trusting them could force a repair on every launch.
+        // the file id of the first line. Unlike the ledger, one bad line makes the whole file unusable:
+        // if the file is not what we wrote, its good-looking lines are not trustworthy either, and
+        // trusting them could force a repair that nothing justifies (spec 0012 asks for none).
         Directory.CreateDirectory(Path.GetDirectoryName(SnapshotPath)!);
         File.WriteAllLines(SnapshotPath, [$"{TextFileB}||7", badLine, $"{TextFileA}||1"]);
 

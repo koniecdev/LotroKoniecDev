@@ -164,6 +164,30 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task Handle_SubFileThePatcherCannotWriteBackUnchanged_ShouldStillExportItsRows()
+    {
+        // Arrange: export only reads, so a subfile the patcher refuses to write keeps its rows in
+        // exported.txt. Leaving them out would make the next import mark them removed (#1194).
+        string outputPath = Path.Combine(_tempDir, "output.txt");
+
+        _mockHandler.Open("test.dat", DatFileAccess.Read).Returns(Result.Success(0));
+        _mockHandler.GetAllSubfileSizes(0).Returns(new Dictionary<int, (int, int)>
+        {
+            { 0x25000001, (100, 1) }
+        });
+        _mockHandler.GetSubfileData(0, 0x25000001, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileDataWithTwoByteFragmentCount(0x25000001, 2)));
+
+        ExportTextsQuery query = new("test.dat", outputPath);
+
+        // Act
+        Result<ExportSummaryResponse> result = await _sut.Handle(query, CancellationToken.None);
+
+        // Assert
+        result.Value.TotalFragments.ShouldBe(2);
+    }
+
+    [Fact]
     public async Task Handle_ExceptionDuringExport_ShouldStillCloseDatFile()
     {
         // Arrange

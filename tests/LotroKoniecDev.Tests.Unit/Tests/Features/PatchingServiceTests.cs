@@ -956,4 +956,43 @@ public sealed class PatchingServiceTests
             Arg.Is<IReadOnlyDictionary<LedgerKey, string>>(entries =>
                 entries[new LedgerKey(TextFileId, FragmentId1)] == SourceDigest.ForExportForm("Druga wersja", 0)));
     }
+
+    [Fact]
+    public void ApplyTranslations_SubFileWithARepeatedFragmentId_ShouldSkipTheRowAndWarn()
+    {
+        // Arrange: the parser keeps only one of the two fragments, so writing the subfile back would
+        // drop the other (#1194).
+        SetupAllPassingDefaults();
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileDataInFileOrder(TextFileId, FragmentId1, FragmentId1)));
+        SetupTranslations(CreateTranslation());
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(0);
+        result.Value.SkippedTranslations.ShouldBe(1);
+        result.Value.Warnings.ShouldContain(warning =>
+            warning.Contains($"Subfile {TextFileId} holds data the patcher cannot write back exactly"));
+    }
+
+    [Fact]
+    public void ApplyTranslations_SubFileWithARepeatedFragmentId_ShouldNotWriteTheSubFileAtAll()
+    {
+        // Arrange: the counters alone would also be satisfied by a run that wrote the subfile back with
+        // one fragment fewer. Skipping has to mean "wrote nothing".
+        SetupAllPassingDefaults();
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileDataInFileOrder(TextFileId, FragmentId1, FragmentId1)));
+        SetupTranslations(CreateTranslation());
+
+        // Act
+        _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        _datFileHandler.DidNotReceive().PutSubfileData(
+            Arg.Any<int>(), TextFileId, Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>());
+    }
 }

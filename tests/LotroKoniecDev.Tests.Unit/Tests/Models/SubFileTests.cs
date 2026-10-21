@@ -264,4 +264,63 @@ public sealed class SubFileTests
         subFile.FragmentCount.ShouldBe(1);
         subFile.Fragments.ShouldContainKey(7UL);
     }
+
+    public static TheoryData<string, byte[]> NonTextSubFileCases() => new()
+    {
+        { "only the file id", TestDataFactory.CreateNonTextSubFileData(0x24000001, []) },
+        {
+            "file id and arbitrary bytes",
+            TestDataFactory.CreateNonTextSubFileData(0x10000001, [0xDE, 0xAD, 0xBE, 0xEF, 0x80, 0x00, 0xFF])
+        },
+        { "file id and bytes shaped like a text subfile", TestDataFactory.CreateTextSubFileData(0x24000001, "Test") },
+    };
+
+    [Theory]
+    [MemberData(nameof(NonTextSubFileCases))]
+    public void Serialize_ParsedNonTextSubFile_ShouldReturnTheOriginalBytes(string scenario, byte[] originalData)
+    {
+        // Arrange
+        SubFile subFile = new();
+        subFile.Parse(originalData);
+
+        // Act
+        byte[] serialized = subFile.Serialize();
+
+        // Assert
+        serialized.ShouldBe(originalData, scenario);
+    }
+
+    [Fact]
+    public void Serialize_FragmentRemovedAndAddedAgain_ShouldWriteItLast()
+    {
+        // Arrange: a plain Dictionary puts a re-added key into the slot its removal freed, so 5 would
+        // be written first again. The order Serialize writes must be the order of the collection (#1194).
+        SubFile subFile = new();
+        subFile.Parse(TestDataFactory.CreateTextSubFileDataInFileOrder(0x25000001, 5UL, 3UL, 9UL));
+        Fragment fragment = subFile.Fragments[5UL];
+        subFile.Fragments.Remove(5UL);
+        subFile.Fragments.Add(5UL, fragment);
+
+        // Act
+        byte[] serialized = subFile.Serialize();
+
+        // Assert
+        serialized.ShouldBe(TestDataFactory.CreateTextSubFileDataInFileOrder(0x25000001, 3UL, 9UL, 5UL));
+    }
+
+    [Fact]
+    public void Serialize_FragmentIdsStoredOutOfKeyOrder_ShouldReturnTheOriginalBytes()
+    {
+        // Arrange: many subfiles in the live DAT do not store their fragment ids sorted, so the order
+        // Serialize writes must be the file order, never the key order (#1194).
+        SubFile subFile = new();
+        byte[] originalData = TestDataFactory.CreateTextSubFileDataInFileOrder(0x25000001, 9UL, 3UL, 5UL);
+        subFile.Parse(originalData);
+
+        // Act
+        byte[] serialized = subFile.Serialize();
+
+        // Assert
+        serialized.ShouldBe(originalData);
+    }
 }

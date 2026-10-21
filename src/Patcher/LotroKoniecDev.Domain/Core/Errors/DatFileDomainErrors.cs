@@ -29,6 +29,11 @@ public static partial class DomainErrors
 
         public static Error ParseError(int fileId, string message) =>
             OperationFailed("SubFile", $"Error parsing subfile {fileId}: {message}");
+
+        public static Error NotWritableUnchanged(int fileId) =>
+            OperationFailed(
+                "SubFile",
+                $"Subfile {fileId} holds data the patcher cannot write back exactly as it was read, so it was left untouched.");
     }
 
     public static class Fragment

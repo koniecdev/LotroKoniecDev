@@ -22,7 +22,8 @@ SCRIPTS_DIR="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(cd "$SCRIPTS_DIR/.." && pwd)"
 DEPLOY_SH="$SCRIPTS_DIR/hetzner/deploy.sh"
 TMP_ROOT="$(mktemp -d)"
-trap 'rm -rf "$TMP_ROOT"' EXIT
+# The chmod first: a case stopped while its stack dir is at mode 555 leaves a folder `rm -rf` cannot empty.
+trap 'chmod -R u+rwX "$TMP_ROOT" 2>/dev/null || true; rm -rf "$TMP_ROOT"' EXIT
 
 REPO='ghcr.io/koniecdev'
 IMAGES='lotrokoniecdev-migrator lotrokoniecdev-auth-api lotrokoniecdev-tms-api lotrokoniecdev-frontend'
@@ -268,6 +269,150 @@ rm "$stack/.env"
 run_deploy "$stack" IMAGE_TAG=sha-abc1234
 [ "$LAST_STATUS" -eq 2 ] || fail 'expected exit 2 when the box .env is missing' "got $LAST_STATUS"
 pass 'a stack dir without .env is a usage error (exit 2)'
+
+# A root session left .env as root:root 0600 (#806). `chmod 000` gives the same result for this
+# user: a file it cannot read. Root reads a file at any mode, and so does a user on a file system that
+# ignores the mode bits. There the case would prove nothing, so it skips.
+CASE='.env not readable'
+stack="$(new_stack unreadable)"
+chmod 000 "$stack/.env"
+if [ -r "$stack/.env" ]; then
+    chmod 600 "$stack/.env"
+    if [ "$(id -u)" -eq 0 ]; then
+        printf -- '- [%s] SKIPPED: this suite runs as root, and root can read a file at mode 000\n' "$CASE"
+    else
+        printf -- '- [%s] SKIPPED: a file at mode 000 stays readable here (the file system ignores the mode bits, or this user can read any file)\n' "$CASE"
+    fi
+else
+    # A user with no name: `ls` prints the uid, and deploy.sh falls back to it too.
+    reader="$(id -un 2>/dev/null || id -u)"
+    run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
+    chmod 600 "$stack/.env"
+    [ "$LAST_STATUS" -eq 2 ] || fail 'expected exit 2 when this user cannot read the box .env' "got $LAST_STATUS"
+    grep -qF "::error::deploy.sh: $stack/.env exists, but ${reader} cannot read it (owner ${reader}, mode ----------" \
+        <<<"$LAST_OUTPUT" || fail 'the message must be an error line that names the reader, the owner and the mode'
+    grep -qF "Fix it as root: chown deploy:deploy $stack/.env && chmod 600 $stack/.env" <<<"$LAST_OUTPUT" \
+        || fail 'the message must name the fix'
+    # The file may already belong to deploy, and then only a run as deploy fixes it.
+    if [ "$reader" != deploy ]; then
+        grep -qF 'Then run this script as deploy: sudo -u deploy env IMAGE_TAG=sha-abc1234 bash' <<<"$LAST_OUTPUT" \
+            || fail 'a user other than deploy must be told to run the script as deploy'
+    fi
+    grep -qF 'Nothing was pulled' <<<"$LAST_OUTPUT" || fail 'the message must say that nothing was pulled'
+    [ -s "$TMP_ROOT/calls.log" ] && fail 'docker ran although .env could not be read (the trap ran, or worse)'
+    grep -q 'PREVIOUS_IMAGE_TAG=' <<<"$LAST_OUTPUT" && fail 'CD must get no rollback target when nothing rolled'
+    [ "$(env_tag "$stack")" = 'sha-0000000' ] || fail '.env was rewritten although nothing rolled'
+    pass 'a .env this user cannot read is refused with its owner, its mode and the fix, before any docker call'
+
+    CASE='.env readable again'
+    run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
+    [ "$LAST_STATUS" -eq 0 ] || fail 'the same stack must roll once .env is readable again' "status $LAST_STATUS"
+    grep -q 'PREVIOUS_IMAGE_TAG=sha-0000000' <<<"$LAST_OUTPUT" || fail 'the previous tag was not printed for the rollback path'
+    [ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'IMAGE_TAG was not pinned in .env' "$(cat "$stack/.env")"
+    pass 'the same stack rolls once its .env is readable again'
+
+    CASE='.env is a link'
+    # Without `ls -L` the message would show the link's own mode (lrwxr-xr-x), not the file's.
+    stack="$(new_stack linked)"
+    mv "$stack/.env" "$stack/env.target"
+    ln -s env.target "$stack/.env"
+    chmod 000 "$stack/env.target"
+    run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
+    chmod 600 "$stack/env.target"
+    [ "$LAST_STATUS" -eq 2 ] || fail 'expected exit 2 when .env links to a file this user cannot read' "got $LAST_STATUS"
+    grep -qF "(owner ${reader}, mode ----------" <<<"$LAST_OUTPUT" \
+        || fail 'the message must report the file the link points to, not the link'
+    [ -s "$TMP_ROOT/calls.log" ] && fail 'docker ran although .env could not be read'
+    pass 'a .env that links to an unreadable file is refused with the mode of that file'
+
+    # In the cases above the owner, the group and the reader are one user, so a message that printed
+    # the group or the reader as the owner would pass. A stub `ls` names other ones.
+    mkdir -p "$TMP_ROOT/lsbin"
+    cat > "$TMP_ROOT/lsbin/ls" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$STUB_LS_LINE"
+STUB
+    chmod +x "$TMP_ROOT/lsbin/ls"
+
+    CASE='.env owned by root'
+    stack="$(new_stack rootowned)"
+    chmod 000 "$stack/.env"
+    run_deploy "$stack" IMAGE_TAG=sha-abc1234 PATH="$TMP_ROOT/lsbin:$PATH" \
+        STUB_LS_LINE='-rw------- 1 root lotrogroup 120 Oct 19 10:00 .env'
+    chmod 600 "$stack/.env"
+    [ "$LAST_STATUS" -eq 2 ] || fail 'expected exit 2 on a root-owned .env' "got $LAST_STATUS"
+    grep -qF '(owner root, mode -rw-------)' <<<"$LAST_OUTPUT" || fail 'the owner must be the third field of ls, not the group'
+    pass 'the message names the owner from ls, not the group or the reader'
+
+    # CD runs as deploy, and no test runner does, so a stub `id` stands in for both readers that a
+    # real run of this suite never is: deploy, and a uid with no name.
+    mkdir -p "$TMP_ROOT/idbin"
+    cat > "$TMP_ROOT/idbin/id" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = -un ]; then
+    if [ -n "${STUB_ID_NAME:-}" ]; then
+        printf '%s\n' "$STUB_ID_NAME"
+        exit 0
+    fi
+    echo "id: cannot find name for user ID $("$STUB_REAL_ID" -u)" >&2
+    exit 1
+fi
+exec "$STUB_REAL_ID" "$@"
+STUB
+    chmod +x "$TMP_ROOT/idbin/id"
+    real_id="$(command -v id)"
+
+    CASE='deploy cannot read .env'
+    stack="$(new_stack asdeploy)"
+    chmod 000 "$stack/.env"
+    run_deploy "$stack" IMAGE_TAG=sha-abc1234 PATH="$TMP_ROOT/idbin:$PATH" STUB_REAL_ID="$real_id" STUB_ID_NAME=deploy
+    chmod 600 "$stack/.env"
+    [ "$LAST_STATUS" -eq 2 ] || fail 'expected exit 2 when deploy cannot read .env' "got $LAST_STATUS"
+    grep -qF "$stack/.env exists, but deploy cannot read it" <<<"$LAST_OUTPUT" || fail 'the message must name deploy as the reader'
+    grep -qF "Fix it as root: chown deploy:deploy $stack/.env && chmod 600 $stack/.env" <<<"$LAST_OUTPUT" \
+        || fail 'the message must name the fix'
+    grep -qF 'run this script as deploy' <<<"$LAST_OUTPUT" && fail 'a script that already runs as deploy must not be told to run as deploy'
+    pass 'a run as deploy (the CD run) gets the fix, and no line telling it to run as deploy'
+
+    CASE='reader with no name'
+    stack="$(new_stack noname)"
+    chmod 000 "$stack/.env"
+    run_deploy "$stack" IMAGE_TAG=sha-abc1234 PATH="$TMP_ROOT/idbin:$PATH" STUB_REAL_ID="$real_id"
+    chmod 600 "$stack/.env"
+    [ "$LAST_STATUS" -eq 2 ] || fail 'expected exit 2 when a uid with no name cannot read .env' "got $LAST_STATUS"
+    grep -qF "$stack/.env exists, but $("$real_id" -u) cannot read it" <<<"$LAST_OUTPUT" \
+        || fail 'a uid with no name must be shown as the number'
+    grep -qF 'cannot find name' <<<"$LAST_OUTPUT" && fail 'the error that id -un prints must not reach the message'
+    pass 'a reader with no user name is shown by its uid'
+
+    CASE='compose file not readable'
+    stack="$(new_stack composeunreadable)"
+    chmod 000 "$stack/compose.hetzner.yaml"
+    run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
+    chmod 644 "$stack/compose.hetzner.yaml"
+    [ "$LAST_STATUS" -eq 2 ] || fail 'expected exit 2 when this user cannot read the compose file' "got $LAST_STATUS"
+    grep -qF "$stack/compose.hetzner.yaml exists, but ${reader} cannot read it (owner ${reader}, mode ----------" \
+        <<<"$LAST_OUTPUT" || fail 'the message must name the compose file, its owner and its mode'
+    grep -qF "Fix it as root: chown deploy:deploy $stack/compose.hetzner.yaml && chmod 644 $stack/compose.hetzner.yaml" \
+        <<<"$LAST_OUTPUT" || fail 'the message must name the fix, with the mode a compose file has'
+    [ -s "$TMP_ROOT/calls.log" ] && fail 'docker ran although the compose file could not be read'
+    pass 'a compose file this user cannot read is refused the same way, before any docker call'
+
+    CASE='stack dir not writable'
+    # Without this check the roll would fail on the last step, after `up -d` replaced the containers.
+    stack="$(new_stack readonlydir)"
+    chmod 555 "$stack"
+    run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
+    chmod 755 "$stack"
+    [ "$LAST_STATUS" -eq 2 ] || fail 'expected exit 2 when this user cannot write to the stack dir' "got $LAST_STATUS"
+    grep -qF "${reader} cannot write to $stack, and the last step writes .env there (owner ${reader}, mode dr-xr-xr-x" \
+        <<<"$LAST_OUTPUT" || fail 'the message must name the stack dir, its owner and its mode'
+    grep -qF "Fix it as root: chown deploy:deploy $stack && chmod 755 $stack" <<<"$LAST_OUTPUT" \
+        || fail 'the message must name the fix, with the mode bootstrap.sh gives the stack dir'
+    [ -s "$TMP_ROOT/calls.log" ] && fail 'docker ran although the last step could never write .env'
+    [ "$(env_tag "$stack")" = 'sha-0000000' ] || fail '.env changed although nothing rolled'
+    pass 'a stack dir this user cannot write to is refused before any docker call, not after up -d'
+fi
 
 # --- Happy path + THE ordering property -----------------------------------------------------------
 

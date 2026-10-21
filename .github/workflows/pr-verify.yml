@@ -107,11 +107,12 @@ jobs:
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/check-ssr-purity.sh
 
-      # Leg 2 of the post-deploy smoke decides whether a bad frontend rolls the box back, and
-      # nothing else in CI executes smoke.sh. These cases pin its CSP ladder (#670).
-      - name: Smoke CSP ladder self-test
+      # The post-deploy smoke decides whether a bad deploy rolls the box back, and nothing else in
+      # CI executes smoke.sh. These cases pin its CSP ladders (#670, #693) and its discovery-link
+      # check (#898).
+      - name: Smoke test self-test
         if: steps.diff.outputs.guards != 'false'
-        run: ./scripts/tests/smoke-csp.tests.sh
+        run: ./scripts/tests/smoke.tests.sh
 
       # Same shape, the other client invariant: no hardcoded API paths, in the Frontend and in
       # the CLI alike. There is no gateway (ADR-0041), so a client resolves every entry point by

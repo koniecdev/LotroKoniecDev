@@ -52,8 +52,8 @@ jobs:
       - name: Frontend markup guard
         run: ./scripts/check-ssr-purity.sh
 
-      - name: Smoke CSP ladder self-test
-        run: ./scripts/tests/smoke-csp.tests.sh
+      - name: Smoke test self-test
+        run: ./scripts/tests/smoke.tests.sh
 
       # Same hypermedia gate as pr-verify — backstops direct pushes to main.
       - name: Client hypermedia guard self-test

@@ -6,7 +6,7 @@
 .DESCRIPTION
     One command that gives a green/red signal that a deployed environment came up correctly, without
     manual clicking. Run it after every deploy (staging or production), or against the local
-    prod-parity / dev stack. It exercises the six legs that actually break on a deploy:
+    prod-parity / dev stack. It exercises the seven legs that actually break on a deploy:
 
       1. Health      auth-api + tms-api /health/ready return 200; the frontend root responds (it has
                      no /health endpoint — it is a Static-SSR app, so "the page serves" is liveness).
@@ -34,8 +34,14 @@
                      nosniff, a private Referrer-Policy. Its CSP must also admit the page's own inline
                      content: every <style> carries the header's nonce and no inline <script> is
                      served. As in leg 2, a blocked style or script shows up only in the console (#693).
+      7. Discovery   every link in the TMS and auth discovery roots sits on the configured origin. The
+                     clients refuse a link to any other origin and follow no redirect (#611, #830), so an API
+                     that builds its links from the wrong address (http, an internal host, another
+                     port) breaks every page that follows one, while every leg above still passes (#898).
 
     Clear pass/fail per check; NON-ZERO exit on any failure (exit 1). Usage/config problems exit 2.
+    The auth and tms URLs need a plain ASCII host name or IPv4 address, because leg 7 compares the
+    API links with them; any other value exits 2.
     A not-yet-seeded environment (no artifact built) WARNS on leg 5 rather than failing. Keep in
     sync with smoke.sh. Requires PowerShell 7+ (for -SkipHttpErrorCheck).
 
@@ -84,6 +90,41 @@ if ($missing.Count -gt 0) {
 $AuthUrl     = $AuthUrl.TrimEnd('/')
 $TmsUrl      = $TmsUrl.TrimEnd('/')
 $FrontendUrl = $FrontendUrl.TrimEnd('/')
+
+# "scheme://host:port" for an absolute URL: scheme and host lower-cased, the default port filled in, any
+# user:password@ part dropped. Those are the parts the frontend compares (#830). Both twins read the URL
+# with this same strict pattern, so they agree by construction. It takes only plain ASCII host names and
+# IPv4 addresses, because our domains are plain ASCII. Anything else (an IPv6 address, a non-ASCII host,
+# a backslash, a second @, white space) gets nothing, like a relative URL. That errs on the safe side:
+# the leg may fail a link the frontend would follow, but it never passes one the frontend reads as
+# another origin. -cmatch, because a case-blind A-Z also takes in a few non-ASCII letters.
+$OriginPattern = '(?s)^([A-Za-z][A-Za-z0-9+.-]*)://([A-Za-z0-9._~:-]*@)?([A-Za-z0-9.-]+)(:([0-9]*))?([/?#].*)?\z'
+function Get-Origin {
+    param([string]$Url)
+    if ($Url -cnotmatch $OriginPattern) { return '' }
+    $scheme = $Matches[1].ToLowerInvariant()
+    $hostName = $Matches[3].ToLowerInvariant()
+    # An empty label (a.., .a) is not a host name for [Uri] either.
+    if ($hostName.StartsWith('.') -or $hostName.Contains('..')) { return '' }
+    if (-not $Matches[5]) {
+        $port = switch ($scheme) { 'https' { '443' } 'http' { '80' } default { '' } }
+    } else {
+        # Leading zeros go first, so 000443 is 443.
+        $digits = $Matches[5] -replace '^0+', ''
+        if ($digits.Length -gt 5 -or [int]('0' + $digits) -gt 65535) { return '' }
+        $port = [string][int]('0' + $digits)
+    }
+    return "${scheme}://${hostName}:$port"
+}
+
+# Leg 7 compares the links with the scheme, host and port of these two URLs, so a URL it cannot read is
+# a usage problem, like a missing one.
+foreach ($check in @(@('-AuthUrl', $AuthUrl), @('-TmsUrl', $TmsUrl))) {
+    if (-not (Get-Origin $check[1])) {
+        Write-Host "smoke: $($check[0]) '$($check[1])' is not an absolute URL with a plain host name (scheme://host[:port])"
+        exit 2
+    }
+}
 
 $script:SkipCert   = [bool]$Insecure
 $script:TimeoutSec = $TimeoutSec
@@ -140,7 +181,7 @@ Write-Host "  frontend = $FrontendUrl"
 if ($Insecure) { Write-Host "  (TLS verification disabled: -Insecure)" }
 Write-Host ""
 
-Write-Host "[1/6] Health"
+Write-Host "[1/7] Health"
 $code = Get-Status "$AuthUrl/health/ready"
 if ($code -eq 200) { Add-Pass "auth /health/ready -> 200" } else { Add-Fail "auth /health/ready -> $code (expected 200)" }
 $code = Get-Status "$TmsUrl/health/ready"
@@ -150,7 +191,7 @@ $code = Get-Status "$FrontendUrl/"
 if ($code -ge 200 -and $code -lt 400) { Add-Pass "frontend / -> $code (serving)" } else { Add-Fail "frontend / -> $code (expected 2xx/3xx)" }
 Write-Host ""
 
-Write-Host "[2/6] Frontend static web assets + CSP consistency (#414, #670)"
+Write-Host "[2/7] Frontend static web assets + CSP consistency (#414, #670)"
 $homeHtml = ''
 $csp = ''
 $homeResponse = $null
@@ -211,7 +252,7 @@ if (-not $assetMatch.Success) {
 }
 Write-Host ""
 
-Write-Host "[3/6] OIDC token round-trip (client_credentials)"
+Write-Host "[3/7] OIDC token round-trip (client_credentials)"
 $token = $null
 $tokenCode = 0
 try {
@@ -231,7 +272,7 @@ if ($tokenCode -eq 200 -and $token) {
 }
 Write-Host ""
 
-Write-Host "[4/6] Token accepted by tms-api (authenticated read)"
+Write-Host "[4/7] Token accepted by tms-api (authenticated read)"
 $anonCode = Get-Status "$TmsUrl/api/v1/game-versions"
 if ($anonCode -eq 401) { Add-Pass "GET tms/api/v1/game-versions (no token) -> 401 (protected)" }
 else { Add-Fail "GET tms/api/v1/game-versions (no token) -> $anonCode (expected 401)" }
@@ -247,7 +288,7 @@ if ($token) {
 }
 Write-Host ""
 
-Write-Host "[5/6] Translation-file distribution (ETag / 304)"
+Write-Host "[5/7] Translation-file distribution (ETag / 304)"
 $fileCode = 0
 $etag = $null
 try {
@@ -372,7 +413,7 @@ function Test-AuthPage {
     }
 }
 
-Write-Host "[6/6] Auth pages: security headers + CSP consistency (#693)"
+Write-Host "[6/7] Auth pages: security headers + CSP consistency (#693)"
 # Login renders a form; ConfirmEmail renders none. Antiforgery used to add a frame header to the first
 # kind only, so both are checked.
 foreach ($authPage in @('/Account/Login', '/Account/ConfirmEmail')) {
@@ -385,6 +426,57 @@ foreach ($authPage in @('/Account/Login', '/Account/ConfirmEmail')) {
     if ($null -eq $authHtml) { $authHtml = '' }
     Test-AuthPage -Page $authPage -Response $authResponse -Html $authHtml
 }
+Write-Host ""
+
+$HateoasAccept = 'application/vnd.dev-lotrokoniecdev.hateoas.json'
+
+# $BaseUrl was already checked at the start. A root that sends no links proves nothing, so that fails
+# too.
+function Test-DiscoveryLinks {
+    param([string]$Name, [string]$BaseUrl)
+    $expected = Get-Origin $BaseUrl
+
+    $code = 0
+    $content = ''
+    try {
+        $response = Invoke-Smoke -Url "$BaseUrl/" -Headers @{ Accept = $HateoasAccept }
+        $code = [int]$response.StatusCode
+        $content = $response.Content
+    } catch {
+        # Same recovery as Get-Status: an older PS can throw on a 3xx despite -SkipHttpErrorCheck.
+        $failed = $_.Exception.Response
+        if ($failed -and $failed.StatusCode) { $code = [int]$failed.StatusCode }
+    }
+    if ($code -ne 200) {
+        Add-Fail "$Name / (discovery) -> $code (expected 200)"
+        return
+    }
+
+    # Invoke-WebRequest hands a vendor media type over as bytes, not as text.
+    if ($content -is [byte[]]) { $content = [System.Text.Encoding]::UTF8.GetString($content) }
+    if ($null -eq $content) { $content = '' }
+    # JSON may write a slash as \/, so that escape is undone first. Line breaks are dropped like the
+    # bash twin does.
+    $hrefs = @([regex]::Matches(($content -replace '[\r\n]', ''), '"href"\s*:\s*"([^"]*)"') |
+        ForEach-Object { $_.Groups[1].Value.Replace('\/', '/') })
+    if ($hrefs.Count -eq 0) {
+        Add-Fail "$Name / sends no links with the HATEOAS Accept header (expected at least 'self')"
+        return
+    }
+
+    $off = @($hrefs | Where-Object { (Get-Origin $_) -ne $expected })
+    if ($off.Count -eq 0) {
+        Add-Pass "$Name / sends $($hrefs.Count) link(s), all on $expected"
+    } else {
+        $firstOff = Get-Origin $off[0]
+        if (-not $firstOff) { $firstOff = '(not an absolute address)' }
+        Add-Fail "$Name / sends $($off.Count) of $($hrefs.Count) link(s) outside $expected, first $firstOff — the clients refuse to follow them (#611, #830)"
+    }
+}
+
+Write-Host "[7/7] Discovery links stay on the configured origin (#898)"
+Test-DiscoveryLinks -Name 'tms' -BaseUrl $TmsUrl
+Test-DiscoveryLinks -Name 'auth' -BaseUrl $AuthUrl
 Write-Host ""
 
 Write-Host "=================================================="

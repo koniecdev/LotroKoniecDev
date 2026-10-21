@@ -6,9 +6,9 @@ namespace LotroKoniecDev.Architecture.Tests.Unit.Shared;
 /// Handles on every cross-platform production assembly, loaded by name out of the test output.
 /// </summary>
 /// <remarks>
-/// The two patcher assemblies that target <c>net10.0-windows</c>, Infrastructure and Cli, are missing on
-/// purpose: a <c>net10.0</c> project cannot reference them, and this suite has to stay green on the
-/// Linux CI runner.
+/// The three patcher assemblies that target <c>net10.0-windows</c>, Infrastructure, Cli and the desktop
+/// app's exe, are missing on purpose: a <c>net10.0</c> project cannot reference them, and this suite has
+/// to stay green on the Linux CI runner.
 /// They sit at the top of the patcher's layers, so every rule about them is written as a forbidden
 /// namespace on the assemblies below (see <see cref="Namespaces.PatcherInfrastructure"/>), which needs
 /// no reference at all.
@@ -20,6 +20,8 @@ internal static class ProductionAssemblies
     internal static Assembly PatcherDomain { get; } = Load(Namespaces.PatcherDomain);
 
     internal static Assembly PatcherApplication { get; } = Load(Namespaces.PatcherApplication);
+
+    internal static Assembly DesktopAppPresentation { get; } = Load(Namespaces.DesktopAppPresentation);
 
     internal static Assembly SharedKernel { get; } = Load(Namespaces.SharedKernel);
 
@@ -66,6 +68,7 @@ internal static class ProductionAssemblies
         PatcherPrimitives,
         PatcherDomain,
         PatcherApplication,
+        DesktopAppPresentation,
         SharedKernel,
         TranslationSystemPrimitives,
         TranslationSystemDomain,

@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- The patcher Infrastructure is net10.0-windows/x86 because of datexport.dll, so the exe that
+         loads it is too, exactly like the CLI. A Windows exe is also what runs under Wine/Proton
+         (ADR-0033 §2). The UI itself lives in the cross-platform Presentation project. -->
+    <PropertyGroup>
+        <TargetFramework>net10.0-windows</TargetFramework>
+        <PlatformTarget>x86</PlatformTarget>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <OutputType>WinExe</OutputType>
+        <AssemblyName>LotroPoPolsku</AssemblyName>
+        <ApplicationIcon>..\LotroKoniecDev.DesktopApp.Presentation\Assets\app.ico</ApplicationIcon>
+        <ApplicationManifest>app.manifest</ApplicationManifest>
+        <SelfContained>true</SelfContained>
+        <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+        <PublishSingleFile>true</PublishSingleFile>
+        <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Avalonia.Desktop" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+        <PackageReference Include="Microsoft.Extensions.Logging" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="LotroKoniecDev.Tests.Infrastructure" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\LotroKoniecDev.DesktopApp.Presentation\LotroKoniecDev.DesktopApp.Presentation.csproj" />
+        <ProjectReference Include="..\..\Patcher\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj" />
+        <ProjectReference Include="..\..\Patcher\LotroKoniecDev.Infrastructure\LotroKoniecDev.Infrastructure.csproj" />
+    </ItemGroup>
+
+    <!-- LEGAL-12 (spec 0011): the player-facing risk NOTICE ships next to the published exe, as with the CLI -->
+    <ItemGroup>
+        <None Include="..\..\..\NOTICE" Link="NOTICE" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+</Project>

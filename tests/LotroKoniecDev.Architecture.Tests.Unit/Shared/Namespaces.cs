@@ -18,6 +18,10 @@ internal static class Namespaces
     internal const string PatcherInfrastructure = "LotroKoniecDev.Infrastructure";
     internal const string PatcherCli = "LotroKoniecDev.Cli";
 
+    /// <summary>The desktop player app: its exe and its <see cref="DesktopAppPresentation"/> UI.</summary>
+    internal const string DesktopApp = "LotroKoniecDev.DesktopApp";
+    internal const string DesktopAppPresentation = "LotroKoniecDev.DesktopApp.Presentation";
+
     internal const string SharedKernel = "LotroKoniecDev.SharedKernel";
 
     internal const string TranslationSystem = "LotroKoniecDev.TranslationSystem";

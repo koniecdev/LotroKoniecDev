@@ -23,6 +23,11 @@
 
 name: lotrokoniecdev-prod
 
+# How long Docker waits for an app to stop before it kills it. The same value as in
+# compose.hetzner.yaml, whose `x-app-stop-grace-period` has the reason (#1021). Change both together.
+x-app-stop-grace-period: &app-stop-grace-period
+  stop_grace_period: 35s
+
 services:
   postgres:
     # Keep the major version in step with Neon (ADR-0014) and with tests/Shared/PostgresImage.cs (#1002).
@@ -109,6 +114,7 @@ services:
       start_period: 30s
 
   auth-api:
+    <<: *app-stop-grace-period
     build:
       context: .
       dockerfile: src/AuthSystem/LotroKoniecDev.AuthSystem.API/Dockerfile
@@ -169,6 +175,7 @@ services:
         condition: service_completed_successfully
 
   tms-api:
+    <<: *app-stop-grace-period
     build:
       context: .
       dockerfile: src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Dockerfile
@@ -224,6 +231,7 @@ services:
         condition: service_healthy
 
   frontend:
+    <<: *app-stop-grace-period
     build:
       context: .
       dockerfile: src/Frontend/LotroKoniecDev.Frontend/Dockerfile

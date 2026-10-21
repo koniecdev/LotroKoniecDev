@@ -1,0 +1,108 @@
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using LotroKoniecDev.DesktopApp.Presentation;
+using LotroKoniecDev.DesktopApp.Presentation.ViewModels;
+using LotroKoniecDev.DesktopApp.Presentation.Views;
+using LotroKoniecDev.DesktopApp.Tests.Unit.Shared;
+
+namespace LotroKoniecDev.DesktopApp.Tests.Unit.Tests;
+
+[Collection(HeadlessSessionCollection.Name)]
+public sealed class SplashScreenTests
+{
+    private readonly HeadlessSessionFixture _fixture;
+
+    [Fact]
+    public async Task Show_BeforeTheDurationEnds_KeepsTheSplashAsTheOnlyWindow()
+    {
+        (string? SplashTitle, int ViewModelsCreated) state = await _fixture.Session.Dispatch(
+            () =>
+            {
+                // Arrange
+                IClassicDesktopStyleApplicationLifetime desktop = Substitute.For<IClassicDesktopStyleApplicationLifetime>();
+                int viewModelsCreated = 0;
+
+                // Act
+                SplashScreen.Show(
+                    desktop,
+                    () =>
+                    {
+                        viewModelsCreated++;
+                        return new MainWindowViewModel();
+                    },
+                    TimeSpan.FromHours(1));
+
+                return (desktop.MainWindow.ShouldBeOfType<SplashWindow>().Title, viewModelsCreated);
+            },
+            CancellationToken.None);
+
+        // Assert
+        state.SplashTitle.ShouldBe("LOTRO po Polsku");
+        state.ViewModelsCreated.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Show_OnceTheDurationEnds_OpensTheMainWindowBeforeClosingTheSplash()
+    {
+        MainWindowViewModel viewModel = new();
+
+        (object? MainWindowDataContext, bool MainWindowOpenWhenSplashClosed, bool SplashOpen) state = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                // Arrange
+                IClassicDesktopStyleApplicationLifetime desktop = Substitute.For<IClassicDesktopStyleApplicationLifetime>();
+                SplashScreen.Show(desktop, () => viewModel, TimeSpan.Zero);
+
+                // The lifetime shows its main window when it starts; the substitute does not, so do it here.
+                Window splash = desktop.MainWindow.ShouldBeOfType<SplashWindow>();
+                splash.Show();
+                bool mainWindowOpenWhenSplashClosed = false;
+                splash.Closed += (_, _) => mainWindowOpenWhenSplashClosed = desktop.MainWindow is MainWindow { IsVisible: true };
+
+                // Act
+                await WaitUntilAsync(() => !splash.IsVisible);
+
+                MainWindow mainWindow = desktop.MainWindow.ShouldBeOfType<MainWindow>();
+                object? dataContext = mainWindow.DataContext;
+                mainWindow.Close();
+                return (dataContext, mainWindowOpenWhenSplashClosed, splash.IsVisible);
+            },
+            CancellationToken.None);
+
+        // Assert: with the default shutdown mode, closing the last open window would end the app.
+        state.MainWindowDataContext.ShouldBeSameAs(viewModel);
+        state.MainWindowOpenWhenSplashClosed.ShouldBeTrue();
+        state.SplashOpen.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Show_WithoutALifetime_Throws()
+    {
+        Should.Throw<ArgumentNullException>(
+            () => SplashScreen.Show(null!, () => new MainWindowViewModel(), TimeSpan.Zero));
+    }
+
+    [Fact]
+    public void Show_WithoutAViewModelFactory_Throws()
+    {
+        Should.Throw<ArgumentNullException>(
+            () => SplashScreen.Show(Substitute.For<IClassicDesktopStyleApplicationLifetime>(), null!, TimeSpan.Zero));
+    }
+
+    public SplashScreenTests(HeadlessSessionFixture fixture)
+    {
+        _fixture = fixture;
+    }
+
+    /// <summary>
+    /// Awaiting on the UI thread lets the headless dispatcher run its timers; a blocking wait would not.
+    /// </summary>
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        while (!condition())
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(10), timeout.Token);
+        }
+    }
+}

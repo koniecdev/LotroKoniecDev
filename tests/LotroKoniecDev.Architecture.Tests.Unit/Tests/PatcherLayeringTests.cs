@@ -8,6 +8,10 @@ namespace LotroKoniecDev.Architecture.Tests.Unit.Tests;
 /// Primitives. Only the forbidden direction is asserted; the allowed one is what the project references
 /// already spell out.
 /// </summary>
+/// <remarks>
+/// The desktop app sits beside the Cli as a second shell (ADR-0033): its exe wires Infrastructure, and its
+/// UI reaches the patcher through Application only.
+/// </remarks>
 public sealed class PatcherLayeringTests
 {
     [Fact]
@@ -20,6 +24,7 @@ public sealed class PatcherLayeringTests
                 Namespaces.PatcherApplication,
                 Namespaces.PatcherInfrastructure,
                 Namespaces.PatcherCli,
+                Namespaces.DesktopApp,
                 Namespaces.SharedKernel,
                 Namespaces.TranslationSystem,
                 Namespaces.AuthSystem,
@@ -41,7 +46,8 @@ public sealed class PatcherLayeringTests
             .NotHaveDependencyOnAny(
                 Namespaces.PatcherApplication,
                 Namespaces.PatcherInfrastructure,
-                Namespaces.PatcherCli)
+                Namespaces.PatcherCli,
+                Namespaces.DesktopApp)
             .GetResult();
 
         result.IsSuccessful.ShouldBeTrue(
@@ -53,10 +59,22 @@ public sealed class PatcherLayeringTests
     {
         TestResult result = Types.InAssembly(ProductionAssemblies.PatcherApplication)
             .Should()
-            .NotHaveDependencyOnAny(Namespaces.PatcherInfrastructure, Namespaces.PatcherCli)
+            .NotHaveDependencyOnAny(Namespaces.PatcherInfrastructure, Namespaces.PatcherCli, Namespaces.DesktopApp)
             .GetResult();
 
         result.IsSuccessful.ShouldBeTrue(
             $"Application talks to infrastructure through its own Abstractions/ ports, never the adapters:{result.Describe()}");
+    }
+
+    [Fact]
+    public void DesktopAppPresentationAssembly_Dependencies_ReachNeitherInfrastructureNorCli()
+    {
+        TestResult result = Types.InAssembly(ProductionAssemblies.DesktopAppPresentation)
+            .Should()
+            .NotHaveDependencyOnAny(Namespaces.PatcherInfrastructure, Namespaces.PatcherCli)
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeTrue(
+            $"The desktop UI injects Application's handler interfaces; the exe wires the Windows-only adapters behind them (ADR-0033):{result.Describe()}");
     }
 }

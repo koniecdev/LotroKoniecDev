@@ -29,11 +29,13 @@ public sealed class BoundedContextIsolationTests
         ProductionAssemblies.Frontend,
     ];
 
+    /// <summary>The desktop player app is the patcher's second shell, so it sits on this side too.</summary>
     private static readonly Assembly[] PatcherAssemblies =
     [
         ProductionAssemblies.PatcherPrimitives,
         ProductionAssemblies.PatcherDomain,
         ProductionAssemblies.PatcherApplication,
+        ProductionAssemblies.DesktopAppPresentation,
     ];
 
     [Fact]
@@ -46,7 +48,8 @@ public sealed class BoundedContextIsolationTests
                 Namespaces.PatcherDomain,
                 Namespaces.PatcherApplication,
                 Namespaces.PatcherInfrastructure,
-                Namespaces.PatcherCli)
+                Namespaces.PatcherCli,
+                Namespaces.DesktopApp)
             .GetResult();
 
         result.IsSuccessful.ShouldBeTrue(

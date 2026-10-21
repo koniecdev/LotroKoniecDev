@@ -1,0 +1,42 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:LotroKoniecDev.DesktopApp.Presentation.ViewModels"
+        x:Class="LotroKoniecDev.DesktopApp.Presentation.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="LOTRO po Polsku"
+        Icon="/Assets/app.ico"
+        Width="420"
+        SizeToContent="Height"
+        CanResize="False"
+        CanMaximize="False"
+        WindowStartupLocation="CenterScreen">
+    <Design.DataContext>
+        <vm:MainWindowViewModel />
+    </Design.DataContext>
+
+    <StackPanel Margin="24" Spacing="20">
+        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="6">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Status:" />
+            <TextBlock Grid.Row="0" Grid.Column="1" Name="StatusText" Text="{Binding Status}" />
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Game version:" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Name="GameVersionText" Text="{Binding GameVersion}" />
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Patch version:" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Name="PatchVersionText" Text="{Binding PatchVersion}" />
+        </Grid>
+
+        <!-- Disabled until #42 wires them, so a click never looks like it did something. -->
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+            <Button Grid.Column="0" Name="PatchButton" Content="Patch" IsEnabled="False"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+            <Button Grid.Column="1" Name="PlayButton" Content="Play" IsEnabled="False"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+        </Grid>
+
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <ProgressBar Grid.Column="0" Name="PatchProgressBar" Minimum="0" Maximum="100"
+                         Value="{Binding ProgressPercent}" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Name="ProgressText" MinWidth="36" TextAlignment="Right"
+                       Text="{Binding ProgressPercent, StringFormat='{}{0}%'}" VerticalAlignment="Center" />
+        </Grid>
+    </StackPanel>
+</Window>

@@ -61,6 +61,10 @@
     <Project Path="src/Patcher/LotroKoniecDev.Infrastructure/LotroKoniecDev.Infrastructure.csproj" />
     <Project Path="src/Patcher/LotroKoniecDev.Cli/LotroKoniecDev.Cli.csproj" />
   </Folder>
+  <Folder Name="/src/Player/">
+    <Project Path="src/Player/LotroKoniecDev.DesktopApp/LotroKoniecDev.DesktopApp.csproj" />
+    <Project Path="src/Player/LotroKoniecDev.DesktopApp.Presentation/LotroKoniecDev.DesktopApp.Presentation.csproj" />
+  </Folder>
   <Folder Name="/src/SharedKernel/">
     <Project Path="src/SharedKernel/LotroKoniecDev.SharedKernel/LotroKoniecDev.SharedKernel.csproj" />
   </Folder>
@@ -102,6 +106,9 @@
     <Project Path="tests/LotroKoniecDev.Tests.Unit/LotroKoniecDev.Tests.Unit.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.Infrastructure/LotroKoniecDev.Tests.Infrastructure.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.E2E/LotroKoniecDev.Tests.E2E.csproj" />
+  </Folder>
+  <Folder Name="/tests/Player/">
+    <Project Path="tests/LotroKoniecDev.DesktopApp.Tests.Unit/LotroKoniecDev.DesktopApp.Tests.Unit.csproj" />
   </Folder>
   <Folder Name="/tests/SharedKernel/">
     <Project Path="tests/LotroKoniecDev.SharedKernel.Tests.Unit/LotroKoniecDev.SharedKernel.Tests.Unit.csproj" />

@@ -67,7 +67,9 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
                     continue;
                 }
 
-                Result<SubFile> loadResult = _datFileHandler.LoadSubFile(handle, fileId, size);
+                // Export never writes. Refusing a subfile here would leave all of its rows out of
+                // exported.txt, and the next import would mark them removed (#1194).
+                Result<SubFile> loadResult = _datFileHandler.LoadSubFile(handle, fileId, size, readOnly: true);
                 if (loadResult.IsSuccess)
                 {
                     SubFile subFile = loadResult.Value;

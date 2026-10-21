@@ -65,6 +65,11 @@ Critical format facts:
 - Fragment count and FileId of a SubFile must round-trip byte-identically: `Parse` then
   `Serialize` with no changes ⇒ identical bytes (this is the canonical regression test shape —
   see `Tests.Unit/Shared/TestDataFactory.cs` for the binary builder).
+- That holds only for data the parser fully understands. A repeated fragment id, bytes after the
+  last fragment, a two-byte VarLen below 128 or invalid UTF-16 come back changed. So `LoadSubFile`
+  refuses, by default, any subfile whose unchanged `Serialize()` differs from the bytes read; only
+  the read-only `export` passes `readOnly: true`. `Parse` stays lenient. A non-text subfile keeps
+  its raw bytes, and `Fragments` is an `OrderedDictionary` in file order (#1194).
 
 # Native interop (datexport.dll)
 

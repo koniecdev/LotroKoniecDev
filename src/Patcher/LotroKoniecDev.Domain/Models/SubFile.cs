@@ -10,11 +10,18 @@ public sealed class SubFile
 {
     private const int MinEncodedFragmentSize = 17; // FragmentId (8) + piece count (4) + arg-ref count (4) + arg-string-group count (1)
 
+    private byte[] _rawData = [];
+
     public int FileId { get; private set; }
     public int Version { get; set; }
     public byte[] Unknown1 { get; private set; } = new byte[4];
     public byte Unknown2 { get; private set; }
-    public Dictionary<ulong, Fragment> Fragments { get; } = new();
+
+    /// <summary>
+    /// The fragments in the order the subfile stores them. That order is often not sorted by id, and
+    /// <see cref="Serialize"/> must write it back unchanged (#1194).
+    /// </summary>
+    public OrderedDictionary<ulong, Fragment> Fragments { get; } = new();
 
     /// <summary>A text file has 0x25 as the high byte of its file id.</summary>
     public static bool IsTextFile(int fileId) => fileId >> 24 == DatFileConstants.TextFileMarker;
@@ -34,7 +41,9 @@ public sealed class SubFile
 
         if (!IsTextFile(FileId))
         {
-            // Not a text file: keep the raw bytes and do not parse them.
+            // We do not parse a non-text subfile, but Serialize must still give back the bytes it
+            // was read from (#1194).
+            _rawData = (byte[])data.Clone();
             return;
         }
 
@@ -52,11 +61,22 @@ public sealed class SubFile
         }
     }
 
+    /// <remarks>
+    /// The result matches the bytes <see cref="Parse"/> read only when the parser understood all of
+    /// them. A repeated fragment id, bytes after the last fragment, a length stored in the long form or
+    /// broken UTF-16 come back changed. So a caller that writes the result into the DAT checks the
+    /// unchanged subfile first, as <c>LoadSubFile</c> does for the patcher (#1194).
+    /// </remarks>
     /// <param name="argsOrder">The new argument order, 0-indexed. Leave null to keep the current one.</param>
     /// <param name="argsId">The new argument ids. Leave null to keep the current ones.</param>
     /// <param name="targetFragmentId">The fragment the reordering applies to.</param>
     public byte[] Serialize(int[]? argsOrder = null, int[]? argsId = null, ulong? targetFragmentId = null)
     {
+        if (!IsText)
+        {
+            return (byte[])_rawData.Clone();
+        }
+
         using MemoryStream stream = new();
         using BinaryWriter writer = new(stream);
 

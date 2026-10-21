@@ -9,6 +9,8 @@ namespace LotroKoniecDev.AuthSystem.API.Settings;
 /// Staging or Production, and names the key at fault (ADR-0008 §3, M6-03). Development uses the open
 /// AllowAnyOrigin policy and Testing runs in memory on one origin, so neither supplies origins and
 /// both skip this check, like <c>OpenIddictSettingsValidator</c> does for its production values.
+/// A message names the entry number but never repeats the origin. A refused origin can hold a user name
+/// and password, and the message goes to the startup log (#1131).
 /// </summary>
 internal sealed class CorsSettingsValidator : IValidateOptions<CorsSettings>
 {
@@ -39,12 +41,12 @@ internal sealed class CorsSettingsValidator : IValidateOptions<CorsSettings>
                 "(e.g. https://lotro-translator.pl).");
         }
 
-        foreach (string origin in options.AllowedOrigins)
+        for (int index = 0; index < options.AllowedOrigins.Length; index++)
         {
-            if (!BeBareHttpOrigin(origin))
+            if (!BeBareHttpOrigin(options.AllowedOrigins[index]))
             {
                 errors.Add(
-                    $"{CorsSettings.ConfigurationSection}:{nameof(CorsSettings.AllowedOrigins)} entry '{origin}' must be " +
+                    $"{CorsSettings.ConfigurationSection}:{nameof(CorsSettings.AllowedOrigins)}:{index} must be " +
                     "a bare absolute http(s) origin — lowercase scheme and host, no default port, and no userinfo, " +
                     "path, query, or trailing slash (e.g. https://lotro-translator.pl).");
             }

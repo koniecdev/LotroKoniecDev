@@ -1,0 +1,15 @@
+<Project>
+    <!-- The patcher's Windows-only suites need an x86 test host or the win-x86 CLI, and only
+         Windows has them. Elsewhere their run would abort or fail, and a plain `dotnet test` would
+         exit 1 even when every test that can run passed (#816). So off Windows, `dotnet test`
+         still compiles the project, as it does for a test project, but runs none of its tests
+         and prints one "not run" line instead. -->
+    <PropertyGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
+        <IsTestProject>false</IsTestProject>
+    </PropertyGroup>
+
+    <Target Name="BuildWithoutRunningWindowsOnlyTests" BeforeTargets="VSTest" Condition="'$(IsTestProject)' != 'true'">
+        <MSBuild Projects="$(MSBuildProjectFullPath)" Condition="'$(VSTestNoBuild)' != 'true'" />
+        <Message Importance="high" Text="$(MSBuildProjectName): not run. Its tests run only on Windows." />
+    </Target>
+</Project>

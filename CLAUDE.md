@@ -83,7 +83,7 @@ Primitives**.
 | `LotroKoniecDev.Domain` | `Result`/`Maybe` monads, `Error` + `DomainErrors`, DAT models (`SubFile`, `Fragment`, `Translation`), `VarLenEncoder` |
 | `LotroKoniecDev.Infrastructure` | native interop (`datexport.dll`, x86 Windows), DAT handler, forum fetcher, launcher |
 | `LotroKoniecDev.Primitives` | constants + enums, zero dependencies |
-| `tests/LotroKoniecDev.Tests.{Unit,Infrastructure,E2E}` | patcher tests (E2E Windows-only via `SkippableFact`) |
+| `tests/LotroKoniecDev.Tests.{Unit,Infrastructure,E2E}` | patcher tests (Infrastructure and E2E run only on Windows) |
 
 **Stable means:** the patcher is shipped and empirically proven, so the bar for touching it is
 high — but it is **no longer frozen** (ADR-0002 amendment, 2026-06-25). Refactors, renames and
@@ -169,9 +169,9 @@ dotnet build LotroKoniecDev.slnx
 
 # Tests
 # The unfiltered run is the gate before EVERY push — the filtered ones are for iterating only.
-dotnet test                                            # everything runnable on this OS
+dotnet test                                            # everything runnable on this OS; exits 0 when it all passes
 dotnet test tests/LotroKoniecDev.Tests.Unit            # fast, pure unit (must always be green)
-dotnet test tests/LotroKoniecDev.Tests.E2E             # full pipeline — auto-skips off-Windows
+dotnet test tests/LotroKoniecDev.Tests.E2E             # full pipeline — Windows only; elsewhere prints "not run"
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 
 # Run the CLI (Windows; needs LOTRO. `export` reads and needs NO admin — #629; only DAT writes do)
@@ -796,13 +796,15 @@ structure.
 - **Unit tests are pure:** no filesystem, no network, no DB, no order dependence. Real-resource
   verification belongs to integration projects.
 - **The whole suite green locally before every push — unconditional.** `dotnet test`, no filter:
-  everything runnable on this OS (the Windows-only `.Tests.Infrastructure` / `.Tests.E2E` suites
-  auto-skip elsewhere). Never narrow it to the touched area, and never run integration only "when
-  the slice ships an endpoint" — deciding from the diff which suites a change can reach is the
-  mistake, not the shortcut. `pr-verify` runs unit **and** integration on every PR here, so a leg
-  you skip locally does not disappear: it fails on a runner, at GitHub's expense, minutes after a
-  local run would have shown it for free. Precedent from the sibling repo: TheKittySaver #567,
-  where a CSS-only frontend fix broke four full-page snapshot tests nobody thought it could reach.
+  everything runnable on this OS, and it exits 0 when all of that passes. Off Windows the two
+  Windows-only patcher suites (`.Tests.Infrastructure`, `.Tests.E2E`) are compiled but not run,
+  and each prints one "not run" line (#816). Never narrow it to the touched area, and never run
+  integration only "when the slice ships an endpoint" — deciding from the diff which suites a
+  change can reach is the mistake, not the shortcut. `pr-verify` runs unit **and** integration on
+  every PR here, so a leg you skip locally does not disappear: it fails on a runner, at GitHub's
+  expense, minutes after a local run would have shown it for free. Precedent from the sibling
+  repo: TheKittySaver #567, where a CSS-only frontend fix broke four full-page snapshot tests
+  nobody thought it could reach.
   A suite that genuinely cannot run here is unproven — say which, and do not open the PR.
 - **Edge cases are first-class.** Happy path is the floor. `[Theory]` + `[InlineData]` for the
   unhappy-path/boundary matrix (empty, max, malformed, already-in-state).

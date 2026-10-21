@@ -9,6 +9,8 @@
         <RootNamespace>LotroKoniecDev.Tests.Infrastructure</RootNamespace>
     </PropertyGroup>
 
+    <Import Project="..\Shared\WindowsOnlyTestRun.targets" />
+
     <ItemGroup>
         <PackageReference Include="coverlet.collector">
             <PrivateAssets>all</PrivateAssets>

@@ -9,6 +9,16 @@ namespace LotroKoniecDev.DesktopApp;
 public sealed class Program
 {
     /// <summary>
+    /// Debug on purpose, like the CLI's patcher.log: it is the trail players attach to a bug report, and
+    /// it never leaves their machine unless they send it (#397). The folder is the app's own AppData
+    /// folder, where #43 keeps the settings.
+    /// </summary>
+    private static readonly string LogFilePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "LotroPoPolsku",
+        "LotroPoPolsku.log");
+
+    /// <summary>
     /// Also the Avalonia previewer's entry point, which it finds by this exact name. It must not need
     /// any services.
     /// </summary>
@@ -21,13 +31,10 @@ public sealed class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        // Debug on purpose, like the CLI's patcher.log: it is the trail players attach to a bug report,
-        // and it never leaves their machine unless they send it (#397). The folder is the app's own
-        // AppData folder, where #43 keeps the settings.
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Debug()
             .WriteTo.File(
-                DesktopAppDependencyInjection.LogFilePath,
+                LogFilePath,
                 outputTemplate: "{Timestamp:HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
 

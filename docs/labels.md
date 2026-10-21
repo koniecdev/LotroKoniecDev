@@ -219,9 +219,10 @@ bullets. Two sources of completion state, one live and one hand-ticked, is how t
 **`needs-windows-check` is added by a workflow, not by a person (#1250).**
 `.github/workflows/labeler.yml` adds it when a PR opens and changes a path that
 `.github/labeler.yml` lists. The check is the full `dotnet test` on Windows, which runs the two
-suites CI skips, plus the steps the PR lists under **Before merge, on Windows**. Copy the game DAT
-into `tests/LotroKoniecDev.Tests.E2E/TestData/` first (see the `README.md` there). Without it every
-E2E test skips, and the check is not done. The PR comment gives the E2E pass count, not just
+suites CI skips, plus the steps the PR lists under **Before merge, on Windows**. Copy the game's
+`client_local_English.dat` into `tests/LotroKoniecDev.Tests.E2E/TestData/` first (see
+`tests/LotroKoniecDev.Tests.E2E/README.md`). Without it every E2E test skips, and the check is not
+done. The PR comment gives the E2E pass count, not just
 "green". A session that runs on Windows does the check itself and puts those counts in its report;
 the owner removes the label when they read the PR.
 

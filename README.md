@@ -165,9 +165,10 @@ is the bridge between the game on a player's machine and the translation file th
 
 - **`export`** — pulls every English text out of the game's `DAT` file into `data/exported.txt`
   (the starting point for translation; this is what gets imported into the TMS).
-- **`patch`** — injects a Polish translation file back into the `DAT`, every row, even when the file
-  has not changed. Use it after a game update put some rows back to English (`launch` re-patches
-  only when the file changed), or to patch a copy of the `DAT` for a test.
+- **`patch`** — injects a Polish translation file back into the `DAT`, even when the file has not
+  changed. Use it after a game update put some rows back to English (`launch` re-patches only when
+  the file changed), or to patch a copy of the `DAT` for a test. Rows whose English moved stay
+  skipped either way (see `source_digest` below).
 - **`launch`** — hashes the translation file, re-patches **only if it changed**, then starts the
   game. Live testing across real game updates (including a major 47.2 → 48.0 patch) proved that
   translations survive updates, so this is the recommended day-to-day command.
@@ -175,9 +176,9 @@ is the bridge between the game on a player's machine and the translation file th
   always get the current translation without manual steps.
 
 It also **auto-discovers** the LOTRO install (default Standing Stone Games path, Steam, the Windows
-registry, then a disk scan), and maps failures to clear exit codes. Before it writes, `patch` and
-`launch` both stop while the game or its launcher is running. `patch` also stops when it cannot
-write to the game folder, and it keeps a `.backup` of the `DAT`.
+registry, then a disk scan), and maps failures to clear exit codes. Before they touch the `DAT`,
+`patch` and `launch` both stop while the game or its launcher is running. `patch` also stops when
+it cannot write to the game folder, and it keeps a `.backup` of the `DAT`.
 
 ### Requirements & usage
 

@@ -50,6 +50,6 @@ public sealed partial class GameProcessDetector : IGameProcessDetector
         }
     }
 
-    [LoggerMessage(EventId = EventIds.GameProcessCheckFailed, Level = LogLevel.Debug, Message = "Failed to check for running LOTRO processes")]
+    [LoggerMessage(EventId = EventIds.GameProcessCheckFailed, Level = LogLevel.Warning, Message = "Failed to check for running LOTRO processes")]
     private static partial void LogGameProcessCheckFailed(ILogger logger, Exception exception);
 }

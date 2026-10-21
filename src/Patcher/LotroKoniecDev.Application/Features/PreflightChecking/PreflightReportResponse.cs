@@ -23,6 +23,7 @@ public sealed record PreflightReportResponse(
 
         return HasWriteAccess
             ? Result.Success()
-            : Result.Failure(DomainErrors.DatFileLocation.NoWriteAccess(datFilePath));
+            : Result.Failure(DomainErrors.DatFileLocation.NoWriteAccess(
+                Path.GetDirectoryName(Path.GetFullPath(datFilePath)) ?? datFilePath));
     }
 }

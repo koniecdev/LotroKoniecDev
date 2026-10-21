@@ -8,7 +8,8 @@ namespace LotroKoniecDev.Tests.Unit.Tests.Features;
 
 public sealed class PreflightReportResponseTests
 {
-    private static readonly string DatFilePath = Path.Combine("game", "client_local_English.dat");
+    private static readonly string GameFolder = Path.Combine(Path.GetTempPath(), "lotro");
+    private static readonly string DatFilePath = Path.Combine(GameFolder, "client_local_English.dat");
 
     public static TheoryData<Result<GameUpdateCheckSummary>?> AnyUpdateCheckOutcome =>
     [
@@ -35,7 +36,7 @@ public sealed class PreflightReportResponseTests
     }
 
     [Fact]
-    public void EnsureCanPatch_NoWriteAccess_ShouldFailNamingTheDatFile()
+    public void EnsureCanPatch_NoWriteAccess_ShouldFailNamingTheFolderThePreflightChecked()
     {
         // Arrange
         PreflightReportResponse report = new(IsGameRunning: false, HasWriteAccess: false, GameUpdateCheckResult: null);
@@ -45,7 +46,7 @@ public sealed class PreflightReportResponseTests
 
         // Assert
         result.IsFailure.ShouldBeTrue();
-        result.Error.ShouldBe(DomainErrors.DatFileLocation.NoWriteAccess(DatFilePath));
+        result.Error.ShouldBe(DomainErrors.DatFileLocation.NoWriteAccess(GameFolder));
     }
 
     [Theory]

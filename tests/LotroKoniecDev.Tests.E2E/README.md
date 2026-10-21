@@ -15,3 +15,4 @@ If the DAT file is not present, all E2E tests will be **skipped** (not failed).
 - `*.dat` files are gitignored — each developer copies their own
 - The DAT file is ~4 GB, do not commit it
 - Tests use a temporary copy of the DAT for patch operations (originals are not modified)
+- Close LOTRO and its launcher first: `patch` refuses to run while either is open, even on a copy

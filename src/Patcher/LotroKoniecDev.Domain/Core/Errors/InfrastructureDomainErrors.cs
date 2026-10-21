@@ -21,7 +21,7 @@ public static partial class DomainErrors
 
         public static Error GameRunning =>
             OperationFailed("DatFileLocation",
-                "LOTRO client is running. Close the game before patching.");
+                "LOTRO or its launcher is running. Close both before patching.");
 
         public static Error NoWriteAccess(string path) =>
             IoError("DatFileLocation", "NoWriteAccess", $"'{path}'. Run as Administrator.");

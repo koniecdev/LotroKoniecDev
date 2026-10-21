@@ -1,16 +1,12 @@
-using System.ComponentModel;
-
 namespace LotroKoniecDev.DesktopApp.Presentation.ViewModels;
 
 /// <summary>
-/// The state the main window shows. The values are static until #42 wires the Patch and Play
-/// buttons; only the progress bar is already fed, by <see cref="MainWindowProgressReporter"/>.
+/// The state the main window shows. The texts are static until #42 wires the Patch and Play buttons;
+/// only the progress bar already moves, because the patcher handlers report to it.
 /// </summary>
-public sealed class MainWindowViewModel : INotifyPropertyChanged
+public sealed class MainWindowViewModel
 {
     public const string UnknownValue = "—";
-
-    public event PropertyChangedEventHandler? PropertyChanged;
 
     public string Status { get; } = "Ready to play";
 
@@ -18,18 +14,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public string PatchVersion { get; } = UnknownValue;
 
-    public int ProgressPercent
-    {
-        get;
-        internal set
-        {
-            if (field == value)
-            {
-                return;
-            }
+    public ProgressBarViewModel Progress { get; }
 
-            field = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProgressPercent)));
-        }
+    public MainWindowViewModel(ProgressBarViewModel progress)
+    {
+        Progress = progress;
     }
 }

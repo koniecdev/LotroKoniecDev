@@ -11,10 +11,10 @@ namespace LotroKoniecDev.DesktopApp.Presentation;
 public static class SplashScreen
 {
     /// <summary>
-    /// Building the main window takes milliseconds today, so without this minimum the splash would only
-    /// flicker.
+    /// How long the splash stays before the main window is built. Building it takes milliseconds today,
+    /// so a shorter splash would only flicker.
     /// </summary>
-    public static readonly TimeSpan MinimumDuration = TimeSpan.FromSeconds(1.5);
+    public static readonly TimeSpan Duration = TimeSpan.FromSeconds(1.5);
 
     /// <summary>
     /// Call it before the lifetime shows its main window, from its <c>Startup</c> event: that is the

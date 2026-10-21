@@ -12,8 +12,13 @@ public static class PresentationDependencyInjection
     /// </remarks>
     public static IServiceCollection AddPresentationServices(this IServiceCollection services)
     {
+        services.AddScoped<ProgressBarViewModel>();
+
+        // The handlers get the very progress bar the main window shows.
+        services.AddScoped<IProgress<OperationProgress>>(
+            serviceProvider => serviceProvider.GetRequiredService<ProgressBarViewModel>());
+
         services.AddScoped<MainWindowViewModel>();
-        services.AddScoped<IProgress<OperationProgress>, MainWindowProgressReporter>();
 
         return services;
     }

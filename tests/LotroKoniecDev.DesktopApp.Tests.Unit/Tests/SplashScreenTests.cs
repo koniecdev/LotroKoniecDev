@@ -15,8 +15,8 @@ public sealed class SplashScreenTests
     [Fact]
     public async Task Show_BeforeTheDurationEnds_KeepsTheSplashAsTheOnlyWindow()
     {
-        (string? SplashTitle, int ViewModelsCreated) state = await _fixture.Session.Dispatch(
-            () =>
+        (string? MainWindowTitle, bool SplashIsMainWindow, int ViewModelsCreated) state = await _fixture.Session.Dispatch(
+            async () =>
             {
                 // Arrange
                 IClassicDesktopStyleApplicationLifetime desktop = Substitute.For<IClassicDesktopStyleApplicationLifetime>();
@@ -28,23 +28,27 @@ public sealed class SplashScreenTests
                     () =>
                     {
                         viewModelsCreated++;
-                        return new MainWindowViewModel();
+                        return new MainWindowViewModel(new ProgressBarViewModel());
                     },
                     TimeSpan.FromHours(1));
 
-                return (desktop.MainWindow.ShouldBeOfType<SplashWindow>().Title, viewModelsCreated);
+                // Awaiting lets the dispatcher run, so a timer that ignored the duration would fire here.
+                await Task.Delay(TimeSpan.FromMilliseconds(200));
+
+                return (desktop.MainWindow?.Title, desktop.MainWindow is SplashWindow, viewModelsCreated);
             },
             CancellationToken.None);
 
         // Assert
-        state.SplashTitle.ShouldBe("LOTRO po Polsku");
+        state.SplashIsMainWindow.ShouldBeTrue();
+        state.MainWindowTitle.ShouldBe("LOTRO po Polsku");
         state.ViewModelsCreated.ShouldBe(0);
     }
 
     [Fact]
     public async Task Show_OnceTheDurationEnds_OpensTheMainWindowBeforeClosingTheSplash()
     {
-        MainWindowViewModel viewModel = new();
+        MainWindowViewModel viewModel = new(new ProgressBarViewModel());
 
         (object? MainWindowDataContext, bool MainWindowOpenWhenSplashClosed, bool SplashOpen) state = await _fixture.Session.Dispatch(
             async () =>
@@ -79,7 +83,7 @@ public sealed class SplashScreenTests
     public void Show_WithoutALifetime_Throws()
     {
         Should.Throw<ArgumentNullException>(
-            () => SplashScreen.Show(null!, () => new MainWindowViewModel(), TimeSpan.Zero));
+            () => SplashScreen.Show(null!, () => new MainWindowViewModel(new ProgressBarViewModel()), TimeSpan.Zero));
     }
 
     [Fact]

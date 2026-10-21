@@ -241,8 +241,9 @@ adapters' integrity, response-size and timeout checks over an in-memory stub
 `HttpMessageHandler`, with no real network. TMS PostgreSQL/EF Core coverage lives in the
 `*.Tests.Integration` projects. A test that asserts on real file output belongs here, never in
 `Tests.Unit`.
-`DesktopAppDependencyInjectionTests` sits here too: the desktop app's composition root wires the
-real x86 adapters, so only this Windows suite can load it.
+Two desktop app suites sit here too, because only this Windows suite can load the x86 exe:
+`DesktopAppDependencyInjectionTests` builds its composition root with the real adapters, and
+`DesktopAppManifestTests` reads the built `LotroPoPolsku.exe`.
 
 The project targets `net10.0-windows` with an x86 `PlatformTarget`. It builds everywhere and
 **runs on Windows only**, where it needs the x86 .NET runtime (without it the run aborts and

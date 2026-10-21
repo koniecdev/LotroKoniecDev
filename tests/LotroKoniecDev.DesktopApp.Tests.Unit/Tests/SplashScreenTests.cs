@@ -63,13 +63,19 @@ public sealed class SplashScreenTests
                 bool mainWindowOpenWhenSplashClosed = false;
                 splash.Closed += (_, _) => mainWindowOpenWhenSplashClosed = desktop.MainWindow is MainWindow { IsVisible: true };
 
-                // Act
-                await WaitUntilAsync(() => !splash.IsVisible);
+                try
+                {
+                    // Act
+                    await WaitUntilAsync(() => !splash.IsVisible);
 
-                MainWindow mainWindow = desktop.MainWindow.ShouldBeOfType<MainWindow>();
-                object? dataContext = mainWindow.DataContext;
-                mainWindow.Close();
-                return (dataContext, mainWindowOpenWhenSplashClosed, splash.IsVisible);
+                    return (desktop.MainWindow?.DataContext, mainWindowOpenWhenSplashClosed, splash.IsVisible);
+                }
+                finally
+                {
+                    // The session is shared, so neither window may stay open, not even after a failure.
+                    desktop.MainWindow?.Close();
+                    splash.Close();
+                }
             },
             CancellationToken.None);
 

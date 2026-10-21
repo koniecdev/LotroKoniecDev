@@ -40,6 +40,7 @@ wins**: align the ticket before coding.
 ```
 src/
   Patcher/LotroKoniecDev.{Primitives,Domain,Application,Infrastructure,Cli}               ← PATCHER (stable)
+  Player/LotroKoniecDev.DesktopApp{,.Presentation}                                       ← M4 desktop app: x86 exe + cross-platform Avalonia UI (ADR-0033)
   SharedKernel/LotroKoniecDev.SharedKernel                                                ← TMS-side building blocks
   TranslationSystem/LotroKoniecDev.TranslationSystem.{Primitives,Domain,ReadModels,ReadModels.EntityFramework,Projections,Persistence,Contracts,API}
   AuthSystem/LotroKoniecDev.AuthSystem.{API,Domain,Infrastructure,Persistence,Contracts}  ← self-hosted OpenIddict
@@ -163,6 +164,7 @@ dotnet run --project src/Patcher/LotroKoniecDev.Cli -- export                 # 
 dotnet run --project src/Patcher/LotroKoniecDev.Cli -- patch polish           # translations/polish.txt → DAT
 dotnet run --project src/Patcher/LotroKoniecDev.Cli -- launch polish          # hash-check → patch if changed → launch
 # or the .bat wrappers: export.bat (no elevation) / patch.bat, lotro.bat (self-elevate)
+dotnet run --project src/Player/LotroKoniecDev.DesktopApp                     # desktop app LotroPoPolsku.exe (Windows; M4, ADR-0033)
 
 # GitHub tickets
 gh issue list --state open                             # backlog; titles follow "M{milestone}-{nn}: Title"
@@ -546,8 +548,9 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
     (`MediaTypes.HateoasJson`, and `LinkDto` in tests only), so the vendor media type cannot drift
     between the two ends. The CLI still re-types the link envelope rather than linking
     `TranslationSystem.Contracts`, with a parity test standing in for the compiler.
-    `BoundedContextIsolationTests` covers patcher Primitives/Domain/Application only: Infrastructure
-    and Cli are `net10.0-windows`, so nothing mechanically blocks the next reference added there.
+    `BoundedContextIsolationTests` covers patcher Primitives/Domain/Application and the desktop app's
+    Presentation only: Infrastructure, Cli and the desktop exe are `net10.0-windows`, so nothing
+    mechanically blocks the next reference added there.
 - **Docker restore layers are loud and gated (ADR-0028, amended).** Every Dockerfile that lists
   `.csproj` files must COPY the **full transitive closure** of the projects it restores, because
   `dotnet restore` skips a missing project file and still **exits 0**. Two defences: image builds
@@ -716,8 +719,9 @@ Per-suite details (inventory, libraries, snapshots, E2E, conventions): `tests/CL
 - **Tooling: xUnit + Shouldly + NSubstitute** for the framework, assertions and mocks. Naming:
   `MethodName_Scenario_ExpectedResult`. Other tools only for their own job, each listed with where
   it is used in `tests/CLAUDE.md` → "Framework & Libraries" (for example NetArchTest.Rules for
-  architecture rules, Verify.Xunit for snapshots, bUnit for components, FakeTimeProvider for timers
-  no substitute can fire, Testcontainers and Playwright for real databases and the E2E stacks).
+  architecture rules, Verify.Xunit for snapshots, bUnit for components, Avalonia.Headless for the
+  desktop app's windows, FakeTimeProvider for timers no substitute can fire, Testcontainers and
+  Playwright for real databases and the E2E stacks).
 - **Snapshots pin shape; they never replace an assert (#571).** Golden fixtures own the `||` file
   contract on both sides (a snapshot must not replace them), plain asserts own behaviour across
   many inputs, and a Verify snapshot owns "did anything about this large payload change" (TMS API
@@ -905,9 +909,10 @@ Two non-negotiables: **one ticket = one PR** (git hygiene) and **one ticket = on
   **CatalogEntry, never "entity"** (the DDD-Entity misconception; user decision 2026-07-06).
   **DoD:** import fixture → browse `/catalog` → translate a whole quest via editor context → entry
   bulk approve → the artifact contains the rows (E2E).
-- **M4 — desktop player app (Avalonia, ADR-0033): not started** (#41–#46). A GUI over the patcher
-  handlers + the same TMS auto-download the CLI ships. The MVP is Windows-only, but the framework
-  keeps the Steam Deck/Proton path open (WPF would close it).
+- **M4 — desktop player app (Avalonia, ADR-0033): started.** #41 is done: the shell, an x86 exe
+  plus a cross-platform UI project, a splash and a static main window; #42, #43, #45 and #46 are
+  open. A GUI over the patcher handlers + the same TMS auto-download the CLI ships. The MVP is
+  Windows-only, but the framework keeps the Steam Deck/Proton path open (WPF would close it).
 - **Post-MVP backlog (cut from MVP):** glossary, `TranslationHistory`, bulk operations, keyboard
   shortcuts, AI review, Discord notifications, public API versioning, crowdsourced game-version
   reports, per-language roles, Companion data auto-fetch from GitHub. **Epic TP-00 (#377)** parks

@@ -15,7 +15,7 @@ dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests          # browser stack via
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 ```
 
-Full project inventory (15 projects):
+Full project inventory (16 projects):
 
 | Project | Kind | Needs |
 |---|---|---|
@@ -26,6 +26,7 @@ Full project inventory (15 projects):
 | `LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` | TMS domain unit | nothing (pure); Stryker target |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handlers, auth and endpoints (fake read DbContext, stub accessor and provisioner), and the account event consumer's pauses on a fake clock (#1223) | nothing (pure) |
 | `LotroKoniecDev.Frontend.Tests.Unit` | Blazor SSR components and infrastructure (bUnit) | nothing (pure) |
+| `LotroKoniecDev.DesktopApp.Tests.Unit` | desktop app UI (#41): view model, progress reporter, main window layout and the splash hand-over, on Avalonia's headless platform | nothing (no screen; runs on Linux too) |
 | `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api: startup settings checks, handlers, middleware, pages, services, outbox and inbox, seed retry policy, when the timed jobs run (#948) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
 | `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |
@@ -66,6 +67,9 @@ mutation score drops below it. It is a calibrated starting point; adjust it in t
 - **NetArchTest.Rules**: architecture tests only (`LotroKoniecDev.Architecture.Tests.Unit`).
 - **Verify.Xunit**: snapshot tests for API response contracts and rendered SSR markup (see below).
 - **bUnit**: renders Blazor components in `Frontend.Tests.Unit`.
+- **Avalonia.Headless**: the desktop app's UI tests (#41) run the real `App` and windows on
+  Avalonia's headless platform. One session per run (`HeadlessSessionFixture`), and every window
+  is touched only inside `Session.Dispatch`, on the session's UI thread.
 - **Microsoft.AspNetCore.Mvc.Testing**: the in-memory hosts of the three integration suites.
 - **Testcontainers** (PostgreSQL, RabbitMQ) and **Microsoft.Playwright**: real databases, brokers
   and the E2E stacks.
@@ -219,10 +223,10 @@ reflection** checks the conventions its predicate DSL cannot express ("sealed un
 inherits it", a validator's generic argument).
 
 Adding a production project? Add the `ProjectReference` **and** the entry in
-`Shared/ProductionAssemblies.All`; `SuiteSelfTests` fails until you do. The two patcher
-`net10.0-windows` assemblies (Infrastructure, Cli) are left out because a `net10.0` project cannot
-reference them. They sit at the top of the layering, so rules about them are stated as forbidden
-namespaces on the assemblies below.
+`Shared/ProductionAssemblies.All`; `SuiteSelfTests` fails until you do. The three patcher
+`net10.0-windows` assemblies (Infrastructure, Cli and the desktop app's exe) are left out because a
+`net10.0` project cannot reference them. They sit at the top of the layering, so rules about them
+are stated as forbidden namespaces on the assemblies below.
 
 `SealedConventionTests.KnownViolations` is **empty**: a new violation fails the gate. Adding an
 entry instead of sealing the type needs a ticket to point at, and a second test fails once an entry
@@ -237,6 +241,8 @@ adapters' integrity, response-size and timeout checks over an in-memory stub
 `HttpMessageHandler`, with no real network. TMS PostgreSQL/EF Core coverage lives in the
 `*.Tests.Integration` projects. A test that asserts on real file output belongs here, never in
 `Tests.Unit`.
+`DesktopAppDependencyInjectionTests` sits here too: the desktop app's composition root wires the
+real x86 adapters, so only this Windows suite can load it.
 
 The project targets `net10.0-windows` with an x86 `PlatformTarget`. It builds everywhere and
 **runs on Windows only**, where it needs the x86 .NET runtime (without it the run aborts and

@@ -166,6 +166,12 @@ run_suite() {
     write_file "$tree" src/Frontend/Pages/Client.cs 'private const string Base = "https://tms/api/v1/";'
     run_tree 1 "an API path in a Frontend string literal fails" "$tree"
 
+    # In a UTF-8 locale GNU grep hides a matching line that is not valid UTF-8 (#1162). Here ę is
+    # saved as one Windows-1250 byte.
+    tree="$(new_tree)"
+    write_file "$tree" src/Frontend/Pages/Client.cs $'private const string Base = "https://tms/api/v1/"; // zmian\352'
+    run_tree 1 "an API path on a line that is not valid UTF-8 fails" "$tree"
+
     tree="$(new_tree)"
     write_file "$tree" src/Patcher/Cli/Download.cs 'var url = $"{baseUrl}/api/v2/translation-files/{lang}";'
     run_tree 1 "an API path in a Patcher string fails, whatever the version" "$tree"

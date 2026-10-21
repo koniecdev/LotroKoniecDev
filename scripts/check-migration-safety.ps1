@@ -101,6 +101,16 @@ try {
         exit 2
     }
 
+    # core.quotePath=false still quotes a name that holds a ", a \ or a control character. The filter
+    # below would drop such a migration unscanned, so stop instead (#1162).
+    $quotedFiles = @($candidateFiles | Where-Object { $_ -cmatch '^"(.*/)?Migrations/[^/]+\.cs"$' })
+    if ($quotedFiles) {
+        Write-Host 'Migration-safety guard: git quotes the name of this new migration, so the guard cannot read it:'
+        $quotedFiles | ForEach-Object { Write-Host "    $_" }
+        Write-Host 'Rename it without a ", a \ or a control character, then run the guard again.'
+        exit 2
+    }
+
     $newFiles = $candidateFiles |
         Where-Object { $_ -cmatch '(^|/)Migrations/[^/]+\.cs$' } |
         Where-Object { $_ -cnotmatch '(\.Designer\.cs|ModelSnapshot\.cs)$' } |
@@ -115,6 +125,15 @@ try {
     $scanned = 0
 
     foreach ($file in $newFiles) {
+        # A byte that is not valid UTF-8 reaches us as U+FFFD, and .NET cannot open a file whose name
+        # holds one. The guard cannot scan such a migration, so it must not pass it (#1162). This runs
+        # before the staged-deletion skip on purpose: two different bad bytes both become U+FFFD, so
+        # that skip could match the wrong file.
+        if ($file.Contains([char]0xFFFD)) {
+            Write-Host "Migration-safety guard: the name of $file is not valid UTF-8, so the guard cannot open it."
+            Write-Host 'Rename the migration to a valid UTF-8 name, then run the guard again.'
+            exit 2
+        }
         if (-not (Test-Path -LiteralPath $file)) {
             # Removed from disk only, the file is still in git and would ship unscanned (#1079).
             if ($stagedDeletions -ccontains $file) { continue }

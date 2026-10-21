@@ -95,12 +95,13 @@ run_case() {
 }
 
 expect_in_output() {
-    printf '%s' "$LAST_OUTPUT" | grep -qF "$1" \
+    # The output may hold a file name that is not valid UTF-8, which grep skips in a UTF-8 locale (#1162).
+    printf '%s' "$LAST_OUTPUT" | LC_ALL=C grep -qF "$1" \
         || fail "output should contain '$1'" "$LAST_OUTPUT"
 }
 
 run_suite() {
-    local repo
+    local repo blob migration
 
     # 1. Additive migration passes — and the destructive legacy file is not re-flagged.
     repo="$(new_repo)"
@@ -268,6 +269,84 @@ run_suite() {
     else
         printf 'i [%s] running as root, which reads any file — skipped the unreadable-migration case.\n' "$LABEL"
     fi
+
+    # 17. A name that is not valid UTF-8 (é saved as one Latin-1 byte) must stay on the list. In a
+    #     UTF-8 locale GNU grep hides such a line, and the guard passed (#1162).
+    #     macOS refuses the name on disk, so this case puts it in git only.
+    repo="$(new_repo)"
+    blob="$(printf '%s\n' 'migrationBuilder.DropTable(name: "T");' | git -C "$repo" hash-object -w --stdin)"
+    git -C "$repo" update-index --add --cacheinfo \
+        "100644,$blob,src/App.Persistence/Migrations/"$'20260705000018_Caf\351.cs'
+    git -C "$repo" commit -qm "migration name that is not valid UTF-8, in git only"
+    run_case 2 "a migration whose name is not valid UTF-8 stays on the list of new migrations" "$repo" HEAD^1
+    expect_in_output "20260705000018_Caf"
+
+    # 18. The same name on disk is scanned. It runs only where the file system takes the name (Linux).
+    if (: > "$TMP_ROOT/"$'20260705000019_Caf\351.cs') 2>/dev/null; then
+        repo="$(new_repo)"
+        write_migration "$repo" $'20260705000019_Caf\351.cs' \
+            'migrationBuilder.DropTable(name: "T");' \
+            'migrationBuilder.CreateTable(name: "T");'
+        commit_all "$repo" "migration name that is not valid UTF-8"
+        if [ "$LABEL" = "sh" ]; then
+            run_case 1 "a destructive migration whose name is not valid UTF-8 is caught" "$repo" HEAD^1
+            expect_in_output "Destructive operation"
+        else
+            # .NET cannot open a file whose name is not valid UTF-8, so the twin cannot scan it.
+            run_case 2 "a migration whose name is not valid UTF-8 fails the twin instead of passing" "$repo" HEAD^1
+            expect_in_output "not valid UTF-8"
+        fi
+    else
+        printf 'i [%s] this file system refuses a name that is not valid UTF-8 — skipped the on-disk case.\n' "$LABEL"
+    fi
+
+    # 19. core.quotePath=false still quotes a name that holds a ", a \ or a control character, and the
+    #     quoted name fell out of the .cs filter unscanned (#1162).
+    repo="$(new_repo)"
+    write_migration "$repo" '20260705000020_Drop"Quoted.cs' \
+        'migrationBuilder.DropTable(name: "T");' \
+        'migrationBuilder.CreateTable(name: "T");'
+    commit_all "$repo" "migration name that git quotes"
+    run_case 2 "a migration whose name git quotes fails instead of passing unscanned" "$repo" HEAD^1
+    expect_in_output "git quotes the name"
+
+    repo="$(new_repo)"
+    write_migration "$repo" $'20260705000021_Tab\tName.cs' \
+        'migrationBuilder.DropTable(name: "T");' \
+        'migrationBuilder.CreateTable(name: "T");'
+    run_case 2 "an untracked migration whose name git quotes fails too" "$repo"
+    expect_in_output "git quotes the name"
+
+    # 20. C# reads U+2003 and U+00A0 as spaces, and the guard runs in the C locale, where [[:space:]]
+    #     is ASCII only (#1162).
+    repo="$(new_repo)"
+    write_migration "$repo" "20260705000022_UnicodeSpaceCall.cs" \
+        $'migrationBuilder.DropTable\342\200\203(name: "T");' \
+        'migrationBuilder.CreateTable(name: "T");'
+    commit_all "$repo" "destructive call with U+2003"
+    run_case 1 "a destructive call with U+2003 before its parenthesis is caught" "$repo" HEAD^1
+    expect_in_output "Destructive operation"
+
+    repo="$(new_repo)"
+    write_migration "$repo" "20260705000023_UnicodeSpaceUp.cs" \
+        'migrationBuilder.DropTable(name: "T");' \
+        'migrationBuilder.CreateTable(name: "T");'
+    migration="$repo/src/App.Persistence/Migrations/20260705000023_UnicodeSpaceUp.cs"
+    sed "s/void Up(/void"$'\302\240'"Up(/" "$migration" > "$migration.tmp" && mv "$migration.tmp" "$migration"
+    LC_ALL=C grep -qF $'void\302\240Up(' "$migration" || fail "fixture: U+00A0 was not put after void"
+    commit_all "$repo" "Up() declared with U+00A0"
+    run_case 1 "an Up() declared with U+00A0 after void is still scanned" "$repo" HEAD^1
+    expect_in_output "Destructive operation"
+
+    # 21. A local function whose name starts with a non-ASCII letter and ends in Down must not end the
+    #     scan of Up(): only a real `void Down(` does.
+    repo="$(new_repo)"
+    write_migration "$repo" "20260705000024_LocalFunction.cs" \
+        $'void \303\234Down() { }\n            migrationBuilder.DropTable(name: "T");' \
+        'migrationBuilder.CreateTable(name: "T");'
+    commit_all "$repo" "local function named ÜDown inside Up()"
+    run_case 1 "a local function named ÜDown inside Up() does not end the scan" "$repo" HEAD^1
+    expect_in_output "Destructive operation"
 }
 
 CHECKER="$SCRIPTS_DIR/check-migration-safety.sh"

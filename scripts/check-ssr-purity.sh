@@ -29,6 +29,12 @@
 
 set -euo pipefail
 
+# In a UTF-8 locale GNU grep hides a matching line that is not valid UTF-8, so a line holding, say, a
+# Windows-1250 letter was never checked (#1162). The C locale reads every byte as a plain character.
+# There [[:space:]] is ASCII only, but Razor also reads a Unicode space such as U+2003 or U+00A0 as a
+# space. So a rule for a space Razor skips uses [^!-~]: any byte that is not a visible ASCII character.
+export LC_ALL=C
+
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
 REPO_ROOT="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 FRONTEND_DIR="$REPO_ROOT/src/Frontend"
@@ -107,9 +113,9 @@ report() {
 
 check '@rendermode' \
     'Render-mode directive forces a component into interactive mode. Remove it — SSR renders on the server.'
-check '@on[a-z]+[[:space:]]*[=:]' \
+check '@on[a-z]+[^!-~]*[=:]' \
     'Blazor event handler (@onclick / @onchange / @oninput …) does nothing in SSR. Use <form method="post" @onsubmit> or <EditForm OnValidSubmit>.' \
-    '@onsubmit[[:space:]]*[=:]'
+    '@onsubmit[^!-~]*[=:]'
 check 'StateHasChanged' \
     'StateHasChanged only works in interactive mode. In SSR the next request re-renders the page — delete the call.'
 check 'AddInteractiveServerComponents|AddInteractiveWebAssemblyComponents|AddInteractiveServerRenderMode|AddInteractiveWebAssemblyRenderMode' \
@@ -125,18 +131,20 @@ check '<[sS][cC][rR][iI][pP][tT][^>]*>' \
     "Inline <script> in the Frontend. Our CSP sends script-src 'self', so the browser blocks it and only the console says so (#670). Move the code to a file under wwwroot and load it with src=, or drop it." \
     '<[sS][cC][rR][iI][pP][tT][^>]*[sS][rR][cC]=[^>]*>'
 # The trailing class keeps List<ImportMapDefinition> and friends out of the match.
-check '<ImportMap[[:space:]/>]' \
+check '<ImportMap([^!-~]|[/>])' \
     "Blazor's import-map component renders an inline <script type=\"importmap\">, which script-src 'self' blocks on every page (#670). A Static SSR app never resolves a module specifier, so it has no job here."
 
 check_auth_pages '<[sS][cC][rR][iI][pP][tT][^>]*>' \
     "Inline <script> in an auth page. The auth CSP sends script-src 'self', so the browser blocks it and only the console says so (#693). Move the code to a file under wwwroot, like login.js." \
     '<[sS][cC][rR][iI][pP][tT][^>]*[sS][rR][cC]=[^>]*>'
-check_auth_pages '<[sS][tT][yY][lL][eE]([[:space:]]|>)' \
+# A tag helper can rewrite a Unicode space inside a tag into an ASCII one: the form tag helper turns
+# onsubmit<U+2003>= into a real onsubmit=. So every auth rule reads [^!-~] as a space too (#1162).
+check_auth_pages '<[sS][tT][yY][lL][eE]([^!-~]|>)' \
     "<style> without the CSP nonce in an auth page. The auth CSP admits an inline style only by the response's nonce, so the browser drops it (#693). Write <style nonce=\"@CspNonce.Get(HttpContext)\">." \
     '<[sS][tT][yY][lL][eE][^>]*[nN][oO][nN][cC][eE]=[^>]*>'
-check_auth_pages '<[a-zA-Z][^>]*[[:space:]][oO][nN][a-zA-Z]+[[:space:]]*=' \
+check_auth_pages '<[a-zA-Z][^>]*[^!-~][oO][nN][a-zA-Z]+[^!-~]*=' \
     "Inline event handler (onclick=, onsubmit=, …) in an auth page. The auth CSP sends script-src 'self', which blocks it (#693). Attach the handler from a file under wwwroot, like login.js."
-check_auth_pages '<[a-zA-Z][^>]*[[:space:]][sS][tT][yY][lL][eE][[:space:]]*=' \
+check_auth_pages '<[a-zA-Z][^>]*[^!-~][sS][tT][yY][lL][eE][^!-~]*=' \
     "Inline style= attribute in an auth page. The auth CSP admits inline styles only by nonce, and a nonce does not cover attributes (#693). Use a class in the page's <style> block."
 
 if [ "$fail" -ne 0 ]; then

@@ -648,6 +648,14 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   The same holds for every `scripts/check-*` guard: a missing folder, a folder with nothing to scan,
   or a file it cannot read is exit 2, and a new guard copies that. The one deliberate pass on an
   empty input is `check-migration-safety` on a diff that adds no migration: there is nothing to check.
+  Every bash guard also runs `export LC_ALL=C` (#1162): on the Linux runner GNU grep hides a matching
+  line that is not valid UTF-8, such as a Windows-1250 letter or a raw file name. That makes
+  `[[:space:]]` ASCII only, so a pattern for a space that C#, Razor or Docker reads uses `[^!-~]`: any
+  byte that is not visible ASCII. It also matches a non-ASCII letter. In a pattern that flags
+  something, that costs only a false alarm. In a pattern that allows a line or ends a scan, it can
+  hide one (`void ÜDown(` ended the scan of `Up()`), so keep `[[:space:]]` there, unless nothing valid
+  can stand where the extra bytes go (an event name in Razor, an instruction in a Dockerfile). macOS's
+  grep and sed act differently, so prove a guard change in Linux, with `LANG=C.UTF-8`.
   **The Blazor exception (#414):** the frontend image's `dotnet build` runs **without**
   `--no-restore`. `blazor.web.js` ships in `Microsoft.AspNetCore.App.Internal.Assets`, which the SDK
   references only once it sees `.razor` files — never during the `.csproj`-only restore — so

@@ -200,6 +200,21 @@ run_suite() {
         App.razor '<form method="post" @onsubmit="Save"></form>'
     run_case 1 "StateHasChanged still fails" Thing.cs 'StateHasChanged();'
 
+    # In a UTF-8 locale GNU grep hides a matching line that is not valid UTF-8 (#1162). Here ę is
+    # saved as one Windows-1250 byte.
+    run_case 1 "an @onclick handler on a line that is not valid UTF-8 still fails" \
+        App.razor $'<button @onclick="Save">Zapisz zmian\352</button>'
+
+    # The guard runs in the C locale, where [[:space:]] is ASCII only. Razor also reads U+2003 and
+    # U+00A0 as spaces (#1162).
+    run_case 1 "an @onclick handler with U+2003 before = still fails" \
+        App.razor $'<button @onclick\342\200\203="Save">Go</button>'
+    run_case 1 "an @onclick handler with U+00A0 before = fails" \
+        App.razor $'<button @onclick\302\240="Save">Go</button>'
+    run_case 0 "an @onsubmit handler with U+2003 before = is still allowed" \
+        App.razor $'<form method="post" @onsubmit\342\200\203="Save"></form>'
+    run_case 1 "the import-map component with U+2003 after its name fails" App.razor $'<ImportMap\342\200\203/>'
+
     # --- the auth pages: the same CSP rules, over *.cshtml (#693) ---
     run_auth_case 0 "an auth page with a nonced style and an external script passes" \
         Login.cshtml '<style nonce="@CspNonce.Get(HttpContext)">p{}</style><script src="/login.js"></script>'
@@ -209,6 +224,12 @@ run_suite() {
     run_auth_case 1 "a style without the nonce in an auth page fails" \
         Login.cshtml '<style>p{}</style>'
     expect_in_output "without the CSP nonce"
+    run_auth_case 1 "a style without the nonce on a line that is not valid UTF-8 still fails" \
+        Login.cshtml $'<style>p{} /* zmian\352 */</style>'
+    run_auth_case 1 "a style without the nonce after U+2003 fails" \
+        Login.cshtml $'<style\342\200\203media="screen">p{}</style>'
+    run_auth_case 0 "a nonced style after U+2003 passes" \
+        Login.cshtml $'<style\342\200\203nonce="@CspNonce.Get(HttpContext)">p{}</style>'
     run_auth_case 1 "an UPPERCASE style without the nonce fails" \
         Login.cshtml '<STYLE media="screen">p{}</STYLE>'
     run_auth_case 1 "a nonced style does not hide an unnonced one on the same line" \
@@ -222,9 +243,17 @@ run_suite() {
     expect_in_output "Inline event handler"
     run_auth_case 1 "an UPPERCASE inline event handler fails" \
         Login.cshtml '<form ONSUBMIT="go()"></form>'
+    # The form tag helper turns a Unicode space here into an ASCII one, so the browser gets a real
+    # handler (#1162).
+    run_auth_case 1 "an inline event handler with U+2003 before = fails" \
+        Login.cshtml $'<form method="post" onsubmit\342\200\203="go()"></form>'
+    run_auth_case 1 "an inline event handler after U+00A0 fails" \
+        Login.cshtml $'<form\302\240onsubmit="go()"></form>'
     run_auth_case 1 "a style attribute in an auth page fails" \
         Login.cshtml '<div style="width: 50%"></div>'
     expect_in_output "Inline style= attribute"
+    run_auth_case 1 "a style attribute with U+2003 before = fails" \
+        Login.cshtml $'<form method="post" style\342\200\203="width: 50%"></form>'
     run_auth_case 0 "an attribute value that starts with 'on' is not a handler" \
         Login.cshtml '<input autocomplete="one-time-code" class="icon only" />'
     run_auth_case 0 "a word like 'online' in text is not a handler" \

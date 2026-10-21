@@ -203,6 +203,12 @@ run_suite() {
         'RUN dotnet restore \' '    "src/App/App.csproj"'
     run_tree 0 "a restore root on a continuation line is read" "$tree"
 
+    # The guard runs in the C locale, where [[:space:]] is ASCII only. Docker also skips U+2003 and
+    # U+00A0 at the start of a line (#1162).
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" $'\342\200\203'"$COPY_LIB" $'\302\240'"$COPY_CORE" "$RESTORE_APP"
+    run_tree 0 "a COPY line that starts with a Unicode space is read, as Docker reads it" "$tree"
+
     # --- a missing COPY line fails ---
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_LIB" "$RESTORE_APP"
@@ -212,6 +218,14 @@ run_suite() {
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" "$RESTORE_APP"
     run_tree 1 "a Dockerfile without the COPY line of a direct reference fails" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    # In a UTF-8 locale GNU grep hides a matching line that is not valid UTF-8, so a restore root on
+    # such a line went unchecked (#1162). Here ż, ś and ć are Windows-1250 bytes.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" \
+        'RUN dotnet restore "src/Core/Core.csproj"' $'RUN dotnet restore "src/App/App.csproj" # zale\277no\234\346'
+    run_tree 1 "a restore root on a line that is not valid UTF-8 is still read" "$tree"
     expect_in_output "missing: src/Lib/Lib.csproj"
 
     tree="$(new_tree)"
@@ -229,6 +243,12 @@ run_suite() {
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_LIB" "$COPY_CORE" '# RUN dotnet restore "src/App/App.csproj"'
     run_tree 1 "a commented-out restore is not a restore root" "$tree"
+    expect_in_output "never runs"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_LIB" "$COPY_CORE" \
+        $'\342\200\203# RUN dotnet restore "src/App/App.csproj"'
+    run_tree 1 "a restore commented out after a Unicode space is not a restore root" "$tree"
     expect_in_output "never runs"
 }
 

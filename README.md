@@ -168,7 +168,10 @@ is the bridge between the game on a player's machine and the translation file th
 - **`patch`** — injects a Polish translation file back into the `DAT`.
 - **`launch`** — hashes the translation file, re-patches **only if it changed**, then starts the
   game. Live testing across real game updates (including a major 47.2 → 48.0 patch) proved that
-  translations survive updates, so this is the recommended day-to-day command.
+  translations survive updates, so this is the recommended day-to-day command. An update does
+  replace whole text subfiles now and then, and the Polish in them goes with them. So when the file
+  is unchanged, `launch` also compares the DAT with the iteration snapshot saved after the last
+  patch, and re-patches from the local file when an update replaced anything (spec 0012 Tier 0).
 - The CLI can **auto-download** the latest approved file from the TMS (`ETag`-cached), so players
   always get the current translation without manual steps.
 
@@ -185,7 +188,7 @@ automatic `.backup` of the `DAT`), and maps failures to clear exit codes.
 ```bash
 export.bat                 # game DAT  → data/exported.txt (reads only — no elevation)
 patch.bat polish           # translations/polish.txt → game DAT (self-elevates)
-lotro.bat polish           # launch: hash-check → patch if changed → start the game
+lotro.bat polish           # launch: hash-check → patch if changed or an update replaced subfiles → start the game
 # equivalent: dotnet run --project src/Patcher/LotroKoniecDev.Cli -- launch polish
 ```
 

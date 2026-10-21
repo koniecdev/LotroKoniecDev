@@ -194,6 +194,7 @@ message.
 ```
 Shared/
   TestDataFactory.cs        Binary SubFile test data builder (shared across feature tests)
+  InMemoryDatFileHandler.cs A DAT in memory that keeps state across a patch, an update and launches
 Tests/
   Core/
     BuildingBlocks/
@@ -210,6 +211,8 @@ Tests/
     ExportTextsQueryHandlerTests.cs    Export handler (mocked IDatFileHandler) + validation guards
     ApplyPatchCommandHandlerTests.cs   Patch handler (mocked IPatchingService, real validator)
     GameLaunchingCommandHandlerTests.cs Launch handler + SimplifiedGameLaunchingStrategy branches
+    SimplifiedGameLaunchingStrategyWipeRepairTests.cs Tier 0 end to end: patch → update → launch repairs (real strategy + detector + patching service, in-memory DAT)
+    SubFileWipeDetectorTests.cs        Tier 0 detection: snapshot vs DAT, and every "cannot compare" case
     PreflightCheckQueryHandlerTests.cs Preflight checks (process, write access, update check)
     PatchingServiceTests.cs            Patch orchestration (mocked IDatFileHandler + ITranslationParser)
     SyncTranslationFileCommandHandlerTests.cs TMS file sync (HTTPS-only URL guard, integrity rejection, ETag/304, offline fallback)
@@ -218,6 +221,7 @@ Tests/
     GameUpdateCheckerTests.cs          Forum scraping + version comparison (mocked fetcher + store)
   Models/
     FragmentTests.cs          Binary parse/write roundtrip
+    SubFileIterationSnapshotTests.cs  The E5 diff: iteration moved or subfile removed, nothing else
     SubFileTests.cs           Serialization/deserialization
     TranslationTests.cs       Property validation
   Parsers/
@@ -265,7 +269,8 @@ entry instead of sealing the type needs a ticket to point at.
 ## Infrastructure Tests (LotroKoniecDev.Tests.Infrastructure)
 
 Tests that touch real infrastructure adapters (today: `GameLauncherTests`,
-`AuthenticodeLauncherSignatureVerifierTests`, `DatExportNativeTests`,
+`AuthenticodeLauncherSignatureVerifierTests`, `DatExportNativeTests`, the sidecar stores
+`TranslationLedgerTests`, `TranslationFileCacheTests` and `SubFileIterationSnapshotStoreTests`,
 `TranslationFileDownloaderTests` and `ForumPageFetcherTests` — the network ones drive the
 adapters' integrity, response-size-cap and timeout enforcement points over an in-memory stub
 `HttpMessageHandler`, no real network). This project is patcher-side only — TMS

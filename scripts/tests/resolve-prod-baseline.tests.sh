@@ -32,6 +32,16 @@ RESOLVE_SH="$SCRIPTS_DIR/ci/resolve-prod-baseline.sh"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
+# Git exports GIT_DIR, GIT_INDEX_FILE and the like to a hook or a `git rebase -x` command. Left in
+# place, they would point the fixture repo below at the real one, and its commits would land on your
+# branch.
+for var in $(git rev-parse --local-env-vars); do
+    unset "$var"
+done
+
+# Isolate from the developer's git config (gpg signing, hooks, defaults).
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+
 cases=0
 CASE=""
 LAST_OUTPUT=""
@@ -58,6 +68,7 @@ pass() {
 #   C4 adds src/App/Other.cs                 (no schema change — so C3..C4 is a migration-free span
 #                                             while C2..C4 is not: the difference between trusting a
 #                                             lying API record and taking the wider span)
+#   C5 moves the C3 migration into docs/     (a schema change git reports as a rename — #1041)
 FIXTURE="$TMP_ROOT/repo"
 mkdir -p "$FIXTURE"
 git -C "$FIXTURE" init --quiet --initial-branch=main
@@ -77,6 +88,9 @@ echo 'contract' > "$FIXTURE/src/App/Migrations/20260102000000_Drop.cs"
 C3="$(git_commit 'C3: contract migration')"
 echo 'other' > "$FIXTURE/src/App/Other.cs"
 C4="$(git_commit 'C4: feature only')"
+mkdir -p "$FIXTURE/docs"
+git -C "$FIXTURE" mv src/App/Migrations/20260102000000_Drop.cs docs/20260102000000_Drop.cs
+C5="$(git_commit 'C5: migration moved out')"
 # A parentless commit: a baseline sharing no history with the candidate cannot be ordered against
 # it, and an unorderable pair must fail closed instead of picking a span at random.
 UNRELATED="$(git -C "$FIXTURE" -c user.name=test -c user.email=test@test.invalid \
@@ -209,6 +223,14 @@ run_resolve CANDIDATE_SHA="$C2"
 verdict 'mode=skip' || fail 'a migration-free span must skip the proof'
 verdict "baseline=$C1" || fail 'the skip verdict should still name the baseline'
 pass 'a migration-free promotion span skips the proof (fast path)'
+
+CASE='a migration moved out of Migrations/'
+deployments_json "[{\"id\": 45, \"sha\": \"$C4\"}]"
+statuses_json 45 '[{"state": "success"}]'
+run_resolve CANDIDATE_SHA="$C5"
+[ "$LAST_STATUS" -eq 0 ] || fail 'expected a clean resolution' "status $LAST_STATUS"
+verdict 'mode=proof' || fail 'a migration that leaves Migrations/ is a schema change and must demand the proof'
+pass 'a migration moved out of Migrations/ still demands the proof (the old path counts)'
 
 CASE='re-promotion of the serving sha'
 deployments_json "[{\"id\": 50, \"sha\": \"$C3\"}]"

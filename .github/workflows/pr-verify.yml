@@ -75,7 +75,7 @@ jobs:
           persist-credentials: false
 
       # The classifier below decides what runs, so it is the one guard nothing else backstops:
-      # its self-test runs first, always, whatever the diff says. Pure bash, ~1 second.
+      # its self-test runs first, always, whatever the diff says. Bash and git, a few seconds.
       - name: Change-classifier self-test
         run: ./scripts/tests/classify-changes.tests.sh
 

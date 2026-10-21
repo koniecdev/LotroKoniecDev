@@ -31,8 +31,21 @@
 # pins both directions and runs UNCONDITIONALLY in the required pr-verify job, so a classifier that
 # starts skipping real builds goes red before it is ever trusted.
 #
+# Every changed path must reach the rules above, both ends of a move included (#1041). With rename
+# detection on (git's default, or `diff.renames` in a config), `--name-only` prints only where a
+# moved file went. A test fixture moved into docs/ then looked inert, and the PR skipped the build.
+# `--no-renames` lists a move as a delete of the old path plus an add of the new one, whatever the
+# config says. Copy detection hides nothing: the source of a copy is listed whenever it changed.
+# `--no-relative` stops `diff.relative` from dropping every path outside the current folder, and
+# `--ignore-submodules=none` stops an `ignore = all` from dropping a submodule's new commit.
+# `core.quotePath=true` makes git print a name that holds a non-ASCII byte (a Polish letter, say), a
+# `"`, a `\` or a control character in quotes, whatever the config says, and the quotes make the
+# rules fail safe (see IMAGE_INPUTS). Never turn it off to save that extra build: GNU grep in a UTF-8
+# locale drops a line that is not valid UTF-8, so a raw Latin-1 name would reach no rule at all.
+# The `--` keeps a file named HEAD from making the call ambiguous.
+#
 # Usage:
-#   classify-changes.sh <base-ref>   # classify `git diff --name-only <base-ref> HEAD`
+#   classify-changes.sh <base-ref>   # classify `git diff --name-only <base-ref> HEAD`, with the flags above
 #   classify-changes.sh --files      # classify the newline-separated paths on stdin (test seam)
 #
 # Prints `key=value` lines to stdout (and appends them to $GITHUB_OUTPUT when set); the human
@@ -63,8 +76,10 @@ CODE_INPUTS='^\.github/workflows/(pr-verify|ci)\.yml$'
 
 # Image-build inputs: ANY Dockerfile flavor (a dev-only flavor costs a redundant image build, never
 # a false skip), the build-context filter, and pr-verify.yml — the image job must validate its own
-# new definition.
-IMAGE_INPUTS='(^|/)Dockerfile[^/]*$|(^|/)\.dockerignore$|^\.github/workflows/pr-verify\.yml$'
+# new definition. A path git printed in quotes (`^"`) is here too, because the closing quote hides a
+# `.dockerignore` from the rule before it. The other verdicts need no such rule: INERT matches a
+# quoted path only when it is a Dockerfile, so any other quoted path counts as code.
+IMAGE_INPUTS='(^|/)Dockerfile[^/]*$|(^|/)\.dockerignore$|^\.github/workflows/pr-verify\.yml$|^"'
 
 files=''
 diffable=1
@@ -78,7 +93,8 @@ case "${1-}" in
         exit 2
         ;;
     *)
-        if ! files="$(git diff --name-only "$1" HEAD)"; then
+        if ! files="$(git -c core.quotePath=true diff --name-only --no-renames --no-relative \
+            --ignore-submodules=none "$1" HEAD --)"; then
             diffable=0
         fi
         ;;

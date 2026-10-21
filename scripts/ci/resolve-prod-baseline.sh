@@ -274,7 +274,9 @@ if [ "$baseline" = "$CANDIDATE_SHA" ]; then
     exit 0
 fi
 
-if ! span_files="$(git diff --name-only "$baseline" "$CANDIDATE_SHA")"; then
+# --no-renames: with rename detection, a migration moved out of Migrations/ shows only its new path,
+# and the span looks schema-free (#1041).
+if ! span_files="$(git diff --name-only --no-renames "$baseline" "$CANDIDATE_SHA")"; then
     log "ERROR: git diff ${baseline}..${CANDIDATE_SHA} failed — cannot classify the span (fail closed)."
     exit 2
 fi

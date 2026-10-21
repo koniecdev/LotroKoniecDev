@@ -111,6 +111,19 @@ corrections with stale Polish — and TMS imports stay correct at any corpus sca
 - ~~Offline ⇒ never force-patch; proceed to launch (degrade to English for wiped rows).~~
   *Amended 2026-08-17 (ADR-0047):* offline ⇒ repair from the local artifact is **allowed** — the
   guard makes it safe row by row; the launch still never blocks on the network (spec 0001 Q5).
+- *Built 2026-10-21 (#565).* `PatchingService` saves the snapshot at the end of every successful
+  patch. Every write path goes through it (`patch`, the patch after a changed file, the repair, and
+  Tier 1 later), so none of them has to remember the refresh. The snapshot is a file next to the
+  translation file, `<file>.iterations`, beside the ledger. It keeps text subfiles only: the
+  patcher never writes any other kind, so a replaced image cannot have taken a row of ours (E7's
+  update also replaced 35 non-text subfiles). The launch runs the diff only when the translation
+  file is unchanged, because a changed file is patched anyway. No snapshot, a damaged one, a DAT
+  that cannot be opened read-only, or a DAT that lists no text subfile means no detection, never a
+  repair. A failed repair does not stop the launch: before Tier 0 that launch started the game
+  without writing the DAT. The old snapshot stays, so the next launch tries again. A patch that
+  succeeds while one subfile failed to load or to write still saves the snapshot, so that subfile
+  waits for the next patch; otherwise a subfile our parser cannot read would start a full repair on
+  every launch.
 
 ### Tier 1 — update-day orchestrator (atomic UX; branches A/B/C)
 
@@ -362,6 +375,14 @@ code ticket. It carries no milestone and stays that way: the backlog loop must n
 - [ ] After a simulated chunk-wipe (write-test DAT with a reverted SubFile), the next launch
       detects the revert via the ~~content sentinel~~ **iteration-snapshot diff (E5 revision)**
       and restores every artifact row (Tier 0).
+      *#565 (2026-10-21):* built and proven against a DAT simulated in memory
+      (`SimplifiedGameLaunchingStrategyWipeRepairTests`: one subfile with a new iteration and one
+      removed, then repaired, with no repair on the launch after it). Smoke on a copy of the live
+      49.8 DAT the same day: `patch` saved 282,190 entries and a plain `launch` found nothing.
+      Then the copy was set back to English and the snapshot edited (one iteration moved, one
+      subfile removed): `launch` repaired 300 of 300 rows (checked by an export), and the launch
+      after it found nothing. With the copy read-only the repair failed, the launch went on, and
+      the next launch repaired. A run on a real update stays with the forced-downgrade E2E of #567.
 - [ ] ~~Sentinel force-patches only when the server's staleness verdict says the artifact is
       current, and declines on stale/unknown/offline (handshake — ADR-0045; the client never
       reads lotro.com and never compares versions itself).~~ *Amended 2026-08-17 (ADR-0047):*

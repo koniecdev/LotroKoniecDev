@@ -78,36 +78,16 @@ public sealed class SimplifiedGameLaunchingStrategyTests
     private static readonly DatVersionInfo CurrentVnum = new(100, 200);
     private static readonly StoredVersionInfo StoredWithHash = new("40.2", 100, 200, TranslationHash);
     private static readonly StoredVersionInfo StoredWithoutHash = new("40.2", 100, 200);
+    private static readonly WipedSubFileSet TwoWipedSubFiles = new([0x25000001], [0x25000002]);
 
     private readonly IGameProcessDetector _processDetector;
     private readonly IFileHasher _fileHasher;
     private readonly IGameVersionFileStore _versionStore;
     private readonly IDatVersionReader _datVersionReader;
     private readonly IPatchingService _patchingService;
+    private readonly ISubFileWipeDetector _wipeDetector;
     private readonly IGameLauncher _launcher;
     private readonly SimplifiedGameLaunchingStrategy _sut;
-
-    public SimplifiedGameLaunchingStrategyTests()
-    {
-        _processDetector = Substitute.For<IGameProcessDetector>();
-        _fileHasher = Substitute.For<IFileHasher>();
-        _versionStore = Substitute.For<IGameVersionFileStore>();
-        _datVersionReader = Substitute.For<IDatVersionReader>();
-        _patchingService = Substitute.For<IPatchingService>();
-        _launcher = Substitute.For<IGameLauncher>();
-
-        _sut = new SimplifiedGameLaunchingStrategy(
-            _processDetector,
-            _fileHasher,
-            _versionStore,
-            _datVersionReader,
-            _patchingService,
-            _launcher,
-            NullLogger<SimplifiedGameLaunchingStrategy>.Instance);
-    }
-
-    private static GameLaunchingCommand CreateCommand() =>
-        new(DatFilePath, VersionFilePath, TranslationFilePath);
 
     [Fact]
     public async Task ExecuteAsync_GameAlreadyRunning_ShouldReturnFailure()
@@ -281,4 +261,132 @@ public sealed class SimplifiedGameLaunchingStrategyTests
         result.Value.ToString().ShouldContain("90 applied");
         result.Value.ToString().ShouldContain("10 skipped");
     }
+
+    [Fact]
+    public async Task ExecuteAsync_TranslationUnchangedButAnUpdateWipedSubFiles_ShouldRepairAndLaunch()
+    {
+        _fileHasher.ComputeHash(TranslationFilePath).Returns(Result.Success(TranslationHash));
+        _versionStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(StoredWithHash));
+        _wipeDetector.Detect(DatFilePath, TranslationFilePath).Returns(TwoWipedSubFiles);
+        _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, null)
+            .Returns(Result.Success(new PatchSummaryResponse(100, 95, 5, [])));
+        _launcher.Launch(DatFilePath).Returns(Result.Success());
+
+        Result<GameLaunchingResponse> result = await _sut.ExecuteAsync(CreateCommand(), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.TranslationsApplied.ShouldBeTrue();
+        result.Value.WipedSubFileCount.ShouldBe(2);
+        result.Value.AppliedCount.ShouldBe(95);
+        result.Value.SkippedCount.ShouldBe(5);
+        result.Value.RepairFailure.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RepairFails_ShouldStillLaunchAndSayWhy()
+    {
+        // Spec 0012 Tier 0, "Built" note.
+        _fileHasher.ComputeHash(TranslationFilePath).Returns(Result.Success(TranslationHash));
+        _versionStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(StoredWithHash));
+        _wipeDetector.Detect(DatFilePath, TranslationFilePath).Returns(TwoWipedSubFiles);
+        Error openError = new("DatFile.CannotOpen", "Cannot open DAT file", ErrorType.IoError);
+        _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, null)
+            .Returns(Result.Failure<PatchSummaryResponse>(openError));
+        _launcher.Launch(DatFilePath).Returns(Result.Success());
+
+        Result<GameLaunchingResponse> result = await _sut.ExecuteAsync(CreateCommand(), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.TranslationsApplied.ShouldBeFalse();
+        result.Value.WipedSubFileCount.ShouldBe(2);
+        result.Value.RepairFailure.ShouldBe("Cannot open DAT file");
+        _launcher.Received(1).Launch(DatFilePath);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TranslationChangedAndSubFilesWiped_ShouldPatchExactlyOnce()
+    {
+        // The patch for the new file covers the wiped subfiles too.
+        _fileHasher.ComputeHash(TranslationFilePath).Returns(Result.Success(NewTranslationHash));
+        _versionStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(StoredWithHash));
+        _wipeDetector.Detect(DatFilePath, TranslationFilePath).Returns(TwoWipedSubFiles);
+        _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, null)
+            .Returns(Result.Success(new PatchSummaryResponse(100, 90, 10, [])));
+        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(CurrentVnum));
+        _versionStore.SaveVersion(VersionFilePath, "40.2", CurrentVnum.VnumDatFile, CurrentVnum.VnumGameData, NewTranslationHash)
+            .Returns(Result.Success());
+        _launcher.Launch(DatFilePath).Returns(Result.Success());
+
+        Result<GameLaunchingResponse> result = await _sut.ExecuteAsync(CreateCommand(), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.WipedSubFileCount.ShouldBe(0);
+        _patchingService.Received(1).ApplyTranslations(TranslationFilePath, DatFilePath, null);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ResponseToString_AfterARepair_ShouldSayWhatWasReplacedAndRestored()
+    {
+        _fileHasher.ComputeHash(TranslationFilePath).Returns(Result.Success(TranslationHash));
+        _versionStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(StoredWithHash));
+        _wipeDetector.Detect(DatFilePath, TranslationFilePath).Returns(TwoWipedSubFiles);
+        _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, null)
+            .Returns(Result.Success(new PatchSummaryResponse(100, 95, 5, [])));
+        _launcher.Launch(DatFilePath).Returns(Result.Success());
+
+        Result<GameLaunchingResponse> result = await _sut.ExecuteAsync(CreateCommand(), CancellationToken.None);
+
+        result.Value.ToString().ShouldBe(
+            "A game update replaced 2 text subfile(s) since the last patch. "
+            + "Translations restored (95 applied, 5 skipped). Launcher started.");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ResponseToString_AfterAFailedRepair_ShouldSayItTriesAgain()
+    {
+        _fileHasher.ComputeHash(TranslationFilePath).Returns(Result.Success(TranslationHash));
+        _versionStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(StoredWithHash));
+        _wipeDetector.Detect(DatFilePath, TranslationFilePath).Returns(TwoWipedSubFiles);
+        Error openError = new("DatFile.CannotOpen", "CannotOpen failed for datfile: C:/LOTRO/client_local_English.dat", ErrorType.IoError);
+        _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, null)
+            .Returns(Result.Failure<PatchSummaryResponse>(openError));
+        _launcher.Launch(DatFilePath).Returns(Result.Success());
+
+        Result<GameLaunchingResponse> result = await _sut.ExecuteAsync(CreateCommand(), CancellationToken.None);
+
+        result.Value.ToString().ShouldBe(
+            "A game update replaced 2 text subfile(s) since the last patch. "
+            + "Restoring the translations failed (CannotOpen failed for datfile: C:/LOTRO/client_local_English.dat). "
+            + "The next launch tries again. Launcher started.");
+    }
+
+    public SimplifiedGameLaunchingStrategyTests()
+    {
+        _processDetector = Substitute.For<IGameProcessDetector>();
+        _fileHasher = Substitute.For<IFileHasher>();
+        _versionStore = Substitute.For<IGameVersionFileStore>();
+        _datVersionReader = Substitute.For<IDatVersionReader>();
+        _patchingService = Substitute.For<IPatchingService>();
+        _wipeDetector = Substitute.For<ISubFileWipeDetector>();
+        _wipeDetector.Detect(Arg.Any<string>(), Arg.Any<string>()).Returns(WipedSubFileSet.None);
+        _launcher = Substitute.For<IGameLauncher>();
+
+        _sut = new SimplifiedGameLaunchingStrategy(
+            _processDetector,
+            _fileHasher,
+            _versionStore,
+            _datVersionReader,
+            _patchingService,
+            _wipeDetector,
+            _launcher,
+            NullLogger<SimplifiedGameLaunchingStrategy>.Instance);
+    }
+
+    private static GameLaunchingCommand CreateCommand() =>
+        new(DatFilePath, VersionFilePath, TranslationFilePath);
 }

@@ -47,6 +47,15 @@ public static partial class DomainErrors
             OperationFailed("GameLaunch", $"Re-patching translations after update failed: {message}");
     }
 
+    public static class IterationSnapshot
+    {
+        public static Error ReadError(string path, string message) =>
+            IoError("IterationSnapshot", "ReadError", $"'{path}': {message}");
+
+        public static Error WriteError(string path, string message) =>
+            IoError("IterationSnapshot", "WriteError", $"'{path}': {message}");
+    }
+
     public static class GameUpdateCheck
     {
         public const string ResponseTooLargeCode = "GameUpdateCheck.ResponseTooLarge";

@@ -12,6 +12,10 @@ namespace LotroKoniecDev.Application.Features.Patching;
 /// Writes approved translations into the DAT, one fragment at a time. Every row passes the source
 /// guard of ADR-0047 first, so old Polish never lands on English that has changed.
 /// </summary>
+/// <remarks>
+/// Every successful run ends by saving the DAT's iteration snapshot, here and not in the callers, so
+/// no path that patches can forget it (spec 0012 Tier 0, "Built" note).
+/// </remarks>
 internal sealed class PatchingService : IPatchingService
 {
     private const int ProgressReportInterval = 1000;
@@ -28,15 +32,18 @@ internal sealed class PatchingService : IPatchingService
     private readonly IDatFileHandler _datFileHandler;
     private readonly ITranslationParser _translationParser;
     private readonly ITranslationLedger _translationLedger;
+    private readonly ISubFileIterationSnapshotStore _snapshotStore;
 
     public PatchingService(
         IDatFileHandler datFileHandler,
         ITranslationParser translationParser,
-        ITranslationLedger translationLedger)
+        ITranslationLedger translationLedger,
+        ISubFileIterationSnapshotStore snapshotStore)
     {
         _datFileHandler = datFileHandler;
         _translationParser = translationParser;
         _translationLedger = translationLedger;
+        _snapshotStore = snapshotStore;
     }
 
     public Result<PatchSummaryResponse> ApplyTranslations(
@@ -312,15 +319,23 @@ internal sealed class PatchingService : IPatchingService
                 count => $"{count} row(s) carry no source_digest column, so nothing could be verified against the DAT "
                     + "and none of them was written. Re-download the translation file (ADR-0047).");
 
+            // The DAT hits the disk before the ledger and the snapshot say what it holds. If the process
+            // were killed in between, the ledger would describe writes the DAT never got, and those rows
+            // would match nothing on the next run. The finally block flushes on every path that ends
+            // earlier, so it skips this one once it has run.
+            _datFileHandler.Flush(datFileHandle);
+            datFlushed = true;
+
+            // Read again after the writes instead of reusing the list from the start. Our patch keeps
+            // every iteration (E5, E7), but if a write ever moved one, the old list would report that
+            // subfile as replaced on every launch. The read comes before the ledger save: if it threw,
+            // `patch` would restore its backup under a ledger that describes the writes it undid.
+            // A subfile that failed to load or write above does not stop the save (spec 0012 Tier 0).
+            SubFileIterationSnapshot snapshot =
+                SubFileIterationSnapshot.FromSubfileSizes(_datFileHandler.GetAllSubfileSizes(datFileHandle));
+
             if (ledgerChanged)
             {
-                // The DAT hits the disk before the ledger says what it holds. If the process were
-                // killed between the two, the ledger would describe writes the DAT never got, and
-                // those rows would match nothing on the next run. The finally block flushes on every
-                // other path, so it skips this one once it has run.
-                _datFileHandler.Flush(datFileHandle);
-                datFlushed = true;
-
                 Result ledgerSaveResult = _translationLedger.Save(translationsPath, ledgerEntries);
 
                 if (ledgerSaveResult.IsFailure)
@@ -329,6 +344,26 @@ internal sealed class PatchingService : IPatchingService
                     // entry patches too little rather than hiding a change. This is never fatal: the
                     // DAT is already written.
                     warnings.Add(ledgerSaveResult.Error.Message);
+                }
+            }
+
+            if (snapshot.Count == 0)
+            {
+                // A DAT that lists no text subfile after we patched it is a failed read. Saving it would
+                // replace a good snapshot with one that can never detect anything.
+                warnings.Add(
+                    "The DAT listed no text subfile after the patch, so the iteration snapshot was not saved. "
+                    + "The next launch compares the DAT with the snapshot of the patch before this one.");
+            }
+            else
+            {
+                Result snapshotSaveResult = _snapshotStore.Save(translationsPath, snapshot);
+
+                if (snapshotSaveResult.IsFailure)
+                {
+                    // Not fatal either: the DAT is already written. The old snapshot stays, so the next
+                    // launch may repair once more, and that repair passes the same guard.
+                    warnings.Add(snapshotSaveResult.Error.Message);
                 }
             }
 

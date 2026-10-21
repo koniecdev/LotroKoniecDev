@@ -31,6 +31,7 @@ public static class ApplicationDependencyInjection
         services.AddScoped<IPatchingService, PatchingService>();
         services.AddScoped<ITranslationFileEndpointResolver, TranslationFileEndpointResolver>();
         services.AddScoped<IVersionBaselineService, VersionBaselineService>();
+        services.AddScoped<ISubFileWipeDetector, SubFileWipeDetector>();
         services.AddScoped<IGameLaunchingStrategy, SimplifiedGameLaunchingStrategy>();
 
         return services;

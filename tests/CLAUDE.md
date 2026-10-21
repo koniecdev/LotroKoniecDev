@@ -12,7 +12,7 @@ dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests          # browser stack via
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 ```
 
-Full project inventory (15 projects):
+Full project inventory (16 projects):
 
 | Project | Kind | Needs |
 |---|---|---|
@@ -23,6 +23,7 @@ Full project inventory (15 projects):
 | `LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` | TMS domain unit | nothing (pure); Stryker target |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handler/auth/endpoint unit (fake read-DbContext, stub accessor/provisioner) | nothing (pure) |
 | `LotroKoniecDev.Frontend.Tests.Unit` | Blazor SSR component + infrastructure unit (bUnit-style) | nothing (pure) |
+| `LotroKoniecDev.DesktopApp.Tests.Unit` | desktop app UI (#41): view model, progress reporter, main window layout and the splash hand-over, on Avalonia's headless platform | nothing (no screen; runs on Linux too) |
 | `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api unit (cold-start seed retry policy) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
 | `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |
@@ -63,6 +64,9 @@ per-project `stryker-config.json` after reviewing the baseline report.
 - **NaughtyStrings** — the Big List of Naughty Strings, for hostile-input theories (see below)
 - **NetArchTest.Rules** — architecture tests (assembly IL only; `LotroKoniecDev.Architecture.Tests.Unit`)
 - **Verify.Xunit** — snapshot tests for API response contracts and rendered SSR markup (see below)
+- **Avalonia.Headless** — the desktop app's UI tests (#41): the real `App` and windows on Avalonia's
+  headless platform. One session per run (`HeadlessSessionFixture`), and every window is touched
+  only inside `Session.Dispatch`, on the session's UI thread
 - **Microsoft.Extensions.TimeProvider.Testing** — `FakeTimeProvider`, for code that waits on a
   `TimeProvider` timer (`Task.Delay(…, timeProvider, …)`); a substitute cannot fire those timers.
   Used by `AuthSystem.API.Tests.Unit` for the response-time floor (ADR-0059), and by
@@ -251,10 +255,10 @@ member), **plain reflection** for convention rules its predicate DSL cannot expr
 something inherits it", a validator's generic argument).
 
 Adding a production project? Add the `ProjectReference` **and** the entry in
-`Shared/ProductionAssemblies.All` — `SuiteSelfTests` fails until you do. The two patcher
-`net10.0-windows` assemblies (Infrastructure, Cli) are absent on purpose: a `net10.0` project cannot
-reference them, and they sit at the TOP of the layering, so rules about them are stated as forbidden
-namespaces on the assemblies below.
+`Shared/ProductionAssemblies.All` — `SuiteSelfTests` fails until you do. The three patcher
+`net10.0-windows` assemblies (Infrastructure, Cli and the desktop app's exe) are absent on purpose: a
+`net10.0` project cannot reference them, and they sit at the TOP of the layering, so rules about them
+are stated as forbidden namespaces on the assemblies below.
 
 `SealedConventionTests.KnownViolations` quarantines pre-existing violations, each keyed to its own
 ticket (#570 is a test-only change). The list is **self-cleaning** — a second test fails once an entry
@@ -268,8 +272,10 @@ Tests that touch real infrastructure adapters (today: `GameLauncherTests`,
 `AuthenticodeLauncherSignatureVerifierTests`, `DatExportNativeTests`,
 `TranslationFileDownloaderTests` and `ForumPageFetcherTests` — the network ones drive the
 adapters' integrity, response-size-cap and timeout enforcement points over an in-memory stub
-`HttpMessageHandler`, no real network). This project is patcher-side only — TMS
-PostgreSQL/EF Core coverage lives in the `*.Tests.Integration` projects. Asserting on real
+`HttpMessageHandler`, no real network). `DesktopAppDependencyInjectionTests` sits here too: the
+desktop app's composition root wires the real x86 adapters, so only this Windows suite can load it.
+This project is patcher-side only — TMS PostgreSQL/EF Core coverage lives in the
+`*.Tests.Integration` projects. Asserting on real
 file output belongs here, never in `Tests.Unit`. Targets `net10.0-windows`: builds everywhere,
 **runs on Windows only** (on macOS the run aborts — expected).
 

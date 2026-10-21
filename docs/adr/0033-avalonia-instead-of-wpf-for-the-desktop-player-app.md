@@ -133,7 +133,32 @@ Nothing is implemented now (M4 is not started); this ADR only re-points the plan
   (Avalonia)").
 - ADR-0001 §2 — the "WPF view models later" wording is superseded by this ADR (0001 itself is
   otherwise untouched and stays Accepted).
-- Future app project lands under `src/Player/` at M4-01; project naming is decided there.
+- Future app project lands under `src/Player/` at M4-01; project naming is decided there (done:
+  see the 2026-10-21 amendment).
+
+## Amendment (2026-10-21) — the app is two projects, not one
+
+**Ticket:** #41 (M4-01), which was to decide the project naming (Implementation Notes above).
+
+M4-01 put the app in two projects under `src/Player/`:
+
+- **`LotroKoniecDev.DesktopApp`** is the exe, `LotroPoPolsku.exe`. Like the CLI, it is
+  `net10.0-windows`, x86 and `win-x86`, because it loads the patcher Infrastructure and, through
+  it, `datexport.dll`. It holds only the composition root and the Avalonia start-up.
+- **`LotroKoniecDev.DesktopApp.Presentation`** holds the `App`, the windows and the view models. It is
+  plain `net10.0` and references Application only.
+
+**Why two.** A `net10.0` project cannot reference a `net10.0-windows` one, and an x86 assembly
+cannot load into the x64 test host of a Linux runner. With one x86 Windows project, the Linux UI
+tests this ADR counts on (#46) could not exist. The split also makes §2 a build rule instead of a
+review habit: in a plain `net10.0` project the platform analyzer (CA1416) fails the build on a
+Windows-only call, such as the registry. So Windows-only code can only live in the exe, behind an
+interface the UI injects. The architecture suite adds the rest: the UI never reaches the patcher
+Infrastructure or the Cli, and, like the rest of the patcher, never reaches the TMS.
+
+**Tests follow the same line.** `DesktopApp.Tests.Unit` runs the real windows on Avalonia's headless
+platform, on any OS. The composition root needs the x86 Windows graph, so its test lives in the
+Windows-only `Tests.Infrastructure` suite.
 
 ## References
 

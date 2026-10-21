@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Configuration;
+using LotroKoniecDev.AuthSystem.Persistence.Settings;
 
 namespace LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 
@@ -13,6 +14,13 @@ internal sealed class AuthDbContextDesignTimeFactory : IDesignTimeDbContextFacto
         string connectionString = !string.IsNullOrWhiteSpace(connectionStringOverride)
             ? connectionStringOverride
             : BuildConnectionStringFromConfiguration();
+
+        // The migrator prints every inner error, so the string is checked before EF Core reads it (#1157).
+        _ = ConnectionStringReader.Read(
+            connectionString,
+            string.IsNullOrWhiteSpace(connectionStringOverride)
+                ? ConnectionStringSettings.AuthDatabaseKey
+                : $"The --connection value for {ConnectionStringSettings.AuthDatabaseKey}");
 
         DbContextOptionsBuilder<AuthDbContext> optionsBuilder = new();
         optionsBuilder.UseNpgsql(connectionString, npgsqlOptions =>
@@ -48,12 +56,12 @@ internal sealed class AuthDbContextDesignTimeFactory : IDesignTimeDbContextFacto
             .AddEnvironmentVariables()
             .Build();
 
-        string? connectionString = configuration["ConnectionStrings:AuthDatabase"];
+        string? connectionString = configuration[ConnectionStringSettings.AuthDatabaseKey];
 
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException(
-                $"Connection string 'ConnectionStrings:AuthDatabase' not found. " +
+                $"Connection string '{ConnectionStringSettings.AuthDatabaseKey}' not found. " +
                 $"Searched in: appsettings.json, appsettings.{environment}.json, appsettings.Local.json, environment variables. " +
                 $"Base path: {basePath}");
         }

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Configuration;
+using LotroKoniecDev.TranslationSystem.Persistence.Settings;
 
 namespace LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 
@@ -13,6 +14,13 @@ internal sealed class ApplicationWriteDbContextDesignTimeFactory : IDesignTimeDb
         string connectionString = !string.IsNullOrWhiteSpace(connectionStringOverride)
             ? connectionStringOverride
             : BuildConnectionStringFromConfiguration();
+
+        // The migrator prints every inner error, so the string is checked before EF Core reads it (#1157).
+        _ = ConnectionStringReader.Read(
+            connectionString,
+            string.IsNullOrWhiteSpace(connectionStringOverride)
+                ? ConnectionStringSettings.TranslationDatabaseKey
+                : $"The --connection value for {ConnectionStringSettings.TranslationDatabaseKey}");
 
         DbContextOptionsBuilder<ApplicationWriteDbContext> optionsBuilder = new();
         optionsBuilder.UseNpgsql(connectionString, npgsqlOptions =>
@@ -44,12 +52,12 @@ internal sealed class ApplicationWriteDbContextDesignTimeFactory : IDesignTimeDb
             .AddEnvironmentVariables()
             .Build();
 
-        string? connectionString = configuration["ConnectionStrings:TranslationDatabase"];
+        string? connectionString = configuration[ConnectionStringSettings.TranslationDatabaseKey];
 
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException(
-                $"Connection string 'ConnectionStrings:TranslationDatabase' not found. " +
+                $"Connection string '{ConnectionStringSettings.TranslationDatabaseKey}' not found. " +
                 $"Searched in: appsettings.json, appsettings.{environment}.json, appsettings.Local.json, environment variables. " +
                 $"Base path: {basePath}");
         }

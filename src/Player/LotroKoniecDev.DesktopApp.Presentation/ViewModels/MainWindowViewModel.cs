@@ -2,7 +2,7 @@ namespace LotroKoniecDev.DesktopApp.Presentation.ViewModels;
 
 /// <summary>
 /// The state the main window shows. The texts are static until #42 wires the Patch and Play buttons;
-/// only the progress bar already moves, because the patcher handlers report to it.
+/// only the progress bar is already wired to the progress the patcher handlers report.
 /// </summary>
 public sealed class MainWindowViewModel
 {

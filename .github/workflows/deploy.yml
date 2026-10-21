@@ -77,7 +77,7 @@ jobs:
     name: Deploy to ${{ inputs.environment }} (Hetzner)
     runs-on: ubuntu-24.04
     # Prod gets double the budget: a migration-touching promotion runs the full N-1 proof (old
-    # release build + both integration suites — n1-compat.yml gives that 30 min on its own)
+    # release build + every integration suite — n1-compat.yml gives that 30 min on its own)
     # before the rollout even starts. Staging keeps the tight budget — a hung roll holds the
     # per-environment mutation lock, and nothing extra runs there.
     timeout-minutes: ${{ inputs.environment == 'production' && 60 || 30 }}

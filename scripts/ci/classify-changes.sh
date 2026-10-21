@@ -3,7 +3,7 @@
 # Decide WHICH gates a change must face. One classifier, three independent verdicts:
 #
 #   code=…    the .NET gate — restore + Release build (the repo-wide zero-warning gate)
-#             + unit tests + integration tests (real PostgreSQL). Minutes.
+#             + unit tests + integration tests (every *.Tests.Integration project). Minutes.
 #   guards=…  the cheap bash gates CI EXECUTES — SSR purity, client hypermedia, Dockerfile restore
 #             graph, migration safety (each with its self-test), backlog-loop provenance + conductor
 #             self-tests. Seconds.

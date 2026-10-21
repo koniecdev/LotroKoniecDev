@@ -11,6 +11,10 @@ namespace LotroKoniecDev.DesktopApp.Tests.Unit.Tests;
 /// The layout #41 asks for: a title, three status lines, the Patch and Play buttons and a progress bar
 /// with its percent.
 /// </summary>
+/// <remarks>
+/// Every window closes in a <c>finally</c>: the session is shared, so a failed check must not leave a
+/// window open for the next test.
+/// </remarks>
 [Collection(HeadlessSessionCollection.Name)]
 public sealed class MainWindowTests
 {
@@ -22,12 +26,15 @@ public sealed class MainWindowTests
         (string? Title, List<string?> Texts) shown = await _fixture.Session.Dispatch(
             () =>
             {
-                MainWindow window = ShowWith(new MainWindowViewModel());
-                (string?, List<string?>) content = (
-                    window.Title,
-                    window.GetLogicalDescendants().OfType<TextBlock>().Select(text => text.Text).ToList());
-                window.Close();
-                return content;
+                MainWindow window = ShowWith(CreateViewModel());
+                try
+                {
+                    return (window.Title, window.GetLogicalDescendants().OfType<TextBlock>().Select(text => text.Text).ToList());
+                }
+                finally
+                {
+                    window.Close();
+                }
             },
             CancellationToken.None);
 
@@ -43,13 +50,18 @@ public sealed class MainWindowTests
         (string? Status, string? GameVersion, string? PatchVersion) shown = await _fixture.Session.Dispatch(
             () =>
             {
-                MainWindow window = ShowWith(new MainWindowViewModel());
-                (string?, string?, string?) values = (
-                    TextOf(window, "StatusText"),
-                    TextOf(window, "GameVersionText"),
-                    TextOf(window, "PatchVersionText"));
-                window.Close();
-                return values;
+                MainWindow window = ShowWith(CreateViewModel());
+                try
+                {
+                    return (
+                        window.FindControl<TextBlock>("StatusText")?.Text,
+                        window.FindControl<TextBlock>("GameVersionText")?.Text,
+                        window.FindControl<TextBlock>("PatchVersionText")?.Text);
+                }
+                finally
+                {
+                    window.Close();
+                }
             },
             CancellationToken.None);
 
@@ -63,42 +75,51 @@ public sealed class MainWindowTests
     [InlineData("PlayButton", "Play")]
     public async Task Show_BeforeTheButtonsAreWired_ShowsThemDisabled(string buttonName, string expectedLabel)
     {
-        (object? Content, bool IsEnabled) button = await _fixture.Session.Dispatch(
+        (object? Content, bool? IsEnabled) button = await _fixture.Session.Dispatch(
             () =>
             {
-                MainWindow window = ShowWith(new MainWindowViewModel());
-                Button found = window.FindControl<Button>(buttonName).ShouldNotBeNull();
-                (object?, bool) state = (found.Content, found.IsEnabled);
-                window.Close();
-                return state;
+                MainWindow window = ShowWith(CreateViewModel());
+                try
+                {
+                    Button? found = window.FindControl<Button>(buttonName);
+                    return (found?.Content, found?.IsEnabled);
+                }
+                finally
+                {
+                    window.Close();
+                }
             },
             CancellationToken.None);
 
         // #42 wires them; until then a click must not look like it did something.
         button.Content.ShouldBe(expectedLabel);
-        button.IsEnabled.ShouldBeFalse();
+        button.IsEnabled.ShouldBe(false);
     }
 
     [Theory]
     [InlineData(0, "0%")]
     [InlineData(60, "60%")]
     [InlineData(100, "100%")]
-    public async Task ProgressPercent_WhenTheViewModelChanges_MovesTheBarAndItsLabel(int percent, string expectedLabel)
+    public async Task Percent_WhenTheProgressBarChanges_MovesTheBarAndItsLabel(int percent, string expectedLabel)
     {
-        (double BarValue, string? Label) progress = await _fixture.Session.Dispatch(
+        (double? BarValue, string? Label) progress = await _fixture.Session.Dispatch(
             () =>
             {
-                MainWindowViewModel viewModel = new();
+                MainWindowViewModel viewModel = CreateViewModel();
                 MainWindow window = ShowWith(viewModel);
+                try
+                {
+                    viewModel.Progress.Percent = percent;
+                    Dispatcher.UIThread.RunJobs();
 
-                viewModel.ProgressPercent = percent;
-                Dispatcher.UIThread.RunJobs();
-
-                (double, string?) state = (
-                    window.FindControl<ProgressBar>("PatchProgressBar").ShouldNotBeNull().Value,
-                    TextOf(window, "ProgressText"));
-                window.Close();
-                return state;
+                    return (
+                        window.FindControl<ProgressBar>("PatchProgressBar")?.Value,
+                        window.FindControl<TextBlock>("ProgressText")?.Text);
+                }
+                finally
+                {
+                    window.Close();
+                }
             },
             CancellationToken.None);
 
@@ -111,6 +132,8 @@ public sealed class MainWindowTests
         _fixture = fixture;
     }
 
+    private static MainWindowViewModel CreateViewModel() => new(new ProgressBarViewModel());
+
     private static MainWindow ShowWith(MainWindowViewModel viewModel)
     {
         MainWindow window = new() { DataContext = viewModel };
@@ -118,7 +141,4 @@ public sealed class MainWindowTests
         Dispatcher.UIThread.RunJobs();
         return window;
     }
-
-    private static string? TextOf(MainWindow window, string name) =>
-        window.FindControl<TextBlock>(name).ShouldNotBeNull().Text;
 }

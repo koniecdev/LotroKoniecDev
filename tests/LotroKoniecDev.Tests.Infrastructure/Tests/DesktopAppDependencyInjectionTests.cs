@@ -1,3 +1,4 @@
+using LotroKoniecDev.Application;
 using LotroKoniecDev.Application.Abstractions.Messaging;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.DesktopApp;
@@ -47,17 +48,18 @@ public sealed class DesktopAppDependencyInjectionTests
     }
 
     [Fact]
-    public void BuildServiceProvider_InTheAppScope_ResolvesTheMainWindowViewModel()
+    public void BuildServiceProvider_InTheAppScope_GivesTheHandlersTheMainWindowsProgressBar()
     {
         // Arrange
         using ServiceProvider serviceProvider = DesktopAppDependencyInjection.BuildServiceProvider();
         using IServiceScope scope = serviceProvider.CreateScope();
 
         // Act
+        IProgress<OperationProgress> handlerProgress = scope.ServiceProvider.GetRequiredService<IProgress<OperationProgress>>();
         MainWindowViewModel viewModel = scope.ServiceProvider.GetRequiredService<MainWindowViewModel>();
 
-        // Assert: one view model per app scope, so the progress the handlers report reaches the open window.
-        viewModel.ShouldBeSameAs(scope.ServiceProvider.GetRequiredService<MainWindowViewModel>());
+        // Assert: what the patch and export handlers report is what the open window shows.
+        handlerProgress.ShouldBeSameAs(viewModel.Progress);
     }
 
     [Fact]

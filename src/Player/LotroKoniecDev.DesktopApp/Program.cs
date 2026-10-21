@@ -34,6 +34,6 @@ public sealed class Program
             lifetime => lifetime.Startup += (_, _) => SplashScreen.Show(
                 lifetime,
                 () => scope.ServiceProvider.GetRequiredService<MainWindowViewModel>(),
-                SplashScreen.MinimumDuration));
+                SplashScreen.Duration));
     }
 }

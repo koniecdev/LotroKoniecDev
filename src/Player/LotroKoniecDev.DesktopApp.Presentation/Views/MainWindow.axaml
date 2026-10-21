@@ -10,10 +10,6 @@
         CanResize="False"
         CanMaximize="False"
         WindowStartupLocation="CenterScreen">
-    <Design.DataContext>
-        <vm:MainWindowViewModel />
-    </Design.DataContext>
-
     <StackPanel Margin="24" Spacing="20">
         <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="6">
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Status:" />
@@ -34,9 +30,9 @@
 
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <ProgressBar Grid.Column="0" Name="PatchProgressBar" Minimum="0" Maximum="100"
-                         Value="{Binding ProgressPercent}" VerticalAlignment="Center" />
+                         Value="{Binding Progress.Percent}" VerticalAlignment="Center" />
             <TextBlock Grid.Column="1" Name="ProgressText" MinWidth="36" TextAlignment="Right"
-                       Text="{Binding ProgressPercent, StringFormat='{}{0}%'}" VerticalAlignment="Center" />
+                       Text="{Binding Progress.Percent, StringFormat='{}{0}%'}" VerticalAlignment="Center" />
         </Grid>
     </StackPanel>
 </Window>

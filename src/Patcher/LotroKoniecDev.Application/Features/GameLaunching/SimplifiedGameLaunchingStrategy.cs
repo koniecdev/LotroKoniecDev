@@ -180,8 +180,8 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
 
                 if (repairResult.IsFailure)
                 {
-                    // Before Tier 0 this launch started the game without writing the DAT, so a failed
-                    // repair must not stop it. The old snapshot stays, and the next launch tries again.
+                    // A failed repair never stops the launch (spec 0012 Tier 0, "Built" note). The old
+                    // snapshot stays, so the next launch tries again.
                     LogRepairFailed(_logger, repairResult.Error.Message);
                     repairFailure = repairResult.Error.Message;
                 }

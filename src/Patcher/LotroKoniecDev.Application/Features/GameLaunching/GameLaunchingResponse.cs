@@ -30,7 +30,7 @@ public sealed record GameLaunchingResponse(
 
         if (RepairFailure is not null)
         {
-            return $"{wipeInfo}Restoring the translations failed: {RepairFailure} The next launch tries again. Launcher started.";
+            return $"{wipeInfo}Restoring the translations failed ({RepairFailure}). The next launch tries again. Launcher started.";
         }
 
         string updateInfo = UpdateWasDetected

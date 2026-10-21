@@ -12,12 +12,6 @@ namespace LotroKoniecDev.Tests.Unit.Tests.Features;
 
 public sealed class PatchingServiceTests
 {
-    private readonly IDatFileHandler _datFileHandler;
-    private readonly ITranslationParser _translationParser;
-    private readonly ITranslationLedger _translationLedger;
-    private readonly ISubFileIterationSnapshotStore _snapshotStore;
-    private readonly PatchingService _sut;
-
     private const int DatHandle = 42;
     private const int TextFileId = 0x25000001;
     private const int TextFileId2 = 0x25000002;
@@ -34,75 +28,11 @@ public sealed class PatchingServiceTests
     /// </summary>
     private static readonly string PristineSourceDigest = SourceDigest.ForExportForm(FixtureFragmentText, 0);
 
-    public PatchingServiceTests()
-    {
-        _datFileHandler = Substitute.For<IDatFileHandler>();
-        _translationParser = Substitute.For<ITranslationParser>();
-        _translationLedger = Substitute.For<ITranslationLedger>();
-        _translationLedger.Read(Arg.Any<string>()).Returns(new Dictionary<LedgerKey, string>());
-        _translationLedger
-            .Save(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<LedgerKey, string>>())
-            .Returns(Result.Success());
-        _snapshotStore = Substitute.For<ISubFileIterationSnapshotStore>();
-        _snapshotStore.Save(Arg.Any<string>(), Arg.Any<SubFileIterationSnapshot>()).Returns(Result.Success());
-
-        _sut = new PatchingService(_datFileHandler, _translationParser, _translationLedger, _snapshotStore);
-    }
-
-    private void SetupAllPassingDefaults()
-    {
-        _datFileHandler.Open(Arg.Any<string>(), DatFileAccess.ReadWrite).Returns(Result.Success(DatHandle));
-        _datFileHandler.GetAllSubfileSizes(DatHandle).Returns(new Dictionary<int, (int, int)>
-        {
-            { TextFileId, (100, 1) }
-        });
-        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
-            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, FragmentId1, 1)));
-        _datFileHandler.GetSubfileVersion(DatHandle, TextFileId).Returns(1);
-        _datFileHandler.PutSubfileData(DatHandle, Arg.Any<int>(), Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>())
-            .Returns(Result.Success());
-    }
-
-    private void SetupTranslations(params Translation[] translations)
-    {
-        SetupParsedFile(translations, []);
-    }
-
-    private void SetupParsedFile(IReadOnlyList<Translation> translations, IReadOnlyList<string> warnings)
-    {
-        _translationParser.ParseFile(Arg.Any<string>())
-            .Returns(Result.Success(new TranslationParseResult(translations, warnings, warnings.Count)));
-    }
-
-    private static Translation CreateTranslation(
-        int fileId = TextFileId,
-        ulong gossipId = FragmentId1,
-        string content = "Przetlumaczony tekst",
-        int[]? argsOrder = null,
-        bool isApproved = true,
-        string? sourceDigest = null) =>
-        new()
-        {
-            FileId = fileId,
-            GossipId = gossipId,
-            Content = content,
-            ArgsOrder = argsOrder,
-            ArgsId = null,
-            IsApproved = isApproved,
-            // Since ADR-0047 a row is written only when it says which English it was made for, so
-            // "a row that patches" defaults to the digest of what the fixture fragment holds.
-            SourceDigest = sourceDigest ?? PristineSourceDigest
-        };
-
-    /// <summary>A row from a six-column translation file, either hand-made or written before ADR-0047.</summary>
-    private static Translation CreateSixColumnTranslation() =>
-        new()
-        {
-            FileId = TextFileId,
-            GossipId = FragmentId1,
-            Content = "Przetlumaczony tekst",
-            IsApproved = true
-        };
+    private readonly IDatFileHandler _datFileHandler;
+    private readonly ITranslationParser _translationParser;
+    private readonly ITranslationLedger _translationLedger;
+    private readonly ISubFileIterationSnapshotStore _snapshotStore;
+    private readonly PatchingService _sut;
 
     [Fact]
     public void ApplyTranslations_HappyPath_ShouldReturnPatchSummary()
@@ -1115,8 +1045,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_WhenASubFileFailsToWrite_ShouldStillSaveTheSnapshot()
     {
-        // Arrange: on purpose. A subfile that can never be written would otherwise start a full repair
-        // on every launch; this way it waits for the next patch, with a warning now.
+        // Arrange: on purpose (spec 0012 Tier 0, "Built" note).
         SetupAllPassingDefaults();
         Error writeError = new("DatFile.WriteError", "PutSubfileData failed", ErrorType.IoError);
         _datFileHandler.PutSubfileData(DatHandle, Arg.Any<int>(), Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>())
@@ -1135,8 +1064,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_ShouldFlushTheDatBeforeItSavesTheLedger()
     {
-        // Arrange: if the process died between the two, a ledger saved first would describe writes the
-        // DAT never got.
+        // Arrange
         SetupAllPassingDefaults();
         SetupTranslations(CreateTranslation());
 
@@ -1149,6 +1077,36 @@ public sealed class PatchingServiceTests
             _datFileHandler.Flush(DatHandle);
             _translationLedger.Save("/translations/polish.txt", Arg.Any<IReadOnlyDictionary<LedgerKey, string>>());
         });
+    }
+
+    [Fact]
+    public void ApplyTranslations_ShouldReadTheIterationsAgainBeforeItSavesTheLedger()
+    {
+        // Arrange: if that read threw after the ledger save, `patch` would restore its backup under a
+        // ledger that describes the writes the restore undid.
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation());
+
+        List<string> callOrder = [];
+
+        _datFileHandler.GetAllSubfileSizes(DatHandle).Returns(_ =>
+        {
+            callOrder.Add("read_iterations");
+            return new Dictionary<int, (int, int)> { { TextFileId, (100, 1) } };
+        });
+
+        _translationLedger.Save(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<LedgerKey, string>>())
+            .Returns(_ =>
+            {
+                callOrder.Add("save_ledger");
+                return Result.Success();
+            });
+
+        // Act
+        _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        callOrder.ShouldBe(["read_iterations", "read_iterations", "save_ledger"]);
     }
 
     [Fact]
@@ -1168,4 +1126,74 @@ public sealed class PatchingServiceTests
             _snapshotStore.Save("/translations/polish.txt", Arg.Any<SubFileIterationSnapshot>());
         });
     }
+
+    public PatchingServiceTests()
+    {
+        _datFileHandler = Substitute.For<IDatFileHandler>();
+        _translationParser = Substitute.For<ITranslationParser>();
+        _translationLedger = Substitute.For<ITranslationLedger>();
+        _translationLedger.Read(Arg.Any<string>()).Returns(new Dictionary<LedgerKey, string>());
+        _translationLedger
+            .Save(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<LedgerKey, string>>())
+            .Returns(Result.Success());
+        _snapshotStore = Substitute.For<ISubFileIterationSnapshotStore>();
+        _snapshotStore.Save(Arg.Any<string>(), Arg.Any<SubFileIterationSnapshot>()).Returns(Result.Success());
+
+        _sut = new PatchingService(_datFileHandler, _translationParser, _translationLedger, _snapshotStore);
+    }
+
+    private void SetupAllPassingDefaults()
+    {
+        _datFileHandler.Open(Arg.Any<string>(), DatFileAccess.ReadWrite).Returns(Result.Success(DatHandle));
+        _datFileHandler.GetAllSubfileSizes(DatHandle).Returns(new Dictionary<int, (int, int)>
+        {
+            { TextFileId, (100, 1) }
+        });
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, FragmentId1, 1)));
+        _datFileHandler.GetSubfileVersion(DatHandle, TextFileId).Returns(1);
+        _datFileHandler.PutSubfileData(DatHandle, Arg.Any<int>(), Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(Result.Success());
+    }
+
+    private void SetupTranslations(params Translation[] translations)
+    {
+        SetupParsedFile(translations, []);
+    }
+
+    private void SetupParsedFile(IReadOnlyList<Translation> translations, IReadOnlyList<string> warnings)
+    {
+        _translationParser.ParseFile(Arg.Any<string>())
+            .Returns(Result.Success(new TranslationParseResult(translations, warnings, warnings.Count)));
+    }
+
+    private static Translation CreateTranslation(
+        int fileId = TextFileId,
+        ulong gossipId = FragmentId1,
+        string content = "Przetlumaczony tekst",
+        int[]? argsOrder = null,
+        bool isApproved = true,
+        string? sourceDigest = null) =>
+        new()
+        {
+            FileId = fileId,
+            GossipId = gossipId,
+            Content = content,
+            ArgsOrder = argsOrder,
+            ArgsId = null,
+            IsApproved = isApproved,
+            // Since ADR-0047 a row is written only when it says which English it was made for, so
+            // "a row that patches" defaults to the digest of what the fixture fragment holds.
+            SourceDigest = sourceDigest ?? PristineSourceDigest
+        };
+
+    /// <summary>A row from a six-column translation file, either hand-made or written before ADR-0047.</summary>
+    private static Translation CreateSixColumnTranslation() =>
+        new()
+        {
+            FileId = TextFileId,
+            GossipId = FragmentId1,
+            Content = "Przetlumaczony tekst",
+            IsApproved = true
+        };
 }

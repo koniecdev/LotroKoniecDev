@@ -115,7 +115,7 @@ public sealed class SimplifiedGameLaunchingStrategyWipeRepairTests
     [Fact]
     public async Task ExecuteAsync_WhenTheRepairCannotOpenTheDatForWriting_ShouldStillStartTheGame()
     {
-        // Arrange: a launch without elevation. Before Tier 0 it started the game, so it still must.
+        // Arrange: a launch without elevation (spec 0012 Tier 0, "Built" note).
         Patch();
         _dat.ReplaceTextSubFile(TextFileA, English, IterationAfterUpdate);
         _dat.RefuseWriteAccess = true;

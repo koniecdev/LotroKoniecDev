@@ -377,8 +377,12 @@ code ticket. It carries no milestone and stays that way: the backlog loop must n
       and restores every artifact row (Tier 0).
       *#565 (2026-10-21):* built and proven against a DAT simulated in memory
       (`SimplifiedGameLaunchingStrategyWipeRepairTests`: one subfile with a new iteration and one
-      removed, then repaired, with no repair on the launch after it). A run on a real DAT copy
-      is still open, for the forced-downgrade E2E of #567.
+      removed, then repaired, with no repair on the launch after it). Smoke on a copy of the live
+      49.8 DAT the same day: `patch` saved 282,190 entries and a plain `launch` found nothing.
+      Then the copy was set back to English and the snapshot edited (one iteration moved, one
+      subfile removed): `launch` repaired 300 of 300 rows (checked by an export), and the launch
+      after it found nothing. With the copy read-only the repair failed, the launch went on, and
+      the next launch repaired. A run on a real update stays with the forced-downgrade E2E of #567.
 - [ ] ~~Sentinel force-patches only when the server's staleness verdict says the artifact is
       current, and declines on stale/unknown/offline (handshake — ADR-0045; the client never
       reads lotro.com and never compares versions itself).~~ *Amended 2026-08-17 (ADR-0047):*

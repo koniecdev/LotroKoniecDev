@@ -89,31 +89,6 @@ public sealed class SimplifiedGameLaunchingStrategyTests
     private readonly IGameLauncher _launcher;
     private readonly SimplifiedGameLaunchingStrategy _sut;
 
-    public SimplifiedGameLaunchingStrategyTests()
-    {
-        _processDetector = Substitute.For<IGameProcessDetector>();
-        _fileHasher = Substitute.For<IFileHasher>();
-        _versionStore = Substitute.For<IGameVersionFileStore>();
-        _datVersionReader = Substitute.For<IDatVersionReader>();
-        _patchingService = Substitute.For<IPatchingService>();
-        _wipeDetector = Substitute.For<ISubFileWipeDetector>();
-        _wipeDetector.Detect(Arg.Any<string>(), Arg.Any<string>()).Returns(WipedSubFileSet.None);
-        _launcher = Substitute.For<IGameLauncher>();
-
-        _sut = new SimplifiedGameLaunchingStrategy(
-            _processDetector,
-            _fileHasher,
-            _versionStore,
-            _datVersionReader,
-            _patchingService,
-            _wipeDetector,
-            _launcher,
-            NullLogger<SimplifiedGameLaunchingStrategy>.Instance);
-    }
-
-    private static GameLaunchingCommand CreateCommand() =>
-        new(DatFilePath, VersionFilePath, TranslationFilePath);
-
     [Fact]
     public async Task ExecuteAsync_GameAlreadyRunning_ShouldReturnFailure()
     {
@@ -311,7 +286,7 @@ public sealed class SimplifiedGameLaunchingStrategyTests
     [Fact]
     public async Task ExecuteAsync_RepairFails_ShouldStillLaunchAndSayWhy()
     {
-        // Before Tier 0 an unchanged file never touched the DAT, so a failed repair must not stop the game.
+        // Spec 0012 Tier 0, "Built" note.
         _fileHasher.ComputeHash(TranslationFilePath).Returns(Result.Success(TranslationHash));
         _versionStore.ReadStoredVersion(VersionFilePath)
             .Returns(Result.Success<StoredVersionInfo?>(StoredWithHash));
@@ -333,7 +308,7 @@ public sealed class SimplifiedGameLaunchingStrategyTests
     [Fact]
     public async Task ExecuteAsync_TranslationChangedAndSubFilesWiped_ShouldPatchExactlyOnce()
     {
-        // The patch for the new file covers the wiped subfiles too, so no second write is needed.
+        // The patch for the new file covers the wiped subfiles too.
         _fileHasher.ComputeHash(TranslationFilePath).Returns(Result.Success(NewTranslationHash));
         _versionStore.ReadStoredVersion(VersionFilePath)
             .Returns(Result.Success<StoredVersionInfo?>(StoredWithHash));
@@ -377,7 +352,7 @@ public sealed class SimplifiedGameLaunchingStrategyTests
         _versionStore.ReadStoredVersion(VersionFilePath)
             .Returns(Result.Success<StoredVersionInfo?>(StoredWithHash));
         _wipeDetector.Detect(DatFilePath, TranslationFilePath).Returns(TwoWipedSubFiles);
-        Error openError = new("DatFile.CannotOpen", "Cannot open DAT file.", ErrorType.IoError);
+        Error openError = new("DatFile.CannotOpen", "CannotOpen failed for datfile: C:/LOTRO/client_local_English.dat", ErrorType.IoError);
         _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, null)
             .Returns(Result.Failure<PatchSummaryResponse>(openError));
         _launcher.Launch(DatFilePath).Returns(Result.Success());
@@ -386,6 +361,32 @@ public sealed class SimplifiedGameLaunchingStrategyTests
 
         result.Value.ToString().ShouldBe(
             "A game update replaced 2 text subfile(s) since the last patch. "
-            + "Restoring the translations failed: Cannot open DAT file. The next launch tries again. Launcher started.");
+            + "Restoring the translations failed (CannotOpen failed for datfile: C:/LOTRO/client_local_English.dat). "
+            + "The next launch tries again. Launcher started.");
     }
+
+    public SimplifiedGameLaunchingStrategyTests()
+    {
+        _processDetector = Substitute.For<IGameProcessDetector>();
+        _fileHasher = Substitute.For<IFileHasher>();
+        _versionStore = Substitute.For<IGameVersionFileStore>();
+        _datVersionReader = Substitute.For<IDatVersionReader>();
+        _patchingService = Substitute.For<IPatchingService>();
+        _wipeDetector = Substitute.For<ISubFileWipeDetector>();
+        _wipeDetector.Detect(Arg.Any<string>(), Arg.Any<string>()).Returns(WipedSubFileSet.None);
+        _launcher = Substitute.For<IGameLauncher>();
+
+        _sut = new SimplifiedGameLaunchingStrategy(
+            _processDetector,
+            _fileHasher,
+            _versionStore,
+            _datVersionReader,
+            _patchingService,
+            _wipeDetector,
+            _launcher,
+            NullLogger<SimplifiedGameLaunchingStrategy>.Instance);
+    }
+
+    private static GameLaunchingCommand CreateCommand() =>
+        new(DatFilePath, VersionFilePath, TranslationFilePath);
 }

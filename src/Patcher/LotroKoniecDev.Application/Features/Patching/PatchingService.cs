@@ -13,11 +13,8 @@ namespace LotroKoniecDev.Application.Features.Patching;
 /// guard of ADR-0047 first, so old Polish never lands on English that has changed.
 /// </summary>
 /// <remarks>
-/// Every successful run ends by saving the DAT's iteration snapshot (spec 0012 Tier 0). Every path
-/// of ours that patches the DAT comes through here, so none of them can forget it, and the launch
-/// always compares the DAT with the state our last patch left. The one other write is the backup that
-/// <c>patch</c> restores after an exception. An exception inside this method comes before the save,
-/// so the old snapshot stays.
+/// Every successful run ends by saving the DAT's iteration snapshot, here and not in the callers, so
+/// no path that patches can forget it (spec 0012 Tier 0, "Built" note).
 /// </remarks>
 internal sealed class PatchingService : IPatchingService
 {
@@ -329,6 +326,14 @@ internal sealed class PatchingService : IPatchingService
             _datFileHandler.Flush(datFileHandle);
             datFlushed = true;
 
+            // Read again after the writes instead of reusing the list from the start. Our patch keeps
+            // every iteration (E5, E7), but if a write ever moved one, the old list would report that
+            // subfile as replaced on every launch. The read comes before the ledger save: if it threw,
+            // `patch` would restore its backup under a ledger that describes the writes it undid.
+            // A subfile that failed to load or write above does not stop the save (spec 0012 Tier 0).
+            SubFileIterationSnapshot snapshot =
+                SubFileIterationSnapshot.FromSubfileSizes(_datFileHandler.GetAllSubfileSizes(datFileHandle));
+
             if (ledgerChanged)
             {
                 Result ledgerSaveResult = _translationLedger.Save(translationsPath, ledgerEntries);
@@ -341,15 +346,6 @@ internal sealed class PatchingService : IPatchingService
                     warnings.Add(ledgerSaveResult.Error.Message);
                 }
             }
-
-            // Read again after the writes instead of reusing the list from the start. Our patch keeps
-            // every iteration (E5, E7), but if a write ever moved one, the old list would report that
-            // subfile as replaced on every launch and force a repair each time.
-            // The snapshot is saved even when a subfile above failed to load or to write. That subfile
-            // is then not repaired again until the next patch, and this is on purpose: a subfile our
-            // parser cannot read would otherwise start a full repair on every launch.
-            SubFileIterationSnapshot snapshot =
-                SubFileIterationSnapshot.FromSubfileSizes(_datFileHandler.GetAllSubfileSizes(datFileHandle));
 
             if (snapshot.Count == 0)
             {

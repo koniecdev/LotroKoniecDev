@@ -216,15 +216,14 @@ bullets. Two sources of completion state, one live and one hand-ticked, is how t
 | `on-hold` | Do not merge yet: `/merge-train` skips it until a person reads the PR and removes this label |
 | `needs-windows-check` | Do not merge yet: the PR changes code that runs only on Windows, and CI runs on Linux. `/merge-train` skips it until someone tries the PR on Windows, writes the result in a PR comment and removes this label |
 
-**`needs-windows-check` is added by a workflow, not by a person (#1250).**
-`.github/workflows/labeler.yml` adds it when a PR opens and changes a path that
-`.github/labeler.yml` lists. The check is the full `dotnet test` on Windows, which runs the two
-suites CI skips, plus the steps the PR lists under **Before merge, on Windows**. Copy the game's
-`client_local_English.dat` into `tests/LotroKoniecDev.Tests.E2E/TestData/` first (see
-`tests/LotroKoniecDev.Tests.E2E/README.md`). Without it every E2E test skips, and the check is not
-done. The PR comment gives the E2E pass count, not just
-"green". A session that runs on Windows does the check itself and puts those counts in its report;
-the owner removes the label when they read the PR.
+**`needs-windows-check` is added when a PR opens (#1250).** `.github/workflows/labeler.yml` adds
+it when the PR changes a path that `.github/labeler.yml` lists. The check is the full `dotnet test`
+on Windows, which runs the two suites CI skips, plus the steps the PR lists under **Before merge, on
+Windows**. Copy the game's `client_local_English.dat` into `tests/LotroKoniecDev.Tests.E2E/TestData/`
+first (see `tests/LotroKoniecDev.Tests.E2E/README.md`). Without it every E2E test skips, and the
+check is not done. The PR comment gives the E2E pass count, not just "green". A session that runs
+on Windows does the check itself and puts those counts in its report; the owner removes the label
+when they read the PR.
 
 The workflow runs only when a PR opens, so some PRs get no label: a later push that brings in
 Windows-only code, a file moved out of the listed paths, or a workflow run that failed or never

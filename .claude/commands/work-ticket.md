@@ -109,8 +109,9 @@ everything that matters must be committed and pushed.
    `**Assumptions:**` / `**Doubts:**` / `**Follow-ups:**`, where "none" is a valid entry and
    silence is not: the run is unattended, so every judgment call and every unverified
    area must land where the user reads it (same contract as `/ticket` step 9, CodeQL entry
-   included). Run step 9 on the file, then `gh pr create --fill --body-file <body file>`. Never
-   report DONE while work is only staged. Do NOT merge.
+   included). Run step 9 on the file, then `gh pr create --fill --body-file <body file>`, plus
+   `--label needs-windows-check` when `/ticket` step 8's Windows rule asks for it. Never report
+   DONE while work is only staged. Do NOT merge.
 8. **CodeQL — clear every finding before you finish.** Wait for the PR's `CodeQL` check to
    complete (`gh pr checks <pr> --watch --fail-fast` or poll; docs-only diffs skip it), then list
    the PR's open alerts:

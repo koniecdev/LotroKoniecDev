@@ -274,9 +274,9 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   opens (`docs/labels.md`). A session that runs on Windows does that check itself and puts the
   E2E counts in its report; any other session lists the manual steps under
   `## Before merge, on Windows` and passes `--label needs-windows-check` to `gh pr create`, because
-  the workflow sees only the paths in `.github/labeler.yml`. Run step 10 on that file, then `gh pr create` with the title
-  mirroring the ticket and `--body-file <that file>`. The ticket is the authorization — do not
-  stop to ask for permission to commit, push, or open the PR.
+  the workflow sees only the paths in `.github/labeler.yml`. Run step 10 on that file, then
+  `gh pr create` with the title mirroring the ticket and `--body-file <that file>`. The ticket is
+  the authorization — do not stop to ask for permission to commit, push, or open the PR.
 - **CodeQL alerts block the merge, so clear them before your final reply.** Once the PR's
   `CodeQL` check completes (docs-only diffs skip it), list
   `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<pr>/merge&state=open"` and fix

@@ -180,7 +180,10 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   the mistake. New behavior covered (happy path + failure modes + boundary `[Theory]` cases), and
   report the counts rather than "tests pass". Local minutes cost nothing; GitHub Actions minutes
   are the scarce resource, so a suite skipped here and run on a runner is pure waste. Anything
-  that will not run locally is unproven: say which, and do not open the PR.
+  that will not run locally is unproven: say which, and do not open the PR. The one exception is
+  the two Windows-only patcher suites in a session that is not on Windows: for a diff that changes
+  Windows-only code, list the Windows run under `## Before merge, on Windows` (step 8) and open
+  the PR, because `needs-windows-check` holds it.
 - **The guard scripts CI runs, every time** — they are bash greps and take seconds:
   `scripts/check-ssr-purity.sh`, `scripts/check-client-hypermedia.sh`,
   `scripts/check-dockerfile-restore-graph.sh`, `scripts/check-migration-safety.sh`.
@@ -267,11 +270,12 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   `/tmp/claude-ticket-<n>/pr-body.md`: outside the repo, so no commit picks it up, and one folder
   per ticket, so two sessions never share a file. The body is `Closes #<n>`, then the problem in
   plain words (`## Problem`, `## Why`, `## Fix`), then what changed and how it was tested, then
-  step 9's report. A diff that changes Windows-only code, made in a session that does not run on
-  Windows, also lists the manual steps under `## Before merge, on Windows`: the PR gets
-  `needs-windows-check` when it opens (`docs/labels.md`). Run step 10 on that file, then `gh pr create` with the title mirroring the
-  ticket and `--body-file <that file>`. The ticket is the authorization — do not stop to ask for
-  permission to commit, push, or open the PR.
+  step 9's report. A diff that changes Windows-only code gets `needs-windows-check` when the PR
+  opens (`docs/labels.md`). A session that runs on Windows does that check itself and puts the
+  E2E counts in its report; any other session lists the manual steps under
+  `## Before merge, on Windows`. Run step 10 on that file, then `gh pr create` with the title
+  mirroring the ticket and `--body-file <that file>`. The ticket is the authorization — do not
+  stop to ask for permission to commit, push, or open the PR.
 - **CodeQL alerts block the merge, so clear them before your final reply.** Once the PR's
   `CodeQL` check completes (docs-only diffs skip it), list
   `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<pr>/merge&state=open"` and fix

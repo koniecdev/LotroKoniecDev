@@ -1,6 +1,4 @@
-# Read by .github/workflows/labeler.yml. The rule for each label is in docs/labels.md.
-
-# Code that runs only on Windows. CI runs on Linux, so it never runs this code (#1250).
+# Read by .github/workflows/labeler.yml. The rule for each label is in docs/labels.md (#1250).
 needs-windows-check:
   - changed-files:
       - any-glob-to-any-file:
@@ -9,4 +7,5 @@ needs-windows-check:
           - src/Player/LotroKoniecDev.DesktopApp/**
           - tests/LotroKoniecDev.Tests.Infrastructure/**
           - tests/LotroKoniecDev.Tests.E2E/**
+          - tests/Shared/WindowsOnlyTestRun.targets
           - '*.bat'

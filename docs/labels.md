@@ -217,16 +217,20 @@ bullets. Two sources of completion state, one live and one hand-ticked, is how t
 | `needs-windows-check` | Do not merge yet: the PR changes code that runs only on Windows, and CI runs on Linux. `/merge-train` skips it until someone tries the PR on Windows, writes the result in a PR comment and removes this label |
 
 **`needs-windows-check` is added by a workflow, not by a person (#1250).**
-`.github/workflows/labeler.yml` adds it when a PR opens and changes a folder listed in
-`.github/labeler.yml`: the CLI, the patcher Infrastructure, the desktop exe, `Tests.Infrastructure`,
-`Tests.E2E` and the `*.bat` files in the root. The check is the full `dotnet test` on Windows, which
-runs the two suites CI skips, plus the steps the PR lists under **Before merge, on Windows**. A
-session that already did this on Windows says so in its report, and the owner removes the label
-when they read the PR. A push does not add the label again, because the train's own rebase would
-then undo a finished check. Add it by hand when a change reaches Windows-only behaviour from another
-folder, for example a new write path into the game file in the patcher Domain. The name lives in
-three places: the label on GitHub, `.github/labeler.yml` and the train's skip list. Rename it in all
-three at once, or the hold stops without a warning.
+`.github/workflows/labeler.yml` adds it when a PR opens and changes a path that
+`.github/labeler.yml` lists. The check is the full `dotnet test` on Windows, which runs the two
+suites CI skips, plus the steps the PR lists under **Before merge, on Windows**. Copy the game DAT
+into `tests/LotroKoniecDev.Tests.E2E/TestData/` first (see the `README.md` there). Without it every
+E2E test skips, and the check is not done. The PR comment gives the E2E pass count, not just
+"green". A session that runs on Windows does the check itself and puts those counts in its report;
+the owner removes the label when they read the PR.
+
+The workflow runs only when a PR opens, so some PRs get no label: a later push that brings in
+Windows-only code, a file moved out of the listed paths, or a workflow run that failed or never
+ran. Add the label by hand then. Add it by hand too when a change reaches Windows-only behaviour
+from another folder, for example a new write path into the game file in the patcher Domain. The
+name lives in three places: the label on GitHub, `.github/labeler.yml` and the train's skip list.
+Rename it in all three at once, or the hold stops without a warning.
 
 `post-mvp` is this repo's release gate. TheKittySaver, already past MVP, uses `post-v1` plus
 `release-mvp` / `release-v1` for "required for that release"; this repo tracks the same thing

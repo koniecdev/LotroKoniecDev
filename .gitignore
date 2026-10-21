@@ -575,8 +575,11 @@ terraform.rc
 /logs/
 
 # Patcher sidecars written next to a translation file at runtime (never content of the repo):
-# the TMS sync's `.etag` + `.endpoint` (TranslationFileCache) and the ADR-0047 write ledger.
+# the TMS sync's `.etag` + `.endpoint` (TranslationFileCache), the ADR-0047 write ledger and the
+# spec 0012 Tier 0 iteration snapshot.
 translations/*.etag
 translations/*.endpoint
 translations/*.ledger
 translations/*.ledger.tmp
+translations/*.iterations
+translations/*.iterations.tmp

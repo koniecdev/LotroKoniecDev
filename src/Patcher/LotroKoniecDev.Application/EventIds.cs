@@ -37,6 +37,15 @@ internal static class EventIds
     public const int LaunchLauncherStarted = 5123;
     public const int LaunchEnded = 5124;
     public const int LaunchPatchWarning = 5125;
+    public const int LaunchWipeSnapshotUnreadable = 5126;
+    public const int LaunchWipeNoSnapshot = 5127;
+    public const int LaunchWipeDatUnreadable = 5128;
+    public const int LaunchWipeDatListsNoTextSubFiles = 5129;
+    public const int LaunchWipeNotDetected = 5130;
+    public const int LaunchWipeDetected = 5131;
+    public const int LaunchRepairingWipedSubFiles = 5132;
+    public const int LaunchRepairFailed = 5133;
+    public const int LaunchWipedSubFilesRepaired = 5134;
 
     // Translation File Syncing (5200–5299)
     public const int TranslationFileEndpointFallbackToCache = 5200;

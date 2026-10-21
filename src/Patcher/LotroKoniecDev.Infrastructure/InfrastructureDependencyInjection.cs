@@ -47,6 +47,7 @@ public static class InfrastructureDependencyInjection
                 serviceProvider.GetRequiredKeyedService<HttpClient>(TranslationSystemHttpClientKey)));
         services.AddSingleton<ITranslationFileCache, TranslationFileCache>();
         services.AddSingleton<ITranslationLedger, TranslationLedger>();
+        services.AddSingleton<ISubFileIterationSnapshotStore, SubFileIterationSnapshotStore>();
         services.AddSingleton<IGameVersionFileStore, GameVersionFileStore>();
         services.AddSingleton<IFileHasher, FileHasher>();
 

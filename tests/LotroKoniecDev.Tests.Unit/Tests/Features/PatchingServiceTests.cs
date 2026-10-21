@@ -15,6 +15,7 @@ public sealed class PatchingServiceTests
     private readonly IDatFileHandler _datFileHandler;
     private readonly ITranslationParser _translationParser;
     private readonly ITranslationLedger _translationLedger;
+    private readonly ISubFileIterationSnapshotStore _snapshotStore;
     private readonly PatchingService _sut;
 
     private const int DatHandle = 42;
@@ -42,8 +43,10 @@ public sealed class PatchingServiceTests
         _translationLedger
             .Save(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<LedgerKey, string>>())
             .Returns(Result.Success());
+        _snapshotStore = Substitute.For<ISubFileIterationSnapshotStore>();
+        _snapshotStore.Save(Arg.Any<string>(), Arg.Any<SubFileIterationSnapshot>()).Returns(Result.Success());
 
-        _sut = new PatchingService(_datFileHandler, _translationParser, _translationLedger);
+        _sut = new PatchingService(_datFileHandler, _translationParser, _translationLedger, _snapshotStore);
     }
 
     private void SetupAllPassingDefaults()
@@ -994,5 +997,97 @@ public sealed class PatchingServiceTests
         // Assert
         _datFileHandler.DidNotReceive().PutSubfileData(
             Arg.Any<int>(), TextFileId, Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public void ApplyTranslations_Succeeds_ShouldSaveTheIterationsTheDatHoldsAfterTheWrites()
+    {
+        // Arrange: the second read is the DAT after our writes. Our patch keeps every iteration (E5,
+        // E7), but the snapshot describes what is on disk now, so a write that moved one cannot make
+        // the next launch repair for nothing.
+        SetupAllPassingDefaults();
+        _datFileHandler.GetAllSubfileSizes(DatHandle).Returns(
+            new Dictionary<int, (int, int)> { { TextFileId, (100, 1) } },
+            new Dictionary<int, (int, int)> { { TextFileId, (120, 5) }, { TextFileId2, (50, 8) } });
+        SetupTranslations(CreateTranslation());
+
+        // Act
+        _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        _snapshotStore.Received(1).Save(
+            "/translations/polish.txt",
+            Arg.Is<SubFileIterationSnapshot>(snapshot =>
+                snapshot.Count == 2
+                && snapshot.Iterations[TextFileId] == 5
+                && snapshot.Iterations[TextFileId2] == 8));
+    }
+
+    [Fact]
+    public void ApplyTranslations_WhenTheGuardRefusesEveryRow_ShouldStillSaveTheSnapshot()
+    {
+        // Arrange: update day. Every row is `source moved`, so nothing is written. The snapshot must
+        // still follow the DAT to its new state, or every launch would start the same repair again.
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation(sourceDigest: SourceDigest.ForExportForm("Older English", 0)));
+
+        // Act
+        Result<PatchSummaryResponse> result =
+            _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.Value.SourceMovedTranslations.ShouldBe(1);
+        _snapshotStore.Received(1).Save("/translations/polish.txt", Arg.Any<SubFileIterationSnapshot>());
+    }
+
+    [Fact]
+    public void ApplyTranslations_WhenTheTranslationFileCannotBeParsed_ShouldNotSaveASnapshot()
+    {
+        // Arrange: a failed patch keeps the old snapshot, so a repair that failed is tried again.
+        SetupAllPassingDefaults();
+        Error parseError = new("Translation.ParseError", "Bad format", ErrorType.Validation);
+        _translationParser.ParseFile(Arg.Any<string>())
+            .Returns(Result.Failure<TranslationParseResult>(parseError));
+
+        // Act
+        _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        _snapshotStore.DidNotReceive().Save(Arg.Any<string>(), Arg.Any<SubFileIterationSnapshot>());
+    }
+
+    [Fact]
+    public void ApplyTranslations_WhenTheDatCannotBeOpened_ShouldNotSaveASnapshot()
+    {
+        // Arrange
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation());
+        Error openError = new("DatFile.CannotOpen", "Cannot open", ErrorType.IoError);
+        _datFileHandler.Open(Arg.Any<string>(), DatFileAccess.ReadWrite).Returns(Result.Failure<int>(openError));
+
+        // Act
+        _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        _snapshotStore.DidNotReceive().Save(Arg.Any<string>(), Arg.Any<SubFileIterationSnapshot>());
+    }
+
+    [Fact]
+    public void ApplyTranslations_WhenTheSnapshotCannotBeSaved_ShouldWarnAndStillSucceed()
+    {
+        // Arrange: the DAT is already written, so this is not fatal, like a ledger that cannot be saved.
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation());
+        Error saveError = new("IterationSnapshot.WriteError", "WriteError failed for iterationsnapshot: disk full", ErrorType.IoError);
+        _snapshotStore.Save(Arg.Any<string>(), Arg.Any<SubFileIterationSnapshot>()).Returns(Result.Failure(saveError));
+
+        // Act
+        Result<PatchSummaryResponse> result =
+            _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(1);
+        result.Value.Warnings.ShouldContain(saveError.Message);
     }
 }

@@ -14,6 +14,7 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
     private readonly IGameVersionFileStore _gameVersionFileStore;
     private readonly IDatVersionReader _datVersionReader;
     private readonly IPatchingService _patchingService;
+    private readonly ISubFileWipeDetector _wipeDetector;
     private readonly IGameLauncher _gameLauncher;
     private readonly ILogger<SimplifiedGameLaunchingStrategy> _logger;
 
@@ -23,6 +24,7 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
         IGameVersionFileStore gameVersionFileStore,
         IDatVersionReader datVersionReader,
         IPatchingService patchingService,
+        ISubFileWipeDetector wipeDetector,
         IGameLauncher gameLauncher,
         ILogger<SimplifiedGameLaunchingStrategy> logger)
     {
@@ -31,6 +33,7 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
         _gameVersionFileStore = gameVersionFileStore;
         _datVersionReader = datVersionReader;
         _patchingService = patchingService;
+        _wipeDetector = wipeDetector;
         _gameLauncher = gameLauncher;
         _logger = logger;
     }
@@ -95,6 +98,8 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
         bool translationsApplied = false;
         int appliedCount = 0;
         int skippedCount = 0;
+        int wipedSubFileCount = 0;
+        string? repairFailure = null;
 
         if (translationChanged)
         {
@@ -156,6 +161,46 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
         else
         {
             LogSkippedTranslationUnchanged(_logger);
+
+            // Spec 0012 Tier 0: the file is the one we applied, but a game update may have replaced
+            // subfiles we patched since then. The hash cannot see that, so translations lost that way
+            // used to stay lost. When the translation file changed, the patch above covers it already.
+            WipedSubFileSet wiped = _wipeDetector.Detect(command.DatFilePath, command.TranslationFilePath);
+            wipedSubFileCount = wiped.Count;
+
+            if (!wiped.IsEmpty)
+            {
+                LogRepairingWipedSubFiles(_logger, wiped.Count);
+
+                // The verdict does not gate this, and it works offline: the source guard admits each row
+                // on its own (ADR-0047). A successful patch saves a new snapshot, so the next launch finds
+                // nothing to repair.
+                Result<PatchSummaryResponse> repairResult =
+                    _patchingService.ApplyTranslations(command.TranslationFilePath, command.DatFilePath);
+
+                if (repairResult.IsFailure)
+                {
+                    // Before Tier 0 this launch started the game without writing the DAT, so a failed
+                    // repair must not stop it. The old snapshot stays, and the next launch tries again.
+                    LogRepairFailed(_logger, repairResult.Error.Message);
+                    repairFailure = repairResult.Error.Message;
+                }
+                else
+                {
+                    PatchSummaryResponse repairSummary = repairResult.Value;
+
+                    foreach (string warning in repairSummary.Warnings)
+                    {
+                        LogPatchWarning(_logger, warning);
+                    }
+
+                    translationsApplied = true;
+                    appliedCount = repairSummary.AppliedTranslations;
+                    skippedCount = repairSummary.SkippedTranslations;
+
+                    LogWipedSubFilesRepaired(_logger, appliedCount, skippedCount);
+                }
+            }
         }
 
         // Step 3: start the launcher and do not wait for it.
@@ -177,7 +222,9 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
             GameExitCode: 0,
             TranslationsApplied: translationsApplied,
             AppliedCount: appliedCount,
-            SkippedCount: skippedCount);
+            SkippedCount: skippedCount,
+            WipedSubFileCount: wipedSubFileCount,
+            RepairFailure: repairFailure);
 
         return ValueTask.FromResult(Result.Success(response));
     }
@@ -247,6 +294,15 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
 
     [LoggerMessage(EventId = EventIds.LaunchSkippedTranslationUnchanged, Level = LogLevel.Information, Message = ">>> SKIP: Translation file unchanged — skipping patch")]
     private static partial void LogSkippedTranslationUnchanged(ILogger logger);
+
+    [LoggerMessage(EventId = EventIds.LaunchRepairingWipedSubFiles, Level = LogLevel.Information, Message = ">>> REPAIRING: a game update replaced {Count} text subfile(s) since our last patch — re-patching from the local translation file")]
+    private static partial void LogRepairingWipedSubFiles(ILogger logger, int count);
+
+    [LoggerMessage(EventId = EventIds.LaunchRepairFailed, Level = LogLevel.Warning, Message = "Repair FAILED: {Error}. The game starts anyway and the next launch tries again")]
+    private static partial void LogRepairFailed(ILogger logger, string error);
+
+    [LoggerMessage(EventId = EventIds.LaunchWipedSubFilesRepaired, Level = LogLevel.Information, Message = "Repaired translations: {Applied} applied, {Skipped} skipped")]
+    private static partial void LogWipedSubFilesRepaired(ILogger logger, int applied, int skipped);
 
     [LoggerMessage(EventId = EventIds.LaunchStartingGame, Level = LogLevel.Information, Message = "Step 3: Launching game (fire-and-forget)...")]
     private static partial void LogStartingGame(ILogger logger);

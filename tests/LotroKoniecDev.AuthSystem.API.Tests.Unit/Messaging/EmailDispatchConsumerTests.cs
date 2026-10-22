@@ -11,6 +11,7 @@ using LotroKoniecDev.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using RabbitMQ.Client;
@@ -31,7 +32,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Messaging;
 /// left to automatic recovery, and only the host's stop ends it.
 /// On a fake clock it pins which pause follows which failure (#1223): the pause before a temporary
 /// failure goes back on the queue, chosen by the broker's retry count, no pause once the delivery limit
-/// is reached, the first pause after an unexpected error, a stop during a pause, the pause between
+/// is reached, the first pause after an unexpected error, a quiet stop during a pause, the pause between
 /// connection attempts and the watch interval.
 /// </summary>
 public sealed class EmailDispatchConsumerTests
@@ -126,7 +127,7 @@ public sealed class EmailDispatchConsumerTests
         IChannel channel = Substitute.For<IChannel>();
         await using ServiceProvider services = BuildDeliveryServices(
             new StubEmailProcessor(() => Result.Failure(SmtpRelayDown)));
-        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(services);
+        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(services, NullLoggerFactory.Instance);
 
         // Act
         Task delivering = consumer.OnDeliveredAsync(channel, Delivery(redeliveries), CancellationToken.None);
@@ -158,7 +159,7 @@ public sealed class EmailDispatchConsumerTests
         IChannel channel = Substitute.For<IChannel>();
         await using ServiceProvider services = BuildDeliveryServices(
             new StubEmailProcessor(() => Result.Failure(SmtpRelayDown)));
-        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(services);
+        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(services, NullLoggerFactory.Instance);
         BasicDeliverEventArgs delivery = Delivery(RabbitMqTopology.EmailDeliveryLimit + redeliveriesPastTheLimit);
 
         // Act: the clock never moves, so any pause would keep the delivery from finishing
@@ -182,7 +183,7 @@ public sealed class EmailDispatchConsumerTests
         IChannel channel = Substitute.For<IChannel>();
         await using ServiceProvider services = BuildDeliveryServices(
             new StubEmailProcessor(() => throw new InvalidOperationException("A bug in the processor.")));
-        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(services);
+        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(services, NullLoggerFactory.Instance);
 
         // Act
         Task delivering = consumer.OnDeliveredAsync(channel, Delivery(redeliveries), CancellationToken.None);
@@ -215,7 +216,7 @@ public sealed class EmailDispatchConsumerTests
         await using ServiceProvider services = BuildDeliveryServices(new StubEmailProcessor(() => theProcessorThrows
             ? throw new InvalidOperationException("A bug in the processor.")
             : Result.Failure(SmtpRelayDown)));
-        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(services);
+        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(services, NullLoggerFactory.Instance);
 
         // Act
         Task delivering = consumer.OnDeliveredAsync(channel, Delivery(0), stopping.Token);
@@ -225,6 +226,35 @@ public sealed class EmailDispatchConsumerTests
 
         // Assert: no ack and no reject
         channel.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// A stop is not a failure, so a deploy during an SMTP outage must not log an unexpected error. The
+    /// line written before the pause stays.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OnDeliveredAsync_WhenTheHostStopsDuringThePause_ShouldLogNothingMore(bool theProcessorThrows)
+    {
+        // Arrange
+        using CapturingLoggerFactory loggerFactory = new();
+        using CancellationTokenSource stopping = new();
+        IChannel channel = Substitute.For<IChannel>();
+        await using ServiceProvider services = BuildDeliveryServices(new StubEmailProcessor(() => theProcessorThrows
+            ? throw new InvalidOperationException("A bug in the processor.")
+            : Result.Failure(SmtpRelayDown)));
+        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(services, loggerFactory);
+
+        // Act
+        Task delivering = consumer.OnDeliveredAsync(channel, Delivery(0), stopping.Token);
+        await _clock.WaitForNextTimerAsync();
+        int logEntriesBeforeTheStop = loggerFactory.Entries.Count;
+        await stopping.CancelAsync();
+        await delivering.WaitAsync(WaitLimit);
+
+        // Assert
+        loggerFactory.Entries.Count.ShouldBe(logEntriesBeforeTheStop);
     }
 
     public static TheoryData<Exception> AttachFailures() => new()
@@ -298,7 +328,7 @@ public sealed class EmailDispatchConsumerTests
     /// makes it attach again.
     /// </summary>
     [Fact]
-    public async Task ExecuteAsync_WhenTheChannelStaysClosed_ShouldAttachAgainOnlyAfterTwoWatchIntervals()
+    public async Task ExecuteAsync_WhenTheChannelStaysClosed_ShouldAttachAgainAfterTwoWatchIntervals()
     {
         // Arrange
         TimeSpan watchInterval = TimeSpan.FromSeconds(30);
@@ -443,12 +473,12 @@ public sealed class EmailDispatchConsumerTests
             [TimeSpan.Zero],
             watchInterval);
 
-    private EmailDispatchConsumer CreateConsumerOnTheFakeClock(IServiceProvider services) =>
+    private EmailDispatchConsumer CreateConsumerOnTheFakeClock(IServiceProvider services, ILoggerFactory loggerFactory) =>
         new(
             Substitute.For<IConnectionFactory>(),
             services.GetRequiredService<IServiceScopeFactory>(),
             _clock,
-            NullLogger<EmailDispatchConsumer>.Instance,
+            new Logger<EmailDispatchConsumer>(loggerFactory),
             [TimeSpan.Zero],
             TimeSpan.FromMinutes(1));
 

@@ -28,8 +28,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Messaging;
 /// recovery, and only the host's stop ends it.
 /// On a fake clock it pins which pause follows which failure (#1223): the pause after each database
 /// outage in a row, the last pause for every outage after it, the start over after a success, the
-/// Error level once the pauses stop growing, the first pause after any other error, a stop during a
-/// pause, the pause between connection attempts and the watch interval.
+/// Error level once the pauses stop growing, the first pause after any other error, a quiet stop during
+/// a pause, the pause between connection attempts and the watch interval.
 /// </summary>
 public sealed class AccountErasedConsumerTests
 {
@@ -277,6 +277,41 @@ public sealed class AccountErasedConsumerTests
 
         // Assert: no ack, no nack and no reject
         channel.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// A stop is not a failure, so a deploy during a database outage must not log an unexpected error.
+    /// The line written before the pause stays.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OnDeliveredAsync_WhenTheHostStopsDuringThePause_ShouldLogNothingMore(
+        bool theDatabaseIsUnavailable)
+    {
+        // Arrange
+        using CapturingLoggerFactory loggerFactory = new();
+        using CancellationTokenSource stopping = new();
+        IChannel channel = Substitute.For<IChannel>();
+        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
+            new StubEraseHandler(() =>
+            {
+                Exception failure = theDatabaseIsUnavailable
+                    ? new TimeoutException("database down")
+                    : new InvalidOperationException("bug");
+                throw failure;
+            }),
+            loggerFactory);
+
+        // Act
+        Task delivering = consumer.OnDeliveredAsync(channel, Delivery(), stopping.Token);
+        await _clock.WaitForNextTimerAsync();
+        int logEntriesBeforeTheStop = loggerFactory.Entries.Count;
+        await stopping.CancelAsync();
+        await delivering.WaitAsync(WaitLimit);
+
+        // Assert
+        loggerFactory.Entries.Count.ShouldBe(logEntriesBeforeTheStop);
     }
 
     /// <summary>
@@ -588,7 +623,7 @@ public sealed class AccountErasedConsumerTests
     /// makes it attach again.
     /// </summary>
     [Fact]
-    public async Task ExecuteAsync_WhenTheChannelStaysClosed_ShouldAttachAgainOnlyAfterTwoWatchIntervals()
+    public async Task ExecuteAsync_WhenTheChannelStaysClosed_ShouldAttachAgainAfterTwoWatchIntervals()
     {
         // Arrange
         TimeSpan watchInterval = TimeSpan.FromSeconds(30);

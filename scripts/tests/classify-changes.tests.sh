@@ -145,6 +145,28 @@ expect_code 'a golden test fixture'     'tests/LotroKoniecDev.Tests.Unit/Fixture
 expect_code 'an EF migration'           'src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/Migrations/20260713_Add.cs'
 expect_code 'appsettings'               'src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/appsettings.json'
 expect_code 'an unrecognized new path'  'tools/whatever/Program.cs'
+# The INERT Dockerfile rule used to match any name that starts with "Dockerfile" (#1163).
+expect_code 'a C# file whose name starts with Dockerfile'       'src/App/DockerfileParser.cs'
+expect_code 'a C# file named Dockerfile.cs'                     'src/App/Dockerfile.cs'
+expect_code 'a project file whose name starts with Dockerfile'  'tools/Dockerfile.Tools/Dockerfile.Tools.csproj'
+expect_code 'a Razor component whose name starts with Dockerfile' 'src/Frontend/LotroKoniecDev.Frontend/Components/DockerfileView.razor'
+expect_code 'a Razor page whose name starts with Dockerfile'    'src/AuthSystem/LotroKoniecDev.AuthSystem.API/Pages/DockerfileView.cshtml'
+expect_code 'scoped CSS whose name starts with Dockerfile'      'src/Frontend/LotroKoniecDev.Frontend/Components/DockerfileView.razor.css'
+expect_code 'an MSBuild file whose name starts with Dockerfile' 'src/App/Dockerfile.targets'
+expect_code 'MSBuild props whose name starts with Dockerfile'   'src/App/Dockerfile.props'
+expect_code 'a test fixture whose name starts with Dockerfile'  'tests/LotroKoniecDev.TranslationSystem.API.Tests.Unit/TestData/Dockerfile-sample.txt'
+# The bare `dotnet restore` and `dotnet build` in pr-verify and ci fail with two project files at the root.
+expect_code 'a root project file whose name starts with Dockerfile' 'Dockerfile.Tools.csproj'
+expect_code 'a root solution file whose name starts with Dockerfile' 'Dockerfile.slnx'
+# Every other INERT rule names its places too, so the same kind of file in src/ or tests/ is code.
+expect_code 'a Markdown template in a project folder'           'src/AuthSystem/LotroKoniecDev.AuthSystem.API/Templates/welcome.md'
+expect_code 'a Markdown test fixture'                           'tests/LotroKoniecDev.Tests.Unit/TestData/notes.md'
+expect_code 'a shell script test fixture'                       'tests/LotroKoniecDev.Tests.Unit/TestData/sample.sh'
+expect_code 'a PowerShell file in a project folder'             'src/Patcher/LotroKoniecDev.Cli/tools/install.ps1'
+expect_code 'an env example in a test folder'                   'tests/LotroKoniecDev.Tests.Unit/TestData/.env.sample.example'
+# git applies it to the bytes of every fixture at checkout: line endings, binary files.
+expect_code 'the git attributes'                                '.gitattributes'
+expect_code 'such a C# file in a path git printed in quotes'    '"src/we\"ird/DockerfileParser.cs"'
 
 echo
 echo '── inert: nothing runs ───────────────────────────────────────────────────────────────────────'
@@ -153,6 +175,9 @@ expect 'code=false guards=false images=false' 'project memory + docs'         'C
 expect 'code=false guards=false images=false' 'another workflow'              '.github/workflows/codeql.yml'
 expect 'code=false guards=false images=false' 'the dev compose stack'         'compose.yaml'
 expect 'code=false guards=false images=false' 'an env example'                '.env.example'
+expect 'code=false guards=false images=false' 'docs inside tests/ and scripts/' 'tests/CLAUDE.md' 'tests/LotroKoniecDev.Tests.E2E/README.md' 'scripts/claude/README.md'
+expect 'code=false guards=false images=false' 'a CLAUDE.md in a project folder' 'src/Patcher/LotroKoniecDev.Cli/CLAUDE.md'
+expect 'code=false guards=false images=false' 'a script CI does not run'      'scripts/up.sh' 'scripts/up.ps1'
 
 echo
 echo '── guards only: the bash gates re-run, the .NET gate does not ────────────────────────────────'
@@ -174,7 +199,6 @@ expect 'code=false guards=true images=false' 'a guard self-test'                
 expect 'code=false guards=true images=false' 'the restore-graph guard'                    'scripts/check-dockerfile-restore-graph.sh'
 expect 'code=false guards=true images=false' 'the restore-graph guard PowerShell twin'    'scripts/check-dockerfile-restore-graph.ps1'
 expect 'code=false guards=true images=false' 'the restore-graph guard self-test'          'scripts/tests/check-dockerfile-restore-graph.tests.sh'
-expect 'code=false guards=true images=false' 'the script CD runs on a prod box'           'scripts/hetzner/deploy.sh'
 expect 'code=false guards=true images=false' 'the rollout self-test'                      'scripts/tests/hetzner-deploy.tests.sh'
 expect 'code=false guards=true images=false' 'the box bootstrap script'                   'scripts/hetzner/bootstrap.sh'
 expect 'code=false guards=true images=false' 'the bootstrap swap self-test'               'scripts/tests/hetzner-bootstrap-swap.tests.sh'
@@ -187,12 +211,21 @@ expect 'code=false guards=true images=false' 'the N-1 proof the gate calls'     
 expect 'code=false guards=true images=false' 'the N-1 proof classification self-test'     'scripts/tests/n1-compat.tests.sh'
 
 echo
+echo '── read by an integration test: the .NET gate runs too (#1163) ──────────────────────────────'
+expect 'code=true guards=true images=false'  'the script CD runs on a prod box (DeadLetterExpiryTests reads it)' 'scripts/hetzner/deploy.sh'
+
+echo
 echo '── images ───────────────────────────────────────────────────────────────────────────────────'
 expect 'code=false guards=true images=true'  'a shipped Dockerfile (restore-graph guard reads it)' 'src/Frontend/LotroKoniecDev.Frontend/Dockerfile'
 expect 'code=false guards=true images=true'  'the migrator Dockerfile'                             'Dockerfile.migrator.prod'
+expect 'code=false guards=true images=true'  'the dev migrator Dockerfile'                         'Dockerfile.migrator'
+expect 'code=false guards=true images=true'  'the tests Dockerfile'                                'Dockerfile.tests'
+expect 'code=true guards=true images=true'   'a new root Dockerfile flavor (a redundant build)'    'Dockerfile.frontend'
+expect 'code=true guards=true images=true'   'a .dockerignore in a subfolder (a redundant build)'  'src/Frontend/LotroKoniecDev.Frontend/.dockerignore'
 expect 'code=false guards=false images=true' 'the build-context filter'                            '.dockerignore'
 expect 'code=true guards=true images=true'   'a .dockerignore git printed in quotes'                '"src/we\"ird/.dockerignore"'
-expect 'code=false guards=true images=true'  'a Dockerfile git printed in quotes'                   '"src/we\"ird/Dockerfile"'
+expect 'code=true guards=true images=true'   'a Dockerfile git printed in quotes'                   '"src/we\"ird/Dockerfile"'
+expect 'code=true guards=true images=true'   'a Dockerfile outside the known places (a redundant build)' 'tests/LotroKoniecDev.Tools/Dockerfile'
 
 echo
 echo '── the gate definitions validate themselves ─────────────────────────────────────────────────'

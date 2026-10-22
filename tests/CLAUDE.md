@@ -375,6 +375,13 @@ apply call) to be covered.
 - `.Received()` only for side effects invisible in the return value (cleanup, "must NOT have
   been called on validation failure") — never to mirror internal call patterns
 - Shared test data builders go in `Shared/` (extend `TestDataFactory`, don't hand-roll bytes)
+- A file a unit or integration test reads is a build input. If an inert rule in
+  `scripts/ci/classify-changes.sh` matches it (a script under `scripts/`, a root compose file, for
+  example), add it to `CODE_INPUTS` there in the same change, with a case in its self-test. Otherwise
+  a pull request that changes only that file skips the test, and the failure shows up later, in
+  someone else's run (#1163). Do not point a test at a file that `paths-ignore` in
+  `.github/workflows/ci.yml` skips (`docs/`, `.claude/`, the inert Markdown): main never re-runs the
+  test after a change to it
 - Every test database starts from `PostgresImage.Name` (`tests/Shared/PostgresImage.cs`, linked into every
   suite that starts PostgreSQL), never from its own image tag (#1002)
 - A test that needs a host outside Development and Testing (because Testing turns the rule off) boots

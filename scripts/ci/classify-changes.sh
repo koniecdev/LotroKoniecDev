@@ -16,17 +16,22 @@
 #
 # Verdict rules:
 #   * A file is INERT unless it can affect one of the three gates. Everything under docs/, .claude/,
-#     .github/, .idea/, .run/, .vscode/, .docker/, every *.md / *.sh / *.ps1 / compose file,
-#     the Dockerfiles and .dockerignore.
-#   * code    = any NON-inert file (fail-safe default: an unrecognized path IS a build input), plus
-#               pr-verify.yml / ci.yml — they define the .NET gate, so a change to one must run the
-#               gate it just redefined.
+#     .github/, .idea/, .run/, .vscode/, .docker/; Markdown at the root and in scripts/; every
+#     README.md and CLAUDE.md; *.sh / *.ps1 under scripts/; the root LICENSE, .gitignore, compose
+#     files, .dockerignore and env examples; the Dockerfiles where they sit today. Each rule names
+#     the places, so the same kind of file somewhere else (a fixture in tests/, a template in src/)
+#     counts as code.
+#   * code    = any NON-inert file (fail-safe default: an unrecognized path IS a build input).
+#               CODE_INPUTS adds files that match INERT but still feed the .NET gate: pr-verify.yml,
+#               ci.yml, and the files it lists that a unit or integration test reads.
 #   * guards  = anything the guard steps execute or read, plus everything `code` implies (a .NET PR
 #               faces the guards too).
 #   * images  = any Dockerfile flavor, .dockerignore, and pr-verify.yml (it defines the image job).
 #
 # NEVER add a build input (.editorconfig, Directory.*.props/.targets, global.json, nuget.config,
 # a test fixture) to the inert list — that is a false green, the one failure mode that matters here.
+# A file a unit or integration test reads is a build input too, wherever it lives. When an INERT
+# rule also catches one (a script under scripts/, say), that file goes into CODE_INPUTS (#1163).
 # The reverse mistake (a redundant build) only costs minutes. `scripts/tests/classify-changes.tests.sh`
 # pins both directions and runs UNCONDITIONALLY in the required pr-verify job, so a classifier that
 # starts skipping real builds goes red before it is ever trusted.
@@ -54,31 +59,46 @@
 # CI-only (Linux runners), so unlike the check-*.sh guards this one has no .ps1 twin.
 set -euo pipefail
 
-INERT='\.md$|^docs/|^LICENSE$|^\.gitignore$|^\.gitattributes$|\.sh$|\.ps1$|(^|/)Dockerfile[^/]*$|(^|/)\.dockerignore$|^compose[^/]*\.ya?ml$|^\.docker/|^\.github/|^\.claude/|^\.run/|^\.vscode/|^\.idea/|(^|/)\.env[^/]*\.example$'
+# Each rule names the places where such files sit today, never a file kind in every folder. The one
+# rule for every folder is a name rule: README.md and CLAUDE.md are docs wherever they sit. A rule
+# that matches anywhere can hide a file the build or a test reads (#1163). `(^|/)Dockerfile[^/]*$`
+# would catch a DockerfileParser.cs, a test fixture named Dockerfile-sample.txt, and a root
+# Dockerfile.Tools.csproj that breaks the bare `dotnet restore`. `\.md$` would catch a Markdown
+# template that a project embeds. A new file in a place no rule names only costs a redundant build.
+# GUARD_INPUTS and IMAGE_INPUTS keep their broad rules, because broad is the safe side there.
+# .gitattributes is not here: it decides the bytes of every fixture at checkout (eol, binary).
+INERT='^[^/]*\.md$|(^|/)(README|CLAUDE)\.md$|^scripts/.*\.(md|sh|ps1)$|^docs/|^LICENSE$|^\.gitignore$|^Dockerfile(\.migrator|\.migrator\.prod|\.tests)?$|^src/[^/]+/[^/]+/Dockerfile$|^\.dockerignore$|^compose[^/]*\.ya?ml$|^\.docker/|^\.github/|^\.claude/|^\.run/|^\.vscode/|^\.idea/|^\.env[^/]*\.example$'
 
 # Executed or read by the guard steps of pr-verify/ci. The .ps1 twins are here because the
 # migration-safety self-test runs its pwsh leg; the Dockerfiles because the restore-graph guard
 # parses their COPY lists — a Dockerfile-only PR that drops a COPY ["…csproj"] line must still
 # face the guard that catches it (and the image job, which actually builds it). scripts/hetzner/
 # deploy.sh is here because it is the script CD runs on a PROD box and its self-test is the only
-# thing that checks it before it gets there (HETZ-04); bootstrap.sh because its swap leg edits state
-# that can stop a box from booting (/etc/fstab) and its DOCKER-USER leg is the firewall in front of
-# every published container port, and their self-tests are the only things that see those edits
-# before a box does (OBS-01, #808); the two scripts/ci/ halves of the N-1 promotion gate because CD's
-# prod leg runs them (#534) and their self-tests are the only pre-deploy check they face; and
-# scripts/n1-compat.sh, the proof those halves call, whose
-# verdict classification decides whether a blocked promotion reads as "your migrations break prod"
-# or as "the proof never ran" (#679).
+# check of the rollout before it gets there (HETZ-04; CODE_INPUTS has a test that reads one of its
+# policies); bootstrap.sh because its swap leg edits state that can stop a box from booting
+# (/etc/fstab) and its DOCKER-USER leg is the firewall in front of every published container port,
+# and their self-tests are the only things that see those edits before a box does (OBS-01, #808);
+# the two scripts/ci/ halves of the N-1 promotion gate because CD's prod leg runs them (#534) and
+# their self-tests are the only pre-deploy check they face; and scripts/n1-compat.sh, the proof
+# those halves call, whose verdict classification decides whether a blocked promotion reads as
+# "your migrations break prod" or as "the proof never ran" (#679).
 GUARD_INPUTS='^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/tests/check-ssr-purity\.tests\.sh$|^scripts/smoke\.(sh|ps1)$|^scripts/tests/smoke\.tests\.sh$|^scripts/check-client-hypermedia\.(sh|ps1)$|^scripts/tests/check-client-hypermedia\.tests\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/tests/check-dockerfile-restore-graph\.tests\.sh$|^scripts/claude/(issue-trust|next-ticket|work-ticket|backlog-loop|start-loop)\.sh$|^scripts/tests/claude-loop-(provenance|conductor|launcher)\.tests\.sh$|^scripts/hetzner/(deploy|bootstrap)\.sh$|^scripts/tests/hetzner-(deploy|bootstrap-swap|bootstrap-docker-user)\.tests\.sh$|^scripts/ci/(resolve-prod-baseline|n1-promotion-gate)\.sh$|^scripts/n1-compat\.sh$|^scripts/tests/(resolve-prod-baseline|n1-promotion-gate|n1-compat)\.tests\.sh$|(^|/)Dockerfile[^/]*$|^\.github/workflows/(pr-verify|ci)\.yml$'
 
-# Build-relevant despite matching INERT: the two workflows that DEFINE the .NET gate.
-CODE_INPUTS='^\.github/workflows/(pr-verify|ci)\.yml$'
+# Build-relevant despite matching INERT:
+#   * the two workflows that DEFINE the .NET gate;
+#   * scripts/hetzner/deploy.sh, because DeadLetterExpiryTests (AuthSystem.API.Tests.Integration)
+#     reads its dead-letter expiry policy and sets it on a real RabbitMQ broker (#1163). Its bash
+#     self-test pins the policy call only as text, so it cannot tell whether a broker accepts it.
+# When a unit or integration test reads a file that an INERT rule matches (a script under scripts/,
+# say), that file goes here. The E2E suites read Dockerfiles and scripts too, but they are not on
+# the PR gate, so their reads need no entry.
+CODE_INPUTS='^\.github/workflows/(pr-verify|ci)\.yml$|^scripts/hetzner/deploy\.sh$'
 
 # Image-build inputs: ANY Dockerfile flavor (a dev-only flavor costs a redundant image build, never
 # a false skip), the build-context filter, and pr-verify.yml — the image job must validate its own
 # new definition. A path git printed in quotes (`^"`) is here too, because the closing quote hides a
-# `.dockerignore` from the rule before it. The other verdicts need no such rule: INERT matches a
-# quoted path only when it is a Dockerfile, so any other quoted path counts as code.
+# `.dockerignore` from the rule before it. The other verdicts need no such rule: INERT matches no
+# quoted path, so every quoted path counts as code.
 IMAGE_INPUTS='(^|/)Dockerfile[^/]*$|(^|/)\.dockerignore$|^\.github/workflows/pr-verify\.yml$|^"'
 
 files=''

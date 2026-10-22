@@ -683,9 +683,10 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   migration safety, loop provenance) and `images`. Keep them independent — collapsing "CI executes
   this script" into "run the whole .NET gate" is what made a `.claude/` + docs + loop-scripts PR pay
   for a full Release build and both suites. The failure mode that matters is the other direction:
-  putting a **build input** (`.editorconfig`, `Directory.*.props`, `global.json`, a fixture) into the
-  inert list buys a silent false green, so `scripts/tests/classify-changes.tests.sh` pins both
-  directions and runs **unconditionally** in the required job, before any verdict is trusted.
+  putting a **build input** (`.editorconfig`, `Directory.*.props`, `global.json`, a fixture, a script
+  a test reads — #1163) into the inert list buys a silent false green, so
+  `scripts/tests/classify-changes.tests.sh` pins both directions and runs **unconditionally** in the
+  required job, before any verdict is trusted.
   `ci.yml` (main) deliberately does **not** self-skip its .NET steps — CD is triggered by CI
   concluding success, so "CI was green" must keep meaning the build and both suites really ran; it
   filters cheap content with `paths-ignore` instead (no CI ⇒ no CD).

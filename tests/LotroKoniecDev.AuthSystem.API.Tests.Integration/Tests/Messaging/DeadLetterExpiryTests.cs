@@ -15,7 +15,9 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Messaging;
 /// change. The name, the pattern and the definition are read from the script, so a typo there fails
 /// here under RabbitMQ's own rules. Only the message-ttl is cut from 7 days to seconds, so the test can
 /// watch it work. This class has its own broker, so its policy never expires a message that
-/// <see cref="DeadLetterTopologyTests"/> is waiting to read.
+/// <see cref="DeadLetterTopologyTests"/> is waiting to read. <c>scripts/ci/classify-changes.sh</c>
+/// lists the script as code, so a pull request that changes only the script still runs this test. If
+/// the script moves, its new path goes there too (#1163).
 /// </summary>
 public sealed class DeadLetterExpiryTests : IClassFixture<RabbitMqBrokerFixture>, IAsyncLifetime
 {

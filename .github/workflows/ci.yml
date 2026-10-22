@@ -15,7 +15,12 @@ on:
   push:
     branches: ["main"]
     paths-ignore:
-      - '**/*.md'
+      # Markdown only in the places scripts/ci/classify-changes.sh calls inert. A Markdown file that a
+      # project embeds, or a test reads, ships or tests something, so its push runs CI and CD (#1163).
+      - '*.md'
+      - '**/README.md'
+      - '**/CLAUDE.md'
+      - 'scripts/**/*.md'
       - 'docs/**'
       - '.claude/**'
       - 'LICENSE'

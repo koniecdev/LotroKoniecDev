@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Hosting;
+using LotroKoniecDev.Tests.Shared;
 
 namespace LotroKoniecDev.Frontend.Tests.Integration;
 
@@ -31,6 +33,11 @@ public sealed class ProductionFrontendFactory : WebApplicationFactory<Program>
         builder.UseSetting("AuthSystem:Authority", "https://auth.staging.invalid");
         builder.UseSetting("AuthSystem:CallerKey", CallerKey);
     }
+
+    /// <summary>
+    /// A refused start ends in the app's own error, whatever the timing of the app's thread (#1040).
+    /// </summary>
+    protected override IHost CreateHost(IHostBuilder builder) => HostStartOrder.BuildAndStart(builder);
 
     protected override void Dispose(bool disposing)
     {

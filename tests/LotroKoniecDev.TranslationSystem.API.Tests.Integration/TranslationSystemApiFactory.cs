@@ -123,6 +123,11 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     }
 
     /// <summary>
+    /// A refused start ends in the app's own error, whatever the timing of the app's thread (#1040).
+    /// </summary>
+    protected override IHost CreateHost(IHostBuilder builder) => HostStartOrder.BuildAndStart(builder);
+
+    /// <summary>
     /// Resets the shared database state between test classes: it waits for the background artifact
     /// rebuild to finish (PERF-04, ADR-0021) and then truncates the given tables.
     /// The wait is part of the reset and never something a caller has to remember, because a rebuild

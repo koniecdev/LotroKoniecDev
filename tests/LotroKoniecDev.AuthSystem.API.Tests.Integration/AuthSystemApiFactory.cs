@@ -271,6 +271,11 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     }
 
     /// <summary>
+    /// A refused start ends in the app's own error, whatever the timing of the app's thread (#1040).
+    /// </summary>
+    protected override IHost CreateHost(IHostBuilder builder) => HostStartOrder.BuildAndStart(builder);
+
+    /// <summary>
     /// This suite's stand-in for the step from broker to consumer. What the relay publishes goes
     /// through the same <see cref="IEmailMessageProcessor"/> the registry selects and the same
     /// <see cref="EmailDeliveryProcessor"/> the real consumer uses, in a new scope per message, exactly

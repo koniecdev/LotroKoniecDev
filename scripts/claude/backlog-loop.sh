@@ -182,7 +182,8 @@ stop_jobs() {
 }
 
 # Every wait here is a background sleep + `wait`, so a stop signal runs its trap at once instead
-# of after the nap (a usage-limit nap can last hours). The sleep writes nowhere: a nap left behind
+# of after the sleep. A usage-limit nap is a chain of these (see nap_until) and can last hours.
+# The sleep writes nowhere: a nap left behind
 # by a conductor killed with SIGKILL must not keep the launcher's console copy, and its terminal,
 # busy.
 nap() {
@@ -194,9 +195,9 @@ nap() {
 
 # nap_until <epoch> — a usage-limit nap, which lasts until a time on the clock. `sleep` does not
 # count the time the computer sleeps, so this sleeps at most a minute at a time and reads the clock
-# after each step: it ends on time, or at most a minute after the computer wakes when the time
-# passed while it slept (#1199, docs/claude-loop.md). It reads with backquotes, for the reason in
-# job_running: the nap can last hours, and a stop lost here would be lost for all of it.
+# after each step. It ends at most a minute after its time, or after the computer wakes if that is
+# later (#1199, docs/claude-loop.md). It reads with backquotes, for the reason in job_running: the
+# nap can last hours, and a stop lost here would be lost for all of it.
 NAP_STEP_SEC=60
 nap_until() {
     local now

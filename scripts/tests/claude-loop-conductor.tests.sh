@@ -13,8 +13,8 @@
 #   * the nap lasts until two minutes after the latest time the limit messages name, the fixed nap
 #     is the fallback for no time or a wake-up time already past, and a time past the whole nap
 #     budget stops the run at once (#1078),
-#   * a computer that sleeps during a usage-limit nap does not make it end late: the nap ends on
-#     time, or at most a minute after the computer wakes when its end passed while it slept (#1199),
+#   * a computer that sleeps during a usage-limit nap does not move its end, and when the end
+#     passed while it slept, the nap ends at most a minute after the computer wakes (#1199),
 #   * a worktree that cannot be made, or two failures in a row, stop new starts,
 #   * a skip, a refusal or a blocked ticket is not a failure, and neither is a PR merged before its
 #     session ended: the table shows it as merged, names commits that came after the merge, and it
@@ -40,6 +40,9 @@ SCRIPTS_DIR="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 REAL_SLEEP="$(command -v sleep)"
 REAL_DATE="$(command -v date)"
 export REAL_SLEEP REAL_DATE
+# The `sleep` stub needs pgrep. Without it, the stub's check for running workers would always pass,
+# and a nap length would be wrong only now and then.
+command -v pgrep >/dev/null 2>&1 || { echo "the conductor suite needs pgrep (procps)" >&2; exit 1; }
 
 TMP_ROOT="$(mktemp -d)"
 cleanup() {
@@ -95,9 +98,10 @@ cat > "$FAKE_REPO/scripts/claude/work-ticket.sh" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
 ticket="$1" run_dir="$2"
-# The conductor's last look at the clock before it started this worker is not for the nap that
-# comes next: see the `sleep` stub.
+# The worker removes the mark of the conductor's last look at the clock (see the `sleep` stub), and
+# notes when it starts, so a case can see the wait before each retry.
 rm -f "$STATE/looked"
+cat "$STATE/clock" >> "$STATE/clock-at-start-$ticket"
 sleeper=""
 trap '[ -n "$sleeper" ] && kill "$sleeper" 2>/dev/null; exit 143' TERM
 echo "$$" >> "$STATE/pids"
@@ -176,14 +180,16 @@ STUB
 # $STATE/slow-naps present, a nap of a minute or more really waits, so a case can stop the
 # conductor in the middle of one. A number in that file lowers the bar to that many seconds. Each
 # nap timer notes its number, which `exec` keeps.
-# A step of a usage-limit nap comes right after a look at the clock, while no worker runs (the
-# conductor's only other child is this timer). Only such a step moves the fake clock on, by the
-# time it was asked to wait, and it returns at once (#1199). The checks while workers run take no
-# time on it, so the conductor reads the same time the fake worker wrote, and a nap's length is
-# exact. A worker that started after the last look clears its mark first thing, so a worker that
-# has already ended by the time this timer looks for it cannot make the timer pass for a step.
-# With $STATE/asleep-sec, the computer sleeps that many seconds during the first step: the clock
-# moves on by those too, and the nap does not count them, like a real `sleep`.
+# The fake clock (#1199). Only a step of a usage-limit nap moves it. Such a step comes right after
+# the conductor looked at the clock, and no worker runs then: this timer is the conductor's only
+# child. The step moves the clock on by the time it asked for, and returns at once. The checks
+# while workers run do not move the clock. So the conductor reads the same time that the fake
+# worker wrote, and each nap's length is exact.
+# After its last look, the conductor starts a worker and then a timer. The worker removes the mark
+# of the look as its first step. So that timer never counts as a step: either the worker still
+# runs, or the mark is gone.
+# With $STATE/asleep-sec, the computer sleeps that many seconds during the first step. The clock
+# moves on by those seconds too, and the nap does not count them, like a real `sleep`.
 cat > "$TMP_ROOT/bin/sleep" <<'STUB'
 #!/usr/bin/env bash
 echo "$$" >> "$STATE/nap-pids"
@@ -309,6 +315,12 @@ max_concurrency() { sort -n "$STATE/concurrency" | tail -1; }
 # local_clock <epoch> <format> — the moment as the conductor prints it, in the zone above.
 local_clock() {
     if date --version >/dev/null 2>&1; then date -d "@$1" "+$2"; else date -r "$1" "+$2"; fi
+}
+
+# retry_waits <ticket> — how long the ticket waited before each retry, on the fake clock: the time
+# from one of its starts to the next. The clock stands still while workers run.
+retry_waits() {
+    awk 'NR > 1 { printf "%s%d", sep, $1 - prev; sep = " " } { prev = $1 }' "$STATE/clock-at-start-$1"
 }
 
 # expect_naps <count> <seconds> — the conductor took that many usage-limit naps, and they lasted
@@ -499,6 +511,7 @@ export LOOP_LIMIT_RETRIES=2
 run_conductor 0 "conductor: a limit that ended more than two minutes ago gets the fixed nap" -j 1 17
 unset LOOP_LIMIT_RETRIES
 expect_naps 2 7200
+[ "$(retry_waits 17)" = "3600 3600" ] || fail "each nap should be the fixed 60 minutes, were '$(retry_waits 17)'" "$LAST_OUTPUT"
 expect_in_output "usage limit — sleeping 60m (nap 2/2)"
 expect_in_output "usage limit persisted after 2 naps"
 

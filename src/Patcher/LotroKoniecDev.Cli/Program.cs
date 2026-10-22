@@ -50,10 +50,10 @@ public sealed class Program
                   .WithDescription("EXPORT texts from game");
 
             config.AddCommand<PatchCommand>("patch")
-                  .WithDescription("PATCH (inject translations)");
+                  .WithDescription("PATCH (inject translations, even if the file is unchanged)");
 
             config.AddCommand<LaunchCommand>("launch")
-                  .WithDescription("LAUNCH (patch + protect + play)");
+                  .WithDescription("LAUNCH (patch if the file changed + play)");
         });
 
         int result = await app.RunAsync(args, cancellationTokenSource.Token);

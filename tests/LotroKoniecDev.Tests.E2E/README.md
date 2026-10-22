@@ -16,3 +16,4 @@ The suite runs only on Windows: elsewhere `dotnet test` prints one "not run" lin
 - `*.dat` files are gitignored — each developer copies their own
 - The DAT file is ~4 GB, do not commit it
 - Tests use a temporary copy of the DAT for patch operations (originals are not modified)
+- Close LOTRO and its launcher first: `patch` refuses to run while either is open, even on a copy

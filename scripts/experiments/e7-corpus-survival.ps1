@@ -17,6 +17,8 @@
 #   7. guard test: patch a copy of the updated DAT again with the same corpus and its ledger, export
 #      it and classify again. Expected: every collateral revert is back, every changed row stays English.
 #   8. elevated: copy the clean post-update DAT back over the live DAT.
+#   Close the game and the launcher before steps 3 and 7: `patch` refuses to run while either is
+#   open, even on a copy (#1247).
 #
 # Rows are carved like the real parsers do (ADR-0042): two ids from the front, four tail fields
 # from the back, the text is whatever sits between them.

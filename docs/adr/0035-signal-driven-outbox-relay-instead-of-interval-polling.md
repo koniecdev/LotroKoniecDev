@@ -161,12 +161,14 @@ happens later, revisit this ADR before "simplifying" the relay. Rejected for now
 - `src/AuthSystem/LotroKoniecDev.AuthSystem.API/BackgroundServices/OutboxRelay.cs` — startup
   sweep, signal wait with 6 h timeout, batched drain (100/fetch over
   `IX_OutboxMessages_Unprocessed`), escalating backoff, per-row mark+save.
-- `src/AuthSystem/LotroKoniecDev.AuthSystem.API/Features/Auth/RegisterUser.cs` — after-commit
-  `Notify()` (the binding convention of decision 2).
+- `src/AuthSystem/LotroKoniecDev.AuthSystem.API/Outbox/OutboxWakeUpInterceptor.cs` — the after-commit
+  `Notify()` of decision 2, for every writer (#781, ADR-0038 §6 amendment). `RegisterUser.cs` is the
+  explicit-transaction case: its wake-up waits for `CommitAsync`, not for the save.
 - `src/AuthSystem/LotroKoniecDev.AuthSystem.API/ApiDependencyInjection.cs` — singleton signal +
   hosted relay registration.
 - Tests: `OutboxSignalTests`, `OutboxMessageRoutingTests` (unit);
-  `OutboxRelayTests` + `SpyMessagePublisher` (integration, real PostgreSQL, no broker).
+  `OutboxRelayTests` + `SpyMessagePublisher` (integration, real PostgreSQL, no broker);
+  `OutboxWakeUpTests` (integration, #781: which saves and commits wake the relay).
 
 ## References
 

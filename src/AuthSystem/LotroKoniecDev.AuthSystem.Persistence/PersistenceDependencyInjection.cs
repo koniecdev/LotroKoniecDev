@@ -1,6 +1,7 @@
 using FluentValidation;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationRoles.Entities;
@@ -37,6 +38,10 @@ public static class PersistenceDependencyInjection
                     });
 
                 options.UseOpenIddict();
+
+                // The interceptors come from DI because the outbox wake-up needs the relay's signal, and
+                // that lives in the API project (ADR-0038 §6).
+                options.AddInterceptors(sp.GetServices<IInterceptor>());
             });
 
             services.AddIdentityCore<ApplicationUser>(options =>

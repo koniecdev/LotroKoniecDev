@@ -163,8 +163,6 @@ internal sealed partial class DeleteAccount : IApiEndpoint
                 return Result.Failure<ScheduledDeletion>(AuthErrors.DeletionSchedulingFailed);
             }
 
-            _outboxWriter.NotifyEnqueuedCommitted();
-
             // Refresh tokens are reference tokens, so revoking them stops them at once. An access token
             // already issued keeps working until it expires, which is five minutes (ADR-0049).
             await _sessionRevoker.RevokeAllAsync(user.Id.ToString());

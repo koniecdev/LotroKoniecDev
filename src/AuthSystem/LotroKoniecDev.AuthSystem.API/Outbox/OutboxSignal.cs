@@ -1,9 +1,10 @@
 namespace LotroKoniecDev.AuthSystem.API.Outbox;
 
 /// <summary>
-/// The wake-up line inside the process between outbox writers and the relay. A writer calls
-/// <see cref="Notify"/> right after its transaction commits, and the relay's waiting
-/// <see cref="WaitAsync"/> returns instead of sleeping until its safety sweep.
+/// The wake-up line inside the process between outbox writers and the relay.
+/// <see cref="OutboxWakeUpInterceptor"/> calls <see cref="Notify"/> right after a commit that carries a
+/// new outbox row, and the relay's waiting <see cref="WaitAsync"/> returns instead of sleeping until its
+/// safety sweep.
 /// This signal, and not a fixed interval, is what drives the relay, so the database is queried only
 /// moments after a write, while it is still awake (ADR-0035).
 /// </summary>

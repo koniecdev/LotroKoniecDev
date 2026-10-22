@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using System.Text.Unicode;
 using FluentValidation;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.WebEncoders;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
@@ -161,11 +162,14 @@ internal static class ApiDependencyInjection
                 .ValidateOnStart();
             services.AddSingleton<IValidateOptions<HealthCheckSettings>, HealthCheckSettingsValidator>();
 
-            // The outbox relay works on a signal (ADR-0035). Writers add rows through the shared writer
-            // and wake the singleton signal after their commit, so the relay does not poll the database
-            // on a timer.
+            // The outbox relay works on a signal (ADR-0035), so it does not poll the database on a timer.
+            // Writers add rows through the shared writer, and the interceptor wakes the singleton signal
+            // after the commit that carries them (ADR-0038 §6). AddAuthPersistence puts every
+            // IInterceptor registered here on the AuthDbContext. Scoped, like the context, because it
+            // keeps state between a save and the commit that follows it.
             services.AddSingleton<OutboxSignal>();
             services.AddScoped<OutboxWriter>();
+            services.AddScoped<IInterceptor, OutboxWakeUpInterceptor>();
             services.AddHostedService<OutboxRelay>();
 
             // The other end of the same pipeline: broker deliveries become e-mails. These keyed

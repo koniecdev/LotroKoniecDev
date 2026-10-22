@@ -146,7 +146,7 @@ public sealed class ConfirmEmailChangeHandlerTests
         new(
             _userManager,
             _db,
-            new OutboxWriter(_db, new OutboxSignal(), TimeProvider.System),
+            new OutboxWriter(_db, TimeProvider.System),
             _sessionRevoker,
             Substitute.For<IEmailChangeRevertReservation>(),
             TimeProvider.System,

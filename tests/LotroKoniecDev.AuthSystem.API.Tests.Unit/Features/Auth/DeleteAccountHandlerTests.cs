@@ -130,7 +130,7 @@ public sealed class DeleteAccountHandlerTests : IDisposable
         new(
             _userManager,
             _sessionRevoker,
-            new OutboxWriter(_db, new OutboxSignal(), TimeProvider.System),
+            new OutboxWriter(_db, TimeProvider.System),
             Substitute.For<IAccountDeletionSchedule>(),
             _confirmationThrottle,
             _scheduleThrottle,

@@ -160,10 +160,6 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             _outboxWriter.Enqueue(new EmailChangeRequested(user.Id, currentEmail, newEmail));
             await _db.SaveChangesAsync(cancellationToken);
 
-            // Only after the commit. The relay reads committed rows, so a signal sent earlier could
-            // arrive while there is still nothing to see (ADR-0035).
-            _outboxWriter.NotifyEnqueuedCommitted();
-
             LogChangeRequested(
                 _logger, user.Id, currentEmail.MaskEmail(), newEmail.MaskEmail(), command.IpAddress, command.UserAgent);
 

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -36,6 +37,10 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
 
     private string _connectionString = string.Empty;
 
+    private WebApplicationFactory<Program>? _responseTimeFloorHost;
+
+    private WebApplicationFactory<Program>? _hostWithoutOutboxRelay;
+
     public const string TestApiClientSecret = "integration-test-secret-32-chars!";
 
     /// <summary>
@@ -60,8 +65,6 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     /// test reaches the internet. Every password is clean until a test says otherwise.
     /// </summary>
     public StubPwnedPasswordChecker PwnedPasswords { get; } = new();
-
-    private WebApplicationFactory<Program>? _responseTimeFloorHost;
 
     /// <summary>
     /// This host with the production response-time floor in place of <see cref="NoResponseTimeFloor"/>
@@ -104,6 +107,20 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
 
         _responseTimeFloorHost = host;
         return host;
+    }
+
+    /// <summary>
+    /// This host with no outbox relay, so a test can take the relay's wake-up itself and see whether a
+    /// save or a commit sent one (#781). It is built once, shares this host's database and its failure
+    /// injectors, and has its own <c>OutboxSignal</c>. Not thread-safe: its callers share the one
+    /// sequential "AuthApi" collection.
+    /// </summary>
+    public WebApplicationFactory<Program> GetHostWithoutOutboxRelay()
+    {
+        _hostWithoutOutboxRelay ??= WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(RemoveHostedService<OutboxRelay>));
+
+        return _hostWithoutOutboxRelay;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -260,8 +277,14 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                     npgsqlOptions.MigrationsHistoryTable("__EFMigrationsHistory", DatabaseSchemas.Auth);
                 });
                 options.UseOpenIddict();
-                options.AddInterceptors(DbCommandFailures, DbCommitFailures);
             });
+
+            // AddDbContext adds to the production setup instead of replacing it, so AddAuthPersistence
+            // still puts every registered IInterceptor on the context, the outbox wake-up included. The
+            // failure injectors join that list in front: an injected commit failure then reaches the
+            // production interceptors as a failed commit, the way a lost answer would (#781).
+            services.Insert(0, ServiceDescriptor.Singleton<IInterceptor>(DbCommandFailures));
+            services.Insert(1, ServiceDescriptor.Singleton<IInterceptor>(DbCommitFailures));
         });
 
         builder.ConfigureLogging(logging =>
@@ -329,6 +352,11 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         if (_responseTimeFloorHost is not null)
         {
             await _responseTimeFloorHost.DisposeAsync();
+        }
+
+        if (_hostWithoutOutboxRelay is not null)
+        {
+            await _hostWithoutOutboxRelay.DisposeAsync();
         }
 
         await _postgresContainer.DisposeAsync();

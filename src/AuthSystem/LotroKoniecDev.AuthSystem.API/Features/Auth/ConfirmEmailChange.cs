@@ -246,8 +246,6 @@ internal sealed partial class ConfirmEmailChange
                 return Result.Failure(AuthErrors.EmailChangeFailed(errors));
             }
 
-            _outboxWriter.NotifyEnqueuedCommitted();
-
             await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
 
             LogChangeApplied(

@@ -235,11 +235,9 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 _outboxWriter.Enqueue(new EmailConfirmationRequested(user.Id));
                 await _db.SaveChangesAsync(cancellationToken);
 
+                // The relay is woken by this commit, not by the save above: it reads committed rows, so a
+                // signal sent inside the transaction could find nothing (ADR-0035, OutboxWakeUpInterceptor).
                 await transaction.CommitAsync(cancellationToken);
-
-                // Only after the commit. The relay reads committed rows, so a signal sent inside the
-                // transaction could arrive while there is still nothing to see (ADR-0035).
-                _outboxWriter.NotifyEnqueuedCommitted();
 
                 // No profile is created in the other context here, on purpose: the translator profile is
                 // created on the first authenticated TranslationSystem request, and creating it twice
@@ -281,8 +279,6 @@ internal sealed partial class RegisterUser : IApiEndpoint
             await _db.SaveChangesAsync(cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
-
-            _outboxWriter.NotifyEnqueuedCommitted();
 
             LogAddressOwnerNotified(_logger, addressOwner.Id);
             return Result.Success();

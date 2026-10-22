@@ -405,7 +405,7 @@ public sealed class RevertEmailChangeHandlerTests
         new(
             _userManager,
             _db,
-            new OutboxWriter(_db, new OutboxSignal(), TimeProvider.System),
+            new OutboxWriter(_db, TimeProvider.System),
             _sessionRevoker,
             new RevertEmailChange.CommandValidator(),
             NullLogger<RevertEmailChange.Handler>.Instance);

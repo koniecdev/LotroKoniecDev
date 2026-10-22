@@ -116,8 +116,6 @@ internal sealed partial class ForgotPassword : IApiEndpoint
             _outboxWriter.Enqueue(new PasswordResetRequested(user.Id));
             await _db.SaveChangesAsync(cancellationToken);
 
-            _outboxWriter.NotifyEnqueuedCommitted();
-
             return Result.Success();
         }
 

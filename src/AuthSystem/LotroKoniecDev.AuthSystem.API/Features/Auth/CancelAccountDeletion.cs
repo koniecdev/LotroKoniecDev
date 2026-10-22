@@ -169,8 +169,6 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
                 return Result.Failure<CancelledDeletion>(AuthErrors.CancelDeletionFailed(errors));
             }
 
-            _outboxWriter.NotifyEnqueuedCommitted();
-
             // Created after the commit, from the saved stamp. A token created before the save would be
             // invalidated by the very stamp change it travels with.
             string passwordResetToken = await _userManager.GeneratePasswordResetTokenAsync(user);

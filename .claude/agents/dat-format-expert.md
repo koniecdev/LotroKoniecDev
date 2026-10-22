@@ -17,7 +17,7 @@ rules; sealed types; explicit ctors; LINQ methods; zero warnings — `TreatWarni
 
 ```
 src/Patcher/LotroKoniecDev.Domain/
-├── Models/SubFile.cs            binary container: Parse(byte[]) / Serialize(argsOrder, argsId, targetFragmentId)
+├── Models/SubFile.cs            binary container: Parse(byte[]) / Serialize()
 ├── Models/Fragment.cs           Pieces + ArgRefs + ArgStrings; Parse(BinaryReader) / Write(BinaryWriter); TryReorderArgRefs(int[])
 ├── Models/Translation.cs        one parsed translation line
 ├── Core/Utilities/VarLenEncoder.cs   Read / Write / GetEncodedLength

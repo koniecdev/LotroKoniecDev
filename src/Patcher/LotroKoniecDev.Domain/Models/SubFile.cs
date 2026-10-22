@@ -67,10 +67,7 @@ public sealed class SubFile
     /// broken UTF-16 come back changed. So a caller that writes the result into the DAT checks the
     /// unchanged subfile first, as <c>LoadSubFile</c> does for the patcher (#1194).
     /// </remarks>
-    /// <param name="argsOrder">The new argument order, 0-indexed. Leave null to keep the current one.</param>
-    /// <param name="argsId">The new argument ids. Leave null to keep the current ones.</param>
-    /// <param name="targetFragmentId">The fragment the reordering applies to.</param>
-    public byte[] Serialize(int[]? argsOrder = null, int[]? argsId = null, ulong? targetFragmentId = null)
+    public byte[] Serialize()
     {
         if (!IsText)
         {
@@ -86,13 +83,8 @@ public sealed class SubFile
 
         VarLenEncoder.Write(writer, Fragments.Count);
 
-        foreach ((ulong fragmentId, Fragment fragment) in Fragments)
+        foreach (Fragment fragment in Fragments.Values)
         {
-            if (fragmentId == targetFragmentId && argsOrder is not null && argsId is not null)
-            {
-                ReorderArguments(fragment, argsOrder, argsId);
-            }
-
             fragment.Write(writer);
         }
 
@@ -101,14 +93,4 @@ public sealed class SubFile
 
     public bool TryGetFragment(ulong fragmentId, out Fragment? fragment) =>
         Fragments.TryGetValue(fragmentId, out fragment);
-
-    private static void ReorderArguments(Fragment fragment, int[] argsOrder, int[] argsId)
-    {
-        for (int i = 0; i < argsOrder.Length && i < fragment.ArgRefs.Count; i++)
-        {
-            int newArgId = argsId[argsOrder[i]];
-            fragment.ArgRefs[i] = BitConverter.GetBytes(newArgId);
-        }
-    }
-
 }

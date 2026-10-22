@@ -11,25 +11,7 @@ internal static class TestDataFactory
     /// Each fragment: FragmentId (8B) | PieceCount (int) | Piece (VarLen + UTF-16LE) | ArgRefCount (int) | ArgStringGroupCount (byte)
     /// </summary>
     internal static byte[] CreateTextSubFileData(int fileId, string text)
-    {
-        using MemoryStream stream = new();
-        using BinaryWriter writer = new(stream);
-
-        writer.Write(fileId);
-        writer.Write(new byte[4]); // Unknown1
-        writer.Write((byte)0); // Unknown2
-        writer.Write((byte)1); // numFragments (varlen)
-
-        // Fragment
-        writer.Write((ulong)1); // fragmentId
-        writer.Write(1); // numPieces
-        writer.Write((byte)text.Length); // piece length (varlen)
-        writer.Write(Encoding.Unicode.GetBytes(text));
-        writer.Write(0); // numArgRefs
-        writer.Write((byte)0); // numArgStringGroups
-
-        return stream.ToArray();
-    }
+        => CreateTextSubFileDataWithArgs(fileId, 1UL, [text], []);
 
     /// <summary>
     /// Creates binary SubFile data with a single fragment containing argument references.
@@ -39,33 +21,57 @@ internal static class TestDataFactory
         ulong fragmentId,
         string[] pieces,
         byte[][] argRefs)
+        => CreateTextSubFileDataWithArgStrings(fileId, new byte[4], 0, fragmentId, pieces, argRefs, []);
+
+    /// <summary>
+    /// Creates binary SubFile data with the given header bytes and a single fragment that carries
+    /// argument references and argument string groups.
+    /// </summary>
+    internal static byte[] CreateTextSubFileDataWithArgStrings(
+        int fileId,
+        byte[] unknown1,
+        byte unknown2,
+        ulong fragmentId,
+        string[] pieces,
+        byte[][] argRefs,
+        string[][] argStringGroups)
     {
         using MemoryStream stream = new();
         using BinaryWriter writer = new(stream);
 
         writer.Write(fileId);
-        writer.Write(new byte[4]); // Unknown1
-        writer.Write((byte)0); // Unknown2
-        writer.Write((byte)1); // numFragments (varlen)
+        writer.Write(unknown1);
+        writer.Write(unknown2);
+        VarLenEncoder.Write(writer, 1); // numFragments
 
-        // Fragment
         writer.Write(fragmentId);
-        writer.Write(pieces.Length); // numPieces
+        writer.Write(pieces.Length);
 
         foreach (string piece in pieces)
         {
-            writer.Write((byte)piece.Length); // piece length (varlen)
+            VarLenEncoder.Write(writer, piece.Length);
             writer.Write(Encoding.Unicode.GetBytes(piece));
         }
 
-        writer.Write(argRefs.Length); // numArgRefs
+        writer.Write(argRefs.Length);
 
         foreach (byte[] argRef in argRefs)
         {
             writer.Write(argRef);
         }
 
-        writer.Write((byte)0); // numArgStringGroups
+        writer.Write((byte)argStringGroups.Length);
+
+        foreach (string[] group in argStringGroups)
+        {
+            writer.Write(group.Length);
+
+            foreach (string argString in group)
+            {
+                VarLenEncoder.Write(writer, argString.Length);
+                writer.Write(Encoding.Unicode.GetBytes(argString));
+            }
+        }
 
         return stream.ToArray();
     }
@@ -92,27 +98,9 @@ internal static class TestDataFactory
     /// Each fragment contains a single "Test" piece.
     /// </summary>
     internal static byte[] CreateTextSubFileData(int fileId, ulong fragmentId, int fragmentCount)
-    {
-        using MemoryStream stream = new();
-        using BinaryWriter writer = new(stream);
-
-        writer.Write(fileId);
-        writer.Write(new byte[4]); // Unknown1
-        writer.Write((byte)0); // Unknown2
-        writer.Write((byte)fragmentCount); // numFragments (varlen)
-
-        for (int i = 0; i < fragmentCount; i++)
-        {
-            writer.Write(fragmentId + (ulong)i); // fragmentId
-            writer.Write(1); // numPieces
-            writer.Write((byte)4); // piece length (varlen)
-            writer.Write(Encoding.Unicode.GetBytes("Test"));
-            writer.Write(0); // numArgRefs
-            writer.Write((byte)0); // numArgStringGroups
-        }
-
-        return stream.ToArray();
-    }
+        => CreateTextSubFileDataInFileOrder(
+            fileId,
+            [.. Enumerable.Range(0, fragmentCount).Select(i => fragmentId + (ulong)i)]);
 
     /// <summary>
     /// Creates binary SubFile data with one "Test" fragment per id, stored in exactly the given order.

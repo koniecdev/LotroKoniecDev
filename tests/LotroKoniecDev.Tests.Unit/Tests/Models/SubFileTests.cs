@@ -6,6 +6,38 @@ namespace LotroKoniecDev.Tests.Unit.Tests.Models;
 
 public sealed class SubFileTests
 {
+    public static TheoryData<string, byte[]> RoundTripCases => new()
+    {
+        { "one fragment", TestDataFactory.CreateTextSubFileData(0x25000001, "Test") },
+        { "fragment ids in ascending order", TestDataFactory.CreateTextSubFileData(0x25000001, 1001UL, 3) },
+        { "fragment ids out of order", TestDataFactory.CreateTextSubFileDataInFileOrder(0x25000001, 3UL, 1UL, 2UL) },
+        { "no fragments", TestDataFactory.CreateTextSubFileDataInFileOrder(0x25000001) },
+        { "two-byte fragment count", TestDataFactory.CreateTextSubFileData(0x25000001, 1UL, 128) },
+        {
+            "two-byte piece length",
+            TestDataFactory.CreateTextSubFileDataWithArgs(0x25000001, 42UL, [new string('a', 128)], [])
+        },
+        {
+            "argument references",
+            TestDataFactory.CreateTextSubFileDataWithArgs(
+                0x25000001,
+                42UL,
+                ["Hello ", " and ", "!"],
+                [BitConverter.GetBytes(7), BitConverter.GetBytes(9)])
+        },
+        {
+            "argument string groups and non-zero header bytes",
+            TestDataFactory.CreateTextSubFileDataWithArgStrings(
+                0x25000001,
+                [0x01, 0x02, 0x03, 0x04],
+                0x05,
+                42UL,
+                ["You have ", " items"],
+                [BitConverter.GetBytes(7)],
+                [["one", "two"], [], ["three"]])
+        },
+    };
+
     [Theory]
     [InlineData(0x25000001, true)]  // Text file (0x25 high byte)
     [InlineData(0x25FFFFFF, true)]  // Text file
@@ -190,6 +222,21 @@ public sealed class SubFileTests
         reparsedSubFile.Parse(serialized);
         reparsedSubFile.FragmentCount.ShouldBe(1);
         reparsedSubFile.Fragments[12345UL].GetFullText().ShouldBe("Test");
+    }
+
+    [Theory]
+    [MemberData(nameof(RoundTripCases))]
+    public void Serialize_UnchangedParsedSubFile_ShouldReturnTheOriginalBytes(string scenario, byte[] originalData)
+    {
+        // Arrange
+        SubFile subFile = new();
+        subFile.Parse(originalData);
+
+        // Act
+        byte[] serialized = subFile.Serialize();
+
+        // Assert
+        serialized.ShouldBe(originalData, scenario);
     }
 
     [Theory]

@@ -1,7 +1,7 @@
+using LotroKoniecDev.Tests.Shared;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
-using LotroKoniecDev.Tests.Shared;
 
 namespace LotroKoniecDev.Frontend.Tests.Integration;
 

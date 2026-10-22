@@ -1,18 +1,17 @@
-using Microsoft.AspNetCore.Hosting;
+using LotroKoniecDev.Tests.Shared;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-using LotroKoniecDev.Tests.Shared;
 
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Settings;
 
 /// <summary>
 /// #1040: a refused start must end in the app's own error, even when the test thread comes late. A busy
-/// full run made it late only sometimes, so this test makes it late every time. Without the hold in
-/// <see cref="HostStartOrder"/>, the app's thread disposes the host first and this test gets an
-/// <see cref="ObjectDisposedException"/>.
+/// full run made it late only sometimes, so this test holds the test thread back for one second every
+/// time, far longer than the app needs to refuse its start. Without the hold in <see cref="HostStartOrder"/>,
+/// the app's thread disposes the host first and this test gets an <see cref="ObjectDisposedException"/>.
 /// </summary>
 public sealed class HostStartOrderTests
 {
@@ -46,11 +45,14 @@ public sealed class HostStartOrderTests
     }
 
     /// <summary>
-    /// Hands the built host back late, so the app's thread has the time to refuse its start before the
-    /// test thread goes on.
+    /// Hands the built host back late, so the app's thread has time to refuse its start before the test
+    /// thread goes on.
     /// </summary>
     private sealed class LateHostBuilder : IHostBuilder
     {
+        /// <summary>
+        /// A slow machine can only make this test weaker, never red: with the hold, the app waits anyway.
+        /// </summary>
         private static readonly TimeSpan Delay = TimeSpan.FromSeconds(1);
 
         private readonly IHostBuilder _builder;

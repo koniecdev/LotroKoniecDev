@@ -133,9 +133,9 @@ public sealed class AuthSettingsValidatorTests
     /// </summary>
     [Theory]
     [InlineData("https://deploy:hunter2@auth.lotro-translator.pl", "deploy:hunter2")]
-    [InlineData("https://deploy@auth.lotro-translator.pl", "deploy@")]
+    [InlineData("https://deploy@auth.lotro-translator.pl", "deploy")]
     [InlineData("https://:hunter2@auth.lotro-translator.pl", "hunter2")]
-    [InlineData("https://deploy:@auth.lotro-translator.pl", "deploy:")]
+    [InlineData("https://deploy:@auth.lotro-translator.pl", "deploy")]
     [InlineData("HTTPS://deploy:hunter2@auth.lotro-translator.pl", "hunter2")]
     [InlineData("http://deploy:hunter2@auth-api:8080", "hunter2")]
     [InlineData("https://deploy:hunter2@localhost:5003", "hunter2")]
@@ -175,9 +175,9 @@ public sealed class AuthSettingsValidatorTests
 
     [Theory]
     [InlineData("https://deploy:hunter2@auth.lotro-translator.pl", "deploy:hunter2")]
-    [InlineData("https://deploy@auth.lotro-translator.pl", "deploy@")]
+    [InlineData("https://deploy@auth.lotro-translator.pl", "deploy")]
     [InlineData("https://:hunter2@auth.lotro-translator.pl", "hunter2")]
-    [InlineData("https://deploy:@auth.lotro-translator.pl", "deploy:")]
+    [InlineData("https://deploy:@auth.lotro-translator.pl", "deploy")]
     [InlineData("HTTPS://deploy:hunter2@auth.lotro-translator.pl", "hunter2")]
     [InlineData("http://deploy:hunter2@auth-api:8080", "hunter2")]
     [InlineData("https://deploy:hunter2@localhost:5003", "hunter2")]
@@ -214,7 +214,7 @@ public sealed class AuthSettingsValidatorTests
             error.ErrorMessage.Contains("Auth:Issuer must not carry a user name or password", StringComparison.Ordinal));
         result.Errors.ShouldContain(error =>
             error.ErrorMessage.Contains("Auth:Authority must not carry a user name or password", StringComparison.Ordinal));
-        result.Errors.ShouldAllBe(error => !error.ErrorMessage.Contains("hunter2"));
+        result.Errors.ShouldAllBe(error => !error.ErrorMessage.Contains("hunter2", StringComparison.Ordinal));
     }
 
     /// <summary>

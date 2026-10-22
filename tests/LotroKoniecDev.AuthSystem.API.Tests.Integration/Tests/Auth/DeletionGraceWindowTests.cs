@@ -122,7 +122,6 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     {
         // Arrange
         (RegisterRequest registerRequest, _) = await RegisterAndScheduleDeletionAsync();
-        PasswordResetEmailSpy.Reset();
 
         // Act
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
@@ -139,7 +138,7 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
             Factory, row => row.Type == nameof(PasswordResetRequested));
         outboxRow.ShouldNotBeNull();
         (await OutboxAssertions.WaitForInboxRowsAsync(Factory, outboxRow.Id)).ShouldBe(1);
-        PasswordResetEmailSpy.CallCount.ShouldBe(0);
+        PasswordResetEmailSpy.ResetEmailsTo(registerRequest.Email).ShouldBeEmpty();
     }
 
     [Fact]
@@ -149,13 +148,12 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
 
-        PasswordResetEmailSpy.Reset();
         HttpResponseMessage forgotResponse = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));
         forgotResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-        await PasswordResetEmailSpy.WaitForCaptureAsync();
-        string preIssuedResetToken = PasswordResetEmailSpy.LastResetToken!;
+        await PasswordResetEmailSpy.WaitForCaptureAsync(registerRequest.Email);
+        string preIssuedResetToken = PasswordResetEmailSpy.LastResetTokenSentTo(registerRequest.Email)!;
 
         await ScheduleDeletionAsync(registerRequest.Email);
 

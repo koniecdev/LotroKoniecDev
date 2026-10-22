@@ -75,7 +75,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     {
         // Arrange
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
         Factory.DbCommandFailures.FailNext(IsUpdateOfUsers, () => CreatePermanentFailure(sqlState, constraintName));
 
         // Act
@@ -124,7 +124,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     {
         // Arrange
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
         Factory.DbCommandFailures.FailNext(
             IsUpdateOfUsers, () => CreatePermanentFailure(PostgresErrorCodes.NotNullViolation, null));
 
@@ -227,7 +227,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     {
         // Arrange
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
         Factory.DbCommandFailures.FailNext(IsUpdateOfUsers, CreateTransientFailure);
 
         // Act
@@ -796,16 +796,16 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
 
         string accessToken = await GetAccessTokenAsync(user.Email, Password);
-        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
+        string newEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         using HttpRequestMessage request = new(HttpMethod.Post, "auth/account/change-email");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Content = JsonContent.Create(new ChangeEmailRequest(newEmail, Password));
         (await ApiClient.Http.SendAsync(request)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync(newEmail);
 
-        return (user, newEmail, EmailChangeEmailSpy.LastVerificationToken!);
+        return (user, newEmail, EmailChangeEmailSpy.LastVerificationTokenSentTo(newEmail)!);
     }
 
     private async Task<(RegisterRequest User, string NewEmail, Guid UserId)> CompleteChangeAsync()
@@ -820,7 +820,11 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             ConfirmForm(userId, newEmail, token));
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync();
+        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync(user.Email, newEmail);
+
+        // The confirm page answers 200 when it refuses too. A refusal test that started from an account
+        // that never moved would pass because of that, not because of the guard it tests (#950).
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
 
         return (user, newEmail, userId);
     }

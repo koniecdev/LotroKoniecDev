@@ -13,12 +13,18 @@ internal static class UserFactory
         // Faker.Internet.UserName() produces dots and underscores, which ADR-0022 forbids: letters and
         // digits only.
         faker.Random.AlphaNumeric(16),
-        // Unique, because the mail budgets key on the inbox and outlive the database reset between tests
-        // (ADR-0057): two tests that drew the same address would share a budget.
-        faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N")),
+        GenerateUniqueEmail(faker),
         password ?? DefaultPassword,
         AcceptedPrivacyPolicy: true,
         AcceptedTermsOfService: true);
+
+    /// <summary>
+    /// An address no other test uses. The mail budgets key on the inbox and outlive the database reset
+    /// between tests (ADR-0057), and a mail from an earlier test can still reach the mail spies after
+    /// their reset (#950). Two tests that drew the same address would share both.
+    /// </summary>
+    public static string GenerateUniqueEmail(Faker faker) =>
+        faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
 
     public static async Task<IdentityId> RegisterRandomUserAsync(
         TestApiClient apiClient,
@@ -37,8 +43,6 @@ internal static class UserFactory
         SpyAccountConfirmationEmailSender accountConfirmationEmailSpy,
         string? password = null)
     {
-        accountConfirmationEmailSpy.Reset();
-
         RegisterRequest request = GenerateRandomRegisterRequest(faker, password);
 
         HttpResponseMessage httpResponseMessage = await apiClient.Http.PostAsJsonAsync(
@@ -50,7 +54,7 @@ internal static class UserFactory
 
         IdentityId identityId = await WaitForNewAccountIdAsync(accountConfirmationEmailSpy, request);
 
-        await ConfirmEmailAsync(apiClient, accountConfirmationEmailSpy);
+        await ConfirmEmailAsync(apiClient, accountConfirmationEmailSpy, request.Email);
 
         return (request, identityId);
     }
@@ -61,8 +65,6 @@ internal static class UserFactory
         SpyAccountConfirmationEmailSender accountConfirmationEmailSpy,
         string? password = null)
     {
-        accountConfirmationEmailSpy.Reset();
-
         RegisterRequest request = GenerateRandomRegisterRequest(faker, password);
 
         HttpResponseMessage httpResponseMessage = await apiClient.Http.PostAsJsonAsync(
@@ -79,14 +81,15 @@ internal static class UserFactory
 
     public static async Task ConfirmEmailAsync(
         TestApiClient apiClient,
-        SpyAccountConfirmationEmailSender accountConfirmationEmailSpy)
+        SpyAccountConfirmationEmailSender accountConfirmationEmailSpy,
+        string email)
     {
-        await accountConfirmationEmailSpy.WaitForCaptureAsync();
+        await accountConfirmationEmailSpy.WaitForCaptureAsync(email);
 
-        accountConfirmationEmailSpy.LastEmail.ShouldNotBeNullOrEmpty("Expected email confirmation spy to have captured an email.");
-        accountConfirmationEmailSpy.LastConfirmationToken.ShouldNotBeNullOrEmpty("Expected email confirmation spy to have captured a token.");
+        string? token = accountConfirmationEmailSpy.LastConfirmationTokenSentTo(email);
+        token.ShouldNotBeNullOrEmpty("Expected email confirmation spy to have captured a token.");
 
-        ConfirmEmailRequest confirmRequest = new(accountConfirmationEmailSpy.LastEmail, accountConfirmationEmailSpy.LastConfirmationToken);
+        ConfirmEmailRequest confirmRequest = new(email, token);
 
         HttpResponseMessage confirmResponse = await apiClient.Http.PostAsJsonAsync(
             new Uri("auth/confirm-email", UriKind.Relative), confirmRequest);
@@ -104,10 +107,9 @@ internal static class UserFactory
         SpyAccountConfirmationEmailSender accountConfirmationEmailSpy,
         RegisterRequest request)
     {
-        await accountConfirmationEmailSpy.WaitForCaptureAsync();
+        await accountConfirmationEmailSpy.WaitForCaptureAsync(request.Email);
 
-        accountConfirmationEmailSpy.LastEmail.ShouldBe(request.Email);
-        Guid userId = accountConfirmationEmailSpy.LastUserId.ShouldNotBeNull();
+        Guid userId = accountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).Last().UserId;
         userId.ShouldNotBe(Guid.Empty);
 
         return IdentityId.Create(userId);

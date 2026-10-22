@@ -19,7 +19,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
     public async Task Register_ShouldReturnAcceptedWithNoBodyAndSendTheConfirmation_WhenValidDataIsProvided()
     {
         // Arrange
-        AccountConfirmationEmailSpy.Reset();
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
 
         // Act
@@ -29,8 +28,8 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         (await response.Content.ReadAsStringAsync()).ShouldBeEmpty();
-        await AccountConfirmationEmailSpy.WaitForCaptureAsync();
-        AccountConfirmationEmailSpy.LastEmail.ShouldBe(request.Email);
+        await AccountConfirmationEmailSpy.WaitForCaptureAsync(request.Email);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldHaveSingleItem();
     }
 
     [Fact]
@@ -39,7 +38,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
         // Arrange
         (RegisterRequest existingRequest, IdentityId existingId) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
-        AccountConfirmationEmailSpy.Reset();
 
         RegisterRequest freeRequest = UserFactory.GenerateRandomRegisterRequest(Faker);
         RegisterRequest duplicateRequest = UserFactory.GenerateRandomRegisterRequest(Faker) with
@@ -58,9 +56,8 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
         (await takenResponse.Content.ReadAsStringAsync()).ShouldBe(await freeResponse.Content.ReadAsStringAsync());
         takenResponse.Content.Headers.ContentType.ShouldBe(freeResponse.Content.Headers.ContentType);
 
-        await AccountConfirmationEmailSpy.WaitForRegistrationAttemptedCaptureAsync();
-        AccountConfirmationEmailSpy.LastRegistrationAttemptedRecipient.ShouldBe(existingRequest.Email);
-        AccountConfirmationEmailSpy.RegistrationAttemptedCallCount.ShouldBe(1);
+        await AccountConfirmationEmailSpy.WaitForRegistrationAttemptedCaptureAsync(existingRequest.Email);
+        AccountConfirmationEmailSpy.RegistrationAttemptedNoticeCountTo(existingRequest.Email).ShouldBe(1);
 
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
@@ -101,7 +98,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
         // Arrange
         (RegisterRequest existingRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
-        AccountConfirmationEmailSpy.Reset();
 
         string caseVariantEmail = existingRequest.Email.ToUpperInvariant();
         caseVariantEmail.ShouldNotBe(existingRequest.Email);
@@ -117,8 +113,8 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
-        await AccountConfirmationEmailSpy.WaitForRegistrationAttemptedCaptureAsync();
-        AccountConfirmationEmailSpy.LastRegistrationAttemptedRecipient.ShouldBe(existingRequest.Email);
+        await AccountConfirmationEmailSpy.WaitForRegistrationAttemptedCaptureAsync(existingRequest.Email);
+        AccountConfirmationEmailSpy.RegistrationAttemptedNoticeCountTo(caseVariantEmail).ShouldBe(0);
 
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
@@ -137,7 +133,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         (RegisterRequest otherAccount, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
-        AccountConfirmationEmailSpy.Reset();
 
         RegisterRequest withFreeAddress = UserFactory.GenerateRandomRegisterRequest(Faker) with
         {
@@ -169,7 +164,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
         // Arrange
         (RegisterRequest existingRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
-        AccountConfirmationEmailSpy.Reset();
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker) with
         {
             Email = existingRequest.Email

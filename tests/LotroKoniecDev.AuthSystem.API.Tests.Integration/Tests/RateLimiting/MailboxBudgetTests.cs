@@ -218,7 +218,8 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         }
 
         // Assert
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(AccountBudgets.EmailConfirmationResendPermitLimit);
+        accounts.Sum(account => AccountConfirmationEmailSpy.ConfirmationEmailsTo(account).Count)
+            .ShouldBe(AccountBudgets.EmailConfirmationResendPermitLimit);
     }
 
     [Fact]
@@ -252,7 +253,7 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         // reset Anna's own password, so they must not use up her budget (ADR-0057).
         GmailInbox inbox = GmailInbox.New();
         await RegisterUnconfirmedAsync(inbox.Plain);
-        await UserFactory.ConfirmEmailAsync(ApiClient, AccountConfirmationEmailSpy);
+        await UserFactory.ConfirmEmailAsync(ApiClient, AccountConfirmationEmailSpy, inbox.Plain);
         await RegisterUnconfirmedAsync(inbox.Tagged("stranger"));
 
         for (int i = 0; i < AccountBudgets.PasswordResetPermitLimit + 1; i++)
@@ -284,7 +285,7 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         // Arrange: the page does not go through the endpoint's handler, and it is the door real users use
         GmailInbox inbox = GmailInbox.New();
         await RegisterUnconfirmedAsync(inbox.Plain);
-        await UserFactory.ConfirmEmailAsync(ApiClient, AccountConfirmationEmailSpy);
+        await UserFactory.ConfirmEmailAsync(ApiClient, AccountConfirmationEmailSpy, inbox.Plain);
         await RegisterUnconfirmedAsync(inbox.Tagged("stranger"));
 
         for (int i = 0; i < AccountBudgets.PasswordResetPermitLimit + 1; i++)
@@ -348,13 +349,11 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
 
     private async Task RegisterUnconfirmedAsync(string email)
     {
-        AccountConfirmationEmailSpy.Reset();
-
         using HttpResponseMessage created = await RegisterAsync(email);
         created.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
         // The confirmation mail travels the outbox, so wait for it before the next step reads the spy.
-        await AccountConfirmationEmailSpy.WaitForCaptureAsync();
+        await AccountConfirmationEmailSpy.WaitForCaptureAsync(email);
     }
 
     private async Task<HttpResponseMessage> RequestEmailChangeAsync(string accessToken, string newEmail)

@@ -469,7 +469,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         // The most important instance of the guard: this link arrives in a mailbox the user actually
         // reads, so a GET that reverted would undo every legitimate change automatically.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
         HttpResponseMessage response = await ApiClient.Http.GetAsync(
             new Uri(RevertUrl(userId, user.Email, newEmail, revertToken), UriKind.Relative));
@@ -485,7 +485,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     public async Task RevertPage_Post_ShouldRestoreTheAddressAndClearThePassword()
     {
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
         HttpResponseMessage response = await PostToPageAsync(
             "/Account/RevertEmailChange",
@@ -510,7 +510,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         // The undo exists to end a takeover. The session below is minted after the address already
         // moved, so it belongs to whoever took the account over, and only the undo can end it.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
         string takeoverRefreshToken = await GetRefreshTokenAsync(newEmail, Password);
 
         HttpResponseMessage revertResponse = await PostToPageAsync(
@@ -549,7 +549,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         // over changes the password next, which rotates the security stamp — and every other token in
         // this system dies with that rotation. This one must not.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
         const string attackerPassword = "Attacker99!";
         string accessToken = await GetAccessTokenAsync(newEmail, Password);
@@ -578,18 +578,17 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         // B -> C would be posted to B, which the attacker owns. The owner has to be able to pull the
         // account back from wherever it has been dragged.
         (RegisterRequest user, string firstNewEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
-        string secondNewEmail = Faker.Internet.Email();
-        EmailChangeEmailSpy.Reset();
+        string secondNewEmail = UserFactory.GenerateUniqueEmail(Faker);
         string accessToken = await GetAccessTokenAsync(firstNewEmail, Password);
         using HttpRequestMessage secondRequest = new(HttpMethod.Post, "auth/account/change-email");
         secondRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         secondRequest.Content = JsonContent.Create(new ChangeEmailRequest(secondNewEmail, Password));
         (await ApiClient.Http.SendAsync(secondRequest)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
-        await ConfirmAsync(userId, secondNewEmail, EmailChangeEmailSpy.LastVerificationToken!);
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync(secondNewEmail);
+        await ConfirmAsync(userId, secondNewEmail, EmailChangeEmailSpy.LastVerificationTokenSentTo(secondNewEmail)!);
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(secondNewEmail);
 
         await PostToPageAsync(
@@ -610,22 +609,22 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         // over, and they would use it to reverse the owner's recovery.
         (RegisterRequest user, string firstNewEmail, Guid userId) = await CompleteChangeAsync();
 
-        string secondNewEmail = Faker.Internet.Email();
-        EmailChangeEmailSpy.Reset();
+        string secondNewEmail = UserFactory.GenerateUniqueEmail(Faker);
         string accessToken = await GetAccessTokenAsync(firstNewEmail, Password);
         using HttpRequestMessage secondRequest = new(HttpMethod.Post, "auth/account/change-email");
         secondRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         secondRequest.Content = JsonContent.Create(new ChangeEmailRequest(secondNewEmail, Password));
         (await ApiClient.Http.SendAsync(secondRequest)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
-        await ConfirmAsync(userId, secondNewEmail, EmailChangeEmailSpy.LastVerificationToken!);
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync(secondNewEmail);
+        await ConfirmAsync(userId, secondNewEmail, EmailChangeEmailSpy.LastVerificationTokenSentTo(secondNewEmail)!);
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(secondNewEmail);
 
-        // The plain notice still goes out; the one carrying a link does not.
+        // The plain notice still goes out; the one carrying a link, which would go to the address the
+        // second change left, does not.
         (await WaitForDispatchOfChangeToAsync(secondNewEmail)).ShouldBe(1);
-        EmailChangeEmailSpy.LastNoticeRecipient.ShouldBe(secondNewEmail);
-        EmailChangeEmailSpy.RevertOfferCallCount.ShouldBe(0);
+        EmailChangeEmailSpy.ChangedNoticesTo(secondNewEmail).ShouldHaveSingleItem();
+        EmailChangeEmailSpy.RevertOffersTo(firstNewEmail).ShouldBeEmpty();
 
         // And the account still points home, so the owner's link from the first change works.
         (await LoadUserByIdAsync(userId)).EmailChangeRevertTo.ShouldBe(user.Email);
@@ -639,24 +638,23 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         // the owner opens their own e-mail the account is already the attacker's with a password they
         // chose. Only the address the chain STARTED from may ever be an undo target.
         (RegisterRequest user, string attackerFirstEmail, Guid userId) = await CompleteChangeAsync();
-        string ownerRevertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string ownerRevertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
-        string attackerSecondEmail = Faker.Internet.Email();
-        EmailChangeEmailSpy.Reset();
+        string attackerSecondEmail = UserFactory.GenerateUniqueEmail(Faker);
         string accessToken = await GetAccessTokenAsync(attackerFirstEmail, Password);
         using HttpRequestMessage secondRequest = new(HttpMethod.Post, "auth/account/change-email");
         secondRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         secondRequest.Content = JsonContent.Create(new ChangeEmailRequest(attackerSecondEmail, Password));
         (await ApiClient.Http.SendAsync(secondRequest)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
-        await ConfirmAsync(userId, attackerSecondEmail, EmailChangeEmailSpy.LastVerificationToken!);
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync(attackerSecondEmail);
+        await ConfirmAsync(userId, attackerSecondEmail, EmailChangeEmailSpy.LastVerificationTokenSentTo(attackerSecondEmail)!);
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(attackerSecondEmail);
 
         // Whatever the second change handed the attacker, they fire it at once - before the owner has
         // even opened their mail.
         (await WaitForDispatchOfChangeToAsync(attackerSecondEmail)).ShouldBe(1);
-        string? attackerRevertToken = EmailChangeEmailSpy.LastRevertToken;
+        string? attackerRevertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(attackerFirstEmail);
         if (attackerRevertToken is not null)
         {
             await PostToPageAsync(
@@ -682,7 +680,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         // Nothing to go back to. Clearing the password here would lock the account out of both
         // addresses at once.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
         // The reservation of #684 closes every ordinary way onto that address while the link lives,
         // so the row is seeded through the store instead. This branch is the backstop for what the
@@ -713,7 +711,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         // rotates the revert stamp and disarms the chain. Only the browser that used the link holds the
         // cookie that sends it on to the password form (#941).
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
         await PostToPageAsync(
             "/Account/RevertEmailChange",
@@ -741,7 +739,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         // #941: Back from the password form loads the used undo link again. Its button would call the link
         // dead, although the undo worked and the password form was one step away.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
         using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         HttpResponseMessage reverted = await PostToPageAsync(
             browser,
@@ -763,7 +761,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         // A form the browser brings back from its cache can send the used link once more. The link asks for
         // no input, so the second answer is the first one, and the undo does not run twice.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
         using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         HttpResponseMessage reverted = await PostToPageAsync(
             browser,
@@ -789,7 +787,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         // Back twice from the password done view: first the password form, then the undo link. The undo
         // link sends the browser on to the password form, and the reset's own marker shows it as done.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
         using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         HttpResponseMessage reverted = await PostToPageAsync(
             browser,
@@ -828,7 +826,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         // The password form carries a live reset token. Only the browser that used the undo link may be sent
         // there again.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
         await PostToPageAsync(
             "/Account/RevertEmailChange",
             RevertUrl(userId, user.Email, newEmail, revertToken),
@@ -852,7 +850,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     public async Task RevertPage_PostThatIsRefused_ShouldLeaveNoNextStepCookie(bool previousAddressTaken)
     {
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = previousAddressTaken ? EmailChangeEmailSpy.LastRevertToken! : "not-a-real-token";
+        string revertToken = previousAddressTaken ? EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)! : "not-a-real-token";
         if (previousAddressTaken)
         {
             await SeedUserOnAsync(user.Email);
@@ -883,7 +881,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         // in the store. A person who followed a link from their inbox has to see the invalid-link
         // page, never a crash.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
         Dictionary<string, string> form = RevertForm(userId, user.Email, newEmail, revertToken);
         form["UserId"] = userIdInput;
@@ -946,16 +944,16 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
 
         string accessToken = await GetAccessTokenAsync(user.Email, Password);
-        string newEmail = Faker.Internet.Email();
+        string newEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         using HttpRequestMessage request = new(HttpMethod.Post, "auth/account/change-email");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Content = JsonContent.Create(new ChangeEmailRequest(newEmail, Password));
         (await ApiClient.Http.SendAsync(request)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync(newEmail);
 
-        return (user, newEmail, EmailChangeEmailSpy.LastVerificationToken!);
+        return (user, newEmail, EmailChangeEmailSpy.LastVerificationTokenSentTo(newEmail)!);
     }
 
     private async Task<(RegisterRequest User, string NewEmail, Guid UserId)> CompleteChangeAsync()
@@ -964,10 +962,9 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         Guid userId = await UserIdOfAsync(user.Email);
 
         await ConfirmAsync(userId, newEmail, token);
-        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync();
+        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync(user.Email, newEmail);
 
-        EmailChangeEmailSpy.LastRevertOfferRecipient.ShouldBe(user.Email);
-        EmailChangeEmailSpy.LastNoticeRecipient.ShouldBe(newEmail);
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
 
         return (user, newEmail, userId);
     }

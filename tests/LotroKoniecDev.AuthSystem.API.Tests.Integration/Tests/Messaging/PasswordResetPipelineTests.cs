@@ -78,19 +78,18 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         // Act: forgot-password is the user-facing trigger of the whole pipeline
         HttpResponseMessage forgotResponse = await _apiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative), new ForgotPasswordRequest(request.Email));
-        await _passwordResetEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
+        await _passwordResetEmailSpy.WaitForCaptureAsync(request.Email, DeliveryTimeout);
 
         // Assert: the e-mail went out once, to the registered address, with a usable token
         forgotResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-        _passwordResetEmailSpy.LastEmail.ShouldBe(request.Email);
-        _passwordResetEmailSpy.LastResetToken.ShouldNotBeNullOrWhiteSpace();
-        _passwordResetEmailSpy.CallCount.ShouldBe(1);
+        string resetToken = _passwordResetEmailSpy.ResetEmailsTo(request.Email).ShouldHaveSingleItem().ResetToken;
+        resetToken.ShouldNotBeNullOrWhiteSpace();
 
         // The delivered token really resets the password, which proves that creating it at delivery time
         // produced a link the user can use.
         HttpResponseMessage resetResponse = await _apiClient.Http.PostAsJsonAsync(
             new Uri("auth/reset-password", UriKind.Relative),
-            new ResetPasswordRequest(request.Email, _passwordResetEmailSpy.LastResetToken!, "NewPass99!"));
+            new ResetPasswordRequest(request.Email, resetToken, "NewPass99!"));
         resetResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         // The outbox row was published and marked on the first attempt, and it carries the user id and
@@ -105,7 +104,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         PasswordResetRequested payload = JsonSerializer.Deserialize<PasswordResetRequested>(outboxRow.Payload)
             .ShouldNotBeNull();
         payload.IdentityUserId.ShouldBe(identityId.Value);
-        outboxRow.Payload.ShouldNotContain(_passwordResetEmailSpy.LastResetToken!);
+        outboxRow.Payload.ShouldNotContain(resetToken);
 
         // The delivery was recorded for deduplication and nothing was left on the broker
         (await OutboxAssertions.CountInboxRowsAsync(_factory, outboxRow.Id)).ShouldBe(1);
@@ -122,13 +121,13 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
             _apiClient, _faker, _confirmationEmailSpy);
         await _apiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative), new ForgotPasswordRequest(request.Email));
-        await _passwordResetEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
+        await _passwordResetEmailSpy.WaitForCaptureAsync(request.Email, DeliveryTimeout);
         OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
             _factory,
             row => row.Type == nameof(PasswordResetRequested) && row.ProcessedOn != null,
             DeliveryTimeout);
         outboxRow.ShouldNotBeNull();
-        int sendsAfterFirstDelivery = _passwordResetEmailSpy.CallCount;
+        int sendsAfterFirstDelivery = _passwordResetEmailSpy.ResetEmailsTo(request.Email).Count;
 
         // Act: same payload, same type, same message id, over the real wire
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
@@ -143,7 +142,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         // Assert: the duplicate is consumed (queue drains), acked (no parking) and suppressed
         await WaitUntilQueueEmptyAsync(RabbitMqTopology.EmailQueue, DeliveryTimeout);
         await Task.Delay(TimeSpan.FromSeconds(1));
-        _passwordResetEmailSpy.CallCount.ShouldBe(sendsAfterFirstDelivery);
+        _passwordResetEmailSpy.ResetEmailsTo(request.Email).Count.ShouldBe(sendsAfterFirstDelivery);
         (await OutboxAssertions.CountInboxRowsAsync(_factory, outboxRow.Id)).ShouldBe(1);
         (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, EmptyQueueGrace)).ShouldBeNull();
     }
@@ -171,7 +170,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
             (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, DeliveryTimeout)).ShouldNotBeNull();
         Encoding.UTF8.GetString(dead.Body.ToArray()).ShouldBe(poisonPayload);
         FirstDeathReason(dead.BasicProperties).ShouldBe("rejected");
-        _passwordResetEmailSpy.CallCount.ShouldBe(0);
+        _passwordResetEmailSpy.ResetEmailCountToAnyInbox.ShouldBe(0);
         (await OutboxAssertions.CountInboxRowsAsync(_factory, messageId)).ShouldBe(0);
     }
 
@@ -194,7 +193,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         // Assert: the inbox record doubles as the "consumer finished" signal
         int inboxRows = await OutboxAssertions.WaitForInboxRowsAsync(_factory, messageId, DeliveryTimeout);
         inboxRows.ShouldBe(1);
-        _passwordResetEmailSpy.CallCount.ShouldBe(0);
+        _passwordResetEmailSpy.ResetEmailCountToAnyInbox.ShouldBe(0);
         (await GetWithinTimeoutAsync(RabbitMqTopology.EmailQueue, EmptyQueueGrace)).ShouldBeNull();
         (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, EmptyQueueGrace)).ShouldBeNull();
     }

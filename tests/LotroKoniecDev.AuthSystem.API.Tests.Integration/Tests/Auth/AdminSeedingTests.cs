@@ -11,6 +11,7 @@ using Npgsql;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -497,16 +498,15 @@ public sealed partial class AdminSeedingTests : EndpointsTestBase
         // Arrange
         const string chosenPassword = "OperatorChosen1!";
         await ReseedAsync(new FakeWebHostEnvironment("Production"));
-        PasswordResetEmailSpy.Reset();
 
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(AdminEmail));
-        await PasswordResetEmailSpy.WaitForCaptureAsync();
+        await PasswordResetEmailSpy.WaitForCaptureAsync(AdminEmail);
 
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/reset-password", UriKind.Relative),
-            new ResetPasswordRequest(AdminEmail, PasswordResetEmailSpy.LastResetToken!, chosenPassword));
+            new ResetPasswordRequest(AdminEmail, PasswordResetEmailSpy.LastResetTokenSentTo(AdminEmail)!, chosenPassword));
 
         // Act
         HttpResponseMessage tokenResponse = await RequestPasswordGrantAsync(AdminEmail, chosenPassword);
@@ -575,15 +575,15 @@ public sealed partial class AdminSeedingTests : EndpointsTestBase
     private async Task<(string NewEmail, string RevertToken)> MoveOffAdminEmailAsync(Guid userId, string password)
     {
         string accessToken = await GetAccessTokenAsync(AdminEmail, password);
-        string newEmail = Faker.Internet.Email();
+        string newEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         using HttpRequestMessage changeRequest = new(HttpMethod.Post, "auth/account/change-email");
         changeRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         changeRequest.Content = JsonContent.Create(new ChangeEmailRequest(newEmail, password));
         (await ApiClient.Http.SendAsync(changeRequest)).StatusCode.ShouldBe(HttpStatusCode.OK);
-        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync(newEmail);
 
-        string confirmToken = EmailChangeEmailSpy.LastVerificationToken!;
+        string confirmToken = EmailChangeEmailSpy.LastVerificationTokenSentTo(newEmail)!;
         await PostToPageAsync(
             "/Account/ConfirmEmailChange",
             $"/Account/ConfirmEmailChange?userId={userId}&email={Uri.EscapeDataString(newEmail)}"
@@ -594,14 +594,20 @@ public sealed partial class AdminSeedingTests : EndpointsTestBase
                 ["Email"] = newEmail,
                 ["Token"] = confirmToken
             });
-        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync();
+        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync(AdminEmail, newEmail);
 
         // The confirm page answers 200 when it refuses too. Without this check a failed move would leave
         // the account on the admin address, and the seed would stop at 2354 without testing the
         // reservation at all.
         (await LoadUserAsync(userId)).Email.ShouldBe(newEmail);
 
-        return (newEmail, EmailChangeEmailSpy.LastRevertToken!);
+        // Every test in this class moves an account off the same admin address, so the offer is picked by
+        // the address it undoes.
+        string revertToken = EmailChangeEmailSpy.RevertOffersTo(AdminEmail)
+            .Last(offer => offer.TargetAddress == newEmail)
+            .RevertToken;
+
+        return (newEmail, revertToken);
     }
 
     private async Task<Guid> AdminIdAsync()

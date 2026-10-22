@@ -62,8 +62,6 @@ public sealed class ForgotPasswordEndpointTests : EndpointsTestBase
     public async Task ForgotPassword_ShouldDeliverEmail_WhenUserExists()
     {
         // Arrange
-        PasswordResetEmailSpy.Reset();
-
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
@@ -73,27 +71,23 @@ public sealed class ForgotPasswordEndpointTests : EndpointsTestBase
         // pipeline (relay -> delivery -> spy), so the capture has to be awaited (ADR-0038)
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative), forgotRequest);
-        await PasswordResetEmailSpy.WaitForCaptureAsync();
+        await PasswordResetEmailSpy.WaitForCaptureAsync(request.Email);
 
         // Assert
-        PasswordResetEmailSpy.CallCount.ShouldBe(1);
-        PasswordResetEmailSpy.LastEmail.ShouldBe(request.Email);
-        PasswordResetEmailSpy.LastResetToken.ShouldNotBeNullOrEmpty();
+        PasswordResetEmailSpy.ResetEmailsTo(request.Email).ShouldHaveSingleItem().ResetToken.ShouldNotBeNullOrEmpty();
     }
 
     [Fact]
     public async Task ForgotPassword_ShouldWriteAnIdOnlyOutboxRow_WhenUserExists()
     {
         // Arrange
-        PasswordResetEmailSpy.Reset();
-
         (RegisterRequest request, IdentityId identityId) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
         // Act
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative), new ForgotPasswordRequest(request.Email));
-        await PasswordResetEmailSpy.WaitForCaptureAsync();
+        await PasswordResetEmailSpy.WaitForCaptureAsync(request.Email);
 
         // Assert: the payload carries the user id and nothing else: the reset token is minted
         // at delivery and must never persist in an outbox row (ADR-0038 decision 2)
@@ -103,16 +97,15 @@ public sealed class ForgotPasswordEndpointTests : EndpointsTestBase
         PasswordResetRequested payload = JsonSerializer.Deserialize<PasswordResetRequested>(outboxRow.Payload)
             .ShouldNotBeNull();
         payload.IdentityUserId.ShouldBe(identityId.Value);
-        PasswordResetEmailSpy.LastResetToken.ShouldNotBeNullOrEmpty();
-        outboxRow.Payload.ShouldNotContain(PasswordResetEmailSpy.LastResetToken);
+        string? resetToken = PasswordResetEmailSpy.LastResetTokenSentTo(request.Email);
+        resetToken.ShouldNotBeNullOrEmpty();
+        outboxRow.Payload.ShouldNotContain(resetToken);
     }
 
     [Fact]
     public async Task ForgotPassword_ShouldNotWriteAnOutboxRow_WhenUserDoesNotExist()
     {
         // Arrange
-        PasswordResetEmailSpy.Reset();
-
         ForgotPasswordRequest forgotRequest = new("nobody@example.com");
 
         // Act
@@ -124,6 +117,6 @@ public sealed class ForgotPasswordEndpointTests : EndpointsTestBase
         OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
             Factory, row => row.Type == nameof(PasswordResetRequested), TimeSpan.FromSeconds(1));
         outboxRow.ShouldBeNull();
-        PasswordResetEmailSpy.CallCount.ShouldBe(0);
+        PasswordResetEmailSpy.ResetEmailsTo(forgotRequest.Email).ShouldBeEmpty();
     }
 }

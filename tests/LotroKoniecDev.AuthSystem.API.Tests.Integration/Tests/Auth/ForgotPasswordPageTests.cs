@@ -22,23 +22,20 @@ public sealed partial class ForgotPasswordPageTests : EndpointsTestBase
     public async Task ForgotPasswordPage_ShouldDeliverEmailThroughThePipeline_WhenUserExists()
     {
         // Arrange
-        PasswordResetEmailSpy.Reset();
-
         (RegisterRequest request, IdentityId identityId) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
         // Act
         HttpResponseMessage response = await PostToForgotPasswordPageAsync(request.Email);
-        await PasswordResetEmailSpy.WaitForCaptureAsync();
+        await PasswordResetEmailSpy.WaitForCaptureAsync(request.Email);
 
         // Assert: success panel plus a delivered e-mail whose token never touched the outbox row
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Jeśli konto istnieje");
 
-        PasswordResetEmailSpy.CallCount.ShouldBe(1);
-        PasswordResetEmailSpy.LastEmail.ShouldBe(request.Email);
-        PasswordResetEmailSpy.LastResetToken.ShouldNotBeNullOrEmpty();
+        string resetToken = PasswordResetEmailSpy.ResetEmailsTo(request.Email).ShouldHaveSingleItem().ResetToken;
+        resetToken.ShouldNotBeNullOrEmpty();
 
         OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
             Factory, row => row.Type == nameof(PasswordResetRequested));
@@ -46,17 +43,17 @@ public sealed partial class ForgotPasswordPageTests : EndpointsTestBase
         PasswordResetRequested payload = JsonSerializer.Deserialize<PasswordResetRequested>(outboxRow.Payload)
             .ShouldNotBeNull();
         payload.IdentityUserId.ShouldBe(identityId.Value);
-        outboxRow.Payload.ShouldNotContain(PasswordResetEmailSpy.LastResetToken!);
+        outboxRow.Payload.ShouldNotContain(resetToken);
     }
 
     [Fact]
     public async Task ForgotPasswordPage_ShouldShowSuccessWithoutQueueingAnything_WhenUserDoesNotExist()
     {
         // Arrange
-        PasswordResetEmailSpy.Reset();
+        const string email = "nobody@example.com";
 
         // Act
-        HttpResponseMessage response = await PostToForgotPasswordPageAsync("nobody@example.com");
+        HttpResponseMessage response = await PostToForgotPasswordPageAsync(email);
 
         // Assert: the anti-enumeration panel shows, but nothing was queued and nothing will send
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -66,7 +63,7 @@ public sealed partial class ForgotPasswordPageTests : EndpointsTestBase
         OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
             Factory, row => row.Type == nameof(PasswordResetRequested), TimeSpan.FromSeconds(1));
         outboxRow.ShouldBeNull();
-        PasswordResetEmailSpy.CallCount.ShouldBe(0);
+        PasswordResetEmailSpy.ResetEmailsTo(email).ShouldBeEmpty();
     }
 
     private async Task<HttpResponseMessage> PostToForgotPasswordPageAsync(string email)

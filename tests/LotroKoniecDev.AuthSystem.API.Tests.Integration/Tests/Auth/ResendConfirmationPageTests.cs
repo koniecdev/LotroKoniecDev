@@ -90,6 +90,7 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
+        // Drops the sign-up mail, which the helper waited for, so only the resent mail is left to count.
         AccountConfirmationEmailSpy.Reset();
 
         // Act
@@ -101,9 +102,8 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain(SuccessMarker);
 
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(1);
-        AccountConfirmationEmailSpy.LastEmail.ShouldBe(request.Email);
-        AccountConfirmationEmailSpy.LastConfirmationToken.ShouldNotBeNullOrEmpty();
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldHaveSingleItem()
+            .ConfirmationToken.ShouldNotBeNullOrEmpty();
     }
 
     [Fact]
@@ -113,6 +113,7 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
+        // Drops the sign-up mail, which the helper waited for.
         AccountConfirmationEmailSpy.Reset();
 
         // Act
@@ -124,17 +125,17 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain(SuccessMarker);
 
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
     }
 
     [Fact]
     public async Task ResendConfirmationPage_ShouldNotSendEmail_WhenEmailIsUnknown()
     {
         // Arrange
-        AccountConfirmationEmailSpy.Reset();
+        const string email = "nobody@example.com";
 
         // Act
-        HttpResponseMessage response = await PostToResendConfirmationPageAsync("nobody@example.com");
+        HttpResponseMessage response = await PostToResendConfirmationPageAsync(email);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -142,7 +143,7 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain(SuccessMarker);
 
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(email).ShouldBeEmpty();
     }
 
     [Fact]
@@ -153,7 +154,7 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         (RegisterRequest confirmed, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
-        string unknownEmail = Faker.Internet.Email();
+        string unknownEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         // Act: the neutral confirmation each input produces. The CSP nonce is random per response and
         // says nothing about the account (#693), so it is masked before the pages are compared.
@@ -178,9 +179,6 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
     [InlineData("with spaces@example.com")]
     public async Task ResendConfirmationPage_ShouldShowOpaqueError_AndNotSend_WhenEmailIsInvalid(string invalidEmail)
     {
-        // Arrange
-        AccountConfirmationEmailSpy.Reset();
-
         // Act
         HttpResponseMessage response = await PostToResendConfirmationPageAsync(invalidEmail);
 
@@ -191,14 +189,13 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
         html.ShouldContain("Podaj prawidłowy adres e-mail.");
         html.ShouldNotContain(SuccessMarker);
 
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(invalidEmail).ShouldBeEmpty();
     }
 
     [Fact]
     public async Task ResendConfirmationPage_ShouldShowOpaqueError_AndNotSend_WhenEmailExceedsMaxLength()
     {
         // Arrange: one over EmailConstants.MaxLength, so the shared validator rejects it before any lookup
-        AccountConfirmationEmailSpy.Reset();
         string overLongEmail = new string('a', EmailConstants.MaxLength) + "@example.com";
 
         // Act
@@ -211,7 +208,7 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
         html.ShouldContain("Podaj prawidłowy adres e-mail.");
         html.ShouldNotContain(SuccessMarker);
 
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(overLongEmail).ShouldBeEmpty();
     }
 
     private async Task<HttpResponseMessage> PostToResendConfirmationPageAsync(string email)

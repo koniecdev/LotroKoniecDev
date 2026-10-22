@@ -25,6 +25,8 @@ public abstract class AsyncLifetimeTestBase : IAsyncLifetime
 
     public virtual async Task InitializeAsync()
     {
+        AccountConfirmationEmailSpy.Reset();
+        PasswordResetEmailSpy.Reset();
         AccountDeletionEmailSpy.Reset();
         EmailChangeEmailSpy.Reset();
         DisarmDatabaseFailures();

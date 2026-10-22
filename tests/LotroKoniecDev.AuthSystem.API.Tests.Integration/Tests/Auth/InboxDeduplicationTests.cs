@@ -31,18 +31,17 @@ public sealed class InboxDeduplicationTests : EndpointsTestBase
     public async Task ProcessOnce_ShouldRecordTheMessageId_WhenProcessingSucceeds()
     {
         // Arrange
-        (RegisterRequest _, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
+        (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy);
-        await AccountConfirmationEmailSpy.WaitForCaptureAsync();
         Guid messageId = Guid.CreateVersion7();
-        int sendsBefore = AccountConfirmationEmailSpy.CallCount;
+        int sendsBefore = AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).Count;
 
         // Act
         Result ackDecision = await ProcessOnceAsync(identityId.Value, messageId);
 
         // Assert
         ackDecision.IsSuccess.ShouldBeTrue();
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(sendsBefore + 1);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).Count.ShouldBe(sendsBefore + 1);
         (await CountInboxRowsAsync(messageId)).ShouldBe(1);
     }
 
@@ -50,19 +49,18 @@ public sealed class InboxDeduplicationTests : EndpointsTestBase
     public async Task ProcessOnce_ShouldAckWithoutSecondEmail_WhenMessageIdAlreadyRecorded()
     {
         // Arrange
-        (RegisterRequest _, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
+        (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy);
-        await AccountConfirmationEmailSpy.WaitForCaptureAsync();
         Guid messageId = Guid.CreateVersion7();
         await ProcessOnceAsync(identityId.Value, messageId);
-        int sendsAfterFirstDelivery = AccountConfirmationEmailSpy.CallCount;
+        int sendsAfterFirstDelivery = AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).Count;
 
         // Act: the same message id delivered again (redelivery or relay re-publish)
         Result duplicateAckDecision = await ProcessOnceAsync(identityId.Value, messageId);
 
         // Assert: acked, no second e-mail, still exactly one row
         duplicateAckDecision.IsSuccess.ShouldBeTrue();
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(sendsAfterFirstDelivery);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).Count.ShouldBe(sendsAfterFirstDelivery);
         (await CountInboxRowsAsync(messageId)).ShouldBe(1);
     }
 
@@ -72,7 +70,6 @@ public sealed class InboxDeduplicationTests : EndpointsTestBase
         // Arrange
         (RegisterRequest _, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy);
-        await AccountConfirmationEmailSpy.WaitForCaptureAsync();
         Guid messageId = Guid.CreateVersion7();
         AccountConfirmationEmailSpy.ShouldFail = true;
 
@@ -102,7 +99,6 @@ public sealed class InboxDeduplicationTests : EndpointsTestBase
         // Arrange
         (RegisterRequest _, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy);
-        await AccountConfirmationEmailSpy.WaitForCaptureAsync();
         Guid messageId = Guid.CreateVersion7();
         Factory.DbCommandFailures.FailNext(
             command => IsInboxInsertOf(command, messageId),
@@ -130,7 +126,6 @@ public sealed class InboxDeduplicationTests : EndpointsTestBase
         // Arrange
         (RegisterRequest _, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy);
-        await AccountConfirmationEmailSpy.WaitForCaptureAsync();
         Guid messageId = Guid.CreateVersion7();
         Factory.DbCommandFailures.FailNext(
             command => IsInboxInsertOf(command, messageId),

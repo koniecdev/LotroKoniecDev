@@ -163,11 +163,11 @@ public sealed class ConcurrencyEndpointsTests : EndpointsTestBase
     public async Task ConcurrentConfirmEmail_ShouldNotReturn500_WhenMultipleRequestsConfirmSameEmail()
     {
         // Arrange
-        (RegisterRequest _, _) =
+        (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
-        string email = AccountConfirmationEmailSpy.LastEmail!;
-        string token = AccountConfirmationEmailSpy.LastConfirmationToken!;
+        string email = registerRequest.Email;
+        string token = AccountConfirmationEmailSpy.LastConfirmationTokenSentTo(email)!;
 
         const int concurrentRequests = 10;
 

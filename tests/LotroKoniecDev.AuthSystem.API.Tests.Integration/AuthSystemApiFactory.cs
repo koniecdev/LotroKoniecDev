@@ -10,7 +10,6 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
-using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.API.Services.Maintenance;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
@@ -320,10 +319,9 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         // then no-ops and this suite exercises its (older) code against the newer schema.
         await N1CompatSchemaSeam.ApplyIfConfiguredAsync(_postgresContainer, "auth.sql");
 
-        // Reading Services starts the host. The seeder is skipped in the Testing environment, so we
-        // seed here using the test host's own services, which have the right connection string.
-        IWebHostEnvironment environment = Services.GetRequiredService<IWebHostEnvironment>();
-        await DatabaseSeederExtensions.SeedAuthDatabaseAsync(Services, environment);
+        // Reading Services starts the host, and the host runs the seeder at startup in every environment,
+        // Testing included. The suite does not seed on its own, so a host that stopped seeding fails it.
+        _ = Services;
     }
 
     public new virtual async Task DisposeAsync()

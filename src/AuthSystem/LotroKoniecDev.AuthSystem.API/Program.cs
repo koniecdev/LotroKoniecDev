@@ -618,8 +618,8 @@ try
     // Cache-Control with ETag revalidation, so GlobalNoCacheMiddleware leaves these responses alone.
     app.MapStaticAssets();
 
-    // The seed checks for existing rows before it inserts, so running it twice is safe. Integration
-    // tests do call it twice, here and in their own setup.
+    // The seed checks for existing rows before it inserts, so running it twice is safe. Some
+    // integration tests run it again in their own arrange step.
     await app.SeedAuthDatabaseAsync();
 
     await app.RunAsync();

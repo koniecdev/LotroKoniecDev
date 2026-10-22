@@ -186,7 +186,9 @@ public sealed class E2ETestFixture : IAsyncLifetime
             // The token iss; tms-api validates against this and fetches its JWKS from the same in-network address.
             .WithEnvironment("OpenIddict__Issuer", "http://auth-api:8080")
             .WithEnvironment("OpenIddict__ApiClientSecret", ApiClientSecret)
-            // The seeder dereferences WebClient.RedirectUris[0] in non-production, so at least one URI is required.
+            // The web client's addresses. Testing skips the startup check that asks for them, so the host
+            // would start without them. The seeder registers them, and the first post-logout address is
+            // also the website root that the account pages and e-mails link to.
             .WithEnvironment("OpenIddict__WebClient__RedirectUris__0", "http://localhost:8080/callback")
             .WithEnvironment("OpenIddict__WebClient__PostLogoutRedirectUris__0", "http://localhost:8080")
             .WithEnvironment("AdminUser__Username", AdminUsername)

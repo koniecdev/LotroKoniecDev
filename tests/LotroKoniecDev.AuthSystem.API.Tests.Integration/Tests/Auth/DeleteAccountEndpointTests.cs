@@ -239,7 +239,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         {
             // Act
             HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
-            await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email, TimeSpan.FromSeconds(5));
+            await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
 
             // Assert: the undo step is gone (ADR-0038 decision 5). The request only commits the outbox
             // row together with the schedule, so an SMTP failure neither fails the request nor cancels

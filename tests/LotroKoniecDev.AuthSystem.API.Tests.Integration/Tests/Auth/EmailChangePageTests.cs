@@ -625,6 +625,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         (await WaitForDispatchOfChangeToAsync(secondNewEmail)).ShouldBe(1);
         EmailChangeEmailSpy.ChangedNoticesTo(secondNewEmail).ShouldHaveSingleItem();
         EmailChangeEmailSpy.RevertOffersTo(firstNewEmail).ShouldBeEmpty();
+        EmailChangeEmailSpy.RevertOffersTo(user.Email).ShouldHaveSingleItem().TargetAddress.ShouldBe(firstNewEmail);
 
         // And the account still points home, so the owner's link from the first change works.
         (await LoadUserByIdAsync(userId)).EmailChangeRevertTo.ShouldBe(user.Email);
@@ -962,9 +963,11 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         Guid userId = await UserIdOfAsync(user.Email);
 
         await ConfirmAsync(userId, newEmail, token);
-        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync(user.Email, newEmail);
 
+        // The confirm page answers 200 when it refuses too, so a refused confirm would only show up as a
+        // mail that never came.
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
+        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync(user.Email, newEmail);
 
         return (user, newEmail, userId);
     }

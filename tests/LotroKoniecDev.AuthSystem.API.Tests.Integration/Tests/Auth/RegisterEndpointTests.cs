@@ -57,7 +57,9 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
         takenResponse.Content.Headers.ContentType.ShouldBe(freeResponse.Content.Headers.ContentType);
 
         await AccountConfirmationEmailSpy.WaitForRegistrationAttemptedCaptureAsync(existingRequest.Email);
+        await AccountConfirmationEmailSpy.WaitForCaptureAsync(freeRequest.Email);
         AccountConfirmationEmailSpy.RegistrationAttemptedNoticeCountTo(existingRequest.Email).ShouldBe(1);
+        AccountConfirmationEmailSpy.RegistrationAttemptedNoticeCountTo(freeRequest.Email).ShouldBe(0);
 
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();

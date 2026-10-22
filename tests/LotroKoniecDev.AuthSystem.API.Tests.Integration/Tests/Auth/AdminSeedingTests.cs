@@ -594,12 +594,11 @@ public sealed partial class AdminSeedingTests : EndpointsTestBase
                 ["Email"] = newEmail,
                 ["Token"] = confirmToken
             });
-        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync(AdminEmail, newEmail);
-
         // The confirm page answers 200 when it refuses too. Without this check a failed move would leave
         // the account on the admin address, and the seed would stop at 2354 without testing the
         // reservation at all.
         (await LoadUserAsync(userId)).Email.ShouldBe(newEmail);
+        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync(AdminEmail, newEmail);
 
         // Every test in this class moves an account off the same admin address, so the offer is picked by
         // the address it undoes.

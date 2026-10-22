@@ -820,11 +820,10 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             ConfirmForm(userId, newEmail, token));
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync(user.Email, newEmail);
-
         // The confirm page answers 200 when it refuses too. A refusal test that started from an account
         // that never moved would pass because of that, not because of the guard it tests (#950).
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
+        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync(user.Email, newEmail);
 
         return (user, newEmail, userId);
     }

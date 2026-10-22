@@ -7,9 +7,10 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
 /// Keeps every sign-up mail together with the inbox it went to, and a test reads only the inbox of its
-/// own account. The mails travel through the outbox after the request has ended, so a mail from an
-/// earlier test can still arrive after <see cref="Reset"/>. When the spy kept only the last mail and one
-/// count for all inboxes, such a late mail could pass for the test's own (#950).
+/// own account. Most of these mails travel through the outbox after the request has ended, so a mail
+/// from an earlier test can still arrive after <see cref="Reset"/>. When the spy kept only the last mail
+/// and one count for all inboxes, such a late mail could pass for the test's own (#950). A resend is the
+/// exception: it sends inside the request, to the address as it was typed.
 /// </summary>
 #pragma warning disable CA1515
 public sealed class SpyAccountConfirmationEmailSender : IAccountConfirmationEmailSender

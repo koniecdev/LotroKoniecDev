@@ -172,7 +172,7 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     [Fact]
     public async Task RequestEmailChange_ShouldSendNoLink_WhenTheAddressIsAnotherAccountsRevertTarget()
     {
-        (RegisterRequest owner, _, _) = await CompleteChangeAsync();
+        (RegisterRequest owner, string ownerNewEmail, _) = await CompleteChangeAsync();
         (RegisterRequest other, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         string accessToken = await GetAccessTokenAsync(other.Email, Password);
@@ -187,6 +187,7 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         EmailChangeEmailSpy.WarningsTo(other.Email).ShouldHaveSingleItem().TargetAddress.ShouldBe(owner.Email);
         EmailChangeEmailSpy.VerificationsTo(owner.Email).ShouldBeEmpty();
         EmailChangeEmailSpy.AddressTakenNoticeCountTo(owner.Email).ShouldBe(0);
+        EmailChangeEmailSpy.AddressTakenNoticeCountTo(ownerNewEmail).ShouldBe(0);
     }
 
     [Fact]
@@ -337,9 +338,9 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
 
     /// <summary>
     /// Moves an account from one address to another the ordinary way: request, then confirm. The spy
-    /// is reset first, because a chain can come back to an address that already got a link and a
-    /// notice: without the reset, the waits below would return on those at once, and the confirm
-    /// would quietly do nothing, because the page answers 200 either way.
+    /// is reset first, for a chain that moves to the same address twice (A to B to A to B). Without the
+    /// reset, the waits below would return on the first move's mails to that address, and the confirm
+    /// would use the first move's link.
     /// </summary>
     private async Task ChangeAndConfirmAsync(Guid userId, string currentEmail, string targetEmail)
     {
@@ -372,11 +373,11 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
 
         Guid userId = await UserIdOfAsync(user.Email);
         await ConfirmAsync(userId, newEmail, EmailChangeEmailSpy.LastVerificationTokenSentTo(newEmail)!);
-        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync(user.Email, newEmail);
 
         // The confirm page answers 200 when it refuses too. Every test here relies on the account having
         // left its first address, so the reservation it checks really exists (#950).
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
+        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync(user.Email, newEmail);
 
         return (user, newEmail, userId);
     }

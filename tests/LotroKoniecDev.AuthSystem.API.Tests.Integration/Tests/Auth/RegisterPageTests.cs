@@ -1,4 +1,6 @@
 using System.Text.RegularExpressions;
+using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
@@ -87,7 +89,9 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
 
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Hasła nie są identyczne");
-        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
+        // The request writes the row of its mail in its own transaction, so no row means no mail will
+        // come. A check of the spy here would run before any mail could arrive.
+        (await OutboxAssertions.CountOutboxRowsAsync(Factory, nameof(EmailConfirmationRequested))).ShouldBe(0);
     }
 
     [Fact]
@@ -123,7 +127,7 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
 
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Musisz zaakceptować politykę prywatności");
-        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
+        (await OutboxAssertions.CountOutboxRowsAsync(Factory, nameof(EmailConfirmationRequested))).ShouldBe(0);
     }
 
     [Fact]
@@ -141,7 +145,7 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
 
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Musisz zaakceptować regulamin serwisu");
-        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
+        (await OutboxAssertions.CountOutboxRowsAsync(Factory, nameof(EmailConfirmationRequested))).ShouldBe(0);
     }
 
     [Fact]
@@ -214,7 +218,7 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Nazwa użytkownika może zawierać tylko litery i cyfry, bez spacji.");
         html.ShouldNotContain("hasło spełnia wymagania");
-        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
+        (await OutboxAssertions.CountOutboxRowsAsync(Factory, nameof(EmailConfirmationRequested))).ShouldBe(0);
     }
 
     /// <summary>

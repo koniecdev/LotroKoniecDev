@@ -10,8 +10,8 @@ public sealed class SubFileTests
     {
         { "one fragment", TestDataFactory.CreateTextSubFileData(0x25000001, "Test") },
         { "fragment ids in ascending order", TestDataFactory.CreateTextSubFileData(0x25000001, 1001UL, 3) },
-        { "fragment ids out of order", TestDataFactory.CreateTextSubFileDataWithFragmentIds(0x25000001, 3UL, 1UL, 2UL) },
-        { "no fragments", TestDataFactory.CreateTextSubFileDataWithFragmentIds(0x25000001) },
+        { "fragment ids out of order", TestDataFactory.CreateTextSubFileDataInFileOrder(0x25000001, 3UL, 1UL, 2UL) },
+        { "no fragments", TestDataFactory.CreateTextSubFileDataInFileOrder(0x25000001) },
         { "two-byte fragment count", TestDataFactory.CreateTextSubFileData(0x25000001, 1UL, 128) },
         {
             "two-byte piece length",

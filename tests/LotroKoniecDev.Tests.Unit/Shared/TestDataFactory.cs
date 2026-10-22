@@ -77,33 +77,6 @@ internal static class TestDataFactory
     }
 
     /// <summary>
-    /// Creates binary SubFile data with one "Test" fragment per id, in the given order. No ids gives a
-    /// valid subfile with no fragments.
-    /// </summary>
-    internal static byte[] CreateTextSubFileDataWithFragmentIds(int fileId, params ulong[] fragmentIds)
-    {
-        using MemoryStream stream = new();
-        using BinaryWriter writer = new(stream);
-
-        writer.Write(fileId);
-        writer.Write(new byte[4]); // Unknown1
-        writer.Write((byte)0); // Unknown2
-        VarLenEncoder.Write(writer, fragmentIds.Length);
-
-        foreach (ulong fragmentId in fragmentIds)
-        {
-            writer.Write(fragmentId);
-            writer.Write(1); // numPieces
-            writer.Write((byte)4); // piece length (varlen)
-            writer.Write(Encoding.Unicode.GetBytes("Test"));
-            writer.Write(0); // numArgRefs
-            writer.Write((byte)0); // numArgStringGroups
-        }
-
-        return stream.ToArray();
-    }
-
-    /// <summary>
     /// Builds binary SubFile data that says it has <paramref name="declaredFragmentCount"/> fragments but
     /// contains none. The count is impossible, which is what exercises the parser's bounds checks.
     /// </summary>
@@ -125,7 +98,7 @@ internal static class TestDataFactory
     /// Each fragment contains a single "Test" piece.
     /// </summary>
     internal static byte[] CreateTextSubFileData(int fileId, ulong fragmentId, int fragmentCount)
-        => CreateTextSubFileDataWithFragmentIds(
+        => CreateTextSubFileDataInFileOrder(
             fileId,
             [.. Enumerable.Range(0, fragmentCount).Select(i => fragmentId + (ulong)i)]);
 

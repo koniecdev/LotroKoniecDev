@@ -246,7 +246,11 @@ Per-ticket outcomes:
     merge`. An OpenSSH remote gets that row too when a key needs a passphrase or a host key is new,
     also on a jump host. So does a remote that asks for a password. This fetch turns off the
     questions of git and OpenSSH, on the terminal and in askpass programs, so it fails instead of
-    waiting (#1139). A jump host needs OpenSSH 8.4 or later for this. Either way the ticket stays
+    waiting (#1139). A jump host needs OpenSSH 8.4 or later for this. Some waits are not
+    questions: a transfer that stalls, a security key that waits for a touch, the window of a
+    credential helper. So the worker also ends the fetch after 60 seconds, whatever it waits for,
+    and the row says `could not check` then too (#1165). A stop that comes during the fetch is only
+    noted, so the worker ends at most about a minute after it. Either way the ticket stays
     `merged`: it is not a failure of the machine. `.meta` holds the count as `unmerged=` (`?` when
     it could not check).
   - Since #1097 the session checks the PR's state right before every push once the PR is open. On

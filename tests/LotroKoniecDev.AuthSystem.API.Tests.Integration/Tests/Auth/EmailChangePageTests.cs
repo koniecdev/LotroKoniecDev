@@ -625,6 +625,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         (await WaitForDispatchOfChangeToAsync(secondNewEmail)).ShouldBe(1);
         EmailChangeEmailSpy.ChangedNoticesTo(secondNewEmail).ShouldHaveSingleItem();
         EmailChangeEmailSpy.RevertOffersTo(firstNewEmail).ShouldBeEmpty();
+        EmailChangeEmailSpy.RevertOffersTo(secondNewEmail).ShouldBeEmpty();
         EmailChangeEmailSpy.RevertOffersTo(user.Email).ShouldHaveSingleItem().TargetAddress.ShouldBe(firstNewEmail);
 
         // And the account still points home, so the owner's link from the first change works.
@@ -652,10 +653,12 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         await ConfirmAsync(userId, attackerSecondEmail, EmailChangeEmailSpy.LastVerificationTokenSentTo(attackerSecondEmail)!);
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(attackerSecondEmail);
 
-        // Whatever the second change handed the attacker, they fire it at once - before the owner has
-        // even opened their mail.
+        // Whatever the second change handed the attacker, in either of their inboxes, they fire it at
+        // once - before the owner has even opened their mail.
         (await WaitForDispatchOfChangeToAsync(attackerSecondEmail)).ShouldBe(1);
-        string? attackerRevertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(attackerFirstEmail);
+        string? attackerRevertToken = EmailChangeEmailSpy.RevertOffersTo(attackerFirstEmail)
+            .Concat(EmailChangeEmailSpy.RevertOffersTo(attackerSecondEmail))
+            .LastOrDefault()?.RevertToken;
         if (attackerRevertToken is not null)
         {
             await PostToPageAsync(

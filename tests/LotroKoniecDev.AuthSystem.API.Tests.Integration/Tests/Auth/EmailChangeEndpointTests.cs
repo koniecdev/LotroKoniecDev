@@ -43,6 +43,7 @@ public sealed class EmailChangeEndpointTests : EndpointsTestBase
         row.ShouldNotBeNull();
         row.Payload.ShouldContain(registerRequest.Email);
         (await CountOutboxRowsAsync(nameof(EmailChangeRequested))).ShouldBe(1);
+        (await OutboxAssertions.WaitForInboxRowsAsync(Factory, row.Id)).ShouldBe(1);
     }
 
     [Fact]

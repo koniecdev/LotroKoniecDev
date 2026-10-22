@@ -133,8 +133,8 @@ public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
 
     /// <summary>
     /// Waits for both mails of a change that arms an undo link: the offer to the previous address and the
-    /// notice to the new one. It is one wait and not two in a row, so a refused confirm, which sends
-    /// neither mail, runs out once and not twice.
+    /// notice to the new one. A refused confirm sends neither, so a caller checks that the account moved
+    /// before it waits, and fails at once instead of after the wait runs out.
     /// </summary>
     public Task WaitForRevertOfferAndNoticeCaptureAsync(
         string previousEmail, string newEmail, TimeSpan? timeout = null) =>

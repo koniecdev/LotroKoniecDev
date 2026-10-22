@@ -90,8 +90,9 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Hasła nie są identyczne");
         // The request writes the row of its mail in its own transaction, so no row means no mail will
-        // come. A check of the spy here would run before any mail could arrive.
+        // come. The spy check right after it can only catch a mail sent inside the request.
         (await OutboxAssertions.CountOutboxRowsAsync(Factory, nameof(EmailConfirmationRequested))).ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
     }
 
     [Fact]
@@ -128,6 +129,7 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Musisz zaakceptować politykę prywatności");
         (await OutboxAssertions.CountOutboxRowsAsync(Factory, nameof(EmailConfirmationRequested))).ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
     }
 
     [Fact]
@@ -146,6 +148,7 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Musisz zaakceptować regulamin serwisu");
         (await OutboxAssertions.CountOutboxRowsAsync(Factory, nameof(EmailConfirmationRequested))).ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
     }
 
     [Fact]
@@ -219,6 +222,7 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         html.ShouldContain("Nazwa użytkownika może zawierać tylko litery i cyfry, bez spacji.");
         html.ShouldNotContain("hasło spełnia wymagania");
         (await OutboxAssertions.CountOutboxRowsAsync(Factory, nameof(EmailConfirmationRequested))).ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
     }
 
     /// <summary>

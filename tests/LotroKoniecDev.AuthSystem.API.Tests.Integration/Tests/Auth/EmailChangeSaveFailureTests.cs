@@ -258,7 +258,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         Guid userId = await UserIdOfAsync(user.Email);
-        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
+        string newEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         CompetitorCommitsFirstInterceptor interceptor = new(
             newEmail, RaceMoment.BeforeTheUpdate, () => SeedUserOnAsync(Spell(newEmail, spelling)));
@@ -367,7 +367,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         Guid userId = await UserIdOfAsync(user.Email);
-        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
+        string newEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         CompetitorCommitsFirstInterceptor interceptor = new(
             newEmail, RaceMoment.BeforeIdentitysOwnCheck, () => SeedUserOnAsync(newEmail));
@@ -406,7 +406,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         Guid userId = await UserIdOfAsync(user.Email);
-        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
+        string newEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         CompetitorCommitsFirstInterceptor interceptor = new(
             newEmail, RaceMoment.BeforeTheUpdate, () => RecordAFailedLoginAsync(userId));
@@ -450,7 +450,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         Guid userId = await UserIdOfAsync(user.Email);
-        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
+        string newEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         CompetitorCommitsFirstInterceptor interceptor = new(
             newEmail, RaceMoment.BeforeTheUpdate, () => RecordAFailedLoginAsync(userId));
@@ -487,7 +487,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         Guid userId = await UserIdOfAsync(user.Email);
-        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
+        string newEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         CompetitorCommitsFirstInterceptor interceptor = new(
             newEmail, RaceMoment.BeforeTheUpdate, () => RecordAFailedLoginAsync(userId));
@@ -605,7 +605,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         Guid userId = await UserIdOfAsync(user.Email);
-        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
+        string newEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         HttpClient? browser = null;
         string token = string.Empty;

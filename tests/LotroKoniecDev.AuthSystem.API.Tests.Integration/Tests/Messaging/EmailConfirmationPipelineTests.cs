@@ -230,9 +230,12 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         await UserFactory.RegisterRandomUserUnconfirmedAsync(_apiClient, _faker, _confirmationEmailSpy);
         await _factory.Broker.CloseAllConnectionsAsync();
 
-        // Act: a registration right after the cut; its own nudge may race the dead connection
-        (RegisterRequest secondRequest, IdentityId secondIdentityId) =
-            await UserFactory.RegisterRandomUserUnconfirmedAsync(_apiClient, _faker, _confirmationEmailSpy);
+        // Act: a registration right after the cut; its own nudge may race the dead connection. It is
+        // posted here and not through UserFactory, whose wait for the mail would not send the nudges below.
+        RegisterRequest secondRequest = UserFactory.GenerateRandomRegisterRequest(_faker);
+        using HttpResponseMessage registered = await _apiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), secondRequest);
+        registered.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
         // A signal that was already used would leave the relay waiting out its first retry step of 30
         // seconds. In production every later commit sends a new signal, so this wait sends one too
@@ -248,10 +251,10 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         }
 
         // Assert: the second e-mail arrived through rebuilt connections, exactly once
-        _confirmationEmailSpy.ConfirmationEmailsTo(secondRequest.Email).ShouldHaveSingleItem();
+        Guid secondUserId = _confirmationEmailSpy.ConfirmationEmailsTo(secondRequest.Email).ShouldHaveSingleItem().UserId;
 
         OutboxMessage? recoveredRow = await WaitForOutboxRowAsync(
-            row => row.Payload.Contains(secondIdentityId.Value.ToString(), StringComparison.OrdinalIgnoreCase)
+            row => row.Payload.Contains(secondUserId.ToString(), StringComparison.OrdinalIgnoreCase)
                    && row.ProcessedOn != null);
         recoveredRow.ShouldNotBeNull();
         (await GetWithinTimeoutAsync(RabbitMqTopology.EmailQueue, EmptyQueueGrace)).ShouldBeNull();

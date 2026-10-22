@@ -228,6 +228,17 @@ unassigned themselves during those checks. If the train cannot read the PR there
 merge. Label names match in any letter case, as on GitHub. The session that fixes conflicts checks
 the hold and the approval again before it starts on a PR and before it pushes.
 
+(Added 2026-10-22, #1191.) The train also reads on every poll whether the PR is still open. GitHub
+reports the merge state of a closed or merged PR as unknown, and the train used to wait for such a
+PR until its 30-minute timeout, with every PR behind it waiting too. Now a PR closed during the run
+is skipped at the next poll as "closed without a merge", and a PR merged by hand is listed as
+"merged by hand during the run", not as a skip. The same check runs when the train picks the PRs,
+where a merged PR is skipped as "already merged", and on the fresh read right before the merge
+call. While the train runs, it also reads a PR once more before it reports it as to resolve or as a
+failed merge. The session that fixes conflicts also leaves a PR alone when it was closed or merged
+after the roll-up, and the train does not record a conflict fix for such a PR. This changes no
+approval rule: GitHub never merges a closed PR anyway.
+
 ### 5. The train never deletes a branch here
 
 `merge-train` merges without `--delete-branch` in this repo, as the house rule requires. Other
@@ -329,7 +340,9 @@ the same either way, so serial only costs wall-clock time. `-j 1` stays availabl
   (`~/.local/state/merge-train/`). Since 2026-10-18 the skip labels and the draft state are read
   again on every poll and on a fresh read right before the merge call; that fresh read also
   refuses a moved head or a missing assignee, and the conflict-fix steps check the hold and the
-  approval again (#1006).
+  approval again (#1006). Since 2026-10-22 the first pass, every poll and that fresh read also
+  check that the PR is still open, and so do the conflict-fix steps and `--record-resolution`
+  (#1191).
 
 ## References
 

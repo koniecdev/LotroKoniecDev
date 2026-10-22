@@ -26,8 +26,12 @@ public sealed class LoginModelTests : IDisposable
 {
     private const string Password = "Correct-Horse-1!";
     private const string GeneralMessage = "Nieprawidłowy e-mail lub hasło.";
+    private const string DeletionUnderwayMessage = "Usuwanie Twojego konta jest w toku i nie można go już anulować.";
 
     private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan Grace = new GdprSettings().DeletionGracePeriod;
+    private static readonly TimeSpan RevertLifespan = new EmailChangeRevertTokenProviderOptions().TokenLifespan;
+    private static readonly GdprSettings ShortGrace = new() { DeletionGracePeriod = TimeSpan.FromDays(1) };
 
     private readonly FakeTimeProvider _clock = new();
     private readonly PerAccountFixedWindowThrottle _deletionScheduledLoginThrottle = new(1, TimeSpan.FromMinutes(15));
@@ -167,6 +171,85 @@ public sealed class LoginModelTests : IDisposable
     }
 
     /// <summary>
+    /// #916: the account can wait up to a day for the daily run after its date (ADR-0031, #780). By then
+    /// the cancel link is dead, so the page names neither the date that has passed nor the link.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(86_399)]
+    public async Task OnPostAsync_ShouldSayTheDeletionIsUnderway_OnceTheDeletionDateHasPassed(int secondsPastTheDate)
+    {
+        // Arrange
+        ApplicationUser user = ArrangeDeletionScheduledAccount(
+            scheduledAt: _clock.GetUtcNow() - Grace - TimeSpan.FromSeconds(secondsPastTheDate));
+        LoginModel sut = CreatePostingSut(user.Email!, Password);
+
+        // Act
+        await sut.OnPostAsync().WaitAsync(CompletionTimeout);
+
+        // Assert
+        sut.ErrorMessage.ShouldBe(DeletionUnderwayMessage);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3_600)]
+    public async Task OnPostAsync_ShouldNameTheDeletionDate_UntilItArrives(int secondsBeforeTheDate)
+    {
+        // Arrange
+        ApplicationUser user = ArrangeDeletionScheduledAccount(
+            scheduledAt: _clock.GetUtcNow() - Grace + TimeSpan.FromSeconds(secondsBeforeTheDate));
+        LoginModel sut = CreatePostingSut(user.Email!, Password);
+
+        // Act
+        await sut.OnPostAsync().WaitAsync(CompletionTimeout);
+
+        // Assert
+        sut.ErrorMessage.ShouldNotBeNull();
+        sut.ErrorMessage.ShouldStartWith("Twoje konto jest zaplanowane do usunięcia dnia ");
+    }
+
+    /// <summary>
+    /// The deletion date decides, not the end of the cancel window. With a grace period shorter than
+    /// the undo window, an e-mail change made just before the deletion holds the date back past the end
+    /// of the cancel window (#685). The page then still names the date and the dead cancel link. The
+    /// owner chose no undo hint, because the shipped 14-day settings never reach this state (#916).
+    /// </summary>
+    [Fact]
+    public async Task OnPostAsync_ShouldNameTheDeletionDate_WhileAnUndoHoldsItPastTheCancelWindow()
+    {
+        // Arrange
+        DateTimeOffset revertArmedAt = _clock.GetUtcNow() - RevertLifespan + TimeSpan.FromHours(1);
+        ApplicationUser user = ArrangeDeletionScheduledAccount(
+            scheduledAt: revertArmedAt + TimeSpan.FromHours(1), revertArmedAt);
+        LoginModel sut = CreatePostingSut(user.Email!, Password, ShortGrace);
+
+        // Act
+        await sut.OnPostAsync().WaitAsync(CompletionTimeout);
+
+        // Assert
+        sut.ErrorMessage.ShouldNotBeNull();
+        sut.ErrorMessage.ShouldStartWith("Twoje konto jest zaplanowane do usunięcia dnia ");
+    }
+
+    [Fact]
+    public async Task OnPostAsync_ShouldSayTheDeletionIsUnderway_OnceAnUndoThatHeldTheDateHasExpired()
+    {
+        // Arrange
+        DateTimeOffset revertArmedAt = _clock.GetUtcNow() - RevertLifespan - TimeSpan.FromSeconds(1);
+        ApplicationUser user = ArrangeDeletionScheduledAccount(
+            scheduledAt: revertArmedAt + TimeSpan.FromHours(1), revertArmedAt);
+        LoginModel sut = CreatePostingSut(user.Email!, Password, ShortGrace);
+
+        // Act
+        await sut.OnPostAsync().WaitAsync(CompletionTimeout);
+
+        // Assert
+        sut.ErrorMessage.ShouldBe(DeletionUnderwayMessage);
+    }
+
+    /// <summary>
     /// The wait sits in a finally, so a lookup that throws does not answer early either.
     /// </summary>
     [Fact]
@@ -215,14 +298,16 @@ public sealed class LoginModelTests : IDisposable
         _deletionScheduledLoginThrottle.Dispose();
     }
 
-    private ApplicationUser ArrangeDeletionScheduledAccount()
+    private ApplicationUser ArrangeDeletionScheduledAccount(
+        DateTimeOffset? scheduledAt = null, DateTimeOffset? revertArmedAt = null)
     {
         ApplicationUser user = new()
         {
             Id = Guid.NewGuid(),
             Email = "frodo@shire.me",
             PasswordHash = new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), Password),
-            DeletionScheduledAt = DateTimeOffset.UtcNow
+            DeletionScheduledAt = scheduledAt ?? _clock.GetUtcNow(),
+            EmailChangeRevertArmedAt = revertArmedAt
         };
         ((IUserEmailStore<ApplicationUser>)_store)
             .FindByEmailAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -234,6 +319,9 @@ public sealed class LoginModelTests : IDisposable
     }
 
     private LoginModel CreateSut(params string[] postLogoutRedirectUris) =>
+        CreateSut(new GdprSettings(), postLogoutRedirectUris);
+
+    private LoginModel CreateSut(GdprSettings gdprSettings, params string[] postLogoutRedirectUris) =>
         new(
             CreateUserManager(_store),
             Microsoft.Extensions.Options.Options.Create(new OpenIddictSettings
@@ -244,14 +332,15 @@ public sealed class LoginModelTests : IDisposable
             new AccountDeletionSchedule(
                 new EmailChangeRevertWindow(
                     Microsoft.Extensions.Options.Options.Create(new EmailChangeRevertTokenProviderOptions())),
-                Microsoft.Extensions.Options.Options.Create(new GdprSettings())),
+                Microsoft.Extensions.Options.Options.Create(gdprSettings)),
             _deletionScheduledLoginThrottle,
             new ResponseTimeFloor(_clock),
+            _clock,
             NullLogger<LoginModel>.Instance);
 
-    private LoginModel CreatePostingSut(string email, string password)
+    private LoginModel CreatePostingSut(string email, string password, GdprSettings? gdprSettings = null)
     {
-        LoginModel sut = CreateSut();
+        LoginModel sut = CreateSut(gdprSettings ?? new GdprSettings());
         sut.PageContext = new PageContext { HttpContext = new DefaultHttpContext() };
         sut.Email = email;
         sut.Password = password;

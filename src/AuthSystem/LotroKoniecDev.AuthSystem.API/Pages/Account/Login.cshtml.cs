@@ -36,13 +36,11 @@ internal sealed partial class LoginModel : PageModel
         "To konto nie zostało jeszcze aktywowane. Sprawdź skrzynkę — wysłaliśmy na Twój adres link aktywacyjny.";
 
     /// <summary>
-    /// A hash computed up front for the failure paths that would otherwise skip password hashing: no
-    /// such user, locked out, an account with no password, and a scheduled deletion whose login budget
-    /// is spent (#881). They then cost as much CPU as the wrong-password path. That is the second layer
-    /// under the time floor (ADR-0059 §5).
+    /// Shown once the deletion date has passed and the account only waits for the daily run (ADR-0031).
+    /// By then the cancel window (#947) and any e-mail change undo window (ADR-0048) have ended, so the
+    /// message names no date and no link. The owner chose this exact text (#916).
     /// </summary>
-    private static readonly string DummyPasswordHash =
-        new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
+    private const string DeletionUnderwayMessage = "Usuwanie Twojego konta jest w toku i nie można go już anulować.";
 
     /// <summary>
     /// The frontend's own login route. It turns the auth cookie we just issued into an application
@@ -52,11 +50,21 @@ internal sealed partial class LoginModel : PageModel
     /// </summary>
     private const string FrontendLoginPath = "/auth/login";
 
+    /// <summary>
+    /// A hash computed up front for the failure paths that would otherwise skip password hashing: no
+    /// such user, locked out, an account with no password, and a scheduled deletion whose login budget
+    /// is spent (#881). They then cost as much CPU as the wrong-password path. That is the second layer
+    /// under the time floor (ADR-0059 §5).
+    /// </summary>
+    private static readonly string DummyPasswordHash =
+        new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
+
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IOptions<OpenIddictSettings> _openIddictSettings;
     private readonly IAccountDeletionSchedule _deletionSchedule;
     private readonly IDeletionScheduledLoginThrottle _deletionScheduledLoginThrottle;
     private readonly IResponseTimeFloor _responseTimeFloor;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<LoginModel> _logger;
 
     public LoginModel(
@@ -65,6 +73,7 @@ internal sealed partial class LoginModel : PageModel
         IAccountDeletionSchedule deletionSchedule,
         IDeletionScheduledLoginThrottle deletionScheduledLoginThrottle,
         IResponseTimeFloor responseTimeFloor,
+        TimeProvider timeProvider,
         ILogger<LoginModel> logger)
     {
         _userManager = userManager;
@@ -72,6 +81,7 @@ internal sealed partial class LoginModel : PageModel
         _deletionSchedule = deletionSchedule;
         _deletionScheduledLoginThrottle = deletionScheduledLoginThrottle;
         _responseTimeFloor = responseTimeFloor;
+        _timeProvider = timeProvider;
         _logger = logger;
     }
 
@@ -149,9 +159,11 @@ internal sealed partial class LoginModel : PageModel
             LogDeletionScheduled(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
             DateTimeOffset deletionTime =
                 _deletionSchedule.FinalizesAt(user.DeletionScheduledAt.Value, user.EmailChangeRevertArmedAt);
-            ErrorMessage =
-                $"Twoje konto jest zaplanowane do usunięcia dnia {deletionTime.ToPolandDateTimeText()}. " +
-                "Jeśli chcesz je zachować, kliknij w link anulujący usunięcie, który wysłaliśmy na Twój adres e-mail.";
+            ErrorMessage = _deletionSchedule.IsDueAt(
+                    user.DeletionScheduledAt.Value, user.EmailChangeRevertArmedAt, _timeProvider.GetUtcNow())
+                ? DeletionUnderwayMessage
+                : $"Twoje konto jest zaplanowane do usunięcia dnia {deletionTime.ToPolandDateTimeText()}. " +
+                  "Jeśli chcesz je zachować, kliknij w link anulujący usunięcie, który wysłaliśmy na Twój adres e-mail.";
             return Page();
         }
 
@@ -193,7 +205,7 @@ internal sealed partial class LoginModel : PageModel
         ClaimsIdentity identity = new(claims, IdentityConstants.ApplicationScheme);
         ClaimsPrincipal principal = new(identity);
 
-        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset now = _timeProvider.GetUtcNow();
         await HttpContext.SignInAsync(
             IdentityConstants.ApplicationScheme,
             principal,

@@ -188,6 +188,44 @@ public sealed class AccountDeletionScheduleTests
         due.ShouldBe(sut.FinalizesAt(scheduledAt, armedAt) <= moment);
     }
 
+    [Theory]
+    [MemberData(nameof(ClockCombinations))]
+    public void IsDueAt_AgreesWithIsDueBy_OnEveryCombinationOfTheTwoClocks(
+        int scheduledDaysAgo, int? armedDaysBeforeSchedule)
+    {
+        // The login page reads IsDueAt and the finalizer runs IsDueBy (#916). If they disagreed, the page
+        // would call a deletion under way that the next run does not pick up, or the reverse.
+        IAccountDeletionSchedule sut = CreateSut(grace: TimeSpan.FromDays(7));
+        DateTimeOffset moment = ScheduledAt + TimeSpan.FromDays(10);
+        DateTimeOffset scheduledAt = moment - TimeSpan.FromDays(scheduledDaysAgo);
+        DateTimeOffset? armedAt = armedDaysBeforeSchedule is { } days
+            ? scheduledAt - TimeSpan.FromDays(days)
+            : null;
+        ApplicationUser user = CreateUser(scheduledAt, armedAt);
+
+        bool due = sut.IsDueAt(scheduledAt, armedAt, moment);
+
+        due.ShouldBe(sut.IsDueBy(moment).Compile()(user));
+    }
+
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(0, true)]
+    [InlineData(1, true)]
+    public void IsDueAt_OneSecondAroundAnUndoThatHoldsTheDate_IsTrueFromThatMomentOn(
+        int secondsPastTheUndoExpiry, bool expectedDue)
+    {
+        // The grid above is day-granular, so the second-level boundary of the armed term is pinned here,
+        // with the same short grace as the IsDueBy test that does this for the query.
+        IAccountDeletionSchedule sut = CreateSut(grace: TimeSpan.FromDays(7));
+        DateTimeOffset armedAt = ScheduledAt - TimeSpan.FromDays(2);
+        DateTimeOffset moment = armedAt + RevertLifespan + TimeSpan.FromSeconds(secondsPastTheUndoExpiry);
+
+        bool due = sut.IsDueAt(ScheduledAt, armedAt, moment);
+
+        due.ShouldBe(expectedDue);
+    }
+
     [Fact]
     public void IsDueBy_IgnoresAnAccount_WithNoScheduledDeletion()
     {

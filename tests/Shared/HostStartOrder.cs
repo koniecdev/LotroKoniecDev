@@ -8,7 +8,9 @@ namespace LotroKoniecDev.Tests.Shared;
 /// (#1040). The app starts on a thread of its own, and when its start fails, that thread disposes the
 /// host. The test host reads the host's services before it waits for the start, so a test thread that
 /// came late got an <see cref="ObjectDisposedException"/> instead of the app's error. Here the app waits
-/// with its start until the test host has read them. Linked into the three in-memory host suites.
+/// with its start until the test host has read them. It replaces the default <c>CreateHost</c>, which also
+/// sets the port of a host started with <c>UseKestrel(port)</c>; no suite does that. Linked into the three
+/// in-memory host suites.
 /// </summary>
 internal static class HostStartOrder
 {
@@ -37,7 +39,8 @@ internal static class HostStartOrder
 
     private static void HoldTheStartUntil(IServiceCollection services, Task testHostIsWaiting)
     {
-        ServiceDescriptor appLifetime = services.Last(descriptor => descriptor.ServiceType == typeof(IHostLifetime));
+        ServiceDescriptor appLifetime = services.Last(descriptor =>
+            descriptor.ServiceType == typeof(IHostLifetime) && !descriptor.IsKeyedService);
         Type appLifetimeType = appLifetime.ImplementationType
             ?? throw new InvalidOperationException("The host lifetime is not registered by its type, so its start cannot be held.");
 
@@ -54,7 +57,8 @@ internal static class HostStartOrder
 
         public async Task WaitForStartAsync(CancellationToken cancellationToken)
         {
-            await _testHostIsWaiting.WaitAsync(cancellationToken);
+            // No token: a cancelled start must wait too, or the host could be gone before the test host reads it.
+            await _testHostIsWaiting;
             await _appLifetime.WaitForStartAsync(cancellationToken);
         }
 

@@ -35,6 +35,15 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
+# A COPY or ADD instruction and its first source, in every shape Docker accepts: the keyword in any
+# case (Docker lowers it), then any flag words such as `--link` or `--chown=app`, then a JSON list or
+# the shell form. Only the first source is read, because this repo copies one project file per line.
+# Used with -cmatch, so `.csproj` keeps its case, as in the .sh twin.
+$copyPattern = '^\s*(?i:COPY|ADD)(\s+--\S*)*\s+(\[\s*"(?<source>[^"]+\.csproj)"|(?<source>[^\s\["]\S*\.csproj)\s)'
+# `dotnet restore` as the shell runs it, with any spaces or tabs between the two words, or as an
+# exec-form RUN ["dotnet", "restore", ...] list.
+$restorePattern = 'dotnet(\s+|"\s*,\s*")restore'
+
 function Get-NormalizedPath {
     # Collapse "a/b/../c" to "a/c" without touching the filesystem — the referenced project may
     # legitimately not exist (that is what we are hunting).
@@ -102,15 +111,15 @@ function Get-RestoreClosure {
 }
 
 function Join-Continuation {
-    # Strip comments, then join `RUN a && \` / `    b` pairs into one command — the order Docker
-    # itself uses. Comments must go first or the guard fails OPEN: a commented-out
-    # `# dotnet restore Foo.csproj` would inject a phantom restore root, satisfying the "this
-    # Dockerfile restores something" check for a Dockerfile that restores nothing. The COPY
-    # extraction already ignores comments (it anchors on ^COPY), so the two must agree.
-    #
-    # The continuation join is a no-op on today's Dockerfiles, kept because a restore root wrapped
-    # onto a bare continuation line would otherwise drop out of the closure and the guard would
-    # pass vacuously.
+    # Returns the Dockerfile one instruction per line, read by the rules of Docker's own parser
+    # (BuildKit, frontend/dockerfile/parser/parser.go). The COPY list and the restore roots are both
+    # read from this output, so they cannot disagree on what a comment or a continuation is.
+    # Get-Content already drops the CR of a CRLF line end.
+    #   - A line whose first visible character is `#` is a comment. Comments go first: a
+    #     commented-out `# dotnet restore Foo.csproj` must not add a restore root to a Dockerfile
+    #     that restores nothing.
+    #   - A `\` at the end of a line, with any spaces or tabs after it, joins the next line on.
+    #   - Inside such a join, an empty line is skipped and the join goes on.
     # AllowEmptyString: a Mandatory string[] otherwise rejects the blank lines every Dockerfile has.
     param(
         [Parameter(Mandatory)]
@@ -121,13 +130,16 @@ function Join-Continuation {
 
     $joined = @()
     $buffer = ''
+    $joining = $false
     foreach ($line in $Lines) {
         if ($line -match '^\s*#') { continue }
-        if ($line -match '\\$') { $buffer += $line -replace '\\$', ''; continue }
+        if ($joining -and $line -match '^\s*$') { continue }
+        if ($line -match '\\[ \t]*$') { $buffer += $line -replace '\\[ \t]*$', ''; $joining = $true; continue }
         $joined += ($buffer + $line)
         $buffer = ''
+        $joining = $false
     }
-    if ($buffer -ne '') { $joined += $buffer }
+    if ($joining) { $joined += $buffer }
     return $joined
 }
 
@@ -175,22 +187,25 @@ $checked = 0
 foreach ($dockerfile in $dockerfiles) {
     $relative = $dockerfile.FullName.Substring($repoRoot.Length + 1) -replace '\\', '/'
     try {
-        $lines = Get-Content -LiteralPath $dockerfile.FullName -ErrorAction Stop
+        # @(...): an empty file gives $null, which the Mandatory parameter of Join-Continuation refuses.
+        $lines = @(Get-Content -LiteralPath $dockerfile.FullName -ErrorAction Stop)
     }
     catch {
         Write-Host "Docker restore-graph guard: could not read ${relative}: $($_.Exception.Message)"
         exit 2
     }
+    $instructions = @(Join-Continuation $lines)
 
     $copied = @()
-    foreach ($line in $lines) {
-        if ($line -match '^\s*COPY \["([^"]+\.csproj)"') { $copied += Get-NormalizedPath $Matches[1] }
+    foreach ($line in $instructions) {
+        if ($line -cmatch $copyPattern) { $copied += Get-NormalizedPath $Matches['source'] }
     }
     if ($copied.Count -eq 0) { continue }
 
+    # -cnotmatch: the shell runs `dotnet`, never `DOTNET`, and the .sh twin's grep keeps the case too.
     $roots = @()
-    foreach ($line in (Join-Continuation $lines)) {
-        if ($line -notmatch 'dotnet restore') { continue }
+    foreach ($line in $instructions) {
+        if ($line -cnotmatch $restorePattern) { continue }
         foreach ($m in [regex]::Matches($line, '[A-Za-z0-9_./-]+\.csproj')) { $roots += $m.Value }
     }
     $roots = $roots | Sort-Object -Unique

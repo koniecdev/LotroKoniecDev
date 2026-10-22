@@ -33,6 +33,7 @@ COPY_APP='COPY ["src/App/App.csproj", "src/App/"]'
 COPY_LIB='COPY ["src/Lib/Lib.csproj", "src/Lib/"]'
 COPY_CORE='COPY ["src/Core/Core.csproj", "src/Core/"]'
 RESTORE_APP='RUN dotnet restore "src/App/App.csproj"'
+RESTORE_CORE='RUN dotnet restore "src/Core/Core.csproj"'
 
 fail() {
     printf '✗ [%s] %s\n' "$LABEL" "$1"
@@ -64,6 +65,12 @@ write_dockerfile() {
     shift 2
     mkdir -p "$(dirname "$tree/$path")"
     printf '%s\n' 'FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build' 'WORKDIR /src' "$@" 'COPY . .' > "$tree/$path"
+}
+
+# $1 = file. Rewrites every line end as CRLF, the way a Windows editor saves the file.
+to_crlf() {
+    awk '{ printf "%s\r\n", $0 }' "$1" > "$1.crlf"
+    mv "$1.crlf" "$1"
 }
 
 # Writes the one Dockerfile that copies the whole App -> Lib -> Core closure.
@@ -103,6 +110,12 @@ run_suite() {
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/App.dockerfile "$COPY_APP" "$COPY_LIB" "$COPY_CORE" "$RESTORE_APP"
     run_tree 2 "a Dockerfile renamed out of the Dockerfile* pattern is not checked, so the tree fails" "$tree"
+    expect_in_output "nothing was checked"
+
+    # The Linux image build reads App.CSPROJ as a different file, so this Dockerfile copies no project.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile 'COPY ["src/App/App.CSPROJ", "src/App/"]' "$RESTORE_APP"
+    run_tree 2 "a COPY of a .CSPROJ file in capitals is not a project file" "$tree"
     expect_in_output "nothing was checked"
 
     # Each of these holds a COPY list with no restore, which fails the run if the guard reads it.
@@ -209,6 +222,36 @@ run_suite() {
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" $'\342\200\203'"$COPY_LIB" $'\302\240'"$COPY_CORE" "$RESTORE_APP"
     run_tree 0 "a COPY line that starts with a Unicode space is read, as Docker reads it" "$tree"
 
+    # Docker reads each of these COPY shapes like the plain one (#1213).
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'copy ["src/Lib/Lib.csproj", "src/Lib/"]' "$COPY_CORE" "$RESTORE_APP"
+    run_tree 0 "a COPY keyword in lowercase is read" "$tree"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY --link ["src/Lib/Lib.csproj", "src/Lib/"]' "$COPY_CORE" "$RESTORE_APP"
+    run_tree 0 "a COPY line with --link before the list is read" "$tree"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY --chown=app --chmod=644 ["src/Lib/Lib.csproj", "src/Lib/"]' "$COPY_CORE" "$RESTORE_APP"
+    run_tree 0 "a COPY line with --chown=app and a second flag before the list is read" "$tree"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" $'COPY\t["src/Lib/Lib.csproj", "src/Lib/"]' \
+        'COPY   [ "src/Core/Core.csproj" , "src/Core/" ]' "$RESTORE_APP"
+    run_tree 0 "a COPY line with a tab, several spaces or spaces inside the list is read" "$tree"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY src/Lib/Lib.csproj src/Lib/' "$COPY_CORE" "$RESTORE_APP"
+    run_tree 0 "a COPY line in shell form is read" "$tree"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'ADD ["src/Lib/Lib.csproj", "src/Lib/"]' "$COPY_CORE" "$RESTORE_APP"
+    run_tree 0 "an ADD line copies a project file like COPY" "$tree"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY --link \' '    ["src/Lib/Lib.csproj", "src/Lib/"]' "$COPY_CORE" "$RESTORE_APP"
+    run_tree 0 "a COPY line split over a continuation is read" "$tree"
+
     # --- a missing COPY line fails ---
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_LIB" "$RESTORE_APP"
@@ -250,6 +293,75 @@ run_suite() {
         $'\342\200\203# RUN dotnet restore "src/App/App.csproj"'
     run_tree 1 "a restore commented out after a Unicode space is not a restore root" "$tree"
     expect_in_output "never runs"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_LIB" "$COPY_CORE" 'RUN DOTNET RESTORE "src/App/App.csproj"'
+    run_tree 1 "a restore in capitals is not a restore root, as the shell keeps the case" "$tree"
+    expect_in_output "never runs"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "# $COPY_LIB" "$COPY_CORE" "$RESTORE_APP"
+    run_tree 1 "a commented-out COPY line copies nothing" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_LIB" "ONBUILD $COPY_CORE" "$RESTORE_APP"
+    run_tree 1 "an ONBUILD COPY line copies nothing in this build" "$tree"
+    expect_in_output "missing: src/Core/Core.csproj"
+
+    # Read only in its JSON form, this Dockerfile would be skipped as one that copies whole folders.
+    tree="$(new_tree)"
+    write_complete_dockerfile "$tree"
+    write_dockerfile "$tree" Dockerfile.shell 'COPY src/App/App.csproj src/App/' 'COPY src/Lib/Lib.csproj src/Lib/' "$RESTORE_APP"
+    run_tree 1 "a Dockerfile whose COPY lines are all in shell form is checked, not skipped" "$tree"
+    expect_in_output "missing: src/Core/Core.csproj"
+
+    # Each Dockerfile below also restores App, and only App needs Lib. A guard that does not see
+    # that restore needs only Core, and passes a Dockerfile with no COPY line for Lib (#1213).
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" "$RESTORE_CORE" $'RUN dotnet\trestore "src/App/App.csproj"'
+    run_tree 1 "a restore with a tab between dotnet and restore is read" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" "$RESTORE_CORE" 'RUN dotnet   restore "src/App/App.csproj"'
+    run_tree 1 "a restore with several spaces between dotnet and restore is read" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" "$RESTORE_CORE" 'RUN ["dotnet", "restore", "src/App/App.csproj"]'
+    run_tree 1 "a restore in exec form is read" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" "$RESTORE_CORE" 'RUN dotnet restore \  ' '    "src/App/App.csproj"'
+    run_tree 1 "a backslash with spaces after it still joins the next line" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" "$RESTORE_CORE" 'RUN dotnet restore \' '' '   ' '    "src/App/App.csproj"'
+    run_tree 1 "an empty line inside a continuation is skipped, as Docker skips it" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" "$RESTORE_CORE" 'RUN dotnet restore \' $'\302\240' '    "src/App/App.csproj"'
+    run_tree 1 "a line of only a Unicode space inside a continuation is skipped too" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    # An exit of 2 here would mean the COPY lines were not read either.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" "$RESTORE_CORE" 'RUN dotnet restore \' '    "src/App/App.csproj"'
+    to_crlf "$tree/src/App/Dockerfile"
+    run_tree 1 "a continuation in a file with CRLF line ends joins the next line" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    # The guard reads the COPY lines and the restore roots through one reader. It must not drop a file
+    # that holds a NUL byte as binary.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_LIB" "$RESTORE_APP"
+    printf '# \000\n' >> "$tree/src/App/Dockerfile"
+    run_tree 1 "a Dockerfile that holds a NUL byte is still read" "$tree"
+    expect_in_output "missing: src/Core/Core.csproj"
 }
 
 sh_runner="$TMP_ROOT/run-sh.sh"

@@ -2651,6 +2651,52 @@ hung_fetch_gone "a process of the merged-PR fetch outlived its time limit after 
 [ ! -e "$TMP_ROOT/asked" ] || fail "nothing may ask for an answer" "$(cat "$TMP_ROOT/asked")"
 cases=$((cases + 1)); printf '✓ work-ticket: a stop during the merged-PR fetch is only noted, and the ticket stays merged\n'
 
+# In a run started by hand in a terminal, a Ctrl-C also kills the child that reads the job list, so
+# a running fetch looked ended, and the worker then waited for it with no limit. No test can send a
+# signal at that moment, so a `jobs` function kills its own read once, when $TMP_ROOT/jobs-hook
+# appears. It uses KILL: a read that dies of HUP sends HUP on to every job, the fetch included.
+reset_fixtures
+rm -f "$TMP_ROOT/ssh-calls" "$TMP_ROOT/asked" "$TMP_ROOT/hung-ssh" "$TMP_ROOT/clock-skew" \
+    "$TMP_ROOT/jobs-hook" "$TMP_ROOT/jobs-hook.fired"
+fixture_issue 242 maintainer OWNER
+began=$SECONDS
+(
+    export JOBS_HOOK="$TMP_ROOT/jobs-hook"
+    jobs() {
+        if mv "$JOBS_HOOK" "$JOBS_HOOK.fired" 2>/dev/null; then kill -KILL "$(exec sh -c 'echo "$PPID"')"; fi
+        builtin jobs "$@"
+    }
+    export -f jobs
+    exec env PATH="$REMOTE_BIN:$PATH" FAKE_SSH_HANG=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged-remote.sh" \
+        "$WORK" 242 "$TMP_ROOT/run" > "$TMP_ROOT/killed-read.out" 2>&1
+) &
+worker=$!
+for _ in $(seq 1 100); do [ -s "$TMP_ROOT/hung-ssh" ] && break; "$REAL_SLEEP" 0.1; done
+[ -s "$TMP_ROOT/hung-ssh" ] || { kill -KILL "$worker" 2>/dev/null || true
+    fail "the merged head's fetch never reached the ssh that never answers" "$(cat "$TMP_ROOT/killed-read.out")"; }
+touch "$TMP_ROOT/jobs-hook"
+for _ in $(seq 1 100); do [ -e "$TMP_ROOT/jobs-hook.fired" ] && break; "$REAL_SLEEP" 0.05; done
+[ -e "$TMP_ROOT/jobs-hook.fired" ] || { kill -KILL "$worker" 2>/dev/null || true; hung_fetch_gone "a process of the merged-PR fetch outlived a killed worker"
+    fail "the worker never read its job list during the fetch, so the case proves nothing" "$(cat "$TMP_ROOT/killed-read.out")"; }
+"$TMP_ROOT/jump-clock" "$MERGED_FETCH_LIMIT_SEC"
+for _ in $(seq 1 300); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
+if alive "$worker"; then
+    kill -KILL "$worker"
+    hung_fetch_gone "a process of the merged-PR fetch outlived a killed worker"
+    fail "work-ticket did not end within 30 seconds of the fetch's time limit" "$(cat "$TMP_ROOT/killed-read.out")"
+fi
+killed_read_rc=0
+wait "$worker" || killed_read_rc=$?
+rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/jobs-hook.fired"
+git -C "$FAKE_REPO" remote set-url origin "$TMP_ROOT/origin.git"
+LAST_OUTPUT="$(cat "$TMP_ROOT/killed-read.out")"
+[ $(( SECONDS - began )) -lt $(( MERGED_FETCH_LIMIT_SEC / 2 )) ] \
+    || fail "a killed read of the job list should not make the worker wait for the hung fetch" "$LAST_OUTPUT"
+[ "$killed_read_rc" -eq 13 ] || fail "a killed read during the merged-PR fetch should keep exit 13, got $killed_read_rc" "$LAST_OUTPUT"
+expect_in_output "the fetch of PR #7242's head did not end within ${MERGED_FETCH_LIMIT_SEC}s — ended it"
+expect_meta 242 outcome=merged pr=7242 'unmerged=?'
+hung_fetch_gone "a process of the merged-PR fetch outlived its time limit after a killed read"
+cases=$((cases + 1)); printf '✓ work-ticket: a killed read of the job list does not hide a running merged-PR fetch\n'
 
 # A summary with no link finds the merged PR by its branch.
 behavior "$TMP_ROOT/done-merged-unlinked.sh" 'ticket="${PWD##*ticket-}"

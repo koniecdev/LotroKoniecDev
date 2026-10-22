@@ -893,11 +893,14 @@ sleeper=""
 # closing `)`, so the trap's own text does not parse: the trap fails with "unexpected EOF while
 # looking for matching `)'", never runs, and the stop is lost (#1064). Bash parses a backquote in
 # the child, so the trap runs after the command.
+# In a run started by hand in a terminal, a Ctrl-C also reaches that child, which then dies and
+# lists nothing. A job that still runs would look ended, and the wait for it has no limit, so a
+# killed read is read again (#1165). A read only looks at the list, so it never signals a number.
 job_running() {
     local running
     [ -n "$1" ] || return 1
     # shellcheck disable=SC2006  # backquotes on purpose, see above
-    running=`jobs -rp`
+    running=`jobs -rp` || running=`jobs -rp`
     case $'\n'"$running"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac
     return 1
 }

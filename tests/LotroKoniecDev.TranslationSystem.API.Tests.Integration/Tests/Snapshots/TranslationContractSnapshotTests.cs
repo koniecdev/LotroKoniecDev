@@ -95,7 +95,7 @@ public sealed class TranslationContractSnapshotTests : IAsyncLifetime
         string body = await ApiSnapshot.IndentAsync(response);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.HateoasJson);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.HateoasJson);
         await ApiSnapshot.ShouldServeUnescapedUtf8Async(response, SeededPolish);
         await Verifier.Verify(body, "json");
     }
@@ -171,7 +171,7 @@ public sealed class TranslationContractSnapshotTests : IAsyncLifetime
         string body = await ApiSnapshot.IndentAsync(response);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.Json);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.Json);
         await Verifier.Verify(body, "json");
     }
 

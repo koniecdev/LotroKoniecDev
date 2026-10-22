@@ -58,7 +58,7 @@ internal static class ApiSnapshot
     /// </summary>
     public static async Task ShouldServeUnescapedUtf8Async(HttpResponseMessage response, string expectedLiteral)
     {
-        response.Content.Headers.ContentType?.CharSet.ShouldBeNull();
+        response.Content.Headers.ContentType.ShouldNotBeNull().CharSet.ShouldBeNull();
 
         string rawBody = await response.Content.ReadAsStringAsync();
         rawBody.ShouldContain(expectedLiteral);

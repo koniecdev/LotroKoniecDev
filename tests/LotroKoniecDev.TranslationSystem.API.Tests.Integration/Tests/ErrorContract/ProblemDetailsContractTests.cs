@@ -47,7 +47,7 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(ProblemJson);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(ProblemJson);
         problem.GetProperty("status").GetInt32().ShouldBe(400);
         problem.GetProperty("title").GetString().ShouldBe("Validation Error");
         problem.GetProperty("errorCode").GetString().ShouldBe("Translations.UnsupportedLanguage");
@@ -66,7 +66,7 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(ProblemJson);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(ProblemJson);
         problem.GetProperty("title").GetString().ShouldBe("Validation Error");
         problem.GetProperty("errorCode").GetString().ShouldBe("GameVersionEntity.LotroNotationVersion.InvalidFormat");
     }
@@ -122,7 +122,7 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(ProblemJson);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(ProblemJson);
         problem.GetProperty("status").GetInt32().ShouldBe(404);
         problem.GetProperty("title").GetString().ShouldBe("Not Found");
         problem.GetProperty("errorCode").GetString().ShouldBe("TranslationEntity.NotFound");
@@ -158,7 +158,7 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(ProblemJson);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(ProblemJson);
         problem.GetProperty("status").GetInt32().ShouldBe(422);
         problem.GetProperty("title").GetString().ShouldBe("Data Conflict");
         problem.GetProperty("errorCode").GetString().ShouldBe("GameVersionEntity.LotroNotationVersion.AlreadyTaken");
@@ -177,7 +177,7 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
         // Assert: authentication failures share the problem+json surface, but the domain errorCode
         // extension is added only by ErrorExtensions.ToProblemDetails for Result failures, never here.
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(ProblemJson);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(ProblemJson);
         problem.GetProperty("status").GetInt32().ShouldBe(401);
         problem.TryGetProperty("errorCode", out _).ShouldBeFalse();
     }
@@ -194,7 +194,7 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(ProblemJson);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(ProblemJson);
         problem.GetProperty("status").GetInt32().ShouldBe(403);
         problem.TryGetProperty("errorCode", out _).ShouldBeFalse();
     }

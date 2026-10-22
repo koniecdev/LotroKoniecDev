@@ -40,7 +40,7 @@ public sealed class ContentNegotiationTests
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(expectedMediaType);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(expectedMediaType);
         // Vary: Accept is appended regardless of the negotiated representation so shared caches treat
         // the two media types as distinct entities.
         response.Headers.Vary.ShouldContain("Accept");

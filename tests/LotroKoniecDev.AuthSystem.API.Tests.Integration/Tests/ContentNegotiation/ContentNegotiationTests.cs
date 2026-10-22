@@ -45,14 +45,12 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.HateoasJson);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.HateoasJson);
         response.Headers.Vary.ShouldContain("Accept");
 
         JsonNode? body = await ReadBodyAsJsonNodeAsync(response);
         body.ShouldNotBeNull();
-        JsonArray? links = body["links"]?.AsArray();
-        links.ShouldNotBeNull();
-        links.Count.ShouldBeGreaterThan(0);
+        body["links"].ShouldNotBeNull().AsArray().Count.ShouldBeGreaterThan(0);
     }
 
     [Fact]
@@ -71,7 +69,7 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.Json);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.Json);
         response.Headers.Vary.ShouldContain("Accept");
 
         JsonNode? body = await ReadBodyAsJsonNodeAsync(response);
@@ -95,7 +93,7 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.Json);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.Json);
         response.Headers.Vary.ShouldContain("Accept");
 
         JsonNode? body = await ReadBodyAsJsonNodeAsync(response);
@@ -119,7 +117,7 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.Json);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.Json);
 
         JsonNode? body = await ReadBodyAsJsonNodeAsync(response);
         body.ShouldNotBeNull();
@@ -143,11 +141,11 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.HateoasJson);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.HateoasJson);
 
         JsonNode? body = await ReadBodyAsJsonNodeAsync(response);
         body.ShouldNotBeNull();
-        body["links"]?.AsArray().Count.ShouldBeGreaterThan(0);
+        body["links"].ShouldNotBeNull().AsArray().Count.ShouldBeGreaterThan(0);
     }
 
     [Fact]
@@ -167,7 +165,7 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.Json);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.Json);
 
         JsonNode? body = await ReadBodyAsJsonNodeAsync(response);
         body.ShouldNotBeNull();
@@ -191,8 +189,11 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.HateoasJson);
-        (await ReadBodyAsJsonNodeAsync(response))!["links"]?.AsArray().Count.ShouldBeGreaterThan(0);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.HateoasJson);
+
+        JsonNode? body = await ReadBodyAsJsonNodeAsync(response);
+        body.ShouldNotBeNull();
+        body["links"].ShouldNotBeNull().AsArray().Count.ShouldBeGreaterThan(0);
     }
 
     [Fact]
@@ -237,7 +238,7 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.Json);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.Json);
         (await ReadBodyAsJsonNodeAsync(response))!.AsObject().ContainsKey("links").ShouldBeFalse();
     }
 

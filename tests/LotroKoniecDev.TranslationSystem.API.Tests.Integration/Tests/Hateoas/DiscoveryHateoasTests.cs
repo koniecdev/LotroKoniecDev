@@ -216,7 +216,7 @@ public sealed class DiscoveryHateoasTests
         using HttpResponseMessage httpResponse = await client.SendAsync(request);
 
         httpResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-        httpResponse.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.HateoasJson);
+        httpResponse.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.HateoasJson);
 
         return (await httpResponse.Content.ReadFromJsonAsync<DiscoveryResponse>(JsonOptions))!;
     }

@@ -282,7 +282,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
             (await httpResponse.Content.ReadFromJsonAsync<CollectionResponse<GameVersionResponse>>(JsonOptions))!;
 
         // Assert: plain JSON still deserializes; no links anywhere.
-        httpResponse.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.Json);
+        httpResponse.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.Json);
         response.Links.Count.ShouldBe(0);
         response.Items.First(i => i.Id == id).Links.Count.ShouldBe(0);
     }
@@ -295,7 +295,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
 
         HttpResponseMessage response = await client.SendAsync(request);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.HateoasJson);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(MediaTypes.HateoasJson);
 
         return (await response.Content.ReadFromJsonAsync<T>(JsonOptions))!;
     }

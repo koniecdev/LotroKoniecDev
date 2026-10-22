@@ -31,7 +31,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Messaging;
 /// left to automatic recovery, and only the host's stop ends it.
 /// On a fake clock it pins which pause follows which failure (#1223): the pause before a temporary
 /// failure goes back on the queue, chosen by the broker's retry count, no pause once the delivery limit
-/// is reached, the first pause after an unexpected error, and the pause between connection attempts.
+/// is reached, the first pause after an unexpected error, a stop during a pause, the pause between
+/// connection attempts and the watch interval.
 /// </summary>
 public sealed class EmailDispatchConsumerTests
 {
@@ -188,12 +189,42 @@ public sealed class EmailDispatchConsumerTests
         await _clock.WaitForNextTimerAsync();
         _clock.Advance(firstPause - OneMillisecond);
         int wakeUpsJustBeforeThePauseEnds = _clock.WakeUps;
+        int channelCallsJustBeforeThePauseEnds = channel.ReceivedCalls().Count();
         _clock.Advance(OneMillisecond);
         await delivering.WaitAsync(WaitLimit);
 
-        // Assert
+        // Assert: the channel hears nothing until the pause runs out, and then the delivery goes back
         wakeUpsJustBeforeThePauseEnds.ShouldBe(0);
+        channelCallsJustBeforeThePauseEnds.ShouldBe(0);
         await channel.Received(1).BasicRejectAsync(DeliveryTag, true, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// A stop in the middle of a pause settles nothing: the broker puts the unacknowledged delivery back
+    /// when the channel closes, and the next start handles it.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OnDeliveredAsync_WhenTheHostStopsDuringThePause_ShouldEndWithoutSettlingTheDelivery(
+        bool theProcessorThrows)
+    {
+        // Arrange
+        using CancellationTokenSource stopping = new();
+        IChannel channel = Substitute.For<IChannel>();
+        await using ServiceProvider services = BuildDeliveryServices(new StubEmailProcessor(() => theProcessorThrows
+            ? throw new InvalidOperationException("A bug in the processor.")
+            : Result.Failure(SmtpRelayDown)));
+        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(services);
+
+        // Act
+        Task delivering = consumer.OnDeliveredAsync(channel, Delivery(0), stopping.Token);
+        await _clock.WaitForNextTimerAsync();
+        await stopping.CancelAsync();
+        await delivering.WaitAsync(WaitLimit);
+
+        // Assert: no ack and no reject
+        channel.ReceivedCalls().ShouldBeEmpty();
     }
 
     public static TheoryData<Exception> AttachFailures() => new()
@@ -249,7 +280,7 @@ public sealed class EmailDispatchConsumerTests
                 Task.FromException<IConnection>(failure),
                 Task.FromException<IConnection>(failure),
                 Task.FromResult(broker.Connection));
-        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(connectionFactory);
+        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(connectionFactory, TimeSpan.FromMinutes(1));
 
         // Act
         await consumer.StartAsync(CancellationToken.None);
@@ -260,6 +291,33 @@ public sealed class EmailDispatchConsumerTests
         // Assert: no pause ended early, and the attempt after the last pause attached
         wakeUpsJustBeforeEachPauseEnds.ShouldBe([0, 1, 2, 3]);
         attached.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The consumer looks once per watch interval, and a channel that is closed on two looks in a row
+    /// makes it attach again.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_WhenTheChannelStaysClosed_ShouldAttachAgainOnlyAfterTwoWatchIntervals()
+    {
+        // Arrange
+        TimeSpan watchInterval = TimeSpan.FromSeconds(30);
+        BrokerStub closedChannel = new(false);
+        BrokerStub openChannel = new(true);
+        IConnectionFactory connectionFactory = Substitute.For<IConnectionFactory>();
+        connectionFactory.CreateConnectionAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(closedChannel.Connection), Task.FromResult(openChannel.Connection));
+        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(connectionFactory, watchInterval);
+
+        // Act
+        await consumer.StartAsync(CancellationToken.None);
+        IReadOnlyList<int> wakeUpsJustBeforeEachLook = await WaitThroughAsync([watchInterval, watchInterval]);
+        bool attachedAgain = await openChannel.WaitUntilConsumingAsync();
+        await StopWithinLimitAsync(consumer);
+
+        // Assert: no look came early, and the second closed look attached again
+        wakeUpsJustBeforeEachLook.ShouldBe([0, 1]);
+        attachedAgain.ShouldBeTrue();
     }
 
     [Fact]
@@ -394,14 +452,14 @@ public sealed class EmailDispatchConsumerTests
             [TimeSpan.Zero],
             TimeSpan.FromMinutes(1));
 
-    private EmailDispatchConsumer CreateConsumerOnTheFakeClock(IConnectionFactory connectionFactory) =>
+    private EmailDispatchConsumer CreateConsumerOnTheFakeClock(IConnectionFactory connectionFactory, TimeSpan watchInterval) =>
         new(
             connectionFactory,
             Substitute.For<IServiceScopeFactory>(),
             _clock,
             NullLogger<EmailDispatchConsumer>.Instance,
             EmailDispatchConsumer.ConnectBackoffs,
-            TimeSpan.FromMinutes(1));
+            watchInterval);
 
     /// <summary>
     /// What a delivery needs from the container: the processor for <see cref="MessageType"/> and the
@@ -439,8 +497,8 @@ public sealed class EmailDispatchConsumerTests
     }
 
     /// <summary>
-    /// Lets each pause the consumer starts run out in turn, and returns how many pauses had ended a
-    /// millisecond before each one was due. A pause that is too long never starts the next one, and
+    /// Lets each pause or watch interval the consumer starts run out in turn, and returns how many had
+    /// ended a millisecond before each one was due. One that is too long never starts the next one, and
     /// <see cref="TimerWatchingTimeProvider.WaitForNextTimerAsync"/> then fails the test.
     /// </summary>
     private async Task<IReadOnlyList<int>> WaitThroughAsync(IEnumerable<TimeSpan> pauses)

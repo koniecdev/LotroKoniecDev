@@ -816,8 +816,8 @@ structure.
   uses **Microsoft.Extensions.TimeProvider.Testing** (`FakeTimeProvider`) for code that waits on a
   `TimeProvider` timer, which no substitute can fire — ADR-0059, and so does
   `TranslationSystem.API.Tests.Unit` for the account event consumer's pauses — #1223;
-  `AuthSystem.API.Tests.Integration`
-  uses it to stop OpenIddict's clock, so stored token dates can be compared exactly — #1014;
+  `AuthSystem.API.Tests.Integration` uses it to stop OpenIddict's clock, so stored token dates can be
+  compared exactly — #1014;
   `Frontend.Tests.Unit` uses it for the time limit of the sign-out's own revoke — #964, and with
   `Frontend.Tests.Integration` for the access token's refresh time — #1025.)
 - **Snapshots pin shape; they never replace an assert (#571).** Three tools, three jobs: **golden

@@ -13,7 +13,6 @@ using LotroKoniecDev.SharedKernel.IntegrationEvents;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.Tests.Shared;
-using LotroKoniecDev.TranslationSystem.API;
 using LotroKoniecDev.TranslationSystem.API.Features.Translators;
 using LotroKoniecDev.TranslationSystem.API.Messaging;
 
@@ -29,8 +28,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Messaging;
 /// recovery, and only the host's stop ends it.
 /// On a fake clock it pins which pause follows which failure (#1223): the pause after each database
 /// outage in a row, the last pause for every outage after it, the start over after a success, the
-/// Error level once the pauses stop growing, the first pause after any other error, and the pause
-/// between connection attempts.
+/// Error level once the pauses stop growing, the first pause after any other error, a stop during a
+/// pause, the pause between connection attempts and the watch interval.
 /// </summary>
 public sealed class AccountErasedConsumerTests
 {
@@ -221,6 +220,63 @@ public sealed class AccountErasedConsumerTests
         wakeUpsJustBeforeThePauseEnds.ShouldBe(0);
         channelCallsJustBeforeThePauseEnds.ShouldBe(0);
         await channel.Received(1).BasicNackAsync(DeliveryTag, false, true, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task OnDeliveredAsync_WhenTheErasureFailsForAnotherReason_ShouldRejectOnlyOnceThePauseRanOut()
+    {
+        // Arrange
+        IChannel channel = Substitute.For<IChannel>();
+        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
+            new StubEraseHandler(() => throw new InvalidOperationException("bug")),
+            NullLoggerFactory.Instance);
+
+        // Act
+        Task delivering = consumer.OnDeliveredAsync(channel, Delivery(), CancellationToken.None);
+        await _clock.WaitForNextTimerAsync();
+        _clock.Advance(TimeSpan.FromSeconds(30) - OneMillisecond);
+        int wakeUpsJustBeforeThePauseEnds = _clock.WakeUps;
+        int channelCallsJustBeforeThePauseEnds = channel.ReceivedCalls().Count();
+        _clock.Advance(OneMillisecond);
+        await delivering.WaitAsync(WaitLimit);
+
+        // Assert: the channel hears nothing until the pause runs out, and then the message goes back
+        wakeUpsJustBeforeThePauseEnds.ShouldBe(0);
+        channelCallsJustBeforeThePauseEnds.ShouldBe(0);
+        await channel.Received(1).BasicRejectAsync(DeliveryTag, true, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// A stop in the middle of a pause settles nothing: the broker puts the unacknowledged delivery back
+    /// when the channel closes, and the next start handles it.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OnDeliveredAsync_WhenTheHostStopsDuringThePause_ShouldEndWithoutSettlingTheDelivery(
+        bool theDatabaseIsUnavailable)
+    {
+        // Arrange
+        using CancellationTokenSource stopping = new();
+        IChannel channel = Substitute.For<IChannel>();
+        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
+            new StubEraseHandler(() =>
+            {
+                Exception failure = theDatabaseIsUnavailable
+                    ? new TimeoutException("database down")
+                    : new InvalidOperationException("bug");
+                throw failure;
+            }),
+            NullLoggerFactory.Instance);
+
+        // Act
+        Task delivering = consumer.OnDeliveredAsync(channel, Delivery(), stopping.Token);
+        await _clock.WaitForNextTimerAsync();
+        await stopping.CancelAsync();
+        await delivering.WaitAsync(WaitLimit);
+
+        // Assert: no ack, no nack and no reject
+        channel.ReceivedCalls().ShouldBeEmpty();
     }
 
     /// <summary>
@@ -514,7 +570,7 @@ public sealed class AccountErasedConsumerTests
                 Task.FromException<IConnection>(failure),
                 Task.FromException<IConnection>(failure),
                 Task.FromResult(broker.Connection));
-        using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(connectionFactory);
+        using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(connectionFactory, TimeSpan.FromMinutes(1));
 
         // Act
         await consumer.StartAsync(CancellationToken.None);
@@ -525,6 +581,33 @@ public sealed class AccountErasedConsumerTests
         // Assert: no pause ended early, and the attempt after the last pause attached
         wakeUpsJustBeforeEachPauseEnds.ShouldBe([0, 1, 2, 3]);
         attached.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The consumer looks once per watch interval, and a channel that is closed on two looks in a row
+    /// makes it attach again.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_WhenTheChannelStaysClosed_ShouldAttachAgainOnlyAfterTwoWatchIntervals()
+    {
+        // Arrange
+        TimeSpan watchInterval = TimeSpan.FromSeconds(30);
+        BrokerStub closedChannel = new(false);
+        BrokerStub openChannel = new(true);
+        IConnectionFactory connectionFactory = Substitute.For<IConnectionFactory>();
+        connectionFactory.CreateConnectionAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(closedChannel.Connection), Task.FromResult(openChannel.Connection));
+        using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(connectionFactory, watchInterval);
+
+        // Act
+        await consumer.StartAsync(CancellationToken.None);
+        IReadOnlyList<int> wakeUpsJustBeforeEachLook = await WaitThroughAsync([watchInterval, watchInterval]);
+        bool attachedAgain = await openChannel.WaitUntilConsumingAsync();
+        await StopWithinLimitAsync(consumer);
+
+        // Assert: no look came early, and the second closed look attached again
+        wakeUpsJustBeforeEachLook.ShouldBe([0, 1]);
+        attachedAgain.ShouldBeTrue();
     }
 
     [Fact]
@@ -748,7 +831,7 @@ public sealed class AccountErasedConsumerTests
     /// <summary>
     /// A consumer whose pauses between connection attempts are the real ones, on the fake clock.
     /// </summary>
-    private AccountErasedConsumer CreateConsumerOnTheFakeClock(IConnectionFactory connectionFactory) =>
+    private AccountErasedConsumer CreateConsumerOnTheFakeClock(IConnectionFactory connectionFactory, TimeSpan watchInterval) =>
         new(
             connectionFactory,
             Substitute.For<IServiceScopeFactory>(),
@@ -756,7 +839,7 @@ public sealed class AccountErasedConsumerTests
             NullLogger<AccountErasedConsumer>.Instance,
             AccountErasedConsumer.ConnectBackoffs,
             [TimeSpan.Zero],
-            TimeSpan.FromMinutes(1));
+            watchInterval);
 
     /// <summary>
     /// Hands the consumer one delivery per pause, lets each pause run out, and returns how many pauses
@@ -784,8 +867,8 @@ public sealed class AccountErasedConsumerTests
     }
 
     /// <summary>
-    /// Lets each pause the consumer starts run out in turn, and returns how many pauses had ended a
-    /// millisecond before each one was due. A pause that is too long never starts the next one, and
+    /// Lets each pause or watch interval the consumer starts run out in turn, and returns how many had
+    /// ended a millisecond before each one was due. One that is too long never starts the next one, and
     /// <see cref="TimerWatchingTimeProvider.WaitForNextTimerAsync"/> then fails the test.
     /// </summary>
     private async Task<IReadOnlyList<int>> WaitThroughAsync(IEnumerable<TimeSpan> pauses)

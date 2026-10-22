@@ -5,8 +5,6 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 
@@ -15,7 +13,7 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 /// cookie, revokes the refresh token and ends the session at the auth server. The navbar's login and
 /// logout buttons point here (M3-02).
 /// </summary>
-internal static partial class AuthEndpointsExtensions
+internal static class AuthEndpointsExtensions
 {
     private const string EndSessionPath = "connect/logout";
     private const string IdTokenName = "id_token";
@@ -25,9 +23,12 @@ internal static partial class AuthEndpointsExtensions
     {
         public IEndpointRouteBuilder MapAuthEndpoints()
         {
+            // Every page that needs a login sends the visitor here, so this route must never need a login
+            // itself, or that redirect would loop.
             endpoints.MapGet(
                 AuthenticationDependencyInjectionExtensions.LoginPath,
-                LoginAsync);
+                LoginAsync)
+                .AllowAnonymous();
 
             endpoints.MapPost(
                 AuthenticationDependencyInjectionExtensions.LogoutPath,
@@ -43,38 +44,22 @@ internal static partial class AuthEndpointsExtensions
 
     /// <summary>
     /// The login route's handler, internal so a unit test can call it without a web host.
-    /// The OIDC challenge builds its redirect from the authority's discovery document, which the handler
-    /// fetches the first time it needs it. When the auth server is unreachable that fetch throws deep
-    /// inside <c>HandleChallenge</c> and the user gets a bare 500.
-    /// Fetching the document here first, through the same <see cref="IConfigurationManager{T}"/> the
-    /// handler uses, turns an outage into an honest "login temporarily unavailable" page with a 503.
-    /// When auth is up, the challenge below reuses the cached document and redirects exactly as
-    /// before.
+    /// While the sign-in server is down and the website has no copy of its discovery document yet, the
+    /// challenge cannot build its redirect, so the route answers 503 and the status-code pages show the
+    /// "login temporarily unavailable" page (#311). With a copy, the visitor is still sent on
+    /// (#1208). Every page that needs
+    /// a login sends the visitor here first, through the cookie scheme's challenge (#1153).
     /// </summary>
     internal static async Task<IResult> LoginAsync(
         HttpContext context,
         string? returnUrl,
-        IOptionsMonitor<OpenIdConnectOptions> openIdConnectOptionsMonitor,
-        ILoggerFactory loggerFactory)
+        SignInAvailability signInAvailability)
     {
         string redirectUri = LocalReturnUrl.Sanitize(returnUrl) ?? "/";
 
-        IConfigurationManager<OpenIdConnectConfiguration>? configurationManager = openIdConnectOptionsMonitor
-            .Get(OpenIdConnectDefaults.AuthenticationScheme)
-            .ConfigurationManager;
-
-        if (configurationManager is not null)
+        if (!await signInAvailability.CanRedirectToSignInAsync(context.RequestAborted))
         {
-            try
-            {
-                await configurationManager.GetConfigurationAsync(context.RequestAborted);
-            }
-            catch (Exception exception)
-            {
-                ILogger logger = loggerFactory.CreateLogger(typeof(AuthEndpointsExtensions).FullName!);
-                LogOidcAuthorityUnreachable(logger, exception);
-                return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
-            }
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
 
         return Results.Challenge(
@@ -141,10 +126,4 @@ internal static partial class AuthEndpointsExtensions
 
         return Results.Redirect(endSessionUrl);
     }
-
-    [LoggerMessage(
-        EventId = 1,
-        Level = LogLevel.Warning,
-        Message = "OIDC authority unreachable during login challenge; serving the login-unavailable page.")]
-    private static partial void LogOidcAuthorityUnreachable(ILogger logger, Exception exception);
 }

@@ -329,9 +329,11 @@ HATEOAS (np. `approve` widoczne tylko dla admina) — `ListTranslations.cs:172`.
 
 ### 8.1 Schemat: cookies + OIDC
 `AuthenticationDependencyInjectionExtensions.cs:55-83`. Dwa schematy:
-- **Cookie** (`DefaultScheme`) — sesja usera po zalogowaniu (`.lotrokoniecdev.auth`, HttpOnly, SameSite
-  Lax, 8 h sliding);
-- **OpenIdConnect** (`DefaultChallengeScheme` + `DefaultSignOutScheme`) — challenge do `auth-api`.
+- **Cookie** (`DefaultScheme` + `DefaultChallengeScheme`) — sesja usera po zalogowaniu
+  (`.lotrokoniecdev.auth`, HttpOnly, SameSite Lax, 8 h sliding). Strona, która wymaga logowania, robi
+  challenge cookie, czyli 302 na `/auth/login?ReturnUrl=…` (`LoginPath`), nigdy prosto do `auth-api`
+  (#1153);
+- **OpenIdConnect** (`DefaultSignOutScheme`) — challenge do `auth-api` robi jawnie `/auth/login`.
 
 Po zalogowaniu user nosi **cookie**, nie token w przeglądarce; tokeny (access/refresh/id) leżą w
 zaszyfrowanej sesji po stronie serwera (`SaveTokens = true`).
@@ -350,7 +352,12 @@ zaszyfrowanej sesji po stronie serwera (`SaveTokens = true`).
 ### 8.3 Login / logout flow
 `AuthEndpointsExtensions.cs`:
 - **Login**: `GET /auth/login?returnUrl=…` → `Results.Challenge` na schemat OIDC → 302 do
-  `connect/authorize`. `returnUrl` waliduje `IsLocalUrl` (anti open-redirect).
+  `connect/authorize`. `returnUrl` waliduje `LocalReturnUrl.Sanitize` (anti open-redirect). Najpierw
+  `SignInAvailability` wczytuje discovery document przez configuration manager handlera OIDC; gdy
+  `auth-api` nie odpowiada, a frontend nie ma jeszcze kopii tego dokumentu, trasa zwraca 503 i
+  status-code pages pokazują „Logowanie chwilowo niedostępne” (#311). Z kopią w pamięci użytkownik
+  trafia dalej do `auth-api` (#1208). Tędy idzie każda strona wymagająca logowania (#1153), a także nieudany powrót z
+  logowania (`OnRemoteFailure`), gdy `auth-api` jest nieosiągalne.
 - **Logout**: `POST /auth/logout` → `SignOutAsync(cookie)`, potem frontend sam rewokuje swój refresh
   token w `connect/revoke` (serwer–serwer, `RefreshTokenRevoker`, #964), a na koniec redirect na
   `connect/logout` z `id_token_hint` + `post_logout_redirect_uri` (RP-initiated end-session).

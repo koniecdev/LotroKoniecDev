@@ -59,8 +59,7 @@ public sealed class AuthEndpointsExtensionsTests
         IResult result = await AuthEndpointsExtensions.LoginAsync(
             new DefaultHttpContext(),
             "/dashboard",
-            CreateOptionsMonitor(configurationManager),
-            NullLoggerFactory.Instance);
+            CreateSignInAvailability(configurationManager));
 
         StatusCodeHttpResult statusResult = result.ShouldBeOfType<StatusCodeHttpResult>();
         statusResult.StatusCode.ShouldBe(StatusCodes.Status503ServiceUnavailable);
@@ -72,8 +71,7 @@ public sealed class AuthEndpointsExtensionsTests
         IResult result = await AuthEndpointsExtensions.LoginAsync(
             new DefaultHttpContext(),
             "/dashboard",
-            CreateOptionsMonitor(CreateReachableConfigurationManager()),
-            NullLoggerFactory.Instance);
+            CreateSignInAvailability(CreateReachableConfigurationManager()));
 
         ChallengeHttpResult challenge = result.ShouldBeOfType<ChallengeHttpResult>();
         challenge.AuthenticationSchemes.ShouldHaveSingleItem()
@@ -98,8 +96,7 @@ public sealed class AuthEndpointsExtensionsTests
         IResult result = await AuthEndpointsExtensions.LoginAsync(
             new DefaultHttpContext(),
             returnUrl,
-            CreateOptionsMonitor(CreateReachableConfigurationManager()),
-            NullLoggerFactory.Instance);
+            CreateSignInAvailability(CreateReachableConfigurationManager()));
 
         ChallengeHttpResult challenge = result.ShouldBeOfType<ChallengeHttpResult>();
         challenge.Properties.ShouldNotBeNull();
@@ -114,10 +111,55 @@ public sealed class AuthEndpointsExtensionsTests
         IResult result = await AuthEndpointsExtensions.LoginAsync(
             new DefaultHttpContext(),
             "/dashboard",
-            CreateOptionsMonitor(configurationManager: null),
-            NullLoggerFactory.Instance);
+            CreateSignInAvailability(configurationManager: null));
 
         result.ShouldBeOfType<ChallengeHttpResult>();
+    }
+
+    /// <summary>
+    /// A browser that has left while the document loads is not an outage, so it gets no warning and no 503:
+    /// the abort goes up like any other cancelled request. The real configuration manager runs its fetch
+    /// without the caller's token, so the fetch here never ends on its own. The time limit turns a wait that
+    /// never ends into a failed test instead of a hung run.
+    /// </summary>
+    [Fact]
+    public async Task LoginAsync_WhenTheBrowserHasLeftAndTheDiscoveryFetchNeverEnds_LetsTheAbortGoUp()
+    {
+        using CancellationTokenSource browserLeft = new();
+        await browserLeft.CancelAsync();
+        IConfigurationManager<OpenIdConnectConfiguration> configurationManager =
+            Substitute.For<IConfigurationManager<OpenIdConnectConfiguration>>();
+        configurationManager.GetConfigurationAsync(Arg.Any<CancellationToken>())
+            .Returns(new TaskCompletionSource<OpenIdConnectConfiguration>().Task);
+
+        await Should.ThrowAsync<OperationCanceledException>(() => AuthEndpointsExtensions.LoginAsync(
+                new DefaultHttpContext { RequestAborted = browserLeft.Token },
+                "/dashboard",
+                CreateSignInAvailability(configurationManager))
+            .WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    /// <summary>
+    /// The manager ignores the caller's token, so a fetch can fail with its own error after the browser left.
+    /// That is still the sign-in server being down, never an unhandled error.
+    /// </summary>
+    [Fact]
+    public async Task LoginAsync_WhenTheDiscoveryFetchFailsAfterTheBrowserLeft_ReturnsServiceUnavailable()
+    {
+        using CancellationTokenSource browserLeft = new();
+        await browserLeft.CancelAsync();
+        IConfigurationManager<OpenIdConnectConfiguration> configurationManager =
+            Substitute.For<IConfigurationManager<OpenIdConnectConfiguration>>();
+        configurationManager.GetConfigurationAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<OpenIdConnectConfiguration>(
+                new InvalidOperationException("IDX20803: Unable to obtain configuration from the authority.")));
+
+        IResult result = await AuthEndpointsExtensions.LoginAsync(
+            new DefaultHttpContext { RequestAborted = browserLeft.Token },
+            "/dashboard",
+            CreateSignInAvailability(configurationManager));
+
+        result.ShouldBeOfType<StatusCodeHttpResult>().StatusCode.ShouldBe(StatusCodes.Status503ServiceUnavailable);
     }
 
     [Fact]
@@ -543,6 +585,10 @@ public sealed class AuthEndpointsExtensionsTests
             .Returns(new OpenIdConnectOptions { ConfigurationManager = configurationManager });
         return optionsMonitor;
     }
+
+    private static SignInAvailability CreateSignInAvailability(
+        IConfigurationManager<OpenIdConnectConfiguration>? configurationManager) =>
+        new(CreateOptionsMonitor(configurationManager), NullLogger<SignInAvailability>.Instance);
 
     private static IConfigurationManager<OpenIdConnectConfiguration> CreateReachableConfigurationManager()
     {

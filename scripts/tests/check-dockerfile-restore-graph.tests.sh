@@ -67,6 +67,12 @@ write_dockerfile() {
     printf '%s\n' 'FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build' 'WORKDIR /src' "$@" 'COPY . .' > "$tree/$path"
 }
 
+# $1 = file, $2 = line. Puts the line above the FROM line, where Docker reads a parser directive.
+prepend_line() {
+    { printf '%s\n' "$2"; cat "$1"; } > "$1.new"
+    mv "$1.new" "$1"
+}
+
 # $1 = file. Rewrites every line end as CRLF, the way a Windows editor saves the file.
 to_crlf() {
     awk '{ printf "%s\r\n", $0 }' "$1" > "$1.crlf"
@@ -117,6 +123,23 @@ run_suite() {
     write_dockerfile "$tree" src/App/Dockerfile 'COPY ["src/App/App.CSPROJ", "src/App/"]' "$RESTORE_APP"
     run_tree 2 "a COPY of a .CSPROJ file in capitals is not a project file" "$tree"
     expect_in_output "nothing was checked"
+
+    # --- a Dockerfile the guard cannot read the way Docker does is refused (#1213) ---
+    # Docker joins the line that ends in a backtick, so it restores App, and only App needs Lib.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" "$RESTORE_CORE" \
+        'RUN dotnet restore `' '    "src/App/App.csproj"'
+    prepend_line "$tree/src/App/Dockerfile" '# escape=`'
+    run_tree 2 "a Dockerfile that sets a backtick as its escape character fails the run" "$tree"
+    expect_in_output "sets a backtick as its escape character"
+
+    # Docker reads the COPY line as part of the RUN above it, so it copies nothing.
+    tree="$(new_tree)"
+    write_complete_dockerfile "$tree"
+    write_dockerfile "$tree" Dockerfile.escape 'RUN echo hi `' "$COPY_LIB" "$RESTORE_APP"
+    prepend_line "$tree/Dockerfile.escape" '#  ESCAPE = `'
+    run_tree 2 "an escape directive in capitals and with spaces is refused too" "$tree"
+    expect_in_output "Dockerfile.escape sets a backtick"
 
     # Each of these holds a COPY list with no restore, which fails the run if the guard reads it.
     tree="$(new_tree)"
@@ -252,6 +275,29 @@ run_suite() {
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY --link \' '    ["src/Lib/Lib.csproj", "src/Lib/"]' "$COPY_CORE" "$RESTORE_APP"
     run_tree 0 "a COPY line split over a continuation is read" "$tree"
 
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY "src/Lib/Lib.csproj" src/Lib/' \
+        "COPY 'src/Core/Core.csproj' src/Core/" "$RESTORE_APP"
+    run_tree 0 "a quoted source in a shell-form COPY line is read" "$tree"
+
+    # Docker joins on a single trailing backslash only, so the COPY line below stays its own line.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'RUN echo hi \\' "$COPY_LIB" "$COPY_CORE" "$RESTORE_APP"
+    run_tree 0 "a line that ends in two backslashes does not join the next line" "$tree"
+
+    tree="$(new_tree)"
+    write_complete_dockerfile "$tree"
+    write_dockerfile "$tree" Dockerfile.escape "$COPY_APP" "$COPY_LIB" "$COPY_CORE" "$RESTORE_APP"
+    prepend_line "$tree/Dockerfile.escape" '# escape=\'
+    run_tree 0 "an escape directive that keeps the backslash is not refused" "$tree"
+    expect_in_output "2 Dockerfile(s)"
+
+    tree="$(new_tree)"
+    write_complete_dockerfile "$tree"
+    : > "$tree/Dockerfile.empty"
+    run_tree 0 "an empty Dockerfile next to a checked one is skipped" "$tree"
+    expect_in_output "1 Dockerfile(s)"
+
     # --- a missing COPY line fails ---
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_LIB" "$RESTORE_APP"
@@ -348,7 +394,7 @@ run_suite() {
     run_tree 1 "a line of only a Unicode space inside a continuation is skipped too" "$tree"
     expect_in_output "missing: src/Lib/Lib.csproj"
 
-    # An exit of 2 here would mean the COPY lines were not read either.
+    # Without the CR dropped first, the backslash is not the last character, so the line does not join.
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" "$RESTORE_CORE" 'RUN dotnet restore \' '    "src/App/App.csproj"'
     to_crlf "$tree/src/App/Dockerfile"
@@ -362,6 +408,30 @@ run_suite() {
     printf '# \000\n' >> "$tree/src/App/Dockerfile"
     run_tree 1 "a Dockerfile that holds a NUL byte is still read" "$tree"
     expect_in_output "missing: src/Core/Core.csproj"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" "$RESTORE_CORE" 'RUN dotnet "restore" "src/App/App.csproj"'
+    run_tree 1 "a restore with quotes around restore is read" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    # Docker ends a line only at LF, so this COPY is part of the RUN and copies nothing.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" $'RUN echo hi\r'"$COPY_LIB" "$COPY_CORE" "$RESTORE_APP"
+    run_tree 1 "a CR in the middle of a line does not start a new line" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    # Docker splits an instruction on ASCII spaces only, so this COPY has one word and copies nothing.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" $'COPY src/Lib/Lib.csproj\302\240src/Lib/' "$COPY_CORE" "$RESTORE_APP"
+    run_tree 1 "a Unicode space does not split a COPY line" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    # Both twins count a line with no visible ASCII character as empty, so the join goes on and takes
+    # the COPY line in. Docker would end the join at the Polish word.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'RUN echo hi \' 'żółć' "$COPY_LIB" "$COPY_CORE" "$RESTORE_APP"
+    run_tree 1 "a line with no visible ASCII character inside a continuation counts as empty in both twins" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
 }
 
 sh_runner="$TMP_ROOT/run-sh.sh"

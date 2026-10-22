@@ -35,14 +35,23 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
-# A COPY or ADD instruction and its first source, in every shape Docker accepts: the keyword in any
-# case (Docker lowers it), then any flag words such as `--link` or `--chown=app`, then a JSON list or
-# the shell form. Only the first source is read, because this repo copies one project file per line.
-# Used with -cmatch, so `.csproj` keeps its case, as in the .sh twin.
-$copyPattern = '^\s*(?i:COPY|ADD)(\s+--\S*)*\s+(\[\s*"(?<source>[^"]+\.csproj)"|(?<source>[^\s\["]\S*\.csproj)\s)'
-# `dotnet restore` as the shell runs it, with any spaces or tabs between the two words, or as an
-# exec-form RUN ["dotnet", "restore", ...] list.
-$restorePattern = 'dotnet(\s+|"\s*,\s*")restore'
+# The patterns are written as in the .sh twin, so the two stay easy to compare. There, [[:space:]]
+# means the six ASCII spaces (the C locale), and [^!-~] means any character that is not visible
+# ASCII. Docker splits an instruction on ASCII spaces only. .NET has no [:space:] class, and its \s
+# also takes a Unicode space, so each pattern turns [:space:] into the ASCII spaces.
+$asciiSpace = ' \t\n\v\f\r'
+
+# A COPY or ADD instruction and its first source: the keyword in any case (Docker lowers it), then
+# any flag words such as `--link` or `--chown=app`, then a JSON list or the shell form. Only the
+# first source is read, because this repo copies one project file per line. Used with -cmatch, so
+# `.csproj` keeps its case, as in the .sh twin.
+$copyPattern = '^[^!-~]*([Cc][Oo][Pp][Yy]|[Aa][Dd][Dd])([[:space:]]+--[^[:space:]]*)*[[:space:]]+(\[[[:space:]]*"(?<source>[^"]+\.csproj)"|["'']?(?<source>[^[:space:]\["''][^[:space:]"'']*\.csproj)["'']?[[:space:]])' -replace '\[:space:\]', $asciiSpace
+# `dotnet restore` as the shell runs it: any spaces or tabs between the two words, and quotes around
+# `restore` if there are any. Or an exec-form RUN ["dotnet", "restore", ...] list.
+$restorePattern = 'dotnet([[:space:]]+["'']?|"[[:space:]]*,[[:space:]]*")restore' -replace '\[:space:\]', $asciiSpace
+# When an escape directive at the top of the file sets a backtick, Docker joins the lines that end in
+# a backtick instead of a backslash. Used with -match, which ignores case, like grep -i in the .sh twin.
+$escapeBacktickPattern = '^[^!-~]*#[^!-~]*escape[[:space:]]*=[[:space:]]*`' -replace '\[:space:\]', $asciiSpace
 
 function Get-NormalizedPath {
     # Collapse "a/b/../c" to "a/c" without touching the filesystem — the referenced project may
@@ -111,15 +120,18 @@ function Get-RestoreClosure {
 }
 
 function Join-Continuation {
-    # Returns the Dockerfile one instruction per line, read by the rules of Docker's own parser
-    # (BuildKit, frontend/dockerfile/parser/parser.go). The COPY list and the restore roots are both
-    # read from this output, so they cannot disagree on what a comment or a continuation is.
-    # Get-Content already drops the CR of a CRLF line end.
+    # Returns the Dockerfile one instruction per line. It follows the rules of Docker's own parser that
+    # decide where an instruction starts and ends (BuildKit, frontend/dockerfile/parser/parser.go).
+    # The COPY list and the restore roots are both read from this output, so they cannot disagree on
+    # what a comment or a continuation is. The caller has already split the lines on LF and dropped
+    # each CR at a line end.
     #   - A line whose first visible character is `#` is a comment. Comments go first: a
     #     commented-out `# dotnet restore Foo.csproj` must not add a restore root to a Dockerfile
     #     that restores nothing.
-    #   - A `\` at the end of a line, with any spaces or tabs after it, joins the next line on.
-    #   - Inside such a join, an empty line is skipped and the join goes on.
+    #   - A `\` at the end of a line, with any spaces or tabs after it, joins the next line on. A `\\`
+    #     there does not, as in Docker.
+    #   - Inside such a join, an empty line is skipped and the join goes on. As in the .sh twin, a
+    #     line with no visible ASCII character counts as empty.
     # AllowEmptyString: a Mandatory string[] otherwise rejects the blank lines every Dockerfile has.
     param(
         [Parameter(Mandatory)]
@@ -132,9 +144,9 @@ function Join-Continuation {
     $buffer = ''
     $joining = $false
     foreach ($line in $Lines) {
-        if ($line -match '^\s*#') { continue }
-        if ($joining -and $line -match '^\s*$') { continue }
-        if ($line -match '\\[ \t]*$') { $buffer += $line -replace '\\[ \t]*$', ''; $joining = $true; continue }
+        if ($line -match '^[^!-~]*#') { continue }
+        if ($joining -and $line -match '^[^!-~]*$') { continue }
+        if ($line -match '(^|[^\\])\\[ \t]*$') { $buffer += $line -replace '\\[ \t]*$', ''; $joining = $true; continue }
         $joined += ($buffer + $line)
         $buffer = ''
         $joining = $false
@@ -187,14 +199,24 @@ $checked = 0
 foreach ($dockerfile in $dockerfiles) {
     $relative = $dockerfile.FullName.Substring($repoRoot.Length + 1) -replace '\\', '/'
     try {
-        # @(...): an empty file gives $null, which the Mandatory parameter of Join-Continuation refuses.
-        $lines = @(Get-Content -LiteralPath $dockerfile.FullName -ErrorAction Stop)
+        # -Raw, because Get-Content would also end a line at a lone CR, and Docker ends one only at LF.
+        # [string] turns the $null of an empty file into ''.
+        [string] $text = Get-Content -LiteralPath $dockerfile.FullName -Raw -ErrorAction Stop
     }
     catch {
         Write-Host "Docker restore-graph guard: could not read ${relative}: $($_.Exception.Message)"
         exit 2
     }
+    # As in the .sh twin: NUL characters go, and so does the CR of a CRLF line end.
+    $lines = @((($text -replace "`0", '') -split "`n") -replace '\r+$', '')
     $instructions = @(Join-Continuation $lines)
+
+    # Docker takes the directive only at the top of the file. The guard refuses it on any comment
+    # line: a false alarm costs less than a restore root that Join-Continuation would hide.
+    if ($lines -match $escapeBacktickPattern) {
+        Write-Host "Docker restore-graph guard: $relative sets a backtick as its escape character, and this guard joins lines only on a backslash."
+        exit 2
+    }
 
     $copied = @()
     foreach ($line in $instructions) {

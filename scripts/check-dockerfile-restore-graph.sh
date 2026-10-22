@@ -42,13 +42,17 @@ export LC_ALL=C
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
 REPO_ROOT="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 
-# A COPY or ADD instruction up to its first source, in every shape Docker accepts: the keyword in
-# any case (Docker lowers it), then any flag words such as `--link` or `--chown=app`. Only the first
-# source is read, because this repo copies one project file per line.
+# A COPY or ADD instruction up to its first source: the keyword in any case (Docker lowers it), then
+# any flag words such as `--link` or `--chown=app`. Docker splits an instruction on ASCII spaces only,
+# and so does [[:space:]] in the C locale. Only the first source is read, because this repo copies one
+# project file per line.
 COPY_PREFIX='^[^!-~]*([Cc][Oo][Pp][Yy]|[Aa][Dd][Dd])([[:space:]]+--[^[:space:]]*)*[[:space:]]+'
-# `dotnet restore` as the shell runs it, with any spaces or tabs between the two words, or as an
-# exec-form RUN ["dotnet", "restore", …] list.
-RESTORE_COMMAND='dotnet([[:space:]]+|"[[:space:]]*,[[:space:]]*")restore'
+# `dotnet restore` as the shell runs it: any spaces or tabs between the two words, and quotes around
+# `restore` if there are any. Or an exec-form RUN ["dotnet", "restore", …] list.
+RESTORE_COMMAND="dotnet([[:space:]]+[\"']?|\"[[:space:]]*,[[:space:]]*\")restore"
+# When an escape directive at the top of the file sets a backtick, Docker joins the lines that end in
+# a backtick instead of a backslash.
+ESCAPE_BACKTICK='^[^!-~]*#[^!-~]*escape[[:space:]]*=[[:space:]]*`'
 
 SEEN=""
 MISSING_ON_DISK=""
@@ -110,16 +114,19 @@ EOF
     return 0
 }
 
-# Prints the Dockerfile one instruction per line, read by the rules of Docker's own parser
-# (BuildKit, frontend/dockerfile/parser/parser.go). The COPY list and the restore roots are both
-# read from this output, so they cannot disagree on what a comment or a continuation is.
-#   - A CR at the end of a line is dropped, so a file with CRLF line ends reads like one with LF.
+# Prints the Dockerfile one instruction per line. It follows the rules of Docker's own parser that
+# decide where an instruction starts and ends (BuildKit, frontend/dockerfile/parser/parser.go). The
+# COPY list and the restore roots are both read from this output, so they cannot disagree on what a
+# comment or a continuation is.
+#   - Lines end at LF. A CR at the end of a line is dropped, so CRLF line ends read like LF.
 #   - A line whose first visible character is `#` is a comment. Comments go first: a commented-out
 #     `# dotnet restore Foo.csproj` must not add a restore root to a Dockerfile that restores nothing.
-#   - A `\` at the end of a line, with any spaces or tabs after it, joins the next line on.
+#   - A `\` at the end of a line, with any spaces or tabs after it, joins the next line on. A `\\`
+#     there does not, as in Docker.
 #   - Inside such a join, an empty line is skipped and the join goes on. A line with no visible ASCII
 #     character counts as empty, because the C locale cannot tell a Unicode space from other
-#     non-ASCII text. Such a line holds nothing this guard reads.
+#     non-ASCII text. Such a line holds nothing this guard reads. The cost is a false alarm when the
+#     line is text and the next line is a COPY, which the join then hides.
 # NUL bytes are dropped first, because bash cannot keep one in a variable.
 join_continuations() {
     tr -d '\000' < "$1" | awk '{
@@ -127,7 +134,7 @@ join_continuations() {
         sub(/\r+$/, "", line)
         if (line ~ /^[^!-~]*#/) next
         if (joining && line ~ /^[^!-~]*$/) next
-        if (line ~ /\\[ \t]*$/) { sub(/\\[ \t]*$/, "", line); buf = buf line; joining = 1; next }
+        if (line ~ /(^|[^\\])\\[ \t]*$/) { sub(/\\[ \t]*$/, "", line); buf = buf line; joining = 1; next }
         print buf line
         buf = ""
         joining = 0
@@ -156,9 +163,16 @@ while IFS= read -r dockerfile; do
         exit 2
     fi
 
+    # Docker takes the directive only at the top of the file. The guard refuses it on any comment
+    # line: a false alarm costs less than a restore root that the join above would hide.
+    if grep -aqiE "$ESCAPE_BACKTICK" "$dockerfile"; then
+        echo "Docker restore-graph guard: $rel sets a backtick as its escape character, and this guard joins lines only on a backslash." >&2
+        exit 2
+    fi
+
     copied="$(printf '%s\n' "$instructions" | sed -nE \
         -e "s/${COPY_PREFIX}\[[[:space:]]*\"([^\"]+\.csproj)\".*/\3/p" \
-        -e "s/${COPY_PREFIX}([^[:space:][\"][^[:space:]]*\.csproj)[[:space:]].*/\3/p")"
+        -e "s/${COPY_PREFIX}[\"']?([^[:space:][\"'][^[:space:]\"']*\.csproj)[\"']?[[:space:]].*/\3/p")"
     [ -z "$copied" ] && continue
 
     roots="$(printf '%s\n' "$instructions" \

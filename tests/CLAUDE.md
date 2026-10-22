@@ -383,5 +383,5 @@ apply call) to be covered.
   in Production (#1187)
 - Every in-memory host factory overrides `CreateHost` with `HostStartOrder.BuildAndStart`
   (`tests/Shared/HostStartOrder.cs`, linked into the three in-memory host suites), and a new
-  `WebApplicationFactory` does the same. Without it, a test that expects a refused start can get
-  `ObjectDisposedException` instead of the app's error in a busy full run. The class says why (#1040)
+  `WebApplicationFactory` does the same. Without it, a test that expects a refused start flakes in a
+  busy full run (#1040). `HostStartOrderTests` checks the start order on every run

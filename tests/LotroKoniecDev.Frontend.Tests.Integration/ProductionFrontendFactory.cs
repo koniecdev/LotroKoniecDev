@@ -12,7 +12,7 @@ namespace LotroKoniecDev.Frontend.Tests.Integration;
 /// like the staging box's. The values only have to pass the startup checks, because nothing calls out
 /// during these tests.
 /// </summary>
-public sealed class ProductionFrontendFactory : WebApplicationFactory<Program>
+public class ProductionFrontendFactory : WebApplicationFactory<Program>
 {
     // Built rather than written out, so no secret scanner mistakes test data for a key.
     private static readonly string CallerKey = new('k', 40);
@@ -34,9 +34,6 @@ public sealed class ProductionFrontendFactory : WebApplicationFactory<Program>
         builder.UseSetting("AuthSystem:CallerKey", CallerKey);
     }
 
-    /// <summary>
-    /// A refused start ends in the app's own error, whatever the timing of the app's thread (#1040).
-    /// </summary>
     protected override IHost CreateHost(IHostBuilder builder) => HostStartOrder.BuildAndStart(builder);
 
     protected override void Dispose(bool disposing)

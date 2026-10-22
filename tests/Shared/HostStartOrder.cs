@@ -4,13 +4,15 @@ using Microsoft.Extensions.Hosting;
 namespace LotroKoniecDev.Tests.Shared;
 
 /// <summary>
-/// Starts a <c>WebApplicationFactory</c> host so that a refused start always ends in the app's own error
-/// (#1040). The app starts on a thread of its own, and when its start fails, that thread disposes the
-/// host. The test host reads the host's services before it waits for the start, so a test thread that
-/// came late got an <see cref="ObjectDisposedException"/> instead of the app's error. Here the app waits
-/// with its start until the test host has read them. It replaces the default <c>CreateHost</c>, which also
-/// sets the port of a host started with <c>UseKestrel(port)</c>; no suite does that. Linked into the three
-/// in-memory host suites.
+/// Starts a <c>WebApplicationFactory</c> host so that a refused start ends in the app's own error (#1040).
+/// The app starts on a thread of its own. When its <c>RunAsync</c> fails, that thread disposes the host.
+/// The test host reads the host's services before it waits for the start, so a test thread that came late
+/// got an <see cref="ObjectDisposedException"/> instead of the app's error. Here the app waits with its
+/// start until the test host has read them. A refusal before <c>RunAsync</c>, in a seed step for example,
+/// needs no hold, because nothing disposes the host there. An <c>await using</c> on the app in a
+/// Program.cs would change that. This replaces the default <c>CreateHost</c>, which also sets the port of
+/// a host started with <c>UseKestrel(port)</c>. No suite does that. Linked into the three in-memory host
+/// suites.
 /// </summary>
 internal static class HostStartOrder
 {
@@ -58,8 +60,8 @@ internal static class HostStartOrder
         public async Task WaitForStartAsync(CancellationToken cancellationToken)
         {
             // No token: a cancelled start must wait too, or the host could be gone before the test host reads it.
-            await _testHostIsWaiting;
-            await _appLifetime.WaitForStartAsync(cancellationToken);
+            await _testHostIsWaiting.ConfigureAwait(false);
+            await _appLifetime.WaitForStartAsync(cancellationToken).ConfigureAwait(false);
         }
 
         public Task StopAsync(CancellationToken cancellationToken) => _appLifetime.StopAsync(cancellationToken);

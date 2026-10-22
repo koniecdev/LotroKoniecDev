@@ -305,7 +305,7 @@ fetch_merged_head() {
         # shellcheck disable=SC2006  # backquotes on purpose, see job_running
         now=`date +%s`
         if [ "$now" -ge "$deadline" ]; then
-            stop_session
+            stop_session 5
             fetch_rc=1
             log "the fetch of PR #$pr_num's head did not end within ${MERGED_FETCH_LIMIT_SEC}s — ended it"
             break
@@ -895,12 +895,16 @@ sleeper=""
 # the child, so the trap runs after the command.
 # In a run started by hand in a terminal, a Ctrl-C also reaches that child, which then dies and
 # lists nothing. A job that still runs would look ended, and the wait for it has no limit, so a
-# killed read is read again (#1165). A read only looks at the list, so it never signals a number.
+# killed read is read again, up to five times in all (#1165). A read only looks at the list, so it
+# never signals a number.
 job_running() {
-    local running
+    local running tries=1
     [ -n "$1" ] || return 1
     # shellcheck disable=SC2006  # backquotes on purpose, see above
-    running=`jobs -rp` || running=`jobs -rp`
+    until running=`jobs -rp`; do
+        [ "$tries" -lt 5 ] || break
+        tries=$((tries + 1))
+    done
     case $'\n'"$running"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac
     return 1
 }
@@ -909,10 +913,12 @@ session_running() {
     job_running "$pid"
 }
 
+# stop_session [grace] — <grace> is how many seconds the command gets to end its own children
+# (default 20, for claude).
 stop_session() {
     if [ -n "$pid" ]; then
         if session_running; then
-            end_session_tree "$pid" 20
+            end_session_tree "$pid" "${1:-20}"
         fi
         wait "$pid" 2>/dev/null || true
         pid=""
@@ -994,7 +1000,7 @@ elif [ -z "$merged_pr" ]; then
 fi
 
 # The ticket's PR was merged while a usage limit held its attempt (#1096). From here a stop is only
-# noted (see `ending`): the ticket ends in moments anyway.
+# noted (see `ending`): the ticket ends soon anyway, at most about a minute later (#1165).
 if [ -n "$merged_pr" ]; then
     ending=1
     pr_num="$merged_pr"

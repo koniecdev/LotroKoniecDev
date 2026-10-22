@@ -2380,8 +2380,9 @@ expect_meta 172 outcome=merged pr=7172 'unmerged=?'
 # OpenSSH does for ProxyJump. Each call is logged with the name of the command that started it.
 # FAKE_SSH_SKEW=<seconds> jumps the clock that far once the transfer has started (jump-clock,
 # below), and the answer then comes a second later. With FAKE_SSH_HANG=1 no answer ever comes, as
-# when the network drops or a security key waits for a touch: the fake ignores TERM too, writes its
-# own number, its child's and its group's to $TMP_ROOT/hung-ssh, and gives up after a minute (#1165).
+# when the network drops or a security key waits for a touch: the fake ignores TERM too, and gives
+# up after a minute. With either one it writes its own number, its child's (or -) and its group's to
+# $TMP_ROOT/fetch-ssh (#1165).
 # The fakes for these cases sit in a folder that only merged_remote_case puts on PATH, so no other
 # case reaches them.
 REMOTE_BIN="$TMP_ROOT/remote-bin"
@@ -2421,12 +2422,13 @@ fi
 if [ "\${FAKE_SSH_HANG:-}" = 1 ]; then
     trap '' TERM
     "$REAL_SLEEP" 60 &
-    echo "\$\$ \$! \$(ps -o pgid= -p \$\$ | tr -d ' ')" > "$TMP_ROOT/hung-ssh"
+    echo "\$\$ \$! \$(ps -o pgid= -p \$\$ | tr -d ' ')" > "$TMP_ROOT/fetch-ssh"
     [ -z "\${FAKE_SSH_SKEW:-}" ] || "$TMP_ROOT/jump-clock" "\$FAKE_SSH_SKEW"
     wait
     exit 255
 fi
 if [ -n "\${FAKE_SSH_SKEW:-}" ]; then
+    echo "\$\$ - \$(ps -o pgid= -p \$\$ | tr -d ' ')" > "$TMP_ROOT/fetch-ssh"
     "$TMP_ROOT/jump-clock" "\$FAKE_SSH_SKEW"
     "$REAL_SLEEP" 1
 fi
@@ -2457,6 +2459,7 @@ fi
 STUB
 # jump-clock <seconds> — sets the clock's skew once the worker has read the clock again. The worker
 # reads it to set the fetch's deadline and then on every poll, so that deadline never holds the jump.
+# The new skew replaces the file in one step, so a read never finds it empty.
 cat > "$TMP_ROOT/jump-clock" <<STUB
 #!/usr/bin/env bash
 reads=\$(( \$(cat "$TMP_ROOT/clock-reads" 2>/dev/null | wc -l) ))
@@ -2464,7 +2467,8 @@ for _ in \$(seq 1 200); do
     [ \$(( \$(cat "$TMP_ROOT/clock-reads" 2>/dev/null | wc -l) )) -le "\$reads" ] || break
     "$REAL_SLEEP" 0.05
 done
-echo "\$1" > "$TMP_ROOT/clock-skew"
+echo "\$1" > "$TMP_ROOT/clock-skew.new"
+mv "$TMP_ROOT/clock-skew.new" "$TMP_ROOT/clock-skew"
 STUB
 ASKPASS="$TMP_ROOT/askpass"
 cat > "$ASKPASS" <<STUB
@@ -2566,12 +2570,12 @@ expect_meta 236 outcome=merged pr=7236 'unmerged=?'
 # key that waits for a touch. So the fetch has a time limit. FAKE_SSH_HANG and FAKE_SSH_SKEW are
 # above.
 
-# hung_fetch_gone <why> — the fake ssh of the hung fetch, its child and every process of the fetch's
-# group, the watchdog among them, are gone within five seconds. Otherwise they are killed and the
-# case fails with <why>.
-hung_fetch_gone() {
+# fetch_gone <why> — the fake ssh of the fetch, its child and every process of the fetch's group,
+# the watchdog among them, are gone within five seconds. Otherwise they are killed and the case
+# fails with <why>.
+fetch_gone() {
     local ssh_pid ssh_child group left process
-    read -r ssh_pid ssh_child group < "$TMP_ROOT/hung-ssh"
+    read -r ssh_pid ssh_child group < "$TMP_ROOT/fetch-ssh"
     for _ in $(seq 1 50); do
         left=""
         for process in "$ssh_pid" "$ssh_child" $(ps -A -o pid= -o pgid= | awk -v g="$group" '$2 == g { print $1 }'); do
@@ -2585,55 +2589,56 @@ hung_fetch_gone() {
     fail "$1" "still running:$left"
 }
 
-rm -f "$TMP_ROOT/hung-ssh" "$TMP_ROOT/clock-skew"
+rm -f "$TMP_ROOT/fetch-ssh" "$TMP_ROOT/clock-skew"
 began=$SECONDS
 merged_remote_case 238 "work-ticket: a merged-PR fetch that never answers ends at its time limit" \
     FAKE_SSH_HANG=1 FAKE_SSH_SKEW="$MERGED_FETCH_LIMIT_SEC"
 rm -f "$TMP_ROOT/clock-skew"
-[ -s "$TMP_ROOT/hung-ssh" ] \
+[ -s "$TMP_ROOT/fetch-ssh" ] \
     || fail "the merged head should be fetched over the ssh that never answers, or the case proves nothing" "$LAST_OUTPUT"
 [ $(( SECONDS - began )) -lt $(( MERGED_FETCH_LIMIT_SEC / 2 )) ] \
     || fail "the clock jump should end the fetch, not a real minute, or the case proves nothing" "$LAST_OUTPUT"
 expect_in_output "the fetch of PR #7238's head did not end within ${MERGED_FETCH_LIMIT_SEC}s — ended it"
 expect_in_output "but the loop could not check whether branch 238-fixture has commits the merge did not take"
 expect_meta 238 outcome=merged pr=7238 'unmerged=?'
-hung_fetch_gone "a process of the merged-PR fetch outlived its time limit"
+fetch_gone "a process of the merged-PR fetch outlived its time limit"
 
 # Ten seconds before the limit the fetch still runs, and its answer counts.
-rm -f "$TMP_ROOT/clock-skew"
+rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/fetch-ssh"
 merged_remote_case 239 "work-ticket: a merged-PR fetch that answers before its time limit still counts" \
     FAKE_SSH_SKEW="$(( MERGED_FETCH_LIMIT_SEC - 10 ))"
 rm -f "$TMP_ROOT/clock-skew"
-grep -q '^ssh .*git-upload-pack' "$TMP_ROOT/ssh-calls" 2>/dev/null \
+grep -q '^ssh .*git-upload-pack' "$TMP_ROOT/ssh-calls" 2>/dev/null && [ -s "$TMP_ROOT/fetch-ssh" ] \
     || fail "the merged head should be fetched over ssh, or the case proves nothing" "$LAST_OUTPUT"
 expect_in_output "PR #7239 was merged before the session ended — the work is on main"
 expect_meta 239 outcome=merged pr=7239 unmerged=0
+fetch_gone "a process of the merged-PR fetch outlived its normal end"
 
 # A stop during the fetch is only noted, as anywhere after the last session: the fetch goes on until
 # its time limit, and the ticket stays merged.
 reset_fixtures
-rm -f "$TMP_ROOT/ssh-calls" "$TMP_ROOT/asked" "$TMP_ROOT/hung-ssh" "$TMP_ROOT/clock-skew"
+rm -f "$TMP_ROOT/ssh-calls" "$TMP_ROOT/asked" "$TMP_ROOT/fetch-ssh" "$TMP_ROOT/clock-skew"
 fixture_issue 240 maintainer OWNER
 began=$SECONDS
 env PATH="$REMOTE_BIN:$PATH" FAKE_SSH_HANG=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged-remote.sh" \
     "$WORK" 240 "$TMP_ROOT/run" > "$TMP_ROOT/stopped-fetch.out" 2>&1 &
 worker=$!
-for _ in $(seq 1 100); do [ -s "$TMP_ROOT/hung-ssh" ] && break; "$REAL_SLEEP" 0.1; done
-[ -s "$TMP_ROOT/hung-ssh" ] || { kill -KILL "$worker" 2>/dev/null || true
+for _ in $(seq 1 100); do [ -s "$TMP_ROOT/fetch-ssh" ] && break; "$REAL_SLEEP" 0.1; done
+[ -s "$TMP_ROOT/fetch-ssh" ] || { kill -KILL "$worker" 2>/dev/null || true
     fail "the merged head's fetch never reached the ssh that never answers" "$(cat "$TMP_ROOT/stopped-fetch.out")"; }
-read -r hung_ssh _ < "$TMP_ROOT/hung-ssh"
+read -r hung_ssh _ < "$TMP_ROOT/fetch-ssh"
 kill -TERM "$worker" 2>/dev/null || true
 "$REAL_SLEEP" 0.5
 if ! alive "$worker" || ! alive "$hung_ssh"; then
     kill -KILL "$worker" 2>/dev/null || true
-    hung_fetch_gone "a process of the merged-PR fetch outlived a stopped worker"
+    fetch_gone "a process of the merged-PR fetch outlived a stopped worker"
     fail "a stop during the merged-PR fetch should only be noted" "$(cat "$TMP_ROOT/stopped-fetch.out")"
 fi
 "$TMP_ROOT/jump-clock" "$MERGED_FETCH_LIMIT_SEC"
 for _ in $(seq 1 300); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
 if alive "$worker"; then
     kill -KILL "$worker"
-    hung_fetch_gone "a process of the merged-PR fetch outlived a killed worker"
+    fetch_gone "a process of the merged-PR fetch outlived a killed worker"
     fail "work-ticket did not end within 30 seconds of the fetch's time limit" "$(cat "$TMP_ROOT/stopped-fetch.out")"
 fi
 stopped_rc=0
@@ -2647,23 +2652,29 @@ LAST_OUTPUT="$(cat "$TMP_ROOT/stopped-fetch.out")"
 expect_in_output "the fetch of PR #7240's head did not end within ${MERGED_FETCH_LIMIT_SEC}s — ended it"
 ! grep -q "STOPPED" <<< "$LAST_OUTPUT" || fail "a stop during the merged-PR fetch should only be noted" "$LAST_OUTPUT"
 expect_meta 240 outcome=merged pr=7240 'unmerged=?'
-hung_fetch_gone "a process of the merged-PR fetch outlived its time limit after a stop"
+fetch_gone "a process of the merged-PR fetch outlived its time limit after a stop"
 [ ! -e "$TMP_ROOT/asked" ] || fail "nothing may ask for an answer" "$(cat "$TMP_ROOT/asked")"
 cases=$((cases + 1)); printf '✓ work-ticket: a stop during the merged-PR fetch is only noted, and the ticket stays merged\n'
 
 # In a run started by hand in a terminal, a Ctrl-C also kills the child that reads the job list, so
 # a running fetch looked ended, and the worker then waited for it with no limit. No test can send a
-# signal at that moment, so a `jobs` function kills its own read once, when $TMP_ROOT/jobs-hook
-# appears. It uses KILL: a read that dies of HUP sends HUP on to every job, the fetch included.
+# signal at that moment, so a `jobs` function kills its own read while $TMP_ROOT/jobs-hook holds a
+# count above 0: here three reads in a row, as from a Ctrl-C pressed again. It uses KILL: with HUP
+# the fetch ended too in this setup, so the case proved nothing.
 reset_fixtures
-rm -f "$TMP_ROOT/ssh-calls" "$TMP_ROOT/asked" "$TMP_ROOT/hung-ssh" "$TMP_ROOT/clock-skew" \
-    "$TMP_ROOT/jobs-hook" "$TMP_ROOT/jobs-hook.fired"
+rm -f "$TMP_ROOT/ssh-calls" "$TMP_ROOT/asked" "$TMP_ROOT/fetch-ssh" "$TMP_ROOT/clock-skew" \
+    "$TMP_ROOT/jobs-hook"
 fixture_issue 242 maintainer OWNER
 began=$SECONDS
 (
     export JOBS_HOOK="$TMP_ROOT/jobs-hook"
     jobs() {
-        if mv "$JOBS_HOOK" "$JOBS_HOOK.fired" 2>/dev/null; then kill -KILL "$(exec sh -c 'echo "$PPID"')"; fi
+        local left
+        left="$(cat "$JOBS_HOOK" 2>/dev/null || echo 0)"
+        if [ "$left" -gt 0 ]; then
+            echo "$(( left - 1 ))" > "$JOBS_HOOK"
+            kill -KILL "$(exec sh -c 'echo "$PPID"')"
+        fi
         builtin jobs "$@"
     }
     export -f jobs
@@ -2671,23 +2682,25 @@ began=$SECONDS
         "$WORK" 242 "$TMP_ROOT/run" > "$TMP_ROOT/killed-read.out" 2>&1
 ) &
 worker=$!
-for _ in $(seq 1 100); do [ -s "$TMP_ROOT/hung-ssh" ] && break; "$REAL_SLEEP" 0.1; done
-[ -s "$TMP_ROOT/hung-ssh" ] || { kill -KILL "$worker" 2>/dev/null || true
+for _ in $(seq 1 100); do [ -s "$TMP_ROOT/fetch-ssh" ] && break; "$REAL_SLEEP" 0.1; done
+[ -s "$TMP_ROOT/fetch-ssh" ] || { kill -KILL "$worker" 2>/dev/null || true
     fail "the merged head's fetch never reached the ssh that never answers" "$(cat "$TMP_ROOT/killed-read.out")"; }
-touch "$TMP_ROOT/jobs-hook"
-for _ in $(seq 1 100); do [ -e "$TMP_ROOT/jobs-hook.fired" ] && break; "$REAL_SLEEP" 0.05; done
-[ -e "$TMP_ROOT/jobs-hook.fired" ] || { kill -KILL "$worker" 2>/dev/null || true; hung_fetch_gone "a process of the merged-PR fetch outlived a killed worker"
-    fail "the worker never read its job list during the fetch, so the case proves nothing" "$(cat "$TMP_ROOT/killed-read.out")"; }
+echo 3 > "$TMP_ROOT/jobs-hook"
+for _ in $(seq 1 100); do [ "$(cat "$TMP_ROOT/jobs-hook")" = 0 ] && break; "$REAL_SLEEP" 0.05; done
+# The worker stops reading once a killed read has hidden the fetch, so the count stays above 0.
+[ "$(cat "$TMP_ROOT/jobs-hook")" = 0 ] || { kill -KILL "$worker" 2>/dev/null || true; fetch_gone "a process of the merged-PR fetch outlived a killed worker"
+    fail "the worker stopped reading its job list after $(( 3 - $(cat "$TMP_ROOT/jobs-hook") )) killed read(s), so it waits for the hung fetch with no limit" \
+        "$(cat "$TMP_ROOT/killed-read.out")"; }
 "$TMP_ROOT/jump-clock" "$MERGED_FETCH_LIMIT_SEC"
 for _ in $(seq 1 300); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
 if alive "$worker"; then
     kill -KILL "$worker"
-    hung_fetch_gone "a process of the merged-PR fetch outlived a killed worker"
+    fetch_gone "a process of the merged-PR fetch outlived a killed worker"
     fail "work-ticket did not end within 30 seconds of the fetch's time limit" "$(cat "$TMP_ROOT/killed-read.out")"
 fi
 killed_read_rc=0
 wait "$worker" || killed_read_rc=$?
-rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/jobs-hook.fired"
+rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/jobs-hook"
 git -C "$FAKE_REPO" remote set-url origin "$TMP_ROOT/origin.git"
 LAST_OUTPUT="$(cat "$TMP_ROOT/killed-read.out")"
 [ $(( SECONDS - began )) -lt $(( MERGED_FETCH_LIMIT_SEC / 2 )) ] \
@@ -2695,7 +2708,7 @@ LAST_OUTPUT="$(cat "$TMP_ROOT/killed-read.out")"
 [ "$killed_read_rc" -eq 13 ] || fail "a killed read during the merged-PR fetch should keep exit 13, got $killed_read_rc" "$LAST_OUTPUT"
 expect_in_output "the fetch of PR #7242's head did not end within ${MERGED_FETCH_LIMIT_SEC}s — ended it"
 expect_meta 242 outcome=merged pr=7242 'unmerged=?'
-hung_fetch_gone "a process of the merged-PR fetch outlived its time limit after a killed read"
+fetch_gone "a process of the merged-PR fetch outlived its time limit after a killed read"
 cases=$((cases + 1)); printf '✓ work-ticket: a killed read of the job list does not hide a running merged-PR fetch\n'
 
 # A summary with no link finds the merged PR by its branch.

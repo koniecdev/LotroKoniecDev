@@ -23,7 +23,7 @@ Full project inventory (15 projects):
 | `LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` | TMS domain unit | nothing (pure); Stryker target |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handler/auth/endpoint unit (fake read-DbContext, stub accessor/provisioner) | nothing (pure) |
 | `LotroKoniecDev.Frontend.Tests.Unit` | Blazor SSR component + infrastructure unit (bUnit-style) | nothing (pure) |
-| `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api unit (cold-start seed retry policy) | nothing (pure) |
+| `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api unit (handlers, page models, middleware, services, settings checks, and when the timed jobs run — #948) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
 | `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |
 | `LotroKoniecDev.Frontend.Tests.Integration` | in-process Frontend host in Staging (`WebApplicationFactory`): startup checks such as the caller keys (#915), and the real OIDC sign-in against a stand-in token endpoint: the token answer it accepts (#1026) and the refresh time it stores (#1025); and a signed-in session's pages while the sign-in server is down right after a restart, plus the 401 that ends a session (#1058); and a visitor sent to sign in, or coming back from it, while the sign-in server is down, who must end on the login-unavailable page (#1153); and every page's form post while the page's data fails to load (#1122). Its csproj repeats one Frontend runtime switch (#1122) | nothing (no Docker); a temp keyring folder |
@@ -65,7 +65,9 @@ per-project `stryker-config.json` after reviewing the baseline report.
 - **Verify.Xunit** — snapshot tests for API response contracts and rendered SSR markup (see below)
 - **Microsoft.Extensions.TimeProvider.Testing** — `FakeTimeProvider`, for code that waits on a
   `TimeProvider` timer (`Task.Delay(…, timeProvider, …)`); a substitute cannot fire those timers.
-  Used by `AuthSystem.API.Tests.Unit` for the response-time floor (ADR-0059), and by
+  Used by `AuthSystem.API.Tests.Unit` for the response-time floor (ADR-0059) and for when the
+  three timed jobs run (#948: `Shared/TimerWatchingTimeProvider` says when a job has started its
+  timer and counts how often a timer went off), and by
   `AuthSystem.API.Tests.Integration` as OpenIddict's stopped clock, so the stored token dates can be
   compared exactly (#1014), and by `Frontend.Tests.Unit` for the time limit of the sign-out's own
   revoke (#964), and by both Frontend suites for the access token's refresh time (#1025)

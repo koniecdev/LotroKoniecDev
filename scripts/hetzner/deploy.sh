@@ -22,8 +22,9 @@
 #      #1085). A broker that does not answer only prints a warning: it never fails the deploy.
 #   7. writes IMAGE_TAG into the box `.env` — LAST, and only on success, so the file always describes
 #      what is actually running. A later bare `docker compose up -d` by an operator then re-asserts
-#      the deployed tag instead of silently reverting to whatever the file said before. The new file
-#      keeps the owner of the old one, so a run as root cannot lock CD out of the box (#1206).
+#      the deployed tag instead of silently reverting to whatever the file said before. A hand run
+#      cannot lock CD out of the box this way (#1206): in a root run the new file keeps the owner of
+#      the old one, and any other user who does not own .env (deploy aside) is refused at the start.
 #
 # WARNING — do NOT collapse step 3 back into `up -d` and lean on compose.hetzner.yaml's
 # `depends_on: { migrator: { condition: service_completed_successfully } }`. That condition gates the
@@ -153,6 +154,16 @@ done
 if [ ! -w . ]; then
     refuse_path . "$reader cannot write to $STACK_DIR, and the last step writes .env there" 755
 fi
+# The new .env belongs to whoever runs this script, and a .env that deploy cannot read locks CD out
+# (#1206). Root gives the new file this owner and group again in the last step. Any other user cannot,
+# so a user who does not own .env is refused here. deploy may take it over: that is the owner CD needs.
+# `ls -n` prints the owner as a number on GNU and BSD alike; `-L` follows a link to the file whose
+# content the new .env carries.
+# shellcheck disable=SC2012
+read -r _ _ env_uid env_gid _ < <(ls -lndL -- .env)
+if [ "$(id -u)" -ne 0 ] && [ "$(id -u)" != "$env_uid" ] && [ "$reader" != deploy ]; then
+    refuse_path .env "$reader does not own $STACK_DIR/.env, and the last step would give it to $reader" 600
+fi
 
 # Every compose call below resolves ${IMAGE_TAG} from THIS exported value, which outranks the .env
 # file. That is deliberate: the .env is only rewritten at the very end, on success, so a roll that
@@ -170,6 +181,9 @@ compose() { "${COMPOSE[@]}" "$@"; }
 # operator (or the CD log) needs to see, so print them before dying.
 dump_logs_on_failure() {
     status=$?
+    # A run that stops in the last step must not leave its temp copy of .env behind: it holds every
+    # secret, and in a root run it may still belong to root (#1206). After the rename it is gone.
+    [ -z "$env_tmp" ] || rm -f -- "$env_tmp" || true
     if [ "$status" -ne 0 ]; then
         log "Deploy FAILED (exit ${status}) — container state and recent logs:"
         compose ps || true
@@ -177,6 +191,8 @@ dump_logs_on_failure() {
     fi
     exit "$status"
 }
+# Set before the trap: a value the caller's environment gives env_tmp must never reach the rm above.
+env_tmp=''
 trap dump_logs_on_failure EXIT
 
 previous_tag="$(sed -n 's/^IMAGE_TAG=//p' .env | head -1)"
@@ -308,11 +324,8 @@ log "Pinning IMAGE_TAG=${IMAGE_TAG} in ${STACK_DIR}/.env"
 env_tmp="$(mktemp "${STACK_DIR}/.env.XXXXXX")"
 # The temp belongs to whoever runs this script, and the rename keeps that owner. After a root run .env
 # would be root's at mode 0600, and every later CD run as deploy would stop on it (#1206). So a root
-# run first gives the temp the owner and the group of the old .env. `ls -n` prints them as numbers on
-# GNU and BSD alike; `-L` follows a link to the file whose content the new .env carries.
+# run first gives the temp the owner and the group that .env had when this run started.
 if [ "$(id -u)" -eq 0 ]; then
-    # shellcheck disable=SC2012
-    read -r _ _ env_uid env_gid _ < <(ls -lndL -- .env)
     chown "${env_uid}:${env_gid}" "$env_tmp"
 fi
 if grep -q '^IMAGE_TAG=' .env; then

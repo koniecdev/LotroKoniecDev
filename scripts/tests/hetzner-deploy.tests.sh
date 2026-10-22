@@ -412,6 +412,36 @@ STUB
     [ -s "$TMP_ROOT/calls.log" ] && fail 'docker ran although the last step could never write .env'
     [ "$(env_tag "$stack")" = 'sha-0000000' ] || fail '.env changed although nothing rolled'
     pass 'a stack dir this user cannot write to is refused before any docker call, not after up -d'
+
+    # A user who may read .env and write to the stack dir, but does not own .env (#1206): its group can
+    # read it, and the dir is group-writable. The last step would give .env to that user at mode 0600.
+    # The stub `ls` names another owner, by number as `ls -n` prints it.
+    CASE='.env owned by another user'
+    stack="$(new_stack otherowner)"
+    run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" PATH="$TMP_ROOT/lsbin:$PATH" \
+        STUB_LS_LINE='-rw-r----- 1 4242 4343 120 Oct 19 10:00 .env'
+    [ "$LAST_STATUS" -eq 2 ] || fail 'expected exit 2 when this user does not own .env' "got $LAST_STATUS"
+    grep -qF "::error::deploy.sh: ${reader} does not own $stack/.env, and the last step would give it to ${reader} (owner 4242, mode -rw-r-----)" \
+        <<<"$LAST_OUTPUT" || fail 'the message must name the reader, the owner and the mode'
+    grep -qF "Fix it as root: chown deploy:deploy $stack/.env && chmod 600 $stack/.env" <<<"$LAST_OUTPUT" \
+        || fail 'the message must name the fix'
+    if [ "$reader" != deploy ]; then
+        grep -qF 'Then run this script as deploy: sudo -u deploy env IMAGE_TAG=sha-abc1234 bash' <<<"$LAST_OUTPUT" \
+            || fail 'a user other than deploy must be told to run the script as deploy'
+    fi
+    [ -s "$TMP_ROOT/calls.log" ] && fail 'docker ran although the last step would give .env to another user'
+    [ "$(env_tag "$stack")" = 'sha-0000000' ] || fail '.env changed although nothing rolled'
+    pass 'a user who does not own .env is refused before any docker call, so the last step cannot take .env from its owner'
+
+    CASE='deploy takes over .env'
+    # deploy is the owner CD needs, so it may take over an .env it can read but does not own.
+    stack="$(new_stack deploytakesover)"
+    run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" \
+        PATH="$TMP_ROOT/lsbin:$TMP_ROOT/idbin:$PATH" STUB_REAL_ID="$real_id" STUB_ID_NAME=deploy \
+        STUB_LS_LINE='-rw-r--r-- 1 0 0 120 Oct 19 10:00 .env'
+    [ "$LAST_STATUS" -eq 0 ] || fail 'deploy must roll on an .env it can read but does not own' "status $LAST_STATUS"
+    [ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'IMAGE_TAG was not pinned in .env' "$(cat "$stack/.env")"
+    pass 'deploy may roll on an .env it can read but does not own'
 fi
 
 # --- Happy path + THE ordering property -----------------------------------------------------------
@@ -485,33 +515,76 @@ STUB
 cat > "$TMP_ROOT/rootbin/chown" <<'STUB'
 #!/usr/bin/env bash
 printf 'chown %s\n' "$*" >> "$STUB_LOG"
+if [ -n "${STUB_CHOWN_FAIL:-}" ]; then
+    echo 'stub: chown failed' >&2
+    exit 1
+fi
 exec "$STUB_REAL_CHOWN" "$@"
 STUB
 chmod +x "$TMP_ROOT/rootbin/id" "$TMP_ROOT/rootbin/chown"
+as_root=(PATH="$TMP_ROOT/rootbin:$PATH" STUB_REAL_ID="$(command -v id)" STUB_REAL_CHOWN="$(command -v chown)")
+# .env links to a file in a second group of this user. Then the group tells the owner of that file
+# apart from the owner of the link and of the stack dir. A user with only one group cannot tell them
+# apart, but the case still proves that the root branch runs and that its chown works. A user namespace
+# lists groups it does not map, and chgrp refuses those, so the first group that chgrp takes is used.
 stack="$(new_stack rootstub)"
+mv "$stack/.env" "$stack/env.target"
+ln -s env.target "$stack/.env"
+for gid in $(id -G); do
+    [ "$gid" != "$(id -g)" ] || continue
+    if chgrp "$gid" "$stack/env.target" 2>/dev/null; then
+        break
+    fi
+done
 # shellcheck disable=SC2012
-read -r _ _ env_uid env_gid _ < <(ls -lnd -- "$stack/.env")
-run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" PATH="$TMP_ROOT/rootbin:$PATH" \
-    STUB_REAL_ID="$(command -v id)" STUB_REAL_CHOWN="$(command -v chown)"
+read -r _ _ env_uid env_gid _ < <(ls -lnd -- "$stack/env.target")
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" "${as_root[@]}"
 [ "$LAST_STATUS" -eq 0 ] || fail 'a run as root should roll' "status $LAST_STATUS"
 [ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'IMAGE_TAG was not pinned in .env' "$(cat "$stack/.env")"
 called "chown ${env_uid}:${env_gid} $stack/.env." \
-    || fail 'a run as root must give the temp the owner and the group of the old .env before the rename'
+    || fail 'a run as root must give the temp the owner and the group of the file .env points to, before the rename'
 pass 'a run as root gives the new .env the owner and the group of the old one'
+
+CASE='last step fails'
+# The temp copy of .env holds every secret, and in a root run it may still belong to root.
+stack="$(new_stack lastfail)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" "${as_root[@]}" STUB_CHOWN_FAIL=1
+[ "$LAST_STATUS" -ne 0 ] || fail 'a failed last step must fail the deploy'
+[ "$(env_tag "$stack")" = 'sha-0000000' ] || fail '.env changed although the last step failed' "$(env_tag "$stack")"
+leftover="$(find "$stack" -name '.env.*')"
+[ -z "$leftover" ] || fail 'the temp copy of .env was left in the stack dir' "$leftover"
+pass 'a run that stops in the last step leaves no temp copy of .env behind'
+
+CASE='env_tmp from the caller'
+# The trap removes the temp copy, so it must never trust a value the caller's environment gave the name.
+stack="$(new_stack inheritedtmp)"
+victim="$TMP_ROOT/victim"
+: > "$victim"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" STUB_MIGRATE_FAIL=1 env_tmp="$victim"
+[ "$LAST_STATUS" -ne 0 ] || fail 'a failed migration must fail the deploy'
+[ -e "$victim" ] || fail 'a failed run deleted the file the caller named in env_tmp'
+pass 'a failed run never deletes a file the caller named in env_tmp'
 
 # The real thing: only root can hand a file to another user, so only a root run can set these up. The
 # numbers have no user behind them, so no account on the machine can be taken for the owner. .env gets
 # an owner of its own, so a version that took the stack dir's owner would fail.
+owner_probe="$TMP_ROOT/owner-probe"
+: > "$owner_probe"
+root_skip=''
 if [ "$(id -u)" -ne 0 ]; then
+    root_skip='only root can give a file to another user, so this case needs a root run of this suite'
+elif ! { chown 4242:4343 "$owner_probe" && chown 4444:4545 "$owner_probe"; } 2>/dev/null; then
+    root_skip='this root cannot give a file to uid 4242 or 4444 (a user namespace that maps only uid 0?)'
+fi
+if [ -n "$root_skip" ]; then
     for root_case in 'root run' 'root run, .env is a link'; do
-        printf -- '- [%s] SKIPPED: only root can give a file to another user, so this case needs a root run of this suite\n' "$root_case"
+        printf -- '- [%s] SKIPPED: %s\n' "$root_case" "$root_skip"
     done
 else
     CASE='root run'
     stack="$(new_stack asroot)"
-    # Root in a user namespace may have no such uid, and a bare set -e exit would name no case.
-    { chown -R 4242:4343 "$stack" && chown 4444:4545 "$stack/.env"; } \
-        || fail 'cannot give the stack to uid 4242 and 4444 (root in a user namespace?)'
+    chown -R 4242:4343 "$stack"
+    chown 4444:4545 "$stack/.env"
     run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
     [ "$LAST_STATUS" -eq 0 ] || fail 'a run as root should roll' "status $LAST_STATUS"
     [ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'IMAGE_TAG was not pinned in .env' "$(cat "$stack/.env")"
@@ -529,8 +602,9 @@ else
     stack="$(new_stack asrootlinked)"
     mv "$stack/.env" "$stack/env.target"
     ln -s env.target "$stack/.env"
-    { chown -R 4242:4343 "$stack" && chown 4444:4545 "$stack/env.target" && chown -h 0:0 "$stack/.env"; } \
-        || fail 'cannot give the stack to uid 4242 and 4444 (root in a user namespace?)'
+    chown -R 4242:4343 "$stack"
+    chown 4444:4545 "$stack/env.target"
+    chown -h 0:0 "$stack/.env"
     run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
     [ "$LAST_STATUS" -eq 0 ] || fail 'a run as root should roll' "status $LAST_STATUS"
     [ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'IMAGE_TAG was not pinned in .env' "$(cat "$stack/.env")"

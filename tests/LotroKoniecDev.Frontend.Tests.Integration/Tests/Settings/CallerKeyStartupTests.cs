@@ -10,11 +10,11 @@ namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Settings;
 /// either API is missing or bad. The unit tests on the two validators cover every rule; these tests
 /// prove that both checks run when the app starts (#915).
 /// </summary>
-public sealed class CallerKeyStartupTests : IClassFixture<StagingFrontendFactory>
+public sealed class CallerKeyStartupTests : IClassFixture<ProductionFrontendFactory>
 {
-    private readonly StagingFrontendFactory _factory;
+    private readonly ProductionFrontendFactory _factory;
 
-    public CallerKeyStartupTests(StagingFrontendFactory factory)
+    public CallerKeyStartupTests(ProductionFrontendFactory factory)
     {
         _factory = factory;
     }

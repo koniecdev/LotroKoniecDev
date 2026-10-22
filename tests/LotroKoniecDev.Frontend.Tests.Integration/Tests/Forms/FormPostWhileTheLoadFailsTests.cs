@@ -24,7 +24,7 @@ namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Forms;
 /// bUnit cannot show this: it calls a form's handler directly and never looks the form up by name.
 /// Each test reads its antiforgery token from the sign-out form, which every page has for a signed-in user.
 /// </summary>
-public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<StagingFrontendFactory>
+public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<ProductionFrontendFactory>
 {
     private const string TmsOrigin = "https://tms.staging.invalid";
     private const string AuthOrigin = "https://auth.staging.invalid";
@@ -39,7 +39,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
 
     private static readonly Uri UpsertHref = new($"{TmsOrigin}/advertised/upsert");
 
-    private readonly StagingFrontendFactory _factory;
+    private readonly ProductionFrontendFactory _factory;
 
     [Fact]
     public async Task Post_ImportForm_WhenTheVersionListFailsToLoad_ShowsTheImportPageWithTheLoadError()
@@ -234,7 +234,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Stagi
         posted.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
-    public FormPostWhileTheLoadFailsTests(StagingFrontendFactory factory)
+    public FormPostWhileTheLoadFailsTests(ProductionFrontendFactory factory)
     {
         _factory = factory;
     }

@@ -30,7 +30,7 @@ namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.ImportExport;
 /// signs in through the real OIDC handler and posts the real form, with antiforgery, against stubbed
 /// sign-in and translation servers.
 /// </summary>
-public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendFactory>, IDisposable
+public sealed partial class ImportRedirectTests : IClassFixture<ProductionFrontendFactory>, IDisposable
 {
     private const string ClientId = "lotrokoniecdev-web";
     private const string Issuer = "https://auth.staging.invalid";
@@ -47,7 +47,7 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
     private static readonly GameVersionId GameVersion = GameVersionId.Create(Guid.NewGuid());
     private static readonly GameVersionId OtherGameVersion = GameVersionId.Create(Guid.NewGuid());
 
-    private readonly StagingFrontendFactory _factory;
+    private readonly ProductionFrontendFactory _factory;
     private readonly RSA _signingRsa = RSA.Create(2048);
     private readonly RsaSecurityKey _signingKey;
 
@@ -195,7 +195,7 @@ public sealed partial class ImportRedirectTests : IClassFixture<StagingFrontendF
         _signingRsa.Dispose();
     }
 
-    public ImportRedirectTests(StagingFrontendFactory factory)
+    public ImportRedirectTests(ProductionFrontendFactory factory)
     {
         _factory = factory;
         _signingKey = new RsaSecurityKey(_signingRsa) { KeyId = "test-signing-key" };

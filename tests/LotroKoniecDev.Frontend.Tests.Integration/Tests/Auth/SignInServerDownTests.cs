@@ -18,7 +18,7 @@ namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Auth;
 /// document. While the sign-in server is down, the visitor must end on the "login temporarily unavailable"
 /// page that the login route shows (#311), never on the error page.
 /// </summary>
-public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory>
+public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFactory>
 {
     private const string Authority = "https://auth.staging.invalid";
     private const string LoginPath = "/auth/login";
@@ -29,7 +29,7 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
     /// <summary>The origin <see cref="CookieJarBrowser"/> sends to, for a redirect that names only a path.</summary>
     private static readonly Uri Origin = new("https://localhost");
 
-    private readonly StagingFrontendFactory _factory;
+    private readonly ProductionFrontendFactory _factory;
 
     /// <summary>
     /// Every page and route that needs a login, and a form post to each page that has a form. A form post
@@ -298,7 +298,7 @@ public sealed class SignInServerDownTests : IClassFixture<StagingFrontendFactory
             .ShouldContain(setCookie => setCookie.StartsWith($"{SignedInSession.CookieName}=;", StringComparison.Ordinal));
     }
 
-    public SignInServerDownTests(StagingFrontendFactory factory)
+    public SignInServerDownTests(ProductionFrontendFactory factory)
     {
         _factory = factory;
     }

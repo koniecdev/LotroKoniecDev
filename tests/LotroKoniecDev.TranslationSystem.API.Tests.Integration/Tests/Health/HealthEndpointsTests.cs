@@ -114,14 +114,17 @@ public sealed class HealthEndpointsTests
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
-    [Fact]
-    public void Boot_InADeployedEnvironmentWithoutTheKey_ShouldFailNamingTheKey()
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    public void Boot_InADeployedEnvironmentWithoutTheKey_ShouldFailNamingTheKey(string environmentName)
     {
-        // Arrange: Staging with every other setting a deployed host needs. FrontendCallerKeyTests boots
-        // the same host with the key, so the missing key is the one reason this boot can fail.
-        using WebApplicationFactory<Program> stagingHost = _factory.WithWebHostBuilder(builder =>
+        // Arrange: a deployed host with every other setting it needs. Production is what every box runs
+        // (#1187). FrontendCallerKeyTests boots the same host with the key in both environments, so the
+        // missing key is the one reason this boot can fail.
+        using WebApplicationFactory<Program> deployedHost = _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment("Staging");
+            builder.UseEnvironment(environmentName);
             builder.ConfigureAppConfiguration((_, configBuilder) =>
             {
                 configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
@@ -133,7 +136,7 @@ public sealed class HealthEndpointsTests
         });
 
         // Act
-        OptionsValidationException exception = Should.Throw<OptionsValidationException>(() => stagingHost.CreateClient());
+        OptionsValidationException exception = Should.Throw<OptionsValidationException>(() => deployedHost.CreateClient());
 
         // Assert
         exception.Message.ShouldContain("HealthCheck:Key", Case.Sensitive);

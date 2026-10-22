@@ -95,6 +95,9 @@ cat > "$FAKE_REPO/scripts/claude/work-ticket.sh" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
 ticket="$1" run_dir="$2"
+# The conductor's last look at the clock before it started this worker is not for the nap that
+# comes next: see the `sleep` stub.
+rm -f "$STATE/looked"
 sleeper=""
 trap '[ -n "$sleeper" ] && kill "$sleeper" 2>/dev/null; exit 143' TERM
 echo "$$" >> "$STATE/pids"
@@ -175,14 +178,17 @@ STUB
 # nap timer notes its number, which `exec` keeps.
 # A step of a usage-limit nap comes right after a look at the clock, while no worker runs (the
 # conductor's only other child is this timer). Only such a step moves the fake clock on, by the
-# time it was asked to wait (#1199). The checks while workers run take no time on it, so the
-# conductor reads the same time the fake worker wrote, and a nap's length is exact. With
-# $STATE/asleep-sec, the computer sleeps that many seconds during the first step: the clock moves
-# on by those too, and the nap does not count them, like a real `sleep`.
+# time it was asked to wait, and it returns at once (#1199). The checks while workers run take no
+# time on it, so the conductor reads the same time the fake worker wrote, and a nap's length is
+# exact. A worker that started after the last look clears its mark first thing, so a worker that
+# has already ended by the time this timer looks for it cannot make the timer pass for a step.
+# With $STATE/asleep-sec, the computer sleeps that many seconds during the first step: the clock
+# moves on by those too, and the nap does not count them, like a real `sleep`.
 cat > "$TMP_ROOT/bin/sleep" <<'STUB'
 #!/usr/bin/env bash
 echo "$$" >> "$STATE/nap-pids"
-if [ -e "$STATE/looked" ] && [ -z "$(pgrep -P "$PPID" | grep -vx "$$")" ]; then
+if [ -z "$(pgrep -P "$PPID" | grep -vx "$$")" ] && [ -e "$STATE/looked" ]; then
+    rm -f "$STATE/looked"
     seconds="${1%%.*}"
     if [ -f "$STATE/asleep-sec" ]; then
         seconds=$(( ${seconds:-0} + $(cat "$STATE/asleep-sec") ))
@@ -190,6 +196,7 @@ if [ -e "$STATE/looked" ] && [ -z "$(pgrep -P "$PPID" | grep -vx "$$")" ]; then
     fi
     now="$(cat "$STATE/clock")"
     echo $(( now + ${seconds:-0} )) > "$STATE/clock"
+    [ -f "$STATE/slow-naps" ] || exit 0
 fi
 rm -f "$STATE/looked"
 if [ -f "$STATE/slow-naps" ]; then

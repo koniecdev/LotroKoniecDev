@@ -193,13 +193,10 @@ nap() {
 }
 
 # nap_until <epoch> — a usage-limit nap, which lasts until a time on the clock. `sleep` does not
-# count the time the computer sleeps (see nanosleep(2) on Linux; macOS timers stop too), and
-# caffeinate cannot keep a computer with a closed lid awake. So one long sleep would end late by
-# all the time the computer slept, and Claude may have dropped the cached context of the paused
-# sessions by then (#1199). This one sleeps at most a minute at a time and reads the clock again
-# after each step, so it ends at most a minute after the computer wakes. It reads with backquotes,
-# for the reason in job_running: the nap can last hours, and a stop lost here would be lost for
-# all of it.
+# count the time the computer sleeps, so this sleeps at most a minute at a time and reads the clock
+# after each step: it ends on time, or at most a minute after the computer wakes when the time
+# passed while it slept (#1199, docs/claude-loop.md). It reads with backquotes, for the reason in
+# job_running: the nap can last hours, and a stop lost here would be lost for all of it.
 NAP_STEP_SEC=60
 nap_until() {
     local now

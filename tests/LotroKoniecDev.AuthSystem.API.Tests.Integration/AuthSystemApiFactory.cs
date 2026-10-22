@@ -30,6 +30,15 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration;
 public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 #pragma warning restore CA1515
 {
+    public const string TestApiClientSecret = "integration-test-secret-32-chars!";
+
+    /// <summary>
+    /// The origin of the web client this host is configured with. It is also the frontend origin the
+    /// login page falls back to when a sign-in has nowhere to continue, so tests compare against it
+    /// instead of repeating the string.
+    /// </summary>
+    public const string TestFrontendAppRoot = "https://localhost:5001";
+
     private readonly PostgreSqlContainer _postgresContainer =
         new PostgreSqlBuilder(PostgresImage.Name)
             .WithDatabase("LotroKoniecDevAuth")
@@ -40,15 +49,6 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     private WebApplicationFactory<Program>? _responseTimeFloorHost;
 
     private WebApplicationFactory<Program>? _hostWithoutOutboxRelay;
-
-    public const string TestApiClientSecret = "integration-test-secret-32-chars!";
-
-    /// <summary>
-    /// The origin of the web client this host is configured with. It is also the frontend origin the
-    /// login page falls back to when a sign-in has nowhere to continue, so tests compare against it
-    /// instead of repeating the string.
-    /// </summary>
-    public const string TestFrontendAppRoot = "https://localhost:5001";
 
     /// <summary>
     /// Sits on every <see cref="AuthDbContext"/> this host builds and does nothing until a test arms it.

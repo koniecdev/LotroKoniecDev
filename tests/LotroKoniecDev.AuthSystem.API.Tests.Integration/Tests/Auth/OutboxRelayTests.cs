@@ -76,10 +76,9 @@ public sealed class OutboxRelayTests : EndpointsTestBase
     {
         // Arrange
         _messagePublisherSpy.FailWith = new InvalidOperationException("broker down");
-        Guid messageId = await InsertOutboxRowAsync(nameof(EmailConfirmationRequested));
 
-        // Act
-        NotifyRelay();
+        // Act: the save of the row wakes the relay (#781)
+        Guid messageId = await InsertOutboxRowAsync(nameof(EmailConfirmationRequested));
 
         // Assert: the row survives the refusal, carrying the failure diagnostics
         OutboxMessage? failed = await WaitForOutboxRowAsync(
@@ -156,19 +155,19 @@ public sealed class OutboxRelayTests : EndpointsTestBase
         // Arrange: a broker that is down refuses every row the same way, so trying the whole backlog
         // would only cost one attempt and one save per row.
         _messagePublisherSpy.FailWith = new InvalidOperationException("broker down");
+
+        // Act: the save of each row wakes the relay (#781)
         Guid[] rowIds =
         [
             await InsertOutboxRowAsync(nameof(EmailConfirmationRequested)),
             await InsertOutboxRowAsync(nameof(EmailConfirmationRequested)),
             await InsertOutboxRowAsync(nameof(EmailConfirmationRequested))
         ];
-
-        // Act
-        NotifyRelay();
         OutboxMessage? firstFailure = await WaitForOutboxRowAsync(row => rowIds.Contains(row.Id) && row.Attempts > 0);
         await Task.Delay(TimeSpan.FromSeconds(1));
 
-        // Assert: the relay now waits out its backoff, so the other rows were never tried in that pass.
+        // Assert: every pass starts at the oldest row and stops at its failure, so the other rows were
+        // never tried.
         firstFailure.ShouldNotBeNull();
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
@@ -179,11 +178,8 @@ public sealed class OutboxRelayTests : EndpointsTestBase
     [Fact]
     public async Task Relay_ShouldMarkFailedWithoutPublishing_WhenTypeHasNoRoutingKey()
     {
-        // Arrange
+        // Arrange & Act: the save of the row wakes the relay (#781)
         Guid messageId = await InsertOutboxRowAsync("TypeNobodyMapped");
-
-        // Act
-        NotifyRelay();
 
         // Assert
         OutboxMessage? unroutable = await WaitForOutboxRowAsync(

@@ -1,20 +1,25 @@
 using System.Data.Common;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
+using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Outbox;
+using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// No writer wakes the relay by hand: every commit that carries a new outbox row does it, and nothing
-/// else does (#781, ADR-0038 §6). The tests run on a host with no relay, so a wake-up stays in the
-/// signal until the test takes it. Every test that expects a wake-up fails when the interceptor is not
-/// registered.
+/// No writer wakes the relay by hand: every commit that carries a new outbox row does it (#781,
+/// ADR-0038 §6). So do a failed or cancelled save with no transaction open and a failed commit, because
+/// their row may have landed. Nothing else does. The tests run on a host with no relay, so a wake-up
+/// stays in the signal until the test takes it. Every test that expects a wake-up fails when the
+/// interceptor is not registered.
 /// </summary>
 public sealed class OutboxWakeUpTests : EndpointsTestBase
 {
@@ -135,6 +140,52 @@ public sealed class OutboxWakeUpTests : EndpointsTestBase
     }
 
     /// <summary>
+    /// A request aborted while its save was on the way may still have written the row.
+    /// </summary>
+    [Fact]
+    public async Task SaveChanges_CancelledWithNoTransactionOpen_StillWakesTheRelay()
+    {
+        // Arrange
+        await using AsyncServiceScope scope = _hostServices.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        EnqueueRow(scope);
+        Factory.DbCommandFailures.FailNextAfterItRuns(IsOutboxInsert, () => new OperationCanceledException());
+
+        // Act
+        await Should.ThrowAsync<OperationCanceledException>(() => db.SaveChangesAsync());
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        (await TakeWakeUpAsync()).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The failed save of <c>DeleteAccount</c>, <c>ConfirmEmailChange</c> and the account erasure: Identity
+    /// turns a lost concurrency check into a failed result. EF Core reports that failure to an interceptor
+    /// on its own path, not as a failed save.
+    /// </summary>
+    [Fact]
+    public async Task SaveChanges_ThatLosesItsConcurrencyCheck_StillWakesTheRelay()
+    {
+        // Arrange
+        (_, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy);
+        await using AsyncServiceScope scope = _hostServices.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        ApplicationUser staleUser = (await userManager.FindByIdAsync(identityId.Value.ToString())).ShouldNotBeNull();
+        await ChangeTheUserInAnotherScopeAsync(identityId.Value);
+        EnqueueRow(scope);
+
+        // Act
+        IdentityResult result = await userManager.UpdateAsync(staleUser);
+
+        // Assert
+        result.Errors.ShouldContain(error => error.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure));
+        (await TakeWakeUpAsync()).ShouldBeTrue();
+    }
+
+    /// <summary>
     /// Only the end of the transaction says whether anything landed, so the wake-up waits for it.
     /// </summary>
     [Theory]
@@ -202,10 +253,12 @@ public sealed class OutboxWakeUpTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The relay's own save marks rows sent. If that woke the relay, it would wake itself after every pass.
+    /// The relay's own saves only update rows. If that woke the relay, it would wake itself after every
+    /// pass. A failed attempt changes the row every time, so the save below is never empty, even when the
+    /// other host's relay sent the row first.
     /// </summary>
     [Fact]
-    public async Task SaveChanges_ThatOnlyMarksAnOutboxRowSent_WakesNothing()
+    public async Task SaveChanges_ThatOnlyUpdatesAnOutboxRow_WakesNothing()
     {
         // Arrange
         await using AsyncServiceScope scope = _hostServices.CreateAsyncScope();
@@ -215,7 +268,7 @@ public sealed class OutboxWakeUpTests : EndpointsTestBase
         await TakeWakeUpAsync();
 
         OutboxMessage row = await db.OutboxMessages.SingleAsync();
-        row.MarkAsProcessed(DateTimeOffset.UtcNow);
+        row.MarkFailed("broker down");
 
         // Act
         await db.SaveChangesAsync();
@@ -235,6 +288,15 @@ public sealed class OutboxWakeUpTests : EndpointsTestBase
     {
         OutboxWriter writer = scope.ServiceProvider.GetRequiredService<OutboxWriter>();
         writer.Enqueue(new PasswordResetRequested(Guid.CreateVersion7()));
+    }
+
+    private async Task ChangeTheUserInAnotherScopeAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = _hostServices.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        ApplicationUser user = (await userManager.FindByIdAsync(userId.ToString())).ShouldNotBeNull();
+        (await userManager.UpdateSecurityStampAsync(user)).Succeeded.ShouldBeTrue();
     }
 
     /// <summary>

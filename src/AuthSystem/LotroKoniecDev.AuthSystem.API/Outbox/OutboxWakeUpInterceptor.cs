@@ -13,14 +13,20 @@ namespace LotroKoniecDev.AuthSystem.API.Outbox;
 /// earlier could find nothing (the <c>RegisterUser</c> trap of ADR-0035).
 /// </summary>
 /// <remarks>
-/// A failed save with no transaction open, and a failed commit, wake the relay too, because the write
-/// may have landed with only its answer lost (ADR-0065 §1). A needless wake-up finds nothing to send.
-/// A rolled-back transaction wakes nothing.
+/// A failed or cancelled save with no transaction open, and a failed commit, wake the relay too, because
+/// the write may have landed with only its answer lost (ADR-0065 §1). A needless wake-up finds nothing
+/// to send. A rolled-back transaction wakes nothing.
+/// <para>
+/// EF Core reports a lost concurrency check on its own path, <see cref="ThrowingConcurrencyException"/>,
+/// and not as a failed save. Identity turns that failure into a failed result, so it is the failed save
+/// of every writer that saves through <c>UserManager.UpdateAsync</c>.
+/// </para>
 /// <para>
 /// It is scoped like the context it sits on, so its state belongs to one context. It sees only commits
-/// made through EF Core: a <c>TransactionScope</c>, or a transaction handed in with
-/// <c>UseTransaction</c> and committed outside EF Core, would never wake the relay. The app uses
-/// neither. A row written with raw SQL would wait for the relay's sweep, and the app writes none.
+/// made through EF Core. Under a <c>TransactionScope</c> it would wake the relay too early, before the
+/// scope commits, and a transaction handed in with <c>UseTransaction</c> and committed outside EF Core
+/// would never wake it. The app uses neither. A row written with raw SQL would wait for the relay's
+/// sweep, and the app writes none.
 /// </para>
 /// </remarks>
 internal sealed class OutboxWakeUpInterceptor : ISaveChangesInterceptor, IDbTransactionInterceptor
@@ -35,9 +41,9 @@ internal sealed class OutboxWakeUpInterceptor : ISaveChangesInterceptor, IDbTran
     private bool _wakeUpAfterSave;
 
     /// <summary>
-    /// Only one transaction is open on a context at a time. EF Core reports no event when a transaction
-    /// is disposed without a commit, so this may still name a transaction that is gone. It is never
-    /// committed, so it never wakes the relay.
+    /// Only one transaction is open on a context at a time. A transaction rolled back, or disposed without
+    /// a commit, leaves its id here: EF Core reports no event for the second case. That transaction never
+    /// commits, so its id never wakes the relay.
     /// </summary>
     private Guid? _transactionToWakeUpAfter;
 
@@ -82,6 +88,23 @@ internal sealed class OutboxWakeUpInterceptor : ISaveChangesInterceptor, IDbTran
         return Task.CompletedTask;
     }
 
+    public InterceptionResult ThrowingConcurrencyException(
+        ConcurrencyExceptionEventData eventData,
+        InterceptionResult result)
+    {
+        WakeUpAfterSave();
+        return result;
+    }
+
+    public ValueTask<InterceptionResult> ThrowingConcurrencyExceptionAsync(
+        ConcurrencyExceptionEventData eventData,
+        InterceptionResult result,
+        CancellationToken cancellationToken = default)
+    {
+        WakeUpAfterSave();
+        return ValueTask.FromResult(result);
+    }
+
     public void SaveChangesCanceled(DbContextEventData eventData)
     {
         WakeUpAfterSave();
@@ -104,20 +127,6 @@ internal sealed class OutboxWakeUpInterceptor : ISaveChangesInterceptor, IDbTran
         CancellationToken cancellationToken = default)
     {
         WakeUpAfterCommit(eventData.TransactionId);
-        return Task.CompletedTask;
-    }
-
-    public void TransactionRolledBack(DbTransaction transaction, TransactionEndEventData eventData)
-    {
-        ForgetTransaction(eventData.TransactionId);
-    }
-
-    public Task TransactionRolledBackAsync(
-        DbTransaction transaction,
-        TransactionEndEventData eventData,
-        CancellationToken cancellationToken = default)
-    {
-        ForgetTransaction(eventData.TransactionId);
         return Task.CompletedTask;
     }
 
@@ -191,14 +200,6 @@ internal sealed class OutboxWakeUpInterceptor : ISaveChangesInterceptor, IDbTran
         if (eventData.Action is CommitAction)
         {
             WakeUpAfterCommit(eventData.TransactionId);
-        }
-    }
-
-    private void ForgetTransaction(Guid transactionId)
-    {
-        if (_transactionToWakeUpAfter == transactionId)
-        {
-            _transactionToWakeUpAfter = null;
         }
     }
 }

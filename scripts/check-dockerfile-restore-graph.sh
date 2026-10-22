@@ -53,8 +53,9 @@ RESTORE_COMMAND="dotnet[\"']?([[:space:]]+[\"']?|[[:space:]]*,[[:space:]]*\")res
 # When an escape directive at the top of the file sets a backtick, Docker joins the lines that end in
 # a backtick instead of a backslash.
 ESCAPE_BACKTICK='^[^!-~]*#[^!-~]*escape[[:space:]]*=[[:space:]]*`'
-# Docker reads the lines after `RUN <<EOF` up to `EOF` as the content of the instruction.
-HEREDOC='^[^!-~]*([Rr][Uu][Nn]|[Cc][Oo][Pp][Yy]|[Aa][Dd][Dd])[[:space:]].*<<-?[^[:space:]<]'
+# Docker reads the lines after `RUN <<EOF` up to `EOF` as the content of the instruction, with or
+# without ONBUILD in front.
+HEREDOC='^[^!-~]*([Oo][Nn][Bb][Uu][Ii][Ll][Dd][[:space:]]+)?([Rr][Uu][Nn]|[Cc][Oo][Pp][Yy]|[Aa][Dd][Dd])[[:space:]].*<<-?[^[:space:]<]'
 
 SEEN=""
 MISSING_ON_DISK=""
@@ -120,7 +121,8 @@ EOF
 # decide where an instruction starts and ends (BuildKit, frontend/dockerfile/parser/parser.go). The
 # COPY list and the restore roots are both read from this output, so they cannot disagree on what a
 # comment or a continuation is.
-#   - Lines end at LF. A CR at the end of a line is dropped, so CRLF line ends read like LF.
+#   - Lines end at LF. A CR at the end of a line is dropped, so CRLF line ends read like LF. A UTF-8
+#     byte order mark at the start of the file is dropped too.
 #   - A line whose first character after any spaces is `#` is a comment. Comments go first: a
 #     commented-out `# dotnet restore Foo.csproj` must not add a restore root to a Dockerfile that
 #     restores nothing.
@@ -129,10 +131,11 @@ EOF
 #   - Inside such a join, a line of only spaces is skipped and the join goes on.
 # NUL bytes are dropped first, because bash cannot keep one in a variable.
 join_continuations() {
-    tr -d '\000' < "$1" | awk -v wide="$WIDE_SPACE" '
+    tr -d '\000' < "$1" | awk -v wide="$WIDE_SPACE" -v bom=$'\357\273\277' '
     BEGIN { spaces = "^([[:space:]]|" wide ")*" }
     {
         line = $0
+        if (NR == 1 && index(line, bom) == 1) line = substr(line, length(bom) + 1)
         sub(/\r+$/, "", line)
         if (line ~ (spaces "#")) next
         if (joining && line ~ (spaces "$")) next
@@ -147,8 +150,9 @@ join_continuations() {
 # Reads instructions on stdin. For each COPY or ADD with one source that is a .csproj, prints the
 # source and the destination, split by a tab. It reads them the way Docker does: the keyword in any
 # case (Docker lowers it), flag words such as `--link` or `--chown="app user"`, then a JSON list or
-# the shell form, where quotes around a word go. Docker splits the shell form on ASCII spaces only.
-# A COPY with --from= copies from another stage or image, not from this repo, so it is left out.
+# the shell form, without the quotes around a word. Docker splits the shell form on ASCII spaces only.
+# A COPY with --from= copies from another stage or image, not from this repo, so it is left out. So
+# is a COPY with --parents, which puts the source's folders under the destination.
 # A COPY with more than one source puts every file straight into the destination folder, so it is
 # left out too.
 copy_arguments() {
@@ -166,12 +170,12 @@ copy_arguments() {
     {
         if (!match($0, keyword)) next
         rest = substr($0, RLENGTH + 1)
-        other_stage = 0
+        elsewhere = 0
         while (match(rest, flag)) {
-            if (substr(rest, 1, 7) == "--from=") other_stage = 1
+            if (substr(rest, 1, 7) == "--from=" || substr(rest, 1, 9) == "--parents") elsewhere = 1
             rest = substr(rest, RLENGTH + 1)
         }
-        if (other_stage) next
+        if (elsewhere) next
         while (match(rest, "^" space)) rest = substr(rest, RLENGTH + 1)
         while (match(rest, space "$")) rest = substr(rest, 1, RSTART - 1)
         if (substr(rest, 1, 1) == "[") {

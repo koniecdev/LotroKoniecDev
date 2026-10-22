@@ -55,8 +55,9 @@ $restorePattern = 'dotnet["'']?([[:space:]]+["'']?|[[:space:]]*,[[:space:]]*")re
 # When an escape directive at the top of the file sets a backtick, Docker joins the lines that end in
 # a backtick instead of a backslash. Used with -match, which ignores case, like grep -i in the .sh twin.
 $escapeBacktickPattern = '^[^!-~]*#[^!-~]*escape[[:space:]]*=[[:space:]]*`' -replace '\[:space:\]', $asciiSpace
-# Docker reads the lines after `RUN <<EOF` up to `EOF` as the content of the instruction.
-$heredocPattern = '^[^!-~]*([Rr][Uu][Nn]|[Cc][Oo][Pp][Yy]|[Aa][Dd][Dd])[[:space:]].*<<-?[^[:space:]<]' -replace '\[:space:\]', $asciiSpace
+# Docker reads the lines after `RUN <<EOF` up to `EOF` as the content of the instruction, with or
+# without ONBUILD in front.
+$heredocPattern = '^[^!-~]*([Oo][Nn][Bb][Uu][Ii][Ll][Dd][[:space:]]+)?([Rr][Uu][Nn]|[Cc][Oo][Pp][Yy]|[Aa][Dd][Dd])[[:space:]].*<<-?[^[:space:]<]' -replace '\[:space:\]', $asciiSpace
 
 function Get-NormalizedPath {
     # Collapse "a/b/../c" to "a/c" without touching the filesystem — the referenced project may
@@ -162,8 +163,9 @@ function Join-Continuation {
 function Get-CopiedProject {
     # Returns each .csproj that a COPY or ADD puts at its own path, the path the restore reads,
     # normalised. A COPY is read the way Docker reads it: flag words, then a JSON list or the shell
-    # form, where quotes around a word go. Docker splits the shell form on ASCII spaces only.
+    # form, without the quotes around a word. Docker splits the shell form on ASCII spaces only.
     #   - A COPY with --from= copies from another stage or image, not from this repo: left out.
+    #   - A COPY with --parents puts the source's folders under the destination: left out.
     #   - A COPY with more than one source puts every file straight into the destination folder: left
     #     out.
     #   - The destination must be the source's own folder with a trailing `/` (or `.` for the root),
@@ -180,12 +182,13 @@ function Get-CopiedProject {
     foreach ($line in $Instructions) {
         if ($line -cnotmatch $copyKeywordPattern) { continue }
         $rest = $line.Substring($Matches[0].Length)
-        $otherStage = $false
+        $elsewhere = $false
         while ($rest -cmatch $copyFlagPattern) {
-            if ($rest.StartsWith('--from=', [System.StringComparison]::Ordinal)) { $otherStage = $true }
+            if ($rest.StartsWith('--from=', [System.StringComparison]::Ordinal) -or
+                $rest.StartsWith('--parents', [System.StringComparison]::Ordinal)) { $elsewhere = $true }
             $rest = $rest.Substring($Matches[0].Length)
         }
-        if ($otherStage) { continue }
+        if ($elsewhere) { continue }
 
         # Trim drops the same characters as Go's unicode.IsSpace, which Docker trims here.
         $rest = $rest.Trim()

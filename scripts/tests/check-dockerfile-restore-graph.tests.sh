@@ -159,6 +159,11 @@ run_suite() {
     write_dockerfile "$tree" Dockerfile.tests 'COPY ["src/", "src/"]' 'RUN <<EOF' 'echo hi' 'EOF' "$RESTORE_APP"
     run_tree 0 "a heredoc in a Dockerfile that copies whole folders is not refused" "$tree"
 
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" 'ONBUILD RUN <<EOF' "$COPY_LIB" 'EOF' "$RESTORE_APP"
+    run_tree 2 "an ONBUILD RUN heredoc fails the run too" "$tree"
+    expect_in_output "uses a heredoc"
+
     # Each of these holds a COPY list with no restore, which fails the run if the guard reads it.
     tree="$(new_tree)"
     write_complete_dockerfile "$tree"
@@ -372,6 +377,13 @@ run_suite() {
     run_tree 1 "a restore commented out after a Unicode space is not a restore root" "$tree"
     expect_in_output "never runs"
 
+    # Docker drops a byte order mark at the start of the file, so the first line is still a comment.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_LIB" "$COPY_CORE"
+    prepend_line "$tree/src/App/Dockerfile" $'\357\273\277# RUN dotnet restore "src/App/App.csproj"'
+    run_tree 1 "a restore commented out after a byte order mark is not a restore root" "$tree"
+    expect_in_output "never runs"
+
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_LIB" "$COPY_CORE" 'RUN DOTNET RESTORE "src/App/App.csproj"'
     run_tree 1 "a restore in capitals is not a restore root, as the shell keeps the case" "$tree"
@@ -501,6 +513,12 @@ run_suite() {
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY --from=build ["src/Lib/Lib.csproj", "src/Lib/"]' "$COPY_CORE" "$RESTORE_APP"
     run_tree 1 "a COPY --from another stage does not copy from the repo" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    # --parents keeps the source's folders, so this writes src/Lib/src/Lib/Lib.csproj.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY --parents ["src/Lib/Lib.csproj", "src/Lib/"]' "$COPY_CORE" "$RESTORE_APP"
+    run_tree 1 "a COPY --parents does not copy the project to its own path" "$tree"
     expect_in_output "missing: src/Lib/Lib.csproj"
 
     # On the Linux image build src/APP is another folder, which the repo does not have.

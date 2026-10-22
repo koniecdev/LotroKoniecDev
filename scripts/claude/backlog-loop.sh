@@ -192,6 +192,29 @@ nap() {
     wait "$timer" 2>/dev/null || true
 }
 
+# nap_until <epoch> — a usage-limit nap, which lasts until a time on the clock. `sleep` does not
+# count the time the computer sleeps (see nanosleep(2) on Linux; macOS timers stop too), and
+# caffeinate cannot keep a computer with a closed lid awake. So one long sleep would end late by
+# all the time the computer slept, and Claude may have dropped the cached context of the paused
+# sessions by then (#1199). This one sleeps at most a minute at a time and reads the clock again
+# after each step, so it ends at most a minute after the computer wakes. It reads with backquotes,
+# for the reason in job_running: the nap can last hours, and a stop lost here would be lost for
+# all of it.
+NAP_STEP_SEC=60
+nap_until() {
+    local now
+    while :; do
+        # shellcheck disable=SC2006  # backquotes on purpose, see above
+        now=`date +%s`
+        [ "$now" -lt "$1" ] || return 0
+        if [ $(( $1 - now )) -gt "$NAP_STEP_SEC" ]; then
+            nap "$NAP_STEP_SEC"
+        else
+            nap $(( $1 - now ))
+        fi
+    done
+}
+
 # A second signal, such as a second Ctrl-C, must not cut the cleanup short: its `exit 130` would
 # end this trap half way, with workers still running and the lock still in place.
 trap 'trap "" INT TERM HUP; stop_jobs; rm -rf "$LOCK"' EXIT
@@ -388,10 +411,10 @@ while :; do
                 wake_clock="$CLOCK"
                 local_time "$RESET_AT" %H:%M
                 echo "[conductor] usage limit — sleeping until $wake_clock (resets $CLOCK, nap $limit_naps/$LIMIT_RETRIES)"
-                nap $(( wake - now ))
+                nap_until "$wake"
             else
                 echo "[conductor] usage limit — sleeping ${LIMIT_SLEEP_MIN}m (nap $limit_naps/$LIMIT_RETRIES)"
-                nap $(( LIMIT_SLEEP_MIN * 60 ))
+                nap_until $(( now + LIMIT_SLEEP_MIN * 60 ))
             fi
             limit_hold=0
             continue

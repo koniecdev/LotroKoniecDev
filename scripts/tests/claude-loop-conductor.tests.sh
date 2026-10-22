@@ -13,6 +13,8 @@
 #   * the nap lasts until two minutes after the latest time the limit messages name, the fixed nap
 #     is the fallback for no time or a wake-up time already past, and a time past the whole nap
 #     budget stops the run at once (#1078),
+#   * a computer that sleeps during a usage-limit nap does not make it end late: the nap ends on
+#     time, or at most a minute after the computer wakes when its end passed while it slept (#1199),
 #   * a worktree that cannot be made, or two failures in a row, stop new starts,
 #   * a skip, a refusal or a blocked ticket is not a failure, and neither is a PR merged before its
 #     session ended: the table shows it as merged, names commits that came after the merge, and it
@@ -28,15 +30,16 @@
 #   * a worker that has already ended gets no signal and frees its slot, even when its number now
 #     answers for another program, and an ended nap timer gets no signal either (#992).
 #
-# `work-ticket.sh` and `next-ticket.sh` are replaced by fakes, and `gh`, `sleep` and `osascript`
-# are stubbed, so the suite is offline and runs in seconds.
+# `work-ticket.sh` and `next-ticket.sh` are replaced by fakes, and `gh`, `date`, `sleep` and
+# `osascript` are stubbed, so the suite is offline and runs in seconds.
 
 set -euo pipefail
 
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
 SCRIPTS_DIR="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 REAL_SLEEP="$(command -v sleep)"
-export REAL_SLEEP
+REAL_DATE="$(command -v date)"
+export REAL_SLEEP REAL_DATE
 
 TMP_ROOT="$(mktemp -d)"
 cleanup() {
@@ -120,9 +123,10 @@ case "$rc" in 0|13) echo "pr=$((ticket + 1000))" >> "$run_dir/ticket-$ticket.met
 # The real worker keeps the worktree of a limited session for the next run's resume.
 [ "$rc" -eq 6 ] && echo "worktree=kept" >> "$run_dir/ticket-$ticket.meta"
 # The real worker writes when the limit ends, when the limit message names it (#1078). Here it is
-# $STATE/reset-in-<ticket> seconds from now, and the case can read the value back.
+# $STATE/reset-in-<ticket> seconds from now on the fake clock, and the case can read the value back.
+# It reads the clock file, not `date`: only the conductor's looks at the clock may leave a mark.
 if [ "$rc" -eq 6 ] && [ -f "$STATE/reset-in-$ticket" ]; then
-    reset_at=$(( $(date +%s) + $(cat "$STATE/reset-in-$ticket") ))
+    reset_at=$(( $(cat "$STATE/clock") + $(cat "$STATE/reset-in-$ticket") ))
     echo "reset_at=$reset_at" >> "$run_dir/ticket-$ticket.meta"
     echo "$reset_at" > "$STATE/reset-at-$ticket"
 fi
@@ -155,14 +159,39 @@ case "$1 ${2:-}" in
 esac
 exit 0
 STUB
+# The conductor reads the time with `date +%s` and gets the fake clock in $STATE/clock. Each look
+# leaves a mark for the nap that comes next. Every other `date` is the real one.
+cat > "$TMP_ROOT/bin/date" <<'STUB'
+#!/usr/bin/env bash
+if [ "$*" = "+%s" ]; then
+    touch "$STATE/looked"
+    exec cat "$STATE/clock"
+fi
+exec "$REAL_DATE" "$@"
+STUB
 # Every wait in the conductor is a `sleep`: shrink them so a 60-minute nap takes a moment. With
 # $STATE/slow-naps present, a nap of a minute or more really waits, so a case can stop the
 # conductor in the middle of one. A number in that file lowers the bar to that many seconds. Each
-# nap timer notes its number, which `exec` keeps, and how long it was asked to wait.
+# nap timer notes its number, which `exec` keeps.
+# A step of a usage-limit nap comes right after a look at the clock, while no worker runs (the
+# conductor's only other child is this timer). Only such a step moves the fake clock on, by the
+# time it was asked to wait (#1199). The checks while workers run take no time on it, so the
+# conductor reads the same time the fake worker wrote, and a nap's length is exact. With
+# $STATE/asleep-sec, the computer sleeps that many seconds during the first step: the clock moves
+# on by those too, and the nap does not count them, like a real `sleep`.
 cat > "$TMP_ROOT/bin/sleep" <<'STUB'
 #!/usr/bin/env bash
 echo "$$" >> "$STATE/nap-pids"
-echo "$1" >> "$STATE/nap-secs"
+if [ -e "$STATE/looked" ] && [ -z "$(pgrep -P "$PPID" | grep -vx "$$")" ]; then
+    seconds="${1%%.*}"
+    if [ -f "$STATE/asleep-sec" ]; then
+        seconds=$(( ${seconds:-0} + $(cat "$STATE/asleep-sec") ))
+        rm -f "$STATE/asleep-sec"
+    fi
+    now="$(cat "$STATE/clock")"
+    echo $(( now + ${seconds:-0} )) > "$STATE/clock"
+fi
+rm -f "$STATE/looked"
 if [ -f "$STATE/slow-naps" ]; then
     slow_from="$(cat "$STATE/slow-naps")"
     if [ "${1%%.*}" -ge "${slow_from:-60}" ] 2>/dev/null; then exec "$REAL_SLEEP" 30; fi
@@ -237,7 +266,8 @@ reset_state() {
     : > "$STATE/started"
     : > "$STATE/concurrency"
     : > "$STATE/gh-calls"
-    : > "$STATE/nap-secs"
+    "$REAL_DATE" +%s > "$STATE/clock"
+    cp "$STATE/clock" "$STATE/clock-start"
 }
 
 # run_conductor <expected-exit> <description> <args...>
@@ -269,26 +299,20 @@ run_conductor() {
 started() { tr '\n' ' ' < "$STATE/started" | sed 's/ $//'; }
 max_concurrency() { sort -n "$STATE/concurrency" | tail -1; }
 
-# How long each usage-limit nap was asked to wait, in seconds. The conductor's other waits are
-# exactly 5 and 10 seconds, and a nap until two minutes after a reset can be shorter than a minute.
-limit_naps() { awk '$1 != 5 && $1 != 10' "$STATE/nap-secs" | tr '\n' ' ' | sed 's/ $//'; }
-
 # local_clock <epoch> <format> — the moment as the conductor prints it, in the zone above.
 local_clock() {
     if date --version >/dev/null 2>&1; then date -d "@$1" "+$2"; else date -r "$1" "+$2"; fi
 }
 
-# expect_one_nap_of <seconds> — exactly one usage-limit nap, that long. It is counted from the
-# moment the fake worker wrote reset_at, and the conductor reads the clock a moment later, so the
-# nap may be a few seconds shorter.
-expect_one_nap_of() {
-    local naps
-    naps="$(limit_naps)"
-    case "$naps" in
-        ''|*' '*) fail "expected exactly one usage-limit nap, got '$naps'" "$LAST_OUTPUT" ;;
-    esac
-    [ "$naps" -le "$1" ] && [ "$naps" -ge $(( $1 - 20 )) ] \
-        || fail "the usage-limit nap should be about $1 seconds, was $naps" "$LAST_OUTPUT"
+# expect_naps <count> <seconds> — the conductor took that many usage-limit naps, and they lasted
+# that long together on the fake clock, which moves only during them.
+expect_naps() {
+    local naps slept
+    naps="$(printf '%s\n' "$LAST_OUTPUT" | grep -c "usage limit — sleeping" || true)"
+    slept=$(( $(cat "$STATE/clock") - $(cat "$STATE/clock-start") ))
+    [ "$naps" = "$1" ] || fail "expected $1 usage-limit nap(s), the conductor took $naps" "$LAST_OUTPUT"
+    [ "$slept" = "$2" ] \
+        || fail "the usage-limit naps should last $2 seconds on the clock, they lasted $slept" "$LAST_OUTPUT"
 }
 
 expect_started() {
@@ -410,7 +434,7 @@ run_conductor 0 "conductor: a usage limit naps, then runs the same ticket again"
 [ "$(grep -cx 12 "$STATE/started")" = "1" ] || fail "#12 should run once" "$(started)"
 # A limit message that names no time gives the fixed nap.
 expect_in_output "usage limit — sleeping 60m (nap 1/8)"
-[ "$(limit_naps)" = "3600" ] || fail "a limit with no time should nap the fixed 60 minutes, napped '$(limit_naps)'" "$LAST_OUTPUT"
+expect_naps 1 3600
 expect_in_output "done: 2 PR opened"
 printf '%s\n' "$LAST_OUTPUT" | grep -q "worktree kept" \
     && fail "a ticket whose retry ran must not be listed as waiting for a resume" "$LAST_OUTPUT"
@@ -424,7 +448,7 @@ run_conductor 0 "conductor: a limit that names its end sleeps until two minutes 
 [ "$(grep -cx 14 "$STATE/started")" = "2" ] || fail "#14 should run twice (limit, then retry)" "$(started)"
 reset_at="$(cat "$STATE/reset-at-14")"
 expect_in_output "usage limit — sleeping until $(local_clock $(( reset_at + 120 )) %H:%M) (resets $(local_clock "$reset_at" %H:%M), nap 1/8)"
-expect_one_nap_of 3120
+expect_naps 1 3120
 expect_in_output "done: 1 PR opened"
 
 # Every limited ticket waits for the same account, so the latest end wins.
@@ -436,7 +460,7 @@ echo 1800 > "$STATE/reset-in-16"
 run_conductor 0 "conductor: of several limited tickets, the latest end of the limit wins" -j 2 15 16
 reset_at="$(cat "$STATE/reset-at-16")"
 expect_in_output "usage limit — sleeping until $(local_clock $(( reset_at + 120 )) %H:%M) (resets $(local_clock "$reset_at" %H:%M), nap 1/8)"
-expect_one_nap_of 1920
+expect_naps 1 1920
 [ "$(grep -cx 15 "$STATE/started")" = "2" ] && [ "$(grep -cx 16 "$STATE/started")" = "2" ] \
     || fail "#15 and #16 should each run twice" "$(started)"
 
@@ -448,7 +472,7 @@ echo 900 > "$STATE/reset-in-22"
 run_conductor 0 "conductor: a limited ticket with no time does not change the time another one names" -j 2 21 22
 reset_at="$(cat "$STATE/reset-at-22")"
 expect_in_output "usage limit — sleeping until $(local_clock $(( reset_at + 120 )) %H:%M) (resets $(local_clock "$reset_at" %H:%M), nap 1/8)"
-expect_one_nap_of 1020
+expect_naps 1 1020
 
 # A limit that ended a minute ago: the nap lasts until two minutes after its end, not an hour.
 reset_state
@@ -457,7 +481,7 @@ echo -60 > "$STATE/reset-in-23"
 run_conductor 0 "conductor: a limit that ended less than two minutes ago naps until two minutes after it" -j 1 23
 reset_at="$(cat "$STATE/reset-at-23")"
 expect_in_output "usage limit — sleeping until $(local_clock $(( reset_at + 120 )) %H:%M) (resets $(local_clock "$reset_at" %H:%M), nap 1/8)"
-expect_one_nap_of 60
+expect_naps 1 60
 
 # A wake-up time already past gets the fixed nap, never a nap of zero: a retry that meets the limit
 # again would otherwise run through every nap in a few seconds.
@@ -467,7 +491,7 @@ echo -300 > "$STATE/reset-in-17"
 export LOOP_LIMIT_RETRIES=2
 run_conductor 0 "conductor: a limit that ended more than two minutes ago gets the fixed nap" -j 1 17
 unset LOOP_LIMIT_RETRIES
-[ "$(limit_naps)" = "3600 3600" ] || fail "each nap should be the fixed 60 minutes, were '$(limit_naps)'" "$LAST_OUTPUT"
+expect_naps 2 7200
 expect_in_output "usage limit — sleeping 60m (nap 2/2)"
 expect_in_output "usage limit persisted after 2 naps"
 
@@ -480,7 +504,7 @@ run_conductor 0 "conductor: a limit that ends after the whole nap budget stops t
 reset_at="$(cat "$STATE/reset-at-18")"
 expect_started "18"
 expect_in_output "stopped early: usage limit resets at $(local_clock "$reset_at" '%Y-%m-%d %H:%M'), later than the whole nap budget (8 naps of 60m)"
-[ "$(limit_naps)" = "" ] || fail "the run should stop without a nap, napped '$(limit_naps)'" "$LAST_OUTPUT"
+expect_naps 0 0
 printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #18 +limit .*worktree kept: run #18 again to resume its session$' >/dev/null \
     || fail "the row of #18 should say its worktree waits for a resume" "$LAST_OUTPUT"
 
@@ -491,7 +515,7 @@ echo "6 0" > "$STATE/rc-20"
 echo 3400 > "$STATE/reset-in-20"
 export LOOP_LIMIT_RETRIES=2 LOOP_LIMIT_SLEEP_MIN=30
 run_conductor 0 "conductor: a limit that ends within a smaller nap budget is slept for" -j 1 20
-expect_one_nap_of 3520
+expect_naps 1 3520
 reset_state
 echo "6 0" > "$STATE/rc-20"
 echo 3500 > "$STATE/reset-in-20"
@@ -499,6 +523,33 @@ run_conductor 0 "conductor: a limit that ends after a smaller nap budget stops t
 unset LOOP_LIMIT_RETRIES LOOP_LIMIT_SLEEP_MIN
 expect_in_output "later than the whole nap budget (2 naps of 30m)"
 expect_started "20"
+
+# `sleep` does not count the time the computer sleeps, so the nap looks at the clock after every
+# step of a minute (#1199). The computer sleeps half an hour in the first step here, and the nap
+# still ends two minutes after the reset.
+reset_state
+echo "6 0" > "$STATE/rc-24"
+echo 3000 > "$STATE/reset-in-24"
+echo 1800 > "$STATE/asleep-sec"
+run_conductor 0 "conductor: a computer that sleeps during the nap does not move its end" -j 1 24
+[ "$(grep -cx 24 "$STATE/started")" = "2" ] || fail "#24 should run twice (limit, then retry)" "$(started)"
+expect_naps 1 3120
+
+reset_state
+echo "6 0" > "$STATE/rc-25"
+echo 1800 > "$STATE/asleep-sec"
+run_conductor 0 "conductor: a computer that sleeps during the fixed nap does not make it longer" -j 1 25
+expect_naps 1 3600
+
+# The end of the nap passed while the computer slept: the nap ends with the step the computer
+# woke up in, a minute plus the time asleep, and takes no step after it.
+reset_state
+echo "6 0" > "$STATE/rc-30"
+echo 3000 > "$STATE/reset-in-30"
+echo 5000 > "$STATE/asleep-sec"
+run_conductor 0 "conductor: a nap whose end passed while the computer slept ends when it wakes" -j 1 30
+[ "$(grep -cx 30 "$STATE/started")" = "2" ] || fail "#30 should run twice (limit, then retry)" "$(started)"
+expect_naps 1 5060
 
 reset_state
 echo "6 6 6" > "$STATE/rc-13"

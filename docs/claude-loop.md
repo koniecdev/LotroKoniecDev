@@ -328,6 +328,13 @@ Per-ticket outcomes:
     limit never stops the run this way: the stop needs a time more than eight hours away. A weekly
     limit whose message has a date is not read at all: it still takes the fixed naps until they
     run out.
+  - The nap looks at the clock once a minute (#1199). `sleep` does not count the time the computer
+    sleeps (Linux measures it with a clock that stops then, see `man 2 nanosleep`; macOS timers are
+    known to stop too, but nobody has checked that here), and `caffeinate` cannot keep a computer
+    with a closed lid awake. One long `sleep` would end late by all the time the computer slept,
+    often after Claude had dropped the session's cached context. Now the nap still ends on time when
+    the computer wakes before that time, and at most a minute after it wakes when the time passed
+    while it slept.
 - **untrusted** — the ticket failed the provenance gate, either at the start (no session is
   spawned) or before a resume (the work so far is kept on its branch). It does not count toward
   the failure circuit breaker (drain mode never selects one anyway).

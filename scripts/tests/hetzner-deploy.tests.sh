@@ -466,6 +466,59 @@ CASE='.env mode'
     || fail '.env must stay 0600 after the rewrite' "$(ls -l "$stack/.env")"
 pass 'the rewritten .env is still 0600 (it holds every secret on the box)'
 
+# --- A run as root must not leave .env owned by root (#1206) ---------------------------------------
+# The rewrite renames a temp file over .env, and the temp belongs to whoever runs the script. A root
+# run used to leave .env as root:root 0600, and every later CD run as deploy stopped on it.
+
+CASE='root run, stubbed'
+# CI never runs as root, so a stub `id` takes the root branch here. The stub `chown` logs its call and
+# then runs the real one, which fails if the temp is already gone or the owner is not a real one.
+mkdir -p "$TMP_ROOT/rootbin"
+cat > "$TMP_ROOT/rootbin/id" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = -u ]; then
+    echo 0
+    exit 0
+fi
+exec "$STUB_REAL_ID" "$@"
+STUB
+cat > "$TMP_ROOT/rootbin/chown" <<'STUB'
+#!/usr/bin/env bash
+printf 'chown %s\n' "$*" >> "$STUB_LOG"
+exec "$STUB_REAL_CHOWN" "$@"
+STUB
+chmod +x "$TMP_ROOT/rootbin/id" "$TMP_ROOT/rootbin/chown"
+stack="$(new_stack rootstub)"
+# shellcheck disable=SC2012
+read -r _ _ env_uid env_gid _ < <(ls -lnd -- "$stack/.env")
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" PATH="$TMP_ROOT/rootbin:$PATH" \
+    STUB_REAL_ID="$(command -v id)" STUB_REAL_CHOWN="$(command -v chown)"
+[ "$LAST_STATUS" -eq 0 ] || fail 'a run as root should roll' "status $LAST_STATUS"
+[ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'IMAGE_TAG was not pinned in .env' "$(cat "$stack/.env")"
+called "chown ${env_uid}:${env_gid} $stack/.env." \
+    || fail 'a run as root must give the temp the owner and the group of the old .env before the rename'
+pass 'a run as root gives the new .env the owner and the group of the old one'
+
+CASE='root run'
+# The real thing: only root can hand the stack to another user, so only a root run can set this up.
+if [ "$(id -u)" -ne 0 ]; then
+    printf -- '- [%s] SKIPPED: only root can give the stack dir to another user, so this case needs a root run of this suite\n' "$CASE"
+else
+    stack="$(new_stack asroot)"
+    # Numbers with no user behind them, so no account on the machine can be taken for the owner.
+    chown -R 4242:4343 "$stack"
+    run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST"
+    [ "$LAST_STATUS" -eq 0 ] || fail 'a run as root should roll' "status $LAST_STATUS"
+    [ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'IMAGE_TAG was not pinned in .env' "$(cat "$stack/.env")"
+    # shellcheck disable=SC2012
+    read -r env_mode _ env_uid env_gid _ < <(ls -lnd -- "$stack/.env")
+    [ "${env_mode:0:10} ${env_uid}:${env_gid}" = '-rw------- 4242:4343' ] \
+        || fail 'a run as root must keep the owner, the group and the mode of .env' "$(ls -lnd -- "$stack/.env")"
+    root_owned="$(find "$stack" -user 0)"
+    [ -z "$root_owned" ] || fail 'a run as root left a file owned by root in the stack dir' "$root_owned"
+    pass 'a run as root keeps the owner, the group and the mode of .env, and leaves no file owned by root'
+fi
+
 CASE='IMAGE_TAG absent from .env'
 stack="$(new_stack notag)"
 grep -v '^IMAGE_TAG=' "$stack/.env" > "$stack/.env.new" && mv "$stack/.env.new" "$stack/.env"

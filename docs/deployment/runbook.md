@@ -1945,9 +1945,10 @@ form works for `up` too. It does not.
   deploy-owned does not help — `scp` truncates the existing file, it does not unlink it), so the next
   CD run dies in *"Sync the stack files to the box"* and the rollout never starts. This is not
   theoretical: it failed the #507 production rollout on 2026-07-13. If you must stage files by hand,
-  `scp` as `deploy` — or `chown -R deploy:deploy /opt/lotro` afterwards. The same applies to `deploy.sh`
-  itself: run it **as `deploy`** (`sudo -u deploy env IMAGE_TAG=… bash /opt/lotro/deploy.sh`), because
-  its final step rewrites `.env`, and a root-owned `.env` locks CD out of the box for good.
+  `scp` as `deploy` — or `chown -R deploy:deploy /opt/lotro` afterwards. Run `deploy.sh` itself
+  **as `deploy`** too (`sudo -u deploy env IMAGE_TAG=… bash /opt/lotro/deploy.sh`): the GHCR login
+  lives in `deploy`'s Docker config. Its final step rewrites `.env`, and a root-owned `.env` locks CD
+  out of the box for good, so a root run gives the new `.env` the owner of the old one (#1206).
   `deploy.sh` now refuses an `.env` or compose file it cannot read, and a `/opt/lotro` it cannot write
   to (#806): it exits 2 before it pulls anything and prints the owner, the mode and the fix (for
   `.env`: `chown deploy:deploy /opt/lotro/.env && chmod 600 /opt/lotro/.env`).

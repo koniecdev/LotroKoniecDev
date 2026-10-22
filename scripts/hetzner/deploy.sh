@@ -22,7 +22,8 @@
 #      #1085). A broker that does not answer only prints a warning: it never fails the deploy.
 #   7. writes IMAGE_TAG into the box `.env` — LAST, and only on success, so the file always describes
 #      what is actually running. A later bare `docker compose up -d` by an operator then re-asserts
-#      the deployed tag instead of silently reverting to whatever the file said before.
+#      the deployed tag instead of silently reverting to whatever the file said before. The new file
+#      keeps the owner of the old one, so a run as root cannot lock CD out of the box (#1206).
 #
 # WARNING — do NOT collapse step 3 back into `up -d` and lean on compose.hetzner.yaml's
 # `depends_on: { migrator: { condition: service_completed_successfully } }`. That condition gates the
@@ -305,6 +306,15 @@ fi
 # the mode the runbook mandates for .env — inside the stack dir, so the rename is atomic.
 log "Pinning IMAGE_TAG=${IMAGE_TAG} in ${STACK_DIR}/.env"
 env_tmp="$(mktemp "${STACK_DIR}/.env.XXXXXX")"
+# The temp belongs to whoever runs this script, and the rename keeps that owner. After a root run .env
+# would be root's at mode 0600, and every later CD run as deploy would stop on it (#1206). So a root
+# run first gives the temp the owner and the group of the old .env. `ls -n` prints them as numbers on
+# GNU and BSD alike; `-L` follows a link to the file whose content the new .env carries.
+if [ "$(id -u)" -eq 0 ]; then
+    # shellcheck disable=SC2012
+    read -r _ _ env_uid env_gid _ < <(ls -lndL -- .env)
+    chown "${env_uid}:${env_gid}" "$env_tmp"
+fi
 if grep -q '^IMAGE_TAG=' .env; then
     sed "s|^IMAGE_TAG=.*|IMAGE_TAG=${IMAGE_TAG}|" .env > "$env_tmp"
 else

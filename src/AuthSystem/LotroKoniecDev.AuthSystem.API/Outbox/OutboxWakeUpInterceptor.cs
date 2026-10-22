@@ -151,6 +151,10 @@ internal sealed class OutboxWakeUpInterceptor : ISaveChangesInterceptor, IDbTran
 
     private void NoteNewOutboxRows(DbContext? context)
     {
+        // Each save decides on its own. A save that another interceptor refused before EF Core began it
+        // reported no end and wrote nothing, so its wake-up must not fire at this save.
+        _wakeUpAfterSave = false;
+
         if (context is null
             || !context.ChangeTracker.Entries<OutboxMessage>().Any(entry => entry.State == EntityState.Added))
         {

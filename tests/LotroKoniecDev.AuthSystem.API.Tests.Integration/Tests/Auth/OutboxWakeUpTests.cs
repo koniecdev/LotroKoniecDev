@@ -1,7 +1,9 @@
 using System.Data.Common;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.API.Outbox;
@@ -253,6 +255,43 @@ public sealed class OutboxWakeUpTests : EndpointsTestBase
     }
 
     /// <summary>
+    /// A save that another interceptor refuses before EF Core begins it reports no end and writes
+    /// nothing. Its wake-up must not wait for the next save, which inside a transaction comes before the
+    /// commit.
+    /// </summary>
+    [Fact]
+    public async Task Commit_AfterASaveThatWasRefusedBeforeItBegan_IsStillTheOnlyWakeUp()
+    {
+        // Arrange
+        SaveRefusal saveRefusal = new();
+        await using WebApplicationFactory<Program> host = Factory.GetHostWithoutOutboxRelay()
+            .WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+                services.ConfigureDbContext<AuthDbContext>(options => options.AddInterceptors(saveRefusal))));
+        OutboxSignal outboxSignal = host.Services.GetRequiredService<OutboxSignal>();
+        await using AsyncServiceScope scope = host.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        EnqueueRow(scope);
+        saveRefusal.RefuseNextSave();
+        await Should.ThrowAsync<InvalidOperationException>(() => db.SaveChangesAsync());
+        db.ChangeTracker.Clear();
+        bool wokenBeforeTheCommit = true;
+
+        // Act
+        await InTransactionAsync(db, async transaction =>
+        {
+            EnqueueRow(scope);
+            await db.SaveChangesAsync();
+            wokenBeforeTheCommit = await TakeWakeUpAsync(outboxSignal);
+
+            await transaction.CommitAsync();
+        });
+
+        // Assert
+        wokenBeforeTheCommit.ShouldBeFalse();
+        (await TakeWakeUpAsync(outboxSignal)).ShouldBeTrue();
+    }
+
+    /// <summary>
     /// The relay's own saves only update rows. If that woke the relay, it would wake itself after every
     /// pass. A failed attempt changes the row every time, so the save below is never empty, even when the
     /// other host's relay sent the row first.
@@ -322,9 +361,34 @@ public sealed class OutboxWakeUpTests : EndpointsTestBase
     /// </summary>
     private static InvalidOperationException CreateFailure() => new("Injected by OutboxWakeUpTests.");
 
+    private Task<bool> TakeWakeUpAsync() => TakeWakeUpAsync(_outboxSignal);
+
     /// <summary>
     /// Takes the wake-up the signal holds, if there is one, without waiting.
     /// </summary>
-    private Task<bool> TakeWakeUpAsync() =>
-        _outboxSignal.WaitAsync(TimeSpan.Zero, TimeProvider.System, CancellationToken.None);
+    private static Task<bool> TakeWakeUpAsync(OutboxSignal outboxSignal) =>
+        outboxSignal.WaitAsync(TimeSpan.Zero, TimeProvider.System, CancellationToken.None);
+
+    /// <summary>
+    /// Sits after the wake-up interceptor and, once armed, refuses the next save before EF Core begins it.
+    /// EF Core then reports neither a saved nor a failed save. It waits to be armed because the host
+    /// saves its seed data at startup.
+    /// </summary>
+    private sealed class SaveRefusal : ISaveChangesInterceptor
+    {
+        private int _armed;
+
+        public void RefuseNextSave()
+        {
+            Interlocked.Exchange(ref _armed, 1);
+        }
+
+        public ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default) =>
+            Interlocked.Exchange(ref _armed, 0) == 1
+                ? throw new InvalidOperationException("Refused by OutboxWakeUpTests.")
+                : ValueTask.FromResult(result);
+    }
 }

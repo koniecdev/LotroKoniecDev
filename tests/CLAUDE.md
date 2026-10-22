@@ -21,7 +21,7 @@ Full project inventory (15 projects):
 | `LotroKoniecDev.SharedKernel.Tests.Unit` | SharedKernel unit (monads, BuildingBlocks, Ensure, strongly-typed IDs) | nothing (pure); Stryker target |
 | `LotroKoniecDev.Logging.Tests.Unit` | `Utilities/Logging` redaction unit | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` | TMS domain unit | nothing (pure); Stryker target |
-| `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handler/auth/endpoint unit (fake read-DbContext, stub accessor/provisioner) | nothing (pure) |
+| `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handler/auth/endpoint unit (fake read-DbContext, stub accessor/provisioner), and the account event consumer's pauses on a fake clock (#1223) | nothing (pure) |
 | `LotroKoniecDev.Frontend.Tests.Unit` | Blazor SSR component + infrastructure unit (bUnit-style) | nothing (pure) |
 | `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api unit: startup settings checks, handlers, middleware, pages, services, outbox and inbox, seed retry policy, and when the timed jobs run (#948) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |

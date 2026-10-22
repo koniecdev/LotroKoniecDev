@@ -84,9 +84,10 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
     ];
 
     /// <summary>
-    /// How often the consumer checks that it is still attached.
+    /// How often the consumer checks that it is still attached. It is internal so the unit tests can
+    /// check it.
     /// </summary>
-    private static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(30);
 
     private readonly IConnectionFactory _connectionFactory;
     private readonly IServiceScopeFactory _scopeFactory;

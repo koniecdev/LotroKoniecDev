@@ -229,8 +229,8 @@ public sealed class EmailDispatchConsumerTests
     }
 
     /// <summary>
-    /// A stop is not a failure, so a deploy during an SMTP outage must not log an unexpected error. The
-    /// line written before the pause stays.
+    /// A stop that comes during the pause is not a failure, so it must not add an unexpected error to
+    /// the log. The line written before the pause stays.
     /// </summary>
     [Theory]
     [InlineData(false)]
@@ -324,11 +324,11 @@ public sealed class EmailDispatchConsumerTests
     }
 
     /// <summary>
-    /// The consumer looks once per watch interval, and a channel that is closed on two looks in a row
-    /// makes it attach again.
+    /// The consumer looks every 30 seconds. One closed look is left to automatic recovery, and the second
+    /// closed look in a row makes it attach again.
     /// </summary>
     [Fact]
-    public async Task ExecuteAsync_WhenTheChannelStaysClosed_ShouldAttachAgainAfterTwoWatchIntervals()
+    public async Task ExecuteAsync_WhenTheChannelStaysClosed_ShouldAttachAgainOnlyAfterTwoWatchIntervals()
     {
         // Arrange
         TimeSpan watchInterval = TimeSpan.FromSeconds(30);
@@ -337,16 +337,25 @@ public sealed class EmailDispatchConsumerTests
         IConnectionFactory connectionFactory = Substitute.For<IConnectionFactory>();
         connectionFactory.CreateConnectionAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(closedChannel.Connection), Task.FromResult(openChannel.Connection));
-        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(connectionFactory, watchInterval);
+        using EmailDispatchConsumer consumer = CreateConsumerOnTheFakeClock(connectionFactory, EmailDispatchConsumer.WatchInterval);
 
-        // Act
+        // Act: the timer for the second look starts only after the first look, and after any attach it
+        // made, so the connection count read there is final.
         await consumer.StartAsync(CancellationToken.None);
-        IReadOnlyList<int> wakeUpsJustBeforeEachLook = await WaitThroughAsync([watchInterval, watchInterval]);
+        await _clock.WaitForNextTimerAsync();
+        _clock.Advance(watchInterval - OneMillisecond);
+        int wakeUpsJustBeforeTheFirstLook = _clock.WakeUps;
+        _clock.Advance(OneMillisecond);
+        await _clock.WaitForNextTimerAsync();
+        int connectionsAfterTheFirstLook = connectionFactory.ReceivedCalls().Count();
+        _clock.Advance(watchInterval);
         bool attachedAgain = await openChannel.WaitUntilConsumingAsync();
         await StopWithinLimitAsync(consumer);
 
-        // Assert: no look came early, and the second closed look attached again
-        wakeUpsJustBeforeEachLook.ShouldBe([0, 1]);
+        // Assert: no look came early, the first closed look kept the old connection, and the second
+        // attached again
+        wakeUpsJustBeforeTheFirstLook.ShouldBe(0);
+        connectionsAfterTheFirstLook.ShouldBe(1);
         attachedAgain.ShouldBeTrue();
     }
 

@@ -68,9 +68,9 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     /// <summary>
     /// How often the consumer checks that it is still attached. Automatic recovery brings back a lost
     /// connection, but not a channel the broker closed or a subscription it cancelled, for example
-    /// after the queue was deleted to change its arguments.
+    /// after the queue was deleted to change its arguments. It is internal so the unit tests can check it.
     /// </summary>
-    private static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(30);
 
     private readonly IConnectionFactory _connectionFactory;
     private readonly IServiceScopeFactory _scopeFactory;

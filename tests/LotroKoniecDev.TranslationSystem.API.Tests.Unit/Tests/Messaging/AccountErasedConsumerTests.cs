@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
@@ -203,9 +204,9 @@ public sealed class AccountErasedConsumerTests
     {
         // Arrange
         IChannel channel = Substitute.For<IChannel>();
-        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
-            new StubEraseHandler(() => throw new TimeoutException("database down")),
-            NullLoggerFactory.Instance);
+        await using ServiceProvider services = BuildEraseServices(
+            new StubEraseHandler(() => throw new TimeoutException("database down")));
+        using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(services, NullLoggerFactory.Instance);
 
         // Act
         Task delivering = consumer.OnDeliveredAsync(channel, Delivery(), CancellationToken.None);
@@ -227,9 +228,9 @@ public sealed class AccountErasedConsumerTests
     {
         // Arrange
         IChannel channel = Substitute.For<IChannel>();
-        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
-            new StubEraseHandler(() => throw new InvalidOperationException("bug")),
-            NullLoggerFactory.Instance);
+        await using ServiceProvider services = BuildEraseServices(
+            new StubEraseHandler(() => throw new InvalidOperationException("bug")));
+        using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(services, NullLoggerFactory.Instance);
 
         // Act
         Task delivering = consumer.OnDeliveredAsync(channel, Delivery(), CancellationToken.None);
@@ -259,15 +260,15 @@ public sealed class AccountErasedConsumerTests
         // Arrange
         using CancellationTokenSource stopping = new();
         IChannel channel = Substitute.For<IChannel>();
-        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
+        await using ServiceProvider services = BuildEraseServices(
             new StubEraseHandler(() =>
             {
                 Exception failure = theDatabaseIsUnavailable
                     ? new TimeoutException("database down")
                     : new InvalidOperationException("bug");
                 throw failure;
-            }),
-            NullLoggerFactory.Instance);
+            }));
+        using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(services, NullLoggerFactory.Instance);
 
         // Act
         Task delivering = consumer.OnDeliveredAsync(channel, Delivery(), stopping.Token);
@@ -280,8 +281,8 @@ public sealed class AccountErasedConsumerTests
     }
 
     /// <summary>
-    /// A stop is not a failure, so a deploy during a database outage must not log an unexpected error.
-    /// The line written before the pause stays.
+    /// A stop that comes during the pause is not a failure, so it must not add an unexpected error to
+    /// the log. The line written before the pause stays.
     /// </summary>
     [Theory]
     [InlineData(false)]
@@ -293,15 +294,15 @@ public sealed class AccountErasedConsumerTests
         using CapturingLoggerFactory loggerFactory = new();
         using CancellationTokenSource stopping = new();
         IChannel channel = Substitute.For<IChannel>();
-        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
+        await using ServiceProvider services = BuildEraseServices(
             new StubEraseHandler(() =>
             {
                 Exception failure = theDatabaseIsUnavailable
                     ? new TimeoutException("database down")
                     : new InvalidOperationException("bug");
                 throw failure;
-            }),
-            loggerFactory);
+            }));
+        using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(services, loggerFactory);
 
         // Act
         Task delivering = consumer.OnDeliveredAsync(channel, Delivery(), stopping.Token);
@@ -323,9 +324,9 @@ public sealed class AccountErasedConsumerTests
     {
         // Arrange
         IChannel channel = Substitute.For<IChannel>();
-        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
-            new StubEraseHandler(() => throw new TimeoutException("database down")),
-            NullLoggerFactory.Instance);
+        await using ServiceProvider services = BuildEraseServices(
+            new StubEraseHandler(() => throw new TimeoutException("database down")));
+        using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(services, NullLoggerFactory.Instance);
 
         // Act
         IReadOnlyList<int> wakeUpsJustBeforeEachPauseEnds =
@@ -345,9 +346,9 @@ public sealed class AccountErasedConsumerTests
         // Arrange
         int attempts = 0;
         IChannel channel = Substitute.For<IChannel>();
-        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
-            new StubEraseHandler(() => ++attempts == 3 ? Result.Success() : throw new TimeoutException("database down")),
-            NullLoggerFactory.Instance);
+        await using ServiceProvider services = BuildEraseServices(
+            new StubEraseHandler(() => ++attempts == 3 ? Result.Success() : throw new TimeoutException("database down")));
+        using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(services, NullLoggerFactory.Instance);
 
         // Act
         await DeliverThroughPausesAsync(consumer, channel, [TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(2)]);
@@ -369,9 +370,9 @@ public sealed class AccountErasedConsumerTests
         // Arrange
         using CapturingLoggerFactory loggerFactory = new();
         IChannel channel = Substitute.For<IChannel>();
-        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
-            new StubEraseHandler(() => throw new TimeoutException("database down")),
-            loggerFactory);
+        await using ServiceProvider services = BuildEraseServices(
+            new StubEraseHandler(() => throw new TimeoutException("database down")));
+        using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(services, loggerFactory);
 
         // Act
         await DeliverThroughPausesAsync(consumer, channel, PausesUpToTheLastAndOnceMore);
@@ -393,15 +394,15 @@ public sealed class AccountErasedConsumerTests
         // Arrange
         int attempts = 0;
         IChannel channel = Substitute.For<IChannel>();
-        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
+        await using ServiceProvider services = BuildEraseServices(
             new StubEraseHandler(() =>
             {
                 Exception failure = ++attempts <= 2
                     ? new TimeoutException("database down")
                     : new InvalidOperationException("bug");
                 throw failure;
-            }),
-            NullLoggerFactory.Instance);
+            }));
+        using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(services, NullLoggerFactory.Instance);
 
         // Act
         IReadOnlyList<int> wakeUpsJustBeforeEachPauseEnds = await DeliverThroughPausesAsync(
@@ -619,11 +620,11 @@ public sealed class AccountErasedConsumerTests
     }
 
     /// <summary>
-    /// The consumer looks once per watch interval, and a channel that is closed on two looks in a row
-    /// makes it attach again.
+    /// The consumer looks every 30 seconds. One closed look is left to automatic recovery, and the second
+    /// closed look in a row makes it attach again.
     /// </summary>
     [Fact]
-    public async Task ExecuteAsync_WhenTheChannelStaysClosed_ShouldAttachAgainAfterTwoWatchIntervals()
+    public async Task ExecuteAsync_WhenTheChannelStaysClosed_ShouldAttachAgainOnlyAfterTwoWatchIntervals()
     {
         // Arrange
         TimeSpan watchInterval = TimeSpan.FromSeconds(30);
@@ -632,16 +633,25 @@ public sealed class AccountErasedConsumerTests
         IConnectionFactory connectionFactory = Substitute.For<IConnectionFactory>();
         connectionFactory.CreateConnectionAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(closedChannel.Connection), Task.FromResult(openChannel.Connection));
-        using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(connectionFactory, watchInterval);
+        using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(connectionFactory, AccountErasedConsumer.WatchInterval);
 
-        // Act
+        // Act: the timer for the second look starts only after the first look, and after any attach it
+        // made, so the connection count read there is final.
         await consumer.StartAsync(CancellationToken.None);
-        IReadOnlyList<int> wakeUpsJustBeforeEachLook = await WaitThroughAsync([watchInterval, watchInterval]);
+        await _clock.WaitForNextTimerAsync();
+        _clock.Advance(watchInterval - OneMillisecond);
+        int wakeUpsJustBeforeTheFirstLook = _clock.WakeUps;
+        _clock.Advance(OneMillisecond);
+        await _clock.WaitForNextTimerAsync();
+        int connectionsAfterTheFirstLook = connectionFactory.ReceivedCalls().Count();
+        _clock.Advance(watchInterval);
         bool attachedAgain = await openChannel.WaitUntilConsumingAsync();
         await StopWithinLimitAsync(consumer);
 
-        // Assert: no look came early, and the second closed look attached again
-        wakeUpsJustBeforeEachLook.ShouldBe([0, 1]);
+        // Assert: no look came early, the first closed look kept the old connection, and the second
+        // attached again
+        wakeUpsJustBeforeTheFirstLook.ShouldBe(0);
+        connectionsAfterTheFirstLook.ShouldBe(1);
         attachedAgain.ShouldBeTrue();
     }
 
@@ -845,23 +855,25 @@ public sealed class AccountErasedConsumerTests
             watchInterval);
 
     /// <summary>
-    /// A consumer whose pauses after a failed erasure are the real ones, on the fake clock.
+    /// A consumer built the way the container builds it, on the fake clock, so its pauses after a failed
+    /// erasure are the ones production uses. No delivery path touches the broker connection.
     /// </summary>
-    private AccountErasedConsumer CreateConsumerOnTheFakeClock(StubEraseHandler handler, ILoggerFactory loggerFactory)
-    {
-        ServiceProvider services = new ServiceCollection()
-            .AddScoped<ICommandHandler<EraseTranslatorProfile.Command, Result>>(_ => handler)
-            .BuildServiceProvider();
-
-        return new AccountErasedConsumer(
-            Substitute.For<IConnectionFactory>(),
+    private AccountErasedConsumer CreateConsumerOnTheFakeClock(IServiceProvider services, ILoggerFactory loggerFactory) =>
+        new(
+            new OptionsWrapper<RabbitMqSettings>(new RabbitMqSettings
+            {
+                Host = "account-erased-consumer-tests.invalid",
+                Username = "tms-consumer",
+                Password = "a-broker-password"
+            }),
             services.GetRequiredService<IServiceScopeFactory>(),
             _clock,
-            new Logger<AccountErasedConsumer>(loggerFactory),
-            [TimeSpan.Zero],
-            AccountErasedConsumer.RetryBackoffs,
-            TimeSpan.FromMinutes(1));
-    }
+            new Logger<AccountErasedConsumer>(loggerFactory));
+
+    private static ServiceProvider BuildEraseServices(StubEraseHandler handler) =>
+        new ServiceCollection()
+            .AddScoped<ICommandHandler<EraseTranslatorProfile.Command, Result>>(_ => handler)
+            .BuildServiceProvider();
 
     /// <summary>
     /// A consumer whose pauses between connection attempts are the real ones, on the fake clock.

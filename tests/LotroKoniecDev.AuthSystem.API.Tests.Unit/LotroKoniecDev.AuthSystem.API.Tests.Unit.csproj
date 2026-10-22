@@ -34,6 +34,7 @@
 
     <ItemGroup>
         <Compile Include="..\Shared\CapturingLoggerFactory.cs" Link="Shared\CapturingLoggerFactory.cs" />
+        <Compile Include="..\Shared\TimerWatchingTimeProvider.cs" Link="Shared\TimerWatchingTimeProvider.cs" />
     </ItemGroup>
 
     <ItemGroup>

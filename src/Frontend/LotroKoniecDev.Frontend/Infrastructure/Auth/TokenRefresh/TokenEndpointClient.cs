@@ -69,6 +69,15 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
             return TokenRefreshResult.TemporaryFailure;
         }
         catch (TaskCanceledException ex)
+            when (cancellationToken.IsCancellationRequested && ex.CancellationToken == cancellationToken)
+        {
+            // HttpClient puts the caller's token on the exception only when that token was already cancelled
+            // as it handled the failure, so a timeout stays a warning. A token that can never cancel matches an
+            // exception with no token at all, hence the first check.
+            LogRefreshAbandoned(_logger);
+            return TokenRefreshResult.TemporaryFailure;
+        }
+        catch (TaskCanceledException ex)
         {
             LogRefreshError(_logger, ex);
             return TokenRefreshResult.TemporaryFailure;
@@ -204,6 +213,12 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
         Level = LogLevel.Warning,
         Message = "Refresh token grant threw an exception.")]
     private static partial void LogRefreshError(ILogger logger, Exception exception);
+
+    [LoggerMessage(
+        EventId = 7,
+        Level = LogLevel.Information,
+        Message = "Refresh token grant was cancelled because the request was aborted.")]
+    private static partial void LogRefreshAbandoned(ILogger logger);
 
     [LoggerMessage(
         EventId = 4,

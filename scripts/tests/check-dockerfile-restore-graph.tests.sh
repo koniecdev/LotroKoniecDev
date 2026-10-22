@@ -100,6 +100,12 @@ expect_in_output() {
         || fail "output should contain '$1'" "$LAST_OUTPUT"
 }
 
+expect_not_in_output() {
+    if printf '%s' "$LAST_OUTPUT" | grep -qF "$1"; then
+        fail "output should not contain '$1'" "$LAST_OUTPUT"
+    fi
+}
+
 run_suite() {
     local tree
 
@@ -140,6 +146,18 @@ run_suite() {
     prepend_line "$tree/Dockerfile.escape" '#  ESCAPE = `'
     run_tree 2 "an escape directive in capitals and with spaces is refused too" "$tree"
     expect_in_output "Dockerfile.escape sets a backtick"
+
+    # Docker reads the COPY line as text for the RUN, so it copies nothing.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" 'RUN <<EOF' "$COPY_LIB" 'EOF' "$RESTORE_APP"
+    run_tree 2 "a Dockerfile with a heredoc fails the run" "$tree"
+    expect_in_output "uses a heredoc"
+
+    # A whole-folder Dockerfile has no COPY list to check, so its heredoc does not matter.
+    tree="$(new_tree)"
+    write_complete_dockerfile "$tree"
+    write_dockerfile "$tree" Dockerfile.tests 'COPY ["src/", "src/"]' 'RUN <<EOF' 'echo hi' 'EOF' "$RESTORE_APP"
+    run_tree 0 "a heredoc in a Dockerfile that copies whole folders is not refused" "$tree"
 
     # Each of these holds a COPY list with no restore, which fails the run if the guard reads it.
     tree="$(new_tree)"
@@ -280,6 +298,20 @@ run_suite() {
         "COPY 'src/Core/Core.csproj' src/Core/" "$RESTORE_APP"
     run_tree 0 "a quoted source in a shell-form COPY line is read" "$tree"
 
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY --chown="app user" ["src/Lib/Lib.csproj", "src/Lib/"]' "$COPY_CORE" "$RESTORE_APP"
+    run_tree 0 "a COPY flag with a quoted value that holds a space is read" "$tree"
+
+    # Docker trims Unicode spaces from the start of an instruction's arguments.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" $'COPY \302\240["src/Lib/Lib.csproj", "src/Lib/"]' "$COPY_CORE" "$RESTORE_APP"
+    run_tree 0 "a COPY list after a Unicode space is read" "$tree"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY ["src/Lib/Lib.csproj", "src/Lib/Lib.csproj"]' \
+        'COPY ["src/Core/Core.csproj", "./src/Core/"]' "$RESTORE_APP"
+    run_tree 0 "a COPY to the full file path or to ./ plus its folder is read" "$tree"
+
     # Docker joins on a single trailing backslash only, so the COPY line below stays its own line.
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'RUN echo hi \\' "$COPY_LIB" "$COPY_CORE" "$RESTORE_APP"
@@ -402,16 +434,22 @@ run_suite() {
     expect_in_output "missing: src/Lib/Lib.csproj"
 
     # The guard reads the COPY lines and the restore roots through one reader. It must not drop a file
-    # that holds a NUL byte as binary.
+    # that holds a NUL byte as binary, and bash must not get the NUL: it would warn on every run.
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_LIB" "$RESTORE_APP"
-    printf '# \000\n' >> "$tree/src/App/Dockerfile"
+    printf 'RUN echo \000\n' >> "$tree/src/App/Dockerfile"
     run_tree 1 "a Dockerfile that holds a NUL byte is still read" "$tree"
     expect_in_output "missing: src/Core/Core.csproj"
+    expect_not_in_output "null byte"
 
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" "$RESTORE_CORE" 'RUN dotnet "restore" "src/App/App.csproj"'
     run_tree 1 "a restore with quotes around restore is read" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" "$RESTORE_CORE" 'RUN "dotnet" restore "src/App/App.csproj"'
+    run_tree 1 "a restore with quotes around dotnet is read" "$tree"
     expect_in_output "missing: src/Lib/Lib.csproj"
 
     # Docker ends a line only at LF, so this COPY is part of the RUN and copies nothing.
@@ -426,12 +464,56 @@ run_suite() {
     run_tree 1 "a Unicode space does not split a COPY line" "$tree"
     expect_in_output "missing: src/Lib/Lib.csproj"
 
-    # Both twins count a line with no visible ASCII character as empty, so the join goes on and takes
-    # the COPY line in. Docker would end the join at the Polish word.
+    # Only spaces come before a comment's `#`. Docker joins this line on, so it restores App too.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" \
+        'RUN dotnet restore "src/Core/Core.csproj" && echo "a \' 'ż#b" && dotnet restore "src/App/App.csproj"'
+    run_tree 1 "a continuation line with a letter before # is not a comment" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_CORE" "$RESTORE_CORE" \
+        'RUN dotnet restore \' $'\342\200\203# a note' '    "src/App/App.csproj"'
+    run_tree 1 "a comment after a Unicode space inside a continuation is skipped, and the join goes on" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    # A COPY that puts the project file anywhere but its own path leaves restore without it.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY src/Lib/Lib.csproj ./' "$COPY_CORE" "$RESTORE_APP"
+    run_tree 1 "a COPY into another folder does not copy the project to its own path" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY ["src/Lib/Lib.csproj", "src/Lib"]' "$COPY_CORE" "$RESTORE_APP"
+    run_tree 1 "a COPY whose destination folder has no trailing slash does not count" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY ["src/Lib/Lib.csproj", "/src/Lib/"]' "$COPY_CORE" "$RESTORE_APP"
+    run_tree 1 "a COPY to an absolute destination does not count" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY ["src/Lib/Lib.csproj", "src/Core/Core.csproj", "src/"]' "$RESTORE_APP"
+    run_tree 1 "a COPY with two sources does not count, as Docker puts both files in one folder" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'COPY --from=build ["src/Lib/Lib.csproj", "src/Lib/"]' "$COPY_CORE" "$RESTORE_APP"
+    run_tree 1 "a COPY --from another stage does not copy from the repo" "$tree"
+    expect_in_output "missing: src/Lib/Lib.csproj"
+
+    # On the Linux image build src/APP is another folder, which the repo does not have.
+    tree="$(new_tree)"
+    write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" "$COPY_LIB" "$COPY_CORE" "$RESTORE_APP" \
+        'RUN dotnet restore "src/APP/App.csproj"'
+    run_tree 1 "two restore roots that differ only in case are both read" "$tree"
+    expect_in_output "src/APP/App.csproj"
+
+    # Docker ends the join at the Polish word: it is text, not a line of spaces.
     tree="$(new_tree)"
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'RUN echo hi \' 'żółć' "$COPY_LIB" "$COPY_CORE" "$RESTORE_APP"
-    run_tree 1 "a line with no visible ASCII character inside a continuation counts as empty in both twins" "$tree"
-    expect_in_output "missing: src/Lib/Lib.csproj"
+    run_tree 0 "a line of non-ASCII text inside a continuation ends the join, as in Docker" "$tree"
 }
 
 sh_runner="$TMP_ROOT/run-sh.sh"

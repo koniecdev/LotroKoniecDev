@@ -42,17 +42,19 @@ export LC_ALL=C
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
 REPO_ROOT="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 
-# A COPY or ADD instruction up to its first source: the keyword in any case (Docker lowers it), then
-# any flag words such as `--link` or `--chown=app`. Docker splits an instruction on ASCII spaces only,
-# and so does [[:space:]] in the C locale. Only the first source is read, because this repo copies one
-# project file per line.
-COPY_PREFIX='^[^!-~]*([Cc][Oo][Pp][Yy]|[Aa][Dd][Dd])([[:space:]]+--[^[:space:]]*)*[[:space:]]+'
+TAB="$(printf '\t')"
+# Docker trims Unicode spaces too (Go's unicode.IsSpace) at the start of a line and around the
+# arguments of an instruction. In the C locale [[:space:]] is ASCII only, so these are the UTF-8 bytes
+# of the others: U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F, U+3000.
+WIDE_SPACE=$'(\302[\205\240]|\341\232\200|\342\200[\200\201\202\203\204\205\206\207\210\211\212\250\251\257]|\342\201\237|\343\200\200)'
 # `dotnet restore` as the shell runs it: any spaces or tabs between the two words, and quotes around
-# `restore` if there are any. Or an exec-form RUN ["dotnet", "restore", …] list.
-RESTORE_COMMAND="dotnet([[:space:]]+[\"']?|\"[[:space:]]*,[[:space:]]*\")restore"
+# either word. Or an exec-form RUN ["dotnet", "restore", …] list.
+RESTORE_COMMAND="dotnet[\"']?([[:space:]]+[\"']?|[[:space:]]*,[[:space:]]*\")restore"
 # When an escape directive at the top of the file sets a backtick, Docker joins the lines that end in
 # a backtick instead of a backslash.
 ESCAPE_BACKTICK='^[^!-~]*#[^!-~]*escape[[:space:]]*=[[:space:]]*`'
+# Docker reads the lines after `RUN <<EOF` up to `EOF` as the content of the instruction.
+HEREDOC='^[^!-~]*([Rr][Uu][Nn]|[Cc][Oo][Pp][Yy]|[Aa][Dd][Dd])[[:space:]].*<<-?[^[:space:]<]'
 
 SEEN=""
 MISSING_ON_DISK=""
@@ -119,26 +121,95 @@ EOF
 # COPY list and the restore roots are both read from this output, so they cannot disagree on what a
 # comment or a continuation is.
 #   - Lines end at LF. A CR at the end of a line is dropped, so CRLF line ends read like LF.
-#   - A line whose first visible character is `#` is a comment. Comments go first: a commented-out
-#     `# dotnet restore Foo.csproj` must not add a restore root to a Dockerfile that restores nothing.
+#   - A line whose first character after any spaces is `#` is a comment. Comments go first: a
+#     commented-out `# dotnet restore Foo.csproj` must not add a restore root to a Dockerfile that
+#     restores nothing.
 #   - A `\` at the end of a line, with any spaces or tabs after it, joins the next line on. A `\\`
 #     there does not, as in Docker.
-#   - Inside such a join, an empty line is skipped and the join goes on. A line with no visible ASCII
-#     character counts as empty, because the C locale cannot tell a Unicode space from other
-#     non-ASCII text. Such a line holds nothing this guard reads. The cost is a false alarm when the
-#     line is text and the next line is a COPY, which the join then hides.
+#   - Inside such a join, a line of only spaces is skipped and the join goes on.
 # NUL bytes are dropped first, because bash cannot keep one in a variable.
 join_continuations() {
-    tr -d '\000' < "$1" | awk '{
+    tr -d '\000' < "$1" | awk -v wide="$WIDE_SPACE" '
+    BEGIN { spaces = "^([[:space:]]|" wide ")*" }
+    {
         line = $0
         sub(/\r+$/, "", line)
-        if (line ~ /^[^!-~]*#/) next
-        if (joining && line ~ /^[^!-~]*$/) next
+        if (line ~ (spaces "#")) next
+        if (joining && line ~ (spaces "$")) next
         if (line ~ /(^|[^\\])\\[ \t]*$/) { sub(/\\[ \t]*$/, "", line); buf = buf line; joining = 1; next }
         print buf line
         buf = ""
         joining = 0
-    } END { if (joining) print buf }'
+    }
+    END { if (joining) print buf }'
+}
+
+# Reads instructions on stdin. For each COPY or ADD with one source that is a .csproj, prints the
+# source and the destination, split by a tab. It reads them the way Docker does: the keyword in any
+# case (Docker lowers it), flag words such as `--link` or `--chown="app user"`, then a JSON list or
+# the shell form, where quotes around a word go. Docker splits the shell form on ASCII spaces only.
+# A COPY with --from= copies from another stage or image, not from this repo, so it is left out.
+# A COPY with more than one source puts every file straight into the destination folder, so it is
+# left out too.
+copy_arguments() {
+    awk -v wide="$WIDE_SPACE" '
+    BEGIN {
+        space = "([[:space:]]|" wide ")"
+        keyword = "^" space "*([Cc][Oo][Pp][Yy]|[Aa][Dd][Dd])[[:space:]]+"
+        flag = "^--([^[:space:]\"\047]|\"[^\"]*\"|\047[^\047]*\047)*[[:space:]]+"
+        pair = "^\\[[[:space:]]*\"[^\"]*\"[[:space:]]*,[[:space:]]*\"[^\"]*\"[[:space:]]*\\]$"
+        quoted = "^(\".*\"|\047.*\047)$"
+    }
+    function unquote(word) {
+        return word ~ quoted ? substr(word, 2, length(word) - 2) : word
+    }
+    {
+        if (!match($0, keyword)) next
+        rest = substr($0, RLENGTH + 1)
+        other_stage = 0
+        while (match(rest, flag)) {
+            if (substr(rest, 1, 7) == "--from=") other_stage = 1
+            rest = substr(rest, RLENGTH + 1)
+        }
+        if (other_stage) next
+        while (match(rest, "^" space)) rest = substr(rest, RLENGTH + 1)
+        while (match(rest, space "$")) rest = substr(rest, 1, RSTART - 1)
+        if (substr(rest, 1, 1) == "[") {
+            if (rest !~ pair) next
+            split(rest, part, "\"")
+            source = part[2]
+            destination = part[4]
+        } else {
+            if (split(rest, part, /[[:space:]]+/) != 2) next
+            source = unquote(part[1])
+            destination = unquote(part[2])
+        }
+        if (source ~ /\.csproj$/) print source "\t" destination
+    }'
+}
+
+# Reads the output of copy_arguments on stdin, and prints each source that lands at its own path, the
+# path the restore reads. That is a destination of its own folder with a trailing `/` (or `.` for the
+# root), or of its own full path. Any other destination puts the file somewhere else: `src/Lib`
+# without the `/` writes a file of that name when the folder does not exist yet. An absolute
+# destination is left out, because the guard does not track WORKDIR.
+copied_projects() {
+    local source destination folder
+    while IFS="$TAB" read -r source destination; do
+        [ -n "$source" ] || continue
+        source="$(norm_path "$source")"
+        case "$source" in
+            */*) folder="${source%/*}" ;;
+            *) folder="" ;;
+        esac
+        case "$destination" in
+            /*) continue ;;
+            */ | .) [ "$(norm_path "$destination")" = "$folder" ] || continue ;;
+            *) [ "$(norm_path "$destination")" = "$source" ] || continue ;;
+        esac
+        printf '%s\n' "$source"
+    done
+    return 0
 }
 
 # .git, .claude, node_modules, bin and obj are pruned, so find never enters them. A loop worktree
@@ -170,10 +241,14 @@ while IFS= read -r dockerfile; do
         exit 2
     fi
 
-    copied="$(printf '%s\n' "$instructions" | sed -nE \
-        -e "s/${COPY_PREFIX}\[[[:space:]]*\"([^\"]+\.csproj)\".*/\3/p" \
-        -e "s/${COPY_PREFIX}[\"']?([^[:space:][\"'][^[:space:]\"']*\.csproj)[\"']?[[:space:]].*/\3/p")"
+    copied="$(printf '%s\n' "$instructions" | copy_arguments | copied_projects)"
     [ -z "$copied" ] && continue
+
+    # Docker reads a heredoc body as text, but the guard would read a COPY line in it as an instruction.
+    if grep -qE "$HEREDOC" <<<"$instructions"; then
+        echo "Docker restore-graph guard: $rel uses a heredoc (<<), and this guard cannot tell its lines from instructions." >&2
+        exit 2
+    fi
 
     roots="$(printf '%s\n' "$instructions" \
         | grep -E "$RESTORE_COMMAND" \

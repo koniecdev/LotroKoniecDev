@@ -1,14 +1,12 @@
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Settings;
-using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
-using Shouldly;
+using Microsoft.Extensions.Hosting;
+using NSubstitute;
 
-namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Settings;
+namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 
 /// <summary>
-/// Pure unit coverage for the AuthSystem Data Protection keyring startup guard (M6-04). It lives in
-/// the integration project only because the AuthSystem has no API unit project; it instantiates no
-/// factory and starts no container.
+/// The AuthSystem Data Protection keyring startup guard (M6-04).
 /// </summary>
 public sealed class DataProtectionGuardTests
 {
@@ -24,7 +22,7 @@ public sealed class DataProtectionGuardTests
     {
         DataProtectionSettings settings = new() { KeyRingPath = null };
 
-        Action act = () => DataProtectionExtensions.GuardKeyRingPath(settings, new FakeWebHostEnvironment(environmentName));
+        Action act = () => DataProtectionExtensions.GuardKeyRingPath(settings, HostEnvironment(environmentName));
 
         act.ShouldNotThrow();
     }
@@ -42,7 +40,7 @@ public sealed class DataProtectionGuardTests
     {
         DataProtectionSettings settings = new() { KeyRingPath = keyRingPath };
 
-        Action act = () => DataProtectionExtensions.GuardKeyRingPath(settings, new FakeWebHostEnvironment(environmentName));
+        Action act = () => DataProtectionExtensions.GuardKeyRingPath(settings, HostEnvironment(environmentName));
 
         InvalidOperationException exception = act.ShouldThrow<InvalidOperationException>();
         exception.Message.ShouldContain("DataProtection:KeyRingPath");
@@ -56,8 +54,15 @@ public sealed class DataProtectionGuardTests
     {
         DataProtectionSettings settings = new() { KeyRingPath = "/keys" };
 
-        Action act = () => DataProtectionExtensions.GuardKeyRingPath(settings, new FakeWebHostEnvironment(environmentName));
+        Action act = () => DataProtectionExtensions.GuardKeyRingPath(settings, HostEnvironment(environmentName));
 
         act.ShouldNotThrow();
+    }
+
+    private static IHostEnvironment HostEnvironment(string environmentName)
+    {
+        IHostEnvironment environment = Substitute.For<IHostEnvironment>();
+        environment.EnvironmentName.Returns(environmentName);
+        return environment;
     }
 }

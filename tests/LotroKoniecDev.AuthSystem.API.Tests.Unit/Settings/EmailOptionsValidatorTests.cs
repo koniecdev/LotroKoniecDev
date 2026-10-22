@@ -1,13 +1,10 @@
 using FluentValidation.Results;
 using LotroKoniecDev.AuthSystem.Infrastructure.Emails;
-using Shouldly;
 
-namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Settings;
+namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 
 /// <summary>
-/// Pure unit coverage for the AuthSystem email/SMTP startup guard (M6-05), focused on the SMTP host
-/// the ticket calls out. It lives in the integration project only because the AuthSystem has no API
-/// unit project; it instantiates no factory and starts no container.
+/// The AuthSystem e-mail startup guard (M6-05), mainly its check of the SMTP host.
 /// </summary>
 public sealed class EmailOptionsValidatorTests
 {

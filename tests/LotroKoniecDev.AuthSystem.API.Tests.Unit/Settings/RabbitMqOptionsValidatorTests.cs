@@ -1,13 +1,8 @@
 using FluentValidation.Results;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
-using Shouldly;
 
-namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Settings;
+namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 
-/// <summary>
-/// Pure unit coverage for the AuthSystem broker startup guard. It lives in the integration project only
-/// because the AuthSystem has no API unit project; it instantiates no factory and starts no container.
-/// </summary>
 public sealed class RabbitMqOptionsValidatorTests
 {
     private readonly RabbitMqOptionsValidator _validator = new();

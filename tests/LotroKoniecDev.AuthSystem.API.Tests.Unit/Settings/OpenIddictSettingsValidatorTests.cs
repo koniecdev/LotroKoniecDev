@@ -1,14 +1,12 @@
 using LotroKoniecDev.AuthSystem.API.Settings;
-using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Options;
-using Shouldly;
+using NSubstitute;
 
-namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Settings;
+namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 
 /// <summary>
-/// Pure unit coverage for the AuthSystem OpenIddict startup guard (M6-05). It lives in the
-/// integration project only because the AuthSystem has no API unit project; it instantiates no
-/// factory and starts no container.
+/// The AuthSystem OpenIddict startup guard (M6-05).
 /// </summary>
 public sealed class OpenIddictSettingsValidatorTests
 {
@@ -609,5 +607,9 @@ public sealed class OpenIddictSettingsValidatorTests
         };
 
     private static OpenIddictSettingsValidator CreateValidator(string environmentName)
-        => new(new FakeWebHostEnvironment(environmentName));
+    {
+        IWebHostEnvironment environment = Substitute.For<IWebHostEnvironment>();
+        environment.EnvironmentName.Returns(environmentName);
+        return new OpenIddictSettingsValidator(environment);
+    }
 }

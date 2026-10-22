@@ -1,12 +1,10 @@
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using Microsoft.EntityFrameworkCore;
 
-namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Settings;
+namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 
 /// <summary>
-/// Pure unit coverage for the connection string the migrator hands to the design-time factory (#1157).
-/// It lives in the integration project because the factory is internal to the Persistence assembly,
-/// whose internals are visible only to this project. It starts no container and opens no connection.
+/// The connection string the migrator hands to the design-time factory (#1157).
 /// </summary>
 public sealed class AuthDbContextDesignTimeFactoryTests
 {

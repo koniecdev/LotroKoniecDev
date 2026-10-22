@@ -6,7 +6,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Settings;
 
 /// <summary>
 /// #1025: proves that the access token lifetime check is registered and runs at startup. The full matrix
-/// of values lives in <see cref="OpenIddictSettingsValidatorTests"/>.
+/// of values lives in the unit suite's <c>OpenIddictSettingsValidatorTests</c>.
 /// </summary>
 [Collection("AuthApi")]
 public sealed class AccessTokenLifetimeBootTests

@@ -814,7 +814,9 @@ structure.
   (`Architecture.Tests.Unit` additionally uses **NetArchTest.Rules** — architecture rules only;
   the two snapshot suites use **Verify.Xunit** — see the next bullet; `AuthSystem.API.Tests.Unit`
   uses **Microsoft.Extensions.TimeProvider.Testing** (`FakeTimeProvider`) for code that waits on a
-  `TimeProvider` timer, which no substitute can fire — ADR-0059; `AuthSystem.API.Tests.Integration`
+  `TimeProvider` timer, which no substitute can fire — ADR-0059, and so does
+  `TranslationSystem.API.Tests.Unit` for the account event consumer's pauses — #1223;
+  `AuthSystem.API.Tests.Integration`
   uses it to stop OpenIddict's clock, so stored token dates can be compared exactly — #1014;
   `Frontend.Tests.Unit` uses it for the time limit of the sign-out's own revoke — #964, and with
   `Frontend.Tests.Integration` for the access token's refresh time — #1025.)

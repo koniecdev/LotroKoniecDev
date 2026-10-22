@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using RabbitMQ.Client;
@@ -11,6 +12,8 @@ using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.IntegrationEvents;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
+using LotroKoniecDev.Tests.Shared;
+using LotroKoniecDev.TranslationSystem.API;
 using LotroKoniecDev.TranslationSystem.API.Features.Translators;
 using LotroKoniecDev.TranslationSystem.API.Messaging;
 
@@ -24,6 +27,10 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Messaging;
 /// client reports on its own included, a channel the broker closed or a subscription it cancelled makes
 /// it attach again without leaving the old connection behind, one closed look is left to automatic
 /// recovery, and only the host's stop ends it.
+/// On a fake clock it pins which pause follows which failure (#1223): the pause after each database
+/// outage in a row, the last pause for every outage after it, the start over after a success, the
+/// Error level once the pauses stop growing, the first pause after any other error, and the pause
+/// between connection attempts.
 /// </summary>
 public sealed class AccountErasedConsumerTests
 {
@@ -31,6 +38,22 @@ public sealed class AccountErasedConsumerTests
     private const string ConsumerTag = "account-consumer";
 
     private static readonly TimeSpan WaitLimit = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan OneMillisecond = TimeSpan.FromMilliseconds(1);
+
+    /// <summary>
+    /// The pause after each database outage in a row, up to the last one and then the last one again.
+    /// </summary>
+    private static readonly TimeSpan[] PausesUpToTheLastAndOnceMore =
+    [
+        TimeSpan.FromSeconds(30),
+        TimeSpan.FromMinutes(2),
+        TimeSpan.FromMinutes(5),
+        TimeSpan.FromMinutes(10),
+        TimeSpan.FromMinutes(15),
+        TimeSpan.FromMinutes(15)
+    ];
+
+    private readonly TimerWatchingTimeProvider _clock = new();
 
     [Fact]
     public void RetryBackoffs_EveryPause_StaysUnderTheBrokerConsumerTimeout()
@@ -176,6 +199,129 @@ public sealed class AccountErasedConsumerTests
         await channel.Received(1).BasicAckAsync(DeliveryTag, false, Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task OnDeliveredAsync_WhenTheDatabaseIsUnavailable_ShouldNackOnlyOnceThePauseRanOut()
+    {
+        // Arrange
+        IChannel channel = Substitute.For<IChannel>();
+        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
+            new StubEraseHandler(() => throw new TimeoutException("database down")),
+            NullLoggerFactory.Instance);
+
+        // Act
+        Task delivering = consumer.OnDeliveredAsync(channel, Delivery(), CancellationToken.None);
+        await _clock.WaitForNextTimerAsync();
+        _clock.Advance(TimeSpan.FromSeconds(30) - OneMillisecond);
+        int wakeUpsJustBeforeThePauseEnds = _clock.WakeUps;
+        int channelCallsJustBeforeThePauseEnds = channel.ReceivedCalls().Count();
+        _clock.Advance(OneMillisecond);
+        await delivering.WaitAsync(WaitLimit);
+
+        // Assert: the channel hears nothing until the pause runs out, and then the message goes back
+        wakeUpsJustBeforeThePauseEnds.ShouldBe(0);
+        channelCallsJustBeforeThePauseEnds.ShouldBe(0);
+        await channel.Received(1).BasicNackAsync(DeliveryTag, false, true, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The sixth outage in a row proves the ceiling: once the pauses reach the last one, an outage of any
+    /// length is retried at that pace and no faster.
+    /// </summary>
+    [Fact]
+    public async Task OnDeliveredAsync_WhileTheDatabaseStaysUnavailable_ShouldWaitLongerBeforeEachNackUpToTheLastPause()
+    {
+        // Arrange
+        IChannel channel = Substitute.For<IChannel>();
+        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
+            new StubEraseHandler(() => throw new TimeoutException("database down")),
+            NullLoggerFactory.Instance);
+
+        // Act
+        IReadOnlyList<int> wakeUpsJustBeforeEachPauseEnds =
+            await DeliverThroughPausesAsync(consumer, channel, PausesUpToTheLastAndOnceMore);
+
+        // Assert: no pause ended early, and each delivery finished once its pause ran out
+        wakeUpsJustBeforeEachPauseEnds.ShouldBe([0, 1, 2, 3, 4, 5]);
+    }
+
+    /// <summary>
+    /// Two outages in a row, then an erasure that works, then an outage again: the third pause is the
+    /// first one again, not the third one.
+    /// </summary>
+    [Fact]
+    public async Task OnDeliveredAsync_AfterAnErasureSucceeds_ShouldStartThePausesOverFromTheFirst()
+    {
+        // Arrange
+        int attempts = 0;
+        IChannel channel = Substitute.For<IChannel>();
+        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
+            new StubEraseHandler(() => ++attempts == 3 ? Result.Success() : throw new TimeoutException("database down")),
+            NullLoggerFactory.Instance);
+
+        // Act
+        await DeliverThroughPausesAsync(consumer, channel, [TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(2)]);
+        await consumer.OnDeliveredAsync(channel, Delivery(), CancellationToken.None).WaitAsync(WaitLimit);
+        IReadOnlyList<int> wakeUpsJustBeforeTheNextPauseEnds =
+            await DeliverThroughPausesAsync(consumer, channel, [TimeSpan.FromSeconds(30)]);
+
+        // Assert
+        wakeUpsJustBeforeTheNextPauseEnds.ShouldBe([2]);
+    }
+
+    /// <summary>
+    /// The level tells an operator when to look: a Warning while the pauses still grow, and an Error
+    /// from the last pause on, because by then the outage is long enough for a person.
+    /// </summary>
+    [Fact]
+    public async Task OnDeliveredAsync_WhileTheDatabaseStaysUnavailable_ShouldLogAnErrorOnlyFromTheLastPauseOn()
+    {
+        // Arrange
+        using CapturingLoggerFactory loggerFactory = new();
+        IChannel channel = Substitute.For<IChannel>();
+        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
+            new StubEraseHandler(() => throw new TimeoutException("database down")),
+            loggerFactory);
+
+        // Act
+        await DeliverThroughPausesAsync(consumer, channel, PausesUpToTheLastAndOnceMore);
+
+        // Assert
+        loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.AccountConsumerEraseFailed)
+            .Select(entry => entry.Level)
+            .ShouldBe([LogLevel.Warning, LogLevel.Warning, LogLevel.Warning, LogLevel.Warning, LogLevel.Error, LogLevel.Error]);
+    }
+
+    /// <summary>
+    /// Two outages in a row, then a bug. A bug tells nothing about the database, so its pause stays at
+    /// the first one whatever came before.
+    /// </summary>
+    [Fact]
+    public async Task OnDeliveredAsync_AfterAnErrorThatIsNotAnOutage_ShouldRequeueOnlyOnceTheFirstPauseRanOut()
+    {
+        // Arrange
+        int attempts = 0;
+        IChannel channel = Substitute.For<IChannel>();
+        AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(
+            new StubEraseHandler(() =>
+            {
+                Exception failure = ++attempts <= 2
+                    ? new TimeoutException("database down")
+                    : new InvalidOperationException("bug");
+                throw failure;
+            }),
+            NullLoggerFactory.Instance);
+
+        // Act
+        IReadOnlyList<int> wakeUpsJustBeforeEachPauseEnds = await DeliverThroughPausesAsync(
+            consumer,
+            channel,
+            [TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(2), TimeSpan.FromSeconds(30)]);
+
+        // Assert
+        wakeUpsJustBeforeEachPauseEnds.ShouldBe([0, 1, 2]);
+    }
+
     public static TheoryData<Exception> DatabaseOutages() => new()
     {
         new TimeoutException("timed out"),
@@ -275,6 +421,7 @@ public sealed class AccountErasedConsumerTests
         Should.Throw<ArgumentOutOfRangeException>(() => new AccountErasedConsumer(
             Substitute.For<IConnectionFactory>(),
             Substitute.For<IServiceScopeFactory>(),
+            TimeProvider.System,
             NullLogger<AccountErasedConsumer>.Instance,
             connectBackoffs,
             retryBackoffs,
@@ -327,6 +474,7 @@ public sealed class AccountErasedConsumerTests
         using AccountErasedConsumer consumer = new(
             connectionFactory,
             Substitute.For<IServiceScopeFactory>(),
+            TimeProvider.System,
             NullLogger<AccountErasedConsumer>.Instance,
             [TimeSpan.Zero, TimeSpan.Zero],
             [TimeSpan.Zero],
@@ -338,6 +486,44 @@ public sealed class AccountErasedConsumerTests
         await StopWithinLimitAsync(consumer);
 
         // Assert
+        attached.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The pause between connection attempts grows, and the last pause repeats for as long as the broker
+    /// stays down.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_WhileTheBrokerStaysDown_ShouldWaitLongerBeforeEachAttemptUpToTheLastPause()
+    {
+        // Arrange
+        TimeSpan[] expectedPauses =
+        [
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(15),
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromMinutes(1)
+        ];
+        BrokerStub broker = new(true);
+        Exception failure = new BrokerUnreachableException(new IOException("Connection refused"));
+        IConnectionFactory connectionFactory = Substitute.For<IConnectionFactory>();
+        connectionFactory.CreateConnectionAsync(Arg.Any<CancellationToken>())
+            .Returns(
+                Task.FromException<IConnection>(failure),
+                Task.FromException<IConnection>(failure),
+                Task.FromException<IConnection>(failure),
+                Task.FromException<IConnection>(failure),
+                Task.FromResult(broker.Connection));
+        using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(connectionFactory);
+
+        // Act
+        await consumer.StartAsync(CancellationToken.None);
+        IReadOnlyList<int> wakeUpsJustBeforeEachPauseEnds = await WaitThroughAsync(expectedPauses);
+        bool attached = await broker.WaitUntilConsumingAsync();
+        await StopWithinLimitAsync(consumer);
+
+        // Assert: no pause ended early, and the attempt after the last pause attached
+        wakeUpsJustBeforeEachPauseEnds.ShouldBe([0, 1, 2, 3]);
         attached.ShouldBeTrue();
     }
 
@@ -523,6 +709,7 @@ public sealed class AccountErasedConsumerTests
         return new AccountErasedConsumer(
             Substitute.For<IConnectionFactory>(),
             services.GetRequiredService<IServiceScopeFactory>(),
+            TimeProvider.System,
             NullLogger<AccountErasedConsumer>.Instance,
             [TimeSpan.Zero],
             [TimeSpan.Zero],
@@ -533,10 +720,88 @@ public sealed class AccountErasedConsumerTests
         new(
             connectionFactory,
             Substitute.For<IServiceScopeFactory>(),
+            TimeProvider.System,
             NullLogger<AccountErasedConsumer>.Instance,
             [TimeSpan.Zero],
             [TimeSpan.Zero],
             watchInterval);
+
+    /// <summary>
+    /// A consumer whose pauses after a failed erasure are the real ones, on the fake clock.
+    /// </summary>
+    private AccountErasedConsumer CreateConsumerOnTheFakeClock(StubEraseHandler handler, ILoggerFactory loggerFactory)
+    {
+        ServiceProvider services = new ServiceCollection()
+            .AddScoped<ICommandHandler<EraseTranslatorProfile.Command, Result>>(_ => handler)
+            .BuildServiceProvider();
+
+        return new AccountErasedConsumer(
+            Substitute.For<IConnectionFactory>(),
+            services.GetRequiredService<IServiceScopeFactory>(),
+            _clock,
+            new Logger<AccountErasedConsumer>(loggerFactory),
+            [TimeSpan.Zero],
+            AccountErasedConsumer.RetryBackoffs,
+            TimeSpan.FromMinutes(1));
+    }
+
+    /// <summary>
+    /// A consumer whose pauses between connection attempts are the real ones, on the fake clock.
+    /// </summary>
+    private AccountErasedConsumer CreateConsumerOnTheFakeClock(IConnectionFactory connectionFactory) =>
+        new(
+            connectionFactory,
+            Substitute.For<IServiceScopeFactory>(),
+            _clock,
+            NullLogger<AccountErasedConsumer>.Instance,
+            AccountErasedConsumer.ConnectBackoffs,
+            [TimeSpan.Zero],
+            TimeSpan.FromMinutes(1));
+
+    /// <summary>
+    /// Hands the consumer one delivery per pause, lets each pause run out, and returns how many pauses
+    /// had ended a millisecond before each one was due. A pause that is too long never lets its delivery
+    /// finish, and the wait for it then fails the test.
+    /// </summary>
+    private async Task<IReadOnlyList<int>> DeliverThroughPausesAsync(
+        AccountErasedConsumer consumer,
+        IChannel channel,
+        IEnumerable<TimeSpan> pauses)
+    {
+        List<int> wakeUpsJustBeforeEachPauseEnds = [];
+
+        foreach (TimeSpan pause in pauses)
+        {
+            Task delivering = consumer.OnDeliveredAsync(channel, Delivery(), CancellationToken.None);
+            await _clock.WaitForNextTimerAsync();
+            _clock.Advance(pause - OneMillisecond);
+            wakeUpsJustBeforeEachPauseEnds.Add(_clock.WakeUps);
+            _clock.Advance(OneMillisecond);
+            await delivering.WaitAsync(WaitLimit);
+        }
+
+        return wakeUpsJustBeforeEachPauseEnds;
+    }
+
+    /// <summary>
+    /// Lets each pause the consumer starts run out in turn, and returns how many pauses had ended a
+    /// millisecond before each one was due. A pause that is too long never starts the next one, and
+    /// <see cref="TimerWatchingTimeProvider.WaitForNextTimerAsync"/> then fails the test.
+    /// </summary>
+    private async Task<IReadOnlyList<int>> WaitThroughAsync(IEnumerable<TimeSpan> pauses)
+    {
+        List<int> wakeUpsJustBeforeEachPauseEnds = [];
+
+        foreach (TimeSpan pause in pauses)
+        {
+            await _clock.WaitForNextTimerAsync();
+            _clock.Advance(pause - OneMillisecond);
+            wakeUpsJustBeforeEachPauseEnds.Add(_clock.WakeUps);
+            _clock.Advance(OneMillisecond);
+        }
+
+        return wakeUpsJustBeforeEachPauseEnds;
+    }
 
     /// <summary>
     /// Stops the consumer, but never waits longer than <see cref="WaitLimit"/>, so a consumer that

@@ -87,6 +87,7 @@ public sealed class BrokeredTranslationSystemApiFactory : TranslationSystemApiFa
                 return new AccountErasedConsumer(
                     connectionFactory,
                     serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+                    serviceProvider.GetRequiredService<TimeProvider>(),
                     serviceProvider.GetRequiredService<ILogger<AccountErasedConsumer>>(),
                     ShortConnectBackoffs,
                     ShortRetryBackoffs,

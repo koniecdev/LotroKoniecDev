@@ -47,8 +47,9 @@ internal sealed class AuthSettingsValidator : AbstractValidator<AuthSettings>
     /// The API reads the sign-in server's keys without any user name or password. But the error for a
     /// failed read of those keys prints the address in full, and so does the error for a token from the
     /// wrong issuer. The log goes to Grafana, so a user name or password here can only be a mistake that
-    /// puts the password in the log (#1156, ADR-0067 decision 4). No environment needs one, so the rule
-    /// runs in every environment (ADR-0008 §3, point 6). A value that is not an http(s) URL passes here,
+    /// puts the password in the log (#1156, ADR-0067 decision 4). This validator checks these addresses
+    /// in every environment, and no environment needs a user name or password in them, so the rule runs
+    /// in every environment too (ADR-0008 §3, point 6). A value that is not an http(s) URL passes here,
     /// because the rule before this one already refuses it, and one message per key is enough.
     /// </summary>
     private static bool NotCarryUserInfo(string value)

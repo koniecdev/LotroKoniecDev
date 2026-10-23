@@ -187,7 +187,7 @@ public sealed class SimplifiedGameLaunchingStrategyWipeRepairTests
     [Fact]
     public async Task ExecuteAsync_WithRowsThePatcherSkips_ShouldDetectNothingWithoutAnUpdate()
     {
-        // Arrange: every row class the patch skips (#565, owner comment of 2026-08-16): not approved,
+        // Arrange: every row class the patch skips (#565): not approved,
         // a subfile the DAT does not hold, a non-text subfile, a piece that is too long and a fragment
         // that is not there. They are in the artifact and never in the DAT, and the snapshot knows
         // nothing of rows, so none of them may look like a revert.

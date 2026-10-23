@@ -213,8 +213,8 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
     [InlineData("Line1\r\nLine2", @"620756992||1001||Line1\r\nLine2||NULL||NULL||1")]
     [InlineData(@"C:\notes", @"620756992||1001||C:\\notes||NULL||NULL||1")]
     public void FormatRow_WithEscapableText_ShouldFoldItOntoOneLine(string text, string expected)
-        // The six columns are unchanged; ADR-0047 appends the source digest of the very triple the
-        // row carries, so the expectation is composed rather than restated in every InlineData.
+        // The digest of the row's own triple is appended (ADR-0047), so it is composed here instead
+        // of written into every InlineData.
         => ExportTextsQueryHandler.FormatRow(620756992, 1001, text, "NULL", "NULL", argumentCount: 0)
             .ShouldBe($"{expected}||{SourceDigest.ForExportForm(text, 0)}");
 
@@ -224,7 +224,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
     public void FormatRow_ShouldEndInTheDigestOfItsOwnExportedTriple(int argumentCount, string argsOrder, string argsId)
     {
         // ADR-0047 §2: exported.txt carries the digest too, so a hand-edited export stays patchable
-        // and the TMS import can verify the column instead of shipping an artifact players reject.
+        // and the TMS import can verify the column.
         string row = ExportTextsQueryHandler.FormatRow(620756992, 1001, "Some text", argsOrder, argsId, argumentCount);
 
         row.ShouldEndWith($"||{SourceDigest.ForExportForm("Some text", argumentCount)}");
@@ -233,8 +233,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
     [Fact]
     public void FormatRow_ThenParse_ShouldCarryTheDigestTheWriteGuardChecks()
     {
-        // The digest is useless unless it reaches the parsed row, because that is the value the guard
-        // compares the fragment against.
+        // The guard compares the fragment against the parsed row's digest, so it must arrive intact.
         string row = ExportTextsQueryHandler.FormatRow(620756992, 1001, "Some text", "NULL", "NULL", argumentCount: 0);
 
         new TranslationFileParser().ParseLine(row).Value.SourceDigest

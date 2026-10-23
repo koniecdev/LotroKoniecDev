@@ -4,10 +4,9 @@ using LotroKoniecDev.Tests.Shared;
 namespace LotroKoniecDev.Tests.Unit.Tests.Parsers;
 
 /// <summary>
-/// The patcher's copy of the content escape used in the <c>||</c> file (ADR-0039, #596). The TMS has an
-/// identical copy in its own assembly with its own test suite, because the two contexts share the file
-/// and never the code, and <c>ParserContractParityTests</c> checks that the two copies agree byte for
-/// byte.
+/// The patcher's copy of the content escape used in the <c>||</c> file (ADR-0039). The TMS copy has its
+/// own suite, and <c>ParserContractParityTests</c> checks that the two copies agree byte for byte: the
+/// contexts share the file, never the code.
 /// </summary>
 public sealed class TranslationLineEscaperTests
 {
@@ -47,11 +46,10 @@ public sealed class TranslationLineEscaperTests
     [InlineData(@"path\\to", @"path\to")]
     public void Unescape_OnAFileWrittenBeforeTheEscapeChange_ShouldDivergeFromTheOldReader(string legacy, string expected)
     {
-        // ACCEPTED DIVERGENCE, pinned so a future change to it is deliberate. A pre-ADR-0039 writer
-        // never escaped the backslash, so a doubled backslash meant two characters; the old reader
-        // answered "\" + LF for the first case and left the second untouched. The new reader collapses
-        // the pair, which is the only reading a conforming writer can have meant. Re-export before
-        // re-importing a legacy file (ADR-0039, "The migration cost").
+        // An accepted divergence, pinned so a change to it is deliberate. A writer older than
+        // ADR-0039 never escaped the backslash, so a doubled backslash meant two characters. This
+        // reader collapses the pair, the only reading a conforming writer can mean. Re-export a
+        // legacy file before re-importing it (ADR-0039, "The migration cost").
         TranslationLineEscaper.Unescape(legacy).ShouldBe(expected);
     }
 

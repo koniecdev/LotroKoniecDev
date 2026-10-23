@@ -239,8 +239,7 @@ public sealed class TranslationFileParserTests : IDisposable
     [InlineData("100||18446744073709551616||Content||NULL||NULL||1")]        // ulong.MaxValue + 1 — beyond the 8-byte range
     public void ParseLine_GossipIdOutsideUnsignedRange_ShouldReturnFailure(string line)
     {
-        // Act: the tolerant parser must report a per-line failure (warn-skip), not let the
-        // OverflowException abort the whole file.
+        // Act: a per-line failure, not an OverflowException that aborts the whole file.
         Result<Translation> result = _parser.ParseLine(line);
 
         // Assert
@@ -348,7 +347,7 @@ public sealed class TranslationFileParserTests : IDisposable
     [InlineData("Witaj||w Srodziemiu||przyjacielu")]
     public void ParseLine_ContentWithSeparators_ShouldRoundTripToIdenticalContent(string content)
     {
-        // Arrange: serialize via the canonical export line format (file_id||gossip_id||content||args_order||args_id||approved)
+        // Arrange: the six-column export line format.
         string serializedLine = $"100||200||{content}||NULL||NULL||1";
 
         // Act
@@ -374,8 +373,7 @@ public sealed class TranslationFileParserTests : IDisposable
         // Act
         Result<TranslationParseResult> result = _parser.ParseFile(filePath);
 
-        // Assert: a rejected line is reported, never silently dropped (ADR-0042); the warning
-        // travels into PatchSummaryResponse.Warnings, which the CLI prints.
+        // Assert: a rejected line is reported, never dropped in silence (ADR-0042).
         result.IsSuccess.ShouldBeTrue();
         result.Value.Translations.Count.ShouldBe(2);
         result.Value.Warnings.ShouldHaveSingleItem();
@@ -385,9 +383,8 @@ public sealed class TranslationFileParserTests : IDisposable
     [Fact]
     public void ParseFile_WithMoreRejectedLinesThanTheWarningCap_ShouldQuoteTheCapAndCountTheRest()
     {
-        // Arrange: 150 malformed rows. Every warning quotes a whole line, and a real polish.txt is
-        // ~790k rows, so an uncapped list would bury the console (the TMS import caps for the same
-        // reason, spec 0006). The COUNT must stay exact even though the list is truncated.
+        // Arrange: 150 malformed rows. A real polish.txt is ~790k rows, so the quoted list is capped
+        // (spec 0006), but the count must stay exact.
         string filePath = Path.Combine(_tempDirectory, "all-bad.txt");
         File.WriteAllLines(filePath, Enumerable.Range(0, 150).Select(index => $"100||{index}||Content||1-x||NULL||1"));
 
@@ -411,8 +408,8 @@ public sealed class TranslationFileParserTests : IDisposable
     [InlineData("100||200||Content||99999999999||NULL||1", "args_order")]
     public void ParseLine_MalformedArgsColumn_ShouldFailInsteadOfSwallowingIt(string line, string column)
     {
-        // Act: a bare catch used to turn an unparsable args column into null, so a fragment with
-        // reordered arguments was patched without its ordering and nobody was told (#597).
+        // Act: a null here would patch a fragment without its argument order and tell nobody
+        // (ADR-0042).
         Result<Translation> result = _parser.ParseLine(line);
 
         // Assert
@@ -449,8 +446,7 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseLine_ContentEndingInPipes_ShouldKeepEveryPipeAndLeaveTheArgsColumnsClean(string content)
     {
         // Arrange: the boundary is found by scanning backward (ADR-0042), so the last two pipes of
-        // a run are the separator and everything before them stays content. Split resolved this
-        // greedily left to right and lost the last pipe into the args column (#597).
+        // a run are the separator and everything before them stays content (#597).
         string line = $"620756992||1001||{content}||1-2||3-4||1";
 
         // Act
@@ -481,9 +477,9 @@ public sealed class TranslationFileParserTests : IDisposable
     [Fact]
     public void ParseLine_SixColumnLine_ShouldSucceedWithoutADigestRatherThanRejectTheRow()
     {
-        // Act: this matters (ADR-0047 §3). Rejecting here would make a file that is six columns throughout
-        // NoTranslationsEveryLineRejected, which the launch path turns into RepatchFailed and
-        // refuses to start the game on. The GUARD skips such rows; the parser never does.
+        // Act: rejecting here would turn a six-column file into NoTranslationsEveryLineRejected,
+        // which the launch path turns into RepatchFailed (ADR-0047 §3). The write guard skips such
+        // rows; the parser never does.
         Result<Translation> result = new TranslationFileParser()
             .ParseLine("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1");
 

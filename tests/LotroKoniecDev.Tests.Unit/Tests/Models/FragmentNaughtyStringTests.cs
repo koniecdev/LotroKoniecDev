@@ -7,10 +7,9 @@ namespace LotroKoniecDev.Tests.Unit.Tests.Models;
 
 /// <summary>
 /// Hostile-input coverage for the binary half of the patcher (#569). A fragment's UTF-16 pieces and
-/// argument strings carry a length prefix written by <see cref="VarLenEncoder"/>, so anything that makes
-/// the character count disagree with the byte count, such as surrogate pairs, combining marks or
-/// characters outside the basic plane, corrupts every following fragment in the subfile and not only its
-/// own.
+/// argument strings carry a <see cref="VarLenEncoder"/> length prefix, so anything that makes the
+/// character count disagree with the code-unit count (surrogate pairs, characters outside the basic
+/// plane) corrupts every following fragment in the subfile, not only its own.
 /// </summary>
 public sealed class FragmentNaughtyStringTests
 {
@@ -67,10 +66,9 @@ public sealed class FragmentNaughtyStringTests
     [MemberData(nameof(NaughtyStringCases.UnicodeHazards), MemberType = typeof(NaughtyStringCases))]
     public void WriteThenParse_NaughtyPieceRepeatedIntoATwoByteLength_ShouldRoundTripExactly(string naughty)
     {
-        // Arrange: repeat until the length genuinely crosses the VarLen one-byte ceiling, so the
-        // prefix takes the two-byte high-bit path while the payload stays hostile. A fixed repeat
-        // count would not: a third of the hazard entries are one or two characters long. Repeating
-        // whole copies never splits a surrogate pair.
+        // Arrange: repeat until the length crosses the VarLen one-byte ceiling, so the prefix takes
+        // the two-byte path while the payload stays hostile. A fixed count would not: a third of the
+        // hazard entries are one or two characters long. Whole copies never split a surrogate pair.
         int repeats = VarLenSingleByteCeiling / naughty.Length + 1;
         string repeated = string.Concat(Enumerable.Repeat(naughty, repeats));
         Fragment fragment = new() { Pieces = [repeated] };
@@ -86,11 +84,9 @@ public sealed class FragmentNaughtyStringTests
     [Fact]
     public void Write_PieceOfAstralPlaneCharacters_ShouldPrefixItWithItsUtf16CodeUnitCount()
     {
-        // Arrange: the length prefix counts UTF-16 code units and not characters. These four emoji are
-        // eight code units, so a writer that counted characters would declare half the length and destroy
-        // every following fragment in the subfile.
-        // The round-trip tests above would catch that too. This one states the rule directly, on the one
-        // input where the two counts differ.
+        // Arrange: the length prefix counts UTF-16 code units, not characters. These four emoji are
+        // eight code units, so a writer that counted characters would declare half the length and
+        // destroy every following fragment in the subfile.
         const string naughty = "😀😀😀😀";
         Fragment fragment = new() { Pieces = [naughty] };
         using MemoryStream stream = new();
@@ -146,8 +142,8 @@ public sealed class FragmentNaughtyStringTests
     [Fact]
     public void IsWritablePiece_PieceLongerThanTheVarLenCeiling_ShouldBeFalse()
     {
-        // Arrange: the screen PatchingService runs before it mutates a loaded subfile (#598), so an
-        // over-long row costs one warning instead of a mid-loop throw over an already-written DAT.
+        // Arrange: PatchingService runs this check before it changes a loaded subfile (ADR-0043), so
+        // an over-long row costs one warning instead of a throw over a half-written DAT.
         string piece = new('ż', VarLenTwoByteCeiling + 1);
 
         // Act
@@ -160,10 +156,9 @@ public sealed class FragmentNaughtyStringTests
     [Fact]
     public void Write_PieceLongerThanTheVarLenCeiling_ShouldThrow()
     {
-        // Arrange: the deliberate last resort behind IsWritablePiece, not a reachable failure mode:
-        // VarLen cannot express a length above 32767 and a truncated prefix would silently corrupt
-        // every following fragment, so writing one anyway is a programmer error. Callers screen the
-        // content first (#598, ADR-0043); this pins that Write itself never degrades to truncation.
+        // Arrange: the last resort behind IsWritablePiece, not a reachable failure. VarLen cannot hold
+        // a length above 32767, and a cut prefix would corrupt every following fragment, so Write
+        // throws instead of truncating. Callers check the content first (ADR-0043).
         Fragment fragment = new() { Pieces = [new string('ż', VarLenTwoByteCeiling + 1)] };
         using MemoryStream stream = new();
         using BinaryWriter writer = new(stream, Encoding.Unicode, leaveOpen: true);

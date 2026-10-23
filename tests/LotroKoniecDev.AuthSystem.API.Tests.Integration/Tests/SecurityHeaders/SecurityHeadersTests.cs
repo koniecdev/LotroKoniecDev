@@ -148,7 +148,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("text/css");
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/css");
         string body = await response.Content.ReadAsStringAsync();
         body.ShouldContain(expectedRule);
     }
@@ -170,7 +170,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
         using HttpResponseMessage response = await ApiClient.Http.SendAsync(repeat);
 
         // Assert
-        first.Headers.CacheControl?.NoStore.ShouldNotBe(true);
+        (first.Headers.CacheControl?.NoStore).ShouldNotBe(true);
         response.StatusCode.ShouldBe(HttpStatusCode.NotModified);
     }
 

@@ -7,20 +7,18 @@ namespace LotroKoniecDev.Application.Features.TranslationFileSyncing;
 
 /// <summary>
 /// Turns the one configured input, the TMS root URL, into the absolute URI the translation file is
-/// downloaded from, by looking up the <c>translation-file</c> link relation in the service document.
+/// downloaded from, by the <c>translation-file</c> link relation in the service document.
 /// <para>
-/// Discovery comes first and the cache is only a safety net (#611). A stored href that worked before
-/// covers an outage, but it is never the first choice, and nothing here builds a path of its own.
-/// A server that answers but does <i>not</i> offer the rel gets no fallback. A missing rel means the
-/// endpoint is not on offer, which is not the same as the server being down.
+/// Discovery comes first (#611). A stored href that worked before only covers an outage, and nothing
+/// here builds a path of its own. A server that answers but does <i>not</i> offer the rel gets no
+/// fallback: a missing rel means the endpoint is not on offer, not that the server is down.
 /// </para>
 /// </summary>
 internal sealed partial class TranslationFileEndpointResolver : ITranslationFileEndpointResolver
 {
     /// <summary>
-    /// The link relation the TMS publishes its download endpoint under. Rel names are a fixed public
-    /// contract (ADR-0041). This is the one string the CLI may know, exactly because renaming it is
-    /// the one change the server is never allowed to make.
+    /// Rel names are a frozen public contract (ADR-0041). This is the one string the CLI may know,
+    /// because renaming it is the one change the server may never make.
     /// </summary>
     public const string TranslationFileRel = "translation-file";
 
@@ -79,9 +77,9 @@ internal sealed partial class TranslationFileEndpointResolver : ITranslationFile
         Result<Uri> cached = ValidateHref(baseUri, cachedHref);
         if (cached.IsFailure)
         {
-            // The cached href is data from disk, so it is checked exactly like one just discovered
-            // (AUDIT-SEC-07). It also fails here when someone pointed --tms-url at another host: the
-            // cached endpoint belongs to the old one and must not be reused.
+            // The cached href is data from disk, so it is checked like one just discovered (#397). It
+            // also fails here when --tms-url now points at another host: the cached endpoint belongs to
+            // the old one and must not be reused.
             return Result.Failure<Uri>(DomainErrors.TranslationFileSync.EndpointDiscoveryUnavailable(
                 $"{discoveryError.Message} The cached endpoint could not be reused: {cached.Error.Message}"));
         }
@@ -98,8 +96,8 @@ internal sealed partial class TranslationFileEndpointResolver : ITranslationFile
                 href, "it is not an absolute URI."));
         }
 
-        // The same rule the configured base URL passes: over plain http anyone on the path can change
-        // the file (AUDIT-SEC-01), so only loopback may skip TLS, because there is no network hop.
+        // The same rule as for the configured base URL: over plain http anyone on the path can change
+        // the file (#391), so only loopback, with no network hop, may skip TLS.
         if (uri.Scheme != Uri.UriSchemeHttps && !(uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback))
         {
             return Result.Failure<Uri>(DomainErrors.TranslationFileSync.EndpointRejected(

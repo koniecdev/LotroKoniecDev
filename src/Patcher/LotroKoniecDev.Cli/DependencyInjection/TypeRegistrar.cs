@@ -25,9 +25,8 @@ public sealed class TypeRegistrar : ITypeRegistrar
         return typeResolver;
     }
 
-    // Spectre registers the command types (ExportCommand, PatchCommand, LaunchCommand) here, and all
-    // of them inject scoped handlers. Registering them as singletons would be a captive dependency,
-    // and the container refuses to build that once ValidateScopes is on. Scoped is correct, because
+    // Spectre registers the command types here, and they inject scoped handlers. As singletons they
+    // would be a captive dependency, which ValidateScopes refuses. Scoped is correct, because
     // TypeResolver resolves everything from one scope that lives as long as the process.
     public void Register(Type service, Type implementation)
     {

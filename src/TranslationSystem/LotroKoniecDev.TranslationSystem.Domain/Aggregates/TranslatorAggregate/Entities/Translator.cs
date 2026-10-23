@@ -8,13 +8,10 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
 
 /// <summary>
-/// The TMS-side profile of an authenticated user who edits translations (ADR-0004). It holds the name
-/// the editor shows (<see cref="DisplayName"/> and an optional <see cref="Email"/>), keyed by the
-/// <see cref="IdentityId"/> that the AuthSystem owns.
-/// The profile is created on the user's first authenticated request, and creating it twice is safe
-/// (ADR-0004, amended 2026-06-24). So a user who registered and logged in has a profile before any
-/// write. It is refreshed from the current claims whenever they change, so a renamed account catches
-/// up on its own and needs no separate sync.
+/// The TMS-side profile of a user who edits translations, keyed by the AuthSystem's
+/// <see cref="IdentityId"/> (ADR-0004). It is created on the first authenticated request, safely twice,
+/// and refreshed from the claims when they change, so no separate sync is needed (ADR-0004, amended
+/// 2026-06-24).
 /// </summary>
 public sealed class Translator : AggregateRoot<TranslatorId>
 {
@@ -29,8 +26,7 @@ public sealed class Translator : AggregateRoot<TranslatorId>
     public DateTimeOffset ProvisionedAt { get; }
 
     /// <summary>
-    /// Copies the latest claims onto the profile, so a renamed account catches up. A <c>null</c>
-    /// <paramref name="email"/> clears an address we knew before.
+    /// A <c>null</c> <paramref name="email"/> clears an address we knew before.
     /// </summary>
     public void RefreshProfile(DisplayName displayName, Email? email)
     {
@@ -41,9 +37,8 @@ public sealed class Translator : AggregateRoot<TranslatorId>
     }
 
     /// <summary>
-    /// Takes the person off the profile once the AuthSystem has erased their account (ADR-0065). The
-    /// profile and its translations stay, so the credit points at a profile that no longer says whose
-    /// it was. Doing it twice changes nothing.
+    /// Called once the AuthSystem has erased the account (ADR-0065). The profile and its translations
+    /// stay, but the profile no longer says whose it was. Doing it twice changes nothing.
     /// </summary>
     public void Erase()
     {

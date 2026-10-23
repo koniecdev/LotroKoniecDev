@@ -15,8 +15,8 @@ public sealed class GameVersion : AggregateRoot<GameVersionId>
     public GameVersionStatus Status { get; private set; }
 
     /// <summary>
-    /// Marking a version that is already processed is allowed and changes nothing (spec 0001).
-    /// Only a superseded version is refused, because it was skipped on purpose.
+    /// Marking a processed version again changes nothing (spec 0001). A superseded version is refused,
+    /// because it was skipped on purpose.
     /// </summary>
     public Result MarkAsProcessed()
     {
@@ -31,9 +31,8 @@ public sealed class GameVersion : AggregateRoot<GameVersionId>
     }
 
     /// <summary>
-    /// When a newer version is processed, all older unprocessed versions are marked here in one go
-    /// (spec 0001). Marking a superseded version again is safe. A processed version is refused,
-    /// because finished work is never undone.
+    /// Called for every older unprocessed version when a newer one is processed (spec 0001). A
+    /// processed version is refused, because finished work is never undone.
     /// </summary>
     public Result MarkSuperseded()
     {
@@ -48,11 +47,9 @@ public sealed class GameVersion : AggregateRoot<GameVersionId>
     }
 
     /// <summary>
-    /// A processed version cannot be deleted. An import ran against it and translations point at it
-    /// (spec 0001). Any other version was never imported into, so nothing references it and deleting
-    /// it frees its version number again (#624).
-    /// The delete handler still checks that no translation points at the version. This aggregate only
-    /// owns the status rule.
+    /// A processed version had an import run against it, so translations point at it (spec 0001). Any
+    /// other version can be deleted to free its number (#624). The delete handler also checks that no
+    /// translation points at it; this aggregate owns only the status rule.
     /// </summary>
     public Result EnsureCanBeDeleted()
     {

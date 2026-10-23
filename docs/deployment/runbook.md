@@ -1334,33 +1334,32 @@ progress: the restore drops connections and rewinds anything written after the r
 
 ## Message broker (RabbitMQ)
 
-Since the outbox/broker work (ADRs 0035–0037) each box runs a **single-node RabbitMQ container** in
-the stack (`rabbitmq` in `compose.hetzner.yaml` — pinned image, pinned `hostname`, named
-`rabbitmq-data` volume). **auth-api** publishes committed outbox rows: e-mail work to the
-`lotro.emails` exchange, which its own e-mail consumer reads from `emails.send`, and the
-`AccountErased` event to the `lotro.accounts` exchange (ADR-0065). **tms-api** reads that event from
-its own queue `tms.account-erased` and takes the person's name and address off the translator
-profile. Both use the one broker user `rabbitmq`; #1086 tracks a least-privilege user for tms-api.
-Everything each side needs — exchanges, quorum queues, bindings, the dead-letter wiring — is
-**declared idempotently by the app on channel open**, so a fresh broker needs zero manual
-provisioning. The one thing an app does not declare, the 7-day expiry of parked e-mail messages, is
-a broker policy that `deploy.sh` sets on every deploy (ADR-0036 §6). auth-api declares
-`lotro.accounts`; tms-api only checks that it exists, so until auth-api has started once, the tms-api
-consumer keeps retrying its connection.
+Each box runs a **single-node RabbitMQ container** in the stack (`rabbitmq` in
+`compose.hetzner.yaml`: pinned image, pinned `hostname`, named `rabbitmq-data` volume; ADRs
+0035–0037). **auth-api** publishes committed outbox rows: e-mail work to the `lotro.emails`
+exchange, which its own e-mail consumer reads from `emails.send`, and the `AccountErased` event to the
+`lotro.accounts` exchange (ADR-0065). **tms-api** reads that event from its own queue
+`tms.account-erased` and takes the person's name and address off the translator profile. Both use the
+one broker user `rabbitmq`; #1086 tracks a least-privilege user for tms-api.
 
-The broker is deliberately a **soft dependency**:
+Each app **declares what it needs when it opens a channel** (exchanges, quorum queues, bindings, the
+dead-letter wiring), so a fresh broker needs no manual setup. auth-api declares `lotro.accounts`;
+tms-api only checks that it exists, so the tms-api consumer keeps retrying until auth-api has started
+once. The one thing no app declares, the 7-day expiry of parked e-mail messages, is a broker policy
+that `deploy.sh` sets on every deploy (ADR-0036 §6).
 
-- **auth-api boots and serves with the broker down** — there is no `depends_on` edge on purpose. The
-  publisher connects lazily, the consumer retries with escalating backoff, committed outbox rows
-  wait (ADR-0035's safety sweep is the ceiling). An outage delays confirmation e-mails; it never
-  blocks login or token issuance.
-- It surfaces as the **`rabbitmq` check on auth's deep `/health`** (deliberately not on
-  `/health/ready`, same reasoning as SMTP) — the daily health ping is what tells you the container
-  died between deploys.
+The broker is a **soft dependency** on purpose:
+
+- **auth-api boots and serves with the broker down**: there is no `depends_on` edge. The publisher
+  connects lazily, the consumer retries with growing backoff, and committed outbox rows wait
+  (ADR-0035's safety sweep is the ceiling). An outage delays confirmation e-mails; it never blocks
+  login or token issuance.
+- It shows up as the **`rabbitmq` check on auth's deep `/health`** (not on `/health/ready`, for the
+  same reason as SMTP). The daily health ping is what tells you the container died between deploys.
 
 ### Management UI — over an ssh tunnel only
 
-The UI is published on the **box loopback** only, never the internet:
+The UI is published on the **box loopback** only, never on the internet:
 
 ```bash
 ssh -L 15672:localhost:15672 deploy@<box-ip>
@@ -1369,30 +1368,29 @@ ssh -L 15672:localhost:15672 deploy@<box-ip>
 
 ### The dead-letter parking lot (`emails.send.dlq`)
 
-Messages land there in exactly two ways (ADR-0036): **poison** (unreadable payload or unusable
-message id — rejected on first sight) and **exhausted** (`x-delivery-limit` = 5 redeliveries spent,
-e.g. an SMTP outage the backoff ladder could not outlast). Nothing consumes the queue; it waits for
-a human — a parked message usually means a user never got a confirmation e-mail, so diagnose from
-the payload's `IdentityUserId` plus the matching outbox row's error.
+Messages land there in two ways only (ADR-0036): **poison** (unreadable payload or unusable message
+id, rejected on first sight) and **exhausted** (`x-delivery-limit` = 5 redeliveries spent, e.g. an
+SMTP outage the backoff could not outlast). Nothing consumes the queue; it waits for a human. A parked
+message usually means a user never got a confirmation e-mail, so diagnose from the payload's
+`IdentityUserId` plus the matching outbox row's error.
 
-**Replay = ack-and-republish, NEVER reject-requeue** (ADR-0036 §5). The parking lot is a quorum
-queue with the *default* delivery limit (20) and no DLX of its own, so a reject-requeue loop
-**silently drops** the parked message. In the management UI:
+**Replay = ack-and-republish, NEVER reject-requeue** (ADR-0036 §5). The parking lot is a quorum queue
+with the *default* delivery limit (20) and no DLX of its own, so a reject-requeue loop **silently
+drops** the parked message. In the management UI:
 
 1. **Inspect** without consuming: `emails.send.dlq` → *Get messages* with ack mode *Nack message
-   requeue true* (a nack is an "explicit return" — it does not tick the delivery count; a reject
-   does).
+   requeue true* (a nack is an "explicit return" and does not count a delivery; a reject does).
 2. **Replay**: *Publish message* on the **`lotro.emails`** exchange with the message's preserved
    routing key (e.g. `email.confirmation`), its original **`message_id` and `type` properties** and
    body. The consumer picks its processor by `type` (ADR-0038), so a replay without it is parked
-   again at once. The inbox deduplicates on the message id (ADR-0037), so replaying an
-   already-processed id is a safe no-op.
-3. Only after the replay demonstrably processed (e-mail sent / inbox row present): remove the parked
-   copy — *Get messages* with ack mode *Automatic ack*.
+   again at once. The inbox deduplicates on the message id (ADR-0037), so replaying an id that was
+   already processed is a safe no-op.
+3. Only after the replay has visibly worked (e-mail sent / inbox row present): remove the parked
+   copy with *Get messages*, ack mode *Automatic ack*.
 
-**A parked message expires 7 days after it parks** (ADR-0036 §6, #1085), so replay within that week
-or it is gone for good. The limit exists because an e-mail change message holds the person's old and
-new address, and an account erasure cannot reach a queue. It is the RabbitMQ **operator** policy
+**A parked message expires 7 days after it parks** (ADR-0036 §6, #1085), so replay it within that
+week or it is gone for good. The limit exists because an e-mail change message holds the person's old
+and new address, and an account erasure cannot reach a queue. It is the RabbitMQ **operator** policy
 `emails-send-dlq-ttl` (pattern `^emails\.send\.dlq$`, `message-ttl` 604800000 ms; in the management UI
 under *Admin → Policies → Operator policies*). `deploy.sh` sets it on every deploy, on both boxes, so
 nobody sets it by hand. Check that it is on:
@@ -1405,8 +1403,8 @@ docker compose -f compose.hetzner.yaml exec -T --user rabbitmq rabbitmq rabbitmq
 Run `rabbitmqctl` as the `rabbitmq` user, as above. On a broker whose volume is new, a root CLI can
 write the Erlang cookie before the server does, and the server then stops at boot.
 
-- **A broker you start by hand has no policy.** `deploy.sh` is the only thing that sets it, so a broker
-  whose volume is new (a rebuilt box, a `down -v`, a deleted `rabbitmq-data`) gets it only when
+- **A broker you start by hand has no policy.** `deploy.sh` is the only thing that sets it, so a
+  broker whose volume is new (a rebuilt box, a `down -v`, a deleted `rabbitmq-data`) gets it only when
   `deploy.sh` runs. Bring such a broker up with `deploy.sh`, never with a plain `docker compose up -d`
   ([bring-up](#reprovisioning-a-box), [disaster recovery](#disaster-recovery)), and check it with the
   command above before anything can park.
@@ -1414,11 +1412,10 @@ write the Erlang cookie before the server does, and the server then stops at boo
   had the policy keeps it, so this matters only for a new broker. Deploy again once the broker is
   healthy, then check `emails.send.dlq`: a message that parked while the policy was missing never
   expires.
-- **A message with no expiry blocks the others.** A quorum queue gets a message's expiry when the
-  message parks, and it drops expired messages only from its head. So a message that parked before the
-  policy existed stays for good, and every message behind it stays too. Replay or remove such a message
-  by hand. Both parking lots were empty when checked on 2026-10-11, before the first deploy with the
-  policy.
+- **A message with no expiry blocks the others.** A quorum queue gives a message its expiry when the
+  message parks, and it drops expired messages only from its head. So a message that parked before
+  the policy existed stays for good, and so does every message behind it. Replay or remove such a
+  message by hand.
 - **A user policy cannot switch it off.** An operator policy applies next to whatever user policy
   matches the queue, and the lower `message-ttl` wins, so a policy added in the management UI can
   shorten the limit but never lengthen or remove it. Change or remove the operator policy only through
@@ -1427,34 +1424,33 @@ write the Erlang cookie before the server does, and the server then stops at boo
 ### The account events parking lot (`tms.account-erased.dlq`)
 
 Only a message tms-api can never handle lands here: an unknown type, an unreadable payload or a
-command the handler refuses, parked on first sight, or one that failed for a reason other than the
-database five times in a row, which means a bug. A database error never parks a message, whatever
+command the handler refuses (parked on first sight), or one that failed five times in a row for a
+reason other than the database, which means a bug. A database error never parks a message, whatever
 its cause (an outage, a rotated password, a lost grant): the consumer returns it with a nack, which
-does not count against the delivery limit, and tries again every 15 minutes at most until the
-database answers (ADR-0065). A parked message means a person's
-name may still be on a translator profile, so look at it the same day. If you delete
-`tms.account-erased` to change its arguments, do it while the tms-api release with the new arguments
-is running, or while tms-api is stopped. The running tms-api declares it again with **its own**
-arguments and attaches, usually within a minute and with no restart, so a delete under the old
-release brings the old arguments straight back. The release with the new arguments cannot read the
-old queue, so check in the management UI that it holds no messages right before the delete: the
-AuthSystem never sends an erasure again once it was sent, so a message lost there leaves the
-person's name on the profile for good. An erasure that is waiting out a database outage at that
-moment holds the attach back until its pause ends (about 15 minutes at most). Replay works as for `emails.send.dlq`, on the **`lotro.accounts`** exchange with the routing
-key `account.erased` and the `type` property `AccountErased`. Erasing a profile twice is harmless,
-so a replay never needs a duplicate check. This parking lot has **no time limit, on purpose**: a parked
+does not count against the delivery limit, and tries again at most every 15 minutes until the
+database answers (ADR-0065). A parked message means a person's name may still be on a translator
+profile, so look at it the same day.
+
+Replay works as for `emails.send.dlq`, on the **`lotro.accounts`** exchange with the routing key
+`account.erased` and the `type` property `AccountErased`. Erasing a profile twice is harmless, so a
+replay never needs a duplicate check. This parking lot has **no time limit, on purpose**: a parked
 message is erasure work that must wait for a person. Never give it a policy (user or operator) with
 a `message-ttl`, and never widen the e-mail expiry pattern to reach it (ADR-0036 §6).
+
+Changing the arguments of `tms.account-erased` follows the same rules as `emails.send` (see
+[Traps](#traps)), with tms-api in auth-api's place. A message lost there is worse than a lost e-mail:
+the AuthSystem never sends an erasure again once it was sent, so the person's name stays on the
+profile for good.
 
 ### Rolling back past ADR-0065
 
 A release from before ADR-0065 cannot route `AccountErased`. Its relay marks such a row failed
-("No routing key is mapped…", an Error line), moves on to the other rows and keeps the row for
-later. Nothing is lost: the row goes out once a release that routes it runs again. Two things to
-know: the first run of the deletion finalizer after ADR-0065 writes one such row for every account
-erased before it, and a run of 100 or more failing rows at the head of the outbox holds newer
-e-mail back on the old release. So roll forward rather than back once those rows exist, or roll
-back only long enough to fix forward.
+("No routing key is mapped…", an Error line), moves on to the other rows and keeps the row for later.
+Nothing is lost: the row goes out once a release that routes it runs again. Two things to know: the
+first run of the deletion finalizer after ADR-0065 writes one such row for every account erased before
+it, and a run of 100 or more failing rows at the head of the outbox holds newer e-mail back on the old
+release. So roll forward rather than back once those rows exist, or roll back only long enough to fix
+forward.
 
 ### Rolling back past #860
 
@@ -1466,65 +1462,61 @@ dead-letter queue by hand, once a release that routes them runs again.
 
 ### Traps
 
-- **The broker-carrying release needs the box `.env` updated FIRST**: append `RABBITMQ_PASSWORD`
-  (`openssl rand -base64 24`) to `/opt/lotro/.env` on **both** boxes before merging it. Missing it
-  is loud, not silent: compose interpolation fails (`${RABBITMQ_PASSWORD:?…}`) inside `deploy.sh`'s
-  config-validation step, which aborts the deploy while the old release keeps serving.
-- **`RABBITMQ_DEFAULT_PASS` applies on first boot only** (empty data volume). Editing the box `.env`
-  later rotates what auth-api and tms-api present but **not** what the broker expects — rotate in
-  lockstep via `rabbitmqctl change_password`, then restart **both** apps (exact commands: the
+- **`RABBITMQ_PASSWORD` is required.** Compose interpolation fails without it
+  (`${RABBITMQ_PASSWORD:?…}`) in `deploy.sh`'s first step, which stops the deploy while the old release
+  keeps serving.
+- **`RABBITMQ_DEFAULT_PASS` applies on first boot only** (empty data volume). Rotate it in lockstep
+  with `rabbitmqctl change_password`, then restart **both** apps (commands: the
   [secrets table](#secret-material--source-of-truth-and-how-to-rotate)).
-- **Queue arguments are immutable.** Redeclaring `emails.send` with different `x-*` arguments fails
-  the channel with `PRECONDITION_FAILED` (ADR-0036). Changing them on a live box means draining and
-  deleting the queue — treat it as a small migration, not a config tweak. Delete it only while the
-  release with the new arguments is running, or while auth-api is stopped. The running auth-api
-  declares the queue again with **its own** arguments and attaches, usually within a minute and with
-  no restart (#1088), so a delete under the old release brings the old arguments straight back. The
-  release with the new arguments cannot read the old queue, so check in the management UI that it
-  holds no messages right before the delete: anything still in it is lost. An e-mail that is waiting
-  out an SMTP outage at that moment holds the attach back until its pause ends (about 15 minutes at
-  most).
+- **Queue arguments cannot change.** Declaring `emails.send` again with different `x-*` arguments
+  fails the channel with `PRECONDITION_FAILED` (ADR-0036). Changing them on a live box means draining
+  and deleting the queue: treat it as a small migration, not a config tweak.
+  - Delete it only while the release with the new arguments is running, or while auth-api is
+    stopped. The running auth-api declares the queue again with **its own** arguments and attaches,
+    usually within a minute and with no restart (#1088), so a delete under the old release brings the
+    old arguments straight back.
+  - The release with the new arguments cannot read the old queue, so check in the management UI that
+    it holds no messages right before the delete: anything still in it is lost.
+  - A message that is waiting out an outage at that moment (SMTP for e-mail, the database for an
+    erasure) holds the attach back until its pause ends, about 15 minutes at most.
 - **Never remove the `hostname:` pin** on the service. RabbitMQ keys its on-disk state by node name
-  (`rabbit@<hostname>`); an unpinned recreation boots a fresh node beside the old data and orphans
-  the volume's quorum queues — parked dead letters included.
+  (`rabbit@<hostname>`); a recreation without the pin boots a fresh node beside the old data and
+  orphans the volume's quorum queues, parked dead letters included.
 
 ## Post-deploy smoke test
 
 One command that gives a green/red signal that a deployed environment came up correctly, without
-manual clicking — run it as the final [bring-up](#bringing-the-stack-up) step and after every
-subsequent deploy (CD runs it for you). `scripts/smoke.sh` (with a `scripts/smoke.ps1` twin) takes the
-three base URLs + the OpenIddict API client secret and exercises the seven legs that actually break on
-a deploy:
+manual clicking. Run it as the final [bring-up](#bringing-the-stack-up) step and after every later
+deploy (CD runs it for you). `scripts/smoke.sh` (with a `scripts/smoke.ps1` twin) takes the three
+base URLs + the OpenIddict API client secret and runs the seven legs that actually break on a deploy:
 
 | # | Check | Pass condition |
 |---|---|---|
 | 1 | **Health** | `GET {auth}/health/ready` = 200, `GET {tms}/health/ready` = 200, `GET {frontend}/` = 2xx/3xx |
-| 2 | **Frontend assets + CSP** | `GET {frontend}/` references a fingerprinted `_framework/blazor.web.<hash>.js` that serves 200, and the page carries no inline `<script>` its own `script-src` would block (#414, #670) |
+| 2 | **Frontend assets + CSP** | `GET {frontend}/` references a fingerprinted `_framework/blazor.web.<hash>.js` that serves 200, and the page has no inline `<script>` its own `script-src` would block (#414, #670) |
 | 3 | **OIDC token** | `POST {auth}/connect/token` (client_credentials) = 200 + an `access_token` |
-| 4 | **Token accepted by tms** | anonymous `GET {tms}/api/v1/game-versions` = **401**; the same call **with** the bearer token is **NOT 401** |
+| 4 | **Token accepted by tms** | anonymous `GET {tms}/api/v1/game-versions` = **401**; the same call **with** the bearer token is **not 401** |
 | 5 | **File distribution** | `GET {tms}/api/v1/translation-files/{lang}` = 200 + `ETag`, then a re-GET with `If-None-Match` = 304 |
 | 6 | **Auth pages: headers + CSP** | `GET {auth}/Account/Login` (a form) and `/Account/ConfirmEmail` (no form) each send `X-Frame-Options: DENY` with `frame-ancestors 'none'`, `nosniff` and a `Referrer-Policy` of `no-referrer`, `same-origin`, `strict-origin` or `strict-origin-when-cross-origin`; every `<style>` carries the header's nonce, no inline `<script>`, no `'unsafe-inline'` (#693) |
 | 7 | **Discovery links** | `GET {tms}/` and `GET {auth}/` with the HATEOAS `Accept` header (`application/vnd.dev-lotrokoniecdev.hateoas.json`) = 200 with at least one link, and every `href` has the scheme, host and port of the configured URL (#898) |
 
-It prints a `✓`/`✗`/`⚠` per check and **exits non-zero (1) on any failure** (a usage/config problem
-exits 2). Two behaviours are deliberate and worth knowing before you read a result:
+It prints a `✓`/`✗`/`⚠` per check and **exits 1 on any failure** (a usage or config problem exits 2).
+Two behaviours are worth knowing before you read a result:
 
-- **Leg 4 expects 403, and that is success.** The only non-interactive OIDC grant in a deployed
-  environment is **client-credentials**. Such a token carries **no user role**, and every TMS endpoint
-  is role-gated — so a *validated* token is **403 Forbidden**, not 200. The check therefore proves the
-  token is **accepted** (got past authentication), pairing it with an anonymous 401 to prove the
-  endpoint is genuinely protected. A **401 with a valid token is the real red flag**: it means tms
-  rejected it — almost always an issuer / audience / JWKS mismatch (see
-  [Consistency rules that bite](#consistency-rules-that-bite), rules #1–#2), or a **stale
-  `SMOKE_CLIENT_SECRET`**.
-- **Leg 5 warns (does not fail) on 404.** A freshly deployed but not-yet-imported environment has no
-  translation artifact, so the endpoint returns 404 — the endpoint is up, there is just nothing to
-  distribute yet.
+- **Leg 4 passes on 403.** The only non-interactive OIDC grant in a deployed environment is
+  **client credentials**. Such a token carries **no user role**, and every TMS endpoint is role-gated,
+  so a *validated* token gets **403 Forbidden** (200 also passes). The check proves the token was
+  **accepted** (it got past authentication), and the anonymous 401 proves the endpoint is protected.
+  **A 401 with a valid token is the real red flag**: tms rejected it, almost always because of an
+  issuer / audience / JWKS mismatch (see [Consistency rules that bite](#consistency-rules-that-bite),
+  rules 1–2) or a **stale `SMOKE_CLIENT_SECRET`**.
+- **Leg 5 warns (does not fail) on 404.** A freshly deployed environment with nothing imported yet has
+  no translation file, so the endpoint returns 404: it is up, there is just nothing to distribute yet.
 
 ### Running it
 
 ```bash
-# A real environment (publicly-trusted Let's Encrypt cert — no --insecure needed):
+# A real environment (publicly trusted Let's Encrypt cert — no --insecure needed):
 SMOKE_CLIENT_SECRET="$OPENIDDICT_API_CLIENT_SECRET" scripts/smoke.sh \
   --auth-url     https://auth.lotro-translator.pl \
   --tms-url      https://tms.lotro-translator.pl \
@@ -1550,25 +1542,23 @@ Each flag has a `SMOKE_*` environment fallback (`--auth-url`/`SMOKE_AUTH_URL`, `
 prints the full reference.
 
 `--require-csp` makes a frontend or auth page with **no** `Content-Security-Policy` header a failure
-instead of a warning. Pass it against any deployed environment — CD and the reusable workflow both do.
-Leave it off only for a local Development stack, which skips the security-headers middleware on
-purpose and would otherwise always report red.
+instead of a warning. Pass it against any deployed environment; CD and the `Smoke test` workflow
+both do. Leave it off only for a local Development stack, which skips the security-headers middleware
+on purpose and would otherwise always report red.
 
 The flag also means an image from before the CSP legs cannot pass: an auth image older than #693
 fails leg 6, a frontend image older than #670 fails leg 2. So a deliberate CD deploy of such an old
-`image_tag` goes red and the rollback step puts the newer tag back. Pick a rollback target from #693
-on. For the same reason, an on-demand smoke of prod stays red on leg 6 until the batched promotion
-that carries #693 has run there.
+`image_tag` goes red, and the rollback step puts the newer tag back. Pick a rollback target from #693
+on.
 
 **In CI:** `deploy.yml` runs it against the environment's public origins after `up -d`; a red smoke
-triggers the automatic rollback. The [`Smoke test`](../../.github/workflows/smoke.yml) reusable
-workflow stays runnable **on demand** (`workflow_dispatch` — enter the three URLs).
+triggers the automatic rollback. The [`Smoke test`](../../.github/workflows/smoke.yml) workflow can
+also run **on demand** (`workflow_dispatch`: enter the three URLs).
 
 > **`GET / -> 200` never proves the frontend works.** A `[StreamRendering]` page returns 200 with its
-> spinner frame before it fetches anything. Smoke leg 1's frontend check is paired with leg 2's
-> **fingerprint** assertion — `@Assets[]` renders `_framework/blazor.web.<hash>.js` only when
-> `MapStaticAssets` resolved its manifest. That is the signature of a healthy image. Leg 2 also
-> catches the other invisible frontend break: an inline `<script>` the page's own CSP blocks, which
+> spinner frame before it fetches anything. Leg 2's **fingerprint** check is the signature of a
+> healthy image: `@Assets[]` renders `_framework/blazor.web.<hash>.js` only when `MapStaticAssets`
+> resolved its manifest. Leg 2 also catches an inline `<script>` the page's own CSP blocks, which
 > shows up nowhere but the browser console (#670). Leg 6 does the same for the auth pages, where the
 > styles are inline and each `<style>` must carry the nonce of its own response (#693).
 >
@@ -1576,8 +1566,8 @@ workflow stays runnable **on demand** (`workflow_dispatch` — enter the three U
 > the address the request came in on, which Caddy passes on in the forwarded headers. A change to
 > Caddy, to the forwarded-headers setup or to a domain variable can turn those links into `http://`,
 > an internal host name or another port. The website and the CLI refuse to follow a link off the
-> configured origin and follow no redirect (#611, #830), so every page that follows a link would break,
-> while the health checks stay green. Leg 7 reads both discovery roots and catches that (#898).
+> configured origin and follow no redirect (#611, #830), so every page that follows a link would
+> break while the health checks stay green. Leg 7 reads both discovery roots and catches that (#898).
 > ADR-0041 allows one link off the origin: after a service split, the root links to the root of the
 > service that left. The change that adds such a link must also allow it in leg 7, or every deploy
 > fails there and rolls back.

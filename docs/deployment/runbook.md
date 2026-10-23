@@ -335,7 +335,7 @@ volumes and not bind mounts.
 | Variable | Read by | Source of truth | (Re)mint / rotate |
 |---|---|---|---|
 | `ConnectionStrings__AuthDatabase` | migrator, auth-api | **Neon**: the environment's project (prod: `lotro-translator-prod`; staging has its own, ADR-0018), DB `lotro_auth` | Neon console → Roles → *Reset password* → rebuild the string by hand, in the format the [auth-api matrix](#auth-api) shows (keyword form, `Ssl Mode=Require`, `Timeout=20`). |
-| `ConnectionStrings__TranslationDatabase` | migrator, tms-api | same Neon project, DB `lotro_translation` | same |
+| `ConnectionStrings__TranslationDatabase` | migrator, tms-api | same Neon project, DB `lotro_translation` | same, in the format the [tms-api matrix](#tms-api) shows (`Timeout=60`) |
 | `OpenIddict__SigningKey__RsaPrivateKeyXml` | auth-api | **regenerate**: no copy exists anywhere else | Take the line from [`gen-openiddict-keys`](#openiddict-production-keys-auth-api) into the box `.env`. Pure config (never stored in the DB), so a rotation invalidates issued tokens and everyone signs in again. auth-api can also read `OpenIddict__SigningKey__PreviousRsaPrivateKeyXml` to keep old tokens valid during a rotation (`OpenIddictSettings`), but `compose.hetzner.yaml` does not pass it. |
 | `OpenIddict__EncryptionKey__Key` | auth-api | regenerate | same script, same effect. |
 | `OpenIddict__ApiClientSecret` | auth-api (**seeds** the `lotrokoniecdev-api` client row) | regenerate | same script, **but the DB row wins on restart: a rotation needs the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing).** Must stay equal to the `SMOKE_CLIENT_SECRET` GitHub secret of the same environment. |
@@ -343,7 +343,7 @@ volumes and not bind mounts.
 | `Email__Password` | auth-api | **Brevo** (the owner pastes it) | Generate a new SMTP key in Brevo. Brevo shows it **once**, so a lost key is generated again, never recovered. |
 | The admin password | the admin `Users` row | **the admin's own password manager**, never a file on the box | Not a `.env` value (ADR-0056): the seeder creates the admin without one. The first password and every rotation go through the reset mail ([Admin account](#admin-account--first-sign-in-and-rotation)). A box `.env` that still has an `AUTH_ADMIN_PASSWORD` line predates #696: follow the migration steps there. |
 | `RABBITMQ_PASSWORD` (→ auth-api and tms-api `RabbitMq__Password` **and** the broker's `RABBITMQ_DEFAULT_PASS`) | rabbitmq, auth-api, tms-api | **box-local**: `openssl rand -base64 24` | ⚠️ The broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** (empty data volume), so editing `.env` later changes what the apps send but **not** what the broker expects. Rotate in lockstep: `docker compose -f compose.hetzner.yaml exec --user rabbitmq rabbitmq rabbitmqctl change_password rabbitmq '<new>'` → update `.env` → `docker compose -f compose.hetzner.yaml up -d auth-api tms-api`. Leave tms-api out and it keeps working until its next reconnect, then is refused for good while erasures wait unseen in its queue (ADR-0065). |
-| `FRONTEND_CALLER_KEY` (→ auth-api and tms-api `FrontendCaller__Key`, frontend `AuthSystem__CallerKey` **and** `TranslationSystem__CallerKey`) | auth-api, tms-api, frontend | **box-local**: `openssl rand -base64 32`, one per environment (not one per API) | Lets both APIs rate-limit a frontend call on the visitor's forwarded address instead of on the frontend container (ADR-0054). Put a new value into the box `.env` and redeploy: all three services read the same line, so they disagree only during the restart, and a call in that window only counts against the frontend's own bucket. **Required**: compose refuses to render without it, and all three apps refuse to boot outside Development/Testing. Write it **unquoted**. A key with whitespace at either end, a line break, a tab or a non-ASCII character (a pasted non-breaking space) stops all three apps at boot, because such a key cannot match the header the APIs compare it with (#857, #877). A leaked key lets its holder dodge the three auth back-channel limits and the TMS API's one limit by inventing addresses, and nothing more: rotate it. |
+| `FRONTEND_CALLER_KEY` (→ auth-api and tms-api `FrontendCaller__Key`, frontend `AuthSystem__CallerKey` **and** `TranslationSystem__CallerKey`) | auth-api, tms-api, frontend | **box-local**: `openssl rand -base64 32`, one per environment (not one per API) | Lets both APIs rate-limit a frontend call on the visitor's forwarded address instead of on the frontend container (ADR-0054). Put a new value into the box `.env` and redeploy: all three services read the same line, so they disagree only during the restart, and a call in that window only counts against the frontend's own bucket. **Required**: compose refuses to render without it, and all three apps refuse to boot outside Development/Testing. Write it **unquoted**. A key with whitespace at either end, a line break or a non-ASCII character (a pasted non-breaking space) stops all three apps at boot, because such a key cannot match the header the APIs compare it with; a tab is refused too, to keep one simple rule (#857, #877). A leaked key lets its holder dodge the three auth back-channel limits and the TMS API's one limit by inventing addresses, and nothing more: rotate it. |
 | `HEALTH_CHECK_KEY` (→ auth-api and tms-api `HealthCheck__Key`) | auth-api, tms-api, **and on the prod box the daily health ping** | **box-local**: `openssl rand -base64 32`, one per environment (not one per API) | Opens the full `/health` (ADR-0058); without it both APIs answer 404 there and run no check. **Required**, with the same format rules as `FRONTEND_CALLER_KEY`. **Prod only: the same value is the `PROD_HEALTH_CHECK_KEY` repository secret** the daily health ping sends. Set or rotate it without the value reaching argv or the screen: `ssh deploy@<prod-box> "grep '^HEALTH_CHECK_KEY=' /opt/lotro/.env \| cut -d= -f2-" \| tr -d '"\r\n' \| gh secret set PROD_HEALTH_CHECK_KEY` (gh reads stdin when there is no `--body`; **never `--body -`**). The command copies the raw `.env` line, so write the value **unquoted**: `tr` drops double quotes, but single quotes would reach the secret and turn the ping red. Rotate: new value into the prod `.env` → redeploy → that command. Between the two steps the ping gets 404 and goes red, so rotate outside its 06:40 UTC slot. A leaked key lets its holder run the database, SMTP and broker checks at will, and nothing more: rotate it. |
 | `OBS_PUSH_PASSWORD` (prod `/opt/obs/.env`) ↔ `OBS_PUSH_PASSWORD_HASH` (staging `/opt/lotro/.env`) | the prod agent (Alloy, `ship.agent.alloy`) ↔ the staging Caddy's ingest vhost | **box-local**: `openssl rand -base64 24`; hash it with `docker run --rm -it caddy:2-alpine caddy hash-password` (it prompts, never on argv) | One password in two forms; the plaintext exists on the prod box only. Rotate hash first: new hash into the staging `.env` → `deploy.sh` (reloads Caddy) → new password into the prod `.env` → `docker compose -f compose.observability.yaml up -d` in `/opt/obs`. **Telemetry sent in between is lost, not delayed**: all three writers treat a 401 as permanent and drop the batch. So pick a window you accept a hole in, or give the vhost a second `basic_auth` account first so the two credentials overlap. **Single-quote the hash in `.env`**: see [Bringing up the prod agent](#bringing-up-the-prod-agent-the-agent-only-role) step 3, which also has the probe that proves it landed. |
 | `SMOKE_CLIENT_SECRET` *(GitHub secret, per environment — **not** a box variable)* | `scripts/smoke.sh`, CD | == `OpenIddict__ApiClientSecret` of that environment | `gh secret set SMOKE_CLIENT_SECRET --env <staging\|production> --body "$VALUE"`. **Never `--body -`**: gh takes `-` literally and the smoke then gets 401. |
@@ -1494,7 +1494,7 @@ base URLs + the OpenIddict API client secret and runs the seven legs that actual
 | 1 | **Health** | `GET {auth}/health/ready` = 200, `GET {tms}/health/ready` = 200, `GET {frontend}/` = 2xx/3xx |
 | 2 | **Frontend assets + CSP** | `GET {frontend}/` references a fingerprinted `_framework/blazor.web.<hash>.js` that serves 200, and the page has no inline `<script>` its own `script-src` would block (#414, #670) |
 | 3 | **OIDC token** | `POST {auth}/connect/token` (client_credentials) = 200 + an `access_token` |
-| 4 | **Token accepted by tms** | anonymous `GET {tms}/api/v1/game-versions` = **401**; the same call **with** the bearer token is **not 401** |
+| 4 | **Token accepted by tms** | anonymous `GET {tms}/api/v1/game-versions` = **401**; the same call **with** the bearer token is **200 or 403** (401 = token rejected) |
 | 5 | **File distribution** | `GET {tms}/api/v1/translation-files/{lang}` = 200 + `ETag`, then a re-GET with `If-None-Match` = 304 |
 | 6 | **Auth pages: headers + CSP** | `GET {auth}/Account/Login` (a form) and `/Account/ConfirmEmail` (no form) each send `X-Frame-Options: DENY` with `frame-ancestors 'none'`, `nosniff` and a `Referrer-Policy` of `no-referrer`, `same-origin`, `strict-origin` or `strict-origin-when-cross-origin`; every `<style>` carries the header's nonce, no inline `<script>`, no `'unsafe-inline'` (#693) |
 | 7 | **Discovery links** | `GET {tms}/` and `GET {auth}/` with the HATEOAS `Accept` header (`application/vnd.dev-lotrokoniecdev.hateoas.json`) = 200 with at least one link, and every `href` has the scheme, host and port of the configured URL (#898) |
@@ -1618,13 +1618,17 @@ in step.
 | The other box | pushes over **`obs.lotro-translator.pl`**: a Caddy vhost on the backend box with three ingest paths (the Loki push, the Prometheus remote-write, the OTLP trace gRPC method), each admitted only from the prod box's public `/32` **and** with one basic-auth credential. Everything else answers 404, and Grafana is not behind it (ADR-0050 §4, #755). Agent side: `alloy/ship.agent.alloy` (TLS + the credential) versus `alloy/ship.backend.alloy` (the containers next door), picked by `COMPOSE_PROFILES` |
 | Dashboards & alerts | provisioned as code: ours from `.docker/observability/`, TheKittySaver's from its own repo into `/opt/obs/grafana/dashboards/tks/` |
 
-**Deploying a change** to the configs, dashboards or alert rules (staging box shown; the prod box
-takes the same `rsync` + `scp`):
+**Deploying a change** to the configs, dashboards or alert rules, as `deploy` (staging box shown;
+the prod box takes the same `rsync` + `scp`):
 
 ```bash
 rsync -az .docker/observability/ lotro-staging:/opt/obs/ && scp compose.observability.yaml lotro-staging:/opt/obs/
-ssh lotro-staging 'cd /opt/obs && docker compose -f compose.observability.yaml up -d && docker compose -f compose.observability.yaml ps'
+ssh lotro-staging 'cd /opt/obs && docker compose -f compose.observability.yaml up -d --force-recreate && docker compose -f compose.observability.yaml ps'
 ```
+
+`--force-recreate` is needed: each config file is a bind mount, `rsync` replaces the file, and
+compose does not look inside a mounted file, so a plain `up -d` leaves every container on its old
+config (the same reason `deploy.sh` reloads Caddy). It costs about a minute of telemetry.
 
 This carries our half only. TheKittySaver's dashboard and alert rules live in its own repo and land
 in the same tree, so run its two lines from a TheKittySaver checkout in the same sitting, or the box
@@ -1635,7 +1639,7 @@ rsync -az docs/observability/dashboards/ lotro-staging:/opt/obs/grafana/dashboar
 rsync -az docs/observability/alerting/  lotro-staging:/opt/obs/grafana/provisioning/alerting/
 ```
 
-Run `docker restart obs-grafana` if the stack was not recreated, so Grafana reads the new provisioning.
+Run `docker restart obs-grafana` after TheKittySaver's two lines, so Grafana reads its new provisioning.
 
 **Nothing is published to the internet by the observability project itself.** Grafana binds to
 loopback. Alloy's OTLP receiver binds the two docker **bridge gateways** (`10.60.0.1` ours,
@@ -1881,8 +1885,11 @@ Each box is **fully disposable**: nothing on it is the source of truth for anyth
 
 Recovery = **new VPS → `bootstrap.sh` → copy the stack files → restore or re-mint the box's `.env` →
 `IMAGE_TAG=<the tag the box ran> bash /opt/lotro/deploy.sh` as `deploy` → re-point the DNS A records →
-re-pin `HETZNER_SSH_KNOWN_HOSTS` → bring `/opt/obs` back** ([Deploying a change](#the-observability-stack);
-on the prod box, steps 5–6 of [the prod agent](#bringing-up-the-prod-agent-the-agent-only-role)). Use
+re-pin `HETZNER_SSH_KNOWN_HOSTS` → bring `/opt/obs` back**: as root `install -d -o deploy -g deploy
+/opt/obs`, restore its `.env`, then, as `deploy`, the commands under
+[Deploying a change](#the-observability-stack). On a rebuilt prod box follow
+[the prod agent](#bringing-up-the-prod-agent-the-agent-only-role) steps 5–6, plus steps 1 and 3 when
+its public IP changed (the staging Caddy admits pushes only from `OBS_ALLOWED_PUSH_IP`). Use
 `deploy.sh`, not a plain `up -d`: the broker volume is new, and `deploy.sh` is what sets its policy for
 parked e-mail (ADR-0036 §6). Hetzner backups (prod box) are a shortcut to the same result, not a
 dependency.

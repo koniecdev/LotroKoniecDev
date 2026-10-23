@@ -8,9 +8,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// #1058: the website does not check the access token itself, because the translation API checks every token
-/// it receives (ADR-0067 decision 2). Each host here has just started, so it holds no copy of the sign-in
-/// server's metadata, and the sign-in server cannot be reached. The real cookie check runs on every request.
+/// #1058: the website never checks the access token itself (ADR-0067 decision 2). Each host has just
+/// started with no copy of the sign-in server's metadata, and the sign-in server cannot be reached.
 /// </summary>
 public sealed class SignedInSessionTests : IClassFixture<ProductionFrontendFactory>
 {
@@ -40,9 +39,8 @@ public sealed class SignedInSessionTests : IClassFixture<ProductionFrontendFacto
     [Fact]
     public async Task Get_TheNextPageAfterTheTranslationApiRefusedTheAccessToken_EndsTheSession()
     {
-        // Arrange: the dashboard loads while the API accepts the token, so the service document is cached for
-        // this account. Then the signing key changes. The cached document still names the statistics, the API
-        // refuses the token there with a 401, and the refused call marks the session dead.
+        // Arrange: the service document is cached while the API accepts the token. Then the signing key
+        // changes, and the statistics call gets a 401.
         DashboardTranslationSystem translationSystem = new();
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
@@ -66,8 +64,7 @@ public sealed class SignedInSessionTests : IClassFixture<ProductionFrontendFacto
     [Fact]
     public async Task Get_TheNextPageAfterTheServiceDocumentCameBackWithoutTheSignedInLinks_EndsTheSession()
     {
-        // Arrange: nothing is cached yet, and the API refuses the token. Its service document is open to
-        // everyone, so it answers with the anonymous links, which marks the session dead.
+        // Arrange: nothing is cached, and the open service document answers with the anonymous links.
         using WebApplicationFactory<Program> host = CreateHost(new DashboardTranslationSystem { AcceptsTheToken = false });
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         await browser.LoadAsync("/dashboard");
@@ -90,9 +87,8 @@ public sealed class SignedInSessionTests : IClassFixture<ProductionFrontendFacto
     }
 
     /// <summary>
-    /// <see cref="OpenIdConnectOptions.Configuration"/> stays unset, so the OIDC handler builds its real
-    /// configuration manager, which has fetched nothing yet. Every call to the sign-in server fails the way a
-    /// call to a server that is down does.
+    /// <see cref="OpenIdConnectOptions.Configuration"/> stays unset, so the handler builds its real
+    /// configuration manager. Every call to the sign-in server fails as if it were down.
     /// </summary>
     private WebApplicationFactory<Program> CreateHost(DashboardTranslationSystem translationSystem) =>
         _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>

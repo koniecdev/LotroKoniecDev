@@ -8,10 +8,9 @@ using Microsoft.Extensions.Options;
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Settings;
 
 /// <summary>
-/// #1040: a refused start must end in the app's own error, even when the test thread comes late. A busy
-/// full run made it late only sometimes, so this test holds the test thread back for one second every
-/// time, far longer than the app needs to refuse its start. Without the hold in <see cref="HostStartOrder"/>,
-/// the app's thread disposes the host first and this test gets an <see cref="ObjectDisposedException"/>.
+/// #1040: a refused start must end in the app's own error, even when the test thread comes late. This holds
+/// the test thread back for a second every time. Without the hold in <see cref="HostStartOrder"/>, the test
+/// gets an <see cref="ObjectDisposedException"/>.
 /// </summary>
 public sealed class HostStartOrderTests
 {

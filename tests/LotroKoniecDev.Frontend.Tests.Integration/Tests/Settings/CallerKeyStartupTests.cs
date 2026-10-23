@@ -6,9 +6,7 @@ using Microsoft.Extensions.Options;
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Settings;
 
 /// <summary>
-/// ADR-0054 §6: outside Development and Testing the Frontend refuses to boot when the caller key for
-/// either API is missing or bad. The unit tests on the two validators cover every rule; these tests
-/// prove that both checks run when the app starts (#915).
+/// ADR-0054 §6. The validator unit tests cover every rule; these prove both checks run at startup (#915).
 /// </summary>
 public sealed class CallerKeyStartupTests : IClassFixture<ProductionFrontendFactory>
 {
@@ -62,8 +60,7 @@ public sealed class CallerKeyStartupTests : IClassFixture<ProductionFrontendFact
         using HttpClient client = Should.NotThrow(() => host.CreateClient());
     }
 
-    // The keys are read only when the host starts, so the usual in-memory source works here, and it is
-    // the only way to remove a key the factory sets.
+    // The in-memory source is the only way to remove a key the factory sets.
     private WebApplicationFactory<Program> CreateHost(Dictionary<string, string?> settings)
     {
         return _factory.WithWebHostBuilder(builder =>

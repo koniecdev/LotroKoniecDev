@@ -44,8 +44,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
     [Fact]
     public async Task Post_ImportForm_WhenTheVersionListFailsToLoad_ShowsTheImportPageWithTheLoadError()
     {
-        // Arrange: the case the ticket was found with. The admin sends exported.txt, and the list of
-        // versions the page loads first cannot be read in that request.
+        // Arrange: the admin sends exported.txt, and the version list cannot be read in that request.
         StubTranslationSystem translationSystem = new();
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
@@ -102,8 +101,8 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
         string path,
         string formName)
     {
-        // Arrange: an account page that cannot load because the token was refused sends the user to the
-        // login, as it does on a plain visit. Blazor's 400 used to replace that redirect on a post.
+        // Arrange: a refused token sends the user to the login, and Blazor's 400 must not replace that
+        // redirect on a post.
         StubTranslationSystem translationSystem = new();
         StubAuthSystem authSystem = new(HttpStatusCode.Unauthorized);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
@@ -124,8 +123,8 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
     [Fact]
     public async Task Post_SaveForm_WhenTheRowFailsToLoad_SavesThroughTheServiceDocumentAndRedirects()
     {
-        // Arrange: the editor's recovery path. The save does not need the row, because the upsert link
-        // comes from the service document, so the translator's text is saved and not lost.
+        // Arrange: the editor's recovery path. The upsert link comes from the service document, so the
+        // save does not need the row.
         StubTranslationSystem translationSystem = new() { UpsertAnswer = HttpStatusCode.OK };
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
@@ -166,8 +165,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
     [Fact]
     public async Task Get_TheRedirectAfterARecoverySave_WhenTheRowStillFailsToLoad_ShowsTheSaveConfirmation()
     {
-        // Arrange: the outage that sent the save through the recovery form often lasts into the redirect,
-        // so the page must still say that the text was saved.
+        // Arrange: the outage often lasts into the redirect, and the page must still say the text was saved.
         StubTranslationSystem translationSystem = new() { UpsertAnswer = HttpStatusCode.OK };
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
@@ -190,8 +188,8 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
     [Fact]
     public async Task Post_ApproveForm_FromAnAddressWithTheSavedFlag_WhenTheRowFailsToLoad_ShowsNoOldConfirmation()
     {
-        // Arrange: the approve posts to the address the save's redirect left. The approve does not run, so
-        // the old "saved" flag in that address must not read as an answer to it.
+        // Arrange: the approve posts to the address the save's redirect left, so the old "saved" flag must
+        // not read as its answer.
         StubTranslationSystem translationSystem = new();
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
@@ -219,8 +217,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
         string path,
         string formName)
     {
-        // Arrange: only the page's own form names are kept. A post to a name the page never drew is a
-        // broken request and keeps Blazor's own answer.
+        // Arrange: a post to a name the page never drew is broken and keeps Blazor's own answer.
         StubTranslationSystem translationSystem = new();
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
@@ -280,8 +277,8 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
         };
 
     /// <summary>
-    /// The translation API while it is down for page data: the service document still answers, so the
-    /// pages find their links, and every other read answers 503. The upsert link answers as the test sets.
+    /// The service document still answers, every other read answers 503, and the upsert answers as the test
+    /// sets.
     /// </summary>
     private sealed class StubTranslationSystem : HttpMessageHandler
     {

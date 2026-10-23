@@ -112,9 +112,8 @@ public sealed class SensitiveDataRedactorTests
     }
 
     /// <summary>
-    /// The shape a link built with <c>Uri.EscapeDataString</c> puts on the wire (ADR-0046). The query
-    /// is matched raw and never decoded, so a matcher that only knows the literal <c>@</c> lets the
-    /// whole address through into the request log.
+    /// The shape a link built with <c>Uri.EscapeDataString</c> puts on the wire (ADR-0046 §3). The query
+    /// is matched raw, so a matcher that knows only the literal <c>@</c> logs the whole address.
     /// </summary>
     [Theory]
     [InlineData("?email=alice%40example.com", "?email=a***%40example.com")]

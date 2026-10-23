@@ -3,41 +3,35 @@ using NaughtyStrings;
 namespace LotroKoniecDev.Tests.Shared;
 
 /// <summary>
-/// Shared xUnit theory sources over the Big List of Naughty Strings (the <c>NaughtyStrings</c>
-/// package, #569). The file is <em>linked</em> into every pure unit suite that hardens a
-/// place that handles a lot of strings, so the list of hostile inputs is written once instead of copied
-/// into each project. A suite picks the smallest source that still covers what it tests.
+/// Theory sources over the Big List of Naughty Strings (#569), linked into every pure unit suite that
+/// needs them, so the hostile inputs are written once. A suite picks the smallest source that still
+/// covers what it tests.
 /// </summary>
 /// <remarks>
-/// The categories below are grouped by the danger they pose to this codebase, a UTF-16 binary format on
-/// one side of the <c>||</c> contract and a line-based text file on the other, and not by the categories
-/// the upstream list uses.
+/// The sources are grouped by the danger they pose here (a UTF-16 binary format on one side of the
+/// <c>||</c> contract, a line-based text file on the other), not by the upstream categories.
 /// </remarks>
 internal static class NaughtyStringCases
 {
     /// <summary>
-    /// Every naughty string the package ships (550 distinct). The default source for round-trip
-    /// theories: nothing here may crash a parser, a serializer or a value object factory.
+    /// The default source for round-trip theories: nothing here may crash a parser, a serializer or a
+    /// value object factory.
     /// </summary>
     /// <remarks>
-    /// The list carries no empty entry (its shortest is one character) and no entry ending in an
-    /// odd run of <c>|</c>, so the empty-content and pipe-boundary cases of the <c>||</c> contract
-    /// have to be written by hand. See the explicit theories in the parser suites.
+    /// The list has no empty entry and no entry ending in an odd run of <c>|</c>, so those cases of the
+    /// <c>||</c> contract are written by hand in the parser suites.
     /// </remarks>
     public static TheoryData<string> All => ToTheoryData(AllValues);
 
     /// <summary>
-    /// The same list as <see cref="All"/>, unwrapped, for a suite that has to narrow the set down to the
-    /// inputs its code actually accepts before it builds its own <see cref="TheoryData{T}"/>.
-    /// Filtering here keeps the assertion unconditional, which a branch inside the test would not.
+    /// For a suite that narrows the list to the inputs its code accepts before it builds its own
+    /// <see cref="TheoryData{T}"/>, so the assertion stays unconditional instead of hiding in a branch.
     /// </summary>
     public static IReadOnlyList<string> AllValues { get; } =
         TheNaughtyStrings.All.Distinct(StringComparer.Ordinal).ToList();
 
     /// <summary>
-    /// Strings whose UTF-16 representation is the hazard: surrogate pairs (emoji), two-byte and
-    /// characters outside the basic plane, combining marks, bidi controls and invisible code points. These
-    /// are what a <c>char</c>-counting binary writer gets wrong.
+    /// Strings whose UTF-16 form is the hazard: what a <c>char</c>-counting binary writer gets wrong.
     /// </summary>
     public static TheoryData<string> UnicodeHazards => ToTheoryData(
     [
@@ -56,9 +50,8 @@ internal static class NaughtyStringCases
     ]);
 
     /// <summary>
-    /// A mix of quotes, escapes and punctuation: the strings most likely to clash with a delimited text
-    /// format. It includes ASCII punctuation, among it <c>|</c>, <c>#</c> and the backslash, curly and
-    /// misplaced quotation marks, injection payloads and terminal escape codes.
+    /// The strings most likely to clash with a delimited text format, among them <c>|</c>, <c>#</c> and
+    /// the backslash.
     /// </summary>
     public static TheoryData<string> DelimiterHazards => ToTheoryData(
     [
@@ -76,14 +69,10 @@ internal static class NaughtyStringCases
     ]);
 
     /// <summary>
-    /// Every string of up to six characters made of <c>a</c> and <c>|</c>: 127 entries covering every run
-    /// of pipes the <c>||</c> contract can meet at either end of the content, odd and even, including the
-    /// empty string.
-    /// The naughty list has none of these, because no entry ends in an odd run of <c>|</c>, and
-    /// hand-picked cases only sample the problem: an odd run at the end quietly lost its last pipe into
-    /// the args column for the whole life of the format (#597, fixed by ADR-0042).
-    /// Testing all of them is cheap here and protects the carving from a future "simplification" back to
-    /// <c>string.Split</c>.
+    /// Every string of up to six characters made of <c>a</c> and <c>|</c> (127 entries, the empty string
+    /// included), so every run of pipes at either end of the content is covered, odd and even. The
+    /// naughty list has none of these, and hand-picked cases only sample the problem (#597, ADR-0042).
+    /// Testing all of them is cheap and guards the line carving against a return to <c>string.Split</c>.
     /// </summary>
     public static TheoryData<string> PipeRuns => ToTheoryData(BuildPipeRuns(maxLength: 6));
 
@@ -117,26 +106,22 @@ internal static class NaughtyStringCases
     public static TheoryData<string> NonAsciiDigits => ToTheoryData(TheNaughtyStrings.UnicodeNumbers);
 
     /// <summary>
-    /// Every naughty string the API's <c>NotEmpty()</c> check lets through as translated text, meaning it
-    /// is not blank once whitespace is ignored. That is exactly the set a translator can really get into
-    /// the <c>TranslatedText</c> column, and therefore into the distributed file.
+    /// The entries the API's <c>NotEmpty()</c> check lets through as translated text: what a translator
+    /// can get into the <c>TranslatedText</c> column, and so into the distributed file.
     /// </summary>
     public static TheoryData<string> SubmittableText
         => ToTheoryData(AllValues.Where(value => !string.IsNullOrWhiteSpace(value)));
 
     /// <summary>
-    /// The mirror image of <see cref="SubmittableText"/>: the entries the API's <c>NotEmpty()</c>
-    /// guard rejects, and therefore the ones that must never reach a domain guard expecting
-    /// non-blank text.
+    /// The entries the API's <c>NotEmpty()</c> check rejects, so they never reach a domain guard that
+    /// expects non-blank text.
     /// </summary>
     public static TheoryData<string> BlankText
         => ToTheoryData(AllValues.Where(string.IsNullOrWhiteSpace));
 
     /// <summary>
-    /// Deduplicated on purpose: the upstream list repeats two entries, <c>-</c> and a curly-quote tag, and
-    /// the merged categories above overlap. xUnit builds a test-case id from the argument, so a duplicate
-    /// is dropped anyway, but only after it logs a "Skipping test case with duplicate ID" line on every
-    /// run.
+    /// Deduplicated because the upstream list repeats two entries and the merged categories overlap.
+    /// xUnit drops a duplicate anyway, but logs a "Skipping test case with duplicate ID" line on every run.
     /// </summary>
     private static TheoryData<string> ToTheoryData(IEnumerable<string> values)
     {

@@ -4,11 +4,10 @@ using Microsoft.Extensions.Time.Testing;
 namespace LotroKoniecDev.Tests.Shared;
 
 /// <summary>
-/// A fake clock that tells the test when the code under test starts a timer, and how often its timers
-/// have gone off (#948). A background job starts its timer on its own thread, so a test that moves the
-/// clock before the timer exists moves it for nothing. It counts every timer on the clock, so it
-/// expects the job's only timers to be its schedule. Linked into the auth API and TMS API unit suites
-/// (#1223).
+/// A background job starts its timer on its own thread, so a test that moves the clock before the timer
+/// exists moves it for nothing (#948). This clock tells the test when a timer starts and how often
+/// timers went off. It counts every timer on the clock, so it expects the job's only timers to be its
+/// schedule.
 /// </summary>
 internal sealed class TimerWatchingTimeProvider : FakeTimeProvider
 {
@@ -18,11 +17,11 @@ internal sealed class TimerWatchingTimeProvider : FakeTimeProvider
     private int _wakeUps;
 
     /// <summary>
-    /// How many times a timer of this clock has gone off. <see cref="FakeTimeProvider.Advance"/> fires
-    /// the due timers on the test's own thread, unless another thread is starting a timer at that
-    /// moment. A test that moves the clock only after <see cref="WaitForNextTimerAsync"/> meets that
-    /// rule, so the count is exact as soon as <c>Advance</c> returns. The work a timer wakes up may run
-    /// later on another thread, so a count of that work could still miss an early wake-up.
+    /// <see cref="FakeTimeProvider.Advance"/> fires the due timers on the test's own thread, unless
+    /// another thread is starting a timer at that moment. A test that moves the clock only after
+    /// <see cref="WaitForNextTimerAsync"/> meets that rule, so the count is exact as soon as
+    /// <c>Advance</c> returns. The work a timer wakes up may run later on another thread, so a count of
+    /// that work could still miss an early wake-up.
     /// </summary>
     public int WakeUps => Volatile.Read(ref _wakeUps);
 

@@ -1090,8 +1090,9 @@ frontend (`/Account/...` on the auth origin).
 ### 8.3 How pages get data and post changes
 
 - A typed HTTP client (`ITranslationSystemClient`) calls tms-api. It is wrapped in a **Polly
-  resilience pipeline**: 2 retries with backoff for safe requests, a circuit breaker, and a
-  timeout that fits the call — 10 s for JSON calls, **5 minutes for the multipart import upload**.
+  resilience pipeline**: 2 retries with backoff on a 5xx or a network error for every call except
+  the multipart upload and the calls that check a password (a POST is retried too, so a new call
+  that must not repeat has to opt out, #690), a circuit breaker, and a timeout that fits the call — 10 s for JSON calls, **5 minutes for the multipart import upload**.
 - Delegating handlers attach the user's bearer token, the HATEOAS `Accept` header and the
   visitor's address for rate limiting to every call, and refuse to send anything to another
   origin — pages never touch tokens. If a call comes back 401, the session is marked dead so the
@@ -1465,7 +1466,7 @@ Knowing *where the cliff is* is part of the design.
 
 ---
 
-## Appendix A — every ADR in brief
+## Appendix A — a map of every ADR
 
 The decisions themselves, with their reasons and amendments, live in `docs/adr/`. This is a map by
 theme, so you know which one to open.
@@ -1480,9 +1481,9 @@ theme, so you know which one to open.
 | Abuse limits | 0054 (frontend calls metered per visitor), 0055 (mail budget per recipient), 0057 (mail budgets per inbox) |
 | Messaging | 0035 (signal-driven outbox relay), 0036 (dead-lettering with a delivery limit), 0037 (inbox de-duplication), 0038 (one pipeline for every e-mail) |
 | Frontend | 0005 (Data Protection keys on a volume), 0006 (apps on the host in dev), 0009 (browser E2E in Testcontainers), 0044 (the frontend owns the Polish error text) |
-| Deployment and operations | 0008 (cloud-agnostic apps), 0015 (derive dependency versions), 0018 (staging + two-stage promotion), 0025 (database-free readiness probes), 0028 (Docker restore graph is gated), 0034 (Hetzner instead of Azure), 0050 (observability backend on staging), 0051 (Tempo in the first cut), 0058 (full health check needs a key) |
+| Deployment and operations | 0008 (cloud-agnostic apps), 0012 (CD pipeline; rollout target superseded by ADR-0034), 0015 (derive dependency versions), 0018 (staging + two-stage promotion), 0025 (database-free readiness probes), 0028 (Docker restore graph is gated), 0034 (Hetzner instead of Azure), 0050 (observability backend on staging), 0051 (Tempo in the first cut), 0058 (full health check needs a key) |
 | Process | 0026 (only maintainer-written issues drive the loop), 0033 (Avalonia for the desktop app), 0060 (the loop stops at the PR; approval by self-assign) |
-| Obsolete with Azure (ADR-0034) | 0012 (CD pipeline — its shape stands, the rollout target changed), 0013 (Key Vault), 0016 (managed telemetry agent), 0017 (per-environment IaC), 0019 (external probes), 0020 (FinOps right-sizing), 0027 (warm window — the daily ping survives), 0029 (one active revision) |
+| Obsolete with Azure (ADR-0034) | 0013 (Key Vault), 0016 (managed telemetry agent), 0017 (per-environment IaC), 0019 (external probes), 0020 (FinOps right-sizing), 0027 (warm window — the daily ping survives), 0029 (one active revision) |
 
 ---
 

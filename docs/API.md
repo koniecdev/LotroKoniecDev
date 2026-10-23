@@ -271,7 +271,8 @@ Both list endpoints take an optional multi-field **`?sort=`** (`SortParser.cs`,
 (default ascending), e.g. `?sort=status:desc,fileId`. Keys — translations: `fileId`, `gossipId`,
 `status`, `submittedAt` (orders by `UpdatedAt`); game versions: `version`, `detectedAt`, `status`.
 `status` and `version` sort by the stored **text**, not by meaning. An unknown key falls back to the
-slice's first default key instead of failing, and a unique key is always added at the end, so the
+slice's first default key, ascending (for game versions that is oldest first, the opposite of the
+default order), instead of failing, and a unique key is always added at the end, so the
 order is total. Without `sort`, translations order by `(FileId, GossipId)` and game versions by
 `DetectedAt` descending.
 

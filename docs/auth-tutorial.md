@@ -396,7 +396,10 @@ kształtu, ani `exp` (ADR-0067 decyzja 2, #1058).
 
 **Martwa sesja.** Odmowę tokena widać na dwa sposoby: 401 z endpointu, który wymaga logowania, albo
 dokument usług (`GET /`, otwarty dla każdego) bez linków dla zalogowanego. Każda zostawia znacznik
-w `DeadSessionRegistry`, a następne żądanie kończy po nim sesję (czysty re-login). Znacznik wisi pod
+w `DeadSessionRegistry`, a następne żądanie kończy po nim sesję (czysty re-login). Tak kończy się
+też sesja po twardej wymianie klucza podpisu: pierwsza strona, która woła endpoint wymagający
+logowania (np. „Panel”), pokazuje błąd zamiast danych, a następna kończy sesję z komunikatem
+o wygaśnięciu. Znacznik wisi pod
 skrótem SHA-256 odrzuconego access tokena, nie pod id użytkownika, więc kończy się tylko sesja
 urządzenia z tym tokenem (#1061). Strony publiczne same tego nie wykryją, bo otwarty endpoint traktuje
 zły token jak gościa; wtedy sesję kończy najpóźniej odnowienie, po najwyżej 5 minutach.
@@ -489,7 +492,7 @@ ADR-0059: 500 ms, rejestracja 1 s, ponowne wysłanie potwierdzenia 3 s). Forgot 
 confirmation zawsze zwracają sukces.
 
 ### 10.5 HTTPS i metadata
-`RequireHttpsMetadata` jest włączony poza Development i Testing, gdy issuer to `https://`, więc JWKS
+W `tms-api` `RequireHttpsMetadata` jest włączony poza Development i Testing, gdy issuer to `https://`, więc JWKS
 i discovery idą tylko po HTTPS.
 
 ### 10.6 Cookie security

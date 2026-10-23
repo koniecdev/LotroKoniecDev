@@ -150,8 +150,8 @@ jest w cache (`HybridCache`, TTL 5 min, z odciskiem claimów — PERF-07). Szcze
 
 **Zachowania:**
 
-- `RefreshProfile(displayName, email)` — kopiuje `DisplayName`/`Email` z bieżących claimów, gdy się
-  zmieniły. Przemianowane konto nadąża samo, bez osobnej synchronizacji. Nie stempluje czasu.
+- `RefreshProfile(displayName, email)` — kopiuje `DisplayName`/`Email` z bieżących claimów;
+  provisioner woła ją tylko, gdy claimy się zmieniły. Przemianowane konto nadąża samo, bez osobnej synchronizacji. Nie stempluje czasu.
 - `Erase()` — po usunięciu konta w AuthSystem (ADR-0065) zdejmuje osobę z profilu: `DisplayName`
   staje się `Usunięte konto` (`Translator.ErasedDisplayName`), `Email` = `null`. Profil i jego
   tłumaczenia zostają. Wywołanie drugi raz nic nie zmienia.
@@ -211,7 +211,7 @@ walidują w `Create(...)` przez `Result` i są niezmienne.
 |---|---|---|
 | `FragmentKey` | `…TranslationAggregate/ValueObjects/FragmentKey.cs` | `FileId > 0` i `GossipId >= 0`; tożsamość `(FileId, GossipId)`: `FileId` wskazuje subplik DAT, `GossipId` (8 bajtów) fragment w nim |
 | `TranslationSource` | `…TranslationAggregate/ValueObjects/TranslationSource.cs` | `Text` + `ArgsOrder` + `ArgsId` jako **jedna** wartość (inny układ placeholderów = inne znaczenie); pusta kolumna argumentów i `NULL` dają `null`; tekst jest surowy, bez escape'u z pliku (ADR-0039) |
-| `LotroNotationVersion` | `…GameVersionAggregate/ValueObjects/LotroNotationVersion.cs` | gramatyka `digits(.digits)*`, od jednego do trzech członów, max 12 znaków; **forma kanoniczna**: końcowe zera są obcinane, więc `48` = `48.0` = `48.0.0` (ADR-0003 z aneksem 2026-08-28) |
+| `LotroNotationVersion` | `…GameVersionAggregate/ValueObjects/LotroNotationVersion.cs` | gramatyka `digits(.digits)*`, od jednego do trzech członów (aneks ADR-0003 z 2026-08-28), max 12 znaków; **forma kanoniczna**: końcowe zera są obcinane, więc `48` = `48.0` = `48.0.0` (ADR-0003) |
 | `DisplayName` | `…TranslatorAggregate/ValueObjects/DisplayName.cs` | niepuste, ≤ **150** znaków (po trim) |
 | `Email` | `…TranslatorAggregate/ValueObjects/Email.cs` | niepuste, ≤ **250**, regex `^[^@\s]+@[^@\s]+\.[^@\s]+$`; opcjonalny na `Translator` |
 

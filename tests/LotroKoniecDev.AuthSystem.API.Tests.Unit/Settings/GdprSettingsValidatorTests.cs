@@ -157,7 +157,7 @@ public sealed class GdprSettingsValidatorTests
     [InlineData("26.00:00:00.0000001", "1.00:00:00")]
     [InlineData("27.00:00:00", "1.00:00:00")]
     [InlineData("27.00:00:00", "00:01:00")]
-    // The old 30-day limit let this through, so a request made on 1 February could be erased on 3 March (#971).
+    // With these, a request made on 1 February could be erased on 3 March (#971).
     [InlineData("29.00:00:00", "1.00:00:00")]
     // The erasure could land on day 31 with these two (#946).
     [InlineData("30.00:00:00", "1.00:00:00")]

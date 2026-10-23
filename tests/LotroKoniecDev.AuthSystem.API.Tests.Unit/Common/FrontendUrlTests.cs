@@ -4,9 +4,8 @@ using LotroKoniecDev.AuthSystem.API.Settings;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Common;
 
 /// <summary>
-/// The auth pages link and redirect to the frontend using the web client's app root as their only source
-/// of an origin. That is what stops a browser from landing on the auth host, whose root serves the API
-/// discovery JSON, or on a nonsense target when the client is not configured.
+/// The web client's app root is the auth pages' only source of a frontend origin, so a browser never lands
+/// on this host's discovery JSON or on a nonsense target.
 /// </summary>
 public sealed class FrontendUrlTests
 {

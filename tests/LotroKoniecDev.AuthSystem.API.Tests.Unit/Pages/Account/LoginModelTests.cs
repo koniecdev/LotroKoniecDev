@@ -18,9 +18,8 @@ using NSubstitute;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Pages.Account;
 
 /// <summary>
-/// The login page puts <c>returnUrl</c> into a hidden field and also uses it as the redirect target
-/// after sign-in, so the value has to be checked on the way in and a raw query value must never reach
-/// the property. This pins the same wiring the register page already had.
+/// <c>returnUrl</c> goes into a hidden field and becomes the redirect target after sign-in, so it is checked
+/// on the way in. The class also pins the time floor (ADR-0059) and the answers for a scheduled deletion.
 /// </summary>
 public sealed class LoginModelTests : IDisposable
 {
@@ -64,9 +63,8 @@ public sealed class LoginModelTests : IDisposable
     public async Task OnPostAsync_KeepsOnlyALocalReturnUrl_EvenWhenTheCredentialsAreRejected(
         string returnUrl, string? expected)
     {
-        // With empty credentials the page returns before it touches the store, so we can see the
-        // re-rendered page without creating a user, and that page puts ReturnUrl back into the form
-        // action.
+        // Empty credentials return before the store is touched, so the re-rendered page needs no user,
+        // and that page puts ReturnUrl back into the form action.
         LoginModel sut = CreateSut();
 
         await sut.OnPostAsync(returnUrl);
@@ -74,9 +72,6 @@ public sealed class LoginModelTests : IDisposable
         sut.ReturnUrl.ShouldBe(expected);
     }
 
-    /// <summary>
-    /// ADR-0059: an answer that shows the general message leaves no sooner than the floor.
-    /// </summary>
     [Fact]
     public async Task OnPostAsync_ShouldNotAnswerBeforeTheFloor_WhenTheAddressHasNoAccount()
     {
@@ -98,8 +93,7 @@ public sealed class LoginModelTests : IDisposable
     }
 
     /// <summary>
-    /// Only an account whose password was verified skips the floor. The unconfirmed answer needs the
-    /// password (ADR-0046), so it leaves at once, without the clock moving.
+    /// Only a verified password skips the floor; the unconfirmed answer needs the password (ADR-0046).
     /// </summary>
     [Fact]
     public async Task OnPostAsync_ShouldAnswerWithoutWaiting_WhenThePasswordIsVerified()
@@ -129,9 +123,8 @@ public sealed class LoginModelTests : IDisposable
     }
 
     /// <summary>
-    /// #881: the lockout never slows guessing on an account with a scheduled deletion, so its own budget
-    /// does. Once the budget is spent even the right password gets the general message after the floor, so
-    /// the answer says nothing about the password.
+    /// #881: the lockout never slows guessing on a scheduled deletion, so its own budget does. Once it is
+    /// spent, even the right password gets the general message after the floor.
     /// </summary>
     [Fact]
     public async Task OnPostAsync_ShouldShowTheGeneralMessageAfterTheFloor_WhenTheDeletionScheduledLoginBudgetIsSpent()
@@ -171,8 +164,8 @@ public sealed class LoginModelTests : IDisposable
     }
 
     /// <summary>
-    /// #916: the account can wait up to a day for the daily run after its date (ADR-0031, #780). By then
-    /// the cancel link is dead, so the page names neither the date that has passed nor the link.
+    /// #916: after its date the account can wait up to a day for the daily run (ADR-0031). The cancel
+    /// link is dead by then, so the page names neither the past date nor the link.
     /// </summary>
     [Theory]
     [InlineData(0)]
@@ -211,10 +204,9 @@ public sealed class LoginModelTests : IDisposable
     }
 
     /// <summary>
-    /// The deletion date decides, not the end of the cancel window. With a grace period shorter than
-    /// the undo window, an e-mail change made just before the deletion holds the date back past the end
-    /// of the cancel window (#685). The page then still names the date and the dead cancel link. The
-    /// owner chose no undo hint, because the shipped 14-day settings never reach this state (#916).
+    /// The deletion date decides, not the cancel window: with a grace period shorter than the undo window, a
+    /// late e-mail change holds the date past the window (#685). There is no undo hint, because the shipped
+    /// 14-day settings never get here (#916).
     /// </summary>
     [Fact]
     public async Task OnPostAsync_ShouldNameTheDeletionDate_WhileAnUndoHoldsItPastTheCancelWindow()
@@ -272,10 +264,8 @@ public sealed class LoginModelTests : IDisposable
     }
 
     /// <summary>
-    /// The sign-in falls back to this URL when it has nowhere else to continue, so it has to point at the
-    /// frontend's own login route. This host's root serves the API discovery JSON, which is a dead end
-    /// for a browser coming from the reset-password or confirm-email pages.
-    /// How the URL is built is pinned by <c>FrontendUrlTests</c>.
+    /// This host's root serves the discovery JSON, a dead end for a browser, so the fallback is the frontend's
+    /// login route. <c>FrontendUrlTests</c> pins how it is built.
     /// </summary>
     [Fact]
     public void FrontendLoginUrl_PointsAtTheFrontendLoginRoute()

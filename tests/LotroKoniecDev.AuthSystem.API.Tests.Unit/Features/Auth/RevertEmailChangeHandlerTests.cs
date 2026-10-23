@@ -13,8 +13,8 @@ using Shouldly;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Features.Auth;
 
 /// <summary>
-/// The revert handler decides whether a stolen account can be taken back, so every refusal it makes is
-/// pinned here. It is the one leg of the flow with no database dependency, which keeps these pure.
+/// Every refusal of the revert handler is pinned here, because it decides whether a stolen account can be
+/// taken back.
 /// </summary>
 public sealed class RevertEmailChangeHandlerTests
 {
@@ -77,8 +77,7 @@ public sealed class RevertEmailChangeHandlerTests
     [Fact]
     public async Task Handle_NothingArmed_RefusesEvenWithAValidToken()
     {
-        // A revert may only put the account where an earlier change armed it. With nothing armed there
-        // is no target, and a token alone must not be able to invent one.
+        // A revert may only go where an earlier change armed it; a token alone must not invent a target.
         ApplicationUser user = CreateUser();
         user.EmailChangeRevertTo = null;
         StubUser(user, tokenValid: true);
@@ -168,9 +167,8 @@ public sealed class RevertEmailChangeHandlerTests
     [Fact]
     public async Task Handle_TheSameLinkLandedJustBeforeTheAddressCheck_SendsThisSubmitToThePasswordResetToo()
     {
-        // A double click: the first submit lands after this one loaded the account, so the address
-        // lookup finds this very account. The undo is done, and this visitor needs the reset as much as
-        // the first one did (#869).
+        // A double click: the first submit lands after this one loaded the account. The undo is done, and
+        // this visitor needs the reset too (#869).
         ApplicationUser user = CreateUser();
         StubUser(user, tokenValid: true);
         _userManager.FindByEmailAsync(PreviousEmail).Returns(user);
@@ -230,9 +228,8 @@ public sealed class RevertEmailChangeHandlerTests
         user.PasswordHash.ShouldBeNull();
         user.SecurityStamp.ShouldNotBe(stampBefore);
 
-        // Retires every link issued so far and disarms the chain, so the next change starts a fresh
-        // one from here. All three revert fields go together: a leftover reservation would keep the
-        // address blocked for an undo that no longer exists (#684).
+        // Retires every link so far and disarms the chain. All three revert fields go together, or a
+        // leftover reservation would keep the address blocked (#684).
         user.EmailChangeRevertStamp.ShouldNotBeNull();
         user.EmailChangeRevertTo.ShouldBeNull();
         user.NormalizedEmailChangeRevertTo.ShouldBeNull();
@@ -341,9 +338,8 @@ public sealed class RevertEmailChangeHandlerTests
     [Fact]
     public async Task Handle_AccountHasADeletionScheduled_CancelsItInsteadOfLeavingTheAccountToBeErased()
     {
-        // Rotating the security stamp kills the ADR-0031 cancel token, and that link went to the
-        // address the account was moved to. Refusing here, or reverting without cancelling, would hand
-        // the erasure to whoever took the account over.
+        // Rotating the stamp kills the ADR-0031 cancel link, which went to the taken-over address, so a
+        // revert without the cancel would hand the erasure to the attacker.
         ApplicationUser user = CreateUser();
         user.DeletionScheduledAt = new DateTimeOffset(2026, 8, 20, 12, 0, 0, TimeSpan.Zero);
         user.LockoutEnd = new DateTimeOffset(2026, 9, 3, 12, 0, 0, TimeSpan.Zero);
@@ -422,8 +418,8 @@ public sealed class RevertEmailChangeHandlerTests
         };
 
     /// <summary>
-    /// The handler only ever calls <c>ChangeTracker.Clear()</c> on this, which needs no connection, so
-    /// the suite stays pure: nothing here opens a socket or a file.
+    /// The handler and its outbox writer only track rows here and clear the change tracker, which needs
+    /// no connection, so the suite stays pure: nothing here opens a socket or a file.
     /// </summary>
     private static AuthDbContext CreateDetachedDbContext() =>
         new(new DbContextOptionsBuilder<AuthDbContext>()

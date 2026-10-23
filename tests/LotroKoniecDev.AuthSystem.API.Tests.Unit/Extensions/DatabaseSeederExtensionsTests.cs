@@ -89,8 +89,8 @@ public sealed class DatabaseSeederExtensionsTests
     }
 
     /// <summary>
-    /// Compose turns an unset AUTH_ADMIN_USERNAME into an empty string. Passing that on to Identity
-    /// crashed every startup of a box that set only the admin e-mail.
+    /// Compose turns an unset AUTH_ADMIN_USERNAME into an empty string. Passed on to Identity, it would
+    /// crash every startup of a box that set only the admin e-mail.
     /// </summary>
     [Theory]
     [InlineData(null)]

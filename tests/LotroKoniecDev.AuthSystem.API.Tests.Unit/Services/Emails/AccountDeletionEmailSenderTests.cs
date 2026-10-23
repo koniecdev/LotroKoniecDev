@@ -12,8 +12,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.Emails;
 
 /// <summary>
 /// The notice #685 sends to the address an armed undo would restore. Every integration test swaps this
-/// sender for a spy, so without these the two addresses it juggles are pinned by nothing but a comment
-/// — and getting them the wrong way round produces a link that silently resolves to no account.
+/// sender for a spy, so only these tests pin which of the two addresses goes where. The wrong way round
+/// gives a link that silently finds no account.
 /// </summary>
 public sealed class AccountDeletionEmailSenderTests
 {
@@ -29,9 +29,9 @@ public sealed class AccountDeletionEmailSenderTests
     [Fact]
     public async Task SendDeletionScheduledNoticeToPreviousAddress_BuildsTheLinkFromTheCurrentAddress()
     {
-        // CancelAccountDeletion finds the account with FindByEmailAsync on the address in the link, so
-        // the link has to name where the account sits now — not the mailbox reading the message. Build
-        // it from the recipient instead and the link resolves to nothing, which no Result would show.
+        // CancelAccountDeletion finds the account by the address in the link (FindByEmailAsync), so the
+        // link must name where the account sits now, not the mailbox reading the message. A link built
+        // from the recipient finds nothing, and no Result would show it.
         _linkFactory.Create(Arg.Any<string>(), Arg.Any<string>()).Returns("https://auth.test/cancel");
         _emailService.SendAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<EmailBody>(), Arg.Any<CancellationToken>())
@@ -49,8 +49,8 @@ public sealed class AccountDeletionEmailSenderTests
     [Fact]
     public async Task SendDeletionScheduledNoticeToPreviousAddress_SendsToThePreviousAddress()
     {
-        // The mirror of the test above: the recipient is the armed address, and the whole point of the
-        // message is that it does NOT go where the ordinary notice goes.
+        // The mirror of the test above: the recipient is the armed address, and the point of the message
+        // is that it does not go where the ordinary notice goes.
         _linkFactory.Create(Arg.Any<string>(), Arg.Any<string>()).Returns("https://auth.test/cancel");
         _emailService.SendAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<EmailBody>(), Arg.Any<CancellationToken>())
@@ -125,9 +125,9 @@ public sealed class AccountDeletionEmailSenderTests
     [Fact]
     public async Task SendDeletionScheduledEmail_NamesTheMinuteInPolandTimeWhereverItPrintsTheDate()
     {
-        // The inbox list shows the preheader with nothing around it, so the date there needs the zone
-        // as much as the one in the body (#812). The instant is still the 18th in UTC. In Poland it is
-        // half an hour into the 19th, so the day alone would promise a whole day that is not there (#890).
+        // The inbox list shows the preheader alone, so its date needs the zone too (#812). The instant is the
+        // 18th in UTC but half an hour into the 19th in Poland, so the day alone would promise a day that is
+        // not there (#890).
         _linkFactory.Create(Arg.Any<string>(), Arg.Any<string>()).Returns("https://auth.test/cancel");
         EmailBody? captured = null;
         _emailService.SendAsync(

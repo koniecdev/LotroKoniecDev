@@ -4,8 +4,7 @@ using LotroKoniecDev.AuthSystem.Persistence.Settings;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 
 /// <summary>
-/// The AuthSystem connection-string startup guard (M6-05). The connection string is required in every
-/// environment, so the rule is unconditional.
+/// The connection string is required in every environment, so the rule has no environment exception.
 /// </summary>
 public sealed class ConnectionStringSettingsValidatorTests
 {

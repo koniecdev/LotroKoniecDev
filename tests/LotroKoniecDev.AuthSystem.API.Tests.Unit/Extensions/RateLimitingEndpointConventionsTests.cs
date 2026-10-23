@@ -7,9 +7,8 @@ using LotroKoniecDev.AuthSystem.API.Extensions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Extensions;
 
 /// <summary>
-/// The convention behind the Razor group's default limit: add the default where nothing was said, keep
-/// its hands off a page that decided for itself. The ordering trap that makes the second half necessary
-/// is explained on <see cref="RateLimitingEndpointConventions"/>.
+/// The group convention adds the default limit where nothing was said and leaves a page's own choice alone.
+/// <see cref="RateLimitingEndpointConventions"/> explains the ordering trap behind the second half.
 /// </summary>
 public sealed class RateLimitingEndpointConventionsTests
 {
@@ -40,7 +39,7 @@ public sealed class RateLimitingEndpointConventionsTests
         // Act
         RateLimitingEndpointConventions.ApplyDefaultPolicy(endpointBuilder, DefaultPolicy);
 
-        // Assert: one policy, still the page's own — a second one would be the last match and would win
+        // Assert: one policy, still the page's own. A second one would be the last match and would win
         endpointBuilder.Metadata.OfType<EnableRateLimitingAttribute>()
             .Select(attribute => attribute.PolicyName)
             .ShouldBe(["resend-confirmation-limit"]);

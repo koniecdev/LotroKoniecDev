@@ -3,8 +3,7 @@ using Microsoft.Extensions.Logging;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 
 /// <summary>
-/// Captures what the code under test logged. It is used where the log line is the behaviour: an audit
-/// trail is invisible in the return value, so a null logger would let a deleted line pass unnoticed.
+/// For tests where the log line is the behaviour: an audit trail is invisible in the return value.
 /// Hand-written, because NSubstitute cannot proxy an <c>ILogger</c> of an internal type.
 /// </summary>
 internal sealed class CapturingLogger<T> : ILogger<T>

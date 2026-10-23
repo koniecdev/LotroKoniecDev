@@ -5,9 +5,6 @@ using NSubstitute;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 
-/// <summary>
-/// The AuthSystem CORS startup guard (M6-03).
-/// </summary>
 public sealed class CorsSettingsValidatorTests
 {
     private const string Production = "Production";
@@ -68,8 +65,8 @@ public sealed class CorsSettingsValidatorTests
     public void Validate_ProductionWithMalformedOrigin_FailsNamingTheEntry(string? origin)
     {
         CorsSettingsValidator validator = CreateValidator(Production);
-        // origin! is deliberate: configuration binding can put a null element into the array, and the
-        // validator has to reject it, so the test passes one.
+        // origin!: configuration binding can put a null element into the array, and the validator has to
+        // reject it, so the test passes one.
         CorsSettings settings = new() { AllowedOrigins = [origin!] };
 
         ValidateOptionsResult result = validator.Validate(name: null, settings);

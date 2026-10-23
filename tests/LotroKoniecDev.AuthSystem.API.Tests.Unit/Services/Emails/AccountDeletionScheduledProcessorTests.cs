@@ -46,9 +46,8 @@ public sealed class AccountDeletionScheduledProcessorTests
     [Fact]
     public async Task ProcessAsync_ScheduleWasCancelledInTheGap_SucceedsWithoutSending()
     {
-        // The check from ADR-0038 decision 2: if a cancellation arrives at the same time, it wins. An
-        // out-of-date "your account will be deleted" must never go out, and sending the message again
-        // would not change that.
+        // ADR-0038 decision 2: a cancellation that arrives at the same time wins, so an out-of-date "your
+        // account will be deleted" never goes out.
         ApplicationUser user = CreateUser();
         user.DeletionScheduledAt = null;
         _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
@@ -64,9 +63,8 @@ public sealed class AccountDeletionScheduledProcessorTests
     [Fact]
     public async Task ProcessAsync_GraceWindowAlreadyOver_SucceedsWithoutSending()
     {
-        // A DLQ replay long after the fact: erasure keeps DeletionScheduledAt as its audit trace,
-        // so the schedule-gone guard alone would let this mint a cancel token for an anonymized
-        // account. Once the window is over the e-mail is a lie either way.
+        // A late DLQ replay: erasure keeps DeletionScheduledAt as its audit trace, so without this check the
+        // processor would mint a cancel token for an anonymized account.
         ApplicationUser user = CreateUser();
         user.DeletionScheduledAt = Now - Gdpr.DeletionGracePeriod - TimeSpan.FromDays(1);
         _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
@@ -148,10 +146,9 @@ public sealed class AccountDeletionScheduledProcessorTests
     [Fact]
     public async Task ProcessAsync_AnUndoIsArmedAndStillLive_AlsoSendsTheSameLinkToTheAddressItWouldRestore()
     {
-        // The whole of #685. After an e-mail change the current address may belong to whoever took the
-        // account, so a cancel link only they can read protects nobody. The link is the same one — it
-        // has to carry the current address, because that is what CancelAccountDeletion finds the
-        // account with.
+        // #685: after an e-mail change the current address may belong to whoever took the account, so a
+        // cancel link only they can read protects nobody. The link is the same one: it carries the current
+        // address, because CancelAccountDeletion finds the account by it.
         ApplicationUser user = CreateUser();
         user.DeletionScheduledAt = Now - TimeSpan.FromDays(13);
         user.EmailChangeRevertTo = "bilbo@shire.me";
@@ -223,9 +220,8 @@ public sealed class AccountDeletionScheduledProcessorTests
     [Fact]
     public async Task ProcessAsync_TheNoticeToTheArmedAddressFails_StillServesTheCurrentAddressAndAsksForARetry()
     {
-        // The armed address is only ordered first, never allowed to cancel the other send. An old
-        // mailbox abandoned since the address changed would otherwise burn every delivery attempt and
-        // leave the account holder without the link ADR-0031 calls the only recovery path.
+        // The armed address only goes first; it never cancels the other send. An abandoned old mailbox would
+        // otherwise burn every attempt and leave the owner without the link ADR-0031 calls the only way back.
         ApplicationUser user = CreateUser();
         user.DeletionScheduledAt = Now - TimeSpan.FromHours(1);
         user.EmailChangeRevertTo = "bilbo@shire.me";

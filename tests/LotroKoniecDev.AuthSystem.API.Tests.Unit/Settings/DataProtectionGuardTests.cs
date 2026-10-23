@@ -5,9 +5,6 @@ using NSubstitute;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 
-/// <summary>
-/// The AuthSystem Data Protection keyring startup guard (M6-04).
-/// </summary>
 public sealed class DataProtectionGuardTests
 {
     private const string Production = "Production";

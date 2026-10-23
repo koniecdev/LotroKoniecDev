@@ -11,9 +11,8 @@ using LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.Sessions;
 
 /// <summary>
-/// The revoker runs after a committed save or at sign-out, so it never throws and never listens to the
-/// request. Each step has its own time limit, which is the only thing that may stop it early, and a step
-/// that fails or runs out of time never skips the other one (#872).
+/// The revoker runs after a committed save or at sign-out, so it never throws and ignores the request. Only
+/// each step's own time limit may stop it early, and a failed or timed-out step never skips the other (#872).
 /// </summary>
 public sealed class UserSessionRevokerTests
 {

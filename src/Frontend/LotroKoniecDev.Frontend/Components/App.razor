@@ -7,9 +7,8 @@
     <base href="/"/>
     <link rel="stylesheet" href="@Assets["fonts.css"]"/>
     <link rel="stylesheet" href="@Assets["layout.css"]"/>
-    @* The Blazor import-map component is deliberately absent (#670): it emits an inline script,
-       which our script-src 'self' policy blocks. Nothing here needs it, because a Static SSR app
-       never resolves a module specifier. Bring it back only together with a CSP nonce. *@
+    @* No import-map component (#670): it emits an inline script, which our CSP blocks, and a Static SSR
+       app never resolves a module specifier. Bring it back only with a CSP nonce. *@
     <link rel="icon" href="data:,"/>
     <HeadOutlet/>
 </head>

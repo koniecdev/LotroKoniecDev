@@ -24,9 +24,8 @@
                 zmianie adresu e-mail i usunięciu konta — prosimy o podanie obecnego hasła.
             </p>
 
-            @* A refused attempt shows the sentence and a way back, never the form. A successful download
-               answers with a file, so the browser stays on the page it posted from — a form next to this
-               banner would hand the file over under "wrong password" (#690). *@
+            @* A refused attempt shows no form: a download answers with a file, so the browser stays on this
+               page, and a form next to this banner would hand the file over under "wrong password" (#690). *@
             @if (ErrorMessage is not null)
             {
                 <div class="error-message" role="alert" data-testid="export-error">
@@ -47,8 +46,8 @@
             }
             else
             {
-                @* A plain form, not an SSR form handler: the response is a file, and a Razor component
-                   can only render markup. The POST route checks the password and returns the attachment. *@
+                @* A plain form, not an SSR form handler: the response is a file, and a component can only
+                   render markup. *@
                 <form method="post" action="@AccountEndpointsExtensions.ExportDownloadPath"
                       class="stacked-form" data-testid="export-form">
                     <AntiforgeryToken/>
@@ -74,9 +73,9 @@
     private string? Error { get; set; }
 
     /// <summary>
-    /// The Polish sentence for a refused download. The download route redirects here with a short code
-    /// instead of a problem body, because a redirect carries no body — so the copy lives here, which is
-    /// where the Frontend's Polish belongs anyway (ADR-0044).
+    /// The download route redirects here with a short code, because a redirect carries no problem body.
+    /// <c>ApiProblemCopy</c> carries the "required" and "password-throttled" sentences too; change both
+    /// together.
     /// </summary>
     private string? ErrorMessage => Error switch
     {

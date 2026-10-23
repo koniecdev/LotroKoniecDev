@@ -46,9 +46,8 @@
     }
 
     /// <summary>
-    /// The <c>until</c> query value comes from the <c>X-Deletion-Finalizes-At</c> response header
-    /// ("O"-format ISO-8601), but the URL is user-visible and tamperable, so the date is parsed
-    /// defensively and the copy falls back to the generic 14-day phrasing when it does not parse.
+    /// <paramref name="until"/> comes from the <c>X-Deletion-Finalizes-At</c> header, but the URL can be
+    /// edited, so a value that does not parse falls back to the generic 14-day sentence.
     /// </summary>
     internal static string BuildDeletionDateLine(string? until)
     {

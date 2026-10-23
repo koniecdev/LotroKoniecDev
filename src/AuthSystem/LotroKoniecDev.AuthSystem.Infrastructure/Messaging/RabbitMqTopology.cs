@@ -1,93 +1,67 @@
 namespace LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 
 /// <summary>
-/// The one place the broker topology is defined. The publisher sends to <see cref="EmailsExchange"/>
-/// with one of the routing keys below, and the consumer declares <see cref="EmailQueue"/> bound to
-/// the same exchange with <see cref="EmailBindingPattern"/>. Both sides use these constants, so a typo
-/// can no longer put a routing key and a binding out of step.
+/// The one place the broker topology is defined. The publisher and the consumer both use these
+/// constants, so a routing key and a binding cannot drift apart.
 /// </summary>
 public static class RabbitMqTopology
 {
     /// <summary>
-    /// The topic exchange every outgoing e-mail goes through. It is a topic and not a direct exchange
-    /// even though one queue consumes it today, so a second consumer, for metrics, a digest or another
-    /// transport, can bind its own subset of the keys later without touching the publisher.
+    /// A topic exchange, not a direct one, so a second consumer can later bind its own subset of the
+    /// keys without touching the publisher.
     /// </summary>
     public const string EmailsExchange = "lotro.emails";
 
-    /// <summary>
-    /// The queue the e-mail sender consumes.
-    /// </summary>
     public const string EmailQueue = "emails.send";
 
     /// <summary>
-    /// The binding pattern for <see cref="EmailQueue"/>. It uses <c>#</c>, which matches any number of
-    /// words, and not <c>*</c>, which matches exactly one. So a key that gains a segment, such as
-    /// <c>email.password-reset.retry</c>, still routes without a binding change.
+    /// <c>#</c> matches any number of words and <c>*</c> exactly one, so a key that gains a segment,
+    /// such as <c>email.password-reset.retry</c>, still routes without a binding change.
     /// </summary>
     public const string EmailBindingPattern = "email.#";
 
-    /// <summary>
-    /// Routing key of the account confirmation e-mail.
-    /// </summary>
     public const string EmailConfirmationRoutingKey = "email.confirmation";
 
     /// <summary>
-    /// Routing key of the notice to an account's owner that someone tried to register with its address.
+    /// The notice to an account's owner that someone tried to register with its address.
     /// </summary>
     public const string RegistrationAttemptedRoutingKey = "email.registration-attempted";
 
-    /// <summary>
-    /// Routing key of the password reset e-mail.
-    /// </summary>
     public const string PasswordResetRoutingKey = "email.password-reset";
 
-    /// <summary>
-    /// Routing key of the deletion-scheduled e-mail (the cancel link).
-    /// </summary>
     public const string DeletionScheduledRoutingKey = "email.deletion-scheduled";
 
-    /// <summary>
-    /// Routing key of the deletion-cancelled courtesy e-mail.
-    /// </summary>
     public const string DeletionCancelledRoutingKey = "email.deletion-cancelled";
 
     /// <summary>
-    /// Routing key of the e-mail change request: the verification link for the new address and the
-    /// warning for the old one.
+    /// Carries both the verification link for the new address and the warning for the old one.
     /// </summary>
     public const string EmailChangeRequestedRoutingKey = "email.change-requested";
 
     /// <summary>
-    /// Routing key of the e-mail change notice, which also carries the revert link to the old address.
+    /// The change notice, which also carries the revert link to the old address.
     /// </summary>
     public const string EmailChangeCompletedRoutingKey = "email.change-completed";
 
     /// <summary>
-    /// The dead-letter exchange. The broker sends here every message <see cref="EmailQueue"/> gives up
-    /// on, either because the consumer rejected it or because it passed
-    /// <see cref="EmailDeliveryLimit"/>. It is a fanout, because everything that fails goes to the same
-    /// place and there is no routing to decide. The original routing key stays on the message, so it
-    /// can be replayed later.
+    /// Receives every message <see cref="EmailQueue"/> rejects or that passes
+    /// <see cref="EmailDeliveryLimit"/>. A fanout, because all failures go to one place. The original
+    /// routing key stays on the message, so it can be replayed.
     /// </summary>
     public const string EmailsDeadLetterExchange = "lotro.emails.dlx";
 
     /// <summary>
-    /// The queue bound to <see cref="EmailsDeadLetterExchange"/> where failed messages wait. Nothing
-    /// consumes it: a person looks at them in the management UI and replays them to
-    /// <see cref="EmailsExchange"/> under their original routing key. A message expires 7 days after it
-    /// parks, because an e-mail change message holds two addresses that an account erasure cannot reach.
-    /// That limit is a broker policy set by <c>scripts/hetzner/deploy.sh</c>, whose pattern matches this
-    /// name, so renaming the queue means changing the policy too (ADR-0036 §6).
+    /// Nothing consumes it: a person replays parked messages from the management UI. A message expires
+    /// 7 days after it parks, because an e-mail change message holds two addresses an account erasure
+    /// cannot reach. That expiry is a broker policy in <c>scripts/hetzner/deploy.sh</c> whose pattern
+    /// matches this name, so renaming the queue means changing the policy too (ADR-0036 §6).
     /// </summary>
     public const string EmailDeadLetterQueue = "emails.send.dlq";
 
     /// <summary>
-    /// How often the broker delivers a message of <see cref="EmailQueue"/> again before it gives up
-    /// (<c>x-delivery-limit</c>): one first delivery plus this many retries, then the dead-letter
-    /// queue. The broker enforces it, so the limit holds across consumer restarts, and a crash and
-    /// requeue counts like any other retry. Change it together with the consumer's backoff ladder,
-    /// which has one entry per allowed retry.
+    /// The broker's <c>x-delivery-limit</c>: one first delivery plus this many retries, then the
+    /// dead-letter queue. The broker counts, so the limit holds across consumer restarts. Change it
+    /// together with the consumer's backoff ladder, which has one entry per retry.
     /// </summary>
     public const int EmailDeliveryLimit = 5;
 }

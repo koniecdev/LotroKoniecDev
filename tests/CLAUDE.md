@@ -1,5 +1,8 @@
 # Tests
 
+The testing rules every session must follow live in the root `CLAUDE.md` → "Testing philosophy".
+This file holds the details per suite.
+
 ## Run Tests
 
 ```bash
@@ -18,30 +21,30 @@ Full project inventory (15 projects):
 |---|---|---|
 | `LotroKoniecDev.Tests.Unit` | patcher unit | nothing (pure) |
 | `LotroKoniecDev.Architecture.Tests.Unit` | repo-wide structural rules over assembly IL (NetArchTest.Rules) | nothing (pure) |
-| `LotroKoniecDev.SharedKernel.Tests.Unit` | SharedKernel unit (monads, BuildingBlocks, Ensure, strongly-typed IDs) | nothing (pure); Stryker target |
+| `LotroKoniecDev.SharedKernel.Tests.Unit` | SharedKernel unit (monads, building blocks, `Ensure`, strongly typed IDs) | nothing (pure); Stryker target |
 | `LotroKoniecDev.Logging.Tests.Unit` | `Utilities/Logging` redaction unit | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` | TMS domain unit | nothing (pure); Stryker target |
-| `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handler/auth/endpoint unit (fake read-DbContext, stub accessor/provisioner), and the account event consumer's pauses on a fake clock (#1223) | nothing (pure) |
-| `LotroKoniecDev.Frontend.Tests.Unit` | Blazor SSR component + infrastructure unit (bUnit-style) | nothing (pure) |
-| `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api unit: startup settings checks, handlers, middleware, pages, services, outbox and inbox, seed retry policy, and when the timed jobs run (#948) | nothing (pure) |
+| `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handlers, auth and endpoints (fake read DbContext, stub accessor and provisioner), and the account event consumer's pauses on a fake clock (#1223) | nothing (pure) |
+| `LotroKoniecDev.Frontend.Tests.Unit` | Blazor SSR components and infrastructure (bUnit) | nothing (pure) |
+| `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api: startup settings checks, handlers, middleware, pages, services, outbox and inbox, seed retry policy, when the timed jobs run (#948) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
 | `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |
-| `LotroKoniecDev.Frontend.Tests.Integration` | in-process Frontend host in Production, as every box runs it (`WebApplicationFactory`, #1187): startup checks such as the caller keys (#915), and the real OIDC sign-in against a stand-in token endpoint: the token answer it accepts (#1026) and the refresh time it stores (#1025); and a signed-in session's pages while the sign-in server is down right after a restart, plus the 401 that ends a session (#1058); and a visitor sent to sign in, or coming back from it, while the sign-in server is down, who must end on the login-unavailable page (#1153); and every page's form post while the page's data fails to load (#1122). Its csproj repeats one Frontend runtime switch (#1122) | nothing (no Docker); a temp keyring folder |
+| `LotroKoniecDev.Frontend.Tests.Integration` | in-process Frontend host in Production, as every box runs it (`WebApplicationFactory`, #1187): startup checks such as the caller keys (#915); the real OIDC sign-in against a stand-in token endpoint (the token answer it accepts, #1026, and the refresh time it stores, #1025); pages and sign-in while the sign-in server is down (#1058, #1153); every page's form post while its data fails to load (#1122, which is why its csproj repeats one Frontend runtime switch) | nothing (no Docker); a temp keyring folder |
 | `LotroKoniecDev.TranslationSystem.E2E.Tests` | real-process TMS stack over HTTP | Docker (3 images) |
 | `LotroKoniecDev.Frontend.E2E.Tests` | Playwright browser stack | Docker (4 images + browser) |
 | `LotroKoniecDev.Tests.Infrastructure` | patcher real-infrastructure adapters | Windows + the x86 .NET runtime (elsewhere not run) |
 | `LotroKoniecDev.Tests.E2E` | patcher CLI full pipeline | Windows (elsewhere not run) + real DAT (else skipped) |
 
-> **Heads-up on bare `dotnet test`:** the TMS real-process E2E suite runs whenever the whole solution is
-> tested and **requires a running Docker daemon** (it builds the auth/tms/migrator images and boots the
-> stack). It is off the PR/CI gate by name (below); target a specific project when you don't have Docker.
+> **Bare `dotnet test` needs Docker.** Both `*.E2E.Tests` suites run whenever the whole solution
+> is tested, and each builds its images and boots its stack. They are off the PR/CI gate by name
+> (below); target a specific project when you have no Docker.
 
 ## Mutation Testing (Stryker.NET)
 
-Mutation testing runs on the two purest, highest-value layers — `TranslationSystem.Domain` and
-`SharedKernel` — as a **PR gate** (`.github/workflows/mutation-test.yml`: path-filtered +
-`workflow_dispatch`, matrix over both targets). The tool is pinned in `.config/dotnet-tools.json`;
-each target carries its own `stryker-config.json`.
+Mutation testing runs on the two purest, highest-value layers, `TranslationSystem.Domain` and
+`SharedKernel`, as a **PR gate** (`.github/workflows/mutation-test.yml`: path-filtered +
+`workflow_dispatch`, one matrix leg per target). The tool is pinned in `.config/dotnet-tools.json`;
+each target has its own `stryker-config.json`.
 
 ```bash
 dotnet tool restore                                            # once — restores dotnet-stryker (pinned)
@@ -51,346 +54,294 @@ dotnet tool restore                                            # once — restor
 ( cd tests/LotroKoniecDev.SharedKernel.Tests.Unit            && dotnet stryker )
 ```
 
-Thresholds are high 80 / low 70 / **break 67** — `break` fails the run (and the CI leg) when the
-mutation score drops below it. `break: 67` is a calibrated starting point, not dogma; adjust it in the
-per-project `stryker-config.json` after reviewing the baseline report.
+Thresholds are high 80 / low 70 / **break 67**: `break` fails the run (and the CI leg) when the
+mutation score drops below it. It is a calibrated starting point; adjust it in the per-project
+`stryker-config.json` after reading the baseline report.
 
 ## Framework & Libraries
 
-- **xUnit** — test framework (`Fact`, `Theory`, `InlineData`)
-- **Shouldly** — `.ShouldBe()`, `.ShouldBeTrue()`, `.ShouldContain()`, …
-- **NSubstitute** — mocking: `Substitute.For<IInterface>()`
-- **NaughtyStrings** — the Big List of Naughty Strings, for hostile-input theories (see below)
-- **NetArchTest.Rules** — architecture tests (assembly IL only; `LotroKoniecDev.Architecture.Tests.Unit`)
-- **Verify.Xunit** — snapshot tests for API response contracts and rendered SSR markup (see below)
-- **Microsoft.Extensions.TimeProvider.Testing** — `FakeTimeProvider`, for code that waits on a
-  `TimeProvider` timer (`Task.Delay(…, timeProvider, …)`); a substitute cannot fire those timers.
-  Used by `AuthSystem.API.Tests.Unit` for the response-time floor (ADR-0059) and for when the
-  three timed jobs run (#948: `tests/Shared/TimerWatchingTimeProvider` says when a job has started its
-  timer and counts how often a timer went off), and by both API unit suites for the pauses of the
-  broker consumers (#1223: the e-mail consumer and the account event consumer, through the same
-  linked helper), and by
-  `AuthSystem.API.Tests.Integration` as OpenIddict's stopped clock, so the stored token dates can be
-  compared exactly (#1014), and by `Frontend.Tests.Unit` for the time limit of the sign-out's own
-  revoke (#964), and by both Frontend suites for the access token's refresh time (#1025)
-- **Xunit.SkippableFact** — E2E tests that need Windows + a real DAT
-- **coverlet.collector** — code coverage
+- **xUnit** (`Fact`, `Theory`, `InlineData`), **Shouldly** (`.ShouldBe()`, …) and **NSubstitute**
+  (`Substitute.For<IInterface>()`): the test framework, assertions and mocks in every suite.
+- **NaughtyStrings**: the Big List of Naughty Strings, for hostile-input theories (see below).
+- **NetArchTest.Rules**: architecture tests only (`LotroKoniecDev.Architecture.Tests.Unit`).
+- **Verify.Xunit**: snapshot tests for API response contracts and rendered SSR markup (see below).
+- **bUnit**: renders Blazor components in `Frontend.Tests.Unit`.
+- **Microsoft.AspNetCore.Mvc.Testing**: the in-memory hosts of the three integration suites.
+- **Testcontainers** (PostgreSQL, RabbitMQ) and **Microsoft.Playwright**: real databases, brokers
+  and the E2E stacks.
+- **Microsoft.Extensions.TimeProvider.Testing**: `FakeTimeProvider`, for code that waits on a
+  `TimeProvider` timer, which a substitute cannot fire. Used for the response-time floor (ADR-0059)
+  and the timed jobs (#948) in `AuthSystem.API.Tests.Unit`; for the broker consumers' pauses in both
+  API unit suites (#1223, through the linked `tests/Shared/TimerWatchingTimeProvider`); as
+  OpenIddict's stopped clock in `AuthSystem.API.Tests.Integration` (#1014); for the sign-out
+  revoke's time limit in `Frontend.Tests.Unit` (#964); and for the access token's refresh time in
+  both Frontend suites (#1025).
+- **Xunit.SkippableFact**: E2E tests that need Windows and a real DAT.
+- **coverlet.collector**: code coverage.
 - Versions: `Directory.Packages.props` is the single source of truth.
 
 ## Hostile-string theories (`tests/Shared/NaughtyStringCases.cs` — #569)
 
-String-heavy seams are hardened with the **Big List of Naughty Strings** (the `NaughtyStrings`
-package): emoji and other surrogate pairs, RTL/bidi controls, zero-width and combining marks,
-quote/escape/injection soup, non-ASCII digits. The theory sources live in **one file**,
-`tests/Shared/NaughtyStringCases.cs`, **linked** (`<Compile Include="..\Shared\…" Link="Shared\…" />`)
-into every pure unit suite that needs them — `Tests.Unit`, `TranslationSystem.API.Tests.Unit`,
-`TranslationSystem.Domain.Tests.Unit`. Add the link + the `NaughtyStrings` PackageReference to a new
-suite rather than copy-pasting lists; add a category source there rather than inlining one in a test.
+String-heavy seams are tested with the **Big List of Naughty Strings**: emoji and other surrogate
+pairs, RTL/bidi controls, zero-width and combining marks, quote/escape/injection soup, non-ASCII
+digits. The theory sources live in **one file**, `tests/Shared/NaughtyStringCases.cs`, **linked**
+(`<Compile Include="..\Shared\…" Link="Shared\…" />`) into each pure unit suite that needs them:
+`Tests.Unit`, `TranslationSystem.API.Tests.Unit`, `TranslationSystem.Domain.Tests.Unit`. A new
+suite adds the link and the `NaughtyStrings` package reference instead of copying lists, and a new
+category goes into that file instead of a test.
 
-Sources: `All` (everything), `UnicodeHazards` (UTF-16 length hazards), `DelimiterHazards` (collides
-with a delimited text format), `NonAsciiDigits` (id columns), `SubmittableText` / `BlankText` (what
-the API's `NotEmpty()` does and does not let through as translated text), `PipeRuns` (**not** from
-the corpus — every string over `{'a','|'}` up to six characters, 127 entries, so both `||` parsers
-are pinned exhaustively against the delimiter collision of #597 rather than at six sampled points),
-plus `AllValues` — the raw list, for a suite that must filter the corpus down to what its seam
-accepts **before** building a `TheoryData`, so its assertion stays unconditional instead of hiding
-in an `if`. Entries are de-duplicated: the upstream list repeats two, and a duplicate logs a
-"Skipping test case with duplicate ID" line on every run.
+Sources: `All`, `UnicodeHazards` (UTF-16 length hazards), `DelimiterHazards` (collides with a
+delimited text format), `NonAsciiDigits` (id columns), `SubmittableText` / `BlankText` (what the
+API's `NotEmpty()` lets through as translated text, and what it does not), `PipeRuns` (not from the
+corpus: every string over `{'a','|'}` up to six characters, 127 entries, so both `||` parsers are
+tested against the delimiter collision of #597 exhaustively), and `AllValues`, the raw list, for a
+suite that must filter the corpus to what its seam accepts **before** building a `TheoryData`, so
+its assertion stays unconditional. Entries are de-duplicated, because a duplicate logs "Skipping
+test case with duplicate ID" on every run.
 
-Both sides of the `||` contract carry hostile round-trip coverage:
-`TranslationFileParserNaughtyStringTests` + `FragmentNaughtyStringTests` (patcher — parser and the
-VarLen/UTF-16 binary writer), `TranslationFileNaughtyStringTests` + `ParserContractParityTests`
-(TMS — serializer, import parser and the cross-parser drift guard),
-`NaughtyStringValueObjectTests` (TMS domain — a VO factory answers with a `Result`, never an
+Both sides of the `||` contract have hostile round-trip coverage:
+`TranslationFileParserNaughtyStringTests` + `FragmentNaughtyStringTests` (patcher: the parser and
+the VarLen/UTF-16 binary writer), `TranslationFileNaughtyStringTests` + `ParserContractParityTests`
+(TMS: the serializer, the import parser and the cross-parser drift guard), and
+`NaughtyStringValueObjectTests` (TMS domain: a VO factory answers with a `Result`, never an
 exception).
 
-**The corpus does not reach every interesting case.** It carries no empty string, no real newline,
-no literal `\r`/`\n` escape sequence and no entry ending in an odd run of `|` — exactly the
-delimiter collisions this format is weakest at. Those are composed by hand as explicit
-`[InlineData]` theories next to the corpus-driven ones (and, for the pipe runs, by the generated
-`PipeRuns` source above); when you add a seam, check whether its hazard is actually present in the
-data before trusting a `MemberData` theory to cover it.
+**The corpus does not reach every interesting case.** It has no empty string, no real newline, no
+literal `\r`/`\n` escape and no entry ending in an odd run of `|`, which are the collisions this
+format is weakest at. Those are written by hand as `[InlineData]` theories next to the corpus ones
+(and, for pipe runs, generated by `PipeRuns`). When you add a seam, check that its hazard is in the
+data before you trust a `MemberData` theory to cover it.
 
-Several tests pin **known-lossy** behavior on purpose, say so in-place, and name the defect ticket
-they document. Do not "fix" such a test — fix the defect, then change the assertion deliberately.
-That is what #596, #597 and #598 did: the escape asymmetry (ADR-0039), the swallowed trailing pipe
-(ADR-0042) and the over-long piece (ADR-0043) are all gone, so their tests now assert exact round
-trips — and `Write_PieceLongerThanTheVarLenCeiling_ShouldThrow` stays, restated as the deliberate
-last resort behind `Fragment.IsWritablePiece` rather than a reachable crash. #1110 did the same
-for the reset page: an over-long password that is also in a breach now gets only the length message.
-**No known pin is open today.** The next pin to be added should name its ticket here.
+A test that pins **known-lossy** behaviour says so in place and names its defect ticket. Do not
+"fix" such a test: fix the defect, then change the assertion on purpose.
+`Write_PieceLongerThanTheVarLenCeiling_ShouldThrow` is not such a pin: it tests the last resort
+behind `Fragment.IsWritablePiece` (ADR-0043). **No known pin is open today.** The next one added
+should name its ticket here.
 
-The `||` rule now lives in **two duplicated-by-design types per context** — `TranslationLineEscaper`
-(the content escape) and `TranslationLineCarver` (the field boundaries) — each with its own twin
-unit suite, plus `BothEscapers_…` / `BothCarvers_…` in `ParserContractParityTests`. The contexts
-share the file, never code, so those parity tests are the only thing keeping the copies in step:
-**change one copy, change the other in the same commit.** The twin per-context suites would both
-stay green through a one-sided change; the parity suite would not. #597 is the cautionary tale for
-why parity alone is not enough — both parsers carved the line identically *wrongly*, so the drift
-guard saw nothing. Round-trip fidelity through each context's own writer is what caught it.
+The `||` rule lives in **two types per context, duplicated by design**: `TranslationLineEscaper`
+(the content escape) and `TranslationLineCarver` (the field boundaries). Each has its own unit
+suite in each context, plus `BothEscapers_…` / `BothCarvers_…` in `ParserContractParityTests`. The
+contexts share the file, never code, so the parity tests are the only thing keeping the copies in
+step: **change one copy, change the other in the same commit.** Parity alone is not enough either:
+in #597 both parsers carved a line the same wrong way, and only the round trip through each
+context's own writer caught it.
 
 ## Snapshot tests (Verify — #571)
 
-Snapshot testing is for **one specific shape of assertion**: the target is a large structured output
-that hand-written asserts only ever cover in part. Two seams qualify today, and the pilot lives in a
-`Snapshots/` folder in each:
+A snapshot is for a large structured output that hand-written asserts only ever cover in part. Two
+seams qualify today, each with a `Snapshots/` folder:
 
 | Suite | Snapshots | Pins |
 |---|---|---|
-| `TranslationSystem.API.Tests.Integration/Tests/Snapshots/` | `TranslationContractSnapshotTests` (HATEOAS list, public list, middle page, empty envelope, HATEOAS detail, plain-JSON list), `ProblemDetailsSnapshotTests` (400/404/422 + 401/403) | the whole response body — property names, nesting, JSON types, the complete link set |
+| `TranslationSystem.API.Tests.Integration/Tests/Snapshots/` | `TranslationContractSnapshotTests` (HATEOAS list, public list, middle page, empty envelope, HATEOAS detail, plain-JSON list), `DiscoveryContractSnapshotTests` (the service document, anonymous and as admin), `ProblemDetailsSnapshotTests` (400/404/422 + 401/403) | the whole response body: property names, nesting, JSON types, the complete link set |
 | `Frontend.Tests.Unit/Snapshots/` | `HomeMarkupSnapshotTests` (4 states incl. zero-catalog), `TermsMarkupSnapshotTests` | the whole rendered SSR markup of the page |
 
-Seed for the shape you are pinning, not for the shape that is easy: the API fixture seeds three rows
-so a **middle page** (the only place `previous-page` and `next-page` both appear) and the **empty
-envelope** are covered, and the Home counters are five-figure so the NBSP group separator actually
-renders. A snapshot of the one well-formed happy payload is the easiest kind to write and the least
-worth having.
+Seed for the shape you are pinning, not the shape that is easy: the API fixture seeds three rows so
+a **middle page** (the only place `previous-page` and `next-page` both appear) and the **empty
+envelope** are covered, and the Home counters are five-figure so the NBSP group separator renders.
 
-**When a snapshot is the right tool:**
+**Which tool owns what** (the root `CLAUDE.md` states the rule):
 
-- **Golden fixtures** own the `||` file contract on both sides. Snapshots add nothing there and must
-  never replace them — that format changes only via ADR, and its fixtures are round-tripped, not
-  compared.
-- **Plain asserts** own behavior: "an admin sees `approve`, a translator does not" is a statement
-  about many inputs, so it stays a `[Theory]`. A snapshot answers "did *anything* about this payload
-  change", which is a different question.
-- **Snapshots** own shape. They exist for the fields nobody thought to assert. They complement the
-  behavioral suites (`TranslationAggregateHateoasTests`, `ProblemDetailsContractTests`, `HomeTests`,
-  `TermsTests` all stay) — deleting an assert because "the snapshot covers it" is the wrong move.
+- **Golden fixtures** own the `||` file contract on both sides. Snapshots never replace them: the
+  format changes only via ADR, and its fixtures are round-tripped, not compared.
+- **Plain asserts** own behaviour: "an admin sees `approve`, a translator does not" is a statement
+  about many inputs, so it stays a `[Theory]`.
+- **Snapshots** own shape: the fields nobody thought to assert. The behavioural suites
+  (`TranslationAggregateHateoasTests`, `ProblemDetailsContractTests`, `HomeTests`, `TermsTests`)
+  all stay; deleting an assert because "the snapshot covers it" is wrong.
 
 **Re-accepting a verified file is a deliberate, reviewed act.** `*.verified.*` files are committed
-and ARE the pinned contract; `*.received.*` files are that run's scratch output and are git-ignored.
+and ARE the pinned contract; `*.received.*` files are a run's scratch output and are git-ignored.
 When a snapshot fails, read the diff: either the change was intended (rename the received file over
-the verified one, in the same PR, so the diff is reviewable) or you just found a regression. Never
-re-accept a batch of snapshots without reading each diff.
+the verified one, in the same PR) or you found a regression. Never re-accept a batch without reading
+each diff.
 
 Everything is configured once in **`tests/Shared/VerifyModuleInitializer.cs`**, linked into every
-snapshot suite (same idiom as `NaughtyStringCases.cs`) so all of them scrub identically — inline
-GUIDs, ISO-8601 instants, 64-char hex digests (the translation file's SHA-256, which is also the
-strong `ETag`) and the `traceId` ASP.NET Core stamps on every `ProblemDetails`. The diff-tool
-launcher is disabled there too: most runs are headless, and a GUI popping up would hang the run.
+snapshot suite, so all of them scrub the same way: inline GUIDs, ISO-8601 instants, 64-char hex
+digests (the translation file's SHA-256, also the strong `ETag`) and the `traceId` of every
+`ProblemDetails`. The diff-tool launcher is off there, because a GUI popping up would hang a
+headless run.
 
-Two properties worth knowing before you add one:
+Worth knowing before you add one:
 
-- The scrubbers are **shape-matched**, not positional — a regex only fires on text that still looks
-  like a GUID / an instant / a digest. A contract regression that changes the shape (an instant
-  serialized as a Unix epoch) leaves the raw value in the snapshot and fails the test, which is the
-  point.
-- API snapshots go through `ApiSnapshot`, which re-indents the body via `JsonNode`. What is pinned is
-  the **logical** contract (names, nesting, JSON types, values), not the transport's encoding of
-  non-ASCII — so Polish reads as Polish in the verified file. Nothing else covers that encoding
-  (`ContentNegotiationTests` pins the media type and `Vary`, not the bytes), so `ApiSnapshot`
-  carries its own `ShouldServeUnescapedUtf8Async` assert on the **raw** body and every snapshot with
-  Polish in it calls that too.
-- A markup snapshot is the component's **rendered body only**. bUnit's `Markup` does not include
+- The scrubbers match by **shape**: a regex fires only on text that still looks like a GUID, an
+  instant or a digest. A regression that changes the shape (an instant as a Unix epoch) leaves the
+  raw value in the snapshot and fails the test.
+- API snapshots go through `ApiSnapshot`, which re-indents the body via `JsonNode`, so what is
+  pinned is the **logical** contract and Polish reads as Polish. Nothing else checks the raw
+  encoding, so `ApiSnapshot.ShouldServeUnescapedUtf8Async` asserts it on the **raw** body, and
+  every snapshot with Polish in it calls that too.
+- A markup snapshot is the component's **rendered body only**. bUnit's `Markup` leaves out
   `<PageTitle>` / `<HeadContent>`, so head metadata needs its own assert.
-- A snapshot suite is the sanctioned exception to "unit tests are pure: no filesystem". It reads its
-  `*.verified.*` from the source tree at runtime (and writes `*.received.*` on failure) — that file is
-  the pinned contract, not an assertion about generated output, so `Frontend.Tests.Unit` stays a pure
-  suite in every sense the rule is about.
+- A snapshot suite reads its `*.verified.*` files from the source tree (and writes `*.received.*`
+  on failure). That is the allowed exception to "unit tests are pure: no filesystem", because the
+  file is the pinned contract, not generated output under test.
 
-Add a snapshot when the payload is big and the existing asserts cover a corner of it. Do not add one
-to a small `Result` or a three-field DTO — a plain assert says more, and says it in the failure
+Do not snapshot a small `Result` or a three-field DTO: a plain assert says more, in the failure
 message.
 
 ## Unit Tests (LotroKoniecDev.Tests.Unit)
 
-```
-Shared/
-  TestDataFactory.cs        Binary SubFile test data builder (shared across feature tests)
-  InMemoryDatFileHandler.cs A DAT in memory that keeps state across a patch, an update and launches
-Tests/
-  Core/
-    BuildingBlocks/
-      ErrorTests.cs           Error factory methods, equality, ToString()
-      ValueObjectTests.cs     Structural equality semantics
-    Monads/
-      ResultTests.cs          Result success/failure, value access protection
-    Utilities/
-      VarLenEncoderTests.cs   Encode/decode roundtrip for various ranges
-  Extensions/
-    DatFileHandlerExtensionsTests.cs  LoadSubFile guards against corrupt subfile data
-    ResultExtensionsTests.cs  Map, Bind, OnSuccess, OnFailure, Match, Combine
-  Features/
-    ExportTextsQueryHandlerTests.cs    Export handler (mocked IDatFileHandler) + validation guards
-    ApplyPatchCommandHandlerTests.cs   Patch handler (mocked IPatchingService, real validator)
-    GameLaunchingCommandHandlerTests.cs Launch handler + SimplifiedGameLaunchingStrategy branches
-    SimplifiedGameLaunchingStrategyWipeRepairTests.cs Tier 0 end to end: patch → update → launch repairs (real strategy + detector + patching service, in-memory DAT)
-    SubFileWipeDetectorTests.cs        Tier 0 detection: snapshot vs DAT, and every "cannot compare" case
-    PreflightCheckQueryHandlerTests.cs Preflight checks (process, write access, update check)
-    PreflightReportResponseTests.cs    When `patch` may write: game closed + folder writable; the update check never blocks
-    PatchingServiceTests.cs            Patch orchestration (mocked IDatFileHandler + ITranslationParser)
-    SyncTranslationFileCommandHandlerTests.cs TMS file sync (HTTPS-only URL guard, integrity rejection, ETag/304, offline fallback)
-    TranslationFileContentIntegrityTests.cs   Downloaded-file SHA-256/ETag integrity check (AUDIT-SEC-01)
-    VersionBaselineServiceTests.cs     Version baseline persistence rules
-    GameUpdateCheckerTests.cs          Forum scraping + version comparison (mocked fetcher + store)
-  Models/
-    FragmentTests.cs          Binary parse/write roundtrip
-    SubFileIterationSnapshotTests.cs  The E5 diff: iteration moved or subfile removed, nothing else
-    SubFileTests.cs           Serialization/deserialization
-    TranslationTests.cs       Property validation
-  Parsers/
-    TranslationFileParserTests.cs  Line parsing, format validation, edge cases
-```
+- `Shared/`: `TestDataFactory` (binary SubFile builder; extend it, do not hand-roll bytes) and
+  `InMemoryDatFileHandler` (a DAT in memory that keeps state across a patch, an update and launches).
+- `Tests/Core/`: `Error`, `ValueObject`, `Result`, `VarLenEncoder`.
+- `Tests/Extensions/`: the `Result` extensions and the `LoadSubFile` guards against corrupt data.
+- `Tests/Features/`: the handlers and services (export, patch, launch with the Tier 0 wipe repair,
+  preflight, TMS file sync, endpoint resolution, integrity, version baseline, update check).
+- `Tests/Models/`: `Fragment`, `SubFile`, `Translation`, the source digest and the iteration
+  snapshot.
+- `Tests/Parsers/`: the translation file parser, `TranslationLineCarver` and
+  `TranslationLineEscaper`.
 
-Command handlers are constructed with their **real FluentValidation validator** (validators are
-dependency-free) and mocked ports. Unit tests are **pure**: no filesystem assertions, no network,
-no real DAT — and **platform-agnostic** (build paths with `Path.Combine`, never hardcode `C:\`;
-the suite runs on macOS too).
+Command handlers are built with their **real FluentValidation validator** (validators have no
+dependencies) and mocked ports. Unit tests are **pure** (no filesystem assertions, no network, no
+real DAT) and **platform-agnostic**: build paths with `Path.Combine`, never hardcode `C:\`.
 
 ## Architecture Tests (LotroKoniecDev.Architecture.Tests.Unit)
 
-**The mechanical guard for the structural house rules** — the ones CLAUDE.md and the ADRs state in prose
-and code review used to be the only thing enforcing. Pure assembly reflection (no DB, no filesystem, no
-network), so it runs in the normal unit gate on every OS.
+The mechanical guard for the structural house rules in `CLAUDE.md` and the ADRs. Pure assembly
+reflection (no DB, no filesystem, no network), so it runs in the normal unit gate on every OS.
 
 | File | Rule |
 |---|---|
 | `PatcherLayeringTests` | Cli / Infrastructure -> Application -> Domain -> Primitives; the lower layer never reaches up |
-| `NoMediatorTests` | ADR-0001 — no `Mediator` / `MediatR` type anywhere in production IL |
+| `NoMediatorTests` | ADR-0001: no `Mediator` / `MediatR` type anywhere in production IL |
 | `BoundedContextIsolationTests` | patcher <-> TMS share the `\|\|` file, never code; the Frontend sees `Contracts`, never a domain or DbContext; the TMS never links the auth server internals |
 | `PersistenceDirectionTests` | patcher/TMS domain, read models and contracts carry no EF Core or Npgsql |
 | `CqrsSeparationTests` | a query handler never injects a repository, `IUnitOfWork` or the write DbContext; a command handler injects `IValidator<TCommand>` |
 | `HandlerConventionTests` | handlers are `internal sealed`; no `IValidator<TQuery>` (validators are command-only) |
 | `SealedConventionTests` | every class is sealed unless another production type derives from it |
-| `SuiteSelfTests` | the suite can still say "no" — pins a dependency that genuinely exists, and fails when a production project escapes the search set |
+| `SuiteSelfTests` | the suite can still say "no": pins a dependency that really exists, and fails when a production project escapes the search set |
 
-Two mechanisms, on purpose: **NetArchTest.Rules** for dependency rules (it scans the full IL of every
-member), **plain reflection** for convention rules its predicate DSL cannot express ("sealed unless
-something inherits it", a validator's generic argument).
+**NetArchTest.Rules** checks dependency rules (it scans the full IL of every member); **plain
+reflection** checks the conventions its predicate DSL cannot express ("sealed unless something
+inherits it", a validator's generic argument).
 
 Adding a production project? Add the `ProjectReference` **and** the entry in
-`Shared/ProductionAssemblies.All` — `SuiteSelfTests` fails until you do. The two patcher
-`net10.0-windows` assemblies (Infrastructure, Cli) are absent on purpose: a `net10.0` project cannot
-reference them, and they sit at the TOP of the layering, so rules about them are stated as forbidden
+`Shared/ProductionAssemblies.All`; `SuiteSelfTests` fails until you do. The two patcher
+`net10.0-windows` assemblies (Infrastructure, Cli) are left out because a `net10.0` project cannot
+reference them. They sit at the top of the layering, so rules about them are stated as forbidden
 namespaces on the assemblies below.
 
-`SealedConventionTests.KnownViolations` quarantines pre-existing violations, each keyed to its own
-ticket (#570 is a test-only change). The list is **self-cleaning** — a second test fails once an entry
-stops violating, so a fix cannot land without removing it. It is **empty since #599** sealed the last
-one (`Domain.Core.Monads.Result<TValue>`): a new violation now fails the gate outright, and adding an
-entry instead of sealing the type needs a ticket to point at.
+`SealedConventionTests.KnownViolations` is **empty**: a new violation fails the gate. Adding an
+entry instead of sealing the type needs a ticket to point at, and a second test fails once an entry
+stops violating, so the list cleans itself.
 
 ## Infrastructure Tests (LotroKoniecDev.Tests.Infrastructure)
 
-Tests that touch real infrastructure adapters (today: `GameLauncherTests`,
-`AuthenticodeLauncherSignatureVerifierTests`, `DatExportNativeTests`, the sidecar stores
-`TranslationLedgerTests`, `TranslationFileCacheTests` and `SubFileIterationSnapshotStoreTests`,
-`TranslationFileDownloaderTests` and `ForumPageFetcherTests` — the network ones drive the
-adapters' integrity, response-size-cap and timeout enforcement points over an in-memory stub
-`HttpMessageHandler`, no real network). This project is patcher-side only — TMS
-PostgreSQL/EF Core coverage lives in the `*.Tests.Integration` projects. Asserting on real
-file output belongs here, never in `Tests.Unit`. Targets `net10.0-windows` with an x86
-`PlatformTarget`: builds everywhere, **runs on Windows only**, and there it needs the x86 .NET
-runtime (without it the run aborts and `dotnet test` exits 1). Off Windows, `dotnet test` compiles
-the project but runs none of its tests, prints one `LotroKoniecDev.Tests.Infrastructure: not run`
-line and still exits 0 (`tests/Shared/WindowsOnlyTestRun.targets`, #816). None of its tests are
-counted as Skipped, because none of them start.
+Tests of the patcher's real infrastructure adapters: the game launcher and its Authenticode check,
+the `datexport.dll` interop, the sidecar stores (ledger, file cache, iteration snapshot), and the
+network adapters (downloader, discovery client, forum fetcher). The network tests drive the
+adapters' integrity, response-size and timeout checks over an in-memory stub
+`HttpMessageHandler`, with no real network. TMS PostgreSQL/EF Core coverage lives in the
+`*.Tests.Integration` projects. A test that asserts on real file output belongs here, never in
+`Tests.Unit`.
+
+The project targets `net10.0-windows` with an x86 `PlatformTarget`. It builds everywhere and
+**runs on Windows only**, where it needs the x86 .NET runtime (without it the run aborts and
+`dotnet test` exits 1). Off Windows, `dotnet test` compiles it, runs none of its tests, prints one
+`LotroKoniecDev.Tests.Infrastructure: not run` line and exits 0
+(`tests/Shared/WindowsOnlyTestRun.targets`, #816). None of its tests count as Skipped, because none
+start.
 
 ## E2E Tests (LotroKoniecDev.Tests.E2E)
 
-Full-pipeline tests driving the CLI (`ExportE2ETests`, `PatchE2ETests`, `RoundtripE2ETests`,
-`ErrorPathE2ETests`) against a real DAT. They use `SkippableFact` and **skip automatically**
-when `TestData/client_local_English.dat` is missing. Off Windows the project is not run at all,
-with or without a DAT, because the CLI it drives is a win-x86 program: `dotnet test` prints one
-`LotroKoniecDev.Tests.E2E: not run` line instead (the same `WindowsOnlyTestRun.targets`, #816).
+Full-pipeline tests that drive the CLI (`ExportE2ETests`, `PatchE2ETests`, `RoundtripE2ETests`,
+`ErrorPathE2ETests`) against a real DAT. They use `SkippableFact` and **skip** when
+`TestData/client_local_English.dat` is missing (setup: the project's `README.md`). Off Windows the
+project is not run at all, because the CLI is a win-x86 program: `dotnet test` prints one
+`LotroKoniecDev.Tests.E2E: not run` line instead (`WindowsOnlyTestRun.targets`, #816).
 
 ## TMS Real-Process E2E Tests (LotroKoniecDev.TranslationSystem.E2E.Tests)
 
-A Testcontainers-driven suite: `E2ETestFixture` builds the
-`auth`/`tms`/`migrator` Docker images (`SKIP_DOCKER_BUILD=true` reuses the ones this worktree built last time), spins up a private
-network with `postgres:18-alpine` (+ the bind-mounted `scripts/init-postgres.sh` for the second `lotro_auth`
-DB), runs the one-shot migrator, then boots `auth-api` (env `Testing` → password-grant `lotrokoniecdev-test`
-client + seeded Admin) and `tms-api` on `http://+:8080`, waiting on `/health/live`. Tests drive the loop over
-real HTTP with **real auth-api tokens validated by tms-api via live JWKS + lazy translator provisioning** — the
-layer the in-process `*.Tests.Integration` suite fakes by forging HS256 tokens.
+`E2ETestFixture` builds the `auth`/`tms`/`migrator` images (`SKIP_DOCKER_BUILD=true` reuses the
+ones this worktree built last time) and starts, on a private network, PostgreSQL (with
+`scripts/init-postgres.sh` bind-mounted for the second `lotro_auth` DB), the one-shot migrator,
+`auth-api` (env `Testing`: the password-grant `lotrokoniecdev-test` client and a seeded Admin) and
+`tms-api` on `http://+:8080`, waiting on `/health/live`. Tests drive the loop over real HTTP with
+**real auth-api tokens, checked by tms-api through live JWKS, and lazy translator provisioning**:
+the layer the in-process `*.Tests.Integration` suites fake with forged tokens.
 
-- `AuthFlowE2ETests` — real Admin token accepted + first write lazily provisions the translator; a registered
-  Translator's token is accepted; no/garbage token → 401.
-- `CoreLoopE2ETests` — register version → import → list → upsert → approve → download (+ ETag/304).
-- `UpdateCycleE2ETests` — a later import reword's an approved row's source → invalidated + dropped from the file.
-
-**Requires Docker; off the PR gate by name** — the project is `...E2E.Tests` (not `*.Tests.Unit` /
-`*.Tests.Integration`), so the `pr-verify.yml`/`ci.yml` test-discovery globs skip it. It runs via
-`.github/workflows/e2e.yml` (`workflow_dispatch`, plus PRs touching `Directory.Packages.props`,
-`.config/dotnet-tools.json` or any Dockerfile — CI-03/#433, so Dependabot bumps exercise it) or a local
-`dotnet test` of the project. It IS compiled by the solution build, so the zero-warning gate still covers it.
-
-**Both E2E suites start their containers from image IDs, never from tags (#884).** A fixed tag let a second
-worktree's build move the tag while the first run was still starting its containers, so that run tested the
-other worktree's code (seen on #871). `tests/Shared/E2EWorktree.cs`, linked into both projects, builds with
-`--iidfile` and hands each container the ID its own build produced. The tag only names the worktree
-(`<repository>:<suite>-<folder>-<8 hex of the solution path>`, label `lotrokoniecdev.e2e`), so
-`SKIP_DOCKER_BUILD=true` reuses this worktree's images and a run leaves one set per worktree. Never start a
-container from a tag, and never give a fixture its own copy of the build loop. Two runs of the same suite in
-**one** worktree still collide: the second build takes the tag, Docker's containerd store deletes the first
-run's image, and that run fails with `pull access denied for sha256` (#889).
+- `AuthFlowE2ETests`: a real Admin token is accepted and the first write provisions the translator;
+  a registered Translator's token is accepted; no token or a garbage token gets 401.
+- `CoreLoopE2ETests`: register version → import → list → upsert → approve → download (+ ETag/304).
+- `UpdateCycleE2ETests`: a later import rewords an approved row's source, so the row is invalidated
+  and dropped from the file.
 
 ## Frontend Browser E2E Tests (LotroKoniecDev.Frontend.E2E.Tests)
 
-A **Playwright** browser suite over the same Testcontainers idiom (ADR-0009 — **not** a compose file, **not**
-FluentDocker). `PlaywrightStackFixture` builds the `auth`/`tms`/`frontend`/`migrator` images, boots the whole
-browser-facing stack on one network — postgres + migrator + auth-api + tms-api + **frontend** + **mailpit** —
-all over **HTTPS** (a cert generated in C#; SAN = the service DNS names; trusted in-container via an inline root
-entrypoint), plus a Playwright `run-server` browser container built by hand (the `Testcontainers.Playwright`
-module is unusable on Playwright v1.55+ images — it omits run-server's `--host` and hard-codes a `localhost`
-readiness probe; see `PlaywrightStackFixture.StartBrowserAsync`). The host connects to the
-in-network browser over WS (`Chromium.ConnectAsync(ws://host:mappedPort/)`), so `https://auth-api:8443` resolves
-identically for the browser front-channel and the FE OIDC back-channel — the single-`Authority` constraint
-(ADR-0006) held in-network via DNS. Mailpit receives the real confirmation e-mail (no auto-confirm), read back
-over its HTTP API. Because the browser is in a container, the host needs **no** `playwright install` (no browser
-download). NuGet-only (no `ProjectReference`) — it drives everything over HTTP/the browser.
+A **Playwright** suite over the same Testcontainers idiom (ADR-0009: no compose file, no
+FluentDocker). `PlaywrightStackFixture` builds the `auth`/`tms`/`frontend`/`migrator` images and
+boots the whole browser-facing stack over HTTPS on one network, plus Mailpit for the real
+confirmation e-mail and a Playwright browser container. The host test connects to that browser, so
+`https://auth-api:8443` means the same thing to the browser and to the frontend's OIDC
+back-channel (the single-`Authority` constraint of ADR-0006). It references no project: it drives
+everything over HTTP and the browser. The flows live in `Flows/`: the register → confirm → login →
+logout happy path, the auth pages' CSP, the one-time-link pages (back, reload, double click), the
+submit-once button, the cookie banner, self-hosted fonts and the account's GDPR self-service.
+Topology, local runs and image clean-up: the project's `README.md`.
 
-- `RegisterConfirmLoginLogoutTests` — register (Auth Razor Page) → confirm via the Mailpit link → login through
-  the FE OIDC challenge → logout. **No DB seed, no `exported.txt`.** PL-only (the pages have no culture routing).
+Locators follow Playwright's guidance: `GetByRole` / `GetByLabel` first, `data-testid` only where
+an element has no stable accessible name (`Infrastructure/Locators.cs`).
 
-Locators follow Playwright's guidance: `GetByRole`/`GetByLabel` first, `data-testid` only for the consent
-checkboxes + state panels (`register-success`, `confirm-email-success`). **Requires Docker; off the PR gate by
-name** (`...E2E.Tests`) — runs via `e2e.yml` (the `e2e-frontend` job; `workflow_dispatch` or PRs touching
-package/Dockerfile dependency manifests — CI-03/#433) or a local `dotnet test`. Compiled by the
-solution build, so the zero-warning gate covers it.
+## Rules for both E2E suites
+
+- **Off the PR gate by name.** The projects are named `…E2E.Tests` (not `*.Tests.Unit` /
+  `*.Tests.Integration`), so the `pr-verify.yml` / `ci.yml` test globs skip them. They run through
+  `.github/workflows/e2e.yml` (jobs `e2e` and `e2e-frontend`): by hand with `workflow_dispatch`, and
+  on their own only on Dependabot PRs that touch `Directory.Packages.props`,
+  `.config/dotnet-tools.json` or a Dockerfile (CI-03 / #433). Or run them locally. The solution
+  build compiles them, so the zero-warning gate still covers them.
+- **Containers start from image IDs, never from tags (#884).** A fixed tag let a second worktree's
+  build move the tag while the first run was starting its containers, so that run tested the other
+  worktree's code. `tests/Shared/E2EWorktree.cs`, linked into both projects, builds with
+  `--iidfile` and hands each container the ID its own build produced. The tag only names the
+  worktree (`<repository>:<suite>-<folder>-<8 hex of the solution path>`, label
+  `lotrokoniecdev.e2e`), so `SKIP_DOCKER_BUILD=true` reuses this worktree's images. Never start a
+  container from a tag, and never give a fixture its own copy of the build loop.
+- **One run of a suite per worktree at a time.** A second run in the same worktree takes the tag,
+  Docker's containerd store deletes the first run's image, and that run fails with
+  `pull access denied for sha256` (#889).
 
 ## N-1 schema seam (integration factories — ADR-0024)
 
-Both API integration factories carry `N1CompatSchemaSeam` (twin copies — keep in sync): when
+Both API integration factories carry `N1CompatSchemaSeam` (twin copies: keep them in sync). When
 `N1_COMPAT_SCHEMA_SCRIPTS_DIR` is set, the factory applies a pre-generated idempotent HEAD schema
 script (`translation.sql` / `auth.sql`) to its fresh PostgreSQL container before its own
-`MigrateAsync()` (which then no-ops), so the suite exercises **its** code against a **newer**
-schema. Only `scripts/n1-compat.sh` (the MIGR-05 N-1 proof, `n1-compat.yml`) sets the variable —
-normal test runs are untouched. Every misconfiguration throws; keep `TRUNCATE … CASCADE` in test
-resets (a plain TRUNCATE breaks once a newer schema adds a referencing child table). A new
-integration suite with its own DbContext must adopt the seam (new script file name + the same
-apply call) to be covered.
+`MigrateAsync()` (which then does nothing), so the suite runs **its** code against a **newer**
+schema. Only `scripts/n1-compat.sh` (the N-1 proof, `n1-compat.yml`) sets the variable; normal
+runs are untouched. Every misconfiguration throws. Keep `TRUNCATE … CASCADE` in test resets: a
+plain TRUNCATE breaks once a newer schema adds a referencing child table. A new integration suite
+with its own DbContext must adopt the seam (a new script file name and the same apply call).
 
 ## Conventions
 
 - Test class naming: `{ClassUnderTest}Tests`
 - Method naming: `MethodName_Scenario_ExpectedResult`
-- AAA structure; assertions inline in the test method — never hidden in helpers
-- One reason to fail per test (may use multiple Shouldly calls for one concept)
+- AAA structure; assertions inline in the test method, never hidden in helpers
+- One reason to fail per test (several Shouldly calls for one concept are fine)
 - `[Theory]` + `[InlineData]` for boundary/unhappy-path matrices
 - Shouldly style only, no raw `Assert.*`
-- Never put `?.` in front of a Shouldly call: when the value is null, `?.` skips the rest of the line,
-  so nothing is checked and the test passes. Write `ContentType.ShouldNotBeNull().MediaType.ShouldBe(…)`,
-  not `ContentType?.MediaType.ShouldBe(…)`. Where a null really is a pass, put the null-conditional part
-  in parentheses so the check always runs. #887 removed 55 such lines from the integration suites
-- `.Received()` only for side effects invisible in the return value (cleanup, "must NOT have
-  been called on validation failure") — never to mirror internal call patterns
-- Shared test data builders go in `Shared/` (extend `TestDataFactory`, don't hand-roll bytes)
+- Never put `?.` in front of a Shouldly call: on a null value, `?.` skips the rest of the line, so
+  nothing is checked and the test passes. Write `ContentType.ShouldNotBeNull().MediaType.ShouldBe(…)`,
+  not `ContentType?.MediaType.ShouldBe(…)`. Where a null really is a pass, put the null-conditional
+  part in parentheses so the check always runs (#887)
+- `.Received()` only for side effects invisible in the return value (cleanup, "must NOT have been
+  called on validation failure"), never to mirror internal call patterns
+- Shared test data builders go in `Shared/` (extend `TestDataFactory`, do not hand-roll bytes)
 - A file a unit or integration test reads is a build input. If an inert rule in
-  `scripts/ci/classify-changes.sh` matches it (a script under `scripts/`, a root compose file, for
-  example), add it to `CODE_INPUTS` there in the same change, with a case in its self-test. Otherwise
-  a pull request that changes only that file skips the test, and the failure shows up later, in
-  someone else's run (#1163). Do not point a test at a file that `paths-ignore` in
-  `.github/workflows/ci.yml` skips (`docs/`, `.claude/`, the inert Markdown): main never re-runs the
-  test after a change to it
-- Every test database starts from `PostgresImage.Name` (`tests/Shared/PostgresImage.cs`, linked into every
-  suite that starts PostgreSQL), never from its own image tag (#1002)
-- A test that needs a host outside Development and Testing (because Testing turns the rule off) boots
-  it in **Production**. Both boxes run Production (`compose.hetzner.yaml`). A Staging row may sit next
-  to it, never in its place: a test that boots only Staging stays green when a change breaks the rule
-  in Production (#1187)
+  `scripts/ci/classify-changes.sh` matches it (a script under `scripts/`, a root compose file),
+  add it to `CODE_INPUTS` there in the same change, with a case in its self-test. Otherwise a PR
+  that changes only that file skips the test, and the failure shows up later in someone else's run
+  (#1163). Do not point a test at a file that `paths-ignore` in `.github/workflows/ci.yml` skips
+  (`docs/`, `.claude/`, the inert Markdown): main never re-runs the test after a change to it
+- Every test database starts from `PostgresImage.Name` (`tests/Shared/PostgresImage.cs`, linked
+  into every suite that starts PostgreSQL), never from its own image tag (#1002)
+- A test that needs a host outside Development and Testing (because Testing turns the rule off)
+  boots it in **Production**, as both boxes run it (`compose.hetzner.yaml`). A Staging row may sit
+  next to it, never in its place: a test that boots only Staging stays green when a change breaks
+  the rule in Production (#1187)
 - Every in-memory host factory overrides `CreateHost` with `HostStartOrder.BuildAndStart`
   (`tests/Shared/HostStartOrder.cs`, linked into the three in-memory host suites), and a new
-  `WebApplicationFactory` does the same. Without it, a test that expects a refused start flakes in a
-  busy full run (#1040). `HostStartOrderTests` checks the start order on every run
+  `WebApplicationFactory` does the same. Without it, a test that expects a refused start flakes in
+  a busy full run (#1040). `HostStartOrderTests` checks the start order on every run

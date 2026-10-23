@@ -14,10 +14,8 @@ using ChangePasswordComponent = LotroKoniecDev.Frontend.Components.Pages.Account
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 
 /// <summary>
-/// Renders the <c>/account/change-password</c> page through bUnit over a stubbed auth client: the form
-/// appears only when the envelope advertises the <c>change-password</c> rel, and every input is named
-/// after the <c>[SupplyParameterFromForm]</c> model path so the posted fields actually bind (the M3-07
-/// SSR binding lesson). The submit path is exercised by the browser E2E.
+/// The form follows the <c>change-password</c> rel, and the inputs carry the names static SSR binds. The
+/// submit is covered by the browser E2E.
 /// </summary>
 public sealed class ChangePasswordTests : BunitContext
 {
@@ -50,10 +48,8 @@ public sealed class ChangePasswordTests : BunitContext
     [Fact]
     public void Render_TheNewPasswordHint_NamesEveryRuleTheApiEnforces()
     {
-        // The API rejects a weak password with a mapped code, and #703 stopped showing the English that
-        // used to name the broken rule. So the hint is now the user's only warning up front, and it has
-        // to match PasswordValidationRules — it used to omit the special character both it and the
-        // Identity options require, which turned a wrong password into a dead end.
+        // With the English hidden (#703), the hint is the user's only warning up front, so it must match
+        // PasswordValidationRules.
         StubExport(AccountLoaderTests.CreateEnvelope(links:
         [
             new LinkDto("auth/change-password", Rels.ChangePassword, "POST")

@@ -7,9 +7,8 @@ using Microsoft.Extensions.Primitives;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Shared;
 
 /// <summary>
-/// The stand-in a page draws in its load-failure branch, so a post to a form the page cannot draw still
-/// lands on the page (#1122). bUnit does not show the form's name, which lives in Blazor's named-event
-/// frame, so the integration suite proves that a post finds it. These pin when it is drawn at all.
+/// When the stand-in is drawn (#1122). bUnit does not show the form's name, so the integration suite proves
+/// that a post finds it.
 /// </summary>
 public sealed class PostedFormTargetTests : BunitContext
 {

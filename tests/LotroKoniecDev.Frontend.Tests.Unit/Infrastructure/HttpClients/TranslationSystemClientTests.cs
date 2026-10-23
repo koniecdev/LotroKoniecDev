@@ -29,7 +29,6 @@ public sealed class TranslationSystemClientTests
     public async Task GetApiResultAsync_WhenSuccessHasEmptyBody_ReturnsFailureWithATranslatableBadGatewayProblem()
     {
         // A call that promises a value and gets nothing back, even a real 204, was not answered (#653).
-        // The typed client passes that rule through instead of returning a null Value.
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.NoContent, string.Empty);
         ITranslationSystemClient client = CreateClient(handler);
 

@@ -23,8 +23,7 @@ public sealed class ImportExportLoaderTests
     private const string BaseUrl = "https://localhost:5002/";
 
     /// <summary>
-    /// The per-version <c>import</c> href the API sends. It looks nothing like the real route on purpose,
-    /// so a passing assertion proves the loader followed the link it was given (#610).
+    /// Looks nothing like the real route, so a passing assertion proves the loader followed the link (#610).
     /// </summary>
     private const string AdvertisedImportHref = "/advertised/import-into/42";
 
@@ -32,8 +31,7 @@ public sealed class ImportExportLoaderTests
     private static readonly string ResolvedGameVersionsUri =
         BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.GameVersions);
 
-    // The same JSON options the Frontend's HTTP layer uses (HttpClientApiExtensions), so the stub
-    // body deserializes through the exact same contract the loader relies on.
+    // The same JSON options as HttpClientApiExtensions.
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() }
@@ -76,9 +74,7 @@ public sealed class ImportExportLoaderTests
     [Fact]
     public async Task ListGameVersionsAsync_PreservesTheCollectionLinksSoTheRegisterRelCanGateImport()
     {
-        // The collection's admin-only `register` rel has to survive deserialization, because the
-        // import/export page shows the import panel only when it is there (#158) instead of checking the
-        // role itself.
+        // The page shows the import panel only when the `register` rel survives (#158).
         CollectionResponse<GameVersionResponse> collection = new()
         {
             Items = [VersionFixture()],
@@ -112,8 +108,8 @@ public sealed class ImportExportLoaderTests
     [Fact]
     public async Task ListGameVersionsAsync_WhenTheGameVersionsRelIsNotAdvertised_FailsWithoutCallingTheApi()
     {
-        // `game-versions` is RequireTranslatorRole while /import-export is only [Authorize], so an
-        // authenticated non-translator lands here on a normal navigation (#610).
+        // `game-versions` needs the translator role but /import-export only a login, so a signed-in
+        // non-translator gets here (#610).
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
         ImportExportLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
 
@@ -195,7 +191,6 @@ public sealed class ImportExportLoaderTests
         handler.LastRequestBody!.ShouldContain("name=file");
         handler.LastRequestBody.ShouldContain("exported.txt");
         handler.LastRequestBody.ShouldContain("620756992||1001||Witaj");
-        // The file part declares text/plain (the ||-format export), mirroring the reference upload.
         handler.LastRequestBody.ShouldContain("Content-Type: text/plain");
     }
 

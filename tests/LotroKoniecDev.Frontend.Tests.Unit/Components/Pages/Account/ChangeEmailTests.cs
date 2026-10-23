@@ -14,14 +14,8 @@ using ChangeEmailComponent = LotroKoniecDev.Frontend.Components.Pages.Account.Ch
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 
 /// <summary>
-/// Renders the <c>/account/change-email</c> page through bUnit over a stubbed auth client: the form
-/// appears only when the envelope advertises the <c>change-email</c> rel, and every input is named
-/// after the <c>[SupplyParameterFromForm]</c> model path so the posted fields actually bind (the M3-07
-/// SSR binding lesson).
-/// The submit path is NOT covered here: bUnit's SubmitAsync fires only <c>@onsubmit</c> and does no
-/// SSR form-data binding, so a test that drove it would assert against fields the real request would
-/// have filled differently. The server side of the same flow is covered by the auth API's endpoint
-/// and page suites.
+/// The form follows the <c>change-email</c> rel, and the inputs carry the names static SSR binds. The
+/// submit is not covered: bUnit's SubmitAsync does no SSR form-data binding.
 /// </summary>
 public sealed class ChangeEmailTests : BunitContext
 {
@@ -54,8 +48,7 @@ public sealed class ChangeEmailTests : BunitContext
     [Fact]
     public void Render_WhenChangeEmailRelAdvertised_SaysTheAddressIsAlsoTheLogin()
     {
-        // The address is what LoginModel looks the user up by, so a page that does not say so leaves
-        // the user guessing why their next sign-in fails.
+        // Sign-in looks the user up by this address, so the page must say so.
         StubExport(AccountLoaderTests.CreateEnvelope(links:
         [
             new LinkDto("auth/account/change-email", Rels.ChangeEmail, "POST")

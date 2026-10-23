@@ -9,10 +9,8 @@ using Microsoft.Extensions.Logging;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Shared;
 
 /// <summary>
-/// The one component every page renders a failed call through (#548 / ADR-0044). These lock down what
-/// reaches the screen: Polish copy for an API failure, the API's English behind a collapsed
-/// <c>details</c> only where it adds information (#703), and a logged warning when a code shipped
-/// without copy.
+/// What reaches the screen for a failed call (ADR-0044): Polish copy, the API's English only where it adds
+/// data (#703), and a warning for a code with no copy.
 /// </summary>
 public sealed class ApiProblemAlertTests : BunitContext
 {
@@ -44,8 +42,7 @@ public sealed class ApiProblemAlertTests : BunitContext
     [Fact]
     public void Render_ForAStatusOnlyProblem_ShowsTheStatusCopyAloneAndNeverAnEmptyBox()
     {
-        // What an outage leaves: a status and nothing else (#637). There is no English to collapse,
-        // so the headline has to carry the whole message on its own.
+        // An outage leaves only a status (#637), so the headline carries the whole message.
         IRenderedComponent<ApiProblemAlert> component = Render<ApiProblemAlert>(parameters => parameters
             .Add(alert => alert.Problem, ApiProblemCopy.StatusOnly(502))
             .Add(alert => alert.Fallback, "Nie udało się wczytać listy wersji gry."));
@@ -78,9 +75,7 @@ public sealed class ApiProblemAlertTests : BunitContext
     [Fact]
     public void Render_ForAMappedFailureWhoseEnglishOnlyRestatesThePolish_RendersNoDetailsElementAtAll()
     {
-        // The defect of #703, reported from /account/change-password: the drawer held
-        // "Auth.InvalidCurrentPassword — The current password is incorrect.", which is the headline
-        // again in English. Nothing to expand means nothing that reads like a leak.
+        // #703: the drawer only repeated the headline in English.
         ProblemDetails problem = ApiProblem(
             "Auth.InvalidCurrentPassword",
             400,
@@ -99,8 +94,7 @@ public sealed class ApiProblemAlertTests : BunitContext
     [Fact]
     public void Render_ForAnUnmappedErrorCode_StillShowsTheCodeAndTheApiWording()
     {
-        // Here the user only gets the generic status sentence, so the English is the one thing that
-        // makes the failure reportable. It stays until the code has Polish copy.
+        // With only the generic sentence, the English is what makes the failure reportable.
         ProblemDetails problem = ApiProblem("Catalog.SomethingNobodyMappedYet", 403, "Forbidden", "Not your row.");
 
         IRenderedComponent<ApiProblemAlert> component = Render<ApiProblemAlert>(parameters => parameters
@@ -142,8 +136,7 @@ public sealed class ApiProblemAlertTests : BunitContext
     [Fact]
     public void Render_WithAHeadlineClass_KeepsTheCallersBoxStylingIntact()
     {
-        // The rich `error-message` box styles its title through `.em-body .t`; the component has to
-        // carry that class or every load-failure box loses its heading style.
+        // The `error-message` box styles its title through `.em-body .t`.
         IRenderedComponent<ApiProblemAlert> component = Render<ApiProblemAlert>(parameters => parameters
             .Add(alert => alert.Fallback, "Nie udało się wczytać statystyk.")
             .Add(alert => alert.HeadlineClass, "t"));

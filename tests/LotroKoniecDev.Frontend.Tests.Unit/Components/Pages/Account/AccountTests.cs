@@ -18,10 +18,8 @@ using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.Disc
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 
 /// <summary>
-/// Renders the <c>/account</c> page through bUnit over a stubbed auth client, to pin the parts the
-/// loader tests cannot reach: the identity and consent data appear in the markup, the export download
-/// always points at the server download route, and the change-password and delete rows appear only when
-/// the API's links say so, never because of a role check in the page.
+/// Pins what the loader tests cannot reach: the account data in the markup, and the action rows that
+/// follow the API's links, never a role check.
 /// </summary>
 public sealed class AccountTests : BunitContext
 {
@@ -45,7 +43,7 @@ public sealed class AccountTests : BunitContext
         component.Markup.ShouldContain("frodo");
         component.Markup.ShouldContain("frodo@shire.me");
         component.Markup.ShouldContain("Tłumacz");
-        // The API sends UTC; the page shows Poland time (#736) — 12:00 UTC is 14:00 in summer.
+        // #736: 12:00 UTC is 14:00 Poland time in summer.
         component.Markup.ShouldContain("2026-06-01 14:00 czasu polskiego");
         component.Markup.ShouldContain("Regulamin serwisu");
         component.Markup.ShouldContain("Zaakceptowany");
@@ -54,8 +52,8 @@ public sealed class AccountTests : BunitContext
     [Fact]
     public void Render_WhenTermsNotAccepted_ShowsTheGrandfatheredConsentState()
     {
-        // Accounts created before the terms existed keep their old status (spec 0010), so the row must
-        // show the neutral state and never pretend they accepted.
+        // Accounts older than the terms keep their old status (spec 0010), so the row must never pretend
+        // they accepted.
         StubExport(AccountLoaderTests.CreateEnvelope(termsOfServiceAccepted: false));
 
         IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
@@ -67,8 +65,7 @@ public sealed class AccountTests : BunitContext
     [Fact]
     public void Render_WhenAnOlderAccountGaveTheDataProcessingConsent_ShowsNoRowForIt()
     {
-        // The account runs on the contract, so the page never presents this consent as one the user has or
-        // lacks (#1073). The envelope still carries it until the column is dropped.
+        // The account runs on the contract, so this consent is never shown as given or missing (#1073).
         StubExport(AccountLoaderTests.CreateEnvelope());
 
         IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
@@ -80,8 +77,7 @@ public sealed class AccountTests : BunitContext
     [Fact]
     public void Render_WhenEnvelopeAdvertisesTheDownload_LinksToThePasswordConfirmationPage()
     {
-        // Not a direct download any more (#690): the export asks for the password first, so the row
-        // points at the confirmation page and carries no 'download' attribute.
+        // The export asks for the password first (#690), so the row points at the confirmation page.
         StubExport(AccountLoaderTests.CreateEnvelope(links:
         [
             new LinkDto("auth/account/data-export", Rels.DownloadAccountData, "POST")
@@ -163,8 +159,7 @@ public sealed class AccountTests : BunitContext
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(discovery));
         _client.GetApiResultAsync<AccountDataExportResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            // A failure the Frontend wrote, the shape HttpClientApiExtensions produces for a transport
-            // error. It is already Polish, so it is shown as it is and not translated.
+            // The shape HttpClientApiExtensions produces for a transport error: already Polish.
             .Returns(ApiResult.Failure<AccountDataExportResponse>(ApiProblemCopy.FrontendAuthored(
                 "Nie udało się wczytać danych konta",
                 status: (int)HttpStatusCode.BadGateway)));
@@ -177,8 +172,7 @@ public sealed class AccountTests : BunitContext
     [Fact]
     public void Render_WhenTheLoadIsUnauthorized_RedirectsToLoginInsteadOfTheErrorPanel()
     {
-        // The order of the branches matters: IsUnauthorized has to win over the general failure panel,
-        // or an expired session dead-ends on an error box instead of bouncing through login.
+        // IsUnauthorized must win over the failure panel, or an expired session ends on an error box.
         StubUnauthorizedExport();
 
         IRenderedComponent<AccountComponent> component = Render<AccountComponent>();

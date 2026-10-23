@@ -83,8 +83,7 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
     }
 
     /// <summary>
-    /// #1061: the marker used to name the user, so the same user's phone, whose token works, was signed out
-    /// on its next page instead of the laptop.
+    /// #1061: the marker names the token, not the user.
     /// </summary>
     [Fact]
     public async Task SendAsync_WhenAuthenticatedCallReturns401_LeavesAnotherSessionOfTheSameUserUnmarked()
@@ -102,8 +101,7 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
     }
 
     /// <summary>
-    /// A call that carried no token says nothing about a token. The cookie validation ends a session with no
-    /// usable token on its own (#1026).
+    /// The cookie validation ends a session with no usable token on its own (#1026).
     /// </summary>
     [Fact]
     public async Task SendAsync_WhenAuthenticatedCallWithoutATokenReturns401_DoesNotMarkAnySession()
@@ -139,8 +137,6 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
     [Fact]
     public async Task SendAsync_WhenAnonymousCallReturns401_DoesNotMarkSessionDead()
     {
-        // An anonymous request returns before the 401 backstop (the handler short-circuits at the
-        // IsAuthenticated guard), so the registry is never resolved and no token is ever marked.
         IHttpContextAccessor accessor = AnonymousContext();
         (HttpMessageInvoker invoker, _) = CreateInvoker(
             accessor, StubHttpMessageHandler.RespondWith(HttpStatusCode.Unauthorized, "{}"));
@@ -183,10 +179,8 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
             [new Claim("sub", "user-1")],
             authenticationType: "Cookies"));
 
-        // HttpContext.GetTokenAsync(name) is an extension method that calls
-        // IAuthenticationService.AuthenticateAsync and reads the token out of the resulting ticket. So
-        // the token is supplied through a successful AuthenticateResult and not by stubbing
-        // GetTokenAsync.
+        // GetTokenAsync is an extension over IAuthenticationService, so the token comes through its
+        // AuthenticateResult.
         AuthenticationProperties properties = new();
         if (accessToken is not null)
         {

@@ -3,9 +3,7 @@ using System.Net;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 
 /// <summary>
-/// An <see cref="HttpMessageHandler"/> the tests control. It records the last request it saw and returns
-/// a prepared response, or throws a transport exception you give it, so the typed client and the
-/// delegating handler can be tested without a running API.
+/// Records the last request and returns a prepared response, or throws a given transport exception.
 /// </summary>
 internal sealed class StubHttpMessageHandler : HttpMessageHandler
 {
@@ -19,9 +17,7 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
     public HttpRequestMessage? LastRequest { get; private set; }
 
     /// <summary>
-    /// The body of the last request, read while it is being sent. It has to be read there, because the
-    /// typed client disposes the request and its content right after sending, so
-    /// <see cref="LastRequest"/>.Content can no longer be read once <c>SendAsync</c> returns.
+    /// Read while the request is sent, because the typed client disposes its content right after.
     /// </summary>
     public string? LastRequestBody { get; private set; }
 
@@ -34,8 +30,7 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
     }
 
     /// <summary>
-    /// A different answer per verb, for a flow that loads a resource with a GET and then follows one of
-    /// its links with a POST.
+    /// For a flow that loads a resource with a GET and then follows one of its links with a POST.
     /// </summary>
     public static StubHttpMessageHandler RespondWith(
         HttpStatusCode getStatusCode,
@@ -57,8 +52,7 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
     }
 
     /// <summary>
-    /// A response with the content you build, for a body the other factories cannot write, such as raw
-    /// bytes or a charset .NET does not know.
+    /// For a body the other factories cannot write, such as raw bytes or a charset .NET does not know.
     /// </summary>
     public static StubHttpMessageHandler RespondWith(HttpStatusCode statusCode, Func<HttpContent> content)
     {
@@ -70,10 +64,6 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
         return new StubHttpMessageHandler(_ => throw exception);
     }
 
-    /// <summary>
-    /// A response with no body but with the headers you pass, for endpoints that return their data in
-    /// headers, such as a <c>204</c> with <c>X-Deletion-Finalizes-At</c>.
-    /// </summary>
     public static StubHttpMessageHandler RespondWithHeaders(
         HttpStatusCode statusCode,
         IReadOnlyDictionary<string, string> headers)

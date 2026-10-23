@@ -111,8 +111,7 @@ public sealed class AuthSystemSettingsValidatorTests
     [InlineData(Production, "   ")]
     public void Validate_DeployedEnvironmentWithNoCallerKey_FailsNamingTheKey(string environmentName, string? callerKey)
     {
-        // A box without the key would quietly send every visitor's auth API calls into this container's
-        // one bucket, so the boot fails instead.
+        // Without the key every visitor's calls would share this container's one bucket.
         AuthSystemSettings settings = Settings(callerKey: callerKey);
 
         ValidationResult result = CreateValidator(environmentName).Validate(settings);

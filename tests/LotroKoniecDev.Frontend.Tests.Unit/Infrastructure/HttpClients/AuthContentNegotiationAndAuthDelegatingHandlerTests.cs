@@ -84,8 +84,7 @@ public sealed class AuthContentNegotiationAndAuthDelegatingHandlerTests
     }
 
     /// <summary>
-    /// #1061: the marker used to name the user, so the same user's phone, whose token works, was signed out
-    /// on its next page instead of the laptop.
+    /// #1061: the marker names the token, not the user.
     /// </summary>
     [Fact]
     public async Task SendAsync_WhenAuthenticatedCallReturns401_LeavesAnotherSessionOfTheSameUserUnmarked()
@@ -103,8 +102,7 @@ public sealed class AuthContentNegotiationAndAuthDelegatingHandlerTests
     }
 
     /// <summary>
-    /// A call that carried no token says nothing about a token. The cookie validation ends a session with no
-    /// usable token on its own (#1026).
+    /// The cookie validation ends a session with no usable token on its own (#1026).
     /// </summary>
     [Fact]
     public async Task SendAsync_WhenAuthenticatedCallWithoutATokenReturns401_DoesNotMarkAnySession()
@@ -139,8 +137,7 @@ public sealed class AuthContentNegotiationAndAuthDelegatingHandlerTests
     [Fact]
     public async Task SendAsync_WhenAnonymousCallReturns401_ReturnsTheResponseUntouched()
     {
-        // An anonymous request returns before the 401 backstop, so the registry is never resolved: the
-        // anonymous context has no request services to resolve it from.
+        // The anonymous context has no request services, so this proves the registry is never resolved.
         IHttpContextAccessor accessor = AnonymousContext();
         (HttpMessageInvoker invoker, _) = CreateInvoker(
             accessor, StubHttpMessageHandler.RespondWith(HttpStatusCode.Unauthorized, "{}"));

@@ -9,11 +9,8 @@ using Microsoft.Extensions.Options;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 
 /// <summary>
-/// #922: the app's registration switches redirects and cookies off once for every client, so no client
-/// has to ask for it. A followed redirect would carry the caller key, the visitor's address and, on a
-/// 307 or 308, a form with the refresh token to wherever an answer pointed (#830, #899). One handler
-/// serves every visitor, so a kept cookie would go out with other visitors' calls (#924). Every test goes
-/// through the real <c>AddFrontend</c>.
+/// #922: redirects and cookies are off for every client, through the real <c>AddFrontend</c>. The reasons
+/// are on <c>HttpClientsDependencyInjectionExtensions.CreatePrimaryHandler</c>.
 /// </summary>
 public sealed class HttpClientDefaultsTests
 {
@@ -48,9 +45,7 @@ public sealed class HttpClientDefaultsTests
     }
 
     /// <summary>
-    /// The app-wide transport renews its connections. The TMS and auth typed clients need that most: they
-    /// never replace their handler, so without it they would keep their connections forever and never see
-    /// a DNS change.
+    /// The typed clients never replace their handler, so without renewal they would never see a DNS change.
     /// </summary>
     [Theory]
     [InlineData(nameof(ITranslationSystemClient))]
@@ -67,8 +62,7 @@ public sealed class HttpClientDefaultsTests
     }
 
     /// <summary>
-    /// A client that needs a transport of its own, for a certificate or a proxy, keeps it, but not the
-    /// redirects and cookies a new handler has by default.
+    /// For a certificate or a proxy, a client may need a transport of its own.
     /// </summary>
     [Fact]
     public void CreateHandler_ForAClientGivenItsOwnSocketsHandler_SwitchesOffItsRedirectsAndCookies()
@@ -101,7 +95,6 @@ public sealed class HttpClientDefaultsTests
         transport.UseCookies.ShouldBeFalse();
     }
 
-    /// <summary>The tests' stand-in servers replace the transport the same way, and they must keep working.</summary>
     [Fact]
     public void CreateHandler_ForAClientGivenAStandInServer_KeepsItAsTheTransport()
     {

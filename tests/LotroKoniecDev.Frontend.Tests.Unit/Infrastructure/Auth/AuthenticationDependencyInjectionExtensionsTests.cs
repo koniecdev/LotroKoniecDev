@@ -23,8 +23,8 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Auth;
 public sealed class AuthenticationDependencyInjectionExtensionsTests
 {
     /// <summary>
-    /// Load-bearing for the auth origin's CSP (#693): OpenIddict's form_post page submits itself with an
-    /// inline script, which <c>script-src 'self'</c> there blocks, so form_post would break sign-in.
+    /// #693: OpenIddict's form_post page submits itself with an inline script, which the auth origin's CSP
+    /// blocks.
     /// </summary>
     [Fact]
     public void AddFrontendAuthentication_OpenIdConnectOptions_UsesQueryResponseMode()
@@ -43,9 +43,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     }
 
     /// <summary>
-    /// #1025: the first sign-in stores a refresh time too. SaveTokens writes only <c>expires_at</c>, and with
-    /// the old fixed 60 seconds a one-minute token was due on the very first page. A token that was already
-    /// dead on arrival is due at once, never later than its expiry.
+    /// #1025: <c>SaveTokens</c> writes only <c>expires_at</c>. A token already dead on arrival is due at once.
     /// </summary>
     [Theory]
     [InlineData(300, 240.0)]
@@ -78,8 +76,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     }
 
     /// <summary>
-    /// With no usable expiry there is nothing to plan from, and the cookie check stops at the missing
-    /// <c>expires_at</c> as it always did.
+    /// The cookie check then stops at the missing <c>expires_at</c>.
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -102,9 +99,8 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     }
 
     /// <summary>
-    /// #899: a followed redirect would carry the caller key, the visitor's address and the login code in
-    /// the code exchange's form to wherever the auth API pointed. The same holds for the userinfo and
-    /// metadata calls.
+    /// #899: a followed redirect would carry the caller key, the visitor's address and the login code to
+    /// wherever it pointed.
     /// </summary>
     [Fact]
     public void AddFrontendAuthentication_OpenIdConnectBackchannel_DoesNotFollowRedirects()
@@ -117,8 +113,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     }
 
     /// <summary>
-    /// #922: a back-channel handler that other code set before this registration is kept, and the standard
-    /// transport inside it follows no redirect and keeps no cookie either.
+    /// #922: a handler set before this registration is kept.
     /// </summary>
     [Fact]
     public void AddFrontendAuthentication_OpenIdConnectBackchannelSetElsewhere_SwitchesOffTheRedirectsAndCookiesOfTheTransportInsideIt()
@@ -133,7 +128,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         transport.UseCookies.ShouldBeFalse();
     }
 
-    /// <summary>#922: the same for the older standard transport, set as the back-channel handler itself.</summary>
+    /// <summary>#922: the older transport, set as the back-channel handler itself.</summary>
     [Fact]
     public void AddFrontendAuthentication_OpenIdConnectBackchannelSetElsewhere_SwitchesOffTheRedirectsAndCookiesOfAnHttpClientHandler()
     {
@@ -146,7 +141,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         transport.UseCookies.ShouldBeFalse();
     }
 
-    /// <summary>#923: the owner's limit, not the 100-second default.</summary>
+    /// <summary>#923: not the 100-second default.</summary>
     [Fact]
     public void AddFrontendAuthentication_TokenEndpointClient_WaitsThirtySecondsAtMost()
     {
@@ -159,10 +154,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         client.Timeout.ShouldBe(TimeSpan.FromSeconds(30));
     }
 
-    /// <summary>
-    /// #923: the same for the code exchange, the userinfo call and the discovery and key fetch, not the
-    /// 60-second default.
-    /// </summary>
+    /// <summary>#923: not the 60-second default.</summary>
     [Fact]
     public void AddFrontendAuthentication_OpenIdConnectBackchannel_WaitsThirtySecondsAtMost()
     {
@@ -172,8 +164,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     }
 
     /// <summary>
-    /// #923: the renewal is tried once. The website's other clients to the sign-in server retry a 503, and
-    /// this one must not.
+    /// #923: the website's other clients to the sign-in server retry a 503, and this one must not.
     /// </summary>
     [Fact]
     public async Task AddFrontendAuthentication_TokenEndpointClient_SendsAFailedRenewalOnlyOnce()
@@ -191,8 +182,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     }
 
     /// <summary>
-    /// #964: the sign-out's revoke follows a link from the discovery document, so the origin check has to
-    /// run before the caller key is added (#830).
+    /// The revoke follows a link from the discovery document (#964, #830).
     /// </summary>
     [Fact]
     public void AddFrontendAuthentication_TokenEndpointClient_ChecksTheOriginBeforeAnyOtherFrontendHandler()
@@ -215,8 +205,8 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     }
 
     /// <summary>
-    /// #1026: a refused sign-in ends on the error page, and the remote-failure log is the only place that
-    /// says why. The full sign-in, with no session at the end, is proved in the Frontend integration suite.
+    /// #1026: the remote-failure log is the only place that says why. The full sign-in is proved in the
+    /// integration suite.
     /// </summary>
     [Theory]
     [InlineData(null, "300", "missing, empty or blank access_token")]
@@ -243,8 +233,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     }
 
     /// <summary>
-    /// A missing or empty refresh token is allowed: OAuth makes it optional, and the handler stores no empty
-    /// one.
+    /// OAuth makes the refresh token optional, and the handler stores no empty one.
     /// </summary>
     [Theory]
     [InlineData("1", "the-refresh-token")]
@@ -277,8 +266,8 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     }
 
     /// <summary>
-    /// #1014: this cookie carries the refresh token, and the auth API lets that token live 9 hours from
-    /// its last use. A longer idle time here would keep a cookie whose token is already dead.
+    /// #1014: the auth API's refresh token lives 9 hours. A longer idle time would keep a cookie whose
+    /// token is already dead.
     /// </summary>
     [Fact]
     public void AddFrontendAuthentication_CookieOptions_EndsAfterEightIdleHours()

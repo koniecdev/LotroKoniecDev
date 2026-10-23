@@ -110,7 +110,7 @@ observability component is the agent, whose death costs telemetry, not the servi
 | `loki`, `prometheus`, `tempo`, `grafana` | −200 | *(staging only)* | literal — the `backend` profile pins them to one box, so their role never changes |
 | `preflight` | −200 | −200 | literal. It has no profile, so unlike the four above it runs in **both** roles; it is a one-shot that exits in milliseconds |
 | TheKittySaver CI build tree (`dotnet build`/`test`, Stryker, the test containers' clients) | **+1000** | *(staging only)* | set per job step by the runner from `PIPELINE_JOB_OOMSCOREADJ=1000` in `tks-ci-runner.service` (koniecdev/TheKittySaver#831). The first victim on the box, on purpose: a killed build is a red CI run, nothing else |
-| TheKittySaver CI runner (`Runner.Listener` / `Runner.Worker`) | **+500** | *(staging only)* | `OOMScoreAdjust=500` on the unit — the staging apps' line, so after the build the kernel picks between the runner and the apps by size, and never reaches the observability stack first (read back mid-build on 2026-10-02: build tree 1366–1452, runner worker ~1009, `obs-*` 500–556) |
+| TheKittySaver CI runner (`Runner.Listener` / `Runner.Worker`) | **+500** | *(staging only)* | `OOMScoreAdjust=500` on the unit — the staging apps' line, so after the build the kernel picks between the runner and the apps by size, and never reaches the observability stack first |
 | `obs-alloy` | **−300** | **+300** | `${OBS_ALLOY_OOM_SCORE_ADJ}` in `/opt/obs/.env`. The only value in that project that inverts, because `alloy` has no profile and runs on both boxes from one definition |
 
 **The agent.** Prod's telemetry does not go through the staging agent. The prod agent pushes
@@ -148,8 +148,7 @@ them as bands; the order is what the policy fixes:
 | `obs-grafana`, `obs-prometheus`, `obs-tempo`, `obs-loki` | 550–566 | | `lotro-prod-caddy` | ~606 |
 | **`obs-alloy`** | **~511** | | | |
 
-On staging the six application containers are the six top processes on the box. On prod the agent
-is the top process, above even the host's own `user@.service` at 734, which only a positive value
+On prod the agent ranks above even the host's own `user@.service` (734), which only a positive value
 can achieve.
 
 **A service added to either compose file gets its `oom_score_adj` in the same commit.** CI cannot see
@@ -1640,10 +1639,9 @@ Run `docker restart obs-grafana` if the stack was not recreated, so Grafana read
 
 **Nothing is published to the internet by the observability project itself.** Grafana binds to
 loopback. Alloy's OTLP receiver binds the two docker **bridge gateways** (`10.60.0.1` ours,
-`10.61.0.1` the guest stack's), never `0.0.0.0`: a port published on `0.0.0.0` bypasses ufw, because
-Docker inserts its DNAT rules ahead of the ufw chain. The `DOCKER-USER` leg of `bootstrap.sh` drops
-such a port on the public interface (#808), but binding the gateways stays the rule: the chain is a
-second wall, not the first. Loki, Prometheus and Tempo publish nothing. No observability container
+`10.61.0.1` the guest stack's), never `0.0.0.0`, because a port published on `0.0.0.0` bypasses ufw
+(see [Gotchas](#gotchas)). The `DOCKER-USER` leg would still drop it, but binding the gateways stays
+the rule: that chain is a second wall, not the first. Loki, Prometheus and Tempo publish nothing. No observability container
 joins `default` or `tks`: the agent reads the Docker socket, containerd and `/proc`, so it never needs
 a route to an app container and does not have one (ADR-0050 §3).
 
@@ -1669,10 +1667,9 @@ alone mailed every 6 hours about a healthy staging box.
   waiting for memory during more than 10% of the last 5 minutes
   (`node_pressure_memory_waiting_seconds_total`, the kernel's "some" memory pressure). The window is
   30 minutes because real squeezes come as bursts of 5 to 15 minutes, so a long `for:` on a 5-minute
-  rate never fires. Replayed against both boxes from 2026-09-25 to 2026-10-10, it fired only on the
-  night of 2026-10-02 (peaks of 660 and 799 pages/s); a normal CI-job burst peaked at 202 pages/s,
-  and calm days stay under 15. The 10% stall line is there for memory waits that do not show up as
-  swap traffic.
+  rate never fires. Replayed against two weeks of both boxes' history, it fired only on the one real
+  squeeze, the night of 2026-10-02. The 10% stall line is there for memory waits that do not show up
+  as swap traffic.
 - **Swap nearly full** (`fleet-swap-nearly-full`, warning) is the late guard: more than 70% for
   15 minutes. That leaves about 600 MiB of swap, and one ordinary CI job pushed 650 MiB into swap in
   five minutes on 2026-10-09. Above the line, the next such burst can fill swap, and then the kernel
@@ -1737,13 +1734,12 @@ step 4 interrupts anything (telemetry, for about a minute).
    name. No vhost on this fleet has an `AAAA` today.
 
    **Do this step FIRST, and do not let anything look the name up before it exists.** A failed lookup
-   is cached as hard as a successful one: the zone's negative TTL is `min(SOA TTL, SOA minimum)`,
-   three hours here. Hetzner's recursive resolvers (`185.12.64.1/2` and their v6 twins, which are all
-   the boxes use) hold it, so `resolvectl flush-caches` on the box does nothing. On 2026-09-09 the
-   record went in after the agent had already tried, and the prod box could not resolve it for
-   another 35 minutes while every public resolver already could. `dig @185.12.64.1 obs.<domain>`
-   shows the remaining time as the TTL on the SOA in the authority section. Waiting it out is the
-   only clean fix (the agent retries on its own).
+   is cached too, for the zone's negative TTL (`min(SOA TTL, SOA minimum)`, three hours here), and
+   Hetzner's recursive resolvers (`185.12.64.1/2` and their v6 twins, all the boxes use) hold it, so
+   `resolvectl flush-caches` on the box does nothing. On 2026-09-09 that kept the prod box from
+   resolving the name for 35 minutes after the record went in. `dig @185.12.64.1 obs.<domain>` shows
+   the time left as the TTL on the SOA in the authority section. Waiting is the only clean fix; the
+   agent retries on its own.
 2. **Mint the push credential.** One password in two forms, and the two never travel together:
    ```bash
    openssl rand -base64 24                                  # the password → prod /opt/obs/.env (step 5)
@@ -1802,12 +1798,11 @@ step 4 interrupts anything (telemetry, for about a minute).
      docker rm -f obs-cred-probe >/dev/null; rm -rf "$d"'
    ```
 
-   **200** = the pair matches. **401** = it does not, and the hash is the usual reason. It takes the
-   quoting trap off the critical path, so when the route comes up, only the route can still be
-   wrong. The netrc file keeps the password off argv, where `ps` and the shell history would both see
+   **200** = the pair matches. **401** = it does not, and the hash is the usual reason. Once this
+   passes, only the route itself can still be wrong. The netrc file keeps the password off argv, where `ps` and the shell history would both see
    it. Publishing on `127.0.0.1` keeps the throwaway Caddy off the box's public interface, where a
-   bare `-p 8899:8899` would get past ufw (Docker's DNAT rules sit ahead of the ufw chain) and be held
-   back only by the `DOCKER-USER` leg (#808).
+   bare `-p 8899:8899` would get past ufw and be held back only by the `DOCKER-USER` leg (see
+   [Gotchas](#gotchas)).
 
 4. **Staging box, `/opt/obs` on the `lotro-staging_obs` network**: about a minute without
    telemetry; the volumes, and the history in them, survive a `down` without `-v`. **Check that the

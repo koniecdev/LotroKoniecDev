@@ -9,25 +9,22 @@ namespace LotroKoniecDev.Domain.Models;
 /// <summary>
 /// The patcher's half of the <c>source_digest</c> contract (ADR-0047): 16 lower-case hex characters
 /// that identify the export-form triple <c>(text, args_order, args_id)</c> a fragment holds.
-/// The TMS computes the same value from its stored <c>TranslationSource</c>, where it is called
-/// <c>SourceHash</c>, and ships it as the seventh column of the translation file. The patcher
-/// recomputes it from the loaded fragment to decide whether a row may overwrite what the DAT holds
-/// right now.
+/// The TMS computes the same value as <c>SourceHash</c> and ships it as the seventh column of the
+/// translation file. The patcher recomputes it from the loaded fragment to decide whether a row may
+/// overwrite what the DAT holds now.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>Framing.</b> SHA-256 over the three fields, each written as <c>marker | UTF-16 code-unit count
 /// (little-endian int32) | UTF-16LE bytes</c>. A missing field is the single marker byte <c>0</c>, a
-/// present one is <c>1</c> followed by its header and bytes. This framing is what keeps <c>null</c>
-/// apart from the empty string, and <c>("ab","c")</c> apart from <c>("a","bc")</c>.
-/// The value on the wire is the first eight <b>bytes</b> of the digest, in digest order, as lower-case
-/// hex. It is never a <c>ulong</c> printed with <c>x16</c>, which would reverse the byte order.
+/// present one is <c>1</c> followed by its header and bytes. This keeps <c>null</c> apart from the
+/// empty string, and <c>("ab","c")</c> apart from <c>("a","bc")</c>.
+/// The wire value is the first eight <b>bytes</b> of the digest, in digest order, as lower-case hex.
+/// Never print it as a <c>ulong</c> with <c>x16</c>: that reverses the byte order.
 /// </para>
 /// <para>
-/// <b>Two copies on purpose.</b> The two bounded contexts share the file and never the code
-/// (CLAUDE.md), so this is written separately from the TMS' <c>SourceHash</c>. A golden fixture
-/// pinned by a unit test in both contexts is what keeps the copies the same (ADR-0047 §6). If they
-/// drift, a build fails instead of an update day.
+/// <b>Twin of the TMS <c>SourceHash</c>.</b> The contexts share the file, never the code. A golden
+/// fixture pinned by a unit test in both contexts keeps the two copies equal (ADR-0047 §6).
 /// </para>
 /// </remarks>
 public static class SourceDigest
@@ -42,9 +39,9 @@ public static class SourceDigest
     private const char ArgsPositionSeparator = '-';
 
     /// <summary>
-    /// The digest of what <paramref name="fragment"/> holds right now, built exactly the way
-    /// <c>export</c> writes it: the pieces joined with the placeholder, and args columns counted up
-    /// from the fragment's own number of argument references.
+    /// The digest of what <paramref name="fragment"/> holds now, built the way <c>export</c> writes
+    /// it: the pieces joined with the placeholder, and args columns counted up from the fragment's
+    /// own number of argument references.
     /// </summary>
     public static string ForFragment(Fragment fragment)
     {
@@ -100,10 +97,10 @@ public static class SourceDigest
     }
 
     /// <summary>
-    /// Whether <paramref name="value"/> can be a wire digest: exactly 16 hex characters. This is how
-    /// both carvers tell a seventh column from a six-column line's <c>approved</c> field (ADR-0047
-    /// §2). Nothing else can sit in that slot, and hex never holds a <c>|</c>. Reading accepts upper
-    /// case as well, so a hand-edited file still works; writers always emit lower case.
+    /// Whether <paramref name="value"/> can be a wire digest: 16 hex characters. Both carvers use it
+    /// to tell a seventh column from a six-column line's <c>approved</c> field (ADR-0047 §2); hex
+    /// never holds a <c>|</c>. Upper case is accepted so a hand-edited file still works; writers
+    /// always emit lower case.
     /// </summary>
     public static bool IsWireForm(string? value)
     {

@@ -7,16 +7,8 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.Hateoas.LinkFactories;
 
 /// <summary>
-/// Turns a named endpoint into an absolute URI with ASP.NET's <see cref="LinkGenerator"/>, and emits
-/// the link only when the caller could really follow it. It returns <see langword="null"/> when the
-/// endpoint cannot be found (a typo in the name, or a missing <c>WithName(...)</c> on the route) or
-/// when the endpoint's authorization would answer 401 or 403. Callers collect the links that are not
-/// null with <see cref="LinkListExtensions.AddIfPresent"/>.
-/// <para>
-/// The check reads the target endpoint's own metadata instead of repeating role rules in each link
-/// factory. The endpoint's policy stays the one source of truth, so a link can never promise
-/// something the endpoint would refuse.
-/// </para>
+/// The check replays the target endpoint's own authorization metadata instead of repeating role rules
+/// in each link factory, so a link never promises something the endpoint would refuse (ADR-0040).
 /// </summary>
 internal sealed partial class LinkFactory : ILinkFactory
 {
@@ -66,13 +58,12 @@ internal sealed partial class LinkFactory : ILinkFactory
     }
 
     /// <summary>
-    /// Runs ASP.NET's own authorization check for the target endpoint against the current caller.
-    /// It fails closed: an endpoint we cannot find is never advertised.
+    /// Fails closed: an endpoint we cannot find is never advertised.
     /// </summary>
     private async ValueTask<bool> IsCallerAuthorizedAsync(HttpContext httpContext, string endpointName)
     {
-        // This is the address scheme LinkGenerator.GetUriByName just used, so the lookup lands on the
-        // very endpoint whose URI was built, not on a second one that happens to match.
+        // The address scheme LinkGenerator.GetUriByName just used, so the lookup lands on the endpoint
+        // whose URI was built, not on a second one that happens to match.
         Endpoint? endpoint = _endpointAddressScheme.FindEndpoints(endpointName).FirstOrDefault();
 
         if (endpoint is null)
@@ -81,17 +72,15 @@ internal sealed partial class LinkFactory : ILinkFactory
         }
 
         // Same order as AuthorizationMiddleware: AllowAnonymous beats every policy, the fallback one
-        // included. It has to come before CombineAsync, because AllowAnonymousAttribute is not
-        // IAuthorizeData: in an authorized-by-default app an anonymous endpoint still combines into the
-        // fallback policy. Check the policy first and every public link disappears for guests.
+        // included. An anonymous endpoint still combines into the fallback policy, so checking the
+        // policy first would hide every public link from guests.
         if (endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null)
         {
             return true;
         }
 
-        // When the endpoint has no authorize metadata of its own, CombineAsync adds the application's
-        // fallback policy. An authorized-by-default API is then judged exactly as the middleware
-        // would judge it.
+        // With no authorize metadata of its own, CombineAsync adds the fallback policy, so an
+        // authorized-by-default API is judged as the middleware would judge it.
         AuthorizationPolicy? policy = await AuthorizationPolicy.CombineAsync(
             _authorizationPolicyProvider,
             endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
@@ -102,9 +91,8 @@ internal sealed partial class LinkFactory : ILinkFactory
             return true;
         }
 
-        // No policy in either API names an authentication scheme, so the user ASP.NET already
-        // authenticated for this request is the one the target endpoint would see. Only the policy's
-        // requirements are left to check.
+        // No policy in either API names an authentication scheme, so the user already authenticated
+        // for this request is the one the target endpoint would see. Only the requirements are left.
         AuthorizationResult authorizationResult = await _authorizationService.AuthorizeAsync(
             httpContext.User,
             resource: null,

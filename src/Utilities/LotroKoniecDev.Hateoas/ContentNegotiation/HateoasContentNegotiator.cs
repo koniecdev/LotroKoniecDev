@@ -6,32 +6,12 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.Hateoas.ContentNegotiation;
 
 /// <summary>
-/// Reads the Accept header (RFC 7231 / RFC 9110) and picks between plain JSON and our link-carrying
-/// JSON, using the quality values the client sent.
-///
-/// <para>Rules:</para>
-/// <list type="bullet">
-///   <item>No Accept header, or an empty one: plain JSON.</item>
-///   <item>A wildcard (<c>*/*</c>, <c>application/*</c>): plain JSON, because links are opt-in.</item>
-///   <item>Our vendor type listed with a quality at least as high as JSON: links.</item>
-///   <item>Anything else: plain JSON.</item>
-/// </list>
-///
+/// Links are opt-in, so a missing Accept header or a wildcard (<c>*/*</c>, <c>application/*</c>) gets
+/// plain JSON. The vendor type wins when the client lists it with a quality at least as high as plain
+/// JSON's: the client named it, and dropping the links without saying so would surprise them.
 /// <para>
-/// On a tie the vendor type wins, because the client asked for it by name and dropping the links
-/// without saying so would surprise them.
-/// </para>
-///
-/// <para>
-/// This is a pure function over the Accept header, so it is a static class: no state, no
-/// dependencies, and nothing worth substituting in a test. An interface with one implementation would
-/// only exist so <see cref="HateoasNegotiatedResult{T}"/> could pull it out of DI.
-/// </para>
-///
-/// <para>
-/// When the Accept header matches neither type (say <c>text/html</c>), RFC 9110 §15.5.7 allows a
-/// <c>406 Not Acceptable</c>. We return plain JSON instead, as most REST APIs do, because we have no
-/// other representation to offer.
+/// An Accept header that matches neither type (say <c>text/html</c>) also gets plain JSON, not the
+/// <c>406</c> that RFC 9110 §15.5.7 allows: we have no other representation to offer.
 /// </para>
 /// </summary>
 internal static class HateoasContentNegotiator
@@ -79,7 +59,6 @@ internal static class HateoasContentNegotiator
             return false;
         }
 
-        // On a tie the vendor type wins: it is more specific and the client named it.
         return hateoasQuality >= jsonQuality;
     }
 }

@@ -1,15 +1,12 @@
 namespace LotroKoniecDev.Architecture.Tests.Unit.Shared;
 
 /// <summary>
-/// Root namespace of every production assembly, plus the third-party roots the rules forbid.
+/// NetArchTest matches a dependency when its full type name starts with the given string, so these
+/// constants are prefixes: <see cref="Hateoas"/> also covers <see cref="HateoasAbstractions"/>, and
+/// <see cref="TranslationSystemReadModels"/> also covers
+/// <see cref="TranslationSystemReadModelsEntityFramework"/>. Pick the narrowest prefix that states the
+/// boundary a rule defends.
 /// </summary>
-/// <remarks>
-/// NetArchTest matches a dependency when its full type name STARTS WITH the given string, so these
-/// constants are prefixes, not exact names: <see cref="Hateoas"/> also covers
-/// <see cref="HateoasAbstractions"/>, and <see cref="TranslationSystemReadModels"/> also covers
-/// <see cref="TranslationSystemReadModelsEntityFramework"/>. Pick the narrowest prefix that states
-/// the boundary a rule defends.
-/// </remarks>
 internal static class Namespaces
 {
     internal const string PatcherPrimitives = "LotroKoniecDev.Primitives";

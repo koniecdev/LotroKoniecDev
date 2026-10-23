@@ -4,20 +4,14 @@ using Microsoft.Extensions.Options;
 namespace LotroKoniecDev.Hateoas.ExceptionHandlers;
 
 /// <summary>
-/// A last-resort <see cref="IProblemDetailsWriter"/> that writes RFC 7807
-/// <c>application/problem+json</c> whatever the client's <c>Accept</c> header says.
-/// ASP.NET Core's default writer only runs for clients that accept <c>application/json</c> or
-/// <c>application/problem+json</c>. Without this one, a client asking for anything else (our vendor
-/// type <c>application/vnd.dev-lotrokoniecdev.hateoas.json</c>, for example) would make
-/// <see cref="IProblemDetailsService"/>.<c>WriteAsync</c> throw, and the error response would turn
-/// into a 500 with no body.
-/// <para>
-/// It is registered after <c>AddProblemDetails()</c>, so the default writer keeps the Accept types it
-/// supports and this one is tried last and always accepts.
-/// </para>
+/// ASP.NET Core's default writer only serves clients that accept <c>application/json</c> or
+/// <c>application/problem+json</c>. For any other Accept value, such as our vendor type,
+/// <see cref="IProblemDetailsService"/>.<c>WriteAsync</c> would throw and the error would become a 500
+/// with no body. This writer is registered after <c>AddProblemDetails()</c>, so it is tried last and
+/// always accepts.
 /// <para>
 /// It runs <see cref="ProblemDetailsOptions.CustomizeProblemDetails"/> like the default writer does, so
-/// what an app adds there reaches every client, whatever it accepts (#912).
+/// what an app adds there reaches every client (#912).
 /// </para>
 /// </summary>
 internal sealed class FallbackProblemDetailsWriter : IProblemDetailsWriter

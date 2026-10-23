@@ -5,8 +5,8 @@ using NetArchTest.Rules;
 namespace LotroKoniecDev.Architecture.Tests.Unit.Tests;
 
 /// <summary>
-/// Proves the suite can still say "no". Every other test here asserts an ABSENCE, so a broken search set
-/// or a silently empty type scan would report a green that means nothing.
+/// Proves the suite can still say "no". Every other test here asserts an absence, so a broken search set
+/// or an empty type scan would report a green that means nothing.
 /// </summary>
 public sealed class SuiteSelfTests
 {
@@ -35,14 +35,13 @@ public sealed class SuiteSelfTests
     }
 
     /// <summary>
-    /// Catches the half-done wiring: a new production project gets its <c>ProjectReference</c> here but
-    /// never joins <see cref="ProductionAssemblies.All"/>, so no rule ever sees it.
+    /// Catches a new production project that gets its <c>ProjectReference</c> here but never joins
+    /// <see cref="ProductionAssemblies.All"/>.
     /// </summary>
     /// <remarks>
-    /// It reads this suite's own build output, the same directory <c>Assembly.Load</c> already uses, so it
-    /// gives the same answer every time, in any order, on any platform.
-    /// <c>GetReferencedAssemblies()</c> cannot do this: it only lists the assemblies the compiler really
-    /// bound, and most of the search set is loaded by name and never referenced at compile time.
+    /// It reads this suite's build output, the directory <c>Assembly.Load</c> uses.
+    /// <c>GetReferencedAssemblies()</c> cannot do this: it lists only the assemblies the compiler bound,
+    /// and most of the search set is loaded by name and never referenced at compile time.
     /// </remarks>
     [Fact]
     public void SearchSet_EveryProductionAssemblyInTheBuildOutput_IsUnderRule()

@@ -4,15 +4,12 @@ using Microsoft.Extensions.Hosting;
 namespace LotroKoniecDev.Tests.Shared;
 
 /// <summary>
-/// Starts a <c>WebApplicationFactory</c> host so that a refused start ends in the app's own error (#1040).
-/// The app starts on a thread of its own. When its <c>RunAsync</c> fails, that thread disposes the host.
-/// The test host reads the host's services before it waits for the start, so a test thread that came late
-/// got an <see cref="ObjectDisposedException"/> instead of the app's error. Here the app waits with its
-/// start until the test host has read them. A refusal before <c>RunAsync</c>, in a seed step for example,
-/// needs no hold, because nothing disposes the host there. An <c>await using</c> on the app in a
-/// Program.cs would change that. This replaces the default <c>CreateHost</c>, which also sets the port of
-/// a host started with <c>UseKestrel(port)</c>. No suite does that. Linked into the three in-memory host
-/// suites.
+/// Makes a refused start end in the app's own error, not in an <see cref="ObjectDisposedException"/>
+/// (#1040). The app starts on its own thread, and when its <c>RunAsync</c> fails, that thread disposes
+/// the host while the test host may still be reading its services. So the app holds its start until the
+/// test host has read them. A refusal before <c>RunAsync</c> (a seed step) needs no hold, but an
+/// <c>await using</c> on the app in a Program.cs would change that. This replaces the default
+/// <c>CreateHost</c>, which also sets the port of a <c>UseKestrel(port)</c> host; no suite uses that.
 /// </summary>
 internal static class HostStartOrder
 {

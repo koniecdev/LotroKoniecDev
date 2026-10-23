@@ -10,15 +10,14 @@ namespace LotroKoniecDev.Architecture.Tests.Unit.Tests;
 
 /// <summary>
 /// The CQRS read/write split (ADR-0002 amendment): queries read POCO read models through
-/// <c>IApplicationReadDbContext</c>; commands load and mutate aggregates through repositories plus
-/// <c>IUnitOfWork</c>. Handlers use explicit constructor DI, so a constructor's parameters ARE the
+/// <c>IApplicationReadDbContext</c>; commands mutate aggregates through repositories and
+/// <c>IUnitOfWork</c>. Handlers use explicit constructor DI, so a constructor's parameters are the
 /// handler's dependency list.
 /// </summary>
 /// <remarks>
-/// The opposite rule, that a command handler may not use the read context, is deliberately not checked.
-/// <c>UpsertTranslation</c> reads the committed row back through the read model so the response can
-/// carry the joined display names of the submitter and approver (ADR-0004). The split that matters goes
-/// one way only: the write model never serves a query.
+/// A command handler may use the read context: <c>UpsertTranslation</c> reads the committed row back
+/// through the read model, so the response carries the submitter's and approver's display names
+/// (ADR-0004). The split goes one way only: the write model never serves a query.
 /// </remarks>
 public sealed class CqrsSeparationTests
 {

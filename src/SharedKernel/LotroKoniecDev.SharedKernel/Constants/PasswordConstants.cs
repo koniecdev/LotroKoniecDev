@@ -1,8 +1,8 @@
 namespace LotroKoniecDev.SharedKernel.Constants;
 
 /// <summary>
-/// The password length rule. The Identity options, the Identity validator for the maximum and the API's
-/// FluentValidation rules all read it, so every path that sets a password keeps the same limits (#1046).
+/// The Identity options, the Identity validator for the maximum and the API's FluentValidation rules
+/// all read these, so every path that sets a password keeps the same limits (#1046).
 /// </summary>
 public static class PasswordConstants
 {

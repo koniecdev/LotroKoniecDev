@@ -1,9 +1,8 @@
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 
 /// <summary>
-/// The answer to a refresh grant, in the two kinds of failure ADR-0067 decision 3 sets (#1062). A
-/// temporary failure goes away on its own, so the session survives it while its access token still works.
-/// A final failure ends the session.
+/// The two kinds of failure ADR-0067 decision 3 sets: the session survives a temporary one while its access
+/// token still works, and a final one ends it.
 /// </summary>
 internal sealed class TokenRefreshResult
 {

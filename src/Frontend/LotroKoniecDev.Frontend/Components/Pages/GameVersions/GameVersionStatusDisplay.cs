@@ -3,10 +3,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 namespace LotroKoniecDev.Frontend.Components.Pages.GameVersions;
 
 /// <summary>
-/// Turns a <see cref="GameVersionStatus"/> into its Polish label and badge CSS class for the list. The
-/// Frontend is Polish only, like the rest of the UI, so the labels are written here instead of being
-/// translated. <see cref="GameVersionStatus.Unset"/> is never stored, and it falls back to the neutral
-/// "unknown" badge just in case. It works like <c>TranslationStatusDisplay</c>.
+/// <see cref="GameVersionStatus.Unset"/> is never stored; it falls back to the neutral "unknown" badge.
 /// </summary>
 internal static class GameVersionStatusDisplay
 {

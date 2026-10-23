@@ -13,35 +13,29 @@ namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 
 public static class HttpClientsDependencyInjectionExtensions
 {
-    /// <summary>How many calls the circuit breaker must see in its window before it may open.</summary>
     internal const int CircuitBreakerMinimumThroughput = 10;
 
-    /// <summary>The time limit per attempt for ordinary JSON calls. It is short, so a stalled API fails fast.</summary>
+    /// <summary>Per attempt, for ordinary JSON calls.</summary>
     internal static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// The time limit per attempt for a multipart upload. It has to cover sending exported.txt, about
-    /// 80 MB, plus the API's import, which parses the file, computes the whole diff, saves it and rebuilds
-    /// the artifact. So it is much longer than <see cref="DefaultRequestTimeout"/> (spec 0003, #208).
+    /// Per attempt, for a multipart upload. It covers sending exported.txt (about 80 MB) plus the API's
+    /// import, which takes minutes (spec 0003).
     /// </summary>
     internal static readonly TimeSpan UploadRequestTimeout = TimeSpan.FromMinutes(5);
 
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Every client <see cref="IHttpClientFactory"/> builds in this app starts on
-        /// <see cref="CreatePrimaryHandler"/>. A client given its own standard transport still follows no
-        /// redirect and keeps no cookie. So a new client to either API is safe even when nobody remembers
-        /// the setting: #830 missed two clients, and #899 had to fix them (#922). Under the http/protobuf
-        /// protocol it also reaches the OTLP exporter's clients: the collector never redirects and needs
-        /// no cookie.
+        /// Every factory client starts on <see cref="CreatePrimaryHandler"/>, and one given its own standard
+        /// transport still follows no redirect and keeps no cookie. So a new client is safe even when nobody
+        /// remembers the setting (#922). It also reaches the OTLP exporter's clients, which need neither.
         /// </summary>
         public IServiceCollection AddHttpClientDefaults()
         {
             services.ConfigureHttpClientDefaults(builder => builder.ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler));
 
-            // A post-configure runs after every Configure, so it also reaches a transport that a client's own
-            // ConfigurePrimaryHttpMessageHandler put in place of the default.
+            // A post-configure also reaches a transport set by a client's own ConfigurePrimaryHttpMessageHandler.
             services.PostConfigureAll<HttpClientFactoryOptions>(options =>
                 options.HttpMessageHandlerBuilderActions.Add(builder => SwitchOffRedirectsAndCookies(builder.PrimaryHandler)));
 
@@ -58,16 +52,14 @@ public static class HttpClientsDependencyInjectionExtensions
                         .GetRequiredService<IOptions<TranslationSystemSettings>>().Value;
                     client.BaseAddress = new Uri(settings.BaseUrl);
 
-                    // The resilience pipeline owns the time limit. HttpClient.Timeout is one limit for the
-                    // whole pipeline and would default to 100 seconds, which would cut a large upload
-                    // short. The per-attempt timeout below is chosen per kind of request instead.
+                    // The resilience pipeline owns the time limit. The default 100-second HttpClient.Timeout
+                    // would cut a large upload short.
                     client.Timeout = Timeout.InfiniteTimeSpan;
                 })
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
                 .AddSameOriginHandler<TranslationSystemSettings>(settings => settings.BaseUrl)
                 .AddHttpMessageHandler<TranslationContentNegotiationAndAuthDelegatingHandler>()
-                // Outside the resilience handler on purpose: a retried request is the same message, so
-                // the caller headers are added once and the TMS API sees one value each (ADR-0054, #823).
+                // Outside the resilience handler, so a retry never adds the caller headers twice (ADR-0054).
                 .AddFrontendCallerHandler<TranslationSystemSettings>(settings => settings.CallerKey)
                 .AddResilienceHandler("TranslationSystemResilience", ConfigureResiliencePipeline);
 
@@ -84,8 +76,7 @@ public static class HttpClientsDependencyInjectionExtensions
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
                 .AddSameOriginHandler<AuthSystemSettings>(settings => settings.BaseUrl)
                 .AddHttpMessageHandler<AuthContentNegotiationAndAuthDelegatingHandler>()
-                // Outside the resilience handler on purpose: a retried request is the same message, so
-                // the caller headers are added once and the auth API sees one value each (ADR-0054).
+                // Outside the resilience handler, so a retry never adds the caller headers twice (ADR-0054).
                 .AddFrontendCallerHandler<AuthSystemSettings>(settings => settings.CallerKey)
                 .AddResilienceHandler("AuthSystemResilience", ConfigureResiliencePipeline);
 
@@ -95,20 +86,14 @@ public static class HttpClientsDependencyInjectionExtensions
 
     extension(IHttpClientBuilder builder)
     {
-        /// <summary>
-        /// Adds <see cref="SameOriginDelegatingHandler"/> bound to the base address of the API this client
-        /// calls. It must be the first handler (#830).
-        /// </summary>
+        /// <summary>It must be the first handler (#830).</summary>
         internal IHttpClientBuilder AddSameOriginHandler<TSettings>(Func<TSettings, string> readBaseUrl)
             where TSettings : class =>
             builder.AddHttpMessageHandler(serviceProvider => new SameOriginDelegatingHandler(
                 new Uri(readBaseUrl(serviceProvider.GetRequiredService<IOptions<TSettings>>().Value)),
                 serviceProvider.GetRequiredService<ILogger<SameOriginDelegatingHandler>>()));
 
-        /// <summary>
-        /// Adds <see cref="FrontendCallerDelegatingHandler"/> with the caller key of the API this client
-        /// calls (ADR-0054). One box has one key today, but each API's settings carry their own copy.
-        /// </summary>
+        /// <summary>One box has one key today, but each API's settings carry their own copy (ADR-0054).</summary>
         internal IHttpClientBuilder AddFrontendCallerHandler<TSettings>(Func<TSettings, string?> readCallerKey)
             where TSettings : class =>
             builder.AddHttpMessageHandler(serviceProvider => new FrontendCallerDelegatingHandler(
@@ -117,14 +102,10 @@ public static class HttpClientsDependencyInjectionExtensions
     }
 
     /// <summary>
-    /// When .NET follows a redirect, it drops the <c>Authorization</c> header but sends every other header
-    /// again, the caller key too. A <c>307</c> or <c>308</c> also sends the form body again. So no frontend
-    /// client to either API follows a redirect: the typed clients (#830), the token client and the OIDC
-    /// back-channel (#899), and every client added later (#922).
-    /// One handler serves every visitor, so a cookie it kept from one visitor's call would go out with
-    /// other visitors' calls. No call to either API needs a cookie, so the handler keeps none (#924).
-    /// The two typed clients never replace their handler, so their connections are renewed every 15
-    /// minutes instead, and a DNS change still reaches them.
+    /// No redirects: .NET drops <c>Authorization</c> on a redirect but sends every other header again, the
+    /// caller key too, and a <c>307</c>/<c>308</c> sends the form body again (#830, #899). No cookies: one
+    /// handler serves every visitor, so a kept cookie would go out with other visitors' calls (#924). The
+    /// typed clients never replace their handler, so connections are renewed every 15 minutes for DNS.
     /// </summary>
     internal static SocketsHttpHandler CreatePrimaryHandler() => new()
     {
@@ -134,9 +115,8 @@ public static class HttpClientsDependencyInjectionExtensions
     };
 
     /// <summary>
-    /// Switches redirects and cookies off on the standard transport at the end of
-    /// <paramref name="handler"/>, for the reasons on <see cref="CreatePrimaryHandler"/> (#922). Any other
-    /// transport, such as a test's stand-in server, is left as it is.
+    /// Acts on the standard transport at the end of the chain, for the reasons on
+    /// <see cref="CreatePrimaryHandler"/>. Any other transport, such as a test's stand-in, is left alone.
     /// </summary>
     internal static void SwitchOffRedirectsAndCookies(HttpMessageHandler handler)
     {
@@ -159,26 +139,16 @@ public static class HttpClientsDependencyInjectionExtensions
         }
     }
 
-    /// <summary>
-    /// Picks the timeout for a request: the long upload one when the body is a multipart form, which is
-    /// the exported.txt upload, and otherwise the short default for ordinary JSON calls.
-    /// </summary>
     internal static TimeSpan ResolveTimeout(HttpRequestMessage? request) =>
         request?.Content is MultipartFormDataContent
             ? UploadRequestTimeout
             : DefaultRequestTimeout;
 
     /// <summary>
-    /// Whether the pipeline may send a request a second time. Two kinds of request may not.
-    /// A multipart upload's body can only be read once, so a retry would send an already-consumed stream,
-    /// and an upload refused for being too large, which shows up as a broken pipe rather than a 413, will
-    /// not succeed on a second try either. Retrying it only multiplies the load and keeps the request
-    /// waiting through every attempt and timeout.
-    /// A request that carries a password confirmation spends one permit of the account's budget per
-    /// attempt (ADR-0053). The retry fires on the per-attempt timeout as well, and a slow auth API still
-    /// serves the first attempt, so one click would spend two or three permits.
-    /// The same answer feeds the circuit breaker, so a failure on one of these requests does not count
-    /// toward opening it, exactly as a multipart failure never did.
+    /// A multipart upload's body can be read only once, and an upload refused as too large will not pass
+    /// on a second try. A password confirmation spends one permit of the account's budget per attempt
+    /// (ADR-0053), and a timed-out attempt may still be served, so one click would spend several. The
+    /// circuit breaker uses the same answer, so these failures never count toward opening it.
     /// </summary>
     internal static bool MayRetry(HttpRequestMessage? request) =>
         request?.Content switch
@@ -208,11 +178,6 @@ public static class HttpClientsDependencyInjectionExtensions
             ShouldHandle = args => ValueTask.FromResult(IsHandledTransientFailure(args.Outcome, args.Context))
         });
 
-        // A normal JSON call keeps the short default, but a multipart upload carries exported.txt, about
-        // 80 MB and growing, and then waits for the API's import, which takes minutes and not seconds.
-        // The body can only be read once, so it is already excluded from retries below. The single
-        // attempt simply needs more time than the default, or a healthy upload is cut off halfway
-        // (spec 0003).
         pipeline.AddTimeout(new TimeoutStrategyOptions
         {
             TimeoutGenerator = args => ValueTask.FromResult(ResolveTimeout(args.Context.GetRequestMessage()))

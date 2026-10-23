@@ -8,11 +8,6 @@ using Microsoft.Extensions.Options;
 
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 
-/// <summary>
-/// Maps the login and logout routes the OIDC setup needs. Login starts the challenge; logout clears the
-/// cookie, revokes the refresh token and ends the session at the auth server. The navbar's login and
-/// logout buttons point here (M3-02).
-/// </summary>
 internal static class AuthEndpointsExtensions
 {
     private const string EndSessionPath = "connect/logout";
@@ -23,8 +18,7 @@ internal static class AuthEndpointsExtensions
     {
         public IEndpointRouteBuilder MapAuthEndpoints()
         {
-            // Every page that needs a login sends the visitor here, so this route must never need a login
-            // itself, or that redirect would loop.
+            // Every page that needs a login sends the visitor here, so a login here would loop.
             endpoints.MapGet(
                 AuthenticationDependencyInjectionExtensions.LoginPath,
                 LoginAsync)
@@ -43,12 +37,10 @@ internal static class AuthEndpointsExtensions
     }
 
     /// <summary>
-    /// The login route's handler, internal so a unit test can call it without a web host.
-    /// While the sign-in server is down and the website has no copy of its discovery document yet, the
-    /// challenge cannot build its redirect, so the route answers 503 and the status-code pages show the
-    /// "login temporarily unavailable" page (#311). With a copy, the visitor is still sent on
-    /// (#1208). Every page that needs
-    /// a login sends the visitor here first, through the cookie scheme's challenge (#1153).
+    /// Internal so a unit test can call it without a web host. With no copy of the discovery document
+    /// and the sign-in server down, the challenge cannot build its redirect, so the route answers 503 and
+    /// the status-code pages show "login temporarily unavailable" (#311). With a copy, the visitor is
+    /// still sent on (#1208).
     /// </summary>
     internal static async Task<IResult> LoginAsync(
         HttpContext context,
@@ -68,14 +60,10 @@ internal static class AuthEndpointsExtensions
     }
 
     /// <summary>
-    /// A sign-out with no end-session round trip, for cases where the session at the auth server is already
-    /// gone, for example right after an account deletion was scheduled and the auth server locked the
-    /// account and revoked its tokens.
-    /// The normal <see cref="LogoutAsync"/> goes through the OIDC end-session endpoint and always ends on
-    /// the registered post-logout URI, the home page. This one skips that pointless round trip and ends
-    /// on the given local page instead, the "deletion scheduled" info page.
-    /// The auth server's own revoke is best effort, so the website still revokes its refresh token, like
-    /// every other place where it ends a session (#1027).
+    /// A sign-out with no end-session round trip, for when the session at the auth server is already gone,
+    /// such as right after an account deletion was scheduled. It ends on the given local page instead of
+    /// the home page. The auth server's own revoke is best effort, so the website revokes its refresh
+    /// token too (#1027).
     /// </summary>
     internal static async Task<IResult> LocalSignOutAsync(
         HttpContext context,
@@ -94,11 +82,9 @@ internal static class AuthEndpointsExtensions
     }
 
     /// <summary>
-    /// The logout route's handler, internal so a unit test can call it without a web host.
-    /// The redirect below revokes this device's session only if the browser reaches the auth server. The
-    /// refresh token belongs to the same session, so the website revokes it first, server to server. That
-    /// revoke does not depend on the browser (#931, #964). The redirect stays for the auth server's own
-    /// cookie.
+    /// Internal so a unit test can call it without a web host. The end-session redirect works only if the
+    /// browser reaches the auth server, so the website first revokes the refresh token server to server
+    /// (#964). The redirect stays for the auth server's own cookie.
     /// </summary>
     internal static async Task<IResult> LogoutAsync(
         HttpContext context,

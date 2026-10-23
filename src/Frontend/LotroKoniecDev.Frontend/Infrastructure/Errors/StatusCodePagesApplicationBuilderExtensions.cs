@@ -5,15 +5,9 @@ using Microsoft.AspNetCore.Routing;
 namespace LotroKoniecDev.Frontend.Infrastructure.Errors;
 
 /// <summary>
-/// Works like the built-in <c>UseStatusCodePagesWithReExecute(string, string?)</c>, but the host can
-/// pick a different page per status code, so 401, 403, 404 and 5xx each land on a page that says what
-/// really happened instead of pretending every error is a 404.
+/// Like the built-in <c>UseStatusCodePagesWithReExecute</c>, but with a page per status code, so each
+/// error lands on a page that says what really happened. It follows the framework's own implementation.
 /// </summary>
-/// <remarks>
-/// It follows the framework's own implementation: it sets <see cref="IStatusCodeReExecuteFeature"/> so
-/// middleware can tell this is a second pass, clears the matched endpoint so the new path is routed
-/// again, and restores the request state in <c>finally</c>.
-/// </remarks>
 public static class StatusCodePagesApplicationBuilderExtensions
 {
     extension(IApplicationBuilder app)

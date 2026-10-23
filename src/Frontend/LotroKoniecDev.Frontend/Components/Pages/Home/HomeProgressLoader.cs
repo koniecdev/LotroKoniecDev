@@ -7,11 +7,7 @@ using LotroKoniecDev.TranslationSystem.Contracts.Progress;
 namespace LotroKoniecDev.Frontend.Components.Pages.Home;
 
 /// <summary>
-/// Fetches the landing page's public progress numbers (#309) through the typed TMS client. The endpoint
-/// comes from the service document's <c>progress</c> rel (#610) and is open to anyone, so the page works
-/// before anybody logs in.
-/// It stays a thin injectable class, so the page's data flow can be unit-tested end to end against a
-/// stubbed HTTP handler, like <see cref="Dashboard.DashboardStatsLoader"/>.
+/// The <c>progress</c> rel is open to anyone, so the landing page works before anybody signs in (#309).
 /// </summary>
 internal sealed class HomeProgressLoader
 {

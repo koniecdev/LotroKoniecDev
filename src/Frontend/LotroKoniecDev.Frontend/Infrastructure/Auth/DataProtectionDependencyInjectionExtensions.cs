@@ -10,13 +10,9 @@ internal static class DataProtectionDependencyInjectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Sets up ASP.NET Core Data Protection: the same application name in every environment, so a key
-        /// one instance created can be read by another, and keys written to disk only when a keyring path
-        /// is configured. In Development the path stays empty and the framework's default location is
-        /// used, which already survives a restart.
-        /// The path is read straight from configuration here, because Data Protection is set up before the
-        /// DI container exists: there is no validated options object yet, and resolving
-        /// <see cref="IServiceProvider"/> at this point would trigger ASP0000.
+        /// A fixed application name and a kept keyring, so cookies, antiforgery tokens and the OIDC
+        /// correlation survive a restart and work across instances. The path is read straight from
+        /// configuration, because this runs before the DI container exists (ASP0000).
         /// </summary>
         public IServiceCollection AddFrontendDataProtection(IConfiguration configuration, IHostEnvironment environment)
         {
@@ -24,10 +20,8 @@ internal static class DataProtectionDependencyInjectionExtensions
                 .GetSection(DataProtectionSettings.ConfigurationSection)
                 .Get<DataProtectionSettings>() ?? new DataProtectionSettings();
 
-            // Better to fail loudly than to fail quietly. A keyring that lives only in one process is
-            // never what anyone wants outside Development: it invalidates every auth cookie, antiforgery
-            // token and OIDC correlation cookie on each deploy, without a word, and makes more than one
-            // replica impossible. Stop at startup instead of running badly in production.
+            // A keyring that lives in one process silently logs every user out on each deploy, so stop at
+            // startup instead.
             if (!environment.IsDevelopment() && string.IsNullOrWhiteSpace(settings.KeyRingPath))
             {
                 throw new InvalidOperationException(

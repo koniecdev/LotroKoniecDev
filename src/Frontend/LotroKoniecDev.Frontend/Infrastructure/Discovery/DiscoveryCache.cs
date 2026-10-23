@@ -57,9 +57,8 @@ internal sealed class DiscoveryCache : IDiscoveryCache
     public Task<ApiResult<TranslationDiscoveryResponse>> GetTranslationSystemDiscoveryAsync(
         CancellationToken cancellationToken = default)
     {
-        // The TMS root is open to anyone (#608) and sends different links per caller. The marker is
-        // 'contribution-data-export': its endpoint needs nothing but a login, so every logged-in caller
-        // gets it, just like 'export-account-data' on the auth side.
+        // The TMS root is open to anyone (#608). 'contribution-data-export' needs only a login, so every
+        // signed-in caller gets it.
         return GetDiscoveryAsync(
             TranslationSystemDiscoveryCacheKeyPrefix,
             TranslationRels.ContributionDataExport,
@@ -113,19 +112,16 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         ApiResult<TResponse> live = await fetchLiveAsync(cancellationToken);
         if (live.IsFailure)
         {
-            // A real outage, a network error or a 5xx. It is never cached, because a short outage would
-            // then keep the app broken for a day, and it is never turned into "session expired".
+            // Never cached, or a short outage would keep the app broken for a day. Never "session expired"
+            // either.
             return live;
         }
 
         if (signedInUser is not null && !ContainsGetRel(live.Value.Links, signedInMarkerRel))
         {
-            // The cookie says the user is logged in, but the API sent the anonymous set of links, so the
-            // token never reached it: it expired, is invalid, or its key was rotated. Mark the session
-            // dead, so the next cookie validation signs the user out cleanly, and serve this set, so the
-            // public pages still render on the way out. It is cached under neither key: under the
-            // account's key it would take every signed-in feature away from this user for a day, and an
-            // answer to a call that carried a bearer is not what an anonymous call gets.
+            // Signed in, but the API sent the anonymous links, so it did not accept the token. The next
+            // cookie validation signs the user out; this answer still renders the public pages. It is cached
+            // under neither key: under the account's key it would hide every signed-in feature for a day.
             await MarkSessionDeadAsync(httpContext, cancellationToken);
             return live;
         }
@@ -139,8 +135,7 @@ internal sealed class DiscoveryCache : IDiscoveryCache
     }
 
     /// <summary>
-    /// Marks the token the discovery call carried, which the client read from this same request, not the
-    /// user (#1061).
+    /// Marks the token the discovery call carried, not the user (#1061).
     /// </summary>
     private async Task MarkSessionDeadAsync(HttpContext? httpContext, CancellationToken cancellationToken)
     {
@@ -151,17 +146,12 @@ internal sealed class DiscoveryCache : IDiscoveryCache
     }
 
     /// <summary>
-    /// Guests share one entry. A signed-in caller gets an entry for the account and the roles in the
-    /// cookie, because the API sends an admin more links than a translator (#842). The account is what
-    /// keeps users apart. The API decides from the roles in the current access token, but the cookie
-    /// keeps the roles it got at sign-in, and a token refresh does not update them. So the roles here
-    /// only give a new entry to a user who signs in again after a role change. A role change inside one
-    /// session shows up after at most a day (#896). Today roles are given only at registration and by the
-    /// admin seed, so this does not happen yet.
+    /// One entry per account and cookie roles, because the API sends an admin more links (#842). The
+    /// cookie keeps the roles from sign-in, so a role change inside one session shows after at most a day
+    /// (#896).
     /// </summary>
     /// <returns>
-    /// <see langword="null"/> for a session with no subject. Such a session cannot be told apart from
-    /// any other, so its answer is never cached.
+    /// <see langword="null"/> for a session with no subject, whose answer is never cached.
     /// </returns>
     private static string? GetAccountCacheKey(string cacheKeyPrefix, string? subject, ClaimsPrincipal user)
     {

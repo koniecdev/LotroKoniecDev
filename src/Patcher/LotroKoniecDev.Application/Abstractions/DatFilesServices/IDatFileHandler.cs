@@ -7,7 +7,6 @@ namespace LotroKoniecDev.Application.Abstractions.DatFilesServices;
 /// </summary>
 public interface IDatFileHandler : IDisposable
 {
-    /// <param name="access">Read-only or read-write.</param>
     Result<int> Open(string datFilePath, DatFileAccess access);
 
     /// <returns>Every subfile id in the archive, with its size and iteration number.</returns>

@@ -1,15 +1,14 @@
 # LotroKoniecDev TMS — API reference for frontend & CLI integrators
 
-> Generated from the **actual code** (`TranslationSystem.API/Features/**`, `AuthSystem.API/Features/**`,
-> the JwtBearer/OpenIddict wiring), not from prose. **The code is the source of truth** — when a
-> route here disagrees with `Features/**`, read the slice and fix this doc. Every route below was
-> verified present in the source. Companion docs: [DOMAIN.md](DOMAIN.md) (the model behind these
-> endpoints), [INVARIANTS.md](INVARIANTS.md) (the rules they enforce), [auth-tutorial.md](auth-tutorial.md)
-> (the auth story end-to-end).
+> **The code is the source of truth.** When a route here disagrees with
+> `TranslationSystem.API/Features/**` or `AuthSystem.API/Features/**`, read the slice and fix this doc.
+> Companion docs: [DOMAIN.md](DOMAIN.md) (the model behind these endpoints),
+> [INVARIANTS.md](INVARIANTS.md) (the rules they enforce), [auth-tutorial.md](auth-tutorial.md)
+> (the sign-in setup end to end).
 
-The TMS is **two backend services** sharing one OpenIddict issuer: `auth-api` (the authorization
-server) mints tokens; `tms-api` (the resource server) serves the translation domain and validates
-those tokens. A Blazor SSR frontend (the OIDC relying party) and the patcher CLI are the clients.
+The TMS is **two backend services** that share one OpenIddict issuer. `auth-api` (the authorization
+server) issues tokens. `tms-api` (a resource server) serves the translation domain and validates those
+tokens. The Blazor SSR frontend (the OIDC client) and the patcher CLI are the clients.
 
 ## Table of contents
 
@@ -30,27 +29,25 @@ those tokens. A Blazor SSR frontend (the OIDC relying party) and the patcher CLI
 
 ## 1. Service topology
 
-| Service | Role | Host URL (HTTPS) | In-network (containerized) |
+| Service | Role | Dev URL (host, HTTPS) | Container port |
 |---|---|---|---|
-| `auth-api` | OpenIddict authorization server + ASP.NET Identity user store | `https://localhost:5003` | `http://auth-api:8080` |
-| `tms-api` | Translation domain resource server (JwtBearer) | `https://localhost:5002` | `http://tms-api:8080` |
-| Frontend (Blazor SSR) | OIDC relying party — runs on the host | `https://localhost:7017` | — |
+| `auth-api` | OpenIddict authorization server + ASP.NET Identity user store | `https://localhost:5003` | `8080` |
+| `tms-api` | Translation domain resource server (JwtBearer) | `https://localhost:5002` | `8080` |
+| Frontend (Blazor SSR) | OIDC client | `https://localhost:7017` | `8080` |
 
-In dev the `compose.yaml` is **infra-only** (postgres + migrator + mailpit + aspire) and all three apps
-run on the **host** (ADR-0006, amended by #190 / M6-14) — each via its `https` `launchSettings` profile,
-served with the native ASP.NET Core dev cert. The `http://…:8080` in-network addresses above apply to the
-containerized stacks (`compose.prod.yaml` / a real deployment), where tms-api → auth-api JWKS resolves via
-the in-network host; in dev that back-channel uses the `Auth:Authority`→`Auth:Issuer` fallback to
-`https://localhost:5003`. Because the same host ports serve every workflow, the `TranslationSystem` base
-URL, the OIDC `Authority`, and the token `iss` never change between workflows.
+In dev, `compose.yaml` runs only the infrastructure, and the three apps run on the host (ADR-0006).
+In the containerized stacks (`compose.prod.yaml`, the Hetzner boxes) Caddy gives each app its own
+HTTPS origin, and `tms-api` and the frontend reach `auth-api` through that public origin
+(`Auth:Authority` / `AuthSystem:Authority`), so the token `iss` matches on every leg. The full setup
+is in `CLAUDE.md` → "Commands" and `docs/deployment/runbook.md`.
 
-- `tms-api` base path for the domain: **`/api/v1/...`**. Its root `GET /` is a discovery document.
-- `auth-api` endpoints live at the root: **`connect/*`** (OpenIddict) and **`auth/*`** (custom).
-- Health (both APIs): `GET /health/live` and `/health/ready` are anonymous and run no checks. The full
-  `GET /health` runs the checks only for a caller that sends the health check key in
+- `tms-api` domain routes are under **`/api/v1/...`**. Its root `GET /` is the discovery document.
+- `auth-api` routes live at the root: **`connect/*`** (OpenIddict) and **`auth/*`** (our own).
+- Health (both APIs): `GET /health/live` and `GET /health/ready` are anonymous and run no checks. The
+  full `GET /health` runs the checks only for a caller that sends the health check key in
   `X-LOTRO-Health-Key`; anyone else gets 404 (ADR-0058). When no key is set (allowed only in
   Development and Testing), it is open.
-- OpenAPI/Scalar (`tms-api`, Development only, anonymous): `GET /openapi`, Scalar UI.
+- OpenAPI/Scalar (`tms-api`, Development only, anonymous): `GET /openapi` and the Scalar UI.
 
 ---
 
@@ -58,68 +55,67 @@ URL, the OIDC `Authority`, and the token `iss` never change between workflows.
 
 ### 2.1 Token issuance — `auth-api` (OpenIddict)
 
-`auth-api` is a self-hosted **OpenIddict** authorization server backed by **ASP.NET Core Identity**.
-It signs **JWT access tokens** (encryption disabled, so resource servers validate them as plain
-signed JWTs — `OpenIddictExtensions.cs:67`) and exposes the public signing key via JWKS.
+`auth-api` is a self-hosted **OpenIddict** server backed by **ASP.NET Core Identity**. It signs **JWT
+access tokens** without encryption, so resource servers validate them as plain signed JWTs. The
+public signing key is published through JWKS.
 
 | Grant | Used by | Enabled |
 |---|---|---|
 | `authorization_code` + **PKCE** | the Blazor frontend (interactive login) | always (`RequireProofKeyForCodeExchange`) |
-| `refresh_token` | the frontend (silent renewal) | always; **reference, rolling** tokens (DB-stored, revocable) |
-| `client_credentials` | service-to-service (`lotrokoniecdev-api`) | always |
-| `password` | integration / E2E tests only | **Testing environment only** |
+| `refresh_token` | the frontend (silent renewal) | always; **reference, rolling** tokens (stored in the database, revocable) |
+| `client_credentials` | service to service (`lotrokoniecdev-api`) | always |
+| `password` | integration and E2E tests only | **Testing environment only** |
 
-OAuth clients seeded at startup (`DatabaseSeederExtensions.cs:111`):
+OAuth clients seeded at startup (`DatabaseSeederExtensions.cs`):
 
 | `client_id` | Type | Grants | Notes |
 |---|---|---|---|
-| `lotrokoniecdev-web` | public | auth code + PKCE, refresh | the Blazor RP; redirect/post-logout URIs from config |
-| `lotrokoniecdev-api` | confidential | client credentials | service-to-service; secret from config |
+| `lotrokoniecdev-web` | public | auth code + PKCE, refresh | the frontend; redirect and post-logout URIs from config |
+| `lotrokoniecdev-api` | confidential | client credentials | service to service; secret from config; may call introspection |
 | `lotrokoniecdev-test` | public | password, refresh | seeded only in `Testing` |
 
-Each access token names the APIs it is for in `aud`. A user's token names both: `lotrokoniecdev-api`
+Each access token names the APIs it is for in `aud`. A user's token names both `lotrokoniecdev-api`
 (`tms-api`) and `lotrokoniecdev-auth-api` (the bearer endpoints of `auth-api`), because the website
-sends the same token to both. The sign-in, the code exchange and every refresh set this list
+sends the same token to both. Sign-in, code exchange and every refresh set this list
 (`UserTokenAudiences`). The service's client credentials token names `lotrokoniecdev-api` only
 (#1023).
 
 Token lifetimes (`OpenIddictSettings.cs`): access **5 min** (ADR-0049), refresh **9 h**. Every refresh
-issues a new refresh token with the full 9 h, so the clock starts again at each use. The 9 h is the
-frontend cookie's 8-hour idle timeout plus a margin, because the token lives in that cookie (#1014).
-Email-confirmation and password-reset tokens live **24 h** (`PersistenceDependencyInjection.cs:73`).
-Dev/Testing use **ephemeral** signing keys; production supplies an RSA-2048 signing key (public half
-via JWKS) and a ≥256-bit symmetric encryption key via config, with one-previous-key rotation support.
+issues a new refresh token with the full 9 h. The 9 h is the frontend cookie's 8-hour idle timeout plus
+a margin, because the token lives in that cookie (#1014). E-mail confirmation and password-reset tokens
+live **24 h**. Development and Testing use throwaway signing keys. Every other environment must supply
+an RSA-2048 signing key and a 256-bit encryption key in config, with room for one previous signing key
+during rotation.
 
 ### 2.2 Authorization — `tms-api` (JwtBearer)
 
-`tms-api` validates bearer tokens against the `auth-api` issuer (`ApiDependencyInjection.cs:215`):
-issuer, audience, lifetime and signing key are all validated; signing keys are pulled from
-`{authority}/.well-known/openid-configuration`. `MapInboundClaims` is **off**, so claims arrive as
-the raw OpenIddict types (`sub`, `name`, `email`, `role`). `NameClaimType=name`, `RoleClaimType=role`.
+`tms-api` validates issuer, audience, lifetime (no clock skew) and signing key against the `auth-api`
+discovery document at `{authority}/.well-known/openid-configuration` (`ApiDependencyInjection.cs`).
+`MapInboundClaims` is **off**, so claims keep their OpenIddict names (`sub`, `name`, `email`, `role`).
+`NameClaimType=name`, `RoleClaimType=role`.
 
-**Endpoints are authorized by default.** A fallback policy requires an authenticated user, so any
-endpoint without explicit metadata returns **401** to anonymous callers; public endpoints opt out
-with `AllowAnonymous` (`ApiDependencyInjection.cs:258-279`).
+**Endpoints are authorized by default.** A fallback policy requires an authenticated user, so an
+endpoint without its own metadata returns **401** to an anonymous caller. Public endpoints opt out with
+`AllowAnonymous`.
 
 | Policy | Rule | Applied to |
 |---|---|---|
-| (fallback) | authenticated user | every endpoint without explicit metadata (e.g. `GET /`) |
-| `RequireTranslatorRole` | role `Admin` **or** `Translator` | detail/stats reads, game-version reads + translation upsert |
-| `RequireAdminRole` | role `Admin` | approve, bulk approve, register/delete game version, import |
-| `RequireAuthenticatedUser` | authenticated user | available, currently unused by a slice |
-| `ApiScope` / `RequireServiceScope` | `scope` contains `api` / `service` | available for service paths |
+| (fallback) | authenticated user | every endpoint without its own metadata |
+| `RequireAuthenticatedUser` | authenticated user, any role | `GET /api/v1/translators/me/data-export` |
+| `RequireTranslatorRole` | role `Admin` **or** `Translator` | translation detail and stats, game-version reads, translation upsert |
+| `RequireAdminRole` | role `Admin` | approve, bulk approve, register and delete a game version, import |
+| `ApiScope` / `RequireServiceScope` | `scope` contains `api` / `service` | defined for service paths, used by no endpoint today |
 
-Anonymous by explicit opt-out: `GET /translation-files/{lang}`, `GET /api/v1/progress` and — since
-#309, the data being public game texts — the **read-only translations list** `GET /api/v1/translations`.
-Every state transition stays authenticated. On every authenticated request a middleware lazily and
-idempotently provisions the caller's TMS `Translator` profile (ADR-0004, amended 2026-06-24 —
-`TranslatorProvisioningMiddleware.cs`); write handlers additionally provision authoritatively before
-stamping attribution.
+Anonymous by explicit opt-out: the discovery document `GET /` (ADR-0040), `GET /api/v1/translation-files/{lang}`,
+`GET /api/v1/progress` and the **read-only translations list** `GET /api/v1/translations` (#309,
+the data is public game text). Every state change needs a login. On every authenticated request a
+middleware creates the caller's TMS `Translator` profile if it is missing (ADR-0004, amended
+2026-06-24); write handlers also do it before they stamp the author.
 
 **Roles** (`AuthConstants.Roles`): `Admin` (reviewer — approves, imports, registers versions) and
-`Translator` (edits Polish). A self-registered user gets **`Translator`** (`RegisterUser.cs:191-192`);
-the seeded admin gets `Admin`. **Scopes** (`AuthConstants.Scopes`): `api`, `service` (plus the OIDC
-`openid email profile roles offline_access`).
+`Translator` (edits Polish). A self-registered user gets **`Translator`**; the seeded admin gets
+`Admin`. **Scopes** (`AuthConstants.Scopes`): `api`, `service` (plus the OIDC `openid email profile
+roles offline_access`).
 
 ### 2.3 Request headers the client should send
 
@@ -133,99 +129,51 @@ Content-Type: multipart/form-data          # the import upload only
 
 ### 2.4 Rate limiting
 
-In non-dev/test, `tms-api` applies a **fixed-window 100 requests/minute per client** policy,
-`fixed-by-ip`, across the endpoint group; over-limit returns **429** with `Retry-After` (the
-`AddRateLimiter` block in its `Program.cs`). The limiter runs before authentication, so a call refused
-with 401 or 403 spends the bucket too (#829). `auth-api` rate-limits per client:
-the OpenIddict `/connect/*` endpoints, confirm-email, reset-password, cancel-deletion and the account
-GET carry the `auth-endpoint-limit` policy (10/min); `auth/register` carries `register-limit`, the
-same numbers keyed on the connection's own address; forgot-password and resend-confirmation carry
-stricter 3/15 min policies; change-password, delete and the export POST are off the per-address
-policies and braked per account instead (ADR-0053); the remaining API endpoints fall under the
-generic 20/min policy (the health probes and the OpenIddict discovery/JWKS documents are deliberately
-unlimited). On both APIs the full `/health` is outside every limit too, because it answers only a
-caller with the health check key (ADR-0058); `/health/live` and `/health/ready` run no checks.
+Both APIs turn the limiter off in Development and Testing. Elsewhere:
 
-For `tms-api`'s one policy (#823) and the three `auth-api` policies the Frontend's server-side calls
-reach — the generic one, `auth-endpoint-limit` and `change-email-limit` — "per IP" means per
-**client** as each API's `RateLimitPartitionKeyResolver` names it (ADR-0054). Both APIs apply the same
-rule and read the same environment key: a direct caller's own address (the CLI's translation-file
-download, for one), or, for a call the Frontend makes on a visitor's behalf,
-the visitor's address the Frontend sends in `X-LOTRO-Client-Address` next to the environment's key in
-`X-LOTRO-Frontend-Key`. Every Frontend call leaves from one container, so without that every
-logged-in user would share one bucket. The key only picks the bucket: a call with a missing, wrong or
-repeated key, or a missing or unparseable address, is metered on the connection's own address, and the
-key opens no endpoint and exempts from no budget. The browser-facing page policies below and
-`register-limit` stay on the connection's own address, so the key can never dodge the login form's
-brake or buy a fresh registration-mail budget per invented address.
+| API | Policy | Limit | Applies to |
+|---|---|---|---|
+| `tms-api` | `fixed-by-ip` | 100 / min | every endpoint. The limiter runs before authentication, so a call refused with 401 or 403 also spends the bucket (#829) |
+| `auth-api` | `fixed-by-ip` | 20 / min | the `auth/*` group by default |
+| `auth-api` | `auth-endpoint-limit` | 10 / min | `connect/*`, `auth/confirm-email`, `auth/reset-password`, `auth/account/cancel-deletion`, `GET auth/account/data-export`, and the four link-landing pages (`ConfirmEmail`, `ConfirmEmailChange`, `RevertEmailChange`, `CancelDeletion`) |
+| `auth-api` | `register-limit` | 10 / min | `auth/register`, keyed on the connection's own address |
+| `auth-api` | `forgot-password-limit` | 3 / 15 min | `auth/forgot-password` and its page, one shared budget |
+| `auth-api` | `resend-confirmation-limit` | 3 / 15 min | `auth/resend-email-confirmation` and its page |
+| `auth-api` | `change-email-limit` | 3 / h | `auth/account/change-email` |
+| `auth-api` | `auth-page-limit` | 10 / 15 min, **POSTs only**, per page and client | every other account page (the default for the whole Razor group, #692) |
+| `auth-api` | none | — | `auth/change-password`, `auth/account/delete` and `POST auth/account/data-export` (braked per account instead, ADR-0053); the health probes; the OpenIddict discovery and JWKS documents |
 
-Whichever address a policy keys on, one client is one bucket (#831): an IPv6 address counts as its
-whole /64, because an IPv6 client can move to any address inside it for free, and an IPv4 address
-written in IPv6 form (`::ffff:203.0.113.7`) counts as the plain IPv4 address. The cost is that
-people who share one /64 share one bucket, as people behind one IPv4 NAT already do.
+**Which client a bucket belongs to (ADR-0054).** Every frontend call leaves from one container. So for
+`tms-api`'s policy and the three `auth-api` policies the frontend reaches (`fixed-by-ip`,
+`auth-endpoint-limit`, `change-email-limit`), each API's `RateLimitPartitionKeyResolver` keys on the
+visitor's address that the frontend sends in `X-LOTRO-Client-Address`, but only next to the
+environment's key in `X-LOTRO-Frontend-Key`. Without a valid key and a parseable address, the call is
+metered on the connection's own address. The key only picks the bucket: it opens no endpoint and skips
+no budget. The page policies and `register-limit` always key on the connection's own address. An IPv6
+address counts as its whole /64, and `::ffff:a.b.c.d` counts as the plain IPv4 address (#831).
 
-The browser-facing account pages are limited too, and the limit is the **default for the whole Razor
-group** — a page opts out with an attribute, it does not opt in (#692). `auth-page-limit` counts
-**POSTs only**, 10 per 15 minutes, keyed by route **and** client IP, so each page keeps its own budget
-and page views are never throttled: `/Account/Login` is where every sign-in lands, and a whole mobile
-carrier can share one address. `/Account/ForgotPassword` keeps the stricter `forgot-password-limit`
-instead, shared with its API twin so using both buys no extra budget, and the four link-landing pages
-keep `auth-endpoint-limit`.
+**Budgets inside the handlers.** Mail sent to a typed address has a second budget, because an attacker
+who rotates IP addresses gets a fresh IP budget every time (ADR-0055). It is keyed on the **inbox**
+(`MailboxKey`: Identity's normalized address without a `+tag`, and without Gmail's dots and the
+`googlemail.com` difference — ADR-0057). The mail still goes to the typed address.
 
-Password-reset mail carries a second budget, 3 sends per 15 minutes, because no IP policy can stop an
-attacker who rotates IPs from flooding one inbox. For a **confirmed account** it belongs to that account
-and is keyed by the account id, not by the typed text: Identity resolves an address
-through `NormalizeEmail`, which runs `Normalize()` first, so a Polish address written with a combining
-accent finds the same account as the composed spelling — two identical-looking strings that a text key
-would give a budget each. Unconfirmed accounts share one budget per **inbox** instead (see below).
+| Flow | Budget | When it is spent | Refusal |
+|---|---|---|---|
+| Registration | 3 / 15 min per inbox | last check before the confirmation mail is queued | 429 `Auth.RegistrationMailboxThrottled`, no account |
+| Resend confirmation | 3 / 15 min per inbox | before the send | silent (same neutral answer) |
+| Password reset | 3 / 15 min **per confirmed account**, or per inbox across unconfirmed accounts (ADR-0057 §3) | before the send | silent (same neutral answer) |
+| E-mail change | 3 / 15 min per inbox of the **new** address, whichever account asks | before the link is queued | 429 `Auth.EmailChangeRecipientThrottled` |
+| Current-password confirmation | 10 / 15 min per account (change password, change e-mail, delete, GDPR export) | before the password check | 429 `Auth.PasswordConfirmationThrottled` |
+| Account deletion schedule | 3 / h per account (#811) | last check before the schedule is saved | 429 `Auth.DeletionScheduleThrottled` |
 
-The budget refuses silently and still answers with the neutral "if the account exists" panel, so it
-cannot be used to find out that somebody recently asked for a reset. The trade-off is that an attacker
-who knows an address can spend that account's window and the owner's own request is then dropped without
-explanation. For a confirmed account that is acceptable for one reason: every permit spent **delivered a
-reset link for that same account to its inbox**, and a link lives 24 hours against a 15-minute window, so
-a usable one is always already sitting there. For an unconfirmed account it does not hold: a stranger's
-account at another spelling of the inbox can spend the shared budget with links that reset that account,
-not the owner's. ADR-0057 accepts this, because an unconfirmed account cannot sign in anyway and its
-first confirmation mail went out at registration. Both budgets are in process, so two running containers mean two budgets — the same trade-off the
-IP policies already make.
+A silent refusal keeps the neutral "if the account exists" answer, so it cannot reveal a recent
+request. These budgets live in process memory, so two running containers would mean two budgets — the
+same trade-off the IP policies make.
 
-The other flows that mail a typed address have the same kind of second budget (#793, ADR-0055), keyed
-on the **inbox** the mail reaches (#835, ADR-0057). The key, `MailboxKey`, starts from Identity's
-normalized address and also drops a `+tag` (every domain) and, for `gmail.com`/`googlemail.com`, the dots
-and the domain difference, because all of those spellings reach one inbox. The mail itself still goes to
-the typed address, and each spelling is still its own account.
-
-- **Registration** allows 3 new accounts per 15 minutes per inbox. The permit is the last check before the
-  confirmation mail is queued, so a taken address or name spends nothing. A refusal is a 429 with
-  `Auth.RegistrationMailboxThrottled`, and the register page shows a Polish sentence.
-- **Resend-confirmation** allows 3 sends per 15 minutes per inbox and refuses silently like password
-  reset.
-- **Password reset for an unconfirmed account** shares one budget per inbox. A confirmed account keeps its
-  own budget: only the inbox owner can confirm an account there, so an inbox budget would let a
-  stranger's unconfirmed `anna+x@` account use up the owner's recovery budget (ADR-0057 §3).
-- **E-mail change** allows 3 links per 15 minutes per inbox of the **new address**, whichever account
-  asks. Its refusal is a 429 with `Auth.EmailChangeRecipientThrottled`, not a silent success: the
-  frontend page would otherwise say a link went out when none did.
-
-**Account deletion** has one more budget of its own (#811): 3 schedules per hour per account. A cancel
-answers with a reset token, so schedule, cancel, reset and log in is a loop that needs only the cancel link
-in the account's current inbox and no new IP, and every schedule mails the account (and the address an
-armed undo would restore). The permit is the last check before the schedule is saved, so a wrong password
-or an already scheduled deletion spends nothing. Two permits cover a schedule and a second one after a
-cancel; the third covers a permit spent without a schedule (a failed save, or a double-submitted form),
-because a fixed window never gives one back. A refusal is a 429 with `Auth.DeletionScheduleThrottled`.
-
-Every 429 from a limiter policy carries `Retry-After`, and a browser gets a Polish page explaining the
-wait instead of the framework's bare status text. On both APIs `Retry-After` is the window length, so it
-is an upper bound: the window renews within that time (give or take a fraction of a second), and it may
-renew much sooner (#892). Callers that share a limit key, such as everyone behind one address, share
-one window, so a retry after the renewal can still be refused. The page names the same number as the
-longest wait. The 429s from the budgets inside the handlers
-(`Auth.PasswordConfirmationThrottled`, `Auth.EmailChangeRecipientThrottled`,
-`Auth.RegistrationMailboxThrottled`, `Auth.DeletionScheduleThrottled`) carry no `Retry-After`: their
-window is fixed, 15 minutes for the first three and one hour for the deletion schedule. The frontend
-shows its own Polish sentence for the first, second and fourth, and the auth register page for the third.
+Every 429 from a limiter policy carries `Retry-After` (the window length, so an upper bound — #892),
+and a browser gets a Polish page instead of the bare status text. The 429s from the handler budgets
+carry no `Retry-After`; their window is fixed (one hour for the deletion schedule, 15 minutes for the
+rest).
 
 ---
 
@@ -233,44 +181,43 @@ shows its own Polish sentence for the first, second and fourth, and the auth reg
 
 ### 3.1 IDs — serialize as bare GUID strings
 
-`TranslationId`, `GameVersionId`, `TranslatorId`, `PrecomputedTranslationFileId` and the
-cross-context `IdentityId` are `[StronglyTypedId]` wrappers over **GUID v7** (`Guid.CreateVersion7()`,
-time-ordered). They serialize to/from JSON as a **bare GUID string** — `"0190f3a2-..."`, not
-`{ "value": "..." }`. Route ids use the `:guid` constraint.
+`TranslationId`, `GameVersionId`, `TranslatorId`, `PrecomputedTranslationFileId` and the shared
+`IdentityId` are hand-written record structs over **GUID v7** (`Guid.CreateVersion7()`, time-ordered;
+ADR-0010). In JSON they are a **bare GUID string** — `"0190f3a2-..."`, not `{ "value": "..." }`. Route
+ids use the `:guid` constraint.
 
 ### 3.2 Enums — serialize as strings
 
 `JsonStringEnumConverter` is registered, so enums are **strings** on the wire.
 
 - **`TranslationStatus`**: `Untranslated`, `Draft`, `Approved`, `NeedsReview` (plus `Unset`, never
-  emitted). See [DOMAIN.md §state machine](DOMAIN.md#maszyna-stanów-translation--cykl-aktualizacji-spec-0001).
-- **`GameVersionStatus`**: `Unprocessed`, `Processed`, `Superseded` (plus `Unset`, never emitted).
+  sent). See [DOMAIN.md §state machine](DOMAIN.md#maszyna-stanów-translation--cykl-aktualizacji-spec-0001).
+- **`GameVersionStatus`**: `Unprocessed`, `Processed`, `Superseded` (plus `Unset`, never sent).
 
 ---
 
 ## 4. Content negotiation: HATEOAS opt-in
 
-Hypermedia links are **opt-in** (the shared `MediaTypes` convention, spec 0002 — Implemented):
+Hypermedia links are **opt-in** (`Hateoas.Abstractions/MediaTypes.cs`, spec 0002):
 
 - `Accept: application/json` (default) → the resource **without** a `links` array. Empty link
-  collections are stripped from plain JSON entirely.
+  collections are left out of plain JSON.
 - `Accept: application/vnd.dev-lotrokoniecdev.hateoas.json` → the same resource **with** a `links`
   array of `{ "href", "rel", "method" }`.
 
-Links are **state- and role-aware**: a soft-removed translation advertises only `self`; `approve`
-appears only for an `Admin` on a `Draft`/`NeedsReview` row; `register` (game version) only for an
-`Admin`. Pagination links (`first-page`/`previous-page`/`next-page`/`last-page`) appear only when they
-lead somewhere else — a boundary rel is omitted on the very page it points at, so a client can render
-the control as disabled without recomputing anything (#545). Treat the link set as the authoritative
-"what can I do next" — don't hard-code URLs you can read from a rel.
+A link appears only when the caller may follow it (ADR-0040): the link factory replays the target
+endpoint's own policy, and the slice adds the state rules (a soft-removed translation gets only
+`self`; `approve` only on a `Draft`/`NeedsReview` row). Pagination links appear only when they lead to
+another page, so a boundary rel is left out on the page it points at (#545). Treat the link set as
+"what can I do next", and never hard-code a URL you can read from a rel (ADR-0041).
 
 ---
 
 ## 5. Error contract (`ProblemDetails`)
 
-Business failures return RFC 7807 **`ProblemDetails`** (`ErrorExtensions.cs`). The HTTP status is
-derived from the domain error's type, and the machine-readable code rides in the **`errorCode`**
-extension member:
+Business failures return RFC 7807 **`ProblemDetails`** (`ErrorExtensions.cs`, the same mapping in
+both APIs). The HTTP status comes from the error's type, and the machine-readable code is in the
+**`errorCode`** extension member:
 
 ```json
 {
@@ -282,18 +229,19 @@ extension member:
 }
 ```
 
-| Domain error type | HTTP | Title |
+| Error type | HTTP | Title |
 |---|---|---|
 | `Validation` | **400** | Validation Error |
 | `NotFound` | **404** | Not Found |
 | `Forbidden` | **403** | Forbidden |
 | `DataConflict` | **422** | Data Conflict |
+| `TooManyRequests` | **429** | Too Many Requests |
 | (anything else) | **500** | Internal Server Error |
 
-Unhandled exceptions are caught by the API's `ExceptionHandlers/` chain and also returned as
-`ProblemDetails` (a safety net, not a control-flow mechanism). Branch on `errorCode`, not on the
-`detail` string. The full enforced-rule catalogue with `errorCode`s lives in
-[INVARIANTS.md](INVARIANTS.md).
+Exceptions are caught by each API's `ExceptionHandlers/` and also returned as `ProblemDetails`. One of
+them matters to clients: on `tms-api`, a write built on a row that changed in the meantime (for
+example an import changed it) fails the concurrency check and returns **409**. Branch on `errorCode`,
+not on the `detail` text. The rules behind each `errorCode` are in [INVARIANTS.md](INVARIANTS.md).
 
 ---
 
@@ -314,18 +262,19 @@ Paginated lists return a `PaginationResponse<T>`:
 }
 ```
 
-`page` defaults to `1` (clamped to ≥ 1); `pageSize` defaults to `50` and is **clamped to 1–100**
-server-side. Unpaged collections (game versions — few rows ever exist) return a `CollectionResponse<T>`
+`page` defaults to `1` (at least 1); `pageSize` defaults to `50` and is **clamped to 1–100** on the
+server. Unpaged collections (game versions — there are few) return a `CollectionResponse<T>`
 (`{ items, links }`) instead.
 
-Both list endpoints accept an optional multi-field **`?sort=`** parameter
-(`SortParser.cs` / `IQueryableExtensions.ApplyMultipleSorting`): comma-separated keys, each optionally
-suffixed `:asc`/`:desc` (default ascending), e.g. `?sort=status:desc,fileId`. Supported keys —
-translations: `fileId`, `gossipId`, `status`, `submittedAt` (orders by `UpdatedAt`); game versions:
-`version`, `detectedAt`, `status`. `status`/`version` sort by the stored **string**, not semantically;
-an unknown key degrades to the slice's primary default instead of failing, and a unique tiebreaker is
-always appended so pagination order is total. Without `sort`, translations order by
-`(FileId, GossipId)` and game versions by `DetectedAt` desc.
+Both list endpoints take an optional multi-field **`?sort=`** (`SortParser.cs`,
+`IQueryableExtensions.ApplyMultipleSorting`): comma-separated keys, each with an optional `:asc`/`:desc`
+(default ascending), e.g. `?sort=status:desc,fileId`. Keys — translations: `fileId`, `gossipId`,
+`status`, `submittedAt` (orders by `UpdatedAt`); game versions: `version`, `detectedAt`, `status`.
+`status` and `version` sort by the stored **text**, not by meaning. An unknown key falls back to the
+slice's first default key, ascending (for game versions that is oldest first, the opposite of the
+default order), instead of failing, and a unique key is always added at the end, so the
+order is total. Without `sort`, translations order by `(FileId, GossipId)` and game versions by
+`DetectedAt` descending.
 
 ---
 
@@ -335,111 +284,117 @@ always appended so pagination order is total. Without `sort`, translations order
 
 | Method | Route | Auth | Purpose |
 |---|---|---|---|
-| `GET` `POST` | `connect/authorize` | anonymous (cookie challenge) | authorization-code flow entry; challenges the Identity login cookie |
+| `GET` `POST` | `connect/authorize` | anonymous (cookie challenge) | authorization-code flow entry; sends a caller without a session to the login page |
 | `POST` | `connect/token` | anonymous (client-authenticated) | token issuance (auth code / refresh / client credentials; password in Testing) |
 | `GET` `POST` | `connect/userinfo` | bearer token | OIDC userinfo — `sub`, and `email`/`name`/`role` per granted scope |
-| `GET` `POST` | `connect/logout` | anonymous | RP-initiated end-session; ends this device's session only: revokes the one authorization behind the checked `id_token_hint` and its tokens (#931), clears this browser's auth cookie. Without a valid hint it revokes nothing |
+| `GET` `POST` | `connect/logout` | anonymous | RP-initiated end-session for this device only: revokes the one authorization behind a valid `id_token_hint` and its tokens (#931) and clears this browser's sign-in cookie. Without a valid hint it revokes nothing |
 | `POST` | `connect/revoke` | client-authenticated | token revocation |
 | `POST` | `connect/introspect` | confidential client | token introspection (POST only — ADR-0061) |
 | `GET` | `/.well-known/openid-configuration` | anonymous | OIDC discovery document |
 | `GET` | `/.well-known/jwks` | anonymous | JSON Web Key Set (public signing key) |
 
 A request that OpenIddict or a `connect/*` handler refuses gets the OAuth error shape, not
-`ProblemDetails`: `error` and `error_description`, the fields OAuth clients read. `connect/token`
-sends them as an `application/json` body (RFC 6749 §5.2). `connect/authorize` sends them back to the
-client's `redirect_uri` in the query string (RFC 6749 §4.1.2.1). Every refusal the token handler
-makes itself is **400** `invalid_grant` (#903): a code or refresh token that is no longer valid,
-wrong credentials on the Testing-only password grant, and that grant's `account_deletion_scheduled`
-answer, which is in `error_description`. OpenIddict's own checks can answer other codes, for example
-**401** `invalid_client` for a wrong client secret or **400** `unsupported_grant_type`.
-Every endpoint of `auth-api` that takes a bearer token (`connect/userinfo` and the `auth/*` rows
-marked "bearer token" below) takes only a token whose `aud` names `lotrokoniecdev-auth-api`. Any
-other token, the service's client credentials token too, gets **401** and `error="invalid_token"` in
-the `WWW-Authenticate` header (#1023). `connect/userinfo` answers the token of an account that no
-longer exists the same way (#955). A 429 from the rate limiter and a 500 from an unhandled exception
-come from the shared pipeline as `ProblemDetails`, by design: the status code tells a temporary
-failure from a final one, and the built-in behaviour comes first (#917, closed as not planned;
-ADR-0067 §8).
+`ProblemDetails`: `error` and `error_description`. `connect/token` sends them as a JSON body (RFC 6749
+§5.2). `connect/authorize` sends them back to the client's `redirect_uri` in the query string (RFC 6749
+§4.1.2.1). Every refusal the token handler makes itself is **400** `invalid_grant` (#903): a code or
+refresh token that is no longer valid, wrong credentials on the Testing-only password grant, and that
+grant's `account_deletion_scheduled` answer (in `error_description`). OpenIddict's own checks can give
+other codes, for example **401** `invalid_client` for a wrong client secret or **400**
+`unsupported_grant_type`.
 
-The login/consent UI is server-rendered Razor Pages: `/Account/Login`, `/Account/Register`,
+Every `auth-api` endpoint that takes a bearer token (`connect/userinfo` and the `auth/*` rows marked
+"bearer token" below) takes only a token whose `aud` names `lotrokoniecdev-auth-api`. Any other token,
+the service's client credentials token too, gets **401** with `error="invalid_token"` in
+`WWW-Authenticate` (#1023). `connect/userinfo` answers the same way for an account that no longer
+exists (#955). A 429 from the limiter and a 500 from an unhandled exception come from the shared
+pipeline as `ProblemDetails`: the status code already tells a temporary failure from a final one
+(ADR-0067 §8).
+
+The sign-in UI is server-rendered Razor Pages: `/Account/Login`, `/Account/Register`,
 `/Account/ConfirmEmail`, `/Account/ResendConfirmation`, `/Account/ForgotPassword`,
-`/Account/ResetPassword`, `/Account/PrivacyPolicy`, `/Account/CancelDeletion` (the emailed
-cancellation link's landing page — LEGAL-01).
+`/Account/ResetPassword`, `/Account/ConfirmEmailChange`, `/Account/RevertEmailChange`,
+`/Account/CancelDeletion` (the landing page of the e-mailed cancel link — LEGAL-01) and
+`/Account/PrivacyPolicy`.
 
 ### 7.2 Account & credential endpoints (`auth/*`)
 
 | Method | Route | Auth | Body / result |
 |---|---|---|---|
-| `POST` | `auth/register` | anonymous, rate-limited | `RegisterRequest` → **202** with no body, whether or not the address already has an account (#860, ADR-0059 amendment). A free address gets an account with the `Translator` role and a confirmation email; a taken one gets a notice to its owner instead; a reserved one (#684) gets nothing. Every answer waits for a 1 s floor. A taken username is still 422 `Auth.UserAlreadyExistsByUsername`. At most 3 registrations per 15 min per inbox, whichever branch they take; past that, 429 `Auth.RegistrationMailboxThrottled` and no account is created (ADR-0057) |
+| `POST` | `auth/register` | anonymous | `RegisterRequest` → **202** with no body, whether or not the address already has an account (#860). A free address gets an account with the `Translator` role and a confirmation mail; a taken one gets a notice to its owner instead; a reserved one (#684) gets nothing. A taken username is **422** `Auth.UserAlreadyExistsByUsername`; a breached password is **400** `Auth.PasswordFoundInBreaches` (ADR-0066) |
 | `POST` | `auth/confirm-email` | anonymous | `ConfirmEmailRequest { email, token }` |
-| `POST` | `auth/resend-email-confirmation` | anonymous | `ResendEmailConfirmationRequest` (anti-enumeration: always succeeds; at most 3 sends per 15 min per inbox, ADR-0055, ADR-0057) |
-| `POST` | `auth/forgot-password` | anonymous | `ForgotPasswordRequest` (anti-enumeration: always succeeds; at most 3 sends per 15 min per confirmed account, or per inbox across unconfirmed accounts, ADR-0057) |
+| `POST` | `auth/resend-email-confirmation` | anonymous | `ResendEmailConfirmationRequest` — always succeeds (hides whether the account exists) |
+| `POST` | `auth/forgot-password` | anonymous | `ForgotPasswordRequest` — always succeeds (hides whether the account exists) |
 | `POST` | `auth/reset-password` | anonymous | `ResetPasswordRequest { email, token, newPassword }` |
 | `POST` | `auth/change-password` | bearer token | `ChangePasswordRequest { currentPassword, newPassword }` |
-| `POST` | `auth/account/delete` | bearer token | `DeleteAccountRequest { password }` — **schedules** GDPR deletion (ADR-0031): 14-day grace window, account locked for the window, sessions + refresh tokens revoked, one-time cancellation link emailed → **204** + `X-Deletion-Scheduled-At` / `X-Deletion-Finalizes-At` headers; erasure runs in the finalizer only after the window elapses |
-| `POST` | `auth/account/cancel-deletion` | anonymous (emailed one-time token), rate-limited | `CancelAccountDeletionRequest { email, token }` → **200** `CancelAccountDeletionResponse { passwordResetToken }` — unlocks the account and forces a password reset (the pre-deletion password may be the attacker's) |
-| `POST` | `auth/account/change-email` | bearer token, `change-email-limit` (3/h per IP) | `ChangeEmailRequest { newEmail, currentPassword }` — **starts** an e-mail change (ADR-0048). Nothing on the account moves: a warning goes to the old address, then a verification link (24 h) to the new one. The request never looks the new address up, so it answers the same for any new address (#860): if the new address already has an account, its owner gets a notice instead of the link, and a reserved address (#684) gets nothing. At most 3 requests per 15 min per inbox of the new address, whichever account asks; past that, 429 `Auth.EmailChangeRecipientThrottled` (ADR-0055, ADR-0057). Confirming happens on the auth pages `/Account/ConfirmEmailChange` (GET form, POST applies), after which the old address receives a 14-day link to `/Account/RevertEmailChange` that restores the address and clears the password |
-| `GET` | `auth/account/data-export` | bearer token | `AccountDataExportResponse` — the **account representation** the "Moje konto" page renders, carrying the account's links. Not the GDPR export: it leaves the contact details out (`phoneNumber` is always `null` here) |
-| `POST` | `auth/account/data-export` | bearer token, rate-limited | `DownloadAccountDataRequest { password }` → **200** `AccountDataExportResponse` without links — the **GDPR Art. 15 export**, contact details included, handed over only behind the current password (#690, ADR-0052). Wrong password → **400** `Auth.InvalidCurrentPassword`, none sent → **400** `Auth.ExportPasswordRequired`; every attempt that reaches the password check is written to the audit log (a throttled or unauthenticated request never gets that far) |
-| `GET` | `/` | anonymous | discovery document (links into the auth flows) |
+| `POST` | `auth/account/delete` | bearer token | `DeleteAccountRequest { password }` — **schedules** the GDPR deletion (ADR-0031): 14-day grace window, account locked for the window, sessions and refresh tokens revoked, one-time cancel link e-mailed → **204** with `X-Deletion-Scheduled-At` / `X-Deletion-Finalizes-At` headers. The erasure runs in the finalizer after the window |
+| `POST` | `auth/account/cancel-deletion` | anonymous (e-mailed one-time token) | `CancelAccountDeletionRequest { email, token }` → **200** `CancelAccountDeletionResponse { passwordResetToken }` — unlocks the account and forces a password reset (the old password may be the attacker's) |
+| `POST` | `auth/account/change-email` | bearer token | `ChangeEmailRequest { newEmail, currentPassword }` — **starts** an e-mail change (ADR-0048). Nothing on the account changes yet: a warning goes to the old address, then a verification link (24 h) to the new one. The answer is the same for any new address (#860): if it already has an account, its owner gets a notice instead of the link, and a reserved address (#684) gets nothing. Confirming happens on `/Account/ConfirmEmailChange` (GET shows the form, POST applies). Then the old address gets a 14-day link to `/Account/RevertEmailChange`, which restores the address and clears the password |
+| `GET` | `auth/account/data-export` | bearer token | `AccountDataExportResponse` — the **account representation** the "Moje konto" page renders, with the account's links. Not the GDPR export: it leaves out the contact details (`phoneNumber` is always `null` here) |
+| `POST` | `auth/account/data-export` | bearer token | `DownloadAccountDataRequest { password }` → **200** `AccountDataExportResponse` without links — the **GDPR Art. 15 export**, contact details included, only behind the current password (#690, ADR-0052). Wrong password → **400** `Auth.InvalidCurrentPassword`, none sent → **400** `Auth.ExportPasswordRequired`. Every attempt that reaches the password check is written to the audit log |
+| `GET` | `/` | anonymous | discovery document (links into the account flows) |
 
 `RegisterRequest`: `{ username, email, password, acceptedPrivacyPolicy, acceptedTermsOfService }`.
-Both flags **must be `true`** (the ToS flag landed with LEGAL-03; acceptance + timestamp are persisted
-and surface in the data export). There is no data-processing consent: the account runs on the
-contract, not on consent (ADR-0068, #1073), so registration neither asks for one nor stores one. The data export
-still carries `dataProcessingConsentGiven`/`dataProcessingConsentDate`, which only older accounts have
-set, until the columns are dropped (ADR-0023, #1130). Password rules (`PasswordValidationRules.cs`, lengths in `PasswordConstants.cs`): **8–128** chars,
-≥1 digit, ≥1 lowercase, ≥1 uppercase, ≥1 special. Email unique (case-insensitively, physical via the
-unique `EmailIndex`), ≤ 250, regex-validated — **the e-mail is the login identifier** (ADR-0022).
-Username is a **display-only handle**: unique (case-insensitively), `^[a-zA-Z0-9]+$` (letters + digits
-only — `UsernameConstants`), ≤ 150; it never authenticates. Email confirmation is **required to sign
-in**; lockout is **5 failed attempts / 5 min**.
+Both flags **must be `true`**; each acceptance and its time are stored and appear in the data export.
+There is no data-processing consent: the account runs on the contract, not on consent (ADR-0068,
+#1073). The data export still carries `dataProcessingConsentGiven`/`dataProcessingConsentDate`, set only
+on older accounts, until the columns are dropped (ADR-0023, #1130).
 
-> **Answers that hide whether an address has an account take a fixed minimum time** (ADR-0059).
+Password rules (`PasswordValidationRules.cs`, lengths in `PasswordConstants.cs`): **8–128** characters,
+at least one digit, one lowercase letter, one uppercase letter and one special character, and not in a
+known data breach. The e-mail is unique (case-insensitive, enforced by the unique `EmailIndex`), ≤ 250,
+regex-checked (`EmailConstants`), and it **is the login** (ADR-0022). The username is a
+**display-only name**: unique (case-insensitive), letters and digits only (`UsernameConstants`), ≤ 150;
+it never signs anyone in. A confirmed e-mail is **required to sign in**; lockout is **5 failed attempts
+/ 5 min**.
+
+> **Answers that hide whether an address has an account wait for a minimum time** (ADR-0059).
 > `auth/forgot-password`, `auth/reset-password`, `auth/confirm-email` and `auth/account/cancel-deletion`
-> answer no sooner than **500 ms** after the lookup starts, `auth/resend-email-confirmation` no sooner
-> than **3 s** (it sends the mail inside the request). The same floors apply to the matching auth pages,
-> and to every failed sign-in on `/Account/Login` that shows the general message. A malformed request
-> is refused at once.
+> answer no sooner than **500 ms** after the lookup starts, `auth/register` after **1 s**, and
+> `auth/resend-email-confirmation` after **3 s** (it sends the mail inside the request). The matching
+> auth pages and every failed sign-in on `/Account/Login` that shows the general message wait the
+> same. A malformed request is refused at once.
 
-> **No registration saga.** Registering creates only the AuthSystem user (ADR-0002 §7 / ADR-0004).
-> On purpose, it does **not** create the TMS profile in the same step. The TMS
-> `Translator` profile is provisioned lazily and idempotently on the caller's first authenticated
-> request to `tms-api` (§2.2).
+> **No registration saga.** Registering creates only the AuthSystem user (ADR-0002 §7, ADR-0004). The
+> TMS `Translator` profile is created on the caller's first authenticated request to `tms-api` (§2.2).
 
 ---
 
 ## 8. TranslationSystem endpoints (`tms-api`)
 
-All routes are under `/api/v1` unless noted. All require a bearer token except
+All routes are under `/api/v1` unless noted. All need a bearer token except `GET /`,
 `GET /translation-files/{lang}`, `GET /progress` and the read-only `GET /translations` list.
 
 ### 8.0 Discovery
 
 | Method | Route | Auth | 200 |
 |---|---|---|---|
-| `GET` | `/` | authenticated (fallback) | `DiscoveryResponse { name }` + links |
+| `GET` | `/` | **anonymous** (ADR-0040) | `DiscoveryResponse { name }` + links |
+
+The discovery document lists every entry point that takes no id, filtered by what the caller may
+reach: an anonymous caller gets `self`, `translation-file`, `progress` and `translations`; a logged-in
+user also gets the entry points their role allows (§10.1). Clients resolve every path from it by rel
+name (ADR-0041).
 
 ### 8.1 Game versions
 
 | Method | Route | Policy | Result |
 |---|---|---|---|
-| `GET` | `/api/v1/game-versions` | `RequireTranslatorRole` | **200** `CollectionResponse<GameVersionResponse>`, newest-first (optional `?sort=`, §6) |
+| `GET` | `/api/v1/game-versions` | `RequireTranslatorRole` | **200** `CollectionResponse<GameVersionResponse>`, newest first (optional `?sort=`, §6) |
 | `GET` | `/api/v1/game-versions/{id:guid}` | `RequireTranslatorRole` | **200** `GameVersionResponse` · **404** |
 | `POST` | `/api/v1/game-versions` | `RequireAdminRole` | **201** `GameVersionResponse` (`Location: /api/v1/game-versions/{id}`) · **400** · **422** (version already registered) |
 | `DELETE` | `/api/v1/game-versions/{id:guid}` | `RequireAdminRole` | **204** · **400** · **404** · **422** — see below |
-| `POST` | `/api/v1/game-versions/{id:guid}/import` | `RequireAdminRole` | **200** `ImportSummary` · **404** (unknown version) · **413** (upload too large) · **422** (parse/empty/duplicate/mass-removal/superseded) — see §8.3 |
+| `POST` | `/api/v1/game-versions/{id:guid}/import` | `RequireAdminRole` | **200** `ImportSummary` · **404** (unknown version) · **413** (upload too large) · **422** (parse / empty / duplicate / mass removal / superseded) — see §8.3 |
 
 `GameVersionResponse`: `{ id, version, detectedAt, status }`. `RegisterGameVersionRequest`:
-`{ version }` (dotted notation, e.g. `"48.0"`, ≤ 12 chars; canonicalized — `48` = `48.0`).
+`{ version }` (dotted notation, e.g. `"48.0"`, ≤ 12 chars, one to three segments; canonicalized —
+`48` = `48.0`).
 
-**`DELETE /game-versions/{id}`** (#209) removes a manually-registered version that was added by
-mistake. Only a `Processed` version is kept — it is the one an import was applied against. An
-`Unprocessed` or `Superseded` version with **no translation referencing it** may be deleted, which
-is what frees a version number burned by a wrong registration (#624); otherwise **422**
-(`GameVersionEntity.ProcessedCannotBeDeleted` / `GameVersionEntity.CannotDeleteReferencedVersion`);
-an unknown id is **404**. The duplicate check on `POST` ignores status on purpose — deleting the
-dead row is the way back, not a second row carrying the same version string.
+**`DELETE /game-versions/{id}`** (#209) removes a version that was registered by mistake. A
+`Processed` version is never deleted, because an import ran against it. An `Unprocessed` or
+`Superseded` version with **no translation pointing at it** may be deleted, which frees its version
+number (#624). Otherwise **422** (`GameVersionEntity.ProcessedCannotBeDeleted` /
+`GameVersionEntity.CannotDeleteReferencedVersion`); an unknown id is **404**. The duplicate check on
+`POST` ignores status: deleting the wrong row is the way back, not a second row with the same version.
 
 ### 8.2 Translations
 
@@ -457,34 +412,35 @@ dead row is the way back, not a second row carrying the same version string.
 | Param | Type | Default | Meaning |
 |---|---|---|---|
 | `lang` | string? | — | optional; only `polish` exists today (anything else → **400**) |
-| `search` | string? | — | case-insensitive substring over English source **or** Polish (LIKE metachars escaped) |
-| `status` | `TranslationStatus`? | — | filter; `NeedsReview` is the "needs re-translation" view |
-| `page` | int | `1` | clamped ≥ 1 |
-| `pageSize` | int | `50` | clamped 1–100 |
+| `search` | string? | — | case-insensitive substring of the English source **or** the Polish (LIKE special characters escaped) |
+| `status` | `TranslationStatus`? | — | filter; `NeedsReview` is the "needs retranslation" view |
+| `page` | int | `1` | at least 1 |
+| `pageSize` | int | `50` | clamped to 1–100 |
 | `sort` | string? | — | multi-field sort, §6 (`fileId`, `gossipId`, `status`, `submittedAt`) |
 
-Soft-removed rows are always excluded. Default order `(FileId, GossipId)`. The list is anonymous
-(the data is public game text); anonymous callers get items without any HATEOAS action links.
+Soft-removed rows are always left out. Default order `(FileId, GossipId)`. Anonymous callers get the
+items without any links.
 
-**`PUT /translations`** body `UpsertTranslationRequest`: `{ fileId, gossipId, translatedText }`. Creates
-or replaces the Polish content of the row keyed by `(fileId, gossipId)` — the row must already exist
-(born from import). The submitting translator is taken from the **token**, never the body. Editing an
-`Approved` row moves it to `Draft` (pulled from distribution until re-approved). A soft-removed row
-→ **422** (`TranslationEntity.CannotEditRemoved`); unknown fragment → **404**. Placeholders
-(`<--DO_NOT_TOUCH!-->`) are stored verbatim.
+**`PUT /translations`** body `UpsertTranslationRequest`: `{ fileId, gossipId, translatedText }`.
+Creates or replaces the Polish text of the row keyed by `(fileId, gossipId)`; the row must already
+exist (it comes from an import). `translatedText` must not be empty and must be at most 32767
+characters, the most the DAT can hold (ADR-0043). The translator is taken from the **token**, never
+the body. Editing an `Approved` row moves it to `Draft`, which takes it out of the file until someone
+approves it again. A soft-removed row → **422** (`TranslationEntity.CannotEditRemoved`); unknown
+fragment → **404**. Placeholders (`<--DO_NOT_TOUCH!-->`) are stored as they are.
 
 **`POST /translations/{id}/approve`** (reviewer only): a row with no Polish → **422**
-(`CannotApproveWithoutTranslation`), a soft-removed row → **422** (`CannotApproveRemoved`), unknown
-id → **404**, success → **204**. Schedules a debounced background rebuild of the distributed file
-(PERF-04, ADR-0021) — the response does not wait for it, so a download may briefly trail the commit.
+(`CannotApproveWithoutTranslation`), a soft-removed row → **422** (`CannotApproveRemoved`), unknown id
+→ **404**, success → **204**. It schedules a background rebuild of the file (PERF-04, ADR-0021); the
+response does not wait for it, so a download can trail the commit for a moment.
 
 **`POST /translations/approve`** — bulk approve (#322), body `BulkApproveTranslationsRequest`:
-`{ ids: [guid, ...] }` (1–100 distinct ids; the list's max page size). Best-effort: every requested
-row that is *still* approvable (a non-removed `Draft`/`NeedsReview` row) is approved, the rest are
-silently skipped — a single stale row never fails the batch, and no per-row 404/422 is returned.
+`{ ids: [guid, ...] }` (1–100 ids, the list's largest page; duplicates are removed). Every requested
+row that can *still* be approved (a non-removed `Draft`/`NeedsReview` row) is approved and the rest are
+skipped, so one out-of-date row never fails the batch, and there is no 404/422 for a single row.
 Response `BulkApproveTranslationsResponse`: `{ requested, approved, skipped }` with
-`approved + skipped == requested`. One debounced artifact rebuild is scheduled only when at least
-one row was approved.
+`approved + skipped == requested`. One background rebuild is scheduled, only when at least one row was
+approved.
 
 `TranslationDetailResponse` (the side-by-side editor):
 
@@ -503,44 +459,45 @@ one row was approved.
 }
 ```
 
-`TranslationListItemResponse` carries the lighter `{ id, fileId, gossipId, sourceText, translatedText,
-status, submitter, updatedAt }`. `previousSourceText` is the **superseded English** kept for review
-after a game update invalidated the row (non-null only while `NeedsReview`).
+`TranslationListItemResponse` is the lighter `{ id, fileId, gossipId, sourceText, translatedText,
+status, submitter, updatedAt }`. `previousSourceText` is the **old English** kept for review after a
+game update invalidated the row; it is set from the invalidation until the row is approved again.
 
-`TranslationStatsResponse` (mini-dashboard): `{ total, translated, approved, remaining }` over the
-active (non-removed) catalog — `translated` = rows carrying Polish (Draft + Approved + NeedsReview),
-`remaining` = `total - approved`. Served from a **30 s server-side cache** (`HybridCache`,
-AUDIT-EF-04) — counters may lag a write by up to the TTL.
+`TranslationStatsResponse` (mini dashboard): `{ total, translated, approved, remaining }` over the
+active (non-removed) catalog. `translated` = rows with Polish (Draft + Approved + NeedsReview),
+`remaining` = `total - approved`. It comes from a **30 s server-side cache** (`HybridCache`,
+AUDIT-EF-04), so the numbers can lag a write by up to 30 s.
 
 ### 8.3 Import (`POST /game-versions/{id}/import`)
 
-Version-bound upload of a fresh `exported.txt` (spec 0001), **admin-only**, `multipart/form-data`:
+Upload of a fresh `exported.txt` for one version (spec 0001), **admin only**, `multipart/form-data`:
 
-- form field `file` — the `||`-format export (size-capped: **256 MB** default via
-  `ImportUploadLimits.MaxUploadBytes`, configurable `Import:MaxUploadBytes`; over the cap → **413**);
-- query `allowMassRemoval` (default `false`) — override the safety guard.
+- form field `file` — the `||`-format export. The size limit is **256 MB** by default
+  (`ImportUploadLimits.MaxUploadBytes`, configurable as `Import:MaxUploadBytes`); a larger file →
+  **413**;
+- query `allowMassRemoval` (default `false`) — turns off the mass-removal guard.
 
-The handler streams the upload in **two passes** (spec 0006): pass 1 validates and diffs the file
-against the stored source state by `(FileId, GossipId)` hash-to-hash without writing anything (so the
-mass-removal guard runs on the full plan first); pass 2 applies the five outcomes (added — binary
-`COPY` — / source-changed / removed / restored / unchanged) and flips the version to `Processed` in
-**one atomic transaction**. Processing the newest version also marks every older still-`Unprocessed`
-version `Superseded` in the same transaction — a later import against one of them fails with
-`GameVersionEntity.SupersededCannotBeProcessed` (**422**) instead of rewinding the catalog. After the
-commit a debounced background rebuild of the distributed file is scheduled (ADR-0021). Re-upload to
-an already `Processed` version is allowed and idempotent. Response `ImportSummary` (warnings report
-restored rows and superseded versions):
+The handler reads the upload **twice** (spec 0006). The first pass validates the file and compares it
+with the stored sources by `(FileId, GossipId)`, hash to hash, without writing anything, so the
+mass-removal guard sees the full plan first. The second pass applies the five outcomes (added — with
+binary `COPY` — / source-changed / removed / restored / unchanged) and sets the version to `Processed`
+in **one atomic transaction**. In the same transaction every older version that is still `Unprocessed`
+becomes `Superseded`; a later import against one of them fails with
+`GameVersionEntity.SupersededCannotBeProcessed` (**422**). After the commit a background rebuild of the
+file is scheduled (ADR-0021). Importing again into a `Processed` version is allowed and idempotent.
+Response `ImportSummary` (`echoed` counts rows whose "source" was our own Polish from a patched game,
+already included in `unchanged` — spec 0012; `warnings` report restored rows and superseded versions):
 
 ```json
-{ "added": 12, "sourceChanged": 3, "invalidated": 2, "removed": 0, "unchanged": 4810, "warnings": [] }
+{ "added": 12, "sourceChanged": 3, "invalidated": 2, "removed": 0, "unchanged": 4810, "echoed": 0, "warnings": [] }
 ```
 
 Failure modes (all **422 `DataConflict`** unless noted):
 
 | `errorCode` | When |
 |---|---|
-| `Import.ParseFailed` | the upload has unparseable lines (truncated file guard) |
-| `Import.EmptyUpload` | no translatable rows (empty / comments-only) |
+| `Import.ParseFailed` | the upload has lines that cannot be parsed, is not valid UTF-8, or has a `source_digest` that does not match its row (the cut-off file guard) |
+| `Import.EmptyUpload` | no translatable rows (empty or comments only) |
 | `Import.InvalidRow` | a row has an invalid `(FileId, GossipId)` or source |
 | `Import.DuplicateFragmentKey` | two rows share one fragment key |
 | `Import.MassRemovalBlocked` | the upload would remove > **20%** of active rows without `allowMassRemoval=true` |
@@ -551,28 +508,28 @@ Failure modes (all **422 `DataConflict`** unless noted):
 
 | Method | Route | Auth | Result |
 |---|---|---|---|
-| `GET` | `/api/v1/translation-files/{lang}` | **anonymous** | **200** `text/plain` (the `||` file) · **304** · **404** |
+| `GET` | `/api/v1/translation-files/{lang}` | **anonymous** | **200** `text/plain; charset=utf-8` (the `||` file) · **304** · **404** |
 
-The CLI/player downloads the pre-built Polish file here. Served from a stored artifact that a
-**debounced background worker** regenerates after every write changing the distributed set (PERF-04,
-ADR-0021) — never built per request, so a download may briefly trail a commit. Supports HTTP caching:
+The CLI and the player app download the ready-made Polish file here. A background worker rebuilds it
+after every write that changes the distributed set (PERF-04, ADR-0021). It is never built per request,
+so a download can trail a commit for a moment. A full download streams a copy from the API's own disk,
+written once per content hash (ADR-0064). HTTP caching:
 
-- the response carries a strong **`ETag`** = the content hash (hex SHA-256 of the UTF-8 body), plus
+- the response carries a strong **`ETag`** = the content hash (hex SHA-256 of the UTF-8 body) and
   `Cache-Control: private, no-cache`;
-- send **`If-None-Match: "<etag>"`** (or `*`) to get **304 Not Modified** when unchanged — the 304
-  decision is a hash-only lookup that never reads the multi-MB content (PERF-01);
-- the ETag doubles as the **integrity hash** (AUDIT-SEC-01): the patcher recomputes the SHA-256 of
-  the downloaded body and rejects the file on mismatch — the hash algorithm and strong-ETag format
-  are a cross-context contract;
-- `lang` must be `polish` (anything else → **400**); no artifact built yet → **404**
+- send **`If-None-Match: "<etag>"`** (or `*`) to get **304 Not Modified** when nothing changed. The
+  304 decision reads only the hash, never the multi-MB content (PERF-01);
+- the ETag is also the **integrity hash** (AUDIT-SEC-01): the patcher computes the SHA-256 of the
+  downloaded body and refuses the file on a mismatch. The hash algorithm and the strong-ETag format
+  are a contract between the two contexts;
+- `lang` must be `polish` (anything else → **400**); no file built yet → **404**
   (`TranslationFiles.NotFound`).
 
-The file holds **Approved + non-invalidated + non-removed** rows, sorted by `FileId` then `GossipId`,
-byte-compatible with the patcher's writer (the `args_order||args_id||approved||source_digest` columns,
-approved always `1`, CRLF terminators). `source_digest` (ADR-0047) is the 16-hex prefix of the row's
-`SourceHash` over its stored English source — the value the patcher checks the DAT against before it
-overwrites a fragment, so a translation approved for an older game version can never mask a reworded
-text. See the [translation file contract](../CLAUDE.md) and
+The file holds the `Approved`, non-removed rows, sorted by `FileId` then `GossipId`, byte-compatible
+with the patcher's writer (approved always `1`, CRLF line ends). `source_digest` (ADR-0047) is the
+16-hex digest of the row's English source: the patcher checks the DAT against it before it overwrites
+a fragment, so Polish approved for an older English never lands over a changed text. Format:
+[README → Translation file format](../README.md#translation-file-format-the-inter-context-contract). Projection:
 [DOMAIN.md §projection](DOMAIN.md#projekcja-precomputedtranslationfile).
 
 ### 8.5 Public progress (`GET /progress`)
@@ -581,10 +538,23 @@ text. See the [translation file contract](../CLAUDE.md) and
 |---|---|---|---|
 | `GET` | `/api/v1/progress` | **anonymous** | `PublicProgressResponse` |
 
-The landing page's public snapshot (#309): `{ total, translated, approved, currentGameVersion }` over
-the active catalog — the same bucketing as `/translations/stats` — plus the newest **Processed** game
-version's dotted notation (`null` until a first import completes). Deliberately a separate frozen
-public contract, aggregate counters only; served from a **30 s server-side cache** (`HybridCache`).
+The landing page's public numbers (#309): `{ total, translated, approved, currentGameVersion }` over
+the active catalog — the same grouping as `/translations/stats` — plus the newest **Processed** game
+version (`null` until the first import). A separate public contract with totals only, from a **30 s
+server-side cache** (`HybridCache`).
+
+### 8.6 Contribution data export (`GET /translators/me/data-export`)
+
+| Method | Route | Policy | 200 |
+|---|---|---|---|
+| `GET` | `/api/v1/translators/me/data-export` | `RequireAuthenticatedUser` | `TranslatorDataExportResponse` |
+
+The TMS half of the GDPR Art. 15 export (LEGAL-07, ADR-0032): the caller's translator profile
+(`null` if none exists) and ids and per-status counts of every row they submitted or approved, never
+the texts. Soft-removed rows are included. No role is needed, because access to your own data must not
+depend on your role. It asks for no password; the frontend calls it only after `auth-api` accepted the
+password for the Art. 15 file (ADR-0052). Its rel `contribution-data-export` is also what the frontend
+uses to detect a token that never reached the API — see the warning on `Rels.ContributionDataExport`.
 
 ---
 
@@ -592,75 +562,91 @@ public contract, aggregate counters only; served from a **30 s server-side cache
 
 ### 9.1 Translator edits a string (browser, interactive)
 
-1. Frontend redirects to `connect/authorize` (auth code + PKCE); user signs in at `/Account/Login`.
-2. `connect/token` returns the access token; the cookie session stores it (`SaveTokens`).
+1. Frontend redirects to `connect/authorize` (auth code + PKCE); the user signs in at `/Account/Login`.
+2. `connect/token` returns the tokens; the cookie session stores them (`SaveTokens`).
 3. `GET /api/v1/translations?status=Untranslated` → pick a row → `GET /api/v1/translations/{id}`.
-4. `PUT /api/v1/translations { fileId, gossipId, translatedText }` → row becomes `Draft`. (The
-   caller's `Translator` profile was already provisioned lazily on their first authenticated request
-   — ADR-0004 as amended; the write handler re-verifies it before stamping attribution.)
+4. `PUT /api/v1/translations { fileId, gossipId, translatedText }` → the row becomes `Draft`.
 
 ### 9.2 Reviewer approves & the file ships
 
 1. `GET /api/v1/translations?status=Draft` (or `NeedsReview`).
-2. `POST /api/v1/translations/{id}/approve` (Admin) → **204** — or select up to 100 rows and
-   `POST /api/v1/translations/approve { ids }` in one action; a debounced background rebuild of the
-   distributed file follows.
-3. The CLI `launch` flow does `GET /api/v1/translation-files/polish` with `If-None-Match` → patches
-   only when the ETag changed (and verifies the body against the ETag hash).
+2. `POST /api/v1/translations/{id}/approve` (Admin) → **204** — or select up to 100 rows and send
+   `POST /api/v1/translations/approve { ids }`. A background rebuild of the file follows.
+3. The CLI `launch` flow does `GET /api/v1/translation-files/polish` with `If-None-Match` and patches
+   only when the ETag changed (and checks the body against the ETag hash).
 
 ### 9.3 A game update lands
 
-1. CLI `export` → `exported.txt`. Admin: `POST /api/v1/game-versions { version }` (manual — the forum
-   watcher, M2-18/#85, is not implemented yet), then `POST /api/v1/game-versions/{id}/import` with
-   the file.
-2. The diff invalidates source-changed rows that carried Polish (→ `NeedsReview`, superseded English
-   frozen) and soft-removes vanished rows; the rebuilt file excludes both.
-3. Translators work the `NeedsReview` queue; approve re-admits rows to the file.
+1. CLI `export` → `exported.txt`. Admin: `POST /api/v1/game-versions { version }` (registration stays
+   manual — ADR-0030), then `POST /api/v1/game-versions/{id}/import` with the file.
+2. The diff invalidates source-changed rows that had Polish (→ `NeedsReview`, old English kept) and
+   soft-removes rows that are gone; the rebuilt file leaves out both.
+3. Translators work the `NeedsReview` queue; approving puts rows back into the file.
 
 ---
 
 ## 10. HATEOAS rel catalogue
 
-Sent only with `Accept: application/vnd.dev-lotrokoniecdev.hateoas.json`.
+Sent only with `Accept: application/vnd.dev-lotrokoniecdev.hateoas.json`. **Rel names are a frozen
+public contract** (ADR-0040, ADR-0041): adding one is cheap, renaming one breaks every client.
 
 ### 10.1 `tms-api` rels (`TranslationSystem.Contracts/Hateoas/Rels.cs`)
 
+Entry points in the discovery document `GET /` (each shown only to a caller who may follow it):
+
+| rel | Method | Target |
+|---|---|---|
+| `self` | GET | `/` |
+| `translation-file` | GET | `/api/v1/translation-files/polish` |
+| `progress` | GET | `/api/v1/progress` |
+| `translations` | GET | `/api/v1/translations` |
+| `upsert` | PUT | `/api/v1/translations` |
+| `translation-stats` | GET | `/api/v1/translations/stats` |
+| `bulk-approve` | POST | `/api/v1/translations/approve` |
+| `game-versions` | GET | `/api/v1/game-versions` |
+| `register` | POST | `/api/v1/game-versions` |
+| `contribution-data-export` | GET | `/api/v1/translators/me/data-export` |
+
+Rels on resources and collections:
+
 | rel | Method | Target | Appears when |
 |---|---|---|---|
-| `self` | GET | the resource / list page | always — except on a translation for an **anonymous** caller (every advertised transition, incl. the detail `self`, requires auth) |
+| `self` | GET | the resource / list page | always — except on a translation for a caller who is not a translator (every link there needs a login) |
 | `upsert` | PUT | `/api/v1/translations` | caller is `Translator`/`Admin`, translation not soft-removed |
-| `approve` | POST | `/api/v1/translations/{id}/approve` | caller is `Admin` **and** status ∈ {Draft, NeedsReview}, not removed |
+| `approve` | POST | `/api/v1/translations/{id}/approve` | caller is `Admin` **and** status is Draft or NeedsReview, not removed |
 | `bulk-approve` | POST | `/api/v1/translations/approve` | on the translations collection, caller is `Admin` |
 | `register` | POST | `/api/v1/game-versions` | on the game-versions collection, caller is `Admin` |
 | `delete` | DELETE | `/api/v1/game-versions/{id}` | caller is `Admin` **and** the version is not `Processed` (#624) |
+| `import` | POST | `/api/v1/game-versions/{id}/import` | caller is `Admin` **and** the version is not `Superseded` |
 | `previous-page` / `next-page` | GET | the list page | that neighbouring page exists |
-| `first-page` / `last-page` | GET | the list page | the target page exists **and is not the current one** (#545); both survive an over-range page, so an overshooting caller can get back |
+| `first-page` / `last-page` | GET | the list page | the target page exists **and is not the current one** (#545); both stay on an out-of-range page, so the caller can get back |
 
 ### 10.2 `auth-api` rels (`AuthSystem.Contracts/Hateoas/Rels.cs`)
 
-`self`, `register`, `forgot-password`, `export-account-data` (discovery); `change-password`,
-`change-email`, `delete-account`, `resend-email-confirmation`, `download-account-data` (account
-aggregate). `download-account-data` (POST `auth/account/data-export`) is the password-gated GDPR export
-and is deliberately **not** in discovery (ADR-0052). While a deletion is scheduled the account aggregate
-suppresses the normal rels and emits only `cancel-deletion` (POST `auth/account/cancel-deletion`) and
-`download-account-data` — every other transition is a dead end on a locked account, and a copy of your
-own data stays a right.
+Discovery: `self`, `register` and `forgot-password` for an anonymous caller, `export-account-data` for
+a logged-in one. Account representation: `self`, `download-account-data`, `change-password`,
+`change-email`, `delete-account`, and `resend-email-confirmation` while the e-mail is unconfirmed.
+`download-account-data` (POST `auth/account/data-export`) is the password-gated GDPR export and is not
+in discovery (ADR-0052). While a deletion is scheduled the account representation emits only `self`,
+`cancel-deletion` (POST `auth/account/cancel-deletion`) and `download-account-data`: every other action
+is a dead end on a locked account, and a copy of your own data stays a right.
 
 ---
 
 ## 11. Quick conventions checklist
 
 - **Base paths**: `tms-api` domain under `/api/v1`; `auth-api` under `connect/*` + `auth/*`.
-- **Auth**: bearer token on every `tms-api` call except `GET /translation-files/{lang}`,
+- **Auth**: bearer token on every `tms-api` call except `GET /`, `GET /translation-files/{lang}`,
   `GET /progress`, the read-only `GET /translations` list, and health.
-- **Roles**: `Translator` reads + upserts; `Admin` also approves (single + bulk) / imports /
-  registers & deletes versions.
+- **Roles**: `Translator` reads and upserts; `Admin` also approves (single and bulk), imports, and
+  registers and deletes versions.
 - **IDs**: bare GUID strings (GUID v7). **Enums**: strings.
 - **Errors**: RFC 7807 `ProblemDetails` on `tms-api` and `auth/*`; branch on the `errorCode`
-  extension, not `detail`. A `connect/*` refusal comes in the OAuth `error` / `error_description`
-  shape instead (§7.1).
-- **Links**: opt in with the vendor `Accept`; they're state/role-aware — drive the UI off rels.
-- **Pagination**: `pageSize` clamped 1–100; deterministic default order + optional multi-field
+  extension, not `detail`. A `connect/*` refusal uses the OAuth `error` / `error_description` shape
+  instead (§7.1).
+- **Links**: opt in with the vendor `Accept`; they follow the caller's rights and the resource state —
+  drive the UI off rels.
+- **Pagination**: `pageSize` clamped to 1–100; fixed default order + optional multi-field
   `?sort=key:asc,key2:desc` (§6).
 - **Distribution**: respect `ETag` / `If-None-Match` on the translation-file download; the ETag is
   also the SHA-256 integrity hash of the body.
@@ -670,10 +656,10 @@ own data stays a right.
 ## 12. Where to read more
 
 - [DOMAIN.md](DOMAIN.md) — the aggregates, value objects, state machine and CQRS split behind these endpoints.
-- [INVARIANTS.md](INVARIANTS.md) — every enforced rule, tagged 🟢 Domain / 🔵 Application with a `file:line` anchor.
-- [auth-tutorial.md](auth-tutorial.md) — the auth story end-to-end (JWT, OAuth2/OIDC, OpenIddict, JwtBearer, lazy provisioning).
+- [INVARIANTS.md](INVARIANTS.md) — every enforced rule, tagged 🟢 Domain / 🔵 Application, with its file.
+- [auth-tutorial.md](auth-tutorial.md) — the sign-in setup end to end (JWT, OAuth2/OIDC, OpenIddict, JwtBearer, lazy provisioning).
 - `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` — the update-lifecycle domain spec.
 - `docs/specs/0002-hateoas-hypermedia-on-tms-endpoints.md` — the HATEOAS content-negotiation contract.
 - `docs/adr/` — 0001 (no mediator), 0002 (TMS pivot), 0003 (version canonical form), 0004 (translator
-  + lazy provisioning), 0006 (dev stack: infra-only compose + host Kestrels), 0007 (read projections
-  are not aggregates), 0021 (debounced background artifact rebuild).
+  + lazy provisioning), 0007 (read projections are not aggregates), 0021 (background artifact rebuild),
+  0040 (authorization-aware links, anonymous root), 0041 (no API gateway), 0067 (who checks what).

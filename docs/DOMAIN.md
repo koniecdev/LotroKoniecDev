@@ -1,13 +1,11 @@
 # Dokumentacja domeny — LotroKoniecDev TMS
 
-> Spacer po modelu domenowym **Translation Management System** (TMS), wygenerowany przez analizę
-> **kodu źródłowego** (warstwa Domain + Domain Services + read modele + konfiguracje EF), a **nie**
-> istniejącej dokumentacji. **Kod jest źródłem prawdy** — przy rozbieżności czytaj kod i popraw ten
-> dokument. Lokalizacje podane jako `plik:linia`.
+> Przegląd modelu domenowego **Translation Management System** (TMS). **Kod jest źródłem prawdy**:
+> gdy ten dokument mówi coś innego niż kod, popraw dokument. Reguły biznesowe ustala wiki
+> (`CLAUDE.md` → „Source of truth").
 >
-> Zakres: tylko kontekst **TMS** (`src/TranslationSystem/**`). Patcher (`src/Patcher/**`) jest
-> stabilny (wydany i udowodniony empirycznie; ADR-0002 aneks 2026-06-25 — już nie „zamrożony") i ma
-> własny, prostszy model — tutaj go nie opisujemy.
+> Zakres: tylko kontekst **TMS** (`src/TranslationSystem/**`). Patcher (`src/Patcher/**`) ma własny,
+> prostszy model i nie jest tu opisany.
 
 ## Spis treści
 
@@ -30,26 +28,24 @@
 
 ## Przegląd architektury
 
-TMS to jeden z **dwóch bounded contextów** w repo (drugim jest stabilny patcher CLI). Konteksty nie
-mają wzajemnych referencji projektowych — łączy je **wyłącznie kontrakt pliku** `||` (format
-tłumaczeń). TMS stoi na Vertical Slice Architecture, domenie DDD, monadzie `Result` i własnym
-serwerze OpenIddict. W całym repo **nie ma mediatora (ADR-0001)**.
+TMS to jeden z **dwóch bounded contextów** w repo. Drugi to patcher CLI. Konteksty nie mają
+wzajemnych referencji projektowych. Łączy je tylko kontrakt pliku `||` (format tłumaczeń). W całym
+repo **nie ma mediatora (ADR-0001)**.
 
 Kluczowe cechy:
 
-- **Vertical Slice Architecture** — jeden use case = jeden plik w `…API/Features/<Obszar>/<Akcja>.cs`
-  (rekord komendy/zapytania + handler + walidator), spięty jawną rejestracją w DI. Brak mediatora:
-  handlery implementują własne `ICommandHandler<,>`/`IQueryHandler<,>` z `SharedKernel.Messaging`,
-  a konsument wstrzykuje **zamknięty** interfejs handlera (ADR-0001).
-- **CQRS, rozdział read/write od pierwszego dnia (ADR-0002).** Komendy ładują i mutują agregaty przez
-  repozytoria + `IUnitOfWork`; zapytania czytają płaskie POCO read modele przez `IApplicationReadDbContext`.
-  Model zapisu nigdy nie obsługuje list/wyszukiwania.
-- **Błędy są wartościami, nie wyjątkami.** Reguły biznesowe → `Result.Failure(Error)` z fabryk
-  `DomainErrors.*`. Guardy (`Ensure`, `ArgumentNullException`) są tylko dla błędów programisty.
-- **Brak prymitywnej obsesji.** Każdy koncept domenowy niosący ograniczenie lub tożsamość jest
-  `ValueObject` albo strongly-typed ID — nigdy surowym `string`/`int`/`Guid`.
-- **Agregaty są celowo proste** — nie nadymamy ich. Brak domain eventów (świadoma decyzja,
-  ADR-0002 §5): rdzeniowa pętla ich nie potrzebuje.
+- **Vertical Slice Architecture.** Jeden use case to jeden plik w `…API/Features/<Obszar>/<Akcja>.cs`
+  (rekord komendy lub zapytania, handler, walidator). Handlery implementują własne
+  `ICommandHandler<,>`/`IQueryHandler<,>` z `SharedKernel.Messaging`. Konsument wstrzykuje
+  **zamknięty** interfejs handlera, zarejestrowany jawnie w DI (ADR-0001).
+- **CQRS od pierwszego dnia (ADR-0002).** Komendy ładują i zmieniają agregaty przez repozytoria
+  i `IUnitOfWork`. Zapytania czytają płaskie read modele przez `IApplicationReadDbContext`. Model
+  zapisu nie obsługuje list ani wyszukiwania.
+- **Błędy są wartościami.** Reguła biznesowa zwraca `Result.Failure(Error)` z fabryk
+  `DomainErrors.*`. Guardy (`Ensure`, `ArgumentNullException`) są tylko na błędy programisty.
+- **Brak prymitywnej obsesji.** Koncept z ograniczeniem lub tożsamością to `ValueObject` albo
+  strongly-typed ID, nigdy surowy `string`/`int`/`Guid`.
+- **Brak domain eventów** (ADR-0002 §5): rdzeniowa pętla ich nie potrzebuje.
 
 Kierunek zależności (warstwy TMS):
 
@@ -58,9 +54,9 @@ API  ─▶  Domain  ─▶  Primitives        (Persistence / ReadModels(+EF) / 
         (ReadModels ─▶ Primitives — read modele nie znają Domain; ADR-0007 „read projections are not aggregates")
 ```
 
-Trzy agregaty (`Translation`, `GameVersion`, `Translator`) plus jedna **materializowana projekcja**
-(`PrecomputedTranslationFile`) — gotowy do dystrybucji plik `polish.txt`, świadomie **nie** będący
-agregatem (ADR-0007).
+Trzy agregaty (`Translation`, `GameVersion`, `Translator`) i jedna **projekcja**
+(`PrecomputedTranslationFile`): gotowy do pobrania plik `polish.txt`, który nie jest agregatem
+(ADR-0007).
 
 ---
 
@@ -70,112 +66,108 @@ agregatem (ADR-0007).
 
 `src/TranslationSystem/…Domain/Aggregates/TranslationAggregate/Entities/Translation.cs`
 
-Jeden **mutowalny wiersz na fragment tekstu** — nigdy kopia per wersja gry. Niesie angielskie źródło,
-opcjonalny polski przekład i wskaźniki wersji, które dają grupowanie per wersja bez duplikowania
-wierszy przy każdym patchu (spec 0001).
+Jeden **zmienny wiersz na fragment tekstu**, nigdy kopia na każdą wersję gry. Niesie angielskie
+źródło, opcjonalny polski przekład i wskaźniki wersji. Dzięki nim widać, co zmieniło się w której
+wersji, bez kopiowania wierszy przy każdym patchu (spec 0001).
 
 | Właściwość | Typ | Rola |
 |---|---|---|
-| `FragmentKey` | `FragmentKey` (VO) | stabilna tożsamość `(FileId, GossipId)` ponad wersjami gry; niezmienna |
-| `Source` | `TranslationSource` (VO) | angielskie źródło: tekst + dwie kolumny argumentów, jako jedna wartość |
-| `TranslatedText` | `string?` | polski przekład (`null` dopóki nieprzetłumaczony) |
-| `PreviousSourceText` | `string?` | zamrożone angielskie źródło, do kontekstu side-by-side po unieważnieniu |
-| `SubmittedById` | `TranslatorId?` | kto ostatnio wprowadził polski (FK do `Translators`, **nie** `IdentityId` — ADR-0004) |
+| `FragmentKey` | `FragmentKey` (VO) | stała tożsamość `(FileId, GossipId)` we wszystkich wersjach gry; niezmienna |
+| `Source` | `TranslationSource` (VO) | angielskie źródło: tekst i dwie kolumny argumentów jako jedna wartość |
+| `TranslatedText` | `string?` | polski przekład (`null`, dopóki go nie ma) |
+| `PreviousSourceText` | `string?` | zamrożone angielskie źródło, do porównania po unieważnieniu |
+| `SubmittedById` | `TranslatorId?` | kto ostatnio wpisał polski (FK do `Translators`, **nie** `IdentityId` — ADR-0004) |
 | `ApprovedById` | `TranslatorId?` | kto zatwierdził (FK do `Translators`) |
 | `Status` | `TranslationStatus` | `Untranslated · Draft · Approved · NeedsReview` |
 | `IntroducedInVersion` | `GameVersionId` | wersja, w której fragment się pojawił |
 | `LastSourceChangeInVersion` | `GameVersionId?` | wersja ostatniej zmiany źródła |
-| `RemovedInVersion` | `GameVersionId?` | wersja miękkiego usunięcia (`null` ⇒ aktywny) |
+| `RemovedInVersion` | `GameVersionId?` | wersja miękkiego usunięcia (`null` = aktywny) |
 | `CreatedAt` / `UpdatedAt` | `DateTimeOffset` | znaczniki czasu |
-| `IsRemoved` | `bool` (computed) | `RemovedInVersion is not null` (`Translation.cs:33`) |
+| `IsRemoved` | `bool` (wyliczane) | `RemovedInVersion is not null` |
 
 **Zachowania** (każde stempluje `UpdatedAt`):
 
-- `CreateUntranslated(...)` — fabryka wiersza *dodanego* (baseline lub diff): samo angielskie źródło,
-  status `Untranslated`, stempluje `IntroducedInVersion` (`Translation.cs:39`).
-- `ApplySourceChange(newSource, changedInVersion, now)` — źródło się zmieniło: nadpisuje angielskie
-  źródło; jeśli istniała polska praca w stanie `Draft`/`Approved`, **unieważnia** ją (→ `NeedsReview`,
-  zamraża `PreviousSourceText`); czyści miękkie usunięcie; stempluje `LastSourceChangeInVersion`
-  (`Translation.cs:66`).
-- `MarkRemoved(removedInVersion, now)` — miękkie usunięcie: wykluczony z pracy i z dystrybuowanego
-  pliku, nigdy nie kasowany twardo (`Translation.cs:90`).
-- `Restore(now)` — ponowne dodanie z identycznym źródłem: czyści usunięcie, poprzedni status (w tym
-  `Approved`) zostaje, bo stary polski jest wciąż ważny (`Translation.cs:103`).
-- `ProvideTranslation(translatedText, submittedBy, now)` — dołącza/zastępuje polski draft, stempluje
-  tłumacza; każdy poprzedni status → `Draft` (edycja `Approved` świadomie wyciąga wiersz z dystrybucji
-  do czasu ponownej akceptacji) (`Translation.cs:118`).
-- `Approve(approvedBy, now)` — akceptuje do dystrybucji: wymaga polskiej treści i nieusuniętego wiersza,
-  ustawia `Approved`, stempluje recenzenta, czyści `PreviousSourceText`; zwraca `Result`
-  (`Translation.cs:136`).
+- `CreateUntranslated(...)` — fabryka wiersza *dodanego* (pierwszy import lub diff): samo angielskie
+  źródło, status `Untranslated`, stempel `IntroducedInVersion`.
+- `ApplySourceChange(newSource, changedInVersion, now)` — źródło się zmieniło. Nadpisuje angielskie
+  źródło. Jeśli wiersz był `Draft` lub `Approved`, **unieważnia** polski (→ `NeedsReview`) i zamraża
+  stary angielski w `PreviousSourceText`. Czyści miękkie usunięcie. Stempluje
+  `LastSourceChangeInVersion`.
+- `MarkRemoved(removedInVersion, now)` — miękkie usunięcie: wiersz wypada z pracy i z pobieranego
+  pliku, ale nigdy nie jest kasowany.
+- `Restore(now)` — para wraca z identycznym źródłem: czyści usunięcie, poprzedni status (także
+  `Approved`) zostaje, bo stary polski nadal pasuje.
+- `ProvideTranslation(translatedText, submittedBy, now)` — zapisuje lub zastępuje polski draft
+  i stempluje tłumacza. Każdy poprzedni status → `Draft`. Edycja wiersza `Approved` wyjmuje go
+  z pobieranego pliku do ponownej akceptacji. Tekst dłuższy, niż zmieści DAT, rzuca wyjątek, bo
+  to błąd programisty; komunikat dla tłumacza daje `UpsertTranslation.Validator` (ADR-0043).
+- `Approve(approvedBy, now)` — zatwierdza do dystrybucji. Wymaga polskiej treści i nieusuniętego
+  wiersza. Ustawia `Approved`, stempluje recenzenta, czyści `PreviousSourceText`, zwraca `Result`.
 
 ### 2. GameVersion
 
 `src/TranslationSystem/…Domain/Aggregates/GameVersionAggregate/Entities/GameVersion.cs`
 
-Wersja gry zarejestrowana ręcznie przez admina (watcher forum — M2-18/#85 — wciąż niezaimplementowany;
-rejestracja ręczna pozostaje kanoniczną ścieżką, por. ADR-0030). Identyfikator wersji
-treści to `LotroNotationVersion` (VO w postaci kanonicznej). Status: `Unprocessed → Processed`, z boczną
-ścieżką `Superseded`.
+Wersja gry rejestrowana ręcznie przez admina (watcher forum M2-18/#85 przesunięty po MVP, ADR-0030).
+Identyfikator wersji to `LotroNotationVersion` (VO w postaci kanonicznej). Status:
+`Unprocessed → Processed`, z boczną ścieżką `Superseded`.
 
 | Właściwość | Typ | Rola |
 |---|---|---|
 | `LotroNotationVersion` | `LotroNotationVersion` (VO) | kanoniczna notacja kropkowa, np. `48.0` |
-| `DetectedAt` | `DateTimeOffset` | czas wykrycia = porządek wersji (forum jest chronologiczne; **brak parsowania semver**) |
+| `DetectedAt` | `DateTimeOffset` | czas rejestracji = porządek wersji (**bez porównywania numerów**) |
 | `Status` | `GameVersionStatus` | `Unprocessed · Processed · Superseded` |
 
-**Zachowania** (zwracają `Result` — bronią przejść stanu):
+**Zachowania** (zwracają `Result` i bronią przejść stanu):
 
-- `MarkAsProcessed()` — `Superseded` nigdy nie może być przetworzony; w przeciwnym razie → `Processed`
-  (re-upload do już przetworzonej wersji jest legalny i idempotentny) (`GameVersion.cs:26`).
-- `MarkSuperseded()` — `Processed` nie może być cofnięty do `Superseded` (przetworzona praca nigdy nie
-  jest cofana); spiętrzone nieprzetworzone wersje są masowo oznaczane, gdy nowsza zostaje przetworzona
-  (`GameVersion.cs:40`).
-- `EnsureCanBeDeleted()` — guard kasowania (#209, poprawiony w #624): usunąć nie można tylko wersji
-  `Processed` — to jedyny status, przeciw któremu wykonano import, więc tłumaczenia na niego wskazują.
-  `Unprocessed` i `Superseded` można wycofać; `Superseded` to wersja zarejestrowana i pominięta
-  (`MarkSuperseded` odrzuca `Processed`), więc nic jej nie referuje, a blokada kasowania paliła jej
-  numer wersji na zawsze. Cross-agregatowy warunek „żadne tłumaczenie jej nie referuje" zostaje
-  w handlerze `DeleteGameVersion` (`GameVersion.cs:58`).
-- `Create(version, detectedAt)` — fabryka; powstaje jako `Unprocessed` (`GameVersion.cs:68`).
+- `MarkAsProcessed()` — `Superseded` nie może zostać przetworzony. Każdy inny status → `Processed`.
+  Ponowny import do wersji już przetworzonej jest dozwolony i nic nie zmienia.
+- `MarkSuperseded()` — `Processed` nie może przejść w `Superseded` (zrobionej pracy nie cofamy).
+  Starsze nieprzetworzone wersje są oznaczane hurtem, gdy nowsza zostaje przetworzona.
+- `EnsureCanBeDeleted()` — usunąć nie można tylko wersji `Processed`, bo tylko do niej był import
+  i wskazują na nią tłumaczenia. `Unprocessed` i `Superseded` można usunąć, co zwalnia ich numer
+  (#624). Warunek „żadne tłumaczenie nie wskazuje na wersję" sprawdza handler `DeleteGameVersion`.
+- `Create(version, detectedAt)` — fabryka; nowa wersja jest `Unprocessed`.
 
 ### 3. Translator (ADR-0004)
 
 `src/TranslationSystem/…Domain/Aggregates/TranslatorAggregate/Entities/Translator.cs`
 
-Lokalna dla TMS, chuda projekcja uwierzytelnionego użytkownika edytującego tłumaczenia. Trzyma
-czytelną tożsamość renderowaną w edytorze (`DisplayName`, opcjonalny
-`Email`) kluczowaną przez cross-contextowy `IdentityId` (id użytkownika z AuthSystem). **Prowizjonowany
-leniwie i idempotentnie** przy **pierwszym uwierzytelnionym żądaniu** (middleware
-`TranslatorProvisioningMiddleware`; ADR-0004 z aneksem 2026-06-24 — wcześniej dopiero przy pierwszym
-zapisie); handlery zapisu dodatkowo prowizjonują autorytatywnie przed stemplowaniem FK. Rozwiązanie
-tożsamość → `TranslatorId` jest cache'owane (L1 `HybridCache`, TTL 5 min, fingerprint claimów —
-PERF-07). Szczegóły w [auth-tutorial.md](auth-tutorial.md) i ADR-0004.
+Lokalny dla TMS, chudy profil zalogowanego użytkownika, który edytuje tłumaczenia. Trzyma nazwę
+pokazywaną w edytorze (`DisplayName`, opcjonalny `Email`). Kluczem jest `IdentityId`, czyli id
+użytkownika z AuthSystem. Profil powstaje **leniwie i idempotentnie** przy **pierwszym
+uwierzytelnionym żądaniu** (`TranslatorProvisioningMiddleware`; ADR-0004, aneks 2026-06-24).
+Handlery zapisu same też tworzą profil przed stemplowaniem FK. Wynik „tożsamość → `TranslatorId`"
+jest w cache (`HybridCache`, TTL 5 min, z odciskiem claimów — PERF-07). Szczegóły:
+[auth-tutorial.md](auth-tutorial.md) i ADR-0004.
 
 | Właściwość | Typ | Rola |
 |---|---|---|
-| `IdentityId` | `IdentityId` (VO/STID) | jedyna cross-contextowa referencja do Auth; **unikalna** |
-| `DisplayName` | `DisplayName` (VO) | nazwa renderowana w edytorze (z claimu `name`) |
-| `Email` | `Email?` (VO) | opcjonalny (claim `email` może nie istnieć) |
-| `ProvisionedAt` | `DateTimeOffset` | czas prowizjonowania (niezmienny) |
+| `IdentityId` | `IdentityId` (STID) | jedyna referencja do Auth między kontekstami; **unikalna** |
+| `DisplayName` | `DisplayName` (VO) | nazwa w edytorze (z claimu `name`) |
+| `Email` | `Email?` (VO) | opcjonalny (claimu `email` może nie być) |
+| `ProvisionedAt` | `DateTimeOffset` | czas utworzenia profilu (niezmienny) |
 
 **Zachowania:**
 
-- `RefreshProfile(displayName, email)` — odświeża `DisplayName`/`Email` z bieżących claimów na każdym
-  dotknięciu (przemianowane konto zbiega się bez osobnej synchronizacji); **nie** stempluje znacznika czasu
-  (`Translator.cs:31`).
-- `Create(identityId, displayName, email, now)` — fabryka, stempluje niezmienny `ProvisionedAt` (`Translator.cs:39`).
+- `RefreshProfile(displayName, email)` — kopiuje `DisplayName`/`Email` z bieżących claimów;
+  provisioner woła ją tylko, gdy claimy się zmieniły. Przemianowane konto nadąża samo, bez osobnej synchronizacji. Nie stempluje czasu.
+- `Erase()` — po usunięciu konta w AuthSystem (ADR-0065) zdejmuje osobę z profilu: `DisplayName`
+  staje się `Usunięte konto` (`Translator.ErasedDisplayName`), `Email` = `null`. Profil i jego
+  tłumaczenia zostają. Wywołanie drugi raz nic nie zmienia.
+- `Create(identityId, displayName, email, now)` — fabryka, stempluje niezmienny `ProvisionedAt`.
 
-**Łańcuch referencji:** `Translation.SubmittedById/ApprovedById → Translator.Id (TranslatorId)`, a
-`Translator.IdentityId → użytkownik Auth`. Znormalizowany wiersz `Translator` zamiast denormalizowanej
-nazwy na każdym `Translation` — przy zmianie nazwy nic nie dryfuje (ADR-0004).
+**Łańcuch referencji:** `Translation.SubmittedById/ApprovedById → Translator.Id (TranslatorId)`,
+a `Translator.IdentityId → użytkownik Auth`. Jeden wiersz `Translator` zamiast kopii nazwy na każdym
+`Translation`: po zmianie nazwy nic się nie rozjeżdża (ADR-0004).
 
 ---
 
 ## Maszyna stanów Translation — cykl aktualizacji (spec 0001)
 
-To najciekawsza część domeny. **Pojedynczy enum `TranslationStatus`** (bez równoległej flagi
-unieważnienia) sprawia, że nielegalne kombinacje — np. „Approved i jednocześnie unieważniony" — są
-**niereprezentowalne** (`TranslationStatus.cs`). Unieważnienie *jest* przejściem do `NeedsReview`.
+**Jeden enum `TranslationStatus`**, bez osobnej flagi unieważnienia. Dzięki temu nie da się zapisać
+nielegalnej kombinacji, np. „Approved i jednocześnie unieważniony". Unieważnienie *jest* przejściem do
+`NeedsReview`.
 
 ```
                     CreateUntranslated (import: dodany wiersz)
@@ -198,37 +190,37 @@ unieważnienia) sprawia, że nielegalne kombinacje — np. „Approved i jednocz
 ```
 
 - **Unieważnienie** = `Draft`/`Approved` → `NeedsReview` w `ApplySourceChange`. `PreviousSourceText`
-  zamraża angielskie źródło, względem którego napisano *wciąż obecny* polski — nie jest nadpisywane
-  przez kolejne pośrednie zmiany źródła (`Translation.cs:74-84`).
-- **Approve** = `Draft`/`NeedsReview` → `Approved`; czyści `PreviousSourceText`, wciąga wiersz z
-  powrotem do zbioru dystrybucji.
-- **Upsert** na `NeedsReview` → `Draft` (`PreviousSourceText` zachowany do akceptacji).
-- **„Fallback do angielskiego":** żaden angielski tekst nie jest nigdy zapisywany w polu polskim;
-  unieważniony wiersz jest *wykluczany* z dystrybuowanego pliku, więc `patch` nigdy nie nakłada
-  nieaktualnego polskiego (spec 0001).
+  trzyma angielski, pod który napisano *obecny* polski. Kolejne zmiany źródła go nie nadpisują.
+- **Approve** = `Draft`/`NeedsReview` → `Approved`. Czyści `PreviousSourceText` i wraca wiersz do
+  pobieranego pliku.
+- **Upsert** na `NeedsReview` → `Draft` (`PreviousSourceText` zostaje do akceptacji).
+- **„Fallback do angielskiego":** angielski tekst nigdy nie trafia do pola polskiego. Unieważniony
+  wiersz wypada z pobieranego pliku, więc `patch` nie nałoży nieaktualnego polskiego (spec 0001).
 
-`GameVersionStatus` ma analogiczną własność: jeden enum `Unprocessed · Processed · Superseded` zamiast
-boola + flagi (`GameVersionStatus.cs`).
+`GameVersionStatus` działa tak samo: jeden enum `Unprocessed · Processed · Superseded` zamiast boola
+i flagi.
 
 ---
 
 ## Obiekty wartości (Value Objects)
 
 Wszystkie dziedziczą po `SharedKernel.BuildingBlocks.ValueObject` (równość po `GetAtomicValues()`),
-walidują przez `Result` w `Create(...)` i są niemutowalne.
+walidują w `Create(...)` przez `Result` i są niezmienne.
 
 | VO | Plik | Reguła |
 |---|---|---|
-| `FragmentKey` | `…TranslationAggregate/ValueObjects/FragmentKey.cs` | `FileId > 0` i `GossipId >= 0`; tożsamość `(FileId, GossipId)`, `FileId` adresuje subplik DAT, `GossipId` (8-bajtowy) fragment |
-| `TranslationSource` | `…TranslationAggregate/ValueObjects/TranslationSource.cs` | `Text` + `ArgsOrder` + `ArgsId` jako **jedna** wartość (zmiana struktury placeholderów = zmiana znaczenia); blank/`NULL` w kolumnach argumentów normalizowane do `null` |
-| `LotroNotationVersion` | `…GameVersionAggregate/ValueObjects/LotroNotationVersion.cs` | gramatyka `digits(.digits)*`, max 12 znaków; **forma kanoniczna** — segmenty końcowych zer są zwijane, więc `48` = `48.0` = `48.0.0` (ADR-0003) |
-| `DisplayName` | `…TranslatorAggregate/ValueObjects/DisplayName.cs` | niepuste, ≤ **150** znaków (trim) |
+| `FragmentKey` | `…TranslationAggregate/ValueObjects/FragmentKey.cs` | `FileId > 0` i `GossipId >= 0`; tożsamość `(FileId, GossipId)`: `FileId` wskazuje subplik DAT, `GossipId` (8 bajtów) fragment w nim |
+| `TranslationSource` | `…TranslationAggregate/ValueObjects/TranslationSource.cs` | `Text` + `ArgsOrder` + `ArgsId` jako **jedna** wartość (inny układ placeholderów = inne znaczenie); pusta kolumna argumentów i `NULL` dają `null`; tekst jest surowy, bez escape'u z pliku (ADR-0039) |
+| `LotroNotationVersion` | `…GameVersionAggregate/ValueObjects/LotroNotationVersion.cs` | gramatyka `digits(.digits)*`, od jednego do trzech członów (aneks ADR-0003 z 2026-08-28), max 12 znaków; **forma kanoniczna**: końcowe zera są obcinane, więc `48` = `48.0` = `48.0.0` (ADR-0003) |
+| `DisplayName` | `…TranslatorAggregate/ValueObjects/DisplayName.cs` | niepuste, ≤ **150** znaków (po trim) |
 | `Email` | `…TranslatorAggregate/ValueObjects/Email.cs` | niepuste, ≤ **250**, regex `^[^@\s]+@[^@\s]+\.[^@\s]+$`; opcjonalny na `Translator` |
 
-Strongly-typed ID-y (`TranslationId`, `GameVersionId`, `TranslatorId`, `PrecomputedTranslationFileId`,
-oraz cross-contextowy `IdentityId` z SharedKernel) leżą w `TranslationSystem.Primitives` i są generowane
-atrybutem `[StronglyTypedId(...)]`. ID-y używają **GUID v7** (`Guid.CreateVersion7()`, czasowo
-uporządkowane) i serializują się do JSON jako **goły string GUID**.
+Strongly-typed ID (`TranslationId`, `GameVersionId`, `TranslatorId`, `PrecomputedTranslationFileId`)
+leżą w `TranslationSystem.Primitives`; `IdentityId` (wspólny z Auth) leży w
+`SharedKernel/StronglyTypedIds`. To ręcznie pisane `readonly record struct` z interfejsem
+`IStronglyTypedId<T>`, bez pakietu ani generatora (ADR-0010). Nowe ID to **GUID v7**
+(`Guid.CreateVersion7()`, uporządkowane w czasie). W JSON są **gołym stringiem GUID**
+(`StronglyTypedIdJsonConverter<T>`).
 
 ---
 
@@ -238,13 +230,12 @@ uporządkowane) i serializują się do JSON jako **goły string GUID**.
 
 `src/TranslationSystem/…Domain/Aggregates/TranslationAggregate/Services/TranslationDiffService.cs`
 
-Czysty diff (`static class`, `ComputePlanAsync`) wgranego `exported.txt` względem zapisanego stanu
-źródeł, kluczowany po tożsamości fragmentu po całym pliku — od spec 0006 **strumieniowo i na wierszach
-wartości**: upload przychodzi jako mapa klucz→hash (`FragmentKeyValue`→`SourceHash`), katalog płynie
-jako strumień `StoredSourceDigest`, a źródła porównują się hash-do-hasha, więc serwis nie trzyma ani
-stringów źródeł, ani agregatów. Produkuje `TranslationDiffPlan` **bez dotykania bazy** — handler
-importu realizuje plan w swojej transakcji po przejściu guarda truncacji (`TranslationDiffService.cs:22`).
-Pięć wyników:
+Czysty diff (`static class`, `ComputePlanAsync`) wgranego `exported.txt` z zapisanym stanem źródeł,
+po tożsamości fragmentu w całym pliku. Pracuje na wierszach wartości (spec 0006): upload przychodzi
+jako mapa klucz → hash (`FragmentKeyValue` → `SourceHash`), katalog płynie jako strumień
+`StoredSourceDigest`, a źródła porównuje się hash do hasha. Serwis nie trzyma więc ani tekstów
+źródeł, ani agregatów. Zwraca `TranslationDiffPlan` **bez dotykania bazy**. Handler importu wykonuje
+plan w swojej transakcji, gdy przejdzie guard truncacji. Pięć wyników:
 
 | Wynik | Warunek | Akcja |
 |---|---|---|
@@ -252,13 +243,17 @@ Pięć wyników:
 | **Source-changed** | para znana, źródło różne | `ApplySourceChange` (unieważnia polski, jeśli był) |
 | **Removed** | zapisana para nieobecna w uploadzie | `MarkRemoved` (miękko) |
 | **Restored** | wcześniej usunięta para wraca z identycznym źródłem | `Restore` |
-| **Unchanged** | para znana, źródło identyczne | no-op |
+| **Unchanged** | para znana, źródło identyczne | nic |
 
-`TranslationDiffPlan` (`…/Services/TranslationDiffPlan.cs`) liczy też `RemovedFraction` —
-ułamek aktywnych wierszy, które upload by usunął; **0 dla baseline importu** (brak aktywnych wierszy),
-więc guard truncacji nigdy nie tripuje na pierwszym wczytaniu (`TranslationDiffPlan.cs:44-45`). `HasPolish`
-(`Draft`/`Approved`/`NeedsReview`) decyduje, czy zmiana źródła liczy się jako unieważnienie
-(`TranslationDiffService.cs:85-86`).
+**Echo (spec 0012).** Admin eksportuje z własnej, spatchowanej gry, więc wiersz z naszym polskim
+wraca jako „źródło". Gdy przychodzący hash różni się od źródła, ale pasuje do
+`StoredSourceDigest.EchoHash` (hash obecnego polskiego), wiersz liczy się jak niezmieniony (albo
+przywrócony, jeśli był usunięty). `EchoedCount` służy tylko do raportu.
+
+`TranslationDiffPlan` (`…/Services/TranslationDiffPlan.cs`) liczy też `RemovedFraction`: jaką część
+aktywnych wierszy upload by usunął. Przy pierwszym imporcie nie ma aktywnych wierszy, więc wynosi 0
+i guard truncacji nie zadziała. `HasPolish` (`Draft`/`Approved`/`NeedsReview`) decyduje, czy zmiana
+źródła liczy się jako unieważnienie (`InvalidatedCount`).
 
 ---
 
@@ -266,43 +261,43 @@ więc guard truncacji nigdy nie tripuje na pierwszym wczytaniu (`TranslationDiff
 
 `src/TranslationSystem/LotroKoniecDev.TranslationSystem.Projections/PrecomputedTranslationFile.cs`
 
-Gotowy do dystrybucji plik `polish.txt` (Approved + nieunieważnione + nieusunięte wiersze, posortowane
-po `FileId` potem `GossipId`), serwowany przez `GET /api/v1/translation-files/{lang}` z content-hash
-ETag (hex SHA-256 — pełni też rolę hasha integralności dla patchera, AUDIT-SEC-01) i regenerowany po
-każdym zapisie zmieniającym zbiór dystrybucji.
+Gotowy do pobrania plik `polish.txt`: wiersze `Approved` i nieusunięte, posortowane po `FileId`, potem
+`GossipId`. Serwuje go `GET /api/v1/translation-files/{lang}` z ETagiem z treści (hex SHA-256).
+ETag jest też hashem integralności dla patchera (AUDIT-SEC-01). Plik jest przebudowywany po każdym
+zapisie, który zmienia zbiór dystrybucji. Pełne pobranie strumieniuje kopię z dysku API, zapisaną raz
+na każdy hash treści (ADR-0064).
 
-**Świadomie NIE jest agregatem (ADR-0007 „read projections are not aggregates").** To `Entity`, nie
-`AggregateRoot` — nie broni żadnego invariantu, jest wyprowadzony i regenerowalny. Stąd:
+**Nie jest agregatem (ADR-0007 „read projections are not aggregates").** To `Entity`, nie
+`AggregateRoot`: nie broni żadnej reguły, jest wyliczany i można go odbudować. Dlatego:
 
-- żyje w osobnym projekcie `TranslationSystem.Projections` (Domain nie referuje Projections); typ jest
-  niemutowalny — istnieje, by wstawić pierwszy wiersz per język;
-- persystowany przez dedykowany port `IPrecomputedTranslationFileStore` (`TryRefreshAsync` —
-  set-based `UPDATE` w miejscu, nigdy nie materializuje poprzedniego multi-MB contentu (PERF-04) —
-  + `Insert`), **nie** `IRepository` — repozytoria pozostają tylko-agregatowe; implementacja w
+- żyje w osobnym projekcie `TranslationSystem.Projections` (Domain go nie referuje). Typ jest
+  niezmienny i służy tylko do wstawienia pierwszego wiersza dla języka;
+- zapisuje go osobny port `IPrecomputedTranslationFileStore` (`TryRefreshAsync` — jeden `UPDATE`
+  w miejscu, bez ładowania starej, wielomegabajtowej treści (PERF-04) — i `Insert`), **nie**
+  `IRepository`. Repozytoria są tylko dla agregatów. Implementacja:
   `…Persistence/Projections/PrecomputedTranslationFileStore.cs`;
-- przebudowywany przez `IPrecomputedTranslationFileProjector` **w tle, z debounce** (PERF-04,
-  ADR-0021): handler zapisu tylko sygnalizuje `ITranslationFileRebuildScheduler.Schedule(...)` po
-  commicie, a hostowany worker koalescuje sygnały (okno domyślnie 2 s) i odpala jedną, single-flight
-  przebudowę — odpowiedź nie czeka, więc pobranie może chwilowo „gonić" commit.
+- przebudowuje go `IPrecomputedTranslationFileProjector` **w tle, z debounce** (PERF-04, ADR-0021).
+  Handler zapisu po commicie tylko woła `ITranslationFileRebuildScheduler.Schedule(...)`. Worker zbiera
+  sygnały (okno domyślnie 2 s, `TranslationFileRebuild:DebounceWindow`) i robi jedną przebudowę naraz.
+  Odpowiedź na zapis nie czeka, więc pobranie może chwilę „gonić" commit.
 
-Strona odczytu (`PrecomputedTranslationFileReadModel`) i typ zapisu **dual-mapują na tę samą fizyczną
-tabelę** `TranslationArtifacts` (nazwa fizyczna zachowana po refaktorze typu — ADR-0007).
+Strona odczytu (`PrecomputedTranslationFileReadModel`) i typ zapisu mapują się na **tę samą tabelę**
+`TranslationArtifacts` (nazwa tabeli została po zmianie nazwy typu — ADR-0007).
 
 ---
 
 ## Repozytoria i Unit of Work
 
-`src/TranslationSystem/…Persistence/`
-
-- `IRepository<TAggregateRoot, TId>` jest **tylko-agregatowy** (`where TAggregateRoot : AggregateRoot<TId>`).
-  Konkretnie: `ITranslationRepository`, `IGameVersionRepository`, `ITranslatorRepository`
-  (interfejsy w Domain, implementacje w `…Persistence/DomainRepositories/` nad `GenericRepository`).
-- `IUnitOfWork` (`…Persistence/DbContexts/Abstractions/IUnitOfWork.cs`) = punkt commitu;
-  implementuje go `ApplicationWriteDbContext`.
-- `IPrecomputedTranslationFileStore` — osobny **Store** (nie repozytorium) dla projekcji
+- `IRepository<TAggregateRoot, TId>` (`SharedKernel/BuildingBlocks/IRepository.cs`) jest **tylko dla
+  agregatów** (`where TAggregateRoot : AggregateRoot<TId>`). Konkretnie: `ITranslationRepository`,
+  `IGameVersionRepository`, `ITranslatorRepository` (interfejsy w Domain, implementacje w
+  `…Persistence/DomainRepositories/` nad `GenericRepository`).
+- `IUnitOfWork` (`…Persistence/DbContexts/Abstractions/IUnitOfWork.cs`) to punkt commitu.
+  Implementuje go `ApplicationWriteDbContext`.
+- `IPrecomputedTranslationFileStore` to osobny **Store** (nie repozytorium) dla projekcji
   (interfejs w `…Projections/IPrecomputedTranslationFileStore.cs`, implementacja w
-  `…Persistence/Projections/PrecomputedTranslationFileStore.cs`). Współistnienie `Store` i
-  `Repository` jest zamierzone (ADR-0007), nie niespójnością.
+  `…Persistence/Projections/PrecomputedTranslationFileStore.cs`). `Store` obok `Repository` to
+  decyzja z ADR-0007, nie niespójność.
 
 ---
 
@@ -310,17 +305,17 @@ tabelę** `TranslationArtifacts` (nazwa fizyczna zachowana po refaktorze typu �
 
 | | Zapis | Odczyt |
 |---|---|---|
-| Kontekst | `ApplicationWriteDbContext` (= `IUnitOfWork`, posiada migracje) | `ApplicationReadDbContext` za `IApplicationReadDbContext` |
-| Model | agregaty domenowe (mutowalne) | płaskie POCO read modele (`IReadOnlyEntity<TId>`) |
+| Kontekst | `ApplicationWriteDbContext` (= `IUnitOfWork`, ma migracje) | `ApplicationReadDbContext` za `IApplicationReadDbContext` |
+| Model | agregaty domenowe (zmienne) | płaskie read modele (`IReadOnlyEntity<TId>`) |
 | Kto | command handlery (repozytoria + UoW) | query handlery (LINQ po read modelach) |
 
 Read modele (`TranslationSystem.ReadModels`) i ich konfiguracje EF (`…ReadModels.EntityFramework`)
-**dual-mapują na te same tabele** co model zapisu — to nie osobne tabele, tylko osobny widok typu na
-tym samym wierszu (`ToTable("Translations")` po obu stronach). `TranslationReadModel` dołącza
-`SubmittedBy`/`ApprovedBy` (`TranslatorReadModel`) dla rozwiązania nazw wyświetlanych (ADR-0004).
-Query handler **nigdy** nie dotyka modelu zapisu.
+mapują się na **te same tabele** co model zapisu (`ToTable("Translations")` po obu stronach). To inny
+typ na tym samym wierszu, nie osobna tabela. `TranslationReadModel` dołącza `SubmittedBy`/`ApprovedBy`
+(`TranslatorReadModel`), żeby pokazać nazwy (ADR-0004). Query handler **nigdy** nie dotyka modelu
+zapisu.
 
-Tabele (PostgreSQL, schema `translation`): `GameVersions`, `Translations`, `Translators`,
+Tabele (PostgreSQL, schemat `translation`): `GameVersions`, `Translations`, `Translators`,
 `TranslationArtifacts`.
 
 ---
@@ -329,17 +324,18 @@ Tabele (PostgreSQL, schema `translation`): `GameVersions`, `Translations`, `Tran
 
 - **Monady** `Result` / `Result<T>` / `Maybe<T>` (`SharedKernel.Monads`). Reguła biznesowa, która może
   zawieść, zwraca `Result.Failure(Error)`; brak wartości to `Maybe.None`.
-- **`Error`** = `(Code, Message, TypeOfError)`. Fabryki w `DomainErrors.*`
-  (`…Domain/Core/Errors/*`): `BaseDomainErrors` (prywatne helpery: `Required`, `TooManyCharacters`,
-  `AlreadyHasBeenTaken`, `InvalidOperation`, `HasNotBeenFound`) + per-agregat
-  (`TranslationAggregateDomainErrors`, `GameVersionAggregateDomainErrors`, `TranslatorAggregateDomainErrors`).
+- **`Error`** = `(Code, Message, Type)`. Fabryki w `DomainErrors.*` (`…Domain/Core/Errors/*`):
+  `BaseDomainErrors` (prywatne helpery, np. `Required`, `TooManyCharacters`, `AlreadyHasBeenTaken`,
+  `InvalidOperation`, `HasNotBeenFound`, `TooManySegments`) i pliki per agregat
+  (`TranslationAggregateDomainErrors`, `GameVersionAggregateDomainErrors`,
+  `TranslatorAggregateDomainErrors`).
 - **Mapowanie na HTTP** (`…API/Extensions/ErrorExtensions.cs`): `Validation→400`, `NotFound→404`,
-  `Forbidden→403`, `DataConflict→422`, reszta→`500`; jako `ProblemDetails` z `errorCode`. Szczegóły:
-  [API.md §Error contract](API.md#5-error-contract-problemdetails).
-- **Guardy** (`Ensure.NotEmpty`, `ArgumentNullException.ThrowIfNull`, `ArgumentException.ThrowIfNullOrWhiteSpace`)
-  rzucają wyjątek — są tylko dla błędów programisty, nie biznesowych.
+  `Forbidden→403`, `DataConflict→422`, `TooManyRequests→429`, reszta→`500`; jako `ProblemDetails`
+  z `errorCode`. Szczegóły: [API.md §Error contract](API.md#5-error-contract-problemdetails).
+- **Guardy** (`Ensure.NotEmpty`, `ArgumentNullException.ThrowIfNull`,
+  `ArgumentException.ThrowIfNullOrWhiteSpace`) rzucają wyjątek. Są tylko na błędy programisty.
 
-Pełny katalog egzekwowanych reguł z lokalizacjami: [INVARIANTS.md](INVARIANTS.md).
+Pełny katalog reguł z lokalizacjami: [INVARIANTS.md](INVARIANTS.md).
 
 ---
 
@@ -347,26 +343,26 @@ Pełny katalog egzekwowanych reguł z lokalizacjami: [INVARIANTS.md](INVARIANTS.
 
 ```
 src/TranslationSystem/
-  LotroKoniecDev.TranslationSystem.Primitives                 # strongly-typed ID-y + enumy (zero zależności domenowych)
+  LotroKoniecDev.TranslationSystem.Primitives                 # strongly-typed ID + enumy (bez zależności domenowych)
   LotroKoniecDev.TranslationSystem.Domain                     # agregaty, VO, serwisy domenowe, DomainErrors
-  LotroKoniecDev.TranslationSystem.ReadModels                 # płaskie POCO read modele
-  LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework # konfiguracje EF read modeli (dual-map)
+  LotroKoniecDev.TranslationSystem.ReadModels                 # płaskie read modele
+  LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework # konfiguracje EF read modeli (te same tabele)
   LotroKoniecDev.TranslationSystem.Projections                # PrecomputedTranslationFile + IPrecomputedTranslationFileStore
   LotroKoniecDev.TranslationSystem.Persistence                # Write/Read DbContext, repozytoria, konfiguracje EF, migracje
-  LotroKoniecDev.TranslationSystem.Contracts                  # DTO request/response (referowane przez Frontend)
+  LotroKoniecDev.TranslationSystem.Contracts                  # DTO request/response (używane przez Frontend)
   LotroKoniecDev.TranslationSystem.API                        # endpointy VSA (Features/<Obszar>/<Akcja>.cs), Auth, HATEOAS, parsing
 ```
 
 ## Wzorce projektowe
 
-- **Vertical Slice Architecture** — kohezja per feature zamiast warstw techniczych.
+- **Vertical Slice Architecture** — spójność per feature zamiast warstw technicznych.
 - **Slim SRP handlers bez mediatora (ADR-0001)** — rekord + handler + walidator, jawna rejestracja
   zamkniętego interfejsu w `…API/ApiDependencyInjection.cs`.
 - **CQRS read/write split (ADR-0002).**
 - **Value Object + strongly-typed ID** — brak prymitywnej obsesji.
 - **Result/Maybe monad** — błędy jako wartości.
-- **Materialized read projection (ADR-0007)** — projekcja ≠ agregat; `Store` ≠ `Repository`.
-- **Debounced background rebuild (ADR-0021)** — zapis sygnalizuje, hostowany worker koalescuje i
-  przebudowuje artefakt w tle.
-- **Lazy idempotent provisioning (ADR-0004, aneks 2026-06-24)** — tożsamość tłumacza tworzona przy
-  pierwszym uwierzytelnionym żądaniu (middleware), z cache'owanym rozwiązaniem tożsamości.
+- **Projekcja do odczytu (ADR-0007)** — projekcja ≠ agregat; `Store` ≠ `Repository`.
+- **Przebudowa w tle z debounce (ADR-0021)** — zapis daje sygnał, worker zbiera sygnały i przebudowuje
+  artefakt.
+- **Leniwe, idempotentne tworzenie profilu (ADR-0004, aneks 2026-06-24)** — profil tłumacza powstaje
+  przy pierwszym uwierzytelnionym żądaniu, a wynik jest w cache.

@@ -152,8 +152,9 @@ validator.
 dotnet build LotroKoniecDev.slnx
 
 # Tests — the unfiltered run is the gate before EVERY push; the filtered ones are for iterating only.
-# The integration and E2E suites need Docker. Every suite and what it needs: tests/CLAUDE.md.
-dotnet test                                            # everything runnable on this OS
+# The TMS and auth integration suites and both *.E2E.Tests suites need Docker. Every suite and what
+# it needs: tests/CLAUDE.md.
+dotnet test                                            # everything runnable on this OS; exits 0 when it all passes
 dotnet test tests/LotroKoniecDev.Tests.Unit            # fast, pure unit (must always be green)
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 
@@ -206,14 +207,14 @@ native ASP.NET Core dev cert. The browser, the host RP and the host resource ser
 `localhost:5003`/`:5002` the same way, so one OIDC `Authority`/`Issuer` serves every leg and the
 token `iss` matches (tms-api falls back from `Auth:Authority` to `Auth:Issuer`,
 `AuthSettings.EffectiveAuthority`). Dev uses ephemeral OpenIddict keys. `compose.prod.yaml` is the
-only containerized stack on a laptop, and it runs the same Dockerfiles as the boxes: all four
-images plus Caddy under `ASPNETCORE_ENVIRONMENT=Production`, one origin per app
+only compose stack that runs the apps themselves in containers, from the same Dockerfiles as the
+boxes: all four images plus Caddy under `ASPNETCORE_ENVIRONMENT=Production`, one origin per app
 (`app|auth|tms.lotro.test`), real OpenIddict keys, DP keyring volumes, Postgres over SSL. Both
 tms-api and the Frontend reach auth **through the proxy** (OpenIddict rejects plain HTTP in
 Production), and `.docker/trust-ca-entrypoint.sh` installs the local CA into their OS trust store,
 because .NET ignores `SSL_CERT_FILE` (parity stack only: real prod has a publicly trusted cert).
-Secrets live in the git-ignored `.env.prod`, TLS material in `.docker/prod-https/`. Full procedure
-and the reasons: `docs/deployment/runbook.md` → "Bringing the stack up".
+Secrets live in the git-ignored `.env.prod`, TLS material in `.docker/prod-https/`. Full procedure:
+`docs/deployment/runbook.md` → "Bringing the stack up".
 
 Exit codes (CLI): `0` success, `1` invalid arguments (incl. `ErrorType.Validation`), `2` file not
 found, `3` operation failed, `4` cancelled.
@@ -508,9 +509,12 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
     `revocation_endpoint` (#964). No frontend client to either API follows a redirect, so no bearer
     token, refresh token or caller key leaves for another host. These guards decide where our
     secrets go (ADR-0067 decision 4); they never judge what our own server answered.
-  - The two typed clients, the token client and the OIDC back-channel use `CreatePrimaryHandler` as
-    their primary handler (#830, #899), unless other code already set a back-channel handler (only
-    tests do), which is then wrapped as it is. `CreatePrimaryHandler` keeps no cookies (#924): one
+  - Every client `IHttpClientFactory` builds in the frontend starts on `CreatePrimaryHandler`
+    (`AddHttpClientDefaults`, #922), so a new client needs no setting of its own. A client given its
+    own `SocketsHttpHandler` or `HttpClientHandler` keeps it, with redirects and cookies switched off.
+    The OIDC back-channel (#899) starts on `CreatePrimaryHandler` too; a back-channel handler that
+    other code set first is kept, and the standard transport at its end gets the same switch (a
+    test's stand-in server is left as it is). `CreatePrimaryHandler` keeps no cookies (#924): one
     handler serves every visitor.
   - `scripts/check-client-hypermedia.sh` (+ `.ps1` twin) flags an API path in any string literal
     under `src/Frontend/` **and** `src/Patcher/`, in **both** `pr-verify` and `ci`, right after its
@@ -551,6 +555,13 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
     to scan, or a file it cannot read (#1079), and its self-test runs first in both workflows; a new
     guard copies that. The one deliberate pass on an empty input is `check-migration-safety` on a
     diff that adds no migration.
+  - Every bash guard runs `export LC_ALL=C` (#1162): on the Linux runner GNU grep hides a matching
+    line that is not valid UTF-8. That makes `[[:space:]]` ASCII only, so a pattern for a space that
+    C#, Razor or Docker reads uses `[^!-~]` (any byte that is not visible ASCII). In a pattern that
+    flags something, its extra matches cost only a false alarm; in one that allows a line or ends a
+    scan, they can hide one (`void ÜDown(` ended the scan of `Up()`), so keep `[[:space:]]` there
+    unless nothing valid can stand in that place. macOS grep and sed act differently, so prove a
+    guard change on Linux with `LANG=C.UTF-8`.
   - **The Blazor exception (#414):** the frontend image's `dotnet build` runs **without**
     `--no-restore`, because `blazor.web.js` comes from a package the SDK references only once it
     sees `.razor` files, never in the `.csproj`-only restore; with the flag every `_framework/*`
@@ -573,8 +584,8 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   `guards` (the cheap bash gates CI executes: SSR purity, client hypermedia, Dockerfile restore
   graph, migration safety, loop provenance) and `images`. Keep them independent: a change to a
   script CI merely runs must not pay for the .NET gate. The failure that matters is the other
-  direction: a **build input** (`.editorconfig`, `Directory.*.props`, `global.json`, a fixture) in
-  the inert list buys a silent false green, so `scripts/tests/classify-changes.tests.sh` pins both
+  direction: a **build input** (`.editorconfig`, `Directory.*.props`, `global.json`, a fixture, a
+  script a test reads: #1163) in the inert list buys a silent false green, so `scripts/tests/classify-changes.tests.sh` pins both
   directions and runs **unconditionally** in the required job before any verdict is trusted.
   `ci.yml` (main) does **not** self-skip its .NET steps, because CD triggers on CI success and
   "CI was green" must mean the build and both suites ran; it filters cheap content with
@@ -686,8 +697,9 @@ Per-suite details (inventory, libraries, snapshots, E2E, conventions): `tests/CL
 - **Unit tests are pure:** no filesystem, no network, no DB, no order dependence. Real-resource
   verification belongs to integration projects.
 - **The whole suite green locally before every push, unconditionally.** `dotnet test`, no filter:
-  everything runnable on this OS (the Windows-only `.Tests.Infrastructure` / `.Tests.E2E` suites
-  auto-skip elsewhere). Never narrow it to the touched area, and never run integration only "when
+  everything runnable on this OS, and it exits 0 when all of that passes. Off Windows the two
+  Windows-only patcher suites (`.Tests.Infrastructure`, `.Tests.E2E`) are compiled but not run, and
+  each prints one "not run" line (#816). Never narrow it to the touched area, and never run integration only "when
   the slice ships an endpoint": deciding from the diff which suites a change can reach is the
   mistake, not the shortcut. `pr-verify` runs unit **and** integration on every PR, so a leg you
   skip locally fails on a runner minutes later (in the sibling repo a CSS-only fix broke four
@@ -698,11 +710,10 @@ Per-suite details (inventory, libraries, snapshots, E2E, conventions): `tests/CL
 - **AAA always; assertions inline in the test method.** DRY the Arrange (builders), never the
   Assert. One reason to fail per test.
 - **Tooling: xUnit + Shouldly + NSubstitute** for the framework, assertions and mocks. Naming:
-  `MethodName_Scenario_ExpectedResult`. Other tools only for their own job: NetArchTest.Rules
-  (architecture rules), Verify.Xunit (snapshots), bUnit (component rendering),
-  Microsoft.Extensions.TimeProvider.Testing (code that waits on a `TimeProvider` timer, which no
-  substitute can fire), Testcontainers and Playwright (real databases and the E2E stacks). Where
-  each is used: `tests/CLAUDE.md` → "Framework & Libraries".
+  `MethodName_Scenario_ExpectedResult`. Other tools only for their own job, each listed with where
+  it is used in `tests/CLAUDE.md` → "Framework & Libraries" (for example NetArchTest.Rules for
+  architecture rules, Verify.Xunit for snapshots, bUnit for components, FakeTimeProvider for timers
+  no substitute can fire, Testcontainers and Playwright for real databases and the E2E stacks).
 - **Snapshots pin shape; they never replace an assert (#571).** Golden fixtures own the `||` file
   contract on both sides (a snapshot must not replace them), plain asserts own behaviour across
   many inputs, and a Verify snapshot owns "did anything about this large payload change" (TMS API

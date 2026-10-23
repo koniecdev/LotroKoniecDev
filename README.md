@@ -133,8 +133,8 @@ dotnet build LotroKoniecDev.slnx   # zero-warning build gate
 dotnet test                        # everything runnable on this OS; exits 0 when it all passes
 ```
 
-The integration and E2E suites need a running Docker daemon; `tests/CLAUDE.md` lists every suite
-and what it needs.
+The TMS and auth integration suites and both `*.E2E.Tests` suites need a running Docker daemon;
+`tests/CLAUDE.md` lists every suite and what it needs.
 
 Full operator procedure (environment-variable matrix, secret generation, bring-up sequence, DB
 migrations) lives in [`docs/deployment/runbook.md`](docs/deployment/runbook.md). A separate

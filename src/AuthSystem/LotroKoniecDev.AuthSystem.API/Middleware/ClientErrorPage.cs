@@ -1,9 +1,8 @@
 namespace LotroKoniecDev.AuthSystem.API.Middleware;
 
 /// <summary>
-/// The pages a browser gets for a 4xx answer that has no page of its own: an address that does not
-/// exist, a form that failed its antiforgery check, and every other refused request (#879). Without them
-/// the browser shows the problem-details JSON that API clients get.
+/// The pages for a 4xx answer with no page of its own (#879): a missing address, an expired form and
+/// every other refusal.
 /// </summary>
 internal static class ClientErrorPage
 {
@@ -15,9 +14,8 @@ internal static class ClientErrorPage
             BrowserErrorPage.BackToLoginLink);
 
     /// <summary>
-    /// A fresh load of the form gives it a new token and cookie. That is why the page asks for a refresh
-    /// and not only for a second try. A browser that blocks this site's cookies fails the check every
-    /// time, so the page names that cause too.
+    /// Asks for a refresh, because a fresh load gives the form a new token and cookie. A browser that
+    /// blocks this site's cookies fails every time, so the page names that cause too.
     /// </summary>
     internal static string BuildFormExpiredHtml(string? nonce) =>
         BrowserErrorPage.BuildHtml(

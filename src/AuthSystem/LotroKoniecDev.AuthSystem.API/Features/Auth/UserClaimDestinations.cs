@@ -5,9 +5,8 @@ using static OpenIddict.Abstractions.OpenIddictConstants;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// Where each claim of a user's session goes. Every user sign-in and every refresh uses this one
-/// selector, so a new sign-in path cannot forget to keep the security stamp out of the tokens a client
-/// reads (#848).
+/// One selector for every sign-in and refresh, so a new path cannot forget to keep the security stamp
+/// out of the tokens a client reads (#848).
 /// </summary>
 internal static class UserClaimDestinations
 {

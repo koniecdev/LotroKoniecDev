@@ -4,18 +4,12 @@ using LotroKoniecDev.AuthSystem.API.Common;
 namespace LotroKoniecDev.AuthSystem.API.Middleware;
 
 /// <summary>
-/// The page a browser gets when the rate limiter refuses a request.
+/// Without it a throttled sign-in ends on English problem-details JSON with no way back (#692).
 /// </summary>
-/// <remarks>
-/// Without it a throttled sign-in ends on the problem-details JSON that <c>UseStatusCodePages</c>
-/// writes: English, unstyled, and with no way back. That surface only became reachable from the main
-/// forms when the account pages moved behind the limiter (#692).
-/// </remarks>
 internal static class TooManyRequestsPage
 {
     /// <summary>
-    /// Writes the page when the caller is a browser. An API client keeps the response it expects, so
-    /// nothing is written for it and the pipeline answers as before.
+    /// Writes nothing for an API client, which keeps the response it expects.
     /// </summary>
     internal static async Task WriteIfBrowserRequestAsync(
         HttpContext httpContext,
@@ -32,13 +26,9 @@ internal static class TooManyRequestsPage
     }
 
     /// <summary>
-    /// Names the longest wait, and names a wait only when the limiter gave a number, so the page never
-    /// invents one.
+    /// Names a wait only when the limiter gave one. It is an upper bound (<c>OnRejected</c> in
+    /// <c>Program.cs</c>, #892), so the sentence says "najpóźniej" and rounds up.
     /// </summary>
-    /// <remarks>
-    /// The limiter's number is an upper bound (see <c>OnRejected</c> in <c>Program.cs</c>, #892), so the
-    /// sentence says "najpóźniej". Rounding up keeps it an upper bound.
-    /// </remarks>
     internal static string BuildWaitSentence(TimeSpan retryAfter)
     {
         if (retryAfter <= TimeSpan.Zero)

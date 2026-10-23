@@ -3,16 +3,13 @@ using OpenIddict.Abstractions;
 namespace LotroKoniecDev.AuthSystem.API.Services.Maintenance;
 
 /// <summary>
-/// Deletes old OpenIddict tokens and authorizations once a day (PERF-02). Rolling reference refresh
-/// tokens (<c>UseReferenceRefreshTokens()</c>) write a new row on every refresh and nothing else ever
-/// deletes them, so without this pass the <c>OpenIddictTokens</c> and <c>OpenIddictAuthorizations</c>
-/// tables grow forever and every lookup at the token endpoint gets slower.
+/// Reference refresh tokens write a row on every refresh and nothing else deletes them, so without this
+/// daily pass the tables grow forever and the token endpoint slows down (PERF-02).
 /// </summary>
 internal sealed partial class OpenIddictPruneService : BackgroundService
 {
     /// <summary>
-    /// Rows younger than this are never deleted, the same rule OpenIddict's own Quartz integration
-    /// uses by default. The prune only removes rows that are already expired or invalid.
+    /// OpenIddict's own Quartz default. The prune only removes rows already expired or invalid.
     /// </summary>
     internal static readonly TimeSpan RetentionPeriod = TimeSpan.FromDays(14);
 
@@ -47,12 +44,9 @@ internal sealed partial class OpenIddictPruneService : BackgroundService
     }
 
     /// <summary>
-    /// Runs one prune pass. Tokens go first, because OpenIddict never deletes an authorization that
-    /// still has tokens on it. The managers are scoped, since they use <c>AuthDbContext</c>, so each
-    /// pass creates its own scope.
-    /// Every failure is logged and then ignored, because an exception leaving
-    /// <see cref="ExecuteAsync"/> stops the whole host. The one exception is a cancellation of
-    /// <paramref name="cancellationToken"/>, which means a normal shutdown and has to pass through.
+    /// Tokens first, because OpenIddict never deletes an authorization that still has tokens. Every
+    /// failure is logged and ignored, because an exception leaving <see cref="ExecuteAsync"/> stops the
+    /// host; only a shutdown's cancellation passes through.
     /// </summary>
     internal async Task PruneOnceAsync(CancellationToken cancellationToken)
     {

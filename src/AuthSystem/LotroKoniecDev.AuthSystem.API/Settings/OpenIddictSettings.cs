@@ -7,28 +7,23 @@ internal sealed class OpenIddictSettings
     public required string Issuer { get; init; }
 
     /// <summary>
-    /// How long an access token stays valid. It is also how long any revocation takes to bite: the
-    /// TMS validates JWTs on its own, so a token keeps working until it expires even after
-    /// RevokeAllAsync has killed it in the database. Five minutes is the agreed window (ADR-0049).
-    /// The TMS allows no clock skew, so this value is the whole window, with no extra time on top (#933).
-    /// The service refuses to start below 2 minutes (#1025): a client that renews a token a minute before
-    /// it runs out would renew a shorter token on every page.
+    /// Also how long a revocation takes to bite: the TMS validates JWTs on its own, with no clock skew, so
+    /// a revoked token works until it expires (ADR-0049). The service refuses to start below 2 minutes.
     /// </summary>
     public int AccessTokenLifetimeMinutes { get; init; } = 5;
 
     /// <summary>
     /// The website's session cookie carries the refresh token and ends after 8 idle hours (Frontend
-    /// <c>AuthenticationDependencyInjectionExtensions</c>). The extra hour makes sure the token never
-    /// dies before that cookie (#1014).
+    /// <c>AuthenticationDependencyInjectionExtensions</c>), so the extra hour keeps the token alive longer
+    /// than the cookie (#1014).
     /// </summary>
     public int RefreshTokenLifetimeMinutes { get; init; } = 540;
     public EncryptionKeySettings EncryptionKey { get; init; } = new();
     public SigningKeySettings SigningKey { get; init; } = new();
 
     /// <summary>
-    /// The client secret of the API service, used for calls between services. It must be a long random
-    /// value. OpenIddictSettingsValidator refuses an empty or too short secret in every environment except
-    /// Development and Testing, so Staging needs it as well as Production.
+    /// The API service's client secret for calls between services. Required, long and random, everywhere
+    /// except Development and Testing.
     /// </summary>
     public string ApiClientSecret { get; init; } = string.Empty;
 
@@ -38,16 +33,14 @@ internal sealed class OpenIddictSettings
 internal sealed class WebClientSettings
 {
     /// <summary>
-    /// The web client's redirect URIs, used in every environment. OpenIddictSettingsValidator requires
-    /// at least one in every environment except Development and Testing, Staging included.
+    /// At least one is required everywhere except Development and Testing.
     /// </summary>
     public string[] RedirectUris { get; init; } = [];
 
     /// <summary>
-    /// The web client's post-logout redirect URIs, used in every environment. The first one is also the
-    /// website's root address: the account pages and the e-mails build their links to the website from it
-    /// (<see cref="Common.FrontendUrl"/>), so the order matters. OpenIddictSettingsValidator requires at
-    /// least one in every environment except Development and Testing, Staging included.
+    /// The first one is also the website's root address, which the account pages and the e-mails link to
+    /// (<see cref="Common.FrontendUrl"/>), so the order matters. At least one is required everywhere
+    /// except Development and Testing.
     /// </summary>
     public string[] PostLogoutRedirectUris { get; init; } = [];
 }
@@ -55,8 +48,8 @@ internal sealed class WebClientSettings
 internal sealed class EncryptionKeySettings
 {
     /// <summary>
-    /// The 256-bit symmetric encryption key, base64 encoded. Every environment except Development and
-    /// Testing needs it, Staging too; those two use throwaway keys.
+    /// A 256-bit key, base64 encoded. Required everywhere except Development and Testing, which use
+    /// throwaway keys.
     /// </summary>
     public string Key { get; init; } = string.Empty;
 }
@@ -64,9 +57,8 @@ internal sealed class EncryptionKeySettings
 internal sealed class SigningKeySettings
 {
     /// <summary>
-    /// The RSA private key as XML (RSA.ToXmlString(true)), base64 encoded. It signs the access tokens,
-    /// and the public half is published at the JWKS endpoint. Every environment except Development and
-    /// Testing needs it, Staging too; those two use throwaway keys.
+    /// The RSA private key as XML (RSA.ToXmlString(true)), base64 encoded. Required everywhere except
+    /// Development and Testing, which use throwaway keys.
     /// </summary>
     public string RsaPrivateKeyXml { get; init; } = string.Empty;
 

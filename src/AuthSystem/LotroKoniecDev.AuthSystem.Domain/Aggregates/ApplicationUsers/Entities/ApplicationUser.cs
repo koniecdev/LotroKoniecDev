@@ -5,9 +5,8 @@ namespace LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 public sealed class ApplicationUser : IdentityUser<Guid>
 {
     /// <summary>
-    /// Registration asked for this consent until #1073. The account runs on the contract, not on consent,
-    /// so registration no longer sets it (ADR-0068). It only keeps what older accounts gave, until the
-    /// column is dropped in a later expand/contract step (ADR-0023, #1130).
+    /// Registration no longer sets this: the account runs on the contract, not on consent (ADR-0068).
+    /// It keeps what older accounts gave until the column is dropped (#1130).
     /// </summary>
     public bool DataProcessingConsentGiven { get; set; }
     public DateTimeOffset? DataProcessingConsentDate { get; set; }
@@ -25,34 +24,29 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     public Guid? EmailChangeRevertStamp { get; set; }
 
     /// <summary>
-    /// The address a revert puts the account back on: the one it had before the first change since
-    /// the last revert. It is set once per chain and never overwritten, so a second change cannot make
-    /// itself an undo target, and it is what a revert restores — never the address the presented link
-    /// happens to name (ADR-0048).
+    /// The address a revert restores: the one the account had before the first change since the last
+    /// revert. It is set once per chain and never overwritten, so a second change cannot make itself
+    /// the undo target. A revert never restores the address the presented link names (ADR-0048).
     /// </summary>
     public string? EmailChangeRevertTo { get; set; }
 
     /// <summary>
-    /// The same address as <see cref="EmailChangeRevertTo"/>, upper-cased by Identity's key
-    /// normalizer. It is the indexed column the reservation of #684 looks the address up by, and it
-    /// exists so the display form above can stay exactly as the user typed it: an account restored
-    /// onto FOO@EXAMPLE.COM would be a visible defect in a recovery flow. Same pair, same reason, as
-    /// Identity's own Email and NormalizedEmail.
+    /// The indexed lookup form of <see cref="EmailChangeRevertTo"/> for the reservation (#684), the same
+    /// pair as Identity's Email and NormalizedEmail. The display form stays as the user typed it, so a
+    /// restored account does not come back as FOO@EXAMPLE.COM.
     /// </summary>
     public string? NormalizedEmailChangeRevertTo { get; set; }
 
     /// <summary>
-    /// When the undo above was armed. The address stays reserved against registration, against
-    /// another account's e-mail change and against the admin seed (#849) for exactly as long as the
-    /// revert token lives, so nobody can take the address the owner still has a link back to (#684).
-    /// A row armed before that ticket shipped has no timestamp and is not reserved.
+    /// While the revert token lives, the address stays reserved against registration, another account's
+    /// e-mail change and the admin seed, so nobody can take an address the owner still has a link back
+    /// to (#684). Null means the address is not reserved.
     /// </summary>
     public DateTimeOffset? EmailChangeRevertArmedAt { get; set; }
 
     /// <summary>
     /// Arms the undo at the address the account is leaving. The three fields only mean something
-    /// together — a target with no timestamp is reserved by nobody, a timestamp with no target
-    /// reserves nothing — so they are written in one place instead of three.
+    /// together, so they are written in one place.
     /// </summary>
     /// <param name="previousEmail">The address to go back to, as the user typed it.</param>
     /// <param name="normalizedPreviousEmail">The same address through Identity's key normalizer.</param>
@@ -70,9 +64,8 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     }
 
     /// <summary>
-    /// Settles the chain: there is nothing left to undo and nothing left to reserve. The caller
-    /// rotates <see cref="EmailChangeRevertStamp"/> alongside this when outstanding links have to
-    /// die with it.
+    /// Ends the chain: nothing left to undo or reserve. When outstanding links must die too, the caller
+    /// also rotates <see cref="EmailChangeRevertStamp"/>.
     /// </summary>
     public void DisarmEmailChangeRevert()
     {

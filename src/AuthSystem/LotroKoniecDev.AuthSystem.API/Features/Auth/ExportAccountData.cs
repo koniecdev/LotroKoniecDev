@@ -14,12 +14,10 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// The account representation: the data the "Moje konto" page renders, carrying the links that say what
-/// else this caller may do. Its rel is also the frontend's proof that the token reached this API, so it
-/// stays a GET that needs nothing but a login — see <c>Rels.ExportAccountData</c>.
-/// It is <b>not</b> the GDPR export, and it leaves out the contact details the export carries. Handing
-/// the export over asks for the current password, and that is <see cref="DownloadAccountData"/>
-/// (#690, ADR-0052).
+/// The account representation the "Moje konto" page renders, with the links for what else the caller may
+/// do. It stays a GET that needs only a login, because its rel is the frontend's sign-in marker
+/// (<c>Rels.ExportAccountData</c>). It is not the GDPR export: that is <see cref="DownloadAccountData"/>
+/// (ADR-0052).
 /// </summary>
 internal sealed partial class ExportAccountData : IApiEndpoint
 {
@@ -57,9 +55,8 @@ internal sealed partial class ExportAccountData : IApiEndpoint
 
             AccountDataExportResponse response = new(authData, IsComplete: true);
 
-            // Every visit to the account page passes through here, so this line says "read", not
-            // "export". The export has its own two lines, and mixing the two made the audit log unable
-            // to answer who took a file (#690).
+            // Every account page visit passes here, so this says "read", not "export", and the audit log
+            // can still answer who took a file (#690).
             LogAccountDataRead(_logger, appUser.Id);
 
             return Result.Success(response);

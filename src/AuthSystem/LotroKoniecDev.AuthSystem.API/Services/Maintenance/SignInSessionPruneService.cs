@@ -4,9 +4,8 @@ using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 namespace LotroKoniecDev.AuthSystem.API.Services.Maintenance;
 
 /// <summary>
-/// Deletes expired sign-in sessions once a day (ADR-0062). The cookie handler deletes an expired session
-/// only when its cookie comes back, so a cookie that never comes back, from a closed browser or a cleared
-/// cookie jar, would otherwise leave its row forever.
+/// The cookie handler deletes an expired session only when its cookie comes back, so a cookie that never
+/// does would leave its row forever (ADR-0062).
 /// </summary>
 internal sealed partial class SignInSessionPruneService : BackgroundService
 {
@@ -41,10 +40,9 @@ internal sealed partial class SignInSessionPruneService : BackgroundService
     }
 
     /// <summary>
-    /// Runs one prune pass. A session is expired by the rule the cookie handler uses: its expiry lies in
-    /// the past. Every failure is logged and then ignored, because an exception leaving
-    /// <see cref="ExecuteAsync"/> stops the whole host. The one exception is a cancellation of
-    /// <paramref name="cancellationToken"/>, which means a normal shutdown and has to pass through.
+    /// Expired by the cookie handler's rule: the expiry lies in the past. Every failure is logged and
+    /// ignored, because an exception leaving <see cref="ExecuteAsync"/> stops the host; only a shutdown's
+    /// cancellation passes through.
     /// </summary>
     internal async Task PruneOnceAsync(CancellationToken cancellationToken)
     {

@@ -59,17 +59,14 @@ internal static class ApiDependencyInjection
                 jsonOptions.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
             });
 
-            // Without a wider encoder, Razor writes Polish letters such as ł, ż and ó as numeric HTML
-            // entities. Browsers cope with that, but the raw HTML is hard to read and tests that
-            // compare strings break.
+            // Without it, Razor writes Polish letters such as ł as numeric HTML entities, which breaks
+            // tests that compare strings.
             services.Configure<WebEncoderOptions>(options =>
             {
                 options.TextEncoderSettings = new TextEncoderSettings(UnicodeRanges.All);
             });
-            // Registers ILinkFactory, IHttpContextAccessor, the fallback IProblemDetailsWriter for our
-            // vendor media type, and the JsonTypeInfo modifier that hides empty 'links' arrays in plain
-            // JSON. It has to come after AddProblemDetails(), so ASP.NET Core's own writer keeps the
-            // plain JSON and RFC 7807 Accept values.
+            // After AddProblemDetails(), so ASP.NET Core's own writer keeps the plain JSON and RFC 7807
+            // Accept values and ours only handles the vendor media type.
             services.AddHateoasInfrastructure();
 
             services.AddTransient<IAccountAggregateLinkFactory, AccountAggregateLinkFactory>();
@@ -113,9 +110,8 @@ internal static class ApiDependencyInjection
             services.AddScoped<IAccountDeletionFinalizer, AccountDeletionFinalizer>();
             services.AddHostedService<AccountDeletionFinalizerHostedService>();
 
-            // Another password validator next to Identity's own rules. It must be added after
-            // AddIdentityCore, which uses TryAdd for the built-in one: added first, it would replace those
-            // rules instead of joining them (ADR-0066).
+            // After AddIdentityCore, which uses TryAdd for the built-in validator: added first, this one
+            // would replace Identity's rules instead of joining them (ADR-0066).
             services.AddScoped<IPasswordValidator<ApplicationUser>, BreachedPasswordValidator>();
 
             services.AddScoped<IUserSessionRevoker, UserSessionRevoker>();
@@ -123,10 +119,9 @@ internal static class ApiDependencyInjection
             services.AddScoped<IEmailChangeRevertWindow, EmailChangeRevertWindow>();
             services.AddScoped<IEmailChangeRevertReservation, EmailChangeRevertReservation>();
 
-            // Singletons, because a budget has to be shared by every request. The IP policies live in the
-            // limiter's own options; these count per account or per inbox, which a policy cannot do because
-            // it runs before anything is known about the account (#692). One instance per budget, each under
-            // its own interface, so a handler can never spend the wrong one (#813, ADR-0053, ADR-0057).
+            // Singletons, because every request shares a budget. These count per account or per inbox,
+            // which a limiter policy cannot do: it runs before the account is known. One interface per
+            // budget, so a handler cannot spend the wrong one (#813, ADR-0057).
             services.AddSingleton<IPasswordResetRequestThrottle>(_ =>
                 new PasswordResetRequestThrottle(AccountBudgets.PasswordResetPermitLimit, AccountBudgets.Window));
             services.AddSingleton<IPasswordConfirmationThrottle>(_ =>
@@ -145,39 +140,30 @@ internal static class ApiDependencyInjection
             // Every answer that hides whether an address has an account waits for this floor (ADR-0059).
             services.AddSingleton<IResponseTimeFloor, ResponseTimeFloor>();
 
-            // The three policies the frontend reaches (fixed-by-ip, auth-endpoint-limit, change-email-limit)
-            // take their key from this resolver: a direct caller's own address, or the visitor's address
-            // the frontend forwards next to the environment's key. The page policies stay on the
-            // connection's address (ADR-0054 §3). The key is required outside Development and Testing.
+            // The frontend's caller key, required outside Development and Testing (ADR-0054).
             services.AddOptions<FrontendCallerSettings>()
                 .BindConfiguration(FrontendCallerSettings.ConfigurationSection)
                 .ValidateOnStart();
             services.AddSingleton<IValidateOptions<FrontendCallerSettings>, FrontendCallerSettingsValidator>();
             services.AddSingleton<RateLimitPartitionKeyResolver>();
 
-            // The full /health runs only for a caller with this key (ADR-0058, #853). The key is required
-            // outside Development and Testing.
+            // The full /health runs only for a caller with this key, required outside Development and
+            // Testing (ADR-0058).
             services.AddOptions<HealthCheckSettings>()
                 .BindConfiguration(HealthCheckSettings.ConfigurationSection)
                 .ValidateOnStart();
             services.AddSingleton<IValidateOptions<HealthCheckSettings>, HealthCheckSettingsValidator>();
 
-            // The outbox relay works on a signal (ADR-0035), so it does not poll the database on a timer.
-            // Writers add rows through the shared writer, and the interceptor wakes the singleton signal
-            // after the commit that carries them (ADR-0038 §6). AddAuthPersistence puts every
-            // IInterceptor registered here on the AuthDbContext. Scoped, like the context, because it
-            // keeps state between a save and the commit that follows it.
+            // The interceptor wakes the relay after a commit that carries outbox rows (ADR-0035, ADR-0038
+            // §6); AddAuthPersistence puts every IInterceptor on the AuthDbContext. Scoped, because it
+            // keeps state between a save and the commit that follows.
             services.AddSingleton<OutboxSignal>();
             services.AddScoped<OutboxWriter>();
             services.AddScoped<IInterceptor, OutboxWakeUpInterceptor>();
             services.AddHostedService<OutboxRelay>();
 
-            // The other end of the same pipeline: broker deliveries become e-mails. These keyed
-            // registrations are the processor registry (ADR-0038), one line per message type, keyed by
-            // the outbox row's Type. The list is written out here and visible to the compiler, so
-            // nothing has to scan assemblies (ADR-0001).
-            // The processors are scoped because the consumer resolves one per message, the way a
-            // request would. The consumer itself is a singleton hosted service.
+            // The processor registry, one line per message type keyed by the outbox row's Type (ADR-0038),
+            // written out so nothing scans assemblies. Scoped, because the consumer resolves one per message.
             services.AddKeyedScoped<IEmailMessageProcessor, EmailConfirmationRequestProcessor>(
                 nameof(EmailConfirmationRequested));
             services.AddKeyedScoped<IEmailMessageProcessor, RegistrationAttemptedProcessor>(
@@ -195,19 +181,13 @@ internal static class ApiDependencyInjection
             services.AddScoped<EmailDeliveryProcessor>();
             services.AddHostedService<EmailDispatchConsumer>();
 
-            // PERF-02: reference refresh tokens add one row per refresh and nothing else deletes them,
-            // so expired and invalid tokens and authorizations are cleaned up once a day.
+            // Reference refresh tokens add a row per refresh and nothing else deletes them (PERF-02).
             services.AddHostedService<OpenIddictPruneService>();
 
             // ADR-0062: expired sign-in sessions whose cookie never came back.
             services.AddHostedService<SignInSessionPruneService>();
 
-            // Checks the OpenIddict server config at startup and stops the app when it is wrong
-            // (ADR-0008 §3, M6-05). OpenIddictSettingsValidator decides which values each environment
-            // must have, and names the key and the environment at fault.
-            // There is no ValidateDataAnnotations() call: the settings carry no DataAnnotations
-            // attributes, since the `required` issuer is enforced by the binder, so that call checked
-            // nothing.
+            // OpenIddictSettingsValidator decides which values each environment must have (ADR-0008 §3).
             services.AddOptions<OpenIddictSettings>()
                 .BindConfiguration(OpenIddictSettings.ConfigurationSection)
                 .ValidateOnStart();
@@ -220,8 +200,7 @@ internal static class ApiDependencyInjection
 
             services.AddSingleton<IValidateOptions<GdprSettings>, GdprSettingsValidator>();
 
-            // The cancel-deletion token has to stay valid for the whole grace period, not for the
-            // default 24 hours.
+            // The cancel-deletion link has to work for the whole grace period, not the default 24 hours.
             services.AddOptions<AccountDeletionCancellationTokenProviderOptions>()
                 .Configure<IOptions<GdprSettings>>((options, gdprSettings) =>
                 {

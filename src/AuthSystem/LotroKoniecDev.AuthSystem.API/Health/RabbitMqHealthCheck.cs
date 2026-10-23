@@ -6,14 +6,8 @@ using RabbitMQ.Client;
 namespace LotroKoniecDev.AuthSystem.API.Health;
 
 /// <summary>
-/// Checks that the broker accepts an AMQP connection with the configured credentials. It does a full
-/// handshake and not just a TCP connect, so a wrong password or virtual host shows up here instead of
-/// only in the relay's retry logs.
-/// It is not tagged "ready" on purpose, for the same reason as <see cref="SmtpHealthCheck"/>. When the
-/// broker is down, e-mail delivery slows but nothing breaks: outbox rows wait and the consumer
-/// reconnects. Login and token issuance keep working, so this must not take the service out of the
-/// load balancer. A broker that is down shows up on the full /health, which the daily health ping
-/// reads.
+/// A full AMQP handshake, not just a TCP connect, so a wrong password or virtual host shows up here
+/// instead of only in the relay's retry logs.
 /// </summary>
 internal sealed class RabbitMqHealthCheck : IHealthCheck
 {

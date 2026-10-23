@@ -13,14 +13,9 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 
 /// <summary>
-/// The part of a GDPR account deletion that cannot be undone: anonymizing the auth data, locking the
-/// account for good and cleaning up what is left. The finalizer calls it once the grace period is over
-/// (see ADR-0031).
-/// The TranslationSystem keeps its own copy of the person's name and address on the translator profile,
-/// so the anonymizing save also writes an <see cref="AccountErased"/> outbox message, and the TMS erases
-/// that copy when it arrives (ADR-0065).
-/// It is safe to run twice, because callers skip users whose e-mail already carries the anonymization
-/// marker.
+/// The part of a deletion that cannot be undone: anonymize, lock for good, clean up (ADR-0031). The
+/// anonymizing save also writes an <see cref="AccountErased"/> message, so the TMS erases its own copy
+/// of the name and address (ADR-0065). Safe to run twice: callers skip an already anonymized address.
 /// </summary>
 internal sealed partial class AccountErasureService : IAccountErasureService
 {
@@ -60,23 +55,20 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         string anonymizedEmail = $"{AnonymizationConstants.EmailPrefix}{anonymizedGuid}{AnonymizationConstants.EmailDomain}";
         FailedSave? failedSave = null;
 
-        // Taken before this run changes the account. When the check after a failed lock fails too, this
-        // is all the run knows about an earlier run's lock (#1018).
+        // Before this run changes the account: when the check after a failed lock fails too, this is all
+        // the run knows about an earlier run's lock (#1018).
         bool lockedForGoodWhenRead = user.LockoutEnabled && user.LockoutEnd == DateTimeOffset.MaxValue;
 
-        // The TMS message is only added here, so it commits in the anonymizing save below. No run comes
-        // back to an account after that save, so a message written later and lost would leave the
-        // person's name in the TMS for good (ADR-0065). It stays outside the try: a type with no route
-        // is a programmer error that has to fail loudly, not pass for a failed save.
+        // Commits in the anonymizing save: no run comes back after it, so a message written later and
+        // lost would leave the name in the TMS for good (ADR-0065). Outside the try, because a type with
+        // no route is a programmer error that must fail loudly.
         _outboxWriter.Enqueue(new AccountErased(user.Id));
 
         try
         {
-            // A stored sign-in session holds the name and e-mail too (ADR-0062). It goes before the
-            // anonymizing save: the finalizer retries an account only until that save lands, so a delete
-            // that came after it and failed would never run again. It runs only while the account still
-            // waits, by the emergency lock's rule: an owner who cancelled meanwhile may have signed in
-            // again.
+            // A stored sign-in session holds the name and e-mail too (ADR-0062). Before the anonymizing
+            // save, because no run retries after it. Only while the account still waits: an owner who
+            // cancelled meanwhile may have signed in again.
             Guid userId = user.Id;
             await _dbContext.SignInSessions
                 .Where(session => session.UserId == userId
@@ -85,9 +77,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
                                                                && !u.Email!.EndsWith(AnonymizationConstants.EmailDomain)))
                 .ExecuteDeleteAsync(CancellationToken.None);
 
-            // Then anonymize the auth user data, which is the core GDPR requirement.
-            // DeletionScheduledAt stays set. It is not personal data and it records when the erasure
-            // was asked for.
+            // DeletionScheduledAt stays: it is not personal data, and it records when the erasure was asked for.
             user.UserName = anonymizedGuid;
             user.NormalizedUserName = anonymizedGuid.ToUpperInvariant();
             user.Email = anonymizedEmail;
@@ -105,16 +95,12 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             user.TermsOfServiceAccepted = false;
             user.TermsOfServiceAcceptedDate = null;
 
-            // The armed undo target is a former address of this person, so it is personal data and
-            // goes with the rest. Clearing it also releases the address reservation of #684 — an
-            // erased account must not keep somebody else's address blocked — and closes the undo on
-            // an account there is no longer anything to undo for.
+            // A former address is personal data. Clearing it also releases the reservation (#684), so an
+            // erased account does not keep an address blocked.
             user.DisarmEmailChangeRevert();
 
-            // The permanent lockout and the new security stamp, which ends every session, go in the
-            // same update as the anonymization marker. The finalizer picks its work by the marker
-            // alone, so no later run retries anything that comes after this save. A separate write
-            // that failed there would never be done (#908).
+            // In the same update as the anonymized address: the finalizer picks work by that address, so a
+            // separate write after this save that failed would never be retried (#908).
             user.LockoutEnabled = true;
             user.LockoutEnd = DateTimeOffset.MaxValue;
             user.SecurityStamp = Guid.NewGuid().ToString();
@@ -143,8 +129,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
 
         LogAuthDataAnonymized(_logger, user.Id);
 
-        // Best-effort cleanup: revoke the tokens and remove roles, claims and logins. The account is
-        // already anonymized and locked, so a failure here does not break GDPR compliance.
+        // Best effort: the account is already anonymized and locked.
         await CleanupAuthArtifactsAsync(user.Id);
 
         LogAccountDeleted(_logger, user.Id);
@@ -153,17 +138,11 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     }
 
     /// <summary>
-    /// Finds out what a failed erasure save means before anything about it is logged, so the log never
-    /// promises a retry that will not come (#962). A lock that landed means the account still waits and
-    /// the next run retries it. In every other case this run reads the account. Its own save may have
-    /// landed with only the answer lost: EF's retry then ran the save again with the old concurrency
-    /// stamp, and Identity reported the conflict. Or the account may no longer wait, because its owner
-    /// cancelled or another run erased it, and then no run comes back to it. A failed lock is reported as
-    /// a failed lock only when the read says a lock was needed, or when the read fails too (#980). A lock
-    /// is needed only while the account is not locked for good yet. An earlier run's lock, or this run's
-    /// own lock whose answer was lost, may have locked it already, and then the failed lock is no reason
-    /// to call for urgent help. When the read fails, the finalizer's own read from before the erasure is
-    /// all the run knows, so only an earlier run's lock seen there keeps the alert away (#1018).
+    /// Works out what a failed save means before logging, so the log never promises a retry that will not
+    /// come (#962). A landed lock means the next run retries. Otherwise the account is read: this run's own
+    /// save may have landed with only the answer lost, or the account no longer waits (cancelled or erased
+    /// by another run). A failed lock calls for help only when a lock was still needed, that is when the
+    /// account waits and is not yet locked for good, or when the read fails too (#980, #1018).
     /// </summary>
     private async Task<Result<AccountErasureOutcome>> ResolveFailedSaveAsync(
         Guid userId,
@@ -181,8 +160,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         AccountState state;
         try
         {
-            // The address is new for every attempt, so only this run's own save can have written it.
-            // "Still waits" is the lock's own rule, and "locked for good" is what the lock writes.
+            // The address is new for every attempt, so only this run's save can have written it.
             DateTimeOffset? lockedUntil = DateTimeOffset.MaxValue;
             state = await _dbContext.Users
                 .Where(u => u.Id == userId)
@@ -201,11 +179,9 @@ internal sealed partial class AccountErasureService : IAccountErasureService
                 return AccountErasureOutcome.NoLongerWaiting;
             }
 
-            // Nothing new is known about the account, so it is taken to still wait, as before #980: the
-            // retry is assumed. The lock's line asks a person to look, unless an earlier run's lock was
-            // already there when the finalizer read the account. The two writes that lower that lock, a
-            // cancel and an undone e-mail change, also end the schedule, and an account that no longer
-            // waits needs no lock. Identity's own lockout skips a scheduled account (#861, #1018).
+            // Nothing new is known, so the account is taken to still wait. Only an earlier run's lock seen
+            // by the finalizer's read keeps the alert away: the writes that lower that lock also end the
+            // schedule (#861, #1018).
             LogSaveCheckFailedAfterFailedLock(_logger, ex, userId);
             state = new AccountState(SaveLanded: false, StillWaits: true, LockedForGood: lockedForGoodWhenRead);
         }
@@ -231,24 +207,22 @@ internal sealed partial class AccountErasureService : IAccountErasureService
 
         if (state.SaveLanded)
         {
-            // The failed save was one SaveChanges, and its account row landed, so all of it landed. Its
-            // changes count as saved, as they would after a save that answered. Otherwise the next save in
-            // the cleanup would write them again against the old concurrency stamp and fail.
+            // One SaveChanges whose account row landed, so all of it landed. Otherwise the cleanup's next
+            // save would write it again against the old concurrency stamp and fail.
             _dbContext.ChangeTracker.AcceptAllChanges();
             LogSaveLandedAfterAll(_logger, failedSave.Exception, userId, failedSave.Errors);
             return AccountErasureOutcome.Erased;
         }
 
-        // A lost concurrency check is what a race looks like. An exception is a real database error that
-        // happened to meet a race, and the next account may hit it too.
+        // A lost concurrency check is a race. An exception is a real database error that the next account
+        // may hit too.
         LogLevel level = failedSave.Exception is null ? LogLevel.Information : LogLevel.Warning;
         LogNoLongerWaiting(_logger, level, failedSave.Exception, userId, failedSave.Errors);
         return AccountErasureOutcome.NoLongerWaiting;
     }
 
     /// <summary>
-    /// The account still waits, or may still wait. If it does, the next run of the finalizer picks it up
-    /// again.
+    /// The account still waits, or may, so the next finalizer run picks it up again.
     /// </summary>
     private Result<AccountErasureOutcome> FailForTheNextRun(Guid userId, FailedSave failedSave)
     {
@@ -265,12 +239,10 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     }
 
     /// <summary>
-    /// Every step runs, even after an earlier one failed, and the log names each step that failed.
-    /// Identity reports a lost concurrency check as a failed result, and OpenIddict reports any failed
-    /// revoke as <c>false</c>, so each result is checked (#962).
-    /// All steps share one context, and a failed write leaves its changes in it. Identity never undoes
-    /// them, and OpenIddict undoes them only after a lost concurrency check. The next save would send
-    /// them again and fail with them, so every failure empties the context first (#981).
+    /// Every step runs even after a failure, and the log names each failed step. Identity and OpenIddict
+    /// report some failures as results, not exceptions, so each result is checked (#962). A failed write
+    /// leaves its changes in the shared context, and the next save would fail with them, so every failure
+    /// empties the context (#981).
     /// </summary>
     private async Task CleanupAuthArtifactsAsync(Guid userId)
     {
@@ -327,10 +299,8 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     }
 
     /// <summary>
-    /// OpenIddict's token manager writes a token again even when it is already revoked. Its
-    /// authorization manager does not. Scheduling the deletion has usually revoked the tokens already,
-    /// so this skips a revoked token: the write would change nothing, and if the prune removed the row
-    /// in the meantime, it would log a false failure.
+    /// Skips a revoked token: OpenIddict's token manager writes it again anyway, and if the prune removed
+    /// the row meanwhile, that would log a false failure. Scheduling the deletion usually revoked them.
     /// </summary>
     private async IAsyncEnumerable<CleanupFailure> RevokeTokensAsync(string subject)
     {
@@ -394,7 +364,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     }
 
     /// <summary>
-    /// Catches its own exception, so the logins after one that fails are still removed.
+    /// Catches its own exception, so the logins after a failed one are still removed.
     /// </summary>
     private async Task<CleanupFailure?> TryRemoveLoginAsync(Guid userId, UserLoginInfo login)
     {
@@ -413,32 +383,24 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     }
 
     /// <summary>
-    /// The copy the context tracks, or a new read once a failure has emptied the context. The copy from
-    /// before the failure may carry a concurrency stamp that was never saved, or one another write has
-    /// replaced, and every save of it would fail on that stamp (#981).
+    /// A fresh read once a failure has emptied the context: the old copy may carry a stale concurrency
+    /// stamp, and every save of it would fail (#981).
     /// </summary>
     private async Task<ApplicationUser> FindAccountAsync(Guid userId) =>
         await _dbContext.Users.FindAsync(userId)
         ?? throw new InvalidOperationException($"User {userId} is not in the database.");
 
     /// <summary>
-    /// Locks the account for good after a failed erasure, so its data cannot be reached while it waits
-    /// for the finalizer's next run. It writes the lockout columns and nothing else, straight to the
-    /// database. The failed save left the anonymized values on the tracked account, and any save of that
-    /// account would write them too. The finalizer finds its work by the real address, so an account
-    /// saved with the anonymized one would never be retried and its cleanup would never run (#908, #937).
+    /// Locks the account for good until the next finalizer run. It writes only the lockout columns, straight
+    /// to the database: the tracked account still holds the anonymized values, and saving them would hide
+    /// the account from the finalizer, which finds work by the real address (#908, #937).
     /// </summary>
     /// <remarks>
-    /// An account that is no longer waiting for its erasure is left alone: its owner cancelled the
-    /// deletion, another run already erased the account and locked it in the same save, or this run's own
-    /// save landed although it was reported as failed.
-    /// The security stamp stays as it is. Scheduling the deletion already ended every session, and
-    /// sign-in is refused while a deletion is scheduled. A new stamp would only break the cancel link
-    /// the owner may still hold.
-    /// A failed lock is not logged here, only returned. Whether a lock was needed at all is known only
-    /// after the read that follows it, or from the finalizer's own read when that read fails. An account
-    /// that no longer waits needs none (#980), and neither does one that is locked for good already
-    /// (#1018). A lock that neither landed nor failed matched no row.
+    /// An account that no longer waits is left alone. The security stamp stays: scheduling the deletion
+    /// already ended every session and sign-in is refused while it waits, so a new stamp would only break
+    /// the cancel link the owner may hold. A failure is returned, not logged: whether a lock was
+    /// needed is known only after the read that follows (#980, #1018). No lock and no failure means no row
+    /// matched.
     /// </remarks>
     private async Task<(bool Locked, Exception? Failure)> TryLockAccountAsync(Guid userId)
     {
@@ -446,8 +408,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         {
             DateTimeOffset? lockedUntil = DateTimeOffset.MaxValue;
 
-            // A new concurrency stamp makes a write that read the account before the lock fail, instead
-            // of putting the old lockout back.
+            // A new stamp makes a write that read the account before the lock fail, instead of undoing the lock.
             string concurrencyStamp = Guid.NewGuid().ToString();
 
             int lockedCount = await _dbContext.Users
@@ -524,20 +485,16 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     private static partial void LogSaveCheckFailedAfterFailedLock(ILogger logger, Exception exception, Guid userId);
 
     /// <summary>
-    /// Identity reports a lost concurrency check as errors. Anything else arrives as an exception, and
-    /// its message stands in for the errors.
+    /// Identity reports a lost concurrency check as errors; for anything else the exception's message
+    /// stands in.
     /// </summary>
     private sealed record FailedSave(string Errors, Exception? Exception);
 
     /// <summary>
-    /// The account as the read after a failed save finds it. The first two never hold at once: a landed
-    /// save wrote the anonymized address, so the account no longer waits. Whether the account is locked
-    /// for good matters only while it still waits.
+    /// The first two never hold at once: a landed save wrote the anonymized address, so the account no
+    /// longer waits. LockedForGood matters only while it still waits.
     /// </summary>
     private sealed record AccountState(bool SaveLanded, bool StillWaits, bool LockedForGood);
 
-    /// <summary>
-    /// One write the cleanup could not make. An exception's message stands in for the reason.
-    /// </summary>
     private sealed record CleanupFailure(string Reason, Exception? Exception);
 }

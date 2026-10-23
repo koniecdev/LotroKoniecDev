@@ -1,9 +1,8 @@
 namespace LotroKoniecDev.AuthSystem.API.Common;
 
 /// <summary>
-/// Picks the Polish noun form that follows a count: "1 minutę", "22 minuty", "25 minut". The second form
-/// follows every number that ends in 2, 3 or 4, except numbers that end in 12, 13 or 14 (#1032). The
-/// frontend has its own copy of this rule (<c>TranslationsPlural</c> on the translations page).
+/// "1 minutę", "22 minuty", "25 minut": the second form follows a number ending in 2, 3 or 4, except 12,
+/// 13 and 14 (#1032). The frontend has its own copy (<c>TranslationsPlural</c>).
 /// </summary>
 internal static class PolishPlural
 {

@@ -8,14 +8,10 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 
 /// <summary>
-/// Finds accounts whose deletion grace period is over and erases them.
-/// It is safe to run twice and safe to restart: accounts that are already anonymized are recognised by
-/// the marker in their e-mail address, a failure on one user is logged, does not hold back the others
-/// and is retried on the next run, and if two runs overlap the second one loses on the Identity
-/// concurrency stamp and leaves the account to the first.
-/// When an account is due is <see cref="IAccountDeletionSchedule"/>'s call, not this class's: the
-/// date it erases on has to be the one the response header, the e-mail and the login page promised
-/// (#685).
+/// Safe to run twice and to restart: an anonymized address is skipped, one user's failure does not hold
+/// back the others and is retried next run, and of two overlapping runs the second loses on the
+/// concurrency stamp. <see cref="IAccountDeletionSchedule"/> decides when an account is due, so the date
+/// matches what the user was promised (#685).
 /// </summary>
 internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinalizer
 {
@@ -46,7 +42,7 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
     {
         DateTimeOffset now = _timeProvider.GetUtcNow();
 
-        // The oldest schedule goes first, and every run takes the accounts in the same order.
+        // Oldest first, in the same order every run.
         List<Guid> dueUserIds = await DueUsers(now)
             .OrderBy(u => u.DeletionScheduledAt)
             .ThenBy(u => u.Id)
@@ -57,13 +53,11 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
 
         foreach (Guid userId in dueUserIds)
         {
-            // Every account starts on an empty change tracker. A failed save leaves the account's
-            // changes tracked, and the next save in this context would write them again and fail with
-            // them, so one broken account would stop every erasure after it (#937).
+            // A failed save leaves its changes tracked, and one broken account would then stop every
+            // erasure after it (#937).
             _dbContext.ChangeTracker.Clear();
 
-            // Read again, with the rule that listed it: the owner may have cancelled the deletion, or
-            // another run may have erased the account, since the list was read.
+            // Read again with the same rule: the owner may have cancelled, or another run erased it.
             ApplicationUser? user;
             try
             {
@@ -88,7 +82,7 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
                 continue;
             }
 
-            // The erasure has logged why. Nothing is left to retry, so this line must not promise it (#962).
+            // The erasure logged why, and nothing is left to retry (#962).
             if (erasureResult.Value is AccountErasureOutcome.NoLongerWaiting)
             {
                 continue;
@@ -104,10 +98,9 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
     }
 
     /// <summary>
-    /// Runs after the erasures, so it also covers the accounts this run erased. Its two steps fail on
-    /// their own, and a failure or a shutdown only waits for the next run, which goes over every erased
-    /// account again (ADR-0065). Unlike an erasure, it has nothing to finish once started. A contract
-    /// with no route is a programmer error and is never caught here (ADR-0038).
+    /// After the erasures, so it covers this run's too. A failure or a shutdown only waits for the next
+    /// run, which goes over every erased account again (ADR-0065). A contract with no route is a
+    /// programmer error and is never caught here (ADR-0038).
     /// </summary>
     private async Task ReconcileErasedAccountsAsync(CancellationToken cancellationToken)
     {
@@ -116,8 +109,7 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
             return;
         }
 
-        // A failed erasure can leave its AccountErased message tracked, and the announcement saves
-        // through this context. That message must never be saved for an account that is not erased.
+        // A failed erasure can leave its AccountErased message tracked, and the announcement saves here.
         _dbContext.ChangeTracker.Clear();
 
         try

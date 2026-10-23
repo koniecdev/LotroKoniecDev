@@ -3,13 +3,10 @@ using System.Diagnostics.CodeAnalysis;
 namespace LotroKoniecDev.AuthSystem.API.Common;
 
 /// <summary>
-/// The one check for "an absolute http or https URL" that the settings validators, the frontend links
-/// and the CSP's form-action share, so they can never disagree about what counts.
-/// </summary>
-/// <remarks>
-/// The scheme check matters. On Unix a bare path such as <c>"/app"</c> parses as an absolute
+/// Shared by the settings validators, the frontend links and the CSP's form-action, so they never
+/// disagree. The scheme check matters: on Unix a bare path such as <c>"/app"</c> parses as an absolute
 /// <c>file://</c> URI.
-/// </remarks>
+/// </summary>
 internal static class AbsoluteHttpUri
 {
     internal static bool TryParse(string? value, [NotNullWhen(true)] out Uri? uri)

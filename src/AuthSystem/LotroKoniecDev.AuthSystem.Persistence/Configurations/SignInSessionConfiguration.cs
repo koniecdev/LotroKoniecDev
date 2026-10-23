@@ -13,9 +13,7 @@ internal sealed class SignInSessionConfiguration : IEntityTypeConfiguration<Sign
 
         builder.HasKey(session => session.Id);
 
-        // Every property is get-only, and EF Core only finds properties that have a getter and a setter.
-        // Each one needs its own Property() call to exist in the model at all, the same trap as in
-        // OutboxMessageConfiguration.
+        // Every property is get-only, so EF Core maps it only through its own Property() call.
         builder.Property(session => session.Id)
             .ValueGeneratedNever();
 

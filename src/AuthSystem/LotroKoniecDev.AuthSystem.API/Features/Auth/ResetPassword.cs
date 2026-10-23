@@ -43,7 +43,7 @@ internal sealed partial class ResetPassword : IApiEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result>
     {
         /// <summary>
-        /// A hash computed up front, so every path verifies exactly one hash.
+        /// Lets every path verify exactly one hash.
         /// </summary>
         private static readonly string DummyPasswordHash =
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -77,7 +77,7 @@ internal sealed partial class ResetPassword : IApiEndpoint
             }
 
             // The branches differ in cost: a wrong token fails at a cheap check, and a scheduled deletion
-            // returns before it. So every answer waits for the floor (ADR-0059).
+            // returns before it (ADR-0059).
             return await _responseTimeFloor.HoldAsync(
                 ResponseTimeFloors.AccountLookup,
                 () => ResetAsync(command));
@@ -87,7 +87,7 @@ internal sealed partial class ResetPassword : IApiEndpoint
         {
             ApplicationUser? user = await _userManager.FindByEmailAsync(command.Email);
 
-            // Every path pays the same PBKDF2 cost, the second layer under the floor (ADR-0059 §5).
+            // The dummy hash runs on every path: the second layer under the floor (ADR-0059 §5).
             _ = _userManager.PasswordHasher.VerifyHashedPassword(
                 new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
@@ -96,9 +96,8 @@ internal sealed partial class ResetPassword : IApiEndpoint
                 return Result.Failure(AuthErrors.InvalidPasswordResetToken);
             }
 
-            // While a GDPR deletion is scheduled, only the cancel link in the e-mail can bring the
-            // account back. We return the general invalid-token error, so nobody can use this to learn
-            // the state of an account.
+            // During a scheduled deletion only the cancel link brings the account back. The general error
+            // hides the account's state.
             if (user.DeletionScheduledAt is not null)
             {
                 LogPasswordResetBlockedDeletionScheduled(_logger, user.Id);

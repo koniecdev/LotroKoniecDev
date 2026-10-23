@@ -12,14 +12,14 @@ using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 
 /// <summary>
-/// The page sends mail to whatever address the caller types, so it keeps the strict budget the API twin
-/// has instead of the laxer default the Razor group gives every other page.
+/// The page mails whatever address the caller types, so it shares the API twin's strict budget instead
+/// of the default page limit.
 /// </summary>
 [EnableRateLimiting("forgot-password-limit")]
 internal sealed partial class ForgotPasswordModel : PageModel
 {
     /// <summary>
-    /// A hash computed up front, so every path verifies exactly one hash.
+    /// Lets every path verify exactly one hash.
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -65,11 +65,10 @@ internal sealed partial class ForgotPasswordModel : PageModel
             return Page();
         }
 
-        // Only a real account with a send permit writes an outbox row, so every answer waits for the floor
-        // (ADR-0059).
+        // Only a real account with a permit writes an outbox row (ADR-0059).
         await _responseTimeFloor.HoldAsync(ResponseTimeFloors.AccountLookup, RequestResetAsync);
 
-        // Always show success, so nobody can find out which e-mails are registered.
+        // Success on every branch, so nobody can learn which e-mails are registered.
         IsSubmitted = true;
         return Page();
     }
@@ -78,21 +77,17 @@ internal sealed partial class ForgotPasswordModel : PageModel
     {
         ApplicationUser? user = await _userManager.FindByEmailAsync(Email);
 
-        // Every path pays the same PBKDF2 cost. Running the dummy hash only when the user is not
-        // found would make real accounts answer measurably faster, because their path is only a cheap
-        // outbox insert, and the response time would then tell an attacker which accounts exist
-        // (ADR-0038 decision 5). Under the floor this is the second layer (ADR-0059 §5).
+        // On every path: a real account's path is only a cheap outbox insert. The second layer under the
+        // floor (ADR-0059 §5).
         _ = _userManager.PasswordHasher.VerifyHashedPassword(
             new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
-        // The send budget is taken only where a mail would really go out, so it counts sends and an
-        // address nobody registered never spends anything. A refused request answers with the same panel
-        // as every other branch here, so it looks exactly like the address being unknown.
+        // Only where a mail would really go out, so an unknown address spends nothing. A refusal shows the
+        // same panel as every other branch.
         if (user is not null && _throttle.TryAcquire(user))
         {
-            // No token is created here and the deletion window is not checked here. The payload holds
-            // only the id, and the dispatch processor creates the token and does that check when it
-            // sends (ADR-0038 decision 2).
+            // The dispatch processor creates the token and checks the deletion window when it sends
+            // (ADR-0038 decision 2).
             _outboxWriter.Enqueue(new PasswordResetRequested(user.Id));
             await _db.SaveChangesAsync(HttpContext.RequestAborted);
 

@@ -5,12 +5,9 @@ using LotroKoniecDev.AuthSystem.API.Extensions;
 namespace LotroKoniecDev.AuthSystem.API.Settings;
 
 /// <summary>
-/// Stops the boot when the configured CORS origins are missing or malformed in a deployed environment,
-/// Staging or Production, and names the key at fault (ADR-0008 §3, M6-03). Development uses the open
-/// AllowAnyOrigin policy and Testing runs in memory on one origin, so neither supplies origins and
-/// both skip this check, like <c>OpenIddictSettingsValidator</c> does for its keys and addresses.
-/// A message names the entry number but never repeats the origin. A refused origin can hold a user name
-/// and password, and the message goes to the startup log (#1131).
+/// Stops the boot in Staging and Production when the CORS origins are missing or malformed (ADR-0008
+/// §3). A message names the entry number but never repeats the origin: a refused origin can hold a user
+/// name and password, and the message goes to the startup log (#1131).
 /// </summary>
 internal sealed class CorsSettingsValidator : IValidateOptions<CorsSettings>
 {
@@ -58,11 +55,9 @@ internal sealed class CorsSettingsValidator : IValidateOptions<CorsSettings>
     }
 
     /// <summary>
-    /// A CORS origin is only the scheme, the host and a non-default port. The browser's <c>Origin</c>
-    /// header carries no user info, path, query or trailing slash, and it is always lower case. So
-    /// <c>WithOrigins("https://x/")</c> or <c>"https://u:p@x"</c> would never match anything, without
-    /// saying so. Requiring the value to equal its own authority part, with no user info, catches those
-    /// mistakes at boot.
+    /// The browser's <c>Origin</c> header is lower case and carries no user info, path, query or trailing
+    /// slash, so <c>WithOrigins("https://x/")</c> would silently never match. Requiring the value to equal
+    /// its own authority part catches that at boot.
     /// </summary>
     private static bool BeBareHttpOrigin(string? value)
     {

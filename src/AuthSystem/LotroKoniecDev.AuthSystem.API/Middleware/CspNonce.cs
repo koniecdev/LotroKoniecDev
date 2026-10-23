@@ -24,8 +24,7 @@ internal static class CspNonce
     }
 
     /// <summary>
-    /// Null when the middleware did not run, as in Development. Razor then leaves the <c>nonce</c>
-    /// attribute out, and with no CSP there is nothing for it to match.
+    /// Null when the middleware did not run, as in Development, where there is no CSP to match.
     /// </summary>
     internal static string? Get(HttpContext context) =>
         context.Items.TryGetValue(ItemsKey, out object? nonce) ? nonce as string : null;

@@ -7,8 +7,7 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 namespace LotroKoniecDev.AuthSystem.Persistence.Identity;
 
 /// <summary>
-/// Options for the e-mail change token provider. The link lives 24 hours, the same as the activation
-/// link users already know.
+/// 24 hours, the same as the activation link users already know.
 /// </summary>
 public sealed class EmailChangeTokenProviderOptions : DataProtectionTokenProviderOptions
 {
@@ -20,18 +19,15 @@ public sealed class EmailChangeTokenProviderOptions : DataProtectionTokenProvide
 }
 
 /// <summary>
-/// Creates the token behind the "confirm your new address" link. The purpose carries the target
-/// address, so a token made for one address cannot confirm another, and the token is tied to the
-/// user's security stamp, which makes it single-use: applying the change rotates the stamp.
+/// The token behind the "confirm your new address" link. The purpose carries the target address, so a
+/// token for one address cannot confirm another. The token is bound to the security stamp, and applying
+/// the change rotates it, so the token is single-use.
 /// </summary>
 /// <remarks>
-/// Identity ships <c>GenerateChangeEmailTokenAsync</c> and <c>ChangeEmailAsync</c> and both are
-/// public, so this provider does not exist because that API is missing. It exists because
-/// <c>ChangeEmailAsync</c> checks the token inside itself against a purpose string Identity keeps
-/// private. A caller could then only enqueue its outbox row first and call afterwards, and a bad
-/// token returns before the save, leaving that row tracked in a context something else may still
-/// flush. Owning the purpose lets the handler check the token first and then commit the row and the
-/// address change together (ADR-0048).
+/// Identity's <c>ChangeEmailAsync</c> checks the token inside itself against a private purpose string,
+/// so a caller would have to enqueue its outbox row first, and a bad token would leave that row tracked.
+/// Owning the purpose lets the handler check the token first, then commit the row and the address change
+/// together (ADR-0048).
 /// </remarks>
 public sealed class EmailChangeTokenProvider : DataProtectorTokenProvider<ApplicationUser>
 {

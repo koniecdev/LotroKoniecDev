@@ -37,8 +37,7 @@ internal static class OpenIddictExtensions
                     .AllowClientCredentialsFlow()
                     .AllowAuthorizationCodeFlow();
 
-                // The password flow is only on in Testing, for integration and E2E tests. Production
-                // uses the authorization code flow with PKCE.
+                // Only for the integration and E2E tests.
                 if (environment.IsEnvironment("Testing"))
                 {
                     options.AllowPasswordFlow();
@@ -46,11 +45,9 @@ internal static class OpenIddictExtensions
 
                 options.RequireProofKeyForCodeExchange();
 
-                // Rolling refresh tokens: using a refresh token invalidates it and issues a new one, so
-                // an old token cannot be replayed. Reference tokens live in the database, which is what
-                // makes revoking them possible. Sliding expiration stays on: each new token gets the
-                // full lifetime from the refresh, so the short lifetime never signs out a user who keeps
-                // working (#1014). Never call DisableSlidingRefreshTokenExpiration.
+                // Reference tokens live in the database, so they can be revoked. Sliding expiration stays
+                // on, so the short lifetime never signs out a user who keeps working (#1014). Never call
+                // DisableSlidingRefreshTokenExpiration.
                 options.UseReferenceRefreshTokens();
 
                 options.RegisterScopes(
@@ -62,22 +59,18 @@ internal static class OpenIddictExtensions
                     AuthConstants.Scopes.Api,
                     AuthConstants.Scopes.Service);
 
-                // Access tokens are not encrypted, so standard JWT Bearer validation can read them.
-                // They are still signed, so they cannot be changed. Encryption is optional in OAuth2
-                // and OIDC, and leaving it off is common.
+                // Not encrypted, so standard JWT Bearer validation can read them. They are still signed.
                 options.DisableAccessTokenEncryption();
 
-                // Development and Testing use throwaway keys. Every other environment takes its keys
-                // from configuration in ConfigureOpenIddictServerSettings.
+                // Every other environment takes its keys from configuration in ConfigureOpenIddictServerSettings.
                 if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
                 {
                     options.AddEphemeralSigningKey()
                         .AddEphemeralEncryptionKey();
                 }
 
-                // The status-code pages switch: OpenIddict leaves a refused sign-in or sign-out link to the
-                // app's error pages instead of writing its own English plain text (#912). It touches only
-                // authorize and logout.
+                // EnableStatusCodePagesIntegration: a refused sign-in or sign-out link gets the app's error
+                // page instead of OpenIddict's English plain text (#912).
                 OpenIddictServerAspNetCoreBuilder aspNetCoreBuilder = options.UseAspNetCore()
                     .EnableTokenEndpointPassthrough()
                     .EnableAuthorizationEndpointPassthrough()
@@ -90,9 +83,8 @@ internal static class OpenIddictExtensions
                     aspNetCoreBuilder.DisableTransportSecurityRequirement();
                 }
 
-                // Introspection reads POST only, like token and revocation. By default OpenIddict also
-                // reads it from GET and checks the client secret there, and a GET meets no rate limit
-                // (ADR-0061, #900).
+                // Introspection reads POST only: OpenIddict would also check a client secret sent by GET,
+                // and a GET meets no rate limit (ADR-0061).
                 options.RemoveEventHandler(
                     OpenIddictServerAspNetCoreHandlers.ExtractGetOrPostRequest<OpenIddictServerEvents.ExtractIntrospectionRequestContext>.Descriptor);
                 options.AddEventHandler(
@@ -107,8 +99,8 @@ internal static class OpenIddictExtensions
                 options.UseLocalServer();
                 options.UseAspNetCore();
 
-                // A token must name this API. Without this line any token this server signed got in, a
-                // service token for the translation API too (#1023).
+                // Otherwise any token this server signed would get in, a service token for the translation
+                // API too (#1023).
                 options.AddAudiences(AuthConstants.Audiences.AuthApi);
             });
 
@@ -132,9 +124,7 @@ internal sealed class ConfigureOpenIddictServerSettings(IConfiguration configura
         options.AccessTokenLifetime = TimeSpan.FromMinutes(settings.AccessTokenLifetimeMinutes);
         options.RefreshTokenLifetime = TimeSpan.FromMinutes(settings.RefreshTokenLifetimeMinutes);
 
-        // Development and Testing use throwaway keys only, set up in AddServer. Every other environment
-        // uses the keys from configuration, and the public signing key is published through JWKS so
-        // tokens can be validated.
+        // Development and Testing use the throwaway keys set up in AddServer.
         if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
         {
             return;
@@ -142,8 +132,7 @@ internal sealed class ConfigureOpenIddictServerSettings(IConfiguration configura
 
         try
         {
-            // The encryption key is symmetric and is used for authorization codes, refresh tokens and
-            // the like. It is never published through JWKS, so a symmetric key is fine.
+            // Symmetric is fine: it protects codes and refresh tokens and is never published through JWKS.
             byte[] encKeyBytes = Convert.FromBase64String(settings.EncryptionKey.Key);
             if (encKeyBytes.Length < 32)
             {
@@ -163,19 +152,14 @@ internal sealed class ConfigureOpenIddictServerSettings(IConfiguration configura
 
         try
         {
-            // The signing key is RSA. Its public half is published through JWKS for resource servers.
             string rsaXml = System.Text.Encoding.UTF8.GetString(
                 Convert.FromBase64String(settings.SigningKey.RsaPrivateKeyXml));
 
-            // Not inside a `using`. OpenIddict keeps this RSA for the whole life of the app, through
-            // an RsaSecurityKey in the singleton server options, both to sign tokens and to publish the
-            // public key at /.well-known/jwks. Disposing it makes the JWKS endpoint throw
-            // ObjectDisposedException from RSAOpenSsl, so discovery still works but JWKS returns 500
-            // and every client fails with IDX20807.
+            // Not inside a `using`: the singleton server options keep this RSA for signing and for JWKS.
+            // Disposed, it makes JWKS return 500 and every client fail with IDX20807.
             RSA rsa = RSA.Create();
             rsa.FromXmlString(rsaXml);
 
-            // The key must be at least RSA-2048.
             if (rsa.KeySize < 2048)
             {
                 throw new InvalidOperationException(
@@ -197,8 +181,7 @@ internal sealed class ConfigureOpenIddictServerSettings(IConfiguration configura
                 "Invalid RSA signing key. The XML does not represent a valid RSA key.", ex);
         }
 
-        // Register the previous signing key so keys can be rotated. Tokens signed with the old key stay
-        // valid while both keys are registered.
+        // Tokens signed with the previous key stay valid while both are registered (key rotation).
         if (string.IsNullOrWhiteSpace(settings.SigningKey.PreviousRsaPrivateKeyXml))
         {
             return;
@@ -209,8 +192,7 @@ internal sealed class ConfigureOpenIddictServerSettings(IConfiguration configura
             string prevRsaXml = System.Text.Encoding.UTF8.GetString(
                 Convert.FromBase64String(settings.SigningKey.PreviousRsaPrivateKeyXml));
 
-            // Not disposed, for the same reason as the current signing key above: it has to live as
-            // long as the app.
+            // Not disposed, for the same reason as the current key.
             RSA prevRsa = RSA.Create();
             prevRsa.FromXmlString(prevRsaXml);
 

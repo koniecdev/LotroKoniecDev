@@ -37,7 +37,7 @@ internal sealed partial class ConfirmEmail : IApiEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result>
     {
         /// <summary>
-        /// A hash computed up front, so every path verifies exactly one hash.
+        /// Lets every path verify exactly one hash.
         /// </summary>
         private static readonly string DummyPasswordHash =
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -68,7 +68,7 @@ internal sealed partial class ConfirmEmail : IApiEndpoint
             }
 
             // The branches differ in cost: a wrong token fails at a cheap check, and a confirmed address
-            // returns before it. So every answer waits for the floor (ADR-0059).
+            // returns before it (ADR-0059).
             return await _responseTimeFloor.HoldAsync(
                 ResponseTimeFloors.AccountLookup,
                 () => ConfirmAsync(command));
@@ -78,7 +78,7 @@ internal sealed partial class ConfirmEmail : IApiEndpoint
         {
             ApplicationUser? user = await _userManager.FindByEmailAsync(command.Email);
 
-            // Every path pays the same PBKDF2 cost, the second layer under the floor (ADR-0059 §5).
+            // The dummy hash runs on every path: the second layer under the floor (ADR-0059 §5).
             _ = _userManager.PasswordHasher.VerifyHashedPassword(
                 new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 

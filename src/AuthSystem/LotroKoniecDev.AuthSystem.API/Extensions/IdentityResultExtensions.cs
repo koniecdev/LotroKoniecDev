@@ -8,18 +8,17 @@ internal static class IdentityResultExtensions
     extension(IdentityResult result)
     {
         /// <summary>
-        /// <c>UpdateAsync</c> looks the address up once more before it writes, so an e-mail change can lose
-        /// the race for its address there too, not only at the unique index (#866). Only a refusal whose
-        /// every error is a taken address counts. With any other error the save would fail on a free
-        /// address as well, so it must reach the log as the failure it is.
+        /// <c>UpdateAsync</c> looks the address up again before it writes, so an e-mail change can lose the
+        /// race there too, not only at the unique index (#866). Only a refusal whose every error is a taken
+        /// address counts; any other error must reach the log as a failure.
         /// </summary>
         public bool IsTakenEmail =>
             result.Errors.Any()
             && result.Errors.All(error => error.Code is nameof(IdentityErrorDescriber.DuplicateEmail));
 
         /// <summary>
-        /// Identity refused the new password only because it is in a known data breach (ADR-0066). Any
-        /// other error in the result has a message of its own that the caller must not hide.
+        /// True only when the breach check is the sole reason (ADR-0066): any other error has a message
+        /// the caller must not hide.
         /// </summary>
         public bool IsBreachedPassword =>
             result.Errors.Any()

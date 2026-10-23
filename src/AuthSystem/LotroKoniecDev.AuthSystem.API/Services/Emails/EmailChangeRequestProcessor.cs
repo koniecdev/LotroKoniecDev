@@ -9,22 +9,15 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 /// <summary>
-/// What happens when an <see cref="EmailChangeRequested"/> message arrives: warn the old address that
-/// somebody asked to move the account, then create the confirmation token now rather than earlier and
-/// send the link to the new address (ADR-0048).
+/// Warns the old address, then sends the confirmation link to the new one (ADR-0048).
 /// </summary>
 /// <remarks>
-/// The request never looks the new address up (#860), so this is where it is decided. A new address
-/// with an account gets a notice to its owner instead of the link, and a reserved one (#684) gets
-/// nothing. The warning goes out first and on every branch: the requester reads that inbox, so a
-/// missing or late warning would tell them which branch ran.
-/// A message may arrive more than once (ADR-0035), so this has to be safe to run twice. It is: a
-/// repeat re-sends the same messages with a fresh but equally valid token, which is annoying and
-/// nothing worse.
-/// The stale check matters more than it looks. The payload carries the address the account had when
-/// the request was made, and a delivery that arrives after the change already happened would
-/// otherwise read the new address off the row and send the "somebody wants to move your account"
-/// warning to the very mailbox that asked for it.
+/// The request never looks the new address up (#860), so this decides: a taken address gets a notice to
+/// its owner instead of the link, and a reserved one (#684) gets nothing. The warning goes out first on
+/// every branch, so its timing does not tell the requester which branch ran. Safe to run twice: a repeat
+/// re-sends with a fresh token.
+/// The stale check matters: after the change landed, the row holds the new address, and the warning
+/// would go to the very mailbox that asked for the change.
 /// </remarks>
 internal sealed partial class EmailChangeRequestProcessor : IEmailMessageProcessor
 {
@@ -69,14 +62,9 @@ internal sealed partial class EmailChangeRequestProcessor : IEmailMessageProcess
         return ProcessAsync((EmailChangeRequested)message, cancellationToken);
     }
 
-    /// <summary>
-    /// Handles one message from start to finish and says whether it may be acknowledged.
-    /// </summary>
     /// <returns>
-    /// This is not a business result. Success means "acknowledge it and drop it from the queue",
-    /// either because the e-mails went out or because sending again could never change anything: the
-    /// user is gone, or the request is out of date because the address already moved. Failure means
-    /// "worth another try", for example when the SMTP relay is down.
+    /// Success also when the user is gone or the request is stale (see
+    /// <see cref="IEmailMessageProcessor.ProcessAsync"/>).
     /// </returns>
     public async Task<Result> ProcessAsync(EmailChangeRequested message, CancellationToken cancellationToken)
     {
@@ -104,8 +92,7 @@ internal sealed partial class EmailChangeRequestProcessor : IEmailMessageProcess
             return Result.Success();
         }
 
-        // The warning first. It is the message this flow cannot afford to lose, so if only one mail gets
-        // through it has to be this one. A retry after a failed link re-sends it, which is harmless.
+        // The warning first: if only one mail gets through, it has to be this one.
         Result warningResult = await _emailChangeEmailSender.SendChangeRequestedWarningAsync(
             user.Id, message.CurrentEmail, message.NewEmail, cancellationToken);
 

@@ -17,20 +17,13 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// Starts an e-mail change. The address only moves when the link sent to the new mailbox is used, so
-/// nothing on the account changes here (ADR-0048).
+/// Starts an e-mail change. Nothing on the account changes until the link sent to the new mailbox is
+/// used (ADR-0048).
 /// </summary>
 /// <remarks>
-/// It never looks the new address up. Whether that address has an account, or is reserved, is decided
-/// when the mail goes out (<see cref="Services.Emails.EmailChangeRequestProcessor"/>), so every new
-/// address gets the same answer and the same work here, and the answer tells the caller nothing about it
-/// (#860).
-/// <para>
-/// Because there is no change to the user row, this handler has to save the outbox row itself:
-/// <c>OutboxWriter.Enqueue</c> only adds it to the unit of work. <see cref="ForgotPassword"/> is the
-/// shape to copy here, not <see cref="DeleteAccount"/>, which gets its save for free from
-/// <c>UserManager.UpdateAsync</c>.
-/// </para>
+/// It never looks the new address up: <see cref="Services.Emails.EmailChangeRequestProcessor"/> decides
+/// whether it is taken or reserved, so the answer here tells the caller nothing (#860). With no change to
+/// the user row, the handler saves the outbox row itself, like <see cref="ForgotPassword"/>.
 /// </remarks>
 internal sealed partial class RequestEmailChange : IApiEndpoint
 {
@@ -116,9 +109,8 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
 
             string newEmail = command.NewEmail;
 
-            // The account is locked for the whole grace period and the cancel link in the e-mail is the
-            // only way back into it. Rotating the security stamp later in this flow would break that
-            // link, so the change is refused while a deletion is pending (ADR-0031).
+            // The cancel link is the only way back into an account waiting for deletion, and confirming a
+            // change rotates the stamp, which would break that link (ADR-0031).
             if (user.DeletionScheduledAt is not null)
             {
                 return Result.Failure(AuthErrors.DeletionAlreadyScheduled);
@@ -147,10 +139,9 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
                 return Result.Failure(AuthErrors.EmailChangeSameAddress);
             }
 
-            // The last check, so a change refused above spends nothing. The budget belongs to the inbox of
-            // the new address, whichever account asks, and its refusal is a 429 on purpose (ADR-0055,
-            // ADR-0057). A taken or reserved new address spends a permit too: the request cannot tell
-            // them apart, and that is the point (#860).
+            // Last, so a change refused above spends nothing. The budget belongs to the new address's
+            // inbox, whichever account asks (ADR-0057). A taken or reserved address spends a permit too
+            // (#860).
             if (!_recipientThrottle.TryAcquire(MailboxKey.FromNormalizedEmail(normalizedNewEmail)))
             {
                 LogRecipientThrottled(_logger, user.Id, newEmail.MaskEmail());
@@ -197,11 +188,8 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
 
                 Command command = new(
                     userId,
-                    // Trimmed before validation, not after: the address rule rejects any whitespace, so
-                    // a trailing space from a paste would otherwise fail instead of being cleaned up.
-                    // The null coalesce is not decoration: the record's non-nullable string does not
-                    // stop System.Text.Json from binding a JSON null, and the validator is what should
-                    // answer for it, not a NullReferenceException.
+                    // Trimmed before validation, which rejects whitespace, so a pasted trailing space is
+                    // cleaned up. System.Text.Json can bind a JSON null despite the non-nullable type.
                     (request.NewEmail ?? string.Empty).Trim(),
                     request.CurrentPassword,
                     httpContext.Connection.RemoteIpAddress?.ToString(),
@@ -214,9 +202,7 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
                     : Results.Ok();
             })
             .RequireAuthorization()
-            // Stays on change-email-limit: that policy bounds how much mail one client can send, which
-            // neither the per-account confirmation budget (ADR-0053) nor the per-recipient budget
-            // (ADR-0055) in the handler replaces.
+            // Bounds how much mail one client can send, which neither budget in the handler does.
             .RequireRateLimiting("change-email-limit")
             .WithName(nameof(RequestEmailChange))
             .WithTags("Account")

@@ -3,11 +3,9 @@ using FluentValidation;
 namespace LotroKoniecDev.AuthSystem.Persistence.Settings;
 
 /// <summary>
-/// Checks the auth database connection string at startup and stops the app when it is missing or
-/// cannot be read (ADR-0008 §3, M6-05). Every environment needs it, the dev compose stack included, so
-/// there is no exception. The messages name the full configuration key and its environment-variable
-/// form, so a bad value fails the boot with something you can act on instead of a 500 later. They never
-/// carry Npgsql's own error (<see cref="ConnectionStringReader"/>, #1157).
+/// Stops the boot when the auth database connection string is missing or unreadable, in every
+/// environment (ADR-0008 §3). The messages name the key and its environment variable, and never carry
+/// Npgsql's own error (<see cref="ConnectionStringReader"/>).
 /// </summary>
 internal sealed class ConnectionStringSettingsValidator : AbstractValidator<ConnectionStringSettings>
 {

@@ -10,10 +10,9 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 
 /// <summary>
-/// The page the "to nie ja" link in the old mailbox leads to (ADR-0048). A GET only shows a
-/// confirmation form. That is not decoration: this link lands in a live inbox, corporate mail
-/// security opens every URL it sees, and a GET that reverted would undo every legitimate e-mail
-/// change and clear the password seconds after the notice arrived.
+/// Where the "to nie ja" link leads (ADR-0048). A GET only shows a confirmation form: mail security
+/// scanners open every URL they see, and a GET that reverted would undo every real e-mail change and
+/// clear the password seconds after the notice arrived.
 /// </summary>
 [EnableRateLimiting("auth-endpoint-limit")]
 internal sealed partial class RevertEmailChangeModel : PageModel
@@ -35,11 +34,17 @@ internal sealed partial class RevertEmailChangeModel : PageModel
     [BindProperty]
     public string UserId { get; set; } = string.Empty;
 
-    /// <summary>The address the account is going back to.</summary>
+    /// <summary>
+    /// The previous address the link names. The account goes back to its armed address, which is normally
+    /// this one; the handler never trusts the link for it (ADR-0048).
+    /// </summary>
     [BindProperty]
     public string From { get; set; } = string.Empty;
 
-    /// <summary>The address the account was moved to, and where it has to still be for this to work.</summary>
+    /// <summary>
+    /// The address the account was moved to. It is part of the token's purpose with <see cref="From"/>,
+    /// but the account need not still be on it: a revert after a further change still works.
+    /// </summary>
     [BindProperty]
     public string To { get; set; } = string.Empty;
 
@@ -51,8 +56,7 @@ internal sealed partial class RevertEmailChangeModel : PageModel
     public string? ErrorMessage { get; set; }
 
     /// <summary>
-    /// The link passed its token check and only the save failed, so the page shows the form again and
-    /// one more click can finish the undo (#869).
+    /// The token passed and only the save failed, so one more click can finish the undo (#869).
     /// </summary>
     public bool CanRetry { get; set; }
 
@@ -69,7 +73,7 @@ internal sealed partial class RevertEmailChangeModel : PageModel
             return Page();
         }
 
-        // Back from the password form loads this used link again. Its button would call it dead (#941).
+        // Back from the password form loads this used link again, and its button would call it dead (#941).
         return RedirectToNextStepIfUsedHere() ?? Page();
     }
 
@@ -81,8 +85,8 @@ internal sealed partial class RevertEmailChangeModel : PageModel
             return Page();
         }
 
-        // A form the browser brought back from its cache can still send a link this browser already used.
-        // The link asks for no input, so this answer is the same as the first one (#941).
+        // A form restored from the browser cache can resend a used link. It asks for no input, so the
+        // answer is the same as the first one (#941).
         if (RedirectToNextStepIfUsedHere() is { } redirect)
         {
             return redirect;
@@ -107,8 +111,7 @@ internal sealed partial class RevertEmailChangeModel : PageModel
 
         LogEmailChangeRevertedViaUi(_logger, From.MaskEmail());
 
-        // The password is gone now, so the only way back into the account is the reset flow. Same
-        // ending as cancelling a scheduled deletion.
+        // The password is gone, so the reset flow is the only way back in, as after a cancelled deletion.
         PasswordResetStep nextStep = new(commandResult.Value.RestoredEmail, commandResult.Value.PasswordResetToken);
         _nextStepCookie.Remember(HttpContext, UsedLinkFlow.EmailChangeRevert, Token, nextStep);
         return RedirectToPasswordReset(nextStep);
@@ -123,12 +126,9 @@ internal sealed partial class RevertEmailChangeModel : PageModel
         RedirectToPage("/Account/ResetPassword", new { email = nextStep.Email, token = nextStep.Token });
 
     /// <summary>
-    /// Only a dead link is called dead (#869). A taken previous address is a different problem with a
-    /// different answer: nothing was changed, the password still works, and only support can sort it
-    /// out. Only a visitor who holds a valid revert link for this account gets this far, and the address
-    /// was this account's own before the change, so naming it tells a stranger nothing. A stranger never
-    /// gets here, so the rule of #860 still holds. A failed save keeps the
-    /// form, because the link is still good and one more click can finish the undo.
+    /// Only a dead link is called dead (#869). A taken previous address gets its own answer: nothing
+    /// changed and the password still works. Only a holder of a valid revert link gets this far, so this
+    /// tells a stranger nothing (#860). A failed save keeps the form, because the link is still good.
     /// </summary>
     private void ShowRefusal(Error error)
     {
@@ -165,10 +165,8 @@ internal sealed partial class RevertEmailChangeModel : PageModel
     }
 
     /// <summary>
-    /// The link's values are printed on this page and then acted on, so they are checked for shape
-    /// before either happens. It keeps arbitrary text off a branded page that carries a button which
-    /// clears a password, and it keeps a non-GUID id out of Identity's key conversion, which would
-    /// throw.
+    /// The link's values are printed and then acted on, so their shape is checked first: no arbitrary text
+    /// on a branded page with a button that clears a password, and no non-GUID id for Identity to throw on.
     /// </summary>
     private bool HasEveryValue() =>
         Guid.TryParse(UserId, out _)

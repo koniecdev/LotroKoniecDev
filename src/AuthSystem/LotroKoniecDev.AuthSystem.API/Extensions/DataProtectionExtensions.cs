@@ -4,13 +4,8 @@ using LotroKoniecDev.AuthSystem.API.Settings;
 namespace LotroKoniecDev.AuthSystem.API.Extensions;
 
 /// <summary>
-/// Sets up ASP.NET Core Data Protection for auth-api (M6-04, the same approach the Frontend takes in
-/// ADR-0005): the same application name in every environment, so a key one instance created can be
-/// read by another, and keys written to disk only when a keyring path is configured.
-/// Data Protection protects the Identity login cookie, the Razor antiforgery tokens on the login and
-/// account pages, and the Identity password-reset and e-mail-confirmation tokens. A keyring that lives
-/// only in one process invalidates all of them on every deploy, and at once across replicas, without
-/// any error message.
+/// The same application name everywhere, so one instance can read another's keys, and keys on disk
+/// when a keyring path is configured (ADR-0005).
 /// </summary>
 internal static class DataProtectionExtensions
 {
@@ -19,13 +14,9 @@ internal static class DataProtectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Fixes the application name and writes the keyring to disk when a path is configured.
-        /// The path is read straight from configuration here, because Data Protection is set up before
-        /// the DI container exists: there is no validated options object yet, and resolving
-        /// <see cref="IServiceProvider"/> at this point would trigger ASP0000.
-        /// So the check for non-development environments lives here and not in an
-        /// <see cref="Microsoft.Extensions.Options.IValidateOptions{TOptions}"/>, and it runs before
-        /// the host is built.
+        /// Reads the path straight from configuration, because Data Protection is set up before the DI
+        /// container exists, so the check cannot be an
+        /// <see cref="Microsoft.Extensions.Options.IValidateOptions{TOptions}"/>.
         /// </summary>
         public IServiceCollection AddAuthDataProtection(IConfiguration configuration, IHostEnvironment environment)
         {
@@ -49,13 +40,9 @@ internal static class DataProtectionExtensions
     }
 
     /// <summary>
-    /// Better to fail loudly than to fail quietly: a keyring path is required outside Development and
-    /// Testing. Development uses the host's default location, which already keeps the keys, and Testing
-    /// runs in memory with no real sessions to keep. Both may leave the path empty, the same way the
-    /// CORS startup check treats those environments.
-    /// Every deployed environment must mount a shared volume and point the keyring at it. Without that,
-    /// each deploy or new replica logs every user out and breaks antiforgery, password-reset and
-    /// e-mail-confirmation links.
+    /// A keyring that lives in one process silently logs every user out and breaks antiforgery and the
+    /// e-mailed links on every deploy. Development keeps keys in the host's default location and Testing
+    /// has no sessions to keep, so both may leave the path empty.
     /// </summary>
     public static void GuardKeyRingPath(DataProtectionSettings settings, IHostEnvironment environment)
     {

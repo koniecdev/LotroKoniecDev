@@ -3,9 +3,8 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 /// <summary>
-/// The messages of the e-mail change flow. Two go to the old mailbox, and they are what makes a stolen
-/// password recoverable (ADR-0048), so neither is optional. One goes to the owner of a new address that
-/// already has an account, in place of the link (#860).
+/// The two messages to the old mailbox make a stolen password recoverable (ADR-0048), so neither is
+/// optional.
 /// </summary>
 internal interface IEmailChangeEmailSender
 {

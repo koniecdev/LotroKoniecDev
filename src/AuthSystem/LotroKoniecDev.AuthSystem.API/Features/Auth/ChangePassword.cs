@@ -66,8 +66,7 @@ internal sealed partial class ChangePassword : IApiEndpoint
                 return Result.Failure(validationResult.ToValidationError(nameof(ChangePassword)));
             }
 
-            // The permit comes before the account is loaded (ADR-0053); ChangePasswordAsync checks the
-            // current password itself further down.
+            // The permit comes before the account is loaded (ADR-0053).
             if (!Guid.TryParse(command.UserId, out Guid userId))
             {
                 return Result.Failure(AuthErrors.UserNotFound);
@@ -86,10 +85,8 @@ internal sealed partial class ChangePassword : IApiEndpoint
                 return Result.Failure(AuthErrors.UserNotFound);
             }
 
-            // An access token issued before the deletion was scheduled must not change auth state
-            // during the grace period. The password change below also changes the security stamp, which
-            // would break the cancel link in the e-mail, the only way back into a locked-out account
-            // (ADR-0031).
+            // An access token issued before the deletion was scheduled still works, and a password change
+            // rotates the stamp, which would break the cancel link (ADR-0031).
             if (user.DeletionScheduledAt is not null)
             {
                 return Result.Failure(AuthErrors.DeletionAlreadyScheduled);

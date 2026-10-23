@@ -19,7 +19,7 @@ namespace LotroKoniecDev.Tests.Shared;
 /// </para>
 /// <para>
 /// The scrubbers run over the same text, so a new one must not eat what an earlier one is meant to see.
-/// Today they cannot overlap: a W3C traceparent (32 or 16 hex characters) and
+/// Today they cannot overlap: a W3C trace id (<c>00-</c>, 32 hex, <c>-</c>, 16 hex, <c>-</c>, 2 hex) and
 /// <c>HttpContext.TraceIdentifier</c> (<c>0Hxxx:0000001</c>) have neither the GUID nor the 64-character
 /// digest shape, and <see cref="TraceIdPattern"/> is anchored on the property name anyway.
 /// </para>

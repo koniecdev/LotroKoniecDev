@@ -235,7 +235,8 @@ internal static class ApiDependencyInjection
                 {
                     AuthSettings settings = authSettingsAccessor.Value;
 
-                    // Between containers the services may talk plain HTTP; HTTPS ends at the ingress.
+                    // Outside Development and Testing, an https issuer means https metadata too: the deployed
+                    // stacks fetch it through the proxy (compose.hetzner.yaml), not over the internal network.
                     bool requireHttps = !environment.IsDevelopment()
                                         && !environment.IsTesting()
                                         && settings.Issuer.StartsWith("https://", StringComparison.OrdinalIgnoreCase);

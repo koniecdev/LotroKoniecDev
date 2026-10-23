@@ -45,9 +45,9 @@ public sealed class TranslationLineEscaperTests
     [InlineData(@"path\\to", @"path\to")]
     public void Unescape_OnAFileWrittenBeforeTheEscapeChange_ShouldDivergeFromTheOldReader(string legacy, string expected)
     {
-        // An accepted divergence, pinned so a change to it is deliberate: the new reader collapses a
-        // doubled backslash the old writer never produced on purpose. Re-export a legacy file first
-        // (ADR-0039, "The migration cost").
+        // An accepted divergence, pinned so a change to it is deliberate. A writer from before ADR-0039 did
+        // not escape the backslash, so in its files a doubled backslash meant two characters; this reader
+        // turns them into one. Re-export a legacy file first (ADR-0039, "The migration cost").
         TranslationLineEscaper.Unescape(legacy).ShouldBe(expected);
     }
 

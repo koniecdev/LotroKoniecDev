@@ -1,7 +1,8 @@
 namespace LotroKoniecDev.TranslationSystem.API.Settings;
 
 /// <summary>
-/// Empty is valid only in Development and Testing, which never read the list (ADR-0008 §3).
+/// Empty is valid only in Development, which uses the open policy, and in Testing, which runs on one
+/// origin (ADR-0008 §3).
 /// </summary>
 internal sealed class CorsSettings
 {

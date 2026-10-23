@@ -254,7 +254,7 @@ try
     WebApplication app = builder.Build();
 
     // Before anything that reads the scheme or host. Reading the forwarded scheme first is also what
-    // keeps UseHttpsRedirection from looping. Development runs over plain http with no proxy.
+    // keeps UseHttpsRedirection from looping. Skipped in Development, where no proxy sits in front.
     if (!app.Environment.IsDevelopment())
     {
         app.UseForwardedHeaders();

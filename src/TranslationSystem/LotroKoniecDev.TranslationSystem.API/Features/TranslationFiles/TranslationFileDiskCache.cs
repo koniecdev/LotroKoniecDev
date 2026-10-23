@@ -281,9 +281,9 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
     }
 
     /// <summary>
-    /// Both parts become a file name, so both are checked where every name is built. The hash comes from
-    /// our own stored file, so a bad one must end in a 500, never in the 400 an
-    /// <see cref="ArgumentException"/> becomes.
+    /// Both parts become a file name, so both are checked where every name is built. The language is a
+    /// constant of the endpoint, so a bad one is a bug in the caller. The hash comes from our own stored
+    /// file, so a bad one must end in a 500, never in the 400 an <see cref="ArgumentException"/> becomes.
     /// </summary>
     private static string CopyFileName(string language, string contentHash)
     {

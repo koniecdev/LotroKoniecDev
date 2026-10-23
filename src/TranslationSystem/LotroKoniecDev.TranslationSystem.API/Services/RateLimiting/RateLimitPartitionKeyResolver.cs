@@ -12,9 +12,10 @@ namespace LotroKoniecDev.TranslationSystem.API.Services.RateLimiting;
 /// <summary>
 /// The frontend's calls all come from one container, so it forwards the visitor's address with the
 /// environment's key (ADR-0054). That address is used only when the key matches and the address parses;
-/// anything else is metered on <c>Connection.RemoteIpAddress</c>, which comes from Caddy's pinned /32
-/// (#399), so a caller without the key cannot choose its bucket. Keys compare as SHA-256 digests in
-/// constant time, so a guess learns neither length nor prefix. The auth API has its own copy.
+/// anything else is metered on <c>Connection.RemoteIpAddress</c>, which <c>UseForwardedHeaders</c> takes
+/// only from Caddy's pinned /32 (#399), so a caller without the key cannot choose its bucket. Keys compare
+/// as SHA-256 digests in constant time, so a guess learns neither length nor prefix. The auth API has its
+/// own copy.
 /// </summary>
 internal sealed class RateLimitPartitionKeyResolver
 {

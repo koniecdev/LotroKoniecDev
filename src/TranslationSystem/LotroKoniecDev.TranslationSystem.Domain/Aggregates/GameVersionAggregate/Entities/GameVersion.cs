@@ -31,8 +31,9 @@ public sealed class GameVersion : AggregateRoot<GameVersionId>
     }
 
     /// <summary>
-    /// Called for every older unprocessed version when a newer one is processed (spec 0001). A
-    /// processed version is refused, because finished work is never undone.
+    /// Called for every older unprocessed version when a newer one is processed (spec 0001). Marking a
+    /// superseded version again changes nothing. A processed version is refused, because finished work is
+    /// never undone.
     /// </summary>
     public Result MarkSuperseded()
     {

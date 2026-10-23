@@ -5,8 +5,8 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregat
 namespace LotroKoniecDev.TranslationSystem.API.Hateoas.TranslationAggregateFactories;
 
 /// <summary>
-/// Never offers an action that would lead nowhere. Every link here, <c>self</c> included, needs a login,
-/// so a caller who is not a translator gets none (#309).
+/// Never offers an action that would lead nowhere. Every link here, <c>self</c> included, needs the
+/// translator role, so any other caller gets none (#309).
 /// </summary>
 internal interface ITranslationAggregateLinkFactory
 {

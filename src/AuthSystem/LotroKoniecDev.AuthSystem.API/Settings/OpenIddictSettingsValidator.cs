@@ -7,12 +7,13 @@ namespace LotroKoniecDev.AuthSystem.API.Settings;
 /// <summary>
 /// Stops the boot when the OpenIddict server is misconfigured in a deployed environment, Staging or
 /// Production, and names the key and the environment at fault (ADR-0008 §3, M6-05). It checks the
-/// production keys, the issuer and, since the base <c>appsettings.json</c> no longer holds them
-/// (M6-06), the web client redirect URIs the seeder registers.
+/// signing and encryption keys, the API client secret, the issuer and, since the base
+/// <c>appsettings.json</c> no longer holds them (M6-06), the web client redirect URIs the seeder
+/// registers.
 /// Development and Testing create throwaway signing and encryption keys (see
-/// <c>OpenIddictExtensions</c>) and take localhost redirect URIs from their own configuration, so the
-/// production values are missing there on purpose and those checks are skipped, like in
-/// <see cref="CorsSettingsValidator"/> and the Data Protection keyring check.
+/// <c>OpenIddictExtensions</c>) and take a fixed client secret and localhost addresses from their own
+/// configuration, so those checks are skipped there, like in <see cref="CorsSettingsValidator"/> and the
+/// Data Protection keyring check.
 /// The access token lifetime is checked in every environment, because a lifetime that is too short
 /// breaks the sign-in the same way everywhere (#1025).
 /// A message about an address names the key, and for a list the entry number, but never repeats the

@@ -118,7 +118,7 @@ The dev loop is **infrastructure in Docker + the three apps on the host** (fast 
 rebuilds):
 
 ```bash
-scripts/up.sh                     # boots Postgres + migrator + Mailpit + Aspire dashboard
+scripts/up.sh                     # boots Postgres + RabbitMQ + migrator + Mailpit + Aspire dashboard
                                   #   (Windows: scripts/up.ps1)
 dotnet dev-certs https --trust    # one-time, so the host serves trusted HTTPS
 

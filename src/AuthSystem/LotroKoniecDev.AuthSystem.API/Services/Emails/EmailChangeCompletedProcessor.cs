@@ -10,22 +10,13 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 /// <summary>
-/// What happens when an <see cref="EmailChangeCompleted"/> message arrives: tell the new address it
-/// is now the login, and tell the old one what happened while handing it the link that undoes it
+/// Tells the new address it is now the login, and tells the old one what happened, with the undo link
 /// (ADR-0048).
 /// </summary>
 /// <remarks>
-/// The revert token is created here, at send time, like every other token in this pipeline. It can be
-/// built from the payload alone, which matters: by now the user row no longer holds the previous
-/// address, and that address is half of the token's purpose.
-/// Only the change that armed the undo carries a link. A later change in the same chain sends the
-/// notices without one, so an attacker who moved the account on a second time gets nothing they could
-/// use to undo the owner's recovery.
-/// A message may arrive more than once (ADR-0035), so this has to be safe to run twice. It is: a
-/// repeat sends the same notices with a fresh revert token that opens the same page and reaches the
-/// same decision. The armed target can move in between, because a confirm that brings the account
-/// back to it settles the chain (#684); the repeat then reads a disarmed row and sends the plain
-/// notice with no link, which is the right answer for an account that is already home.
+/// The revert token is built from the payload, because the row no longer holds the previous address,
+/// which is half of the token's purpose. Safe to run twice: a repeat sends the same notices with a fresh
+/// token, or no link once a confirm back to the armed address has settled the chain (#684).
 /// </remarks>
 internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProcessor
 {
@@ -70,14 +61,8 @@ internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProce
         return ProcessAsync((EmailChangeCompleted)message, cancellationToken);
     }
 
-    /// <summary>
-    /// Handles one message from start to finish and says whether it may be acknowledged.
-    /// </summary>
     /// <returns>
-    /// This is not a business result. Success means "acknowledge it and drop it from the queue",
-    /// either because both notices went out or because the account is gone and sending again could
-    /// never change anything. Failure means "worth another try", for example when the SMTP relay is
-    /// down.
+    /// Success also when the account is gone or erased (see <see cref="IEmailMessageProcessor.ProcessAsync"/>).
     /// </returns>
     public async Task<Result> ProcessAsync(EmailChangeCompleted message, CancellationToken cancellationToken)
     {
@@ -90,18 +75,15 @@ internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProce
             return Result.Success();
         }
 
-        // A notice that arrives after the erasure, from a relay that was down that long, must not mail
-        // the person's addresses again. The account is gone for them, so sending again could never
-        // change anything (ADR-0065).
+        // A notice that arrives after the erasure must not mail the person's addresses again (ADR-0065).
         if (ErasedAccounts.Includes(user))
         {
             LogAccountErased(_logger, message.IdentityUserId);
             return Result.Success();
         }
 
-        // Only the change that armed the undo may carry its link. After A to B to C the armed target
-        // is still A, so the B-to-C message sends no link at all — there is nothing to hand whoever
-        // took the account over, and nothing for them to burn before the owner clicks (ADR-0048).
+        // Only the change that armed the undo carries its link: after A to B to C, the B-to-C message
+        // sends none, so an attacker gets nothing to burn before the owner clicks (ADR-0048).
         bool armedByThisChange = string.Equals(
             _userManager.NormalizeEmail(user.EmailChangeRevertTo),
             _userManager.NormalizeEmail(message.PreviousEmail),
@@ -114,8 +96,7 @@ internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProce
                 EmailChangeRevertTokenProvider.ProviderName,
                 EmailChangeRevertTokenProvider.PurposeFor(message.PreviousEmail, message.NewEmail));
 
-            // The old address goes first. It is the one that can still undo this, so if only one of
-            // the two messages ever gets through, it has to be that one.
+            // The old address first: if only one message gets through, it has to be the one that can undo.
             Result revertOfferResult = await _emailChangeEmailSender.SendChangedNoticeWithRevertAsync(
                 user.Id,
                 message.PreviousEmail,

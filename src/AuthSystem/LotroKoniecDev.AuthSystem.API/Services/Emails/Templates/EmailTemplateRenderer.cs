@@ -8,16 +8,13 @@ using LotroKoniecDev.AuthSystem.Infrastructure.Emails;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails.Templates;
 
 /// <summary>
-/// Builds both bodies of a message from one model. The HTML uses tables and puts every style inline,
-/// because no mail client has to honour a <c>&lt;style&gt;</c> block. The colours are the frontend's
-/// OKLCH design tokens written as hex, because mail clients do not understand OKLCH.
+/// The HTML uses tables and inline styles, because no mail client has to honour a <c>&lt;style&gt;</c>
+/// block. The colours are the frontend's OKLCH tokens as hex, because mail clients do not read OKLCH.
 /// </summary>
 /// <remarks>
-/// The layout is dark, so we cannot let the client pick the link colour. Clients turn bare domains and
-/// addresses in the text into links and paint them their own blue, which is unreadable here.
-/// We do both things, because each one alone has a gap: a <c>&lt;style&gt;</c> block recolours links
-/// this renderer never made, and the links it does make carry the colour inline for clients that throw
-/// the block away.
+/// The layout is dark, and clients paint the links they make from bare domains in their own blue, which
+/// is unreadable here. So a <c>&lt;style&gt;</c> block recolours those, and our own links also carry the
+/// colour inline for clients that drop the block.
 /// </remarks>
 internal sealed class EmailTemplateRenderer : IEmailTemplateRenderer
 {

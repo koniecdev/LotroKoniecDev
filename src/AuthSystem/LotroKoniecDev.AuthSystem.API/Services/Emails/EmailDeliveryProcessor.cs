@@ -7,20 +7,14 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 /// <summary>
-/// The wrapper around the per-type <see cref="IEmailMessageProcessor"/>. It checks the inbox before
-/// doing any work and writes the message id there after success (ADR-0037).
-/// Both delivery paths, <see cref="BackgroundServices.EmailDispatchConsumer"/> and the integration
-/// tests' bridge that runs without a broker, use this one component, so the duplicate check cannot
-/// differ between them. It knows nothing about message types on purpose: the inbox is one table with
-/// no type column (ADR-0037 §5), because message ids are outbox row ids and are unique across types.
+/// Checks the inbox before any work and records the message id after success (ADR-0037). The consumer
+/// and the integration tests' broker-free bridge both use it, so the duplicate check cannot differ.
+/// Message ids are outbox row ids, unique across types, so the inbox has no type column (ADR-0037 §5).
 /// </summary>
 /// <remarks>
-/// It returns the same answer as the processor: success means "acknowledge it and drop it from the
-/// queue", whether it was processed now or earlier, and failure means "worth sending again".
-/// The inbox row is written after the send on purpose. Writing it first would trade the risk of a
-/// duplicate e-mail for the risk of losing one (ADR-0037 Decision 2).
-/// Database faults are allowed to escape as exceptions: the consumer's normal retry path rejects the
-/// delivery and the broker's delivery limit ends the loop (ADR-0037 Decision 4).
+/// The inbox row is written after the send: writing it first would trade a duplicate e-mail for a lost
+/// one (ADR-0037 Decision 2). Database faults escape as exceptions, and the broker's delivery limit ends
+/// the retries (ADR-0037 Decision 4).
 /// </remarks>
 internal sealed partial class EmailDeliveryProcessor
 {
@@ -66,8 +60,7 @@ internal sealed partial class EmailDeliveryProcessor
         }
         catch (DbUpdateException ex) when (IsInboxKeyViolation(ex))
         {
-            // Another delivery of the same message inserted the row first, which means the work is
-            // already done. The answer is the same as when the check at the start finds it.
+            // Another delivery of the same message recorded it first, so the work is already done.
             LogInboxRaceLost(_logger, messageId);
         }
 
@@ -75,8 +68,8 @@ internal sealed partial class EmailDeliveryProcessor
     }
 
     /// <summary>
-    /// Only a duplicate on the inbox key proves that another delivery recorded this message first. Any
-    /// other error in this save is a fault, and it escapes like one.
+    /// Only a duplicate on the inbox key proves another delivery recorded this message first; any other
+    /// error escapes as a fault.
     /// </summary>
     private bool IsInboxKeyViolation(DbUpdateException exception) =>
         exception.ViolatedUniqueConstraint is { } constraint

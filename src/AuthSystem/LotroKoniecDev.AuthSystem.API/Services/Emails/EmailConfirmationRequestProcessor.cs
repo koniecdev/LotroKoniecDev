@@ -7,16 +7,11 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 /// <summary>
-/// What happens when an <see cref="EmailConfirmationRequested"/> message arrives: load the user,
-/// create the confirmation token now rather than earlier (see the payload's remarks about token
-/// lifetime), and send the e-mail. It is the first entry in the
-/// <see cref="IEmailMessageProcessor"/> registry (ADR-0038).
+/// Creates the confirmation token at send time.
 /// </summary>
 /// <remarks>
-/// A message may arrive more than once (ADR-0035), so this has to be safe to run twice. Today it is
-/// for free: a repeat finds <see cref="ApplicationUser.EmailConfirmed"/> already set, or at worst
-/// sends the confirmation e-mail again, which is annoying but harmless. A new message type has to show
-/// the same property before it may follow this pattern.
+/// Safe to run twice: a repeat finds <see cref="ApplicationUser.EmailConfirmed"/> set, or at worst sends
+/// the e-mail again.
 /// </remarks>
 internal sealed partial class EmailConfirmationRequestProcessor : IEmailMessageProcessor
 {
@@ -52,16 +47,9 @@ internal sealed partial class EmailConfirmationRequestProcessor : IEmailMessageP
         return ProcessAsync((EmailConfirmationRequested)message, cancellationToken);
     }
 
-    /// <summary>
-    /// Handles one message from start to finish and says whether it may be acknowledged.
-    /// </summary>
     /// <returns>
-    /// This is not a business result. It answers one question: does this message need to be sent
-    /// again? Success means "acknowledge it and drop it from the queue", either because the e-mail went
-    /// out or because sending again could never change anything: the user is gone, the address is
-    /// already confirmed, or the account has no address. Refusing those would repeat the same message
-    /// forever. Failure means "worth another try", for example when the SMTP relay is down, and the
-    /// consumer then rejects and requeues it.
+    /// Success also when the user is gone, the address is confirmed or the account has no address (see
+    /// <see cref="IEmailMessageProcessor.ProcessAsync"/>).
     /// </returns>
     public async Task<Result> ProcessAsync(EmailConfirmationRequested message, CancellationToken cancellationToken)
     {

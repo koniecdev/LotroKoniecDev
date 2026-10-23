@@ -7,17 +7,12 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 /// <summary>
-/// What happens when an <see cref="AccountDeletionCancelled"/> message arrives: load the user and send
-/// the notice. There is no token to create here, because the reset token travels in the cancel
-/// endpoint's response (see the payload's remarks).
-/// It carries the mirror of the deletion-scheduled check (ADR-0038 decision 2): if a deletion has been
-/// scheduled again by the time this runs, "your account was kept" would be wrong, so the message is
-/// acknowledged without sending anything.
+/// No token here: the reset token travels in the cancel endpoint's response. If a deletion has been
+/// scheduled again by the time this runs, "your account was kept" would be wrong, so nothing is sent
+/// (ADR-0038 decision 2).
 /// </summary>
 /// <remarks>
-/// A message may arrive more than once (ADR-0035), so this has to be safe to run twice. It is: the
-/// e-mail carries no state and no token, so at worst the user gets the notice again, which is annoying
-/// but harmless, and every skip case reads the current state, so a repeat reaches the same decision.
+/// Safe to run twice: the notice carries no state or token, so at worst the user reads it again.
 /// </remarks>
 internal sealed partial class AccountDeletionCancelledProcessor : IEmailMessageProcessor
 {
@@ -53,16 +48,9 @@ internal sealed partial class AccountDeletionCancelledProcessor : IEmailMessageP
         return ProcessAsync((AccountDeletionCancelled)message, cancellationToken);
     }
 
-    /// <summary>
-    /// Handles one message from start to finish and says whether it may be acknowledged.
-    /// </summary>
     /// <returns>
-    /// This is not a business result. It answers one question: does this message need to be sent
-    /// again? Success means "acknowledge it and drop it from the queue", either because the e-mail went
-    /// out or because sending again could never change anything: the user is gone, a deletion was
-    /// scheduled again in the meantime, or the account has no address. Refusing those would repeat the
-    /// same message forever. Failure means "worth another try", for example when the SMTP relay is
-    /// down, and the consumer then rejects and requeues it.
+    /// Success also when the user is gone, a deletion was scheduled again or the account has no address
+    /// (see <see cref="IEmailMessageProcessor.ProcessAsync"/>).
     /// </returns>
     public async Task<Result> ProcessAsync(AccountDeletionCancelled message, CancellationToken cancellationToken)
     {
@@ -75,9 +63,7 @@ internal sealed partial class AccountDeletionCancelledProcessor : IEmailMessageP
             return Result.Success();
         }
 
-        // The mirror check. It also stops a replay from the dead-letter queue after the deletion
-        // finished: erasure leaves DeletionScheduledAt set as its record, so an anonymized account
-        // ends up here as well.
+        // Also stops a dead-letter replay after the erasure, which leaves DeletionScheduledAt set.
         if (user.DeletionScheduledAt is not null)
         {
             LogDeletionRescheduled(_logger, message.IdentityUserId);

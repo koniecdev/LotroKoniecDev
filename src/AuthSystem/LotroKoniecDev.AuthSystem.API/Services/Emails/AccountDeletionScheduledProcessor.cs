@@ -10,19 +10,13 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 /// <summary>
-/// What happens when an <see cref="AccountDeletionScheduled"/> message arrives: load the user, work
-/// out the deletion date again, create the cancel token now rather than earlier (see the payload's
-/// remarks about token lifetime), and send the e-mail with the cancel link.
-/// The check lives here (ADR-0038 decision 2): if a cancellation arrives at the same time, it wins. An
-/// out-of-date "your account will be deleted" must never go out after the schedule is gone.
-/// While an undo of ADR-0048 is armed and still live, the same link also goes to the address that undo
-/// would restore (#685). After an e-mail change the current address may belong to whoever took the
-/// account, and a cancel link only they can read is no protection at all.
+/// Creates the cancel token at send time and checks the schedule here, so a cancellation that arrives
+/// at the same time wins (ADR-0038 decision 2). While an undo is live, the link also goes to the address
+/// the undo would restore (#685): after an e-mail change the current address may belong to an attacker.
 /// </summary>
 /// <remarks>
-/// A message may arrive more than once (ADR-0035), so this has to be safe to run twice. It is: at
-/// worst the e-mail is sent again with a new, equally valid cancel token, which is annoying but
-/// harmless, and every skip case reads the current state, so a repeat reaches the same decision.
+/// Safe to run twice: at worst the e-mail goes again with a new, equally valid token, and every skip
+/// case reads the current state.
 /// </remarks>
 internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageProcessor
 {
@@ -67,16 +61,9 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
         return ProcessAsync((AccountDeletionScheduled)message, cancellationToken);
     }
 
-    /// <summary>
-    /// Handles one message from start to finish and says whether it may be acknowledged.
-    /// </summary>
     /// <returns>
-    /// This is not a business result. It answers one question: does this message need to be sent
-    /// again? Success means "acknowledge it and drop it from the queue", either because the e-mail went
-    /// out or because sending again could never change anything: the user is gone, the deletion was
-    /// cancelled in the meantime, the grace period is already over, or the account has no address.
-    /// Refusing those would repeat the same message forever. Failure means "worth another try", for
-    /// example when the SMTP relay is down, and the consumer then rejects and requeues it.
+    /// Success also when the user is gone, the deletion was cancelled, the cancel window is over or the
+    /// account has no address (see <see cref="IEmailMessageProcessor.ProcessAsync"/>).
     /// </returns>
     public async Task<Result> ProcessAsync(AccountDeletionScheduled message, CancellationToken cancellationToken)
     {
@@ -95,11 +82,9 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
             return Result.Success();
         }
 
-        // Guards against a delivery that arrives much later, such as a replay from the dead-letter
-        // queue. Once the cancel window is over, the cancel endpoint refuses the link (#947).
-        // Erasure also leaves DeletionScheduledAt set, with a made-up address on the row, so the check
-        // above on its own would let a late replay create a working cancel token for an anonymized
-        // account.
+        // Against a late delivery, such as a dead-letter replay: the cancel endpoint refuses the link
+        // after the window anyway (#947). Erasure also leaves DeletionScheduledAt set, so the check above
+        // alone would mint a working cancel token for an anonymized account.
         DateTimeOffset now = _timeProvider.GetUtcNow();
         if (!_deletionSchedule.IsCancellableAt(user.DeletionScheduledAt.Value, now))
         {
@@ -116,9 +101,8 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
             return Result.Success();
         }
 
-        // The date in the text is the one the account is really erased on, which an armed undo can
-        // push past the cancel window above. Nobody is left without a way out in that tail: it only
-        // exists while the undo is live, and following the undo cancels the deletion too.
+        // The real erasure date, which an armed undo can push past the cancel window. That tail exists
+        // only while the undo is live, and the undo cancels the deletion too.
         DateTimeOffset finalizesAt =
             _deletionSchedule.FinalizesAt(user.DeletionScheduledAt.Value, user.EmailChangeRevertArmedAt);
 
@@ -127,11 +111,8 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
             AccountDeletionCancellationTokenProvider.ProviderName,
             AccountDeletionCancellationTokenProvider.CancelDeletionPurpose);
 
-        // The armed address is tried first, for the reason EmailChangeCompletedProcessor gives: it is
-        // the one that can still save the account. It is only ordered first, never allowed to cancel
-        // the other send — this link is ADR-0031's only recovery path, and a mailbox that has been
-        // abandoned since the address changed would otherwise burn every delivery attempt and leave
-        // the account holder with no cancel link at all.
+        // The armed address goes first, because it can still save the account, but its failure never
+        // stops the other send: an abandoned mailbox must not leave the holder without a cancel link.
         Result previousAddressResult = Result.Success();
 
         if (_revertWindow.IsLiveAt(user.EmailChangeRevertArmedAt, now)
@@ -164,9 +145,8 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
             finalizesAt,
             cancellationToken);
 
-        // Either failure requeues the message and re-sends both, which is the at-least-once bar of
-        // ADR-0038 — the same link arriving twice changes nothing. The current address wins when both
-        // failed, because its copy is the one ADR-0031 promises.
+        // Either failure requeues and re-sends both (ADR-0038). When both failed, the current address's
+        // error wins, because ADR-0031 promises that copy.
         return currentAddressResult.IsFailure ? currentAddressResult : previousAddressResult;
     }
 

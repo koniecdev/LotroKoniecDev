@@ -6,27 +6,21 @@ using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 namespace LotroKoniecDev.AuthSystem.API.Outbox;
 
 /// <summary>
-/// Wakes the relay after every commit that carries a new outbox row, so no writer has to remember a
-/// second call after its save (ADR-0038 §6, amended by #1115). A save with no transaction open commits
-/// on its own, so the wake-up follows the save. A save inside a transaction commits only with that
-/// transaction, so the wake-up waits for its commit: the relay reads committed rows, and a signal sent
-/// earlier could find nothing (the <c>RegisterUser</c> trap of ADR-0035).
+/// Wakes the relay after every commit that carries a new outbox row, so no writer has to remember a call
+/// after its save (ADR-0038 §6, #1115). Inside a transaction the wake-up waits for the commit, because the
+/// relay reads committed rows (the <c>RegisterUser</c> trap of ADR-0035).
 /// </summary>
 /// <remarks>
-/// A failed or cancelled save with no transaction open, and a failed commit, wake the relay too, because
-/// the write may have landed with only its answer lost (ADR-0065 §1). A needless wake-up finds nothing
-/// to send. A rolled-back transaction wakes nothing.
+/// A failed or cancelled save outside a transaction, and a failed commit, wake the relay too: the write
+/// may have landed with only its answer lost (ADR-0065 §1). A rolled-back transaction wakes nothing.
 /// <para>
-/// EF Core reports a lost concurrency check on its own path, <see cref="ThrowingConcurrencyException"/>,
-/// and not as a failed save. Identity turns that failure into a failed result, so it is the failed save
-/// of every writer that saves through <c>UserManager.UpdateAsync</c>.
+/// EF Core reports a lost concurrency check through <see cref="ThrowingConcurrencyException"/>, not as a
+/// failed save, and every <c>UserManager.UpdateAsync</c> writer meets it that way.
 /// </para>
 /// <para>
-/// It is scoped like the context it sits on, so its state belongs to one context. It sees only commits
-/// made through EF Core. Under a <c>TransactionScope</c> it would wake the relay too early, before the
-/// scope commits, and a transaction handed in with <c>UseTransaction</c> and committed outside EF Core
-/// would never wake it. The app uses neither. A row written with raw SQL would wait for the relay's
-/// sweep, and the app writes none.
+/// It sees only commits made through EF Core: a <c>TransactionScope</c> would wake the relay too early,
+/// a <c>UseTransaction</c> committed outside EF Core never, and a raw SQL row waits for the sweep. The app
+/// uses none of these.
 /// </para>
 /// </remarks>
 internal sealed class OutboxWakeUpInterceptor : ISaveChangesInterceptor, IDbTransactionInterceptor
@@ -41,9 +35,8 @@ internal sealed class OutboxWakeUpInterceptor : ISaveChangesInterceptor, IDbTran
     private bool _wakeUpAfterSave;
 
     /// <summary>
-    /// Only one transaction is open on a context at a time. A transaction rolled back, or disposed without
-    /// a commit, leaves its id here: EF Core reports no event for the second case. That transaction never
-    /// commits, so its id never wakes the relay.
+    /// A transaction rolled back or disposed without a commit leaves its id here (EF Core reports no event
+    /// for the second case), but it never commits, so it never wakes the relay.
     /// </summary>
     private Guid? _transactionToWakeUpAfter;
 
@@ -151,8 +144,8 @@ internal sealed class OutboxWakeUpInterceptor : ISaveChangesInterceptor, IDbTran
 
     private void NoteNewOutboxRows(DbContext? context)
     {
-        // Each save decides on its own. A save that another interceptor refused before EF Core began it
-        // reported no end and wrote nothing, so its wake-up must not fire at this save.
+        // Each save decides on its own: a save another interceptor refused reported no end, so its wake-up
+        // must not fire at this one.
         _wakeUpAfterSave = false;
 
         if (context is null
@@ -161,8 +154,7 @@ internal sealed class OutboxWakeUpInterceptor : ISaveChangesInterceptor, IDbTran
             return;
         }
 
-        // A failed save inside a transaction waits for that transaction too. Only its end says whether
-        // anything landed.
+        // Even a failed save inside a transaction waits for its end, which says whether anything landed.
         if (context.Database.CurrentTransaction is { } transaction)
         {
             _transactionToWakeUpAfter = transaction.TransactionId;

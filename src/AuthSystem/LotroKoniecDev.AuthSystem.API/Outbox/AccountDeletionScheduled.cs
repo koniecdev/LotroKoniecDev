@@ -1,18 +1,12 @@
 namespace LotroKoniecDev.AuthSystem.API.Outbox;
 
 /// <summary>
-/// The outbox payload for "send this user the deletion-scheduled e-mail with the cancel link". The
-/// producer serializes it, and the relay and the consumer read it back.
+/// "Send the deletion-scheduled e-mail with the cancel link."
 /// </summary>
 /// <remarks>
-/// It carries the user id and nothing else, on purpose (ADR-0038 decision 2). The cancel token is
-/// created when the e-mail is sent. A working token must never sit in an outbox row, in a broker
-/// frame or in a dead-lettered message, and creating it late also ties it to the current security
-/// stamp. That stamp is already final when the row becomes visible, because the writer changes it in
-/// the same save that commits this row.
-/// The deletion date in the e-mail can be computed, so it is computed at send time as well, through
-/// <c>IAccountDeletionSchedule</c> — the same call the finalizer's query is built from, which since
-/// #685 also waits for an armed undo. Storing the date here could drift from what the finalizer
-/// really does.
+/// Only the user id (ADR-0038 decision 2): a working token must never sit in an outbox row, a broker frame
+/// or a dead letter, so the cancel token is created at send time, against a stamp the writer already
+/// made final in the same save. The date is computed at send time too, through
+/// <c>IAccountDeletionSchedule</c>, so it cannot drift from what the finalizer does.
 /// </remarks>
 public sealed record AccountDeletionScheduled(Guid IdentityUserId);

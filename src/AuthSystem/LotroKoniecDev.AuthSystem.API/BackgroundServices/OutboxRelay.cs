@@ -7,34 +7,28 @@ using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 namespace LotroKoniecDev.AuthSystem.API.BackgroundServices;
 
 /// <summary>
-/// Publishes committed outbox rows to the broker. It works on a signal instead of a timer (ADR-0035):
-/// every commit that carries a new outbox row wakes <see cref="OutboxSignal"/>
-/// (<see cref="OutboxWakeUpInterceptor"/>), so the database is queried only
-/// moments after the work appeared, while it is still awake. On top of that there is one catch-up
-/// sweep at startup and a slow safety sweep.
-/// A timer would keep a database that scales to zero awake all day for a queue that is almost always
-/// empty.
+/// Works on a signal, not a timer (ADR-0035): a commit that carries an outbox row wakes
+/// <see cref="OutboxSignal"/> (<see cref="OutboxWakeUpInterceptor"/>), so the database is queried while
+/// it is still awake. A timer would keep a scale-to-zero database awake all day for an almost empty
+/// queue. A catch-up sweep at startup and a slow safety sweep cover a lost signal.
 /// </summary>
 internal sealed partial class OutboxRelay : BackgroundService
 {
     /// <summary>
-    /// How many rows one fetch takes, so a backlog after an outage is handled in pieces instead of one
-    /// huge list. The query reads the partial index <c>IX_OutboxMessages_Unprocessed</c> from the top.
+    /// So a backlog after an outage is handled in pieces. The query reads the partial index
+    /// <c>IX_OutboxMessages_Unprocessed</c> from the top.
     /// </summary>
     private const int BatchSize = 100;
 
     /// <summary>
-    /// The longest a forgotten row can wait. A commit that happened just before a crash left no signal
-    /// behind, so a slow sweep looks again. Running it every six hours costs about 2.5% of the Neon
-    /// Free monthly compute budget (ADR-0035), and a shorter interval would only buy speed nobody
-    /// needs.
+    /// The longest a row can wait after its signal was lost in a crash. Every six hours costs about 2.5%
+    /// of the Neon Free monthly compute budget (ADR-0035).
     /// </summary>
     private static readonly TimeSpan SafetySweepInterval = TimeSpan.FromHours(6);
 
     /// <summary>
-    /// The growing wait after a failed pass. The longest wait equals <see cref="SafetySweepInterval"/>
-    /// on purpose, so a row that always fails ends up retried at the safety-sweep pace instead of
-    /// being polled all day.
+    /// The longest wait equals <see cref="SafetySweepInterval"/>, so a row that always fails is retried at
+    /// the safety-sweep pace instead of polled all day.
     /// </summary>
     private static readonly TimeSpan[] RetryBackoffs =
     [
@@ -71,8 +65,7 @@ internal sealed partial class OutboxRelay : BackgroundService
         {
             int failedPasses = 0;
 
-            // The first pass runs before any wait. It is the catch-up sweep at startup, which
-            // publishes rows whose signal was lost when the previous process ended.
+            // The first pass, before any wait, is the startup catch-up sweep.
             while (!stoppingToken.IsCancellationRequested)
             {
                 bool passWasClean = await ProcessPendingAsync(stoppingToken);
@@ -92,17 +85,12 @@ internal sealed partial class OutboxRelay : BackgroundService
     }
 
     /// <summary>
-    /// Works through every pending row once, <see cref="BatchSize"/> at a time. It returns <c>false</c>
-    /// when any row failed, whether the broker refused it, nothing is bound to its key, or the database
-    /// failed. The caller then waits instead of trying the same failing rows again at once.
+    /// <c>false</c> when any row failed, so the caller waits instead of retrying at once.
     /// </summary>
     /// <remarks>
-    /// A row the broker refused on its own, because nothing is bound to its key or no route is mapped,
-    /// is skipped for the rest of the pass, so the next batch reaches the rows behind it. Rows like
-    /// that, such as <c>AccountErased</c> while no TMS queue is bound yet (ADR-0065), would otherwise
-    /// fill every batch from the front and hold back all newer e-mail. Any other failure ends the
-    /// pass at once: a broker that is down would refuse every row the same way, and trying them all
-    /// would cost one attempt and one save per row of the backlog.
+    /// A row refused on its own (no route, or no queue bound, such as <c>AccountErased</c> before the TMS
+    /// binds, ADR-0065) is skipped for the rest of the pass, or such rows would fill every batch and hold
+    /// back newer e-mail. Any other failure ends the pass: a down broker would refuse every row alike.
     /// </remarks>
     private async Task<bool> ProcessPendingAsync(CancellationToken stoppingToken)
     {
@@ -153,10 +141,9 @@ internal sealed partial class OutboxRelay : BackgroundService
     }
 
     /// <summary>
-    /// Publishes one row and saves the result at once. Marking each message instead of a whole batch
-    /// shortens the window in which a crash makes us publish an already published message again after
-    /// a restart. The outbox is at-least-once either way. The e-mail consumer drops duplicates by message
-    /// id, and the TMS consumer's work is the same when done twice (ADR-0065).
+    /// Saves each row at once, which shortens the window in which a crash republishes a sent message. It
+    /// is at-least-once either way: the e-mail consumer drops duplicates, and the TMS consumer's work is
+    /// safe to repeat (ADR-0065).
     /// </summary>
     private async Task<PublishOutcome> PublishOneAsync(
         AuthDbContext db,
@@ -182,8 +169,7 @@ internal sealed partial class OutboxRelay : BackgroundService
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // MarkFailed rejects a blank value, and Exception.Message comes from outside our code.
-                // An exception type with an empty message must not break the whole pass.
+                // MarkFailed rejects a blank value, and an exception from outside may have an empty message.
                 string error = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
                 message.MarkFailed(error);
                 LogMessagePublishFailed(_logger, ex, message.Id, message.Type, message.Attempts);
@@ -228,7 +214,7 @@ internal sealed partial class OutboxRelay : BackgroundService
         MessageRefused,
 
         /// <summary>
-        /// The broker failed, so every other message would fail the same way.
+        /// Every other message would fail the same way.
         /// </summary>
         BrokerFailed
     }

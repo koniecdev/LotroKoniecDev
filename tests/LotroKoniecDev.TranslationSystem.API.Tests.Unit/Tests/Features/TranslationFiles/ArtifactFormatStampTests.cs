@@ -3,10 +3,8 @@ using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Features.TranslationFiles;
 
 /// <summary>
-/// The startup catch-up of ADR-0047, described under "Deploy ordering" in its Consequences, depends on
-/// this one check. Without it an updated CLI downloads a six-column artifact and patches nothing until
-/// somebody happens to approve a row. If it answers wrongly, every restart rebuilds a multi-MB
-/// artifact.
+/// The startup catch-up of ADR-0047 ("Deploy ordering") rests on this check: a wrong "no" leaves an
+/// updated CLI patching nothing, a wrong "yes" rebuilds a multi-MB artifact on every restart.
 /// </summary>
 public sealed class ArtifactFormatStampTests
 {
@@ -24,27 +22,22 @@ public sealed class ArtifactFormatStampTests
 
     [Fact]
     public void PredatesSourceDigest_EmptyArtifact_ShouldLeaveItAlone()
-        // No rows means no format to be behind, and regenerating it every start would be pure noise.
         => ArtifactFormatStamp.PredatesSourceDigest(string.Empty).ShouldBeFalse();
 
     [Fact]
     public void PredatesSourceDigest_FirstRowTruncatedByThePrefix_ShouldLeaveItAlone()
-        // The caller reads a bounded prefix so the multi-MB column never reaches the startup path.
-        // A row longer than that prefix must not be mistaken for a format-less one, or a current
-        // artifact would be rebuilt on every single restart.
+        // A row longer than the prefix the caller reads must not look format-less.
         => ArtifactFormatStamp.PredatesSourceDigest("620756992||1001||Bardzo dlugi tekst bez konca").ShouldBeFalse();
 
     [Fact]
     public void PredatesSourceDigest_ArtifactWhoseFirstRowIsUncarvable_ShouldAskForRegeneration()
-        // Anything the carver refuses is not an artifact this version wrote; rebuilding is the only
-        // safe reading, and it is idempotent.
+        // Not an artifact this version wrote; rebuilding is the only safe reading.
         => ArtifactFormatStamp.PredatesSourceDigest("garbage\r\n").ShouldBeTrue();
 
     [Fact]
     public void PredatesSourceDigest_ShouldJudgeTheFirstRowNotTheWholePrefix()
     {
-        // A file with both formats cannot exist, because one projector writes the whole thing, so
-        // reading further would only cost time for an answer the first row already gives.
+        // One projector writes the whole file, so it can never mix formats.
         const string content = "620756992||1001||Witaj||NULL||NULL||1||a37cc1683216cd32\r\n620756992||1002||Zegnaj||NULL||NULL||1\r\n";
 
         ArtifactFormatStamp.PredatesSourceDigest(content).ShouldBeFalse();

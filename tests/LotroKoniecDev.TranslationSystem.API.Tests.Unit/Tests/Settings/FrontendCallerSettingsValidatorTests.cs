@@ -6,9 +6,8 @@ using NSubstitute;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Settings;
 
 /// <summary>
-/// The frontend caller key guard on the TMS API (ADR-0054 §6, #823). A box without the key would quietly
-/// put every translator's frontend calls back into one bucket, so a deployed host refuses to boot
-/// without it.
+/// A box without the key would quietly put every translator back into one bucket, so a deployed host
+/// refuses to boot without it (ADR-0054 §6).
 /// </summary>
 public sealed class FrontendCallerSettingsValidatorTests
 {

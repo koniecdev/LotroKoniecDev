@@ -58,7 +58,7 @@ public sealed class DeleteGameVersionHandlerTests
     [Fact]
     public async Task Handle_WhenVersionIsProcessed_ShouldReturnConflictAndNotDelete()
     {
-        // Arrange: a processed version is woven into the lifecycle and may not be removed.
+        // Arrange
         GameVersion gameVersion = UnprocessedVersion();
         gameVersion.MarkAsProcessed();
         _gameVersionRepository.GetByIdAsync(gameVersion.Id, Arg.Any<CancellationToken>())
@@ -70,7 +70,6 @@ public sealed class DeleteGameVersionHandlerTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.ShouldBe(DomainErrors.GameVersionEntity.ProcessedCannotBeDeleted(gameVersion.Id));
-        // The status guard short-circuits before the cross-aggregate reference check.
         await _translationRepository.DidNotReceive().AnyReferencesGameVersionAsync(Arg.Any<GameVersionId>(), Arg.Any<CancellationToken>());
         _gameVersionRepository.DidNotReceive().Remove(Arg.Any<GameVersion>());
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
@@ -79,7 +78,7 @@ public sealed class DeleteGameVersionHandlerTests
     [Fact]
     public async Task Handle_WhenVersionIsReferencedByATranslation_ShouldReturnConflictAndNotDelete()
     {
-        // Arrange: an unprocessed version that (defensively) a translation still references.
+        // Arrange: the lifecycle says this cannot happen; the handler checks anyway.
         GameVersion gameVersion = UnprocessedVersion();
         _gameVersionRepository.GetByIdAsync(gameVersion.Id, Arg.Any<CancellationToken>())
             .Returns(Maybe<GameVersion>.From(gameVersion));
@@ -99,7 +98,7 @@ public sealed class DeleteGameVersionHandlerTests
     [Fact]
     public async Task Handle_WhenUnprocessedAndUnreferenced_ShouldRemoveAndPersist()
     {
-        // Arrange: repository reports no referencing translation (default substitute returns false).
+        // Arrange: the default substitute reports no reference.
         GameVersion gameVersion = UnprocessedVersion();
         _gameVersionRepository.GetByIdAsync(gameVersion.Id, Arg.Any<CancellationToken>())
             .Returns(Maybe<GameVersion>.From(gameVersion));
@@ -116,8 +115,7 @@ public sealed class DeleteGameVersionHandlerTests
     [Fact]
     public async Task Handle_WhenSupersededAndUnreferenced_ShouldRemoveAndPersist()
     {
-        // Arrange: a version that was registered and then skipped was never imported against, so
-        // retiring it is how the admin frees its version number again (#624).
+        // Arrange: deleting a skipped version frees its number (#624).
         GameVersion gameVersion = UnprocessedVersion();
         gameVersion.MarkSuperseded();
         _gameVersionRepository.GetByIdAsync(gameVersion.Id, Arg.Any<CancellationToken>())
@@ -135,7 +133,7 @@ public sealed class DeleteGameVersionHandlerTests
     [Fact]
     public async Task Handle_WhenSupersededButReferencedByATranslation_ShouldReturnConflictAndNotDelete()
     {
-        // Arrange: the cross-aggregate net still stands whatever the status (#624 leaves it untouched).
+        // Arrange: the cross-aggregate check applies whatever the status.
         GameVersion gameVersion = UnprocessedVersion();
         gameVersion.MarkSuperseded();
         _gameVersionRepository.GetByIdAsync(gameVersion.Id, Arg.Any<CancellationToken>())

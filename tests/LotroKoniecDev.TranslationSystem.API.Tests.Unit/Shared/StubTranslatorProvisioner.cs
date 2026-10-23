@@ -5,9 +5,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Shared;
 
 /// <summary>
-/// Hand-written double for the internal <see cref="ITranslatorProvisioner"/> (NSubstitute can't
-/// proxy internal interfaces here): returns a fixed provisioning result and records how many times
-/// it was invoked.
+/// NSubstitute cannot proxy the internal <see cref="ITranslatorProvisioner"/>.
 /// </summary>
 internal sealed class StubTranslatorProvisioner : ITranslatorProvisioner
 {

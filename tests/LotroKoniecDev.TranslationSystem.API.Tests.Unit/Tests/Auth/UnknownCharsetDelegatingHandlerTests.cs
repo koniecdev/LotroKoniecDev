@@ -13,10 +13,8 @@ using NSubstitute;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Auth;
 
 /// <summary>
-/// #972: the JWT bearer handler reads the sign-in server's discovery document and signing keys by the
-/// charset they name, and that read throws on a name .NET does not know or refuses. The first tests
-/// drive the handler alone. The last one goes through the real registration, because a handler that is
-/// written but not wired changes nothing.
+/// Pins the charset fix of #972. The last test goes through the real registration, because a handler
+/// that is written but not wired changes nothing.
 /// </summary>
 public sealed class UnknownCharsetDelegatingHandlerTests
 {
@@ -79,8 +77,7 @@ public sealed class UnknownCharsetDelegatingHandlerTests
     [Fact]
     public async Task SendAsync_WhenTheRawHeaderNamesAUsableCharsetFirst_KeepsIt()
     {
-        // The read decodes by the first charset in the header, so the handler must stop at the first name
-        // it can use and not look past it. In Latin-1 "é" is the single byte 0xE9.
+        // The read decodes by the first charset, so the handler must stop at the first usable name.
         HttpMessageInvoker invoker = CreateInvoker(() =>
         {
             ByteArrayContent content = new(Encoding.Latin1.GetBytes("Café"));

@@ -7,8 +7,8 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Health;
 
 /// <summary>
-/// The health report leaves out every text a failed check carries (ADR-0058, #853). The daily health
-/// ping prints this body into a public job log, and a connection error can name a host, a port or a user.
+/// Pins that the report leaves out every text a failed check carries (ADR-0058): the daily ping prints
+/// it into a public job log, and a connection error can name a host, a port or a user.
 /// </summary>
 public sealed class HealthCheckResponseWriterTests
 {

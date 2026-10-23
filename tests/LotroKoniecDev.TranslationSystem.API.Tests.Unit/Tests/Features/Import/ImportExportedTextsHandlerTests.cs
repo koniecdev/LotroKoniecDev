@@ -26,8 +26,7 @@ public sealed class ImportExportedTextsHandlerTests
 {
     private static readonly GameVersionId VersionId = GameVersionId.Create();
 
-    // The validator and parser are pure and dependency-free, so they run for real; only the
-    // genuine boundaries (repositories, unit of work) are stubbed.
+    // The validator and parser are pure, so they run for real.
     private readonly IGameVersionRepository _gameVersionRepository = Substitute.For<IGameVersionRepository>();
     private readonly ITranslationRepository _translationRepository = Substitute.For<ITranslationRepository>();
     private readonly IBulkTranslationInserter _bulkInserter = Substitute.For<IBulkTranslationInserter>();
@@ -44,10 +43,8 @@ public sealed class ImportExportedTextsHandlerTests
         _gameVersionRepository.GetUnprocessedDetectedBeforeAsync(Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
             .Returns([]);
 
-        // The transaction wrapper really runs its operation against the stubbed boundaries, so the
-        // success path still exercises the COPY + SaveChanges orchestration the handler wraps.
-        // NSubstitute 6 annotates CallInfo.Arg<T>() as possibly-null; the captured delegate is
-        // always present here because the stub only ever runs against a real call.
+        // The wrapper really runs its operation, so the success path still exercises the COPY and save
+        // the handler orchestrates. The delegate is never null here, whatever NSubstitute 6 annotates.
         _unitOfWork.ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
             .Returns(callInfo => callInfo.Arg<Func<CancellationToken, Task>>()!.Invoke(callInfo.Arg<CancellationToken>()));
     }
@@ -65,9 +62,8 @@ public sealed class ImportExportedTextsHandlerTests
             new NoOpScheduler(),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<ImportExportedTexts.Handler>.Instance);
 
-    // The scheduler is an internal interface (NSubstitute/Castle can't proxy it without a
-    // DynamicProxyGenAssembly2 hook); a hand-written no-op keeps the import handler tests focused
-    // on the diff, not on file regeneration (covered by the distribution integration tests).
+    // Internal, so NSubstitute cannot proxy it. File regeneration is covered by the distribution
+    // integration tests.
     private sealed class NoOpScheduler : ITranslationFileRebuildScheduler
     {
         public void Schedule(string language)
@@ -173,8 +169,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenUploadHasMoreBadLinesThanTheCap_ShouldRejectWithCappedErrorCount()
     {
-        // Arrange: 150 unparseable lines; the import stops collecting at the 100-error cap
-        // (spec 0006) but still rejects the whole upload.
+        // Arrange: 150 bad lines against the 100-error cap (spec 0006).
         GivenVersion(UnprocessedVersion());
         string export = Export([.. Enumerable.Range(1, 150).Select(index => $"620756992||{index}||missing trailing fields")]);
 
@@ -324,9 +319,8 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenOlderUnprocessedVersionsExist_ShouldMarkThemSupersededAndWarn()
     {
-        // Arrange: the target is processed while two older versions are still unprocessed. The
-        // stub keys on the target's DetectedAt, so this also pins that the handler queries with the
-        // processed version's timestamp (a wrong argument falls through to the default empty stub).
+        // Arrange: the stub keys on the target's DetectedAt, so this also pins the query argument: a
+        // wrong one falls through to the default empty stub.
         GameVersion target = UnprocessedVersion();
         GivenVersion(target);
         GameVersion olderA = OlderUnprocessedVersion("47.2", new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero));
@@ -349,8 +343,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenRemovedKeyReappearsWithIdenticalSource_ShouldRestoreTheRowAndWarn()
     {
-        // Arrange: the stored digest is soft-removed and the upload carries the identical source,
-        // so the plan's only outcome is the restore leg (spec 0001 re-add).
+        // Arrange: soft-removed, and the upload carries the identical source (spec 0001 re-add).
         GivenVersion(UnprocessedVersion());
         Translation removed = ExistingRow(1, "A");
         removed.MarkRemoved(VersionId, new DateTimeOffset(2026, 6, 10, 0, 0, 0, TimeSpan.Zero));
@@ -364,8 +357,7 @@ public sealed class ImportExportedTextsHandlerTests
         Result<ImportSummary> result = await CreateHandler().Handle(
             Command(VersionId, Export(Line(1, "A"))), CancellationToken.None);
 
-        // Assert: the handler applied the plan's restored ids (removal cleared, nothing counted
-        // elsewhere) and surfaced the restore through the summary warnings.
+        // Assert
         result.IsSuccess.ShouldBeTrue();
         removed.IsRemoved.ShouldBeFalse();
         result.Value.Added.ShouldBe(0);
@@ -376,13 +368,11 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenUploadEchoesTheRowsOwnPolish_ShouldLeaveTheRowUntouchedAndCountTheEcho()
     {
-        // Arrange: an export from the admin's patched DAT (spec 0012): row 1 comes back as our own
-        // Polish, row 2 as an untouched English source; neither is a source change.
+        // Arrange: from a patched DAT (spec 0012), row 1 comes back as our Polish, row 2 as its English.
         GivenVersion(UnprocessedVersion());
         Translation resident = TranslatedRow(1, "Alpha", "Alfa");
         GivenExisting(resident, ExistingRow(2, "Beta"));
-        // Hand the aggregate back should the handler wrongly route it through the source-change leg,
-        // so the assertions below observe a real mutation instead of an unreachable stub.
+        // Should the handler wrongly take the source-change path, the assertions see a real mutation.
         _translationRepository.GetByIdsAsync(
                 Arg.Is<IReadOnlyList<TranslationId>>(ids => ids!.Contains(resident.Id)),
                 Arg.Any<CancellationToken>())
@@ -392,8 +382,7 @@ public sealed class ImportExportedTextsHandlerTests
         // Act
         Result<ImportSummary> result = await CreateHandler().Handle(Command(VersionId, export), CancellationToken.None);
 
-        // Assert: the echo is reported and counted inside Unchanged; the row's English source,
-        // Polish and status stand.
+        // Assert: the echo is counted inside Unchanged, and the row stands.
         result.IsSuccess.ShouldBeTrue();
         result.Value.Echoed.ShouldBe(1);
         result.Value.Unchanged.ShouldBe(2);
@@ -408,7 +397,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenNoOlderUnprocessedVersions_ShouldNotEmitSupersedeWarning()
     {
-        // Arrange: the default stub returns no older versions, so a plain baseline import warns nothing.
+        // Arrange
         GivenVersion(UnprocessedVersion());
 
         // Act

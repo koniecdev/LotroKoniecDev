@@ -14,7 +14,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 /// The login budget of an account with a scheduled deletion (#881). The deletion locks the account, so the
 /// page checks it before the lockout, and Identity's lockout never slows guessing there. The budget belongs
 /// to the account, so changing address does not help a guesser. The limiter middleware is off on the
-/// Testing host, and <c>X-Forwarded-For</c> plays the visitor's address.
+/// Testing host, and there <c>UseForwardedHeaders</c> trusts every peer, so <c>X-Forwarded-For</c> plays
+/// the visitor's address.
 /// </summary>
 public sealed partial class DeletionScheduledLoginBudgetTests : EndpointsTestBase
 {

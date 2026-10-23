@@ -163,7 +163,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task ConfirmPage_GetTheRedirectTarget_ShouldShowTheChangeAsDone()
     {
-        // The browser test OneTimeLinkReloadTests proves that a reload repeats this GET and not the POST.
+        // The done view holds no state, so a reload gets this same answer. The browser test
+        // OneTimeLinkReloadTests proves that a reload repeats this GET and not the POST.
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
         using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -485,8 +486,9 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             RevertUrl(userId, user.Email, newEmail, revertToken),
             RevertForm(userId, user.Email, newEmail, revertToken));
 
-        // The test client follows redirects, so landing on the reset flow proves it: a bare 200 would also
-        // accept the failure rendering.
+        // The password is gone, so the page must send the visitor on to the reset flow. The test client
+        // follows redirects, so the landing URL proves it: a bare 200 would also accept the failure
+        // rendering.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         response.RequestMessage!.RequestUri!.ToString().ShouldContain("/Account/ResetPassword");
 
@@ -562,9 +564,9 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task RevertPage_Post_ShouldStillWorkAfterTheAddressWasChangedAgain()
     {
-        // The takeover this guard stops: A -> B, confirmed, then at once B -> C. The owner's A -> B link
-        // must still pull the account back, and the offer for B -> C must not go to B, which the attacker
-        // owns.
+        // A takeover chain: A -> B, confirmed, then at once B -> C. A revert that insisted the account
+        // still sat on B would make the owner's A -> B link match nothing, so the link must pull the
+        // account back from wherever it was moved.
         (RegisterRequest user, string firstNewEmail, Guid userId) = await CompleteChangeAsync();
         string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
@@ -638,7 +640,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         await ConfirmAsync(userId, attackerSecondEmail, EmailChangeEmailSpy.LastVerificationTokenSentTo(attackerSecondEmail)!);
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(attackerSecondEmail);
 
-        // The attacker fires both undo links at once, before the owner opens their mail.
+        // Whatever undo link the second change handed the attacker, in either inbox, they fire it at
+        // once, before the owner opens their mail.
         (await WaitForDispatchOfChangeToAsync(attackerSecondEmail)).ShouldBe(1);
         string? attackerRevertToken = EmailChangeEmailSpy.RevertOffersTo(attackerFirstEmail)
             .Concat(EmailChangeEmailSpy.RevertOffersTo(attackerSecondEmail))

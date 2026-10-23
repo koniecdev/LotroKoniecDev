@@ -219,7 +219,8 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The resend page calls the same handler, so the endpoint covers both.
+    /// The resend page calls the same handler, so the endpoint covers both. The unconfirmed branch sends a
+    /// mail, but the spy sender returns at once, so only the floor can make that answer wait.
     /// </summary>
     [Fact]
     public async Task ResendConfirmationEndpoint_ShouldWaitForTheLongerFloor_OnEveryBranch()

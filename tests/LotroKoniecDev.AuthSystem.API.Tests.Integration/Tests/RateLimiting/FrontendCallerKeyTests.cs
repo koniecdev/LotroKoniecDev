@@ -13,10 +13,10 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
 /// ADR-0054 (#819): every frontend call reaches the auth API from one container, so the API meters it on
-/// the visitor address the frontend forwards, but only next to the environment's key. In Testing,
-/// <c>X-Forwarded-For</c> plays the address Caddy resolves: <c>10.60.0.x</c> is the frontend container, RFC
-/// 5737 addresses are visitors. Each test makes its own host with the limiter on; the resolver's unit tests
-/// hold the full matrix.
+/// the visitor address the frontend forwards, but only next to the environment's key. In Testing
+/// <c>UseForwardedHeaders</c> trusts every peer, so <c>X-Forwarded-For</c> plays the address Caddy
+/// resolves: <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses are visitors. Each test makes
+/// its own host with the limiter on; the resolver's unit tests hold the full matrix.
 /// </summary>
 public sealed class FrontendCallerKeyTests : EndpointsTestBase
 {

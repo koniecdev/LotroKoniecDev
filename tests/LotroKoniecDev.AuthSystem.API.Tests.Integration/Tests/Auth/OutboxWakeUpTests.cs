@@ -289,7 +289,8 @@ public sealed class OutboxWakeUpTests : EndpointsTestBase
 
     /// <summary>
     /// The relay's own saves only update rows; waking on them, the relay would wake itself after every pass.
-    /// A failed attempt changes the row every time, so the save below is never empty.
+    /// A failed attempt changes the row every time, so the save below is never empty, even when the main
+    /// host's relay sent the row first.
     /// </summary>
     [Fact]
     public async Task SaveChanges_ThatOnlyUpdatesAnOutboxRow_WakesNothing()

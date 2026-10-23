@@ -104,7 +104,8 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     [Fact]
     public async Task ResetPasswordPage_GetTheRedirectTarget_ShouldShowThePasswordAsChanged()
     {
-        // The browser test OneTimeLinkReloadTests proves that a reload repeats this GET and not the POST.
+        // The done view holds no state, so a reload gets this same answer. The browser test
+        // OneTimeLinkReloadTests proves that a reload repeats this GET and not the POST.
         const string newPassword = "NewPass99!";
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");

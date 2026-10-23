@@ -50,8 +50,8 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         CleanerService cleaner = scope.ServiceProvider.GetRequiredService<CleanerService>();
         await cleaner.CleanAsync();
 
-        // The consumer declares the topology on startup, but the first test may get here first. Declaring
-        // it again is safe (DeadLetterTopologyTests).
+        // The consumer declares the topology on startup, but the first test may get here first, and a
+        // purge of a missing queue fails. Declaring it again is safe (DeadLetterTopologyTests).
         await using IConnection connection = await _factory.Broker.ConnectAsync(CancellationToken.None);
         await using IChannel channel = await connection.CreateChannelAsync();
         await RabbitMqTopologyDeclaration.DeclareAsync(channel, CancellationToken.None);

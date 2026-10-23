@@ -177,8 +177,8 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
     [InlineData("health/ready")]
     public void HealthEndpoint_Always_CarriesNoRateLimitPolicy(string route)
     {
-        // Arrange: the deploy and the smoke tests poll these (ADR-0025); a limiter here would answer the
-        // probe with 429 and fail the deploy.
+        // Arrange: the container healthcheck, the deploy, the smoke test and the daily health ping poll
+        // these (ADR-0025); a 429 would fail any of them.
         EndpointDataSource endpointDataSource = Factory.Services.GetRequiredService<EndpointDataSource>();
 
         // Act

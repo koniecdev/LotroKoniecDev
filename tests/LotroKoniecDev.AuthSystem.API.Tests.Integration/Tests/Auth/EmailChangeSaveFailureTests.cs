@@ -392,8 +392,8 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// A failed login also saves the account, so the save is refused as out of date, but the link is still
-    /// good (#869).
+    /// A failed login also saves the account, so it can land between the page's load and its save. The
+    /// save is then refused as out of date, but the link is still good (#869).
     /// </summary>
     [Fact]
     public async Task ConfirmPage_Post_ShouldOfferTheFormAgainAndKeepTheOldAddress_WhenAnotherSaveOfTheAccountLandsFirst()

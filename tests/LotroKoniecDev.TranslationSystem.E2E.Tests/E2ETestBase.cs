@@ -29,10 +29,10 @@ public abstract class E2ETestBase : IAsyncLifetime
         _disposables.Add(AuthApi);
     }
 
-    /// <summary>Each test starts from an empty translation catalog so row counts and file ETags are deterministic.</summary>
+    /// <summary>An empty catalog per test, so counts and ETags are deterministic.</summary>
     public virtual async Task InitializeAsync() => await Fixture.ResetTranslationDataAsync();
 
-    /// <summary>Creates a tms-api client carrying the given bearer token (anonymous when null); disposed with the test.</summary>
+    /// <summary>Anonymous when <paramref name="bearerToken"/> is null; disposed with the test.</summary>
     protected TranslationSystemApiClient CreateTmsClient(string? bearerToken = null)
     {
         TranslationSystemApiClient client = new(Fixture.TmsApiBaseUrl, JsonOptions, bearerToken);
@@ -40,7 +40,6 @@ public abstract class E2ETestBase : IAsyncLifetime
         return client;
     }
 
-    /// <summary>Logs in the seeded admin (Admin role, email pre-confirmed) via the password grant and returns its access token.</summary>
     protected async Task<string> LoginAsAdminAsync()
     {
         TokenResponse token = await AuthApi.LoginAsync(E2ETestFixture.AdminEmail, E2ETestFixture.AdminPassword);
@@ -48,9 +47,7 @@ public abstract class E2ETestBase : IAsyncLifetime
     }
 
     /// <summary>
-    /// Registers a fresh user (granted the Translator role), confirms its e-mail through the
-    /// fixture's direct database access (this network has no broker, so the confirmation e-mail never
-    /// arrives) and logs it in.
+    /// Confirms the e-mail through the database, because no confirmation e-mail can arrive here.
     /// </summary>
     protected async Task<RegisteredTranslator> RegisterAndLoginTranslatorAsync()
     {

@@ -78,9 +78,8 @@ public sealed class TranslationTests
     [Fact]
     public void ApplySourceChange_OnAlreadyNeedsReviewRow_ShouldKeepFirstSupersededSource()
     {
-        // Arrange: a row reworded by several updates before anyone reviews it (spec 0001): the
-        // superseded English must stay pinned to what the still-current Polish was written against,
-        // not drift to an intermediate source the translator never translated.
+        // Arrange: reworded twice before review (spec 0001). The old English must stay the one the
+        // Polish was written for, not an intermediate source nobody translated.
         Translation translation = CreateUntranslated();
         translation.ProvideTranslation("Stary polski", Submitter, Created);
         translation.ApplySourceChange(Source("Reworded once"), ChangeVersion, Changed);
@@ -98,9 +97,8 @@ public sealed class TranslationTests
     [Fact]
     public void ApplySourceChange_AfterReDraftingInvalidatedRow_ShouldRefreshPreviousSource()
     {
-        // Arrange: translator re-translates an invalidated row against its new English, then a later
-        // update rewords it again: the superseded English must now track the re-drafted baseline, not
-        // the original (spec 0001).
+        // Arrange: re-translated against the new English, then reworded again, so the old English now
+        // follows the re-drafted baseline (spec 0001).
         Translation translation = CreateUntranslated();
         translation.ProvideTranslation("Stary polski", Submitter, Created);
         translation.ApplySourceChange(Source("Reworded once"), ChangeVersion, Changed);
@@ -197,10 +195,8 @@ public sealed class TranslationTests
     [Fact]
     public void ProvideTranslation_TextLongerThanTheDatAllows_ShouldThrowAndLeaveTheRowUntouched()
     {
-        // Arrange: a check for a programmer error, like the blank-text one next to it.
-        // UpsertTranslation's validator is what turns this into a message for the translator (#598).
-        // What matters here is that a rejected text changes nothing at all: no Polish, no submitter and
-        // no status change.
+        // Arrange: a programmer-error guard; UpsertTranslation's validator gives the translator the
+        // message (#598). A rejected text must change nothing at all.
         Translation translation = CreateUntranslated();
         string tooLong = new('ż', DatFormatConstants.MaxTranslatedTextLength + 1);
 
@@ -217,8 +213,7 @@ public sealed class TranslationTests
     [Fact]
     public void ProvideTranslation_OnNeedsReviewRow_ShouldReturnToDraftAndKeepPreviousSource()
     {
-        // Arrange: an invalidated row (a game update reworded its source): re-translating it is the
-        // #100 re-translation path. The superseded English must stay until approve clears it.
+        // Arrange: re-translating an invalidated row keeps the old English until approve clears it.
         Translation translation = CreateUntranslated();
         translation.ProvideTranslation("Stary polski", Submitter, Created);
         translation.ApplySourceChange(Source("New English"), ChangeVersion, Changed);
@@ -255,8 +250,7 @@ public sealed class TranslationTests
     [Fact]
     public void Approve_WhenNeedsReview_ShouldSetApprovedAndClearInvalidation()
     {
-        // Arrange: an invalidated row keeps its Polish; approving re-publishes it and resolves the
-        // invalidation, so the superseded English (PreviousSourceText) is cleared (spec 0001).
+        // Arrange: approving an invalidated row re-publishes it and clears the old English (spec 0001).
         Translation translation = CreateUntranslated();
         translation.ProvideTranslation("Stary polski", Submitter, Created);
         translation.ApplySourceChange(Source("New English"), ChangeVersion, Changed);

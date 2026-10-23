@@ -35,7 +35,7 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result>
     {
         /// <summary>
-        /// A hash computed up front, so every path verifies exactly one hash.
+        /// So every path verifies exactly one hash.
         /// </summary>
         private static readonly string DummyPasswordHash =
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -71,7 +71,7 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
                 return Result.Failure(validationResult.ToValidationError(nameof(ResendEmailConfirmation)));
             }
 
-            // Only an unconfirmed account with a permit sends a mail, live, so every answer waits for the
+            // Only an unconfirmed account with a permit sends a live mail, so every answer waits for the
             // longer floor (ADR-0059).
             return await _responseTimeFloor.HoldAsync(
                 ResponseTimeFloors.LiveMailSend,
@@ -82,7 +82,7 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
         {
             ApplicationUser? user = await _userManager.FindByEmailAsync(command.Email);
 
-            // Every path pays the same PBKDF2 cost, the second layer under the floor (ADR-0059 §5).
+            // On every path, the second layer under the floor (ADR-0059 §5).
             _ = _userManager.PasswordHasher.VerifyHashedPassword(
                 new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
@@ -92,7 +92,7 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
             {
                 LogResendNonExistent(_logger, maskedEmail);
 
-                // Always report success, so nobody can find out which e-mails are registered.
+                // Success on every branch, so nobody can learn which e-mails are registered.
                 return Result.Success();
             }
 
@@ -100,13 +100,11 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
             {
                 LogResendAlreadyConfirmed(_logger, maskedEmail);
 
-                // Always report success, so nobody can find out which e-mails are registered.
                 return Result.Success();
             }
 
-            // Taken only here, where a mail would really go out, and keyed on the account's inbox, so the
-            // page, the endpoint and every account registered at a spelling of that inbox share one budget.
-            // A refusal returns Success like every other branch (ADR-0055, ADR-0057).
+            // Only where a mail would really go out, keyed on the account's inbox, so the page, the
+            // endpoint and every spelling of that inbox share one budget (ADR-0057).
             if (!_throttle.TryAcquire(MailboxKey.FromNormalizedEmail(user.NormalizedEmail)))
             {
                 LogResendThrottled(_logger, maskedEmail);
@@ -115,12 +113,9 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
 
             string token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
 
-            // This send happens inside the request and skips the outbox on purpose (ADR-0038 decision
-            // 4). Resend is the way out a user has when the pipeline itself is stuck, whether the
-            // relay, the broker or the consumer, and ADR-0035 counts on it when it accepts a 6 hour
-            // worst case for forgotten rows.
-            // It is the only deliberate direct SMTP call on a request path. Do not move it to the
-            // outbox: that would quietly break the reasoning in ADR-0035.
+            // The only direct SMTP send on a request path, outside the outbox (ADR-0038 decision 4).
+            // Resend is the way out when the pipeline is stuck, and ADR-0035 counts on it, so do not move
+            // it to the outbox.
             Result emailResult = await _accountConfirmationEmailSender.SendEmailConfirmationAsync(
                 user.Id, command.Email, token, cancellationToken);
             if (emailResult.IsFailure)

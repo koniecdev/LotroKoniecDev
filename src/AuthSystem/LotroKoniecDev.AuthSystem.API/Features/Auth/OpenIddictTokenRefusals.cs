@@ -7,10 +7,9 @@ using static OpenIddict.Server.OpenIddictServerEvents;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// OpenIddict refuses an expired, used or revoked code or refresh token before <see cref="TokenEndpoint"/>
-/// runs, and so does any other request it refuses after reading the token, such as a wrong code_verifier.
-/// Its own log line names the token, not the user (#977). These handlers note the token's user while
-/// OpenIddict checks the token, and write one log line when OpenIddict then refuses the request. They never
+/// OpenIddict refuses an expired, used or revoked code or refresh token, or a wrong code_verifier,
+/// before <see cref="TokenEndpoint"/> runs, and its own log line names the token, not the user (#977).
+/// These handlers note the token's user and write one log line when OpenIddict refuses. They never
 /// change the answer to the client.
 /// </summary>
 internal static partial class OpenIddictTokenRefusals
@@ -18,9 +17,9 @@ internal static partial class OpenIddictTokenRefusals
     private static readonly string NoteKey = typeof(OpenIddictTokenRefusals).FullName!;
 
     /// <summary>
-    /// Runs right after OpenIddict has read the token, before it checks it. OpenIddict answers "no longer
-    /// valid" for an expired token and for a revoked one alike, so this works out expiry the same way
-    /// OpenIddict's own check does, to keep the two cases apart in the log.
+    /// Runs after OpenIddict reads the token and before it checks it. OpenIddict answers "no longer valid"
+    /// for an expired and a revoked token alike, so this works out expiry the same way, to keep the two
+    /// apart in the log.
     /// </summary>
     internal sealed class NoteTokenUser : IOpenIddictServerHandler<ValidateTokenContext>
     {
@@ -49,9 +48,9 @@ internal static partial class OpenIddictTokenRefusals
     }
 
     /// <summary>
-    /// OpenIddict raises this event only for a request it refuses itself. A refusal of our own goes out
-    /// through <see cref="TokenEndpoint"/>, which already wrote its log line. This line goes under the
-    /// token endpoint's log category, so every refused code exchange and refresh sits in one place.
+    /// OpenIddict raises this event only for a request it refuses itself; our own refusals are logged by
+    /// <see cref="TokenEndpoint"/>. Logged under the token endpoint's category, so every refused code
+    /// exchange and refresh sits in one place.
     /// </summary>
     internal sealed partial class LogWhenRefused : IOpenIddictServerHandler<ProcessErrorContext>
     {
@@ -93,10 +92,9 @@ internal static partial class OpenIddictTokenRefusals
         }
 
         /// <summary>
-        /// Codes and refresh tokens are stored as rows, and a row names its user even when OpenIddict refused
-        /// the token before reading it: after the encryption key changed, or for a request that failed an
-        /// earlier check. A row of another token type names no one, the same way OpenIddict refuses to use
-        /// it. A failed lookup must not turn OpenIddict's refusal into a server error, so it only logs.
+        /// A stored token row names its user even when OpenIddict refused the token before reading it, for
+        /// example after the encryption key changed. A row of another token type names no one. A failed
+        /// lookup only logs, so it never turns OpenIddict's refusal into a server error.
         /// </summary>
         private async ValueTask<TokenUserNote?> NoteFromStoredTokenAsync(
             OpenIddictRequest? request,
@@ -133,13 +131,12 @@ internal static partial class OpenIddictTokenRefusals
             }
         }
 
-        // Information: a token runs out when the user has been away for a while, which is normal
-        // (CLAUDE.md, #977).
+        // Information: a token runs out when the user has been away, which is normal (#977).
         [LoggerMessage(EventId = EventIds.TokenGrantRefusedTokenExpired, Level = LogLevel.Information, Message = "{Step} refused for user {UserId}: the {Token} has expired")]
         private static partial void LogTokenExpired(ILogger logger, string step, string userId, string token);
 
         // A Warning, although a revoked token is normal: the same line covers a reused refresh token and a
-        // wrong code_verifier, and both can mean a stolen token (CLAUDE.md, #977).
+        // wrong code_verifier, and both can mean a stolen token (#977).
         [LoggerMessage(EventId = EventIds.TokenGrantRefusedByOpenIddict, Level = LogLevel.Warning, Message = "{Step} refused for user {UserId} by OpenIddict: {Reason}")]
         private static partial void LogRefusedByOpenIddict(ILogger logger, string step, string userId, string? reason);
 

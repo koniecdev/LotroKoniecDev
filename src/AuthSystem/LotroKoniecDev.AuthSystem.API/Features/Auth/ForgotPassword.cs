@@ -35,7 +35,7 @@ internal sealed partial class ForgotPassword : IApiEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result>
     {
         /// <summary>
-        /// A hash computed up front, so every path verifies exactly one hash.
+        /// So every path verifies exactly one hash.
         /// </summary>
         private static readonly string DummyPasswordHash =
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -74,8 +74,7 @@ internal sealed partial class ForgotPassword : IApiEndpoint
                 return Result.Failure(validationResult.ToValidationError(nameof(ForgotPassword)));
             }
 
-            // Only a real account with a send permit writes an outbox row, so every answer waits for the
-            // floor (ADR-0059).
+            // Only a real account with a permit writes an outbox row (ADR-0059).
             return await _responseTimeFloor.HoldAsync(
                 ResponseTimeFloors.AccountLookup,
                 () => RequestResetAsync(command, cancellationToken));
@@ -85,10 +84,9 @@ internal sealed partial class ForgotPassword : IApiEndpoint
         {
             ApplicationUser? user = await _userManager.FindByEmailAsync(command.Email);
 
-            // Every path pays the same PBKDF2 cost. Running the dummy hash only when the user is not
-            // found would make real accounts answer measurably faster, because their path is only a
-            // cheap outbox insert, and the response time would then tell an attacker which accounts
-            // exist (ADR-0038 decision 5). Under the floor this is the second layer (ADR-0059 §5).
+            // On every path: a real account's path is only a cheap outbox insert, so a dummy hash only for
+            // unknown addresses would make real accounts answer faster. The second layer under the floor
+            // (ADR-0059 §5).
             _ = _userManager.PasswordHasher.VerifyHashedPassword(
                 new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
@@ -97,22 +95,20 @@ internal sealed partial class ForgotPassword : IApiEndpoint
                 string maskedEmail = command.Email.MaskEmail();
                 LogPasswordResetNonExistent(_logger, maskedEmail);
 
-                // Always report success, so nobody can find out which e-mails are registered.
+                // Success on every branch, so nobody can learn which e-mails are registered.
                 return Result.Success();
             }
 
-            // The same send budget the page uses. This endpoint has no caller in the product today, but it
-            // is public, so leaving it out would make it the way around the budget. The refusal answers
-            // Success like every other branch here, so it reveals nothing.
+            // The page's budget too: this endpoint has no caller in the product, but it is public, so it
+            // must not be the way around the budget.
             if (!_throttle.TryAcquire(user))
             {
                 LogPasswordResetThrottled(_logger, command.Email.MaskEmail());
                 return Result.Success();
             }
 
-            // No token is created here and the deletion window is not checked here. The payload holds
-            // only the id, and the dispatch processor creates the token and does that check when it
-            // sends (ADR-0038 decision 2).
+            // The dispatch processor creates the token and checks the deletion window when it sends
+            // (ADR-0038 decision 2).
             _outboxWriter.Enqueue(new PasswordResetRequested(user.Id));
             await _db.SaveChangesAsync(cancellationToken);
 

@@ -17,13 +17,9 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// Schedules a GDPR account deletion instead of doing it at once (ADR-0031). The account is locked
-/// for the grace period and a single-use cancel link is e-mailed, so a stolen password alone can no
-/// longer erase an account for good. The finalizer does the real erasure once the grace period is
-/// over.
-/// The cancel e-mail goes through the outbox pipeline (ADR-0038): its row commits together with the
-/// schedule, so "scheduled but no e-mail recorded" cannot happen, and retrying a failed delivery is
-/// the pipeline's job, not this handler's.
+/// Schedules a GDPR deletion instead of doing it at once (ADR-0031): the account is locked for the grace
+/// period and a single-use cancel link is e-mailed, so a stolen password alone cannot erase it. The
+/// cancel e-mail's outbox row commits with the schedule (ADR-0038).
 /// </summary>
 internal sealed partial class DeleteAccount : IApiEndpoint
 {
@@ -91,10 +87,8 @@ internal sealed partial class DeleteAccount : IApiEndpoint
                 return Result.Failure<ScheduledDeletion>(validationResult.ToValidationError(nameof(DeleteAccount)));
             }
 
-            // The permit comes first: after validation, before the account is even loaded. A refused
-            // request then costs no database read, a burst of guesses cannot slip past the gate, and every
-            // later refusal sits behind it, so probing an account's state costs a permit too (ADR-0053).
-            // The key is the id the token names. UserTokenPolicy lets in only a token that names a user.
+            // The permit comes before the account is loaded, so a refusal costs no database read and
+            // probing the account's state costs a permit too (ADR-0053).
             if (!Guid.TryParse(command.UserId, out Guid userId))
             {
                 return Result.Failure<ScheduledDeletion>(AuthErrors.UserNotFound);
@@ -123,9 +117,8 @@ internal sealed partial class DeleteAccount : IApiEndpoint
                 return Result.Failure<ScheduledDeletion>(AuthErrors.DeletionAlreadyScheduled);
             }
 
-            // The last check before the schedule, so only a schedule that would happen spends a permit
-            // (ADR-0055). Cancelling returns a reset token, so without this one account could loop
-            // schedule, cancel and reset as often as the confirmation budget allows (#811).
+            // Last, so only a schedule that would happen spends a permit. Cancelling returns a reset
+            // token, so without this an account could loop schedule, cancel and reset (#811).
             if (!_scheduleThrottle.TryAcquire(user.Id))
             {
                 LogDeletionScheduleThrottled(_logger, user.Id);
@@ -134,23 +127,18 @@ internal sealed partial class DeleteAccount : IApiEndpoint
 
             DateTimeOffset scheduledAt = _timeProvider.GetUtcNow();
 
-            // An armed undo pushes this date out, so the account cannot be erased while a link that
-            // cancels the deletion is still in somebody's inbox (#685). The finalizer reads the same
-            // rule, so the header below is a promise it keeps.
+            // An armed undo pushes this date out, so the account cannot be erased while an undo link that
+            // cancels the deletion is still in an inbox (#685). The finalizer reads the same rule.
             DateTimeOffset finalizesAt =
                 _deletionSchedule.FinalizesAt(scheduledAt, user.EmailChangeRevertArmedAt);
 
-            // Lock the account for as long as the deletion is pending, so neither the person who asked
-            // nor a possible attacker can use it. Nothing is erased here: the data stays until the
-            // finalizer runs.
+            // Locked while the deletion is pending, so neither the owner nor an attacker can use it.
             user.DeletionScheduledAt = scheduledAt;
             user.LockoutEnabled = true;
             user.LockoutEnd = finalizesAt;
 
-            // End every session by setting the new security stamp inside the same save that commits
-            // the outbox row (ADR-0038 decision 2). The relay works on a signal, so the dispatch
-            // processor can create the cancel token milliseconds after the commit. A stamp changed in
-            // a later save would break the link that was just created.
+            // In the same save as the outbox row (ADR-0038 decision 2): the dispatch can create the cancel
+            // token milliseconds after the commit, and a later stamp change would break it.
             user.SecurityStamp = Guid.NewGuid().ToString();
 
             _outboxWriter.Enqueue(new AccountDeletionScheduled(user.Id));
@@ -163,8 +151,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
                 return Result.Failure<ScheduledDeletion>(AuthErrors.DeletionSchedulingFailed);
             }
 
-            // Refresh tokens are reference tokens, so revoking them stops them at once. An access token
-            // already issued keeps working until it expires, which is five minutes (ADR-0049).
+            // An access token already issued keeps working until it expires (ADR-0049).
             await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
 
             LogDeletionScheduled(_logger, user.Id, finalizesAt, command.IpAddress, command.UserAgent);
@@ -222,10 +209,8 @@ internal sealed partial class DeleteAccount : IApiEndpoint
                 return Results.NoContent();
             })
             .RequireAuthorization()
-            // Off the per-IP policies on purpose (ADR-0053). Every call here comes from the frontend, so an
-            // IP key is one bucket for every user, and one user's traffic could refuse another's deletion.
-            // The brakes are the two per-account budgets in the handler: password confirmations and
-            // deletion schedules (#811).
+            // Off the per-IP policies (ADR-0053): the brakes are the handler's two per-account budgets,
+            // password confirmations and deletion schedules (#811).
             .DisableRateLimiting()
             .WithName(nameof(DeleteAccount))
             .WithTags("Account")

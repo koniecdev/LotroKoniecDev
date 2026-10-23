@@ -5,15 +5,13 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// Reads the auth half of the account data. Two endpoints need it and they are not allowed to describe
-/// the same account differently, so the shape lives here (#690).
-/// They do not serve the same fields. The representation carries what the account page shows; the
-/// export adds the contact details, which no page renders, so the password buys the reader something
-/// the account page does not already hand over. ADR-0052 holds the reasoning.
+/// One shape for two endpoints, so they cannot describe the same account differently (#690). The export
+/// adds the contact details no page renders, so the password buys something the account page does not
+/// already hand over (ADR-0052).
 /// </summary>
 internal static class AccountDataExportReader
 {
-    /// <summary>What the "Moje konto" page renders. No password, because the page loads it on every visit.</summary>
+    /// <summary>What the "Moje konto" page renders, on every visit, so no password.</summary>
     internal static Task<AuthDataExportDto> ReadRepresentationAsync(
         UserManager<ApplicationUser> userManager,
         ApplicationUser user) =>

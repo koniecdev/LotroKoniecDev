@@ -20,8 +20,7 @@ internal sealed class UserInfoEndpoint : IEndpoint
 
         string? userId = principal.GetClaim(Claims.Subject);
 
-        // A client credentials token carries the client id as its subject, not a user id. Identity reads
-        // a user id as a GUID and throws on anything else, so the lookup must not see it (#955).
+        // A client credentials token's subject is the client id, and Identity throws on a non-GUID id (#955).
         ApplicationUser? user = Guid.TryParse(userId, out _) ? await userManager.FindByIdAsync(userId) : null;
 
         if (user is null)
@@ -56,9 +55,8 @@ internal sealed class UserInfoEndpoint : IEndpoint
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
     {
-        // Any valid token that names this API (#1023), not the default UserTokenPolicy. A token issued to a
-        // client must reach the handler, which answers it with invalid_token, the error an OpenID Connect
-        // client reads here (#955).
+        // Any valid token that names this API, not UserTokenPolicy: a client's token must reach the
+        // handler, which answers invalid_token, the error an OpenID Connect client reads here (#955).
         endpointRouteBuilder.MapMethods("connect/userinfo", [HttpMethods.Get, HttpMethods.Post], HandleAsync)
             .RequireAuthorization(policy => policy.RequireAuthenticatedUser());
     }

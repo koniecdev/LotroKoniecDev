@@ -17,16 +17,10 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// Applies an e-mail change once the owner of the new mailbox follows the link. The address,
-/// <see cref="ApplicationUser.EmailConfirmed"/> and the new security stamp land in one save, together
-/// with the outbox row that notifies both mailboxes and arms the revert link (ADR-0048).
+/// The address, <see cref="ApplicationUser.EmailConfirmed"/>, the new security stamp and the outbox row
+/// that notifies both mailboxes land in one save (ADR-0048). Identity runs with
+/// <c>RequireConfirmedEmail</c>, so an address that landed without its flag would lock the user out.
 /// </summary>
-/// <remarks>
-/// The single save is not a style choice. Identity runs with <c>RequireConfirmedEmail</c>, so an
-/// address that lands without its confirmation flag would lock the user out of their own account.
-/// The token is checked before anything is enqueued, which is why this flow uses its own token
-/// provider instead of <c>UserManager.ChangeEmailAsync</c>.
-/// </remarks>
 internal sealed partial class ConfirmEmailChange
 {
     internal sealed record Command(
@@ -43,9 +37,7 @@ internal sealed partial class ConfirmEmailChange
             RuleFor(x => x.UserId)
                 .NotEmpty().WithMessage("User ID is required.");
 
-            // The id arrives from a query string, and Identity converts it to the key type before it
-            // queries. A value that is not a GUID throws inside the store, which would turn a bad link
-            // into a crash on a page somebody opened from their inbox.
+            // The id comes from a link, and a value that is not a GUID throws inside Identity's store.
             RuleFor(x => x.UserId)
                 .Must(userId => Guid.TryParse(userId, out _))
                     .WithMessage("User ID must be a GUID.");
@@ -105,8 +97,8 @@ internal sealed partial class ConfirmEmailChange
 
             ApplicationUser? user = await _userManager.FindByIdAsync(command.UserId);
 
-            // An unknown user, a tampered address and an expired token all answer the same way, so the
-            // page cannot be used to learn anything about an account.
+            // An unknown user, a tampered address and an expired token answer the same way, so the page
+            // reveals nothing about an account.
             if (user is null)
             {
                 LogTokenInvalid(_logger, newEmail.MaskEmail(), command.IpAddress, command.UserAgent);
@@ -126,8 +118,7 @@ internal sealed partial class ConfirmEmailChange
                 return Result.Failure(AuthErrors.InvalidEmailChangeToken);
             }
 
-            // Checked only after the token, so a caller without one cannot tell this state apart from
-            // any other refusal.
+            // Only after the token, so a caller without one cannot tell this state from any other refusal.
             if (user.DeletionScheduledAt is not null)
             {
                 return Result.Failure(AuthErrors.DeletionAlreadyScheduled);
@@ -136,9 +127,7 @@ internal sealed partial class ConfirmEmailChange
             ApplicationUser? addressOwner = await _userManager.FindByEmailAsync(newEmail);
             if (addressOwner is not null)
             {
-                // The owner is this very account when a second submit of the same link, a double click,
-                // arrives while the first one lands. Calling that "taken by another account" would be
-                // false (#869).
+                // A second submit of the same link, such as a double click, finds this very account (#869).
                 if (addressOwner.Id == user.Id)
                 {
                     if (await IsAlreadyAppliedAsync(user.Id, newEmail))
@@ -147,8 +136,8 @@ internal sealed partial class ConfirmEmailChange
                         return Result.Success();
                     }
 
-                    // Something else moved the account here, an undo for example, and it rotated the
-                    // security stamp on the way, so this link is spent.
+                    // Something else, such as an undo, moved the account here and rotated the stamp, so
+                    // this link is spent.
                     LogTokenInvalid(_logger, newEmail.MaskEmail(), command.IpAddress, command.UserAgent);
                     return Result.Failure(AuthErrors.InvalidEmailChangeToken);
                 }
@@ -156,9 +145,8 @@ internal sealed partial class ConfirmEmailChange
                 return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
             }
 
-            // Registration is not the only way onto a free address, so the reservation of #684 has to
-            // hold here too. The caller's own armed address is excluded: going back to where the chain
-            // started is the move this reservation protects, never one it blocks.
+            // The reservation (#684) holds here too. The caller's own armed address is excluded: going
+            // back to where the chain started is what the reservation protects.
             bool reserved = await _revertReservation.IsReservedAsync(newEmail, user.Id, cancellationToken);
             if (reserved)
             {
@@ -166,8 +154,7 @@ internal sealed partial class ConfirmEmailChange
                 return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
             }
 
-            // The notice and the revert token are both built from this address, and an empty one would
-            // produce a message its own processor refuses to read. Refuse here instead.
+            // The notice and the revert token are built from this address; its processor refuses an empty one.
             if (string.IsNullOrWhiteSpace(user.Email))
             {
                 return Result.Failure(AuthErrors.InvalidEmailChangeToken);
@@ -177,14 +164,11 @@ internal sealed partial class ConfirmEmailChange
 
             user.Email = newEmail;
 
-            // The address and its confirmation flag have to move together. NormalizedEmail is left
-            // alone on purpose: UpdateAsync recomputes it after validation and before the write, so
-            // setting it here would only be overwritten.
+            // NormalizedEmail is left alone: UpdateAsync recomputes it before the write.
             user.EmailConfirmed = true;
 
-            // A new stamp ends every session and makes this link single-use. It is set inside the same
-            // save that commits the outbox row (ADR-0038 decision 2), so the revert token the dispatch
-            // processor creates moments later is built from the stamp that was actually stored.
+            // Ends every session and makes this link single-use. In the same save as the outbox row
+            // (ADR-0038 decision 2), so the dispatch builds the revert token from the stored stamp.
             user.SecurityStamp = Guid.NewGuid().ToString();
 
             string? armedTarget = _userManager.NormalizeEmail(user.EmailChangeRevertTo);
@@ -196,24 +180,16 @@ internal sealed partial class ConfirmEmailChange
 
             if (backOnTheArmedAddress)
             {
-                // The account is where the chain started, so the chain is over and is settled exactly
-                // as a revert settles it. Leaving it armed would freeze the reservation at the first
-                // change's timestamp while a later change still minted a fresh 14-day link off it
-                // (#684) — the link would then outlive the reservation that protects its address.
-                // Only somebody reading the armed mailbox can reach this: the confirm link went there.
+                // Back where the chain started, so it is settled as a revert settles it. Left armed, a
+                // later change would mint a fresh 14-day link that outlives the reservation (#684).
                 user.DisarmEmailChangeRevert();
                 user.EmailChangeRevertStamp = Guid.NewGuid();
             }
             else if (user.EmailChangeRevertTo is null)
             {
-                // Only the first change since the last revert arms the undo, and it arms it at the
-                // address the chain started from. A second change must not make itself a target: after
-                // A to B to C that would hand an undo link to B, which is whoever took the account
-                // over (ADR-0048). The timestamp starts the reservation that keeps that address out of
-                // anyone else's hands for as long as the revert token lives (#684).
-                // The key normalizer is always registered, so a non-empty address always normalizes
-                // to a non-empty value. An armed target without its twin is unreservable, which is
-                // the one state ArmEmailChangeRevert exists to refuse.
+                // Only the first change since the last revert arms the undo: after A to B to C, an undo to
+                // B would help whoever took the account over (ADR-0048). The key normalizer is always
+                // registered, so a non-empty address never normalizes to null.
                 string normalizedPreviousEmail = _userManager.NormalizeEmail(previousEmail)!;
 
                 user.ArmEmailChangeRevert(
@@ -233,8 +209,7 @@ internal sealed partial class ConfirmEmailChange
             {
                 DiscardPendingChanges();
 
-                // Another save of this account got in first. When it was a second submit of this same
-                // link, the change is already there, and "nothing changed, try again" would be false.
+                // Another save got in first. When it was a second submit of this link, the change is there.
                 if (await IsAlreadyAppliedAsync(user.Id, newEmail))
                 {
                     await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
@@ -255,17 +230,14 @@ internal sealed partial class ConfirmEmailChange
         }
 
         /// <summary>
-        /// The uniqueness check above is an ordinary query, so two requests can pass it at the same
-        /// time. The unique index is what really decides, and <c>UserStore.UpdateAsync</c> only handles
-        /// concurrency conflicts, so the duplicate-key error arrives here as a raw
-        /// <see cref="DbUpdateException"/>. Only a duplicate on an e-mail index is a lost race; any other
-        /// save error goes on up and becomes a 500 (#864). Identity's own check inside <c>UpdateAsync</c>
-        /// can lose the same race first, and gets the same answer (#866).
+        /// Two requests can pass the uniqueness query at once, and the index then throws a raw
+        /// <see cref="DbUpdateException"/>, which <c>UserStore.UpdateAsync</c> does not handle. Only a
+        /// duplicate on an e-mail index is a lost race; any other error becomes a 500 (#864). Identity's
+        /// own check inside <c>UpdateAsync</c> can lose the same race first (#866).
         /// </summary>
         /// <remarks>
-        /// A known corner case: if the answer to the commit is lost after the server really committed,
-        /// the save retries, the retry fails on the row it already wrote, and the user is told the change
-        /// failed although it landed. We accept that, as registration does (#845).
+        /// Accepted corner case, as in registration (#845): if the commit's answer is lost after it landed,
+        /// the retry fails on its own row and the user is told the change failed.
         /// </remarks>
         private async Task<Result<IdentityResult>> TryUpdateAsync(ApplicationUser user)
         {
@@ -288,13 +260,10 @@ internal sealed partial class ConfirmEmailChange
         }
 
         /// <summary>
-        /// A failed update never reaches the store, so both halves of this unit of work are still
-        /// sitting in the change tracker: the outbox row as Added, and the user as Modified with the
-        /// new address already on it. This context is shared with OpenIddict for the rest of the
-        /// request, so a later save there would commit the change we just reported as failed, or
-        /// announce one that never happened. Dropping the whole unit of work is the only version that
-        /// leaves neither half behind. A save error that escapes as an exception skips this. That is safe,
-        /// because the rest of that request only writes the error response and saves nothing.
+        /// After a failed update the outbox row and the modified user are still tracked, and OpenIddict
+        /// shares this context for the rest of the request, so a later save would commit a change we
+        /// reported as failed. A save error that escapes as an exception skips this safely: that request
+        /// saves nothing more.
         /// </summary>
         private void DiscardPendingChanges()
         {
@@ -302,14 +271,13 @@ internal sealed partial class ConfirmEmailChange
         }
 
         /// <summary>
-        /// Reads the account again, past everything this request holds in memory, and says whether this
-        /// change already landed. Only a caller whose token passed gets here, so answering "done" tells
-        /// them nothing they could not see by logging in (#869). An undo can also put the account on this
-        /// address, but it clears the password and a confirm never does, so the password tells them apart.
+        /// Reads the stored account and says whether this change already landed. Only a caller whose token
+        /// passed gets here, so "done" reveals nothing (#869). An undo can also put the account on this
+        /// address, but it clears the password and a confirm never does.
         /// </summary>
         /// <remarks>
-        /// The caller ends the sessions again after a "yes". The first submit may still be ending them
-        /// when this one answers, or its revoke may have failed.
+        /// The caller ends the sessions again after a "yes": the first submit may still be ending them,
+        /// or its revoke may have failed.
         /// </remarks>
         private async Task<bool> IsAlreadyAppliedAsync(Guid userId, string newEmail)
         {

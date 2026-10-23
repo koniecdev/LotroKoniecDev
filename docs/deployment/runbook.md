@@ -170,48 +170,42 @@ is what #782 hit, and the fleet rule watches it at 85% of each ceiling. When the
 
 ## Environment variable matrix
 
-The single source of truth: every deployment-relevant setting, per service, per environment. One
-table per service.
+Every deployment-relevant setting, per service, per environment: one table per service.
 
-**`compose.hetzner.yaml` is the authoritative list** of what the deployed stack actually consumes — a
+**`compose.hetzner.yaml` is the authoritative list** of what the deployed stack actually reads. A
 variable that does not appear there does nothing, whatever this table says.
 
 **Reading the tables:**
 
-- **Key form.** Keys are shown in the env-var (double-underscore) form ASP.NET Core binds —
-  `Section__Sub__Leaf`, e.g. `OpenIddict__WebClient__RedirectUris__0`. The config/appsettings form is
-  the same with `:` (`OpenIddict:WebClient:RedirectUris:0`); error messages use the `:` form.
+- **Key form.** Keys are shown in the env-var form ASP.NET Core binds (double underscore):
+  `Section__Sub__Leaf`, e.g. `OpenIddict__WebClient__RedirectUris__0`. The appsettings form uses `:`
+  instead (`OpenIddict:WebClient:RedirectUris:0`), and error messages use the `:` form.
 - **Required?** = whether boot **fails fast** without it in that environment. `✅ all` = required in
-  every environment; `✅ non-dev` = required in Staging/Production only (Development supplies a
-  default or skips the guard); `optional` = safe default.
+  every environment; `✅ non-dev` = required outside Development and Testing (so Staging too);
+  `optional` = safe default.
 - **Source.** **secret** = lives in the box's `chmod 600` `/opt/lotro/.env`, never committed;
-  **plain** = non-sensitive, fine in plain app config / `appsettings.*`.
-- **local-dev** column = how the value is set in dev. Since ADR-0006 (amended by #190 / M6-14) the
-  dev `compose.yaml` is **infra-only** and all three apps run on the **host** via `dotnet run` — so
-  for the apps the dev column is `appsettings.Development.json` + `launchSettings.json`; only
-  postgres / migrator / mailpit / aspire are set by `compose.yaml`.
-- **Staging / Production** are structurally identical — same required set, same sources; they differ
-  only in **hostnames** (the environment's own domain) and **secret values**. This column shows
-  **production** values; for staging substitute `staging.lotro-translator.pl`. The local
-  production-parity stack (`compose.prod.yaml`) wires the very same keys with `*.lotro.test`
-  hostnames.
+  **plain** = not sensitive, fine in plain app config / `appsettings.*`.
+- **local-dev** = how the value is set in dev. The dev `compose.yaml` runs only infrastructure, and
+  the three apps run on the **host** via `dotnet run` (ADR-0006, amended by #190), so for the apps this
+  column is `appsettings.Development.json` + `launchSettings.json`.
+- **Staging / Production** are the same in shape: same required set, same sources. They differ only
+  in **hostnames** and **secret values**. The column shows **production** values; for staging read
+  `staging.lotro-translator.pl`. The local production-parity stack (`compose.prod.yaml`) wires the
+  same keys with `*.lotro.test` hostnames.
 
-Purely optional tuning knobs with safe defaults are omitted (e.g. `Import:*`,
-`TranslationFileRebuild:DebounceWindow` = 2 s (ADR-0021), `Email:TimeoutSeconds`/`MaxSendAttempts`,
-`RabbitMq:Port` = 5672, `RabbitMq:VirtualHost` = `/`, `AllowedHosts` = `*`).
-`OpenIddict:AccessTokenLifetimeMinutes` used to sit in that list at 60; it is listed in the table
-below instead, because it turned out to be the delay on every session revocation in the system rather
-than a tuning knob (ADR-0049, #686). The refresh token lifetime left the list too: it used to be
-`OpenIddict:RefreshTokenLifetimeDays` = 14, and it is now `OpenIddict:RefreshTokenLifetimeMinutes` =
-540, tied to the frontend cookie's idle timeout (#1014).
+Optional tuning knobs with safe defaults are left out: `Import:*`,
+`TranslationFileRebuild:DebounceWindow` = 2 s (ADR-0021), `Email:TimeoutSeconds` = 10 /
+`Email:MaxSendAttempts` = 3, `Gdpr:DeletionGracePeriod` = 14 days /
+`Gdpr:DeletionFinalizationPollInterval` = 1 day, `RabbitMq:Port` = 5672, `RabbitMq:VirtualHost` = `/`,
+`AllowedHosts` = `*`. The token lifetimes are listed below even though they have defaults, because
+they are security parameters, not tuning knobs.
 
-The four `OTEL_*` variables the three app services take are omitted here for the same reason — all
-four default to empty and empty means "no exporter at all". They are documented where they are
-actually used, in [Observability & monitoring](#observability--monitoring). One of them is **not** a
-tuning knob and is called out there: `OTEL_DEPLOYMENT_ENVIRONMENT` is the only thing that separates
-staging from prod in Grafana, because both boxes run `ASPNETCORE_ENVIRONMENT=Production`.
+The telemetry variables are covered in [Observability & monitoring](#observability--monitoring). The
+tables list only the export endpoint. One of the others is not a tuning knob:
+`OTEL_DEPLOYMENT_ENVIRONMENT` is the only thing that separates staging from prod in Grafana, because
+both boxes run `ASPNETCORE_ENVIRONMENT=Production`.
 
-> ⚠️ **Live prod domain is `lotro-translator.pl`** — auth → `https://auth.lotro-translator.pl`,
+> ⚠️ **The live prod domain is `lotro-translator.pl`**: auth → `https://auth.lotro-translator.pl`,
 > tms → `https://tms.lotro-translator.pl`, frontend → `https://lotro-translator.pl`. The three
 > hostnames are Caddy vhosts on the prod box; staging has the same trio under
 > `*.staging.lotro-translator.pl`.
@@ -220,83 +214,80 @@ staging from prod in Grafana, because both boxes run `ASPNETCORE_ENVIRONMENT=Pro
 
 | Variable | local-dev | Staging / Production | Required? | Source | Notes |
 |---|---|---|---|---|---|
-| `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation, ephemeral-vs-real keys, the CORS policy. |
-| `ASPNETCORE_URLS` | `https://localhost:5003` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); prod serves HTTP only (Caddy owns TLS). |
-| `ConnectionStrings__AuthDatabase` | `…;Database=lotro_auth;…;Password=changeme` (appsettings.Development) | Neon: `Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Timeout=20` | ✅ all | **secret** | Carries the DB password. **Keyword format only** — Npgsql does not parse `postgres://` URIs. `Timeout` is the limit for opening a connection. The auth API caps it at 20 s in code (#923), so an older box's `Timeout=60` still works there; only the migrator reads the value as written. Wake times: Gotchas → *First cold hit*. |
-| `OpenIddict__Issuer` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ non-dev | plain | **THE token `iss`.** Absolute http(s), no `localhost`, no user name or password (#1108). Must equal tms `Auth__Issuer`. |
-| `OpenIddict__SigningKey__RsaPrivateKeyXml` | — (ephemeral) | base64 of RSA XML (≥2048-bit) | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
-| `OpenIddict__AccessTokenLifetimeMinutes` | `5` (appsettings) | `5` (appsettings) | ❌ optional | plain | **A security parameter, not a tuning knob.** The TMS validates JWTs locally with no clock skew, so this is the longest time a revoked session keeps working after a password change, an e-mail-change undo or a scheduled deletion (#933). Raising it lengthens that window everywhere — read ADR-0049 first. The service refuses to start below `2` in every environment: a client that renews a token a minute before it runs out would renew a shorter token on every page (#1025). The website itself copes with a one-minute token, which it refreshes after 30 seconds, but the server does not count on that (ADR-0049, amendment of 2026-10-07). `compose.hetzner.yaml` does not pass this variable, so on the boxes the value comes from `appsettings.json` and changes only with a code change. |
-| `OpenIddict__RefreshTokenLifetimeMinutes` | `540` (appsettings) | `540` (appsettings) | ❌ optional | plain | **Tied to the frontend cookie, not a tuning knob.** The frontend keeps the refresh token in its session cookie, which ends after 8 idle hours, so a longer lifetime only keeps a token valid that the website has already lost. Never lower it below 8 hours plus a margin: a token that dies before its cookie shows "session expired" to a user who was idle for just under 8 hours. Every refresh issues a new token with the full lifetime, so a user who keeps working is never signed out by it (#1014). `compose.hetzner.yaml` does not pass this variable, so on the boxes the value comes from `appsettings.json` and changes only with a code change. |
-| `OpenIddict__EncryptionKey__Key` | — (ephemeral) | base64 of a ≥32-byte key | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
-| `OpenIddict__ApiClientSecret` | `dev-api-secret-min-32-characters-long` | ≥32-char random secret | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. **Seeds a DB row** — rotating it needs the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing). Must equal that environment's `SMOKE_CLIENT_SECRET`. |
-| `OpenIddict__WebClient__RedirectUris__0` | `https://localhost:7017/callback` | `https://lotro-translator.pl/callback` | ✅ non-dev | plain | MUST equal the Frontend callback (its public origin + `AuthSystem__CallbackPath`). No user name or password (#1108). Written to the DB **only at client creation** — see the reseed traps. |
-| `OpenIddict__WebClient__PostLogoutRedirectUris__0` | `https://localhost:7017` | `https://lotro-translator.pl` | ✅ non-dev | plain | Frontend post-logout return URL. No user name or password (#1108). |
-| `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. Lowercase, no port-if-default, no path/slash. |
-| `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.100/32` (Caddy's pinned static IP) | optional | plain | Restricts `X-Forwarded-*` trust to Caddy's exact host address, not the whole subnet (#399, narrowed to a /32 by #506). Keep in lockstep with Caddy's `ipv4_address` on the default network in `compose.hetzner.yaml`. Both deployed stacks set it. Malformed CIDR aborts boot. |
-| `FrontendCaller__Key` | — (the limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | The frontend's caller key (ADR-0054): a frontend call that carries it next to the visitor's address is rate-limited on that visitor, not on the frontend container. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. **The same variable feeds tms-api's `FrontendCaller__Key` and the frontend's `AuthSystem__CallerKey` + `TranslationSystem__CallerKey`.** |
-| `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | Opens the full `/health` (ADR-0058, #853): it runs the database, SMTP and broker checks only for a request that sends this value in `X-LOTRO-Health-Key`, and answers 404 to anyone else. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. **The same variable feeds tms-api's `HealthCheck__Key`.** |
-| `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent volume (`auth-keys`); else logins/antiforgery/reset links break on every deploy. |
-| `Email__Host` | `localhost` (the compose mailpit, published on `:1025`) | `smtp-relay.brevo.com` | ✅ all | plain | SMTP host. Validated on start (every environment). |
+| `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation, throwaway-vs-real keys, the CORS policy. |
+| `ASPNETCORE_URLS` | `https://localhost:5003` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); deployed it serves HTTP only (Caddy owns TLS). |
+| `ConnectionStrings__AuthDatabase` | `…;Database=lotro_auth;…;Password=changeme` (appsettings.Development) | Neon: `Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Timeout=20` | ✅ all | **secret** | Carries the DB password. **Keyword format only**: Npgsql does not parse `postgres://` URIs. `Timeout` is the limit for opening a connection. The auth API caps it at 20 s in code (#923), so an older box's `Timeout=60` still works there; only the migrator reads the value as written. Wake times: Gotchas → *First cold hit*. |
+| `OpenIddict__Issuer` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ non-dev | plain | **The token `iss`.** Absolute http(s), no `localhost`, no user name or password (#1108). Must equal tms `Auth__Issuer`. |
+| `OpenIddict__SigningKey__RsaPrivateKeyXml` | — (throwaway) | base64 of RSA XML (≥2048-bit) | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
+| `OpenIddict__AccessTokenLifetimeMinutes` | `5` (appsettings) | `5` (appsettings) | optional | plain | **A security parameter.** The TMS validates JWTs locally with no clock skew, so this is the longest time a revoked session keeps working after a password change, an e-mail-change undo or a scheduled deletion (#933). Raising it lengthens that window everywhere: read ADR-0049 first. The service refuses to start below `2` in every environment, because a client that renews a token a minute before it runs out would renew on every page (#1025, ADR-0049 amendment of 2026-10-07). `compose.hetzner.yaml` does not pass it, so on the boxes it changes only with a code change. |
+| `OpenIddict__RefreshTokenLifetimeMinutes` | `540` (appsettings) | `540` (appsettings) | optional | plain | **Tied to the frontend cookie.** The frontend keeps the refresh token in its session cookie, which ends after 8 idle hours, so a longer lifetime only keeps a token valid that the website has already lost. Never lower it below 8 hours plus a margin: a token that dies before its cookie shows "session expired" to a user who was idle for just under 8 hours. Every refresh issues a new token with the full lifetime, so a user who keeps working is never signed out by it (#1014). `compose.hetzner.yaml` does not pass it, so on the boxes it changes only with a code change. |
+| `OpenIddict__EncryptionKey__Key` | — (throwaway) | base64 of a ≥32-byte key | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
+| `OpenIddict__ApiClientSecret` | `dev-api-secret-min-32-characters-long` | ≥32-char random secret | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. **Seeds a DB row**: rotating it needs the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing). Must equal that environment's `SMOKE_CLIENT_SECRET`. |
+| `OpenIddict__WebClient__RedirectUris__0` | `https://localhost:7017/callback` | `https://lotro-translator.pl/callback` | ✅ non-dev | plain | Must equal the Frontend callback (its public origin + `AuthSystem__CallbackPath`). No user name or password (#1108). Written to the DB **only when the client is created**: see the reseed traps. |
+| `OpenIddict__WebClient__PostLogoutRedirectUris__0` | `https://localhost:7017` | `https://lotro-translator.pl` | ✅ non-dev | plain | Frontend post-logout return URL. The first entry is also the website root that the account pages and e-mails link to. No user name or password (#1108). |
+| `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. Lowercase, no default port, no path or slash. |
+| `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.100/32` (Caddy's pinned static IP) | optional | plain | Trusts `X-Forwarded-*` only from Caddy's exact address (#399, narrowed to a /32 by #506). Keep in step with Caddy's `ipv4_address` on the default network in `compose.hetzner.yaml`. A malformed CIDR aborts boot. |
+| `FrontendCaller__Key` | — (the limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | The frontend's caller key (ADR-0054): a frontend call that carries it next to the visitor's address is rate-limited on that visitor, not on the frontend container. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); boot fails without it outside Development/Testing. **The same variable feeds tms-api's `FrontendCaller__Key` and the frontend's `AuthSystem__CallerKey` + `TranslationSystem__CallerKey`.** |
+| `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | Opens the full `/health` (ADR-0058): the database, SMTP and broker checks run only for a request that sends this value in `X-LOTRO-Health-Key`; anyone else gets 404. Same format rules as `FrontendCaller__Key`; boot fails without it outside Development/Testing. **The same variable feeds tms-api's `HealthCheck__Key`.** |
+| `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent volume (`auth-keys`); without it logins, antiforgery and reset links break on every deploy. |
+| `Email__Host` | `localhost` (the compose mailpit, published on `:1025`) | `smtp-relay.brevo.com` | ✅ all | plain | SMTP host. Validated at start in every environment. |
 | `Email__Port` | `1025` | `587` | ✅ all | plain | 1–65535. |
-| `Email__Mode` | `None` | `StartTls` | ✅ all | plain | One of `None` / `StartTls` / `TLS`. |
-| `Email__SenderEmail` | `noreply@lotro-translator.pl` | a Brevo-**authorised** sender (today `koniecdev@gmail.com`) | ✅ all | plain | ⚠️ Not a free-text label — an unauthorised sender is accepted by the relay and **silently dropped** by the receiver. See [E-mail deliverability](#e-mail-deliverability--the-sender-must-be-one-brevo-is-authorised-to-send-as). |
+| `Email__Mode` | `None` | `StartTls` | ✅ all | plain | One of `None` / `StartTls` / `SslOnConnect`. |
+| `Email__SenderEmail` | `noreply@lotro-translator.pl` | a Brevo-**authorised** sender (today `koniecdev@gmail.com`) | ✅ all | plain | ⚠️ Not a free-text label: an unauthorised sender is accepted by the relay and **silently dropped** by the receiver. See [E-mail deliverability](#e-mail-deliverability--the-sender-must-be-one-brevo-is-authorised-to-send-as). |
 | `Email__Sender` | `lotro-translator.pl` | `LOTRO PL` | ✅ all | plain | Display name. |
-| `Email__Username` / `Email__Password` | — | Brevo SMTP login + key | optional¹ | **secret** (Password) | ¹If `Username` is set, `Password` is required. The login is shaped `<id>@smtp-brevo.com` — **not** the Brevo account e-mail (that fails with `535`). |
-| `RabbitMq__Host` | `localhost` (the compose broker, published on `:5672`) | `rabbitmq` (the in-stack broker service) | ✅ all | plain | Validated on start (every environment) — but auth-api **boots and serves with the broker down**: outbox rows wait, the consumer retries. See [Message broker](#message-broker-rabbitmq). |
+| `Email__Username` / `Email__Password` | — | Brevo SMTP login + key | optional¹ | **secret** (Password) | ¹If `Username` is set, `Password` is required. The login is shaped `<id>@smtp-brevo.com`, **not** the Brevo account e-mail (that fails with `535`). |
+| `RabbitMq__Host` | `localhost` (the compose broker, published on `:5672`) | `rabbitmq` (the in-stack broker service) | ✅ all | plain | Validated at start in every environment, but auth-api **boots and serves with the broker down**: outbox rows wait, the consumer retries. See [Message broker](#message-broker-rabbitmq). |
 | `RabbitMq__Username` | `rabbitmq` | `rabbitmq` | ✅ all | plain | Matches the `RABBITMQ_DEFAULT_USER` literal in every compose file. |
-| `RabbitMq__Password` | `changeme` (appsettings.Development + the dev compose `RABBITMQ_PASSWORD`) | from `RABBITMQ_PASSWORD` | ✅ all | **secret** | ⚠️ The broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** — rotation is a lockstep dance, see the [secrets table](#secret-material--source-of-truth-and-how-to-rotate). |
+| `RabbitMq__Password` | `changeme` (appsettings.Development + the dev compose default) | from `RABBITMQ_PASSWORD` | ✅ all | **secret** | ⚠️ The broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only**: rotation is a lockstep change, see the [secrets table](#secret-material--source-of-truth-and-how-to-rotate). |
 | `AdminUser__Username` / `AdminUser__Email` | `appsettings.Local.json` (git-ignored; copy its `.example`) | from `AUTH_ADMIN_USERNAME` / `AUTH_ADMIN_EMAIL` | optional | plain | Seeds one admin **only when missing**, **without a password**; the operator sets it through the reset mail ([Admin account](#admin-account--first-sign-in-and-rotation), ADR-0056). Leave the e-mail blank to skip. Username must match `^[a-zA-Z0-9]+$` (ADR-0022) or auth-api fails at startup; the admin logs in **by e-mail**. |
 | `AdminUser__Password` | `appsettings.Local.json` | — (**never set**) | optional | plain (a dev value) | Read **only** in Development and Testing, so the host dev loop and the test suites keep a known admin login. Every other environment ignores it and logs warning `2352`. Neither compose file passes it, on purpose. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings → the compose aspire-dashboard) | — (empty: no sink today, ADR-0034) | optional | plain | Empty = telemetry export disabled. See [Observability](#observability--monitoring). |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` / `http/protobuf` | optional | plain | Defaults to `grpc`. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings → the compose aspire-dashboard) | `http://10.60.0.1:4317` (the box's Alloy agent) | optional | plain | Empty = no exporter at all. The protocol is fixed to `grpc` in `compose.hetzner.yaml`. See [Observability](#observability--monitoring). |
 
 ### tms-api
 
 | Variable | local-dev | Staging / Production | Required? | Source | Notes |
 |---|---|---|---|---|---|
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation + the CORS policy. |
-| `ASPNETCORE_URLS` | `https://localhost:5002` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); prod serves HTTP only (Caddy owns TLS). |
+| `ASPNETCORE_URLS` | `https://localhost:5002` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); deployed it serves HTTP only (Caddy owns TLS). |
 | `ConnectionStrings__TranslationDatabase` | `…;Database=lotro_translation;…;Password=changeme` (appsettings.Development) | Neon: `Host=…;Database=lotro_translation;Username=…;Password=…;Ssl Mode=Require;Timeout=60` | ✅ all | **secret** | TMS write context. Same Neon format rules as the auth string. Here `Timeout=60` is the TMS API's own limit for opening a connection. |
-| `Auth__Issuer` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ all | plain | MUST equal auth `OpenIddict__Issuer` (the token `iss`); tokens are rejected otherwise. |
-| `Auth__Authority` | — (unset → falls back to `Issuer`) | `https://auth.lotro-translator.pl` | optional² | plain | Back-channel for OIDC metadata + JWKS. ²Unset → falls back to `Issuer`; the dev host run relies on that fallback. Prod: must be `https` (OpenIddict rejects plain HTTP) and reachable from the container — i.e. the **public Caddy origin**, never `http://auth-api:8080`. |
+| `Auth__Issuer` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ all | plain | Must equal auth `OpenIddict__Issuer` (the token `iss`); tokens are rejected otherwise. |
+| `Auth__Authority` | — (unset → falls back to `Issuer`) | `https://auth.lotro-translator.pl` | optional | plain | Back-channel for OIDC metadata + JWKS. The dev host run relies on the fallback to `Issuer`. Deployed: must be `https` (OpenIddict rejects plain HTTP in Production) and reachable from the container, i.e. the **public Caddy origin**, never `http://auth-api:8080`. |
 | `Auth__Audience` | `lotrokoniecdev-api` | `lotrokoniecdev-api` | ✅ all | plain | Default in base `appsettings.json`. |
 | `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. |
 | `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.100/32` (Caddy's pinned static IP) | optional | plain | See the auth-api row. |
-| `FrontendCaller__Key` | — (the limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | The same key and rule as auth-api's `FrontendCaller__Key` (ADR-0054, #823): a frontend call that carries it next to the visitor's address is rate-limited on that visitor, not on the frontend container. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. |
-| `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | The same key and rule as auth-api's `HealthCheck__Key` (ADR-0058, #853): the full `/health` runs the database check only for a request that sends it in `X-LOTRO-Health-Key`, and answers 404 to anyone else. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | `http://localhost:4317` / `grpc` (launchSettings) | — (empty: no sink today) | optional | plain | Empty endpoint = export disabled. |
-| `Bootstrap__Enabled` | `false` | `false` | optional | plain | One-time DB seed of the first export (spec 0001). Off by default. |
-| `RabbitMq__Host` / `RabbitMq__Username` / `RabbitMq__Password` | `localhost` / `rabbitmq` / `changeme` (appsettings.Development) | `rabbitmq` / `rabbitmq` / from `RABBITMQ_PASSWORD` | ✅ all | **secret** (Password) | The broker auth-api uses, with the same user: tms-api consumes the `AccountErased` events of ADR-0065 from its own queue `tms.account-erased`. Validated on start, but tms-api **boots and serves with the broker down**: the consumer retries its connection, and the AuthSystem's outbox keeps the event until it is delivered. |
-| `TranslationFileDiskCache__Directory` | — (unset → a private folder per process in the temp folder) | `/tmp/lotro-translation-files` (set in `compose.hetzner.yaml`) | optional | plain | Where full downloads of the translation file are served from (ADR-0064). Fixed in the containers so a crash restart reuses and sweeps the one copy (about 82 MB at full size) instead of leaving one behind. It must belong to this one process; an empty value stops the boot. |
-| `Bootstrap__GameVersion` / `Bootstrap__ExportedTextPath` / `Bootstrap__PolishTextPath` | — / — / `/app/translations/polish.txt` | as needed | optional | plain | Only consulted when `Bootstrap__Enabled=true`. |
+| `FrontendCaller__Key` | — (the limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | The same key and rules as auth-api's `FrontendCaller__Key` (ADR-0054, #823). |
+| `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | The same key and rules as auth-api's `HealthCheck__Key` (ADR-0058); here the full `/health` runs the database check. |
+| `RabbitMq__Host` / `RabbitMq__Username` / `RabbitMq__Password` | `localhost` / `rabbitmq` / `changeme` (appsettings.Development) | `rabbitmq` / `rabbitmq` / from `RABBITMQ_PASSWORD` | ✅ all | **secret** (Password) | The broker and the user auth-api uses: tms-api consumes the `AccountErased` events of ADR-0065 from its own queue `tms.account-erased`. Validated at start, but tms-api **boots and serves with the broker down**: the consumer retries its connection, and the AuthSystem's outbox keeps the event until it is delivered. |
+| `TranslationFileDiskCache__Directory` | — (unset → a private folder per process in the temp folder) | `/tmp/lotro-translation-files` (set in `compose.hetzner.yaml`) | optional | plain | Where full downloads of the translation file are served from (ADR-0064). Fixed in the containers, so a crash restart reuses and sweeps the one copy (about 82 MB at full size) instead of leaving one behind. It must belong to this one process; an empty value stops the boot. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings) | `http://10.60.0.1:4317` | optional | plain | See the auth-api row. |
 
 ### frontend
 
-Runs on the **host** in dev (`dotnet run`, ADR-0006 — and since #190 / M6-14 so do auth-api + tms-api) —
-its dev column is `appsettings.Development.json` + `launchSettings.json`; it is containerized only in
-Staging/Production.
+Runs on the **host** in dev (`dotnet run`, ADR-0006), so its dev column is
+`appsettings.Development.json` + `launchSettings.json`; it is containerized only in Staging and
+Production.
 
 | Variable | local-dev | Staging / Production | Required? | Source | Notes |
 |---|---|---|---|---|---|
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates the DP keyring guard. |
-| `ASPNETCORE_URLS` | `https://localhost:7017` (launchSettings) | `http://+:8080` | ✅ all | plain | Prod serves HTTP only (Caddy owns TLS). |
+| `ASPNETCORE_URLS` | `https://localhost:7017` (launchSettings) | `http://+:8080` | ✅ all | plain | Deployed it serves HTTP only (Caddy owns TLS). |
 | `AuthSystem__Authority` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ all | plain | Drives the `/authorize` redirect (front-channel) **and** discovery/token (back-channel). |
-| `AuthSystem__BaseUrl` | `https://localhost:5003/` | `https://auth.lotro-translator.pl/` | ✅ all | plain | Auth origin (trailing slash). MUST be the same origin as auth's `OpenIddict__Issuer`: the refresh token revoke (at sign-out, and when the website ends a session on its own) follows the discovered `revocation_endpoint`, and the frontend refuses it on any other origin (#964, #1027). |
+| `AuthSystem__BaseUrl` | `https://localhost:5003/` | `https://auth.lotro-translator.pl/` | ✅ all | plain | Auth origin (trailing slash). Must be the same origin as auth's `OpenIddict__Issuer`: see [consistency rule 2](#consistency-rules-that-bite). |
 | `AuthSystem__ClientId` | `lotrokoniecdev-web` | `lotrokoniecdev-web` | ✅ all | plain | Must match the OpenIddict web-client id. |
-| `AuthSystem__CallbackPath` | `/callback` | `/callback` | ✅ all | plain | Origin + this MUST be registered in auth `RedirectUris`. |
-| `AuthSystem__SignedOutCallbackPath` | `/signout-callback-oidc` | `/signout-callback-oidc` | ✅ all | plain | Origin + this MUST be in auth `PostLogoutRedirectUris`. |
+| `AuthSystem__CallbackPath` | `/callback` | `/callback` | ✅ all | plain | Origin + this must be registered in auth `RedirectUris`. |
+| `AuthSystem__SignedOutCallbackPath` | `/signout-callback-oidc` | `/signout-callback-oidc` | ✅ all | plain | Origin + this must be in auth `PostLogoutRedirectUris`. |
 | `AuthSystem__Scopes` | `openid,email,profile,roles,api,offline_access` | same | ✅ all | plain | At least one scope. |
 | `TranslationSystem__BaseUrl` | `https://localhost:5002/` | `https://tms.lotro-translator.pl/` | ✅ all | plain | TMS API origin (trailing slash). |
-| `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent volume (`frontend-keys`, ADR-0005); else antiforgery + auth cookies break on deploy. |
-| `AuthSystem__CallerKey` | — (the auth limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | Sent with the visitor's address on every auth API call (ADR-0054). Must equal auth-api's `FrontendCaller__Key` — compose reads both from the one variable. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. |
-| `TranslationSystem__CallerKey` | — (the TMS limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | Sent with the visitor's address on every TMS API call (ADR-0054, #823). Must equal tms-api's `FrontendCaller__Key` — the same one variable again. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. |
+| `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent volume (`frontend-keys`, ADR-0005); without it antiforgery and auth cookies break on every deploy. |
+| `AuthSystem__CallerKey` | — (the auth limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | Sent with the visitor's address on every auth API call (ADR-0054). Must equal auth-api's `FrontendCaller__Key`; compose reads both from the one variable. Same format rules as there. |
+| `TranslationSystem__CallerKey` | — (the TMS limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | Sent with the visitor's address on every TMS API call (ADR-0054, #823). Must equal tms-api's `FrontendCaller__Key`: the same one variable again. |
 | `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.100/32` (Caddy's pinned static IP) | optional | plain | See the auth-api row. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | `http://localhost:4317` / `grpc` (launchSettings) | — (empty: no sink today) | optional | plain | Empty endpoint = export disabled. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings) | `http://10.60.0.1:4317` | optional | plain | See the auth-api row. |
 
 ### migrator
 
-A one-shot job — reads exactly the two connection strings (see [Database migrations](#database-migrations)
-for the full strategy):
+A one-shot job that reads only the two connection strings (see
+[Database migrations](#database-migrations)):
 
 | Variable | local-dev | Staging / Production | Required? | Source | Notes |
 |---|---|---|---|---|---|
@@ -306,19 +297,21 @@ for the full strategy):
 
 ### Box-identity variables (not secrets)
 
-These decide **which environment a box is** — full list with placeholders in `.env.hetzner.example`:
-`COMPOSE_PROJECT_NAME` (`lotro-prod` | `lotro-staging`), `IMAGE_NAMESPACE`, `IMAGE_TAG`,
-`DOMAIN_APP` / `DOMAIN_AUTH` / `DOMAIN_TMS`, `ACME_EMAIL`, `TKS_DOMAIN_*` (the guest TheKittySaver
-vhosts), `DOMAIN_OBS` / `OBS_ALLOWED_PUSH_IP` / `OBS_PUSH_USER` (the observability ingest vhost —
-**backend box only**, the other box keeps the inert compose defaults; #755), `XROBOTS` (SEO
-crawler control, #531 — Caddy stamps it as `X-Robots-Tag` on every LOTRO vhost response; prod
-leaves it unset → `all` (explicit no-op), the **staging box sets
-`XROBOTS="noindex, nofollow"`** so the deliberately-public staging trio never gets indexed as
-duplicate content of prod. The TKS vhosts are excluded on purpose — TKS stamps the header
-app-side, koniecdev/TheKittySaver#390), `OOM_SCORE_ADJ_APP` (**opposite on the two boxes** —
-`500` on staging, `0` on prod; see [Memory pressure](#memory-pressure-who-the-kernel-kills-first)).
-The observability project has its own `/opt/obs/.env` with `OBS_ALLOY_OOM_SCORE_ADJ`, which inverts
-the same way (`-300` staging, `300` prod).
+These decide **which environment a box is**. The full list with placeholders is in
+`.env.hetzner.example`:
+
+- `COMPOSE_PROJECT_NAME` (`lotro-prod` | `lotro-staging`), `IMAGE_NAMESPACE`, `IMAGE_TAG`,
+  `DOMAIN_APP` / `DOMAIN_AUTH` / `DOMAIN_TMS`, `ACME_EMAIL`.
+- `TKS_DOMAIN_*`: the guest TheKittySaver vhosts.
+- `DOMAIN_OBS` / `OBS_ALLOWED_PUSH_IP` / `OBS_PUSH_USER`: the observability ingest vhost, on the
+  **backend box only**. The other box keeps the inert compose defaults (#755).
+- `XROBOTS`: Caddy stamps it as `X-Robots-Tag` on every LOTRO vhost response (#531). Prod leaves it
+  unset (→ `all`, a no-op); the **staging box sets `XROBOTS="noindex, nofollow"`**, so the public
+  staging trio is never indexed as a copy of prod. The TKS vhosts are left out, because TKS sets the
+  header in its own app (koniecdev/TheKittySaver#390).
+- `OOM_SCORE_ADJ_APP`: **opposite on the two boxes**, `500` on staging and `0` on prod (see
+  [Memory pressure](#memory-pressure-who-the-kernel-kills-first)). The observability project's
+  `/opt/obs/.env` has `OBS_ALLOY_OOM_SCORE_ADJ`, which inverts the same way (`-300` staging, `300` prod).
 
 ## Secrets
 

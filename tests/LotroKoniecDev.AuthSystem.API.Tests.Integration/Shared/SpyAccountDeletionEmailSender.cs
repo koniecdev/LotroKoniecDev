@@ -6,10 +6,9 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// Keeps every deletion e-mail together with the inbox it went to, and a test reads only the inbox of
-/// its own account. The e-mails travel through the outbox after the request has ended, so a mail from an
-/// earlier test can still arrive after <see cref="Reset"/>. When the spy kept only the last mail and one
-/// count for all inboxes, such a late mail could pass for the test's own (#911).
+/// Keeps every deletion e-mail with the inbox it went to, and a test reads only its own account's inbox.
+/// The e-mails travel through the outbox after the request has ended, so a mail from an earlier test can
+/// still arrive after <see cref="Reset"/> and must not pass for the test's own (#911).
 /// </summary>
 #pragma warning disable CA1515
 public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
@@ -80,9 +79,8 @@ public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
         ScheduledEmailsTo(recipient).LastOrDefault()?.CancelToken;
 
     /// <summary>
-    /// Waits until a deletion-scheduled mail reaches this inbox, and throws when the time runs out. Any
-    /// mail since the last <see cref="Reset"/> counts, so a test that schedules twice for one inbox resets
-    /// in between.
+    /// Throws when the time runs out. Any mail since the last <see cref="Reset"/> counts, so a test that
+    /// schedules twice for one inbox resets in between.
     /// </summary>
     public Task WaitForScheduledCaptureAsync(string recipient, TimeSpan? timeout = null) =>
         MailWait.UntilAsync(
@@ -102,8 +100,7 @@ public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
             timeout);
 
     /// <summary>
-    /// Waits until a deletion-cancelled mail reaches this inbox, and throws when the time runs out. That
-    /// notice travels the same pipeline as the scheduled mail.
+    /// Throws when the time runs out.
     /// </summary>
     public Task WaitForCancelledCaptureAsync(string recipient, TimeSpan? timeout = null) =>
         MailWait.UntilAsync(

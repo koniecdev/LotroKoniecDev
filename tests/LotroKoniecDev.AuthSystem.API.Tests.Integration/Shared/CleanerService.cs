@@ -18,12 +18,10 @@ internal sealed class CleanerService
         await using AsyncServiceScope scope = _scopeFactory.CreateAsyncScope();
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
 
-        // PostgreSQL keeps the case of the identifiers EF Core writes, so we have to quote them.
-        // TRUNCATE ... CASCADE is faster than DELETE and clears whole foreign-key chains in one
-        // statement.
-        // The outbox and inbox tables have no foreign key to Users, so they must be listed here. Without
-        // that, an unprocessed row left behind by one test, for example one with an unroutable type,
-        // keeps failing every relay pass in every later test of the collection.
+        // PostgreSQL keeps the case of the identifiers EF Core writes, so they are quoted. TRUNCATE ...
+        // CASCADE clears whole foreign-key chains in one statement. The outbox and inbox tables have no
+        // foreign key to Users, so they are listed: an unprocessed row left by one test, such as one with
+        // an unroutable type, would fail every relay pass in every later test.
         await db.Database.ExecuteSqlRawAsync("""
                                              TRUNCATE TABLE
                                                  authsystem."UserRoles",

@@ -3,9 +3,8 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// Every account page, found by reflection so a theory can list them. A test in
-/// <c>SecurityHeadersTests</c> proves the list matches the pages the app really maps, so a new page
-/// cannot slip past the suites that check every page.
+/// Found by reflection. <c>SecurityHeadersTests</c> proves the list matches the pages the app maps, so a new
+/// page cannot slip past the suites that check every page.
 /// </summary>
 internal static class AccountPages
 {

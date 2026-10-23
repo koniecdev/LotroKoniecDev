@@ -6,15 +6,11 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 internal interface IAccountErasureService
 {
     /// <summary>
-    /// A failure means the account still waits for its erasure, so the finalizer's next run tries again.
-    /// When the emergency lock failed too, that is assumed, not known.
-    /// It takes no cancellation token, so the stop signal of a shutdown does not end an erasure halfway.
-    /// No later run comes back to an erased account, so a cleanup step that a shutdown skipped would
-    /// never be done (#981). Only the end of the process can still cut an erasure: Docker's kill at the
-    /// end of its stop grace period, or the host giving up after its own stop timeout. The log may then
-    /// show the "auth data anonymized" line with no cleanup line after it. A kill can lose the last log
-    /// lines too, so the sure sign is an anonymized account that still has roles, claims or logins.
-    /// The cleanup may empty the context, so <paramref name="user"/> must not be saved afterwards.
+    /// A failure means the account still waits (assumed when the emergency lock failed too), so the next
+    /// run tries again. No cancellation token, so a shutdown does not end an erasure halfway: no run comes
+    /// back to an erased account, so a skipped cleanup step would never be done (#981). Only a kill can
+    /// still cut it; the sign is an anonymized account that still has roles, claims or logins. The cleanup
+    /// may empty the context, so <paramref name="user"/> must not be saved afterwards.
     /// </summary>
     Task<Result<AccountErasureOutcome>> EraseAsync(ApplicationUser user);
 }

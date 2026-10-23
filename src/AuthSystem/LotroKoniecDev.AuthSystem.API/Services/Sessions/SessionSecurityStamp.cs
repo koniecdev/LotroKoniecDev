@@ -6,16 +6,13 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 namespace LotroKoniecDev.AuthSystem.API.Services.Sessions;
 
 /// <summary>
-/// Ties an OpenIddict session to the account's security stamp, the way
-/// <see cref="SecurityStampCookieValidator"/> ties the auth cookie to it (#848). Every sign-in writes
-/// the current stamp into the principal. Every code redemption and every refresh compares it with the
-/// account's stamp again. So a flow that changes the stamp ends the session, even when the token
-/// revocation failed or never ran.
+/// Ties an OpenIddict session to the security stamp, as <see cref="SecurityStampCookieValidator"/> does
+/// for the cookie (#848): every code exchange and refresh compares it again, so a stamp change ends the
+/// session even when token revocation failed.
 /// </summary>
 /// <remarks>
-/// The claim must get no destination. OpenIddict then keeps it only in the authorization code and the
-/// refresh token, which only this server can read. Access tokens are not encrypted, and the stamp is
-/// server-side state that Identity checks its own tokens against, so no client needs to see it.
+/// The claim must get no destination, so it stays in the code and the refresh token, which only this
+/// server reads. Access tokens are not encrypted, and no client needs the stamp.
 /// </remarks>
 internal static class SessionSecurityStamp
 {
@@ -31,8 +28,7 @@ internal static class SessionSecurityStamp
     }
 
     /// <summary>
-    /// A principal with no stamp claim fails too. That is a token issued before this check existed, and
-    /// letting it through would leave a way around the check.
+    /// A principal with no stamp claim fails too, or an older token would be a way around the check.
     /// </summary>
     public static Task<bool> IsCurrentAsync(
         ClaimsPrincipal principal,

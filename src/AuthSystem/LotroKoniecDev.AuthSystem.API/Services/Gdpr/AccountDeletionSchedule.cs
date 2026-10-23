@@ -31,10 +31,8 @@ internal sealed class AccountDeletionSchedule : IAccountDeletionSchedule
 
     public Expression<Func<ApplicationUser, bool>> IsDueBy(DateTimeOffset moment)
     {
-        // "The later of the two dates has passed" is the same statement as "both have passed", and
-        // this form is two column comparisons against constants, which the provider translates. The
-        // unit tests check the two readings against each other over a grid of timestamps, because the
-        // rule is written twice here and only one of the two ever decides whether data survives.
+        // "The later date has passed" equals "both have passed", which the provider translates as two
+        // column comparisons. The unit tests check both readings against each other over a grid.
         DateTimeOffset scheduledBefore = moment - _gdprSettings.DeletionGracePeriod;
         DateTimeOffset armedBefore = _revertWindow.LiveSince(moment);
 

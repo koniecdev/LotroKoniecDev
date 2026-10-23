@@ -7,11 +7,9 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Accounts;
 
 /// <inheritdoc />
 /// <remarks>
-/// One indexed lookup on <see cref="ApplicationUser.NormalizedEmailChangeRevertTo"/>, which
-/// registration runs on every attempt. How long the address stays held is
-/// <see cref="IEmailChangeRevertWindow"/>'s call, so this reservation and the erasure hold of #685
-/// cannot disagree about when an undo dies. The address-taken refusal in <c>RevertEmailChange</c> is
-/// what still answers for the tail between the window closing and the token itself expiring.
+/// One indexed lookup, which registration runs on every attempt. <see cref="IEmailChangeRevertWindow"/>
+/// decides how long the address stays held, so this and the erasure hold of #685 agree. The address-taken
+/// refusal in <c>RevertEmailChange</c> covers the moment between the window closing and the token expiring.
 /// </remarks>
 internal sealed class EmailChangeRevertReservation : IEmailChangeRevertReservation
 {
@@ -34,9 +32,8 @@ internal sealed class EmailChangeRevertReservation : IEmailChangeRevertReservati
 
     public async Task<bool> IsReservedAsync(string email, Guid? exceptUserId, CancellationToken cancellationToken)
     {
-        // The same normalizer UserManager.NormalizeEmail and FindByEmailAsync both delegate to, so
-        // this lookup and the uniqueness check next to it in every caller agree on what "the same
-        // address" means.
+        // The normalizer UserManager uses, so this and the callers' uniqueness checks agree on "the same
+        // address".
         string? normalized = _keyNormalizer.NormalizeEmail(email);
         if (string.IsNullOrWhiteSpace(normalized))
         {
@@ -47,9 +44,8 @@ internal sealed class EmailChangeRevertReservation : IEmailChangeRevertReservati
 
         IQueryable<ApplicationUser> holders = _db.Users
             .Where(user => user.NormalizedEmailChangeRevertTo == normalized
-                           // A row armed before #684 has no timestamp. It is read as not reserved,
-                           // which is the behavior it shipped under; nothing is backfilled, because
-                           // there is no honest value to backfill it with.
+                           // A row with no timestamp is not reserved; there is no honest value to
+                           // backfill it with.
                            && user.EmailChangeRevertArmedAt != null
                            && user.EmailChangeRevertArmedAt > armedAfter);
 

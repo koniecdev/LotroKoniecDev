@@ -11,10 +11,8 @@ using LotroKoniecDev.SharedKernel.IntegrationEvents;
 namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 
 /// <summary>
-/// Keeps the outbox in line with the erased accounts (ADR-0065). It works on every erased account, not
-/// only the ones a run has just erased, so it also catches a message the relay sent after the erasure,
-/// and every account an earlier version erased. <see cref="ErasedAccounts"/> says which accounts those
-/// are.
+/// Works on every erased account (<see cref="ErasedAccounts"/>), not only the ones a run just erased, so
+/// it also catches a message the relay sent after the erasure (ADR-0065).
 /// </summary>
 internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
 {
@@ -33,18 +31,12 @@ internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
     }
 
     /// <summary>
-    /// Cuts every sent message of an erased account down to <c>{"IdentityUserId": …}</c>. An e-mail
-    /// change message carries both addresses, and the outbox keeps every row it has sent (ADR-0037 §6),
-    /// so without this those addresses would stay for good. The row keeps its type, its times and the
-    /// account id, which is all the diagnostics need.
+    /// Cuts every sent message of an erased account down to <c>{"IdentityUserId": …}</c>: the outbox keeps
+    /// sent rows (ADR-0037 §6), and an e-mail change message carries both addresses.
     /// </summary>
     /// <remarks>
-    /// An unsent row is left alone. The consumer would read a cut payload as poison, and deleting the
-    /// row could race the relay that is sending it. Once the relay has sent it, the next run cuts it.
-    /// The duplicate check of ADR-0037 reads <c>InboxMessages</c>, never the outbox, so a cut row changes
-    /// nothing for the consumer.
-    /// The payload is <c>text</c>. A row that is not JSON is skipped instead of failing the whole
-    /// statement, so one bad row cannot stop every later run.
+    /// An unsent row is left alone: the consumer would read a cut payload as poison, and the next run cuts
+    /// it once sent. A row that is not JSON is skipped, so one bad row cannot stop every later run.
     /// </remarks>
     public async Task<int> ScrubSentMessagesAsync(CancellationToken cancellationToken)
     {
@@ -65,9 +57,8 @@ internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
         string payload = ColumnOf(outboxType, table, nameof(OutboxMessage.Payload));
         string processedOn = ColumnOf(outboxType, table, nameof(OutboxMessage.ProcessedOn));
 
-        // The LIKE keeps the JSON parsing to the few rows that name an erased account; an AccountErased
-        // row holds only the id already. The CASE keeps the jsonb cast behind its validity check, so a
-        // row that is not JSON gets a null body and matches nothing.
+        // The LIKE limits JSON parsing to rows that name an erased account. The CASE keeps the jsonb cast
+        // behind its validity check, so a row that is not JSON matches nothing.
         string sql = $"""
             WITH sent AS MATERIALIZED (
                 SELECT "{id}" AS id,
@@ -100,12 +91,10 @@ internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
     }
 
     /// <summary>
-    /// Writes an <see cref="AccountErased"/> for every erased account that has none, so the TMS erases
-    /// its copy of the person's name and address. The erasure writes the message in its own save, so
-    /// this only finds accounts erased before ADR-0065. It is a check in every run and not a one-off
-    /// migration, so the rows only appear once this release runs. A release rolled back to one that
-    /// cannot route the type still meets them: its relay marks them failed and keeps them, and they
-    /// go out once a release that routes them is back (runbook, "Rolling back past ADR-0065").
+    /// The erasure writes this message itself, so this only finds accounts erased before ADR-0065. A
+    /// check in every run, not a migration, so a rollback to a release that cannot route the type only
+    /// leaves the rows failed until a release that routes them returns (runbook, "Rolling back past
+    /// ADR-0065").
     /// </summary>
     public async Task<int> AnnounceUnannouncedErasuresAsync(CancellationToken cancellationToken)
     {
@@ -121,7 +110,7 @@ internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
             return 0;
         }
 
-        // One row per erased account, so this list stays as small as the list of erased accounts.
+        // One row per erased account, so this list stays small.
         List<string> announcedPayloads = await _dbContext.OutboxMessages
             .Where(message => message.Type == nameof(AccountErased))
             .Select(message => message.Payload)

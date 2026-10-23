@@ -3,14 +3,10 @@ using LotroKoniecDev.AuthSystem.API.Extensions;
 namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 
 /// <summary>
-/// The inbox an address reaches, as far as a send budget can tell (ADR-0057). Mail providers deliver
-/// many spellings to one inbox: a <c>+tag</c> after the name, and at Gmail also dots in the name and the
-/// googlemail.com domain. Every mail budget keys on this value, so all of those spellings share one
-/// budget.
+/// The inbox an address reaches, as far as a send budget can tell (ADR-0057): a <c>+tag</c>, and at Gmail
+/// dots and googlemail.com, reach one inbox, so they share one budget. The key only counts sends; the
+/// mail still goes to the address as typed.
 /// </summary>
-/// <remarks>
-/// The key only counts sends. The mail still goes to the address as the user typed it.
-/// </remarks>
 internal sealed record MailboxKey
 {
     private const string GmailDomain = "GMAIL.COM";
@@ -19,16 +15,15 @@ internal sealed record MailboxKey
     public string Value { get; }
 
     /// <summary>
-    /// Builds the key from the address as Identity normalized it: <c>ApplicationUser.NormalizedEmail</c>
-    /// where an account exists, <c>UserManager.NormalizeEmail</c> where none does. Starting from Identity's
-    /// form keeps every spelling Identity treats as one account inside one budget.
+    /// From Identity's normalized form (<c>ApplicationUser.NormalizedEmail</c>, or
+    /// <c>UserManager.NormalizeEmail</c> where no account exists), so every spelling Identity treats as one
+    /// account stays in one budget.
     /// </summary>
     public static MailboxKey FromNormalizedEmail(string? normalizedEmail)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(normalizedEmail);
 
-        // The same fold as Identity's default normalizer. It changes nothing on Identity's output, and it
-        // keeps an address passed as typed in the same budget, combining accents included (#692).
+        // Identity's own fold: a no-op on its output, and it keeps a typed address in the same budget (#692).
         string address = normalizedEmail.Normalize().ToUpperInvariant();
 
         int at = address.LastIndexOf('@');

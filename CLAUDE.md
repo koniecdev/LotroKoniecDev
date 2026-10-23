@@ -729,6 +729,13 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   reason and the pointer (`spec 0001`, `ADR-0047`, `#624`); leave the full story to the ADR or
   the spec, and never repeat the same explanation in a doc comment, an inline comment and a
   document at once.
+- **Comments stay short and carry no history (2026-10-23).** As a rough guide, an inline why is
+  one or two lines, a member doc up to three sentences, a type doc up to about five. No
+  `<summary>` or `<param>` that repeats a name, and no test `<summary>` that repeats the test
+  name. No story of how the code got here ("used to", "before #123", "the first attempt"): git,
+  the PR and the ADR keep it, and a ticket number stays only as a pointer to the reason. A comment
+  that no longer matches the code is a defect, fixed in the same change. The 2026-10-23 sweep cut
+  about a third of all comment lines because these rules had drifted.
 - Code & identifiers in **English**.
 - **Log lines use the `[LoggerMessage]` source generator (#1143).** Each one is a
   `private static partial void Log…(ILogger logger, …)` method on a `partial` type, and it sits

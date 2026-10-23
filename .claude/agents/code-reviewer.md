@@ -63,6 +63,9 @@ Pattern compliance (ADR-0001 — slim SRP handlers):
 - **Consistency**: does the new code follow patterns established in the codebase? (Result monad, DomainErrors factories, extension methods, naming conventions from .editorconfig)
 - **DI registration**: if new services were added, are they registered? Correct lifetime?
 - **Thread safety**: if touching DatFileHandler or shared state, verify lock usage.
+- **Comments**: a new or changed comment that restates the code, tells history, repeats an
+  explanation that already exists elsewhere, or runs past the size guide in CLAUDE.md → "Code
+  style" is Minor. A comment that says something the code does not do is Major.
 
 ### Phase 6: Edge-case audit (anti-happy-path gate)
 

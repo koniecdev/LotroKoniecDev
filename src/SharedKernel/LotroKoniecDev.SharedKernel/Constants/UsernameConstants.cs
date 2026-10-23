@@ -1,9 +1,8 @@
 namespace LotroKoniecDev.SharedKernel.Constants;
 
 /// <summary>
-/// Which characters a username may hold (ADR-0022): ASCII letters and digits only. The username is
-/// just a display handle. It is unique and has no spaces or special characters, while the login
-/// identifier is the e-mail. Leaving '@' out keeps the two sets of identifiers apart, because
+/// A username is only a display handle; the login identifier is the e-mail (ADR-0022). Leaving '@'
+/// out of the allowed characters keeps the two apart, because
 /// <see cref="EmailConstants.RegexPattern"/> requires an '@'.
 /// </summary>
 public static class UsernameConstants

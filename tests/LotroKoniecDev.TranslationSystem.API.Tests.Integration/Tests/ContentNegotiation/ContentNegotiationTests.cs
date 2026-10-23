@@ -4,17 +4,15 @@ using LotroKoniecDev.SharedKernel.Authorization;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.ContentNegotiation;
 
 /// <summary>
-/// The list and detail endpoints that can carry links serve one payload in two forms: plain JSON or our
-/// vendor type. The other HATEOAS suites check the link sets; this one pins what caches depend on: the
-/// media type served follows the <c>Accept</c> header, and <c>Vary: Accept</c> is sent for both forms
-/// (RFC 9110 §12.5.5).
+/// Pins what caches depend on: the media type follows <c>Accept</c>, and <c>Vary: Accept</c> is sent for
+/// both forms (RFC 9110 §12.5.5).
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class ContentNegotiationTests
 {
     private const string ListRoute = "/api/v1/translations";
 
-    // The vendor media type is the public wire contract (LotroKoniecDev.Hateoas MediaTypes.HateoasJson).
+    // Written out, not taken from MediaTypes.HateoasJson, because it is the public wire contract.
     private const string HateoasMediaType = "application/vnd.dev-lotrokoniecdev.hateoas.json";
     private const string JsonMediaType = "application/json";
 
@@ -41,8 +39,6 @@ public sealed class ContentNegotiationTests
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(expectedMediaType);
-        // Vary: Accept is appended regardless of the negotiated representation so shared caches treat
-        // the two media types as distinct entities.
         response.Headers.Vary.ShouldContain("Accept");
     }
 

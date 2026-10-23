@@ -53,7 +53,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
         GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create("48.0").Value, Now).Value;
         dbContext.GameVersions.Add(gameVersion);
 
-        // Seeded rows reference a local TranslatorId (ADR-0004), so the FK target must exist.
+        // The submitter's foreign key target must exist (ADR-0004).
         Translator seeder = Translator.Create(
             IdentityId.Create(), DisplayName.Create("Seed Author").Value, email: null, Now).Value;
         dbContext.Translators.Add(seeder);
@@ -77,7 +77,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
             Route, new UpsertTranslationRequest(FileId, 1, "Witaj w Srodziemiu!"));
         TranslationDetailResponse? body = await response.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
 
-        // Assert: the submitter is the lazily provisioned Translator, carrying the JWT display name.
+        // Assert: the submitter is the provisioned Translator with the token's display name.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         body.ShouldNotBeNull();
         body.Status.ShouldBe(TranslationStatus.Draft);
@@ -89,7 +89,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Upsert_OnApprovedRow_ShouldMoveToDraftAndRegenerateArtifact()
     {
-        // Arrange: two approved rows in the distributed file; editing row 1 must pull it out (spec 0001 Q1).
+        // Arrange: editing approved row 1 must pull it out of the file (spec 0001 Q1).
         await SeedAsync(gossipId: 1, source: "One", SeedStatus.Approved, polish: "Alfa");
         await SeedAsync(gossipId: 2, source: "Two", SeedStatus.Approved, polish: "Beta");
         await RebuildArtifactAsync();
@@ -101,14 +101,13 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
             Route, new UpsertTranslationRequest(FileId, 1, "Alfa nowa"));
         TranslationDetailResponse? body = await response.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
 
-        // The artifact is rebuilt in the background, debounced (PERF-04): the upsert responded
-        // already; poll the download until the edited row has dropped out of the file.
+        // The rebuild runs in the background (PERF-04), so poll until row 1 is gone.
         (HttpResponseMessage download, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
             _factory.CreateClient(),
             FileRoute,
             (candidate, content) => candidate.IsSuccessStatusCode && !content.Contains($"{FileId}||1||"));
 
-        // Assert: the edited row is now a draft and gone from the freshly rebuilt file; row 2 stays.
+        // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         body!.Status.ShouldBe(TranslationStatus.Draft);
         download.Headers.ETag.ShouldNotBe(firstEtag);
@@ -119,7 +118,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Upsert_ForUnknownFragment_ShouldReturn404()
     {
-        // Arrange: rows are born from import; there is no row for this pair.
+        // Arrange: rows come only from import.
         using HttpClient client = TranslatorClient(Guid.NewGuid());
 
         // Act
@@ -133,7 +132,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Upsert_OnRemovedRow_ShouldReturn422()
     {
-        // Arrange: a soft-removed row is excluded from translation work.
+        // Arrange
         await SeedAsync(gossipId: 3, source: "Three", SeedStatus.ApprovedThenRemoved, polish: "Gamma");
         using HttpClient client = TranslatorClient(Guid.NewGuid());
 
@@ -163,8 +162,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Upsert_WithTextLongerThanTheDatAllows_ShouldReturn400()
     {
-        // Arrange: over the DAT's per-piece ceiling the patcher cannot write the row at all, so the
-        // API must refuse it rather than let it reach the artifact and fail on a player's machine (#598).
+        // Arrange: the patcher could never write this row, so the API refuses it (#598).
         await SeedAsync(gossipId: 1, source: "One", SeedStatus.Untranslated);
         using HttpClient client = TranslatorClient(Guid.NewGuid());
 
@@ -180,8 +178,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Upsert_WithTextExactlyAtTheDatLimit_ShouldPersistTheWholeText()
     {
-        // Arrange: the boundary is legal, and the check constraint added alongside the validator must
-        // accept it too: a cap that silently truncated the last character would corrupt the artifact.
+        // Arrange: the CHECK constraint must accept the boundary too.
         await SeedAsync(gossipId: 1, source: "One", SeedStatus.Untranslated);
         using HttpClient client = TranslatorClient(Guid.NewGuid());
         string atLimit = new('ż', DatFormatConstants.MaxTranslatedTextLength);
@@ -200,9 +197,8 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     [Fact]
     public async Task TranslatedTextCheckConstraint_ShouldRejectAnOverLongWriteThatBypassesTheApi()
     {
-        // Arrange: the backstop of #598 sits below both the validator and the domain guard, so the
-        // only way to exercise it is to write past them. Pinned because a check constraint dropped by
-        // a later model change would leave no other trace.
+        // Arrange: the CHECK backstop (#598) sits below the validator and the domain guard, so only a
+        // write past them reaches it. A dropped constraint would leave no other trace.
         await SeedAsync(gossipId: 1, source: "One", SeedStatus.Untranslated);
 
         using IServiceScope scope = _factory.Services.CreateScope();

@@ -15,10 +15,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.TranslationFiles;
 
 /// <summary>
-/// Pins the projector's write shape against real PostgreSQL (PERF-04/#289): the first build per
-/// language inserts the artifact row; every later rebuild refreshes it with one set-based UPDATE
-/// and never re-fetches the previous multi-MB content. The DB command stream is the only
-/// only way to see that "the old content was not loaded", the same approach PERF-01 uses.
+/// Pins the projector's writes against real PostgreSQL (PERF-04): the first build inserts, every later
+/// one is a single UPDATE that never reads the old content. Only the recorded SQL can show that.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class PrecomputedTranslationFileProjectorTests : IAsyncLifetime
@@ -68,7 +66,7 @@ public sealed class PrecomputedTranslationFileProjectorTests : IAsyncLifetime
         // Act
         await RebuildAsync();
 
-        // Assert: no row existed, so the set-based refresh missed and the first build inserted.
+        // Assert
         HttpResponseMessage download = await _factory.CreateClient().GetAsync(Route);
         download.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await download.Content.ReadAsStringAsync()).ShouldContain($"{FileId}||1||Alfa||NULL||NULL||1");
@@ -79,7 +77,7 @@ public sealed class PrecomputedTranslationFileProjectorTests : IAsyncLifetime
     [Fact]
     public async Task Rebuild_WhenArtifactExists_ShouldRefreshInPlaceWithoutFetchingPreviousContent()
     {
-        // Arrange: the artifact already exists from a first build.
+        // Arrange
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa");
         await RebuildAsync();
         await SeedApprovedAsync(gossipId: 2, polish: "Beta");
@@ -88,9 +86,7 @@ public sealed class PrecomputedTranslationFileProjectorTests : IAsyncLifetime
         // Act
         await RebuildAsync();
 
-        // Assert: one set-based UPDATE refreshed the row (PERF-04); nothing on the write context
-        // SELECTed the artifact table, so the previous multi-MB Content was never materialized
-        // just to be overwritten.
+        // Assert: one UPDATE, and no SELECT on the artifact table.
         HttpResponseMessage download = await _factory.CreateClient().GetAsync(Route);
         string body = await download.Content.ReadAsStringAsync();
         body.ShouldContain($"{FileId}||1||Alfa||NULL||NULL||1");
@@ -106,9 +102,8 @@ public sealed class PrecomputedTranslationFileProjectorTests : IAsyncLifetime
     [Fact]
     public async Task Rebuild_ShouldStampEachRowWithTheDigestOfItsEnglishSourceNotItsPolish()
     {
-        // Arrange: the row ships Polish, but the seventh column must describe the ENGLISH it was
-        // approved against (ADR-0047 §2). Getting this backwards is invisible in the file's shape
-        // and would make every pristine fragment on every player's box report "source moved".
+        // Arrange: the digest must describe the English (ADR-0047 §2). Backwards, the file looks fine
+        // but every player's patcher reports "source moved".
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa", english: "Alpha source");
 
         // Act
@@ -125,8 +120,7 @@ public sealed class PrecomputedTranslationFileProjectorTests : IAsyncLifetime
     [Fact]
     public async Task Rebuild_ForARowWithArgumentColumns_ShouldHashTheSourcesOwnArgumentColumns()
     {
-        // Arrange: the triple is (text, args_order, args_id), so a row whose placeholder structure
-        // differs must land on a different digest even when the text matches.
+        // Arrange: the args are part of the triple.
         await SeedApprovedAsync(gossipId: 2, polish: "Beta", english: "Beta source", argsOrder: "1-2", argsId: "1-2");
 
         // Act

@@ -16,27 +16,20 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Snapshots;
 
 /// <summary>
-/// Pins the whole shape of the translation read endpoints (#571): every property name, the nesting, the
-/// JSON types and the full set of links. The behavioural suites only check the few fields each of them
-/// is about.
-/// An accidental change to the contract, such as a renamed property, a dropped link or a nested object
-/// flattened, fails here until the new verified file is accepted in the same PR, which makes the change
-/// visible in review instead of silent.
+/// Pins the whole shape of the translation read endpoints (#571): names, nesting, JSON types and every
+/// link. A contract change fails here until the verified file is accepted in the same PR. The rules
+/// about roles and state stay in <c>TranslationAggregateHateoasTests</c>.
 /// </summary>
 /// <remarks>
-/// The seed has three rows on purpose. That lets one fixture cover a filled row, an untranslated row
-/// full of nulls, a middle page, where <c>previous-page</c> and <c>next-page</c> are the links most
-/// likely to break unnoticed, and an empty response.
-/// Snapshots go next to the behavioural assertions and do not replace them.
-/// <c>TranslationAggregateHateoasTests</c> still owns the rules about roles and state, because those are
-/// statements about behaviour across many inputs and not about the shape of one payload.
+/// Three rows let one fixture cover a filled row, a row full of nulls, a middle page (the only place
+/// <c>previous-page</c> and <c>next-page</c> both appear) and an empty response.
 /// </remarks>
 [Collection("TranslationApi")]
 public sealed class TranslationContractSnapshotTests : IAsyncLifetime
 {
     private const int FileId = 620756992;
 
-    /// <summary>The seeded Polish, reused by the wire-encoding assert so seed and assert cannot drift.</summary>
+    /// <summary>Shared by the seed and the wire-encoding assert, so they cannot drift.</summary>
     private const string SeededPolish = "Witaj w Śródziemiu!";
     private static readonly DateTimeOffset Now = new(2026, 6, 13, 0, 0, 0, TimeSpan.Zero);
 
@@ -67,9 +60,7 @@ public sealed class TranslationContractSnapshotTests : IAsyncLifetime
         dbContext.Translators.Add(translator);
         _translatorId = translator.Id;
 
-        // A translated draft awaiting review (carries a submitter, Polish and the superseded English)
-        // plus two untranslated rows (every nullable column empty), so one fixture covers the populated
-        // and the null-heavy shape and still has enough rows for a middle page.
+        // One filled draft and two untranslated rows with every nullable column empty.
         Translation draft = Untranslated(gossipId: 1, "Welcome to Middle-earth!");
         draft.ProvideTranslation(SeededPolish, _translatorId, Now);
         draft.ApplySourceChange(
@@ -103,8 +94,7 @@ public sealed class TranslationContractSnapshotTests : IAsyncLifetime
     [Fact]
     public async Task ListTranslations_Anonymously_MatchesThePublicHateoasContract()
     {
-        // The public read-only list (#309) is a different payload, not the same one minus a field:
-        // items lose every action link while the envelope keeps its pagination navigation.
+        // The public list (#309): items carry no links, the envelope keeps its pager.
         using HttpClient client = _factory.CreateClient();
 
         using HttpResponseMessage response =
@@ -118,8 +108,7 @@ public sealed class TranslationContractSnapshotTests : IAsyncLifetime
     [Fact]
     public async Task ListTranslations_OnAMiddlePage_MatchesThePagedHateoasContract()
     {
-        // One row per page puts page 2 in the middle, which is the only shape where the envelope
-        // carries previous-page AND next-page and both boolean flags are true.
+        // One row per page puts page 2 in the middle, the only shape with both previous and next.
         using HttpClient client = AdminClient();
 
         using HttpResponseMessage response =
@@ -133,8 +122,7 @@ public sealed class TranslationContractSnapshotTests : IAsyncLifetime
     [Fact]
     public async Task ListTranslations_WithNoMatches_MatchesTheEmptyEnvelopeContract()
     {
-        // An empty result is its own contract: clients have to distinguish "no matches" from "broken",
-        // so items must stay an empty array and the counters must collapse coherently.
+        // Clients must tell "no matches" from "broken", so items stay an empty array.
         using HttpClient client = AdminClient();
 
         using HttpResponseMessage response =
@@ -162,8 +150,7 @@ public sealed class TranslationContractSnapshotTests : IAsyncLifetime
     [Fact]
     public async Task ListTranslations_AsPlainJson_MatchesTheLinkLessContract()
     {
-        // Plain application/json is the contract the CLI and any non-hypermedia client sees: the same
-        // payload with the links arrays stripped entirely, never left as empty arrays.
+        // What a non-hypermedia client sees: links removed entirely, never left as empty arrays.
         using HttpClient client = AdminClient();
 
         using HttpResponseMessage response = await ApiSnapshot.GetAsync(

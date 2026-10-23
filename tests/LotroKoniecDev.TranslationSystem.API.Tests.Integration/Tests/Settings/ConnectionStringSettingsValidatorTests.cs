@@ -5,10 +5,8 @@ using Shouldly;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Settings;
 
 /// <summary>
-/// Pure unit coverage for the TMS connection-string startup guard (M6-05). It lives in the
-/// integration project because the validator is internal to the Persistence assembly, whose
-/// internals are visible only to this project; it instantiates no factory and starts no container.
-/// The connection string is required in every environment, so the rule is unconditional.
+/// Pure unit tests, here because only this project sees the Persistence internals. No factory, no
+/// container.
 /// </summary>
 public sealed class ConnectionStringSettingsValidatorTests
 {
@@ -57,8 +55,7 @@ public sealed class ConnectionStringSettingsValidatorTests
     }
 
     /// <summary>
-    /// #1157: Npgsql's own error names the part it could not use, and here that part is a piece of the
-    /// password. The message names the key and carries none of the password.
+    /// Here the part Npgsql's own error would name is a piece of the password (#1157).
     /// </summary>
     [Theory]
     [InlineData("Host=db;Database=lotro_translation;Username=deploy;Password=Zq8;Wx3=Kp5", "Zq8", "Wx3", "Kp5")]

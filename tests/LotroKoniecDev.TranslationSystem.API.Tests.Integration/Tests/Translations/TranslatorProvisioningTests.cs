@@ -17,11 +17,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Translations;
 
 /// <summary>
-/// Proves that a translator profile is created on first use and that creating it twice is safe (ADR-0004
-/// and its 2026-06-24 amendment), against a real PostgreSQL. The caller's first authenticated request, a
-/// plain read before any write, creates their <c>Translator</c>. Repeat requests from the same identity
-/// add no second row, different identities get different rows, and the profile is refreshed from the
-/// latest claims when they change.
+/// Pins profile creation on first use against real PostgreSQL (ADR-0004, amended 2026-06-24): even a
+/// plain read creates it, repeats add no second row, and changed claims refresh it.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class TranslatorProvisioningTests : IAsyncLifetime
@@ -65,12 +62,12 @@ public sealed class TranslatorProvisioningTests : IAsyncLifetime
         Guid subject = Guid.NewGuid();
         using HttpClient client = TranslatorClient(subject, "Legolas", "legolas@mirkwood.test");
 
-        // Act: three writes by the same identity (the first provisions; the rest must not duplicate).
+        // Act
         await Upsert(client, gossipId: 1, "Jeden");
         await Upsert(client, gossipId: 2, "Dwa");
         await Upsert(client, gossipId: 1, "Jeden poprawione");
 
-        // Assert: exactly one Translator row, keyed by the caller's identity and carrying its claims.
+        // Assert
         List<Translator> translators = await LoadTranslatorsAsync();
         Translator translator = translators.ShouldHaveSingleItem();
         translator.IdentityId.Value.ShouldBe(subject);
@@ -92,7 +89,7 @@ public sealed class TranslatorProvisioningTests : IAsyncLifetime
         await Upsert(first, gossipId: 1, "Jeden");
         await Upsert(second, gossipId: 2, "Dwa");
 
-        // Assert: two distinct identities, two rows.
+        // Assert
         List<Translator> translators = await LoadTranslatorsAsync();
         translators.Count.ShouldBe(2);
         translators.Select(translator => translator.DisplayName.Value)
@@ -102,12 +99,12 @@ public sealed class TranslatorProvisioningTests : IAsyncLifetime
     [Fact]
     public async Task RenamedAccount_ShouldRefreshDisplayNameOnNextWrite_StillOneRow()
     {
-        // Arrange: same identity (sub), a later token carrying a renamed display name and email.
+        // Arrange: the same subject, renamed in a later token.
         await SeedUntranslatedAsync(gossipId: 1, source: "One");
         await SeedUntranslatedAsync(gossipId: 2, source: "Two");
         Guid subject = Guid.NewGuid();
 
-        // Act: first write provisions "Strider"; a later write carries the renamed "Aragorn".
+        // Act
         using (HttpClient before = TranslatorClient(subject, "Strider", "strider@rangers.test"))
         {
             await Upsert(before, gossipId: 1, "Jeden");
@@ -118,7 +115,7 @@ public sealed class TranslatorProvisioningTests : IAsyncLifetime
             await Upsert(after, gossipId: 2, "Dwa");
         }
 
-        // Assert: still a single row, now converged on the latest claims.
+        // Assert
         List<Translator> translators = await LoadTranslatorsAsync();
         Translator translator = translators.ShouldHaveSingleItem();
         translator.IdentityId.Value.ShouldBe(subject);
@@ -130,15 +127,14 @@ public sealed class TranslatorProvisioningTests : IAsyncLifetime
     [Fact]
     public async Task AuthenticatedReadWithoutAnyWrite_ShouldEagerlyProvisionTranslator()
     {
-        // Arrange: a freshly registered + logged-in user who has not edited anything yet.
+        // Arrange: a new user who has not edited anything yet.
         Guid subject = Guid.NewGuid();
         using HttpClient client = TranslatorClient(subject, "Frodo", "frodo@shire.test");
 
-        // Act: a plain authenticated read, not a write.
+        // Act
         HttpResponseMessage response = await client.GetAsync("/");
 
-        // Assert: the read succeeds and the caller already has a Translator row from its claims
-        // (ADR-0004 amendment): the "my profile" view works before any write.
+        // Assert: the "my profile" view works before any write (ADR-0004 amendment).
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         List<Translator> translators = await LoadTranslatorsAsync();
         Translator translator = translators.ShouldHaveSingleItem();

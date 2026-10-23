@@ -9,11 +9,9 @@ using Testcontainers.RabbitMq;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Messaging;
 
 /// <summary>
-/// Pins the broker behaviour the account event consumer is built on (ADR-0065), against the broker
-/// version the stacks run. A message the database refused goes back with <c>basic.nack</c>, which must
-/// never park it, however long the outage lasts. A message that keeps breaking the consumer goes back
-/// with <c>basic.reject</c>, which must park it at the delivery limit instead of looping.
-/// No API host runs here, so no consumer takes the deliveries away from the test.
+/// Pins the broker behaviour the consumer relies on (ADR-0065), on the broker version the stacks run: a
+/// <c>basic.nack</c> never parks a message, a <c>basic.reject</c> parks it at the delivery limit. No API
+/// host runs here, so no consumer takes the deliveries away.
 /// </summary>
 public sealed class AccountEventsTopologyTests : IAsyncLifetime
 {
@@ -34,7 +32,7 @@ public sealed class AccountEventsTopologyTests : IAsyncLifetime
         _channel = await _connection.CreateChannelAsync(
             new CreateChannelOptions(publisherConfirmationsEnabled: true, publisherConfirmationTrackingEnabled: true));
 
-        // The AuthSystem's declaration of the exchange, then the TMS's own part.
+        // Stands in for the AuthSystem's exchange, then the TMS's own part.
         await Channel.ExchangeDeclareAsync(AccountEvents.Exchange, ExchangeType.Topic, durable: true, autoDelete: false);
         await AccountEventsTopology.DeclareAsync(Channel, CancellationToken.None);
     }
@@ -62,7 +60,7 @@ public sealed class AccountEventsTopologyTests : IAsyncLifetime
         await PublishAsync(body);
         int nacksToSend = AccountEventsTopology.ErasedDeliveryLimit * 2;
 
-        // Act: the consumer's database-failure path, through a push consumer like production.
+        // Act: the database-failure path, through a push consumer like production.
         int deliveries = 0;
         TaskCompletionSource allNacked = new(TaskCreationOptions.RunContinuationsAsynchronously);
         await using IChannel consumerChannel = await _connection!.CreateChannelAsync();
@@ -97,7 +95,7 @@ public sealed class AccountEventsTopologyTests : IAsyncLifetime
         byte[] body = Encoding.UTF8.GetBytes("""{"IdentityUserId":"0199c000-0000-7000-8000-000000000002"}""");
         await PublishAsync(body);
 
-        // Act: the consumer's path for a message that keeps breaking the consumer itself.
+        // Act: the path for a message that keeps breaking the consumer.
         await using IChannel consumerChannel = await _connection!.CreateChannelAsync();
         AsyncEventingBasicConsumer consumer = new(consumerChannel);
         consumer.ReceivedAsync += async (_, delivery) =>

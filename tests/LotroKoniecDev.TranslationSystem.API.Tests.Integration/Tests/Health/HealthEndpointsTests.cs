@@ -57,7 +57,7 @@ public sealed class HealthEndpointsTests
         HttpResponseMessage response = await client.GetAsync("/health/ready");
         string body = await response.Content.ReadAsStringAsync();
 
-        // Assert: ACA probes this path every few seconds; it must never touch Postgres (ADR-0025).
+        // Assert: probed every few seconds, so it must never touch Postgres (ADR-0025).
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         body.ShouldContain("\"status\": \"Healthy\"");
         body.ShouldNotContain("translationdb");
@@ -103,7 +103,7 @@ public sealed class HealthEndpointsTests
     [InlineData("/health/ready")]
     public async Task GetProbe_WhenAKeyIsConfigured_ShouldStayOpenWithoutTheKey(string path)
     {
-        // Arrange: the probes run no checks, so the key does not guard them (ADR-0025, ADR-0058)
+        // Arrange: the probes run no checks (ADR-0025, ADR-0058)
         using WebApplicationFactory<Program> keyedHost = CreateKeyedHost();
         using HttpClient client = keyedHost.CreateClient();
 
@@ -119,9 +119,8 @@ public sealed class HealthEndpointsTests
     [InlineData("Staging")]
     public void Boot_InADeployedEnvironmentWithoutTheKey_ShouldFailNamingTheKey(string environmentName)
     {
-        // Arrange: a deployed host with every other setting it needs. Production is what every box runs
-        // (#1187). FrontendCallerKeyTests boots the same host with the key in both environments, so the
-        // missing key is the one reason this boot can fail.
+        // Arrange: FrontendCallerKeyTests boots this host with every setting, so the missing key is the
+        // one reason this boot can fail (#1187).
         using WebApplicationFactory<Program> deployedHost = _factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environmentName);

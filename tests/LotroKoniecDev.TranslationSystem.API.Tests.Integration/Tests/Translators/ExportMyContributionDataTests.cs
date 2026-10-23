@@ -86,7 +86,7 @@ public sealed class ExportMyContributionDataTests : IAsyncLifetime
         // Act
         TranslatorDataExportResponse export = await ExportAsync();
 
-        // Assert: the seeded profile is returned; nothing is attributed yet.
+        // Assert
         export.Profile.ShouldNotBeNull();
         export.Profile.TranslatorId.ShouldBe(_callerId);
         export.Profile.IdentityId.Value.ShouldBe(_callerIdentity);
@@ -101,8 +101,7 @@ public sealed class ExportMyContributionDataTests : IAsyncLifetime
     [Fact]
     public async Task Export_ShouldSummarizeAndListOnlyTheCallersAttribution()
     {
-        // Arrange: caller submitted a draft (1001) and an approved row (1002), approved another
-        // translator's row (1003); rows 1004/1005 belong entirely to the other translator.
+        // Arrange: rows 1001-1003 involve the caller; 1004 and 1005 belong to the other translator.
         await SeedAsync(
             SubmittedRow(1001, _callerId),
             ApprovedRow(1002, submittedBy: _callerId, approvedBy: _otherId),
@@ -145,8 +144,7 @@ public sealed class ExportMyContributionDataTests : IAsyncLifetime
     [Fact]
     public async Task Export_ShouldIncludeSoftRemovedRows()
     {
-        // Arrange: the attribution stays the caller's personal data even after the row left the
-        // game catalog (ADR-0032).
+        // Arrange: the credit stays personal data after the row left the game (ADR-0032).
         Translation removed = SubmittedRow(1001, _callerId);
         removed.MarkRemoved(_versionId, Now);
         await SeedAsync(removed);

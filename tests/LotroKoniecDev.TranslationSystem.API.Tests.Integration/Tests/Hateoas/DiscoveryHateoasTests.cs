@@ -8,19 +8,15 @@ using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Hateoas;
 
 /// <summary>
-/// Pins which links the service document sends each kind of caller (#608). The root is open to anyone,
-/// so a client without a login, the CLI today and the Avalonia app later, can start without any
-/// hardcoded paths. Every rel is only sent after the target endpoint's own policy said yes for this
-/// caller.
-/// The three kinds of caller are checked as whole sets and not with "contains", so a rel that reaches a
-/// caller who would be refused when following it fails the build.
+/// Pins which links the open service document sends each kind of caller (#608, ADR-0040). The sets are
+/// compared whole, not with "contains", so a rel that reaches a caller who would be refused following it
+/// fails the build.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class DiscoveryHateoasTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    /// <summary>Every endpoint an anonymous caller may actually reach, plus the document itself.</summary>
     private static readonly string[] AnonymousRels =
     [
         Rels.Self,
@@ -29,7 +25,7 @@ public sealed class DiscoveryHateoasTests
         Rels.Translations
     ];
 
-    /// <summary>What the translator role adds on top of the anonymous set.</summary>
+    /// <summary>On top of the anonymous set.</summary>
     private static readonly string[] TranslatorOnlyRels =
     [
         Rels.Upsert,
@@ -38,7 +34,7 @@ public sealed class DiscoveryHateoasTests
         Rels.ContributionDataExport
     ];
 
-    /// <summary>What the admin role adds on top of the translator set.</summary>
+    /// <summary>On top of the translator set.</summary>
     private static readonly string[] AdminOnlyRels =
     [
         Rels.BulkApprove,
@@ -98,9 +94,8 @@ public sealed class DiscoveryHateoasTests
     [Fact]
     public async Task Discovery_WithAnUnrecognizedRole_ShouldSeeOnlyWhatAnAuthenticatedCallerMayReach()
     {
-        // Arrange: a correctly-signed token whose role is neither Admin nor Translator. It clears
-        // RequireAuthenticatedUser but not the role policies, which is the case a hand-written role
-        // check in the discovery factory would get wrong.
+        // Arrange: clears RequireAuthenticatedUser but no role policy, the case a hand-written role check
+        // in the factory would get wrong.
         using HttpClient client = ClientForRole("Reviewer");
 
         // Act
@@ -116,9 +111,8 @@ public sealed class DiscoveryHateoasTests
     [InlineData("unknown-key")]
     public async Task Discovery_WithARejectedToken_ShouldDegradeToTheAnonymousSetInsteadOf401(string tokenKind)
     {
-        // Arrange: the root allows anonymous, so a bearer the API refuses is simply not a caller
-        // identity: the request succeeds and advertises exactly what a guest may reach. Rejection of
-        // such tokens is still enforced on every protected route (AuthorizationDefaultsTests).
+        // Arrange: on the anonymous root a refused bearer is just no identity. Protected routes still
+        // refuse it (AuthorizationDefaultsTests).
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
@@ -137,7 +131,7 @@ public sealed class DiscoveryHateoasTests
     [Fact]
     public async Task Discovery_ShouldResolveTheTranslationFileRelToThePolishArtifact()
     {
-        // Arrange: the rel exists so the CLI stops hardcoding /api/v1/translation-files/pl.
+        // Arrange: the rel exists so the CLI never hardcodes the path.
         using HttpClient client = _factory.CreateClient();
 
         // Act
@@ -154,7 +148,7 @@ public sealed class DiscoveryHateoasTests
     [Fact]
     public async Task Discovery_AsAdmin_ShouldCarryTheCorrectMethodOnEveryWriteRel()
     {
-        // Arrange: a client follows Method without thinking, so a GET on an upsert rel is broken.
+        // Arrange: a client follows Method blindly.
         using HttpClient client = ClientForRole(AuthConstants.Roles.Admin);
 
         // Act

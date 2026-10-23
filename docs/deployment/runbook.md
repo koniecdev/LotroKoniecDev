@@ -1,32 +1,30 @@
 # Deployment runbook
 
-> Operator manual for running LotroKoniecDev in a real environment. The platform is a **Hetzner VPS
-> running `docker compose` behind Caddy** ([ADR-0034](../adr/0034-hetzner-vps-instead-of-azure-container-apps.md));
+> Operator manual for running LotroKoniecDev in a real environment. Two **Hetzner VPS** boxes run
+> `docker compose` behind Caddy ([ADR-0034](../adr/0034-hetzner-vps-instead-of-azure-container-apps.md));
 > the database is **Neon** (ADR-0014), images live in **GHCR**, and CD deploys **over ssh**.
 >
-> **Scope:** the full configuration surface and operation of the four service images across
-> environments — the topology, the environment-variable matrix, secrets and their rotation, the
-> consistency rules that bite, bring-up, continuous deployment, database migrations, the smoke test,
-> and disaster recovery.
+> **Scope:** the topology, the environment-variable matrix, secrets and their rotation, the
+> consistency rules that bite, bring-up, continuous deployment, database migrations, the message
+> broker, the smoke test, observability and disaster recovery.
 >
-> The app contract itself is **provider-neutral** (ADR-0008): every app is a 12-factor OCI image
-> behind a TLS ingress, so nothing below is Hetzner-specific except the box sections. The stack ran
-> on Terraform-provisioned **Azure Container Apps** until 2026-07-12 — see
-> [History — the Azure era](#history--the-azure-era).
+> The app contract is **provider-neutral** (ADR-0008): every app is an OCI image behind a TLS
+> ingress, so only the box sections are Hetzner-specific. Until 2026-07-12 the stack ran on Azure
+> Container Apps — see [History — the Azure era](#history--the-azure-era).
 
 ## Contents
 
 - [Topology](#topology) — the fleet, the boxes, the filesystem layout
 - [Services & the container contract](#services--the-container-contract) — incl. [who the kernel kills first](#memory-pressure-who-the-kernel-kills-first) when a box runs out of memory
-- [Environment variable matrix](#environment-variable-matrix) — the single source of truth, per service × environment
+- [Environment variable matrix](#environment-variable-matrix) — every setting, per service × environment
 - [Secrets](#secrets) — where they live, how to generate them, how to rotate them
 - [Consistency rules that bite](#consistency-rules-that-bite) — issuer / redirect / authority / CORS
 - [Bringing the stack up](#bringing-the-stack-up) — dev, prod-parity, (re)provisioning a box, and the one-time network cutover
-- [Continuous deployment (CD over ssh)](#continuous-deployment-cd-over-ssh) — build-once → auto staging → gated prod promotion
+- [Continuous deployment (CD over ssh)](#continuous-deployment-cd-over-ssh) — build once → automatic staging → gated prod promotion
 - [Database migrations](#database-migrations) — strategy, running them, and recovering from a bad migration (Neon PITR + the MIGR-04 auto-snapshot)
-- [Message broker (RabbitMQ)](#message-broker-rabbitmq) — the in-stack broker, the dead-letter parking lot, replay & rotation traps
-- [Post-deploy smoke test](#post-deploy-smoke-test) — one command verifies a deployed environment end-to-end
-- [Observability & monitoring](#observability--monitoring) — what exists today, and the gap the migration left
+- [Message broker (RabbitMQ)](#message-broker-rabbitmq) — the in-stack broker, the dead-letter parking lots, replay and rotation traps
+- [Post-deploy smoke test](#post-deploy-smoke-test) — one command checks a deployed environment end to end
+- [Observability & monitoring](#observability--monitoring) — the Grafana stack, its alerts, and the prod agent
 - [Disaster recovery](#disaster-recovery)
 - [Gotchas](#gotchas)
 - [History — the Azure era](#history--the-azure-era)
@@ -41,30 +39,30 @@ staging.
 | Fact | Value |
 |---|---|
 | Fleet | `lotro-prod` **167.233.159.221** (both prods) · `lotro-staging` **91.98.74.228** (both stagings) — ssh aliases of the same names in the owner's `~/.ssh/config` |
-| Provider / model | Hetzner Cloud **CX23** × 2 (2 vCPU, 4 GB RAM, amd64) — tight for 4 app containers + Caddy per box; watch memory before adding services. ADR-0034 §1 argued for one CX32; the fleet is two CX23 (location constraints at purchase, owner decision 2026-07-12) |
+| Provider / model | Hetzner Cloud **CX23** × 2 (2 vCPU, 4 GB RAM, amd64). Tight for two app stacks plus Caddy: watch memory before adding services. ADR-0034 §1 argued for one CX32; it was not available at checkout, so the fleet is two CX23 (its 2026-07-12 amendment) |
 | Location | Nuremberg (nbg1), Germany |
 | OS | Ubuntu 26.04 LTS (resolute); `bootstrap.sh` is verified on 24.04 and 26.04 |
 | Backups | Hetzner backups on **lotro-prod only** (~20% surcharge); staging is disposable |
-| Memory | 4 GB RAM + a **2 GiB `/swapfile`** at `vm.swappiness = 10`, laid down by `bootstrap.sh` and persisted in `/etc/fstab` (OBS-01 / #708). The Hetzner image ships no swap at all, which turns any spike into an OOM-kill instead of a slowdown |
+| Memory | 4 GB RAM + a **2 GiB `/swapfile`** at `vm.swappiness = 10`, laid down by `bootstrap.sh` and persisted in `/etc/fstab` (#708). The Hetzner image ships no swap, which turns any spike into an OOM kill instead of a slowdown |
 | Users | `root` (key-only) · `deploy` (docker group, key-only, locked password — CD and day-2 ops run as this user) |
-| Firewall | ufw: deny incoming except **22/80/443**, allow outgoing · **`DOCKER-USER`**: from the public interface only **80/443** reach a container, everything else published is dropped — ufw cannot filter a published port (Docker's DNAT runs first), this chain can (#808). Rules script `/usr/local/sbin/docker-user-firewall`, re-applied by `docker-user-firewall.service` whenever Docker starts, both laid down by `bootstrap.sh` |
+| Firewall | ufw: deny incoming except **22/80/443**, allow outgoing · **`DOCKER-USER`**: from the public interface only **80/443** reach a container, everything else published is dropped. ufw cannot filter a published port (Docker's DNAT runs first), this chain can (#808). Rules script `/usr/local/sbin/docker-user-firewall`, re-applied by `docker-user-firewall.service` whenever Docker starts, both laid down by `bootstrap.sh` |
 | Intrusion / patching | fail2ban (sshd jail, systemd backend) · unattended-upgrades |
-| Container runtime | Docker Engine + compose plugin (the box's own — bootstrap **adopts**, never swaps: see [Gotchas](#gotchas)) |
+| Container runtime | Docker Engine + compose plugin (the box's own — bootstrap **adopts** it, never swaps it: see [Gotchas](#gotchas)) |
 | Registry | `deploy` is `docker login`-ed to **ghcr.io** with a **read-only** (`read:packages`) PAT |
 | DB | none on the box — **Neon** is the database for prod AND staging (ADR-0034 §2) |
 | Ingress | **Caddy**, one vhost per app, automatic Let's Encrypt certificates |
-| Networks | **Two segregated Docker networks per box** (#506): `${project}_default` (`10.60.0.0/24`, our stack) and `${project}_tks` (`10.61.0.0/24`, the guest TheKittySaver stack). **Caddy is the only container on both** (static IPs `10.60.0.100` / `10.61.0.100`); nothing else crosses. The apps trust `X-Forwarded-*` from Caddy's `10.60.0.100/32` only — keep that /32 in lockstep with Caddy's `ipv4_address`. A third, `${project}_obs`, carries the hand-deployed observability project (ADR-0050 §2): Caddy is on it too, unpinned, only so the ingest vhost can reach the backend containers (#755). |
+| Networks | **Two segregated Docker networks per box** (#506): `${project}_default` (`10.60.0.0/24`, our stack) and `${project}_tks` (`10.61.0.0/24`, the guest TheKittySaver stack). **Caddy is the only container on both** (static IPs `10.60.0.100` / `10.61.0.100`). The apps trust `X-Forwarded-*` from Caddy's `10.60.0.100/32` only, so keep that /32 in step with Caddy's `ipv4_address`. A third network, `${project}_obs`, carries the hand-deployed observability project (ADR-0050 §2): Caddy is on it too, with no pinned address, only so the ingest vhost can reach the backend containers (#755) |
 
-Images are `linux/amd64` only (no multi-arch buildx) — the box is amd64 on purpose; never "fix" a
-pull error by enabling emulation.
+Images are `linux/amd64` only (no multi-arch buildx), because the boxes are amd64. Never "fix" a pull
+error by enabling emulation.
 
 ### Filesystem layout
 
 | Path | Contents | Owner |
 |---|---|---|
 | `/opt/lotro` | LotroKoniecDev stack: `compose.hetzner.yaml`, `.docker/hetzner/Caddyfile`, `.env` (`chmod 600`, never committed — template: `.env.hetzner.example`), `deploy.sh`, `.previous/` (the last-good config snapshot) | `deploy` |
-| `/opt/tks` | TheKittySaver stack (its own epic; joins the same Caddy via parametrized vhosts) | `deploy` |
-| `/opt/actions-runner` · `/home/ci-runner` | **Staging box only — a guest.** TheKittySaver's self-hosted GitHub Actions runner (koniecdev/TheKittySaver#831, its ADR-0047): user `ci-runner` (in `docker` — its integration suite uses Testcontainers), unit `tks-ci-runner.service`, the .NET SDK and NuGet cache under its home — 4.8 GB measured after its first job on 2026-10-02 (runner + checkout 1.3 GB, SDK 0.7 GB, NuGet 2.8 GB), ≈ 7–9 GB once a full Release build tree sits in `_work` (TheKittySaver's runbook estimate). One job at a time; registered to the **private** TKS repo only — never register a runner on these boxes to this public repo. Uninstall, after deleting the runner on the TKS side: TheKittySaver `docs/deployment/runbook.md` → "CI runner on the staging box" → Uninstall | `ci-runner` (TKS) |
+| `/opt/tks` | TheKittySaver stack (its own epic; joins the same Caddy through its own vhosts) | `deploy` |
+| `/opt/actions-runner` · `/home/ci-runner` | **Staging box only — a guest.** TheKittySaver's self-hosted GitHub Actions runner (koniecdev/TheKittySaver#831, its ADR-0047): user `ci-runner` (in `docker` — its integration suite uses Testcontainers), unit `tks-ci-runner.service`, the .NET SDK and NuGet cache under its home. Disk: 4.8 GB after its first job (2026-10-02), about 7–9 GB once a full Release build tree sits in `_work`. One job at a time; registered to the **private** TKS repo only — never register a runner on these boxes to this public repo. To uninstall, delete the runner on the TKS side first, then follow TheKittySaver `docs/deployment/runbook.md` → "CI runner on the staging box" → Uninstall | `ci-runner` (TKS) |
 | `/opt/obs` | The observability stack: `compose.observability.yaml`, the Alloy/Loki/Prometheus/Tempo configs, Grafana provisioning, `.env` (`chmod 600` — template: `.env.observability.example`). Its **own** compose project, deployed by hand, never by CD (ADR-0050 §2) | `deploy` |
 
 ## Services & the container contract
@@ -74,69 +72,63 @@ TLS-terminating ingress:
 
 | Service | Image (`ghcr.io/koniecdev/…`) | Listens | Health | Persists |
 |---|---|---|---|---|
-| **auth-api** | `lotrokoniecdev-auth-api` | `:8080` (HTTP) | `/health` (deep: DB + SMTP + broker; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | Data Protection keyring → `/keys` |
-| **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (deep: DB; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | translation artifacts (read-only mount); a throwaway copy of the served translation file in the container's `/tmp/lotro-translation-files` (about 82 MB at full size, written again when missing — ADR-0064) |
-| **frontend** | `lotrokoniecdev-frontend` | `:8080` (HTTP) | — | Data Protection keyring → `/keys` |
+| **auth-api** | `lotrokoniecdev-auth-api` | `:8080` (HTTP) | `/health` (deep: DB + SMTP + broker; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probes — run no checks, ADR-0025) | Data Protection keyring → `/keys` |
+| **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (deep: DB; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probes — run no checks, ADR-0025) | nothing on the box: the translation file is stored in the database. A throwaway copy of it sits in the container's `/tmp/lotro-translation-files` (about 82 MB at full size, written again when missing — ADR-0064) |
+| **frontend** | `lotrokoniecdev-frontend` | `:8080` (HTTP) | `/health/live`, `/health/ready` (no deep check) | Data Protection keyring → `/keys` |
 | **migrator** | `lotrokoniecdev-migrator` | one-shot (exits 0) | exit code | — |
-| _ingress_ | **Caddy** (the boxes take its tag and digest from one place, the `x-caddy-image` anchor in `compose.hetzner.yaml`; `compose.prod.yaml`, the laptop parity stack, mirrors it; the anchor's comment says why and how Dependabot moves both; 2.11.6 crashes, #988) | `:80`, `:443` | — | ACME certs + config volumes |
-| _broker_ | **RabbitMQ** (`rabbitmq:4.3.4-management-alpine` — pinned, see the compose comment) | `:5672` in-stack (AMQP; auth-api, and tms-api for the account events of ADR-0065) | `rabbitmq-diagnostics ping` (container healthcheck) + the `rabbitmq` leg of auth's deep `/health` | broker state (users, quorum queues, parked dead letters) → `rabbitmq-data` volume |
+| _ingress_ | **Caddy**, pinned by tag and digest in the `x-caddy-image` anchor of `compose.hetzner.yaml` (`compose.prod.yaml` mirrors it; the anchor's comment says how Dependabot moves both; never 2.11.6, it crashes — #988) | `:80`, `:443` | — | ACME certs + config volumes |
+| _broker_ | **RabbitMQ** (`rabbitmq:4.3.4-management-alpine`, pinned — see the compose comment) | `:5672` in-stack (AMQP; auth-api, and tms-api for the account events of ADR-0065) | `rabbitmq-diagnostics ping` (container healthcheck) + the `rabbitmq` check of auth's deep `/health` | broker state (users, quorum queues, parked dead letters) → `rabbitmq-data` volume |
 
-Container contract (ADR-0008 §2): each app serves **plain HTTP on `:8080`** and expects a
-TLS-terminating ingress in front; runs **non-root**; logs **structured JSON to stdout**; takes **all
-runtime configuration from environment variables**. Only Caddy publishes internet-facing ports; the
-apps use `expose:` and are reachable **only** through the proxy (the broker's management UI is the
-one loopback exception — `127.0.0.1:15672`, reachable exclusively over an ssh tunnel, see
-[Message broker](#message-broker-rabbitmq)). The migrator runs to completion *before* the
-APIs serve traffic, so there is never half-migrated serving.
+Container contract (ADR-0008 §2): each app serves **plain HTTP on `:8080`** behind a TLS-terminating
+ingress, runs **non-root**, logs **structured JSON to stdout**, and takes **all runtime
+configuration from environment variables**. Only Caddy publishes internet-facing ports. The apps use
+`expose:` and are reachable **only** through the proxy. The one loopback exception is the broker's
+management UI on `127.0.0.1:15672`, reached over an ssh tunnel (see
+[Message broker](#message-broker-rabbitmq)). The migrator runs to completion *before* the apps are
+recreated, so nothing ever serves on a half-migrated schema.
 
 ### Memory pressure: who the kernel kills first
 
-When a **box** runs out of memory the kernel picks its victim by size and nothing else, and on these
-boxes size barely speaks: the entire RSS spread across a box is worth about **45 points** of
-`oom_score`, while one unit of `oom_score_adj` is worth **0.66** of a point. Until #786 every
-container ran at the default `0`, so the ranking was decided by which process happened to be fattest
-— which on the staging box put `obs-alloy` at the very top: the container that carries every signal
-that box produces, for both application stacks on it, ranked above a staging frontend nobody was
-using.
+When a **box** runs out of memory, the kernel picks its victim by `oom_score`. On these boxes the
+whole RSS of a box is worth about **45 points** of it, while one unit of `oom_score_adj` is worth
+**0.66** of a point, so the adjustment decides the order. Left at the default `0`, the fattest
+container dies first: on the staging box that was `obs-alloy`, which carries every signal of both
+stacks on that box (#786).
 
-**The two boxes are ordered in opposite directions, and that is deliberate.** The observability
-backend lives on the *staging* box because a backend co-hosted with the workload it observes dies in
-the same outage (ADR-0050 §1) — so on that box the observability stack is the production-critical
-workload and the applications serve one developer and one tester. On the prod box the applications
-are the product and the only observability component is the agent, whose death costs telemetry
-rather than the service.
+**The two boxes are ordered in opposite directions on purpose.** The observability backend lives
+on the *staging* box, so that a prod outage does not take the evidence with it (ADR-0050 §1). On that
+box the observability stack is the production-critical workload, and the applications serve one
+developer and one tester. On the prod box the applications are the product, and the only
+observability component is the agent, whose death costs telemetry, not the service.
 
 | Container | staging | prod | Why |
 |---|---|---|---|
 | `auth-api`, `tms-api`, `frontend`, `rabbitmq` | **+500** | **0** | `${OOM_SCORE_ADJ_APP}` in `/opt/lotro/.env`. First to go on staging; on prod they sit on the host daemons' own line |
 | `tks-adoption-api`, `tks-frontend` | **+500** | **0** | `${OOM_SCORE_ADJ_APP}` in `/opt/tks/.env` — same knob, same values, koniecdev/TheKittySaver#757 |
 | `migrator`, `tks-migrator` | 0 | 0 | literal, on both boxes. The deploy gate is not a workload to sacrifice: the app knob would make a rollout the staging box's first victim for nothing |
-| `caddy`, `caddy-validate` | −100 | −100 | literal. The only ingress on either box, and on staging it also serves the obs ingest vhost prod pushes through (ADR-0050 §4). −100 rather than deeper because it restarts in seconds and the prod agent retries connection errors and 5xx, so the worst case is a bounded ingest gap |
+| `caddy`, `caddy-validate` | −100 | −100 | literal. The only ingress on either box, and on staging it also serves the obs ingest vhost prod pushes through (ADR-0050 §4). −100 and not deeper, because it restarts in seconds and the prod agent retries connection errors and 5xx, so the worst case is a short ingest gap |
 | `loki`, `prometheus`, `tempo`, `grafana` | −200 | *(staging only)* | literal — the `backend` profile pins them to one box, so their role never changes |
-| `preflight` | −200 | −200 | literal. It carries no profile, so unlike the four above it runs in **both** roles; it is a one-shot that exits in milliseconds |
+| `preflight` | −200 | −200 | literal. It has no profile, so unlike the four above it runs in **both** roles; it is a one-shot that exits in milliseconds |
 | TheKittySaver CI build tree (`dotnet build`/`test`, Stryker, the test containers' clients) | **+1000** | *(staging only)* | set per job step by the runner from `PIPELINE_JOB_OOMSCOREADJ=1000` in `tks-ci-runner.service` (koniecdev/TheKittySaver#831). The first victim on the box, on purpose: a killed build is a red CI run, nothing else |
-| TheKittySaver CI runner (`Runner.Listener` / `Runner.Worker`) | **+500** | *(staging only)* | `OOMScoreAdjust=500` on the unit — the staging apps' line, so after the build the kernel picks between the runner and the apps by size (read back 2026-10-02 mid-build: build tree 1366–1452, runner worker ~1009, `obs-*` 500–556) and never reaches the observability stack first |
-| `obs-alloy` | **−300** | **+300** | `${OBS_ALLOY_OOM_SCORE_ADJ}` in `/opt/obs/.env`. The only value in that project that inverts, because `alloy` carries no profile and runs on both boxes from one definition |
+| TheKittySaver CI runner (`Runner.Listener` / `Runner.Worker`) | **+500** | *(staging only)* | `OOMScoreAdjust=500` on the unit — the staging apps' line, so after the build the kernel picks between the runner and the apps by size, and never reaches the observability stack first |
+| `obs-alloy` | **−300** | **+300** | `${OBS_ALLOY_OOM_SCORE_ADJ}` in `/opt/obs/.env`. The only value in that project that inverts, because `alloy` has no profile and runs on both boxes from one definition |
 
-**What the agent does not carry.** Prod does **not** ship through the staging box's agent. The prod
-agent pushes through the ingest vhost on Caddy straight into `loki` / `prometheus` / `tempo`
-(ADR-0050 §4), so on the staging box the agent carries only that box's own signals — which is why
-Caddy, not the agent, is the container prod's telemetry actually depends on there. The agent still
-takes the deepest protection on that box: it is the single OTLP receiver and log tailer for **both**
-application stacks on it, the only source of the host and container metrics the fleet rules read
-(including the rule watching this stack's own memory), and the fattest container in the project, so
-it is exactly what an unguided kernel would pick first.
+**The agent.** Prod's telemetry does not go through the staging agent. The prod agent pushes
+through the ingest vhost on Caddy straight into `loki` / `prometheus` / `tempo` (ADR-0050 §4), so on
+the staging box Caddy, not the agent, is what prod's telemetry depends on. The staging agent still
+gets the deepest protection on its box: it is the only OTLP receiver and log tailer for both
+application stacks there, the only source of the host and container metrics the fleet rules read,
+and the fattest container in its project, so an unguided kernel would pick it first.
 
-**Why the agent needs a knob and not a literal.** Its role inverts between the boxes, and the host's
-own daemons (`fail2ban`, `unattended-upgrades`, `networkd-dispatcher`, …) sit at `0` on both, forming
-a fixed line at ~672 that the agent has to be *below* on staging and *above* on prod. A negative
-literal would also be self-defeating on prod: with `mem_limit: 512m`, an agent at −200 tops out at an
-`oom_score` of about 590 however much memory it holds, so the kernel would take the box apart daemon
-by daemon before reaching the container the policy names. `preflight` refuses to start the stack if
-the value's sign does not match the box's role — the template ships the backend value live, and a
-wrong sign is silent everywhere else.
+**Why the agent has a knob and not a literal.** The host's own daemons (`fail2ban`,
+`unattended-upgrades`, `networkd-dispatcher`, …) sit at `0` on both boxes, which puts them at about
+672. The agent must be *below* that line on staging and *above* it on prod. A negative literal would
+also fail on prod: with `mem_limit: 512m`, an agent at −200 tops out at an `oom_score` of about 590,
+so the kernel would kill the host daemons one by one before it reached the agent. `preflight` refuses
+to start the stack when the value's sign does not match the box's role, because a wrong sign is
+silent everywhere else.
 
-**Read it back from the kernel, never from the compose file** — `oom_score` is what decides, and it
+**Read it back from the kernel, never from the compose file.** `oom_score` is what decides, and it
 moves with RSS:
 
 ```bash
@@ -147,7 +139,7 @@ done | sort -t= -k3 -rn
 ```
 
 Read back after the first rollout, 2026-09-10. Scores move by a few points as RSS moves, so treat
-these as bands, not constants — the ordering is what the policy fixes:
+them as bands; the order is what the policy fixes:
 
 | `lotro-staging` — first victim at the top | score | | `lotro-prod` | score |
 |---|---|---|---|---|
@@ -156,74 +148,63 @@ these as bands, not constants — the ordering is what the policy fixes:
 | `obs-grafana`, `obs-prometheus`, `obs-tempo`, `obs-loki` | 550–566 | | `lotro-prod-caddy` | ~606 |
 | **`obs-alloy`** | **~511** | | | |
 
-On staging the six application containers are the six top processes on the whole box. On prod the
-agent is the top process on the box, above even the host's own lingering `user@.service` at 734 —
-which is the point of the positive value there, and what a negative one could not have achieved.
+On prod the agent ranks above even the host's own `user@.service` (734), which only a positive value
+can achieve.
 
-**A service added to either compose file gets its `oom_score_adj` in the same commit.** Nothing in CI
-can see a missing one — `scripts/ci/classify-changes.sh` treats compose files as inert — so the
-default `0` would be silent — and on the prod box it lands the new container in the **product** tier,
-better protected than the agent the policy wants killed first.
+**A service added to either compose file gets its `oom_score_adj` in the same commit.** CI cannot see
+a missing one (`scripts/ci/classify-changes.sh` treats compose files as inert), and on the prod box
+the default `0` puts the new container in the **product** tier, better protected than the agent.
 
-Both halves need a rollout to take effect, and they are **two different deploys**: `/opt/lotro` is a
-CD artifact (it lands with the next `deploy.sh`), `/opt/obs` is hand-deployed (ADR-0050 §2). Changing
-the value forces a container **recreate** on `up -d`, so the observability half costs a short
-telemetry gap.
+A change takes **two different deploys**: `/opt/lotro` is a CD artifact (it lands with the next
+`deploy.sh`), and `/opt/obs` is deployed by hand (ADR-0050 §2). A changed value recreates the
+container on `up -d`, so the observability half costs a short telemetry gap.
 
-**Do not restore symmetry between the boxes because it looks tidier.** The asymmetry is the whole
-decision; a "consistent" ordering means one of the two boxes is ordered backwards.
+**Do not restore symmetry between the boxes because it looks tidier.** A "consistent" order means
+one of the two boxes is ordered backwards.
 
 **What this does not cover.** `oom_score_adj` decides only the **box-level** OOM. A container that
-hits its own `mem_limit` is killed by the *cgroup* OOM killer, where the adjustment plays no part and
-the ranking is irrelevant — that is the failure mode #782 hit, and the one the fleet rule watches at
-85% of the ceiling. Neither box has ever had a box-level OOM (prod: none in the 60 days since it was
-built; staging: one, and it was a cgroup kill), so this is cheap insurance, not a fix for something
-observed.
+hits its own `mem_limit` is killed by the cgroup OOM killer, where the adjustment plays no part. That
+is what #782 hit, and the fleet rule watches it at 85% of each ceiling. When the policy was set
+(2026-09), neither box had had a box-level OOM, so it is cheap insurance, not a fix for something seen.
 
 ## Environment variable matrix
 
-The single source of truth: every deployment-relevant setting, per service, per environment. One
-table per service.
+Every deployment-relevant setting, per service, per environment: one table per service.
 
-**`compose.hetzner.yaml` is the authoritative list** of what the deployed stack actually consumes — a
+**`compose.hetzner.yaml` is the authoritative list** of what the deployed stack actually reads. A
 variable that does not appear there does nothing, whatever this table says.
 
 **Reading the tables:**
 
-- **Key form.** Keys are shown in the env-var (double-underscore) form ASP.NET Core binds —
-  `Section__Sub__Leaf`, e.g. `OpenIddict__WebClient__RedirectUris__0`. The config/appsettings form is
-  the same with `:` (`OpenIddict:WebClient:RedirectUris:0`); error messages use the `:` form.
+- **Key form.** Keys are shown in the env-var form ASP.NET Core binds (double underscore):
+  `Section__Sub__Leaf`, e.g. `OpenIddict__WebClient__RedirectUris__0`. The appsettings form uses `:`
+  instead (`OpenIddict:WebClient:RedirectUris:0`), and error messages use the `:` form.
 - **Required?** = whether boot **fails fast** without it in that environment. `✅ all` = required in
-  every environment; `✅ non-dev` = required in Staging/Production only (Development supplies a
-  default or skips the guard); `optional` = safe default.
+  every environment; `✅ non-dev` = required outside Development and Testing (so Staging too);
+  `optional` = safe default.
 - **Source.** **secret** = lives in the box's `chmod 600` `/opt/lotro/.env`, never committed;
-  **plain** = non-sensitive, fine in plain app config / `appsettings.*`.
-- **local-dev** column = how the value is set in dev. Since ADR-0006 (amended by #190 / M6-14) the
-  dev `compose.yaml` is **infra-only** and all three apps run on the **host** via `dotnet run` — so
-  for the apps the dev column is `appsettings.Development.json` + `launchSettings.json`; only
-  postgres / migrator / mailpit / aspire are set by `compose.yaml`.
-- **Staging / Production** are structurally identical — same required set, same sources; they differ
-  only in **hostnames** (the environment's own domain) and **secret values**. This column shows
-  **production** values; for staging substitute `staging.lotro-translator.pl`. The local
-  production-parity stack (`compose.prod.yaml`) wires the very same keys with `*.lotro.test`
-  hostnames.
+  **plain** = not sensitive, fine in plain app config / `appsettings.*`.
+- **local-dev** = how the value is set in dev. The dev `compose.yaml` runs only infrastructure, and
+  the three apps run on the **host** via `dotnet run` (ADR-0006, amended by #190), so for the apps this
+  column is `appsettings.Development.json` + `launchSettings.json`.
+- **Staging / Production** are the same in shape: same required set, same sources. They differ only
+  in **hostnames** and **secret values**. The column shows **production** values; for staging read
+  `staging.lotro-translator.pl`. The local production-parity stack (`compose.prod.yaml`) wires the
+  same keys with `*.lotro.test` hostnames.
 
-Purely optional tuning knobs with safe defaults are omitted (e.g. `Import:*`,
-`TranslationFileRebuild:DebounceWindow` = 2 s (ADR-0021), `Email:TimeoutSeconds`/`MaxSendAttempts`,
-`RabbitMq:Port` = 5672, `RabbitMq:VirtualHost` = `/`, `AllowedHosts` = `*`).
-`OpenIddict:AccessTokenLifetimeMinutes` used to sit in that list at 60; it is listed in the table
-below instead, because it turned out to be the delay on every session revocation in the system rather
-than a tuning knob (ADR-0049, #686). The refresh token lifetime left the list too: it used to be
-`OpenIddict:RefreshTokenLifetimeDays` = 14, and it is now `OpenIddict:RefreshTokenLifetimeMinutes` =
-540, tied to the frontend cookie's idle timeout (#1014).
+Optional tuning knobs with safe defaults are left out: `Import:*`,
+`TranslationFileRebuild:DebounceWindow` = 2 s (ADR-0021), `Email:TimeoutSeconds` = 10 /
+`Email:MaxSendAttempts` = 3, `Gdpr:DeletionGracePeriod` = 14 days /
+`Gdpr:DeletionFinalizationPollInterval` = 1 day, `RabbitMq:Port` = 5672, `RabbitMq:VirtualHost` = `/`,
+`AllowedHosts` = `*`. The token lifetimes are listed below even though they have defaults, because
+they are security parameters, not tuning knobs.
 
-The four `OTEL_*` variables the three app services take are omitted here for the same reason — all
-four default to empty and empty means "no exporter at all". They are documented where they are
-actually used, in [Observability & monitoring](#observability--monitoring). One of them is **not** a
-tuning knob and is called out there: `OTEL_DEPLOYMENT_ENVIRONMENT` is the only thing that separates
-staging from prod in Grafana, because both boxes run `ASPNETCORE_ENVIRONMENT=Production`.
+The telemetry variables are covered in [Observability & monitoring](#observability--monitoring). The
+tables list only the export endpoint. One of the others is not a tuning knob:
+`OTEL_DEPLOYMENT_ENVIRONMENT` is the only thing that separates staging from prod in Grafana, because
+both boxes run `ASPNETCORE_ENVIRONMENT=Production`.
 
-> ⚠️ **Live prod domain is `lotro-translator.pl`** — auth → `https://auth.lotro-translator.pl`,
+> ⚠️ **The live prod domain is `lotro-translator.pl`**: auth → `https://auth.lotro-translator.pl`,
 > tms → `https://tms.lotro-translator.pl`, frontend → `https://lotro-translator.pl`. The three
 > hostnames are Caddy vhosts on the prod box; staging has the same trio under
 > `*.staging.lotro-translator.pl`.
@@ -232,83 +213,80 @@ staging from prod in Grafana, because both boxes run `ASPNETCORE_ENVIRONMENT=Pro
 
 | Variable | local-dev | Staging / Production | Required? | Source | Notes |
 |---|---|---|---|---|---|
-| `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation, ephemeral-vs-real keys, the CORS policy. |
-| `ASPNETCORE_URLS` | `https://localhost:5003` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); prod serves HTTP only (Caddy owns TLS). |
-| `ConnectionStrings__AuthDatabase` | `…;Database=lotro_auth;…;Password=changeme` (appsettings.Development) | Neon: `Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Timeout=20` | ✅ all | **secret** | Carries the DB password. **Keyword format only** — Npgsql does not parse `postgres://` URIs. `Timeout` is the limit for opening a connection. The auth API caps it at 20 s in code (#923), so an older box's `Timeout=60` still works there; only the migrator reads the value as written. Wake times: Gotchas → *First cold hit*. |
-| `OpenIddict__Issuer` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ non-dev | plain | **THE token `iss`.** Absolute http(s), no `localhost`, no user name or password (#1108). Must equal tms `Auth__Issuer`. |
-| `OpenIddict__SigningKey__RsaPrivateKeyXml` | — (ephemeral) | base64 of RSA XML (≥2048-bit) | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
-| `OpenIddict__AccessTokenLifetimeMinutes` | `5` (appsettings) | `5` (appsettings) | ❌ optional | plain | **A security parameter, not a tuning knob.** The TMS validates JWTs locally with no clock skew, so this is the longest time a revoked session keeps working after a password change, an e-mail-change undo or a scheduled deletion (#933). Raising it lengthens that window everywhere — read ADR-0049 first. The service refuses to start below `2` in every environment: a client that renews a token a minute before it runs out would renew a shorter token on every page (#1025). The website itself copes with a one-minute token, which it refreshes after 30 seconds, but the server does not count on that (ADR-0049, amendment of 2026-10-07). `compose.hetzner.yaml` does not pass this variable, so on the boxes the value comes from `appsettings.json` and changes only with a code change. |
-| `OpenIddict__RefreshTokenLifetimeMinutes` | `540` (appsettings) | `540` (appsettings) | ❌ optional | plain | **Tied to the frontend cookie, not a tuning knob.** The frontend keeps the refresh token in its session cookie, which ends after 8 idle hours, so a longer lifetime only keeps a token valid that the website has already lost. Never lower it below 8 hours plus a margin: a token that dies before its cookie shows "session expired" to a user who was idle for just under 8 hours. Every refresh issues a new token with the full lifetime, so a user who keeps working is never signed out by it (#1014). `compose.hetzner.yaml` does not pass this variable, so on the boxes the value comes from `appsettings.json` and changes only with a code change. |
-| `OpenIddict__EncryptionKey__Key` | — (ephemeral) | base64 of a ≥32-byte key | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
-| `OpenIddict__ApiClientSecret` | `dev-api-secret-min-32-characters-long` | ≥32-char random secret | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. **Seeds a DB row** — rotating it needs the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing). Must equal that environment's `SMOKE_CLIENT_SECRET`. |
-| `OpenIddict__WebClient__RedirectUris__0` | `https://localhost:7017/callback` | `https://lotro-translator.pl/callback` | ✅ non-dev | plain | MUST equal the Frontend callback (its public origin + `AuthSystem__CallbackPath`). No user name or password (#1108). Written to the DB **only at client creation** — see the reseed traps. |
-| `OpenIddict__WebClient__PostLogoutRedirectUris__0` | `https://localhost:7017` | `https://lotro-translator.pl` | ✅ non-dev | plain | Frontend post-logout return URL. No user name or password (#1108). |
-| `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. Lowercase, no port-if-default, no path/slash. |
-| `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.100/32` (Caddy's pinned static IP) | optional | plain | Restricts `X-Forwarded-*` trust to Caddy's exact host address, not the whole subnet (#399, narrowed to a /32 by #506). Keep in lockstep with Caddy's `ipv4_address` on the default network in `compose.hetzner.yaml`. Both deployed stacks set it. Malformed CIDR aborts boot. |
-| `FrontendCaller__Key` | — (the limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | The frontend's caller key (ADR-0054): a frontend call that carries it next to the visitor's address is rate-limited on that visitor, not on the frontend container. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. **The same variable feeds tms-api's `FrontendCaller__Key` and the frontend's `AuthSystem__CallerKey` + `TranslationSystem__CallerKey`.** |
-| `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | Opens the full `/health` (ADR-0058, #853): it runs the database, SMTP and broker checks only for a request that sends this value in `X-LOTRO-Health-Key`, and answers 404 to anyone else. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. **The same variable feeds tms-api's `HealthCheck__Key`.** |
-| `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent volume (`auth-keys`); else logins/antiforgery/reset links break on every deploy. |
-| `Email__Host` | `localhost` (the compose mailpit, published on `:1025`) | `smtp-relay.brevo.com` | ✅ all | plain | SMTP host. Validated on start (every environment). |
+| `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation, throwaway-vs-real keys, the CORS policy. |
+| `ASPNETCORE_URLS` | `https://localhost:5003` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); deployed it serves HTTP only (Caddy owns TLS). |
+| `ConnectionStrings__AuthDatabase` | `…;Database=lotro_auth;…;Password=changeme` (appsettings.Development) | Neon: `Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Timeout=20` | ✅ all | **secret** | Carries the DB password. **Keyword format only**: Npgsql does not parse `postgres://` URIs. `Timeout` is the limit for opening a connection. The auth API caps it at 20 s in code (#923), so an older box's `Timeout=60` still works there; only the migrator reads the value as written. Wake times: Gotchas → *First cold hit*. |
+| `OpenIddict__Issuer` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ non-dev | plain | **The token `iss`.** Absolute http(s), no `localhost`, no user name or password (#1108). Must equal tms `Auth__Issuer`. |
+| `OpenIddict__SigningKey__RsaPrivateKeyXml` | — (throwaway) | base64 of RSA XML (≥2048-bit) | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
+| `OpenIddict__AccessTokenLifetimeMinutes` | `5` (appsettings) | `5` (appsettings) | optional | plain | **A security parameter.** The TMS validates JWTs locally with no clock skew, so this is the longest time a revoked session keeps working after a password change, an e-mail-change undo or a scheduled deletion (#933). Raising it lengthens that window everywhere: read ADR-0049 first. The service refuses to start below `2` in every environment, because a client that renews a token a minute before it runs out would renew on every page (#1025, ADR-0049 amendment of 2026-10-07). `compose.hetzner.yaml` does not pass it, so on the boxes it changes only with a code change. |
+| `OpenIddict__RefreshTokenLifetimeMinutes` | `540` (appsettings) | `540` (appsettings) | optional | plain | **Tied to the frontend cookie.** The frontend keeps the refresh token in its session cookie, which ends after 8 idle hours, so a longer lifetime only keeps a token valid that the website has already lost. Never lower it below 8 hours plus a margin: a token that dies before its cookie shows "session expired" to a user who was idle for just under 8 hours. Every refresh issues a new token with the full lifetime, so a user who keeps working is never signed out by it (#1014). `compose.hetzner.yaml` does not pass it, so on the boxes it changes only with a code change. |
+| `OpenIddict__EncryptionKey__Key` | — (throwaway) | base64 of a ≥32-byte key | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
+| `OpenIddict__ApiClientSecret` | `dev-api-secret-min-32-characters-long` | ≥32-char random secret | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. **Seeds a DB row**: rotating it needs the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing). Must equal that environment's `SMOKE_CLIENT_SECRET`. |
+| `OpenIddict__WebClient__RedirectUris__0` | `https://localhost:7017/callback` | `https://lotro-translator.pl/callback` | ✅ non-dev | plain | Must equal the Frontend callback (its public origin + `AuthSystem__CallbackPath`). No user name or password (#1108). Written to the DB **only when the client is created**: see the reseed traps. |
+| `OpenIddict__WebClient__PostLogoutRedirectUris__0` | `https://localhost:7017` | `https://lotro-translator.pl` | ✅ non-dev | plain | Frontend post-logout return URL. The first entry is also the website root that the account pages and e-mails link to. No user name or password (#1108). |
+| `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. Lowercase, no default port, no path or slash. |
+| `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.100/32` (Caddy's pinned static IP) | optional | plain | Trusts `X-Forwarded-*` only from Caddy's exact address (#399, narrowed to a /32 by #506). Keep in step with Caddy's `ipv4_address` on the default network in `compose.hetzner.yaml`. A malformed CIDR aborts boot. |
+| `FrontendCaller__Key` | — (the limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | The frontend's caller key (ADR-0054): a frontend call that carries it next to the visitor's address is rate-limited on that visitor, not on the frontend container. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); boot fails without it outside Development/Testing. **The same variable feeds tms-api's `FrontendCaller__Key` and the frontend's `AuthSystem__CallerKey` + `TranslationSystem__CallerKey`.** |
+| `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | Opens the full `/health` (ADR-0058): the database, SMTP and broker checks run only for a request that sends this value in `X-LOTRO-Health-Key`; anyone else gets 404. Same format rules as `FrontendCaller__Key`; boot fails without it outside Development/Testing. **The same variable feeds tms-api's `HealthCheck__Key`.** |
+| `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent volume (`auth-keys`); without it logins, antiforgery and reset links break on every deploy. |
+| `Email__Host` | `localhost` (the compose mailpit, published on `:1025`) | `smtp-relay.brevo.com` | ✅ all | plain | SMTP host. Validated at start in every environment. |
 | `Email__Port` | `1025` | `587` | ✅ all | plain | 1–65535. |
-| `Email__Mode` | `None` | `StartTls` | ✅ all | plain | One of `None` / `StartTls` / `TLS`. |
-| `Email__SenderEmail` | `noreply@lotro-translator.pl` | a Brevo-**authorised** sender (today `koniecdev@gmail.com`) | ✅ all | plain | ⚠️ Not a free-text label — an unauthorised sender is accepted by the relay and **silently dropped** by the receiver. See [E-mail deliverability](#e-mail-deliverability--the-sender-must-be-one-brevo-is-authorised-to-send-as). |
+| `Email__Mode` | `None` | `StartTls` | ✅ all | plain | One of `None` / `StartTls` / `SslOnConnect`. |
+| `Email__SenderEmail` | `noreply@lotro-translator.pl` | a Brevo-**authorised** sender (today `koniecdev@gmail.com`) | ✅ all | plain | ⚠️ Not a free-text label: an unauthorised sender is accepted by the relay and **silently dropped** by the receiver. See [E-mail deliverability](#e-mail-deliverability--the-sender-must-be-one-brevo-is-authorised-to-send-as). |
 | `Email__Sender` | `lotro-translator.pl` | `LOTRO PL` | ✅ all | plain | Display name. |
-| `Email__Username` / `Email__Password` | — | Brevo SMTP login + key | optional¹ | **secret** (Password) | ¹If `Username` is set, `Password` is required. The login is shaped `<id>@smtp-brevo.com` — **not** the Brevo account e-mail (that fails with `535`). |
-| `RabbitMq__Host` | `localhost` (the compose broker, published on `:5672`) | `rabbitmq` (the in-stack broker service) | ✅ all | plain | Validated on start (every environment) — but auth-api **boots and serves with the broker down**: outbox rows wait, the consumer retries. See [Message broker](#message-broker-rabbitmq). |
+| `Email__Username` / `Email__Password` | — | Brevo SMTP login + key | optional¹ | **secret** (Password) | ¹If `Username` is set, `Password` is required. The login is shaped `<id>@smtp-brevo.com`, **not** the Brevo account e-mail (that fails with `535`). |
+| `RabbitMq__Host` | `localhost` (the compose broker, published on `:5672`) | `rabbitmq` (the in-stack broker service) | ✅ all | plain | Validated at start in every environment, but auth-api **boots and serves with the broker down**: outbox rows wait, the consumer retries. See [Message broker](#message-broker-rabbitmq). |
 | `RabbitMq__Username` | `rabbitmq` | `rabbitmq` | ✅ all | plain | Matches the `RABBITMQ_DEFAULT_USER` literal in every compose file. |
-| `RabbitMq__Password` | `changeme` (appsettings.Development + the dev compose `RABBITMQ_PASSWORD`) | from `RABBITMQ_PASSWORD` | ✅ all | **secret** | ⚠️ The broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** — rotation is a lockstep dance, see the [secrets table](#secret-material--source-of-truth-and-how-to-rotate). |
+| `RabbitMq__Password` | `changeme` (appsettings.Development + the dev compose default) | from `RABBITMQ_PASSWORD` | ✅ all | **secret** | ⚠️ The broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only**: rotation is a lockstep change, see the [secrets table](#secret-material--source-of-truth-and-how-to-rotate). |
 | `AdminUser__Username` / `AdminUser__Email` | `appsettings.Local.json` (git-ignored; copy its `.example`) | from `AUTH_ADMIN_USERNAME` / `AUTH_ADMIN_EMAIL` | optional | plain | Seeds one admin **only when missing**, **without a password**; the operator sets it through the reset mail ([Admin account](#admin-account--first-sign-in-and-rotation), ADR-0056). Leave the e-mail blank to skip. Username must match `^[a-zA-Z0-9]+$` (ADR-0022) or auth-api fails at startup; the admin logs in **by e-mail**. |
 | `AdminUser__Password` | `appsettings.Local.json` | — (**never set**) | optional | plain (a dev value) | Read **only** in Development and Testing, so the host dev loop and the test suites keep a known admin login. Every other environment ignores it and logs warning `2352`. Neither compose file passes it, on purpose. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings → the compose aspire-dashboard) | — (empty: no sink today, ADR-0034) | optional | plain | Empty = telemetry export disabled. See [Observability](#observability--monitoring). |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` / `http/protobuf` | optional | plain | Defaults to `grpc`. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings → the compose aspire-dashboard) | `http://10.60.0.1:4317` (the box's Alloy agent) | optional | plain | Empty = no exporter at all. The protocol is fixed to `grpc` in `compose.hetzner.yaml`. See [Observability](#observability--monitoring). |
 
 ### tms-api
 
 | Variable | local-dev | Staging / Production | Required? | Source | Notes |
 |---|---|---|---|---|---|
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation + the CORS policy. |
-| `ASPNETCORE_URLS` | `https://localhost:5002` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); prod serves HTTP only (Caddy owns TLS). |
+| `ASPNETCORE_URLS` | `https://localhost:5002` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); deployed it serves HTTP only (Caddy owns TLS). |
 | `ConnectionStrings__TranslationDatabase` | `…;Database=lotro_translation;…;Password=changeme` (appsettings.Development) | Neon: `Host=…;Database=lotro_translation;Username=…;Password=…;Ssl Mode=Require;Timeout=60` | ✅ all | **secret** | TMS write context. Same Neon format rules as the auth string. Here `Timeout=60` is the TMS API's own limit for opening a connection. |
-| `Auth__Issuer` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ all | plain | MUST equal auth `OpenIddict__Issuer` (the token `iss`); tokens are rejected otherwise. |
-| `Auth__Authority` | — (unset → falls back to `Issuer`) | `https://auth.lotro-translator.pl` | optional² | plain | Back-channel for OIDC metadata + JWKS. ²Unset → falls back to `Issuer`; the dev host run relies on that fallback. Prod: must be `https` (OpenIddict rejects plain HTTP) and reachable from the container — i.e. the **public Caddy origin**, never `http://auth-api:8080`. |
+| `Auth__Issuer` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ all | plain | Must equal auth `OpenIddict__Issuer` (the token `iss`); tokens are rejected otherwise. |
+| `Auth__Authority` | — (unset → falls back to `Issuer`) | `https://auth.lotro-translator.pl` | optional | plain | Back-channel for OIDC metadata + JWKS. The dev host run relies on the fallback to `Issuer`. Deployed: must be `https` (OpenIddict rejects plain HTTP in Production) and reachable from the container, i.e. the **public Caddy origin**, never `http://auth-api:8080`. |
 | `Auth__Audience` | `lotrokoniecdev-api` | `lotrokoniecdev-api` | ✅ all | plain | Default in base `appsettings.json`. |
 | `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. |
 | `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.100/32` (Caddy's pinned static IP) | optional | plain | See the auth-api row. |
-| `FrontendCaller__Key` | — (the limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | The same key and rule as auth-api's `FrontendCaller__Key` (ADR-0054, #823): a frontend call that carries it next to the visitor's address is rate-limited on that visitor, not on the frontend container. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. |
-| `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | The same key and rule as auth-api's `HealthCheck__Key` (ADR-0058, #853): the full `/health` runs the database check only for a request that sends it in `X-LOTRO-Health-Key`, and answers 404 to anyone else. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | `http://localhost:4317` / `grpc` (launchSettings) | — (empty: no sink today) | optional | plain | Empty endpoint = export disabled. |
-| `Bootstrap__Enabled` | `false` | `false` | optional | plain | One-time DB seed of the first export (spec 0001). Off by default. |
-| `RabbitMq__Host` / `RabbitMq__Username` / `RabbitMq__Password` | `localhost` / `rabbitmq` / `changeme` (appsettings.Development) | `rabbitmq` / `rabbitmq` / from `RABBITMQ_PASSWORD` | ✅ all | **secret** (Password) | The broker auth-api uses, with the same user: tms-api consumes the `AccountErased` events of ADR-0065 from its own queue `tms.account-erased`. Validated on start, but tms-api **boots and serves with the broker down**: the consumer retries its connection, and the AuthSystem's outbox keeps the event until it is delivered. |
-| `TranslationFileDiskCache__Directory` | — (unset → a private folder per process in the temp folder) | `/tmp/lotro-translation-files` (set in `compose.hetzner.yaml`) | optional | plain | Where full downloads of the translation file are served from (ADR-0064). Fixed in the containers so a crash restart reuses and sweeps the one copy (about 82 MB at full size) instead of leaving one behind. It must belong to this one process; an empty value stops the boot. |
-| `Bootstrap__GameVersion` / `Bootstrap__ExportedTextPath` / `Bootstrap__PolishTextPath` | — / — / `/app/translations/polish.txt` | as needed | optional | plain | Only consulted when `Bootstrap__Enabled=true`. |
+| `FrontendCaller__Key` | — (the limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | The same key and rules as auth-api's `FrontendCaller__Key` (ADR-0054, #823). |
+| `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | The same key and rules as auth-api's `HealthCheck__Key` (ADR-0058); here the full `/health` runs the database check. |
+| `RabbitMq__Host` / `RabbitMq__Username` / `RabbitMq__Password` | `localhost` / `rabbitmq` / `changeme` (appsettings.Development) | `rabbitmq` / `rabbitmq` / from `RABBITMQ_PASSWORD` | ✅ all | **secret** (Password) | The broker and the user auth-api uses: tms-api consumes the `AccountErased` events of ADR-0065 from its own queue `tms.account-erased`. Validated at start, but tms-api **boots and serves with the broker down**: the consumer retries its connection, and the AuthSystem's outbox keeps the event until it is delivered. |
+| `TranslationFileDiskCache__Directory` | — (unset → a private folder per process in the temp folder) | `/tmp/lotro-translation-files` (set in `compose.hetzner.yaml`) | optional | plain | Where full downloads of the translation file are served from (ADR-0064). Fixed in the containers, so a crash restart reuses and sweeps the one copy (about 82 MB at full size) instead of leaving one behind. It must belong to this one process; an empty value stops the boot. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings) | `http://10.60.0.1:4317` | optional | plain | See the auth-api row. |
 
 ### frontend
 
-Runs on the **host** in dev (`dotnet run`, ADR-0006 — and since #190 / M6-14 so do auth-api + tms-api) —
-its dev column is `appsettings.Development.json` + `launchSettings.json`; it is containerized only in
-Staging/Production.
+Runs on the **host** in dev (`dotnet run`, ADR-0006), so its dev column is
+`appsettings.Development.json` + `launchSettings.json`; it is containerized only in Staging and
+Production.
 
 | Variable | local-dev | Staging / Production | Required? | Source | Notes |
 |---|---|---|---|---|---|
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates the DP keyring guard. |
-| `ASPNETCORE_URLS` | `https://localhost:7017` (launchSettings) | `http://+:8080` | ✅ all | plain | Prod serves HTTP only (Caddy owns TLS). |
+| `ASPNETCORE_URLS` | `https://localhost:7017` (launchSettings) | `http://+:8080` | ✅ all | plain | Deployed it serves HTTP only (Caddy owns TLS). |
 | `AuthSystem__Authority` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ all | plain | Drives the `/authorize` redirect (front-channel) **and** discovery/token (back-channel). |
-| `AuthSystem__BaseUrl` | `https://localhost:5003/` | `https://auth.lotro-translator.pl/` | ✅ all | plain | Auth origin (trailing slash). MUST be the same origin as auth's `OpenIddict__Issuer`: the refresh token revoke (at sign-out, and when the website ends a session on its own) follows the discovered `revocation_endpoint`, and the frontend refuses it on any other origin (#964, #1027). |
+| `AuthSystem__BaseUrl` | `https://localhost:5003/` | `https://auth.lotro-translator.pl/` | ✅ all | plain | Auth origin (trailing slash). Must be the same origin as auth's `OpenIddict__Issuer`: see [consistency rule 2](#consistency-rules-that-bite). |
 | `AuthSystem__ClientId` | `lotrokoniecdev-web` | `lotrokoniecdev-web` | ✅ all | plain | Must match the OpenIddict web-client id. |
-| `AuthSystem__CallbackPath` | `/callback` | `/callback` | ✅ all | plain | Origin + this MUST be registered in auth `RedirectUris`. |
-| `AuthSystem__SignedOutCallbackPath` | `/signout-callback-oidc` | `/signout-callback-oidc` | ✅ all | plain | Origin + this MUST be in auth `PostLogoutRedirectUris`. |
+| `AuthSystem__CallbackPath` | `/callback` | `/callback` | ✅ all | plain | Origin + this must be registered in auth `RedirectUris`. |
+| `AuthSystem__SignedOutCallbackPath` | `/signout-callback-oidc` | `/signout-callback-oidc` | ✅ all | plain | Origin + this must be in auth `PostLogoutRedirectUris`. |
 | `AuthSystem__Scopes` | `openid,email,profile,roles,api,offline_access` | same | ✅ all | plain | At least one scope. |
 | `TranslationSystem__BaseUrl` | `https://localhost:5002/` | `https://tms.lotro-translator.pl/` | ✅ all | plain | TMS API origin (trailing slash). |
-| `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent volume (`frontend-keys`, ADR-0005); else antiforgery + auth cookies break on deploy. |
-| `AuthSystem__CallerKey` | — (the auth limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | Sent with the visitor's address on every auth API call (ADR-0054). Must equal auth-api's `FrontendCaller__Key` — compose reads both from the one variable. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. |
-| `TranslationSystem__CallerKey` | — (the TMS limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | Sent with the visitor's address on every TMS API call (ADR-0054, #823). Must equal tms-api's `FrontendCaller__Key` — the same one variable again. ≥ 32 chars, printable ASCII only (no line break, tab or non-ASCII character), no whitespace at either end (write it unquoted); the boot fails without it outside Development/Testing. |
+| `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent volume (`frontend-keys`, ADR-0005); without it antiforgery and auth cookies break on every deploy. |
+| `AuthSystem__CallerKey` | — (the auth limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | Sent with the visitor's address on every auth API call (ADR-0054). Must equal auth-api's `FrontendCaller__Key`; compose reads both from the one variable. Same format rules as there. |
+| `TranslationSystem__CallerKey` | — (the TMS limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | Sent with the visitor's address on every TMS API call (ADR-0054, #823). Must equal tms-api's `FrontendCaller__Key`: the same one variable again. |
 | `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.100/32` (Caddy's pinned static IP) | optional | plain | See the auth-api row. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | `http://localhost:4317` / `grpc` (launchSettings) | — (empty: no sink today) | optional | plain | Empty endpoint = export disabled. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings) | `http://10.60.0.1:4317` | optional | plain | See the auth-api row. |
 
 ### migrator
 
-A one-shot job — reads exactly the two connection strings (see [Database migrations](#database-migrations)
-for the full strategy):
+A one-shot job that reads only the two connection strings (see
+[Database migrations](#database-migrations)):
 
 | Variable | local-dev | Staging / Production | Required? | Source | Notes |
 |---|---|---|---|---|---|
@@ -318,70 +296,78 @@ for the full strategy):
 
 ### Box-identity variables (not secrets)
 
-These decide **which environment a box is** — full list with placeholders in `.env.hetzner.example`:
-`COMPOSE_PROJECT_NAME` (`lotro-prod` | `lotro-staging`), `IMAGE_NAMESPACE`, `IMAGE_TAG`,
-`DOMAIN_APP` / `DOMAIN_AUTH` / `DOMAIN_TMS`, `ACME_EMAIL`, `TKS_DOMAIN_*` (the guest TheKittySaver
-vhosts), `DOMAIN_OBS` / `OBS_ALLOWED_PUSH_IP` / `OBS_PUSH_USER` (the observability ingest vhost —
-**backend box only**, the other box keeps the inert compose defaults; #755), `XROBOTS` (SEO
-crawler control, #531 — Caddy stamps it as `X-Robots-Tag` on every LOTRO vhost response; prod
-leaves it unset → `all` (explicit no-op), the **staging box sets
-`XROBOTS="noindex, nofollow"`** so the deliberately-public staging trio never gets indexed as
-duplicate content of prod. The TKS vhosts are excluded on purpose — TKS stamps the header
-app-side, koniecdev/TheKittySaver#390), `OOM_SCORE_ADJ_APP` (**opposite on the two boxes** —
-`500` on staging, `0` on prod; see [Memory pressure](#memory-pressure-who-the-kernel-kills-first)).
-The observability project has its own `/opt/obs/.env` with `OBS_ALLOY_OOM_SCORE_ADJ`, which inverts
-the same way (`-300` staging, `300` prod).
+These decide **which environment a box is**. The full list with placeholders is in
+`.env.hetzner.example`:
+
+- `COMPOSE_PROJECT_NAME` (`lotro-prod` | `lotro-staging`), `IMAGE_NAMESPACE`, `IMAGE_TAG`,
+  `DOMAIN_APP` / `DOMAIN_AUTH` / `DOMAIN_TMS`, `ACME_EMAIL`.
+- `TKS_DOMAIN_*`: the guest TheKittySaver vhosts.
+- `DOMAIN_OBS` / `OBS_ALLOWED_PUSH_IP` / `OBS_PUSH_USER`: the observability ingest vhost, on the
+  **backend box only**. The other box keeps the inert compose defaults (#755).
+- `XROBOTS`: Caddy stamps it as `X-Robots-Tag` on every LOTRO vhost response (#531). Prod leaves it
+  unset (→ `all`, a no-op); the **staging box sets `XROBOTS="noindex, nofollow"`**, so the public
+  staging trio is never indexed as a copy of prod. The TKS vhosts are left out, because TKS sets the
+  header in its own app (koniecdev/TheKittySaver#390).
+- `OOM_SCORE_ADJ_APP`: **opposite on the two boxes**, `500` on staging and `0` on prod (see
+  [Memory pressure](#memory-pressure-who-the-kernel-kills-first)). The observability project's
+  `/opt/obs/.env` has `OBS_ALLOY_OOM_SCORE_ADJ`, which inverts the same way (`-300` staging, `300` prod).
 
 ## Secrets
 
 ### Where they live
 
 The live values sit in **`/opt/lotro/.env`** on each box (`chmod 600`, owner `deploy`): **one file
-per box**, because one box = one environment. Compose picks it up automatically — no `--env-file`.
-The tracked template carrying every key with placeholder values is **`.env.hetzner.example`**.
+per box**, because one box = one environment. Compose reads it automatically, so no `--env-file`.
+The tracked template with every key and placeholder values is **`.env.hetzner.example`**.
 
-Two pieces of credential-ish material live **outside** `.env` and outside the DB: the `auth-keys`
-and `frontend-keys` **Data Protection keyring volumes**. They are not minted from anywhere — losing
-a volume simply invalidates every auth cookie and OIDC correlation state (everyone re-logs in),
-which is why they are named volumes and not bind mounts.
+**A new required variable lands on a box before the change that needs it.** Put it into the staging
+`.env` before the merge, and into the prod `.env` before the promotion. Compose refuses to render
+without a required variable (`${VAR:?}`), so `deploy.sh` stops at its first gate and the old release
+keeps serving, but the deploy is red until the value is there.
+
+Two pieces of key material live **outside** `.env` and outside the DB: the `auth-keys` and
+`frontend-keys` **Data Protection keyring volumes**. Nothing mints them. Losing a volume invalidates
+every auth cookie and OIDC correlation state (everyone signs in again), which is why they are named
+volumes and not bind mounts.
 
 ### Secret material — source of truth and how to rotate
 
-| Variable | Consumed by | Source of truth | (Re)mint / rotate |
+| Variable | Read by | Source of truth | (Re)mint / rotate |
 |---|---|---|---|
-| `ConnectionStrings__AuthDatabase` | migrator, auth-api | **Neon** — the env's project (prod: `lotro-translator-prod`; staging has its own, ADR-0018), DB `lotro_auth` | Neon console → Roles → *Reset password* → rebuild the string by hand. **Keyword format only** — Npgsql does not parse `postgres://` URIs. Must carry `Ssl Mode=Require`. Use `Timeout=20`; an existing `Timeout=60` also works, because the auth API caps the open at 20 s in code and only the migrator reads the value as written (#923). |
-| `ConnectionStrings__TranslationDatabase` | migrator, tms-api | same Neon project, DB `lotro_translation` | same |
-| `OpenIddict__SigningKey__RsaPrivateKeyXml` | auth-api | **regenerate** — no canonical copy exists anywhere | `scripts/gen-openiddict-keys.sh` prints all three OpenIddict values as `KEY=VALUE` lines; append to the box `.env`. Pure config (never stored in the DB), so rotating just invalidates issued tokens → everyone re-logs in. Free pre-launch. |
-| `OpenIddict__EncryptionKey__Key` | auth-api | regenerate | same script, same blast radius. |
-| `OpenIddict__ApiClientSecret` | auth-api (**seeds** the `lotrokoniecdev-api` client row) | regenerate | same script — **but the DB row wins on restart; rotation needs the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing).** Must stay equal to the `SMOKE_CLIENT_SECRET` GitHub secret of the same environment. |
-| `Email__Username` | auth-api | **Brevo** dashboard → SMTP & API → SMTP keys | The SMTP **login**, shaped `<id>@smtp-brevo.com` — **not** the Brevo account e-mail, which fails the handshake with `535`. |
-| `Email__Password` | auth-api | **Brevo** (owner pastes) | Generate a new SMTP key in Brevo. Shown **once** and never readable back — the copies in the box `.env` and in GitHub secrets are both write-only, so a lost key is re-generated, never recovered. |
-| The admin password | the admin `Users` row | **the admin's own password manager**, never a file on the box | Not a `.env` value any more (ADR-0056): the seeder creates the admin without one. The first password and every rotation go through the reset mail ([Admin account](#admin-account--first-sign-in-and-rotation)). A box `.env` that still has an `AUTH_ADMIN_PASSWORD` line predates #696: follow the migration steps there. |
-| `RABBITMQ_PASSWORD` (→ auth-api and tms-api `RabbitMq__Password` **and** the broker's `RABBITMQ_DEFAULT_PASS`) | rabbitmq, auth-api, tms-api | **box-local** — generate: `openssl rand -base64 24` | ⚠️ Same create-if-missing shape as the admin seed: the broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** (empty data volume), so editing `.env` later rotates what the apps present but **not** what the broker expects. Rotate in lockstep: `docker compose -f compose.hetzner.yaml exec --user rabbitmq rabbitmq rabbitmqctl change_password rabbitmq '<new>'` → update `.env` → `docker compose -f compose.hetzner.yaml up -d auth-api tms-api`. Leave tms-api out and it keeps working until its next reconnect, then is refused for good while erasures wait unseen in its queue (ADR-0065). |
-| `FRONTEND_CALLER_KEY` (→ auth-api and tms-api `FrontendCaller__Key`, frontend `AuthSystem__CallerKey` **and** `TranslationSystem__CallerKey`) | auth-api, tms-api, frontend | **box-local** — generate: `openssl rand -base64 32`, one per environment (not one per API) | Lets the auth API and the TMS API rate-limit a frontend call on the visitor's forwarded address instead of on the frontend container (ADR-0054, #823). Put a new value into the box `.env` and redeploy: all three services read the same line, so they disagree only for the seconds of the restart, and a call in that window merely counts against the frontend's own bucket. **Required** — compose refuses to render without it (`deploy.sh` stops at its first gate and the rollback keeps the old release serving), and all three apps refuse to boot outside Development/Testing. Write the value **unquoted**: base64 needs no quotes, and a key with whitespace at either end stops all three apps at boot, because the APIs would compare it with a trimmed header and never match (#857). A line break or a non-ASCII character anywhere in the key (a multi-line value, a pasted non-breaking space) stops them at boot too, because such a key cannot reach the API in a header. So does a tab: it could reach the API, but it is refused to keep one simple rule (#877). A leaked key lets its holder dodge the three auth back-channel limits and the TMS API's one limit by inventing addresses and nothing more — rotate it. |
-| `HEALTH_CHECK_KEY` (→ auth-api and tms-api `HealthCheck__Key`) | auth-api, tms-api, **and on the prod box the daily health ping** | **box-local** — generate: `openssl rand -base64 32`, one per environment (not one per API) | Opens the full `/health` (ADR-0058, #853); without it both APIs answer 404 there and run no check. **Required** — compose refuses to render without it (`deploy.sh` stops at its first gate and the rollback keeps the old release serving), and both APIs refuse to boot outside Development/Testing. **Prod only: the same value is the `PROD_HEALTH_CHECK_KEY` repository secret** the daily health ping sends. Set or rotate it without the value ever reaching argv or the screen: `ssh deploy@<prod-box> "grep '^HEALTH_CHECK_KEY=' /opt/lotro/.env \| cut -d= -f2-" \| tr -d '"\r\n' \| gh secret set PROD_HEALTH_CHECK_KEY` (gh reads stdin when there is no `--body`; **never `--body -`**). The command copies the raw `.env` line, so write the value **unquoted** — base64 needs no quotes; `tr` drops double quotes, but single quotes would reach the secret and turn the ping red. Both APIs refuse to boot with a key that has whitespace at either end or anything but printable ASCII inside it (#853, #877). Rotate: new value into the prod `.env` → redeploy → that command. Between the two steps the ping gets 404 and goes red, so rotate outside its 06:40 UTC slot. A leaked key lets its holder run the database, SMTP and broker checks at will, and nothing more — rotate it. |
-| `OBS_PUSH_PASSWORD` (prod `/opt/obs/.env`) ↔ `OBS_PUSH_PASSWORD_HASH` (staging `/opt/lotro/.env`) | the prod agent (Alloy, `ship.agent.alloy`) ↔ the staging Caddy's ingest vhost | **box-local** — generate: `openssl rand -base64 24`; hash it with `docker run --rm -it caddy:2-alpine caddy hash-password` (prompts, never on argv) | One password, two forms, and the plaintext exists on the prod box only. Rotate hash-first: new hash into staging `.env` → `deploy.sh` (reloads Caddy) → new password into prod `.env` → `docker compose -f compose.observability.yaml up -d` in `/opt/obs`. **The window in between loses telemetry, it does not delay it** — a 401 is a permanent error for all three writers and each drops the batch — so pick a window you are willing to have a hole in, or give the vhost a second `basic_auth` account first so the two credentials overlap. **Single-quote the hash in `.env`**: bare *and* double-quoted both corrupt it, compose expands the salt after the third `$` to nothing, and `caddy validate` accepts the wreckage — prove it landed with the probe in "Bringing up the prod agent" step 3. |
-| `SMOKE_CLIENT_SECRET` *(GitHub secret, per environment — **not** a box var)* | `scripts/smoke.sh`, CD | == `OpenIddict__ApiClientSecret` of that env | `gh secret set SMOKE_CLIENT_SECRET --env <staging\|production> --body "$VALUE"` — **never `--body -`**: gh takes `-` literally and the smoke leg then 401s. |
-| GHCR pull token *(not an env var — `docker login` state in `/home/deploy/.docker/config.json`)* | `docker compose pull` | **GitHub PAT**, scope `read:packages` **only** | Re-run `scripts/hetzner/bootstrap.sh` (its login leg prompts for user + PAT on a TTY). |
-| `HETZNER_SSH_KEY` *(GitHub secret, per environment — **not** a box var)* | CD over ssh (`deploy.yml`) | generated for CD — one key per box | The `deploy` user's key, never `root`'s. Mint + install + pin the host key: [One-time setup per environment](#one-time-setup-per-environment). |
+| `ConnectionStrings__AuthDatabase` | migrator, auth-api | **Neon**: the environment's project (prod: `lotro-translator-prod`; staging has its own, ADR-0018), DB `lotro_auth` | Neon console → Roles → *Reset password* → rebuild the string by hand, in the format the [auth-api matrix](#auth-api) shows (keyword form, `Ssl Mode=Require`, `Timeout=20`). |
+| `ConnectionStrings__TranslationDatabase` | migrator, tms-api | same Neon project, DB `lotro_translation` | same, in the format the [tms-api matrix](#tms-api) shows (`Timeout=60`) |
+| `OpenIddict__SigningKey__RsaPrivateKeyXml` | auth-api | **regenerate**: no copy exists anywhere else | Take the line from [`gen-openiddict-keys`](#openiddict-production-keys-auth-api) into the box `.env`. Pure config (never stored in the DB), so a rotation invalidates issued tokens and everyone signs in again. auth-api can also read `OpenIddict__SigningKey__PreviousRsaPrivateKeyXml` to keep old tokens valid during a rotation (`OpenIddictSettings`), but `compose.hetzner.yaml` does not pass it. |
+| `OpenIddict__EncryptionKey__Key` | auth-api | regenerate | same script, same effect. |
+| `OpenIddict__ApiClientSecret` | auth-api (**seeds** the `lotrokoniecdev-api` client row) | regenerate | same script, **but the DB row wins on restart: a rotation needs the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing).** Must stay equal to the `SMOKE_CLIENT_SECRET` GitHub secret of the same environment. |
+| `Email__Username` | auth-api | **Brevo** dashboard → SMTP & API → SMTP keys | The SMTP **login**, shaped `<id>@smtp-brevo.com`, **not** the Brevo account e-mail, which fails the handshake with `535`. |
+| `Email__Password` | auth-api | **Brevo** (the owner pastes it) | Generate a new SMTP key in Brevo. Brevo shows it **once**, so a lost key is generated again, never recovered. |
+| The admin password | the admin `Users` row | **the admin's own password manager**, never a file on the box | Not a `.env` value (ADR-0056): the seeder creates the admin without one. The first password and every rotation go through the reset mail ([Admin account](#admin-account--first-sign-in-and-rotation)). A box `.env` that still has an `AUTH_ADMIN_PASSWORD` line predates #696: follow the migration steps there. |
+| `RABBITMQ_PASSWORD` (→ auth-api and tms-api `RabbitMq__Password` **and** the broker's `RABBITMQ_DEFAULT_PASS`) | rabbitmq, auth-api, tms-api | **box-local**: `openssl rand -base64 24` | ⚠️ The broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** (empty data volume), so editing `.env` later changes what the apps send but **not** what the broker expects. Rotate in lockstep: `docker compose -f compose.hetzner.yaml exec --user rabbitmq rabbitmq rabbitmqctl change_password rabbitmq '<new>'` → update `.env` → `docker compose -f compose.hetzner.yaml up -d auth-api tms-api`. Leave tms-api out and it keeps working until its next reconnect, then is refused for good while erasures wait unseen in its queue (ADR-0065). |
+| `FRONTEND_CALLER_KEY` (→ auth-api and tms-api `FrontendCaller__Key`, frontend `AuthSystem__CallerKey` **and** `TranslationSystem__CallerKey`) | auth-api, tms-api, frontend | **box-local**: `openssl rand -base64 32`, one per environment (not one per API) | Lets both APIs rate-limit a frontend call on the visitor's forwarded address instead of on the frontend container (ADR-0054). Put a new value into the box `.env` and redeploy: all three services read the same line, so they disagree only during the restart, and a call in that window only counts against the frontend's own bucket. **Required**: compose refuses to render without it, and all three apps refuse to boot outside Development/Testing. Write it **unquoted**. A key with whitespace at either end, a line break or a non-ASCII character (a pasted non-breaking space) stops all three apps at boot, because such a key cannot match the header the APIs compare it with; a tab is refused too, to keep one simple rule (#857, #877). A leaked key lets its holder dodge the three auth back-channel limits and the TMS API's one limit by inventing addresses, and nothing more: rotate it. |
+| `HEALTH_CHECK_KEY` (→ auth-api and tms-api `HealthCheck__Key`) | auth-api, tms-api, **and on the prod box the daily health ping** | **box-local**: `openssl rand -base64 32`, one per environment (not one per API) | Opens the full `/health` (ADR-0058); without it both APIs answer 404 there and run no check. **Required**, with the same format rules as `FRONTEND_CALLER_KEY`. **Prod only: the same value is the `PROD_HEALTH_CHECK_KEY` repository secret** the daily health ping sends. Set or rotate it without the value reaching argv or the screen: `ssh deploy@<prod-box> "grep '^HEALTH_CHECK_KEY=' /opt/lotro/.env \| cut -d= -f2-" \| tr -d '"\r\n' \| gh secret set PROD_HEALTH_CHECK_KEY` (gh reads stdin when there is no `--body`; **never `--body -`**). The command copies the raw `.env` line, so write the value **unquoted**: `tr` drops double quotes, but single quotes would reach the secret and turn the ping red. Rotate: new value into the prod `.env` → redeploy → that command. Between the two steps the ping gets 404 and goes red, so rotate outside its 06:40 UTC slot. A leaked key lets its holder run the database, SMTP and broker checks at will, and nothing more: rotate it. |
+| `OBS_PUSH_PASSWORD` (prod `/opt/obs/.env`) ↔ `OBS_PUSH_PASSWORD_HASH` (staging `/opt/lotro/.env`) | the prod agent (Alloy, `ship.agent.alloy`) ↔ the staging Caddy's ingest vhost | **box-local**: `openssl rand -base64 24`; hash it with `docker run --rm -it caddy:2-alpine caddy hash-password` (it prompts, never on argv) | One password in two forms; the plaintext exists on the prod box only. Rotate hash first: new hash into the staging `.env` → `deploy.sh` (reloads Caddy) → new password into the prod `.env` → `docker compose -f compose.observability.yaml up -d` in `/opt/obs`. **Telemetry sent in between is lost, not delayed**: all three writers treat a 401 as permanent and drop the batch. So pick a window you accept a hole in, or give the vhost a second `basic_auth` account first so the two credentials overlap. **Single-quote the hash in `.env`**: see [Bringing up the prod agent](#bringing-up-the-prod-agent-the-agent-only-role) step 3, which also has the probe that proves it landed. |
+| `SMOKE_CLIENT_SECRET` *(GitHub secret, per environment — **not** a box variable)* | `scripts/smoke.sh`, CD | == `OpenIddict__ApiClientSecret` of that environment | `gh secret set SMOKE_CLIENT_SECRET --env <staging\|production> --body "$VALUE"`. **Never `--body -`**: gh takes `-` literally and the smoke then gets 401. |
+| GHCR pull token *(not an env var — `docker login` state in `/home/deploy/.docker/config.json`)* | `docker compose pull` | **GitHub PAT**, scope `read:packages` **only** | Re-run `scripts/hetzner/bootstrap.sh` with `GHCR_USER` and `GHCR_TOKEN` set (the command and its shell-history caveat: [(Re)provisioning a box](#reprovisioning-a-box) step 3). Its login prompt runs only when `deploy` is not logged in yet, so a re-run without them keeps the old token. Today the images are public and pull without a login, so this matters only for a private package. |
+| `HETZNER_SSH_KEY` *(GitHub secret, per environment — **not** a box variable)* | CD over ssh (`deploy.yml`) | generated for CD, one key per box | The `deploy` user's key, never `root`'s. Mint + install + pin the host key: [One-time setup per environment](#one-time-setup-per-environment). |
 
 ### OpenIddict production keys (auth-api)
 
-The three OpenIddict secrets — generate all at once and append to the box `.env` (or `.env.prod` for
-the parity stack):
-
-```bash
-scripts/gen-openiddict-keys.sh >> .env.prod        # PowerShell: scripts/gen-openiddict-keys.ps1 >> .env.prod
-```
-
-It prints a leading comment line plus three `KEY=VALUE` lines:
+`scripts/gen-openiddict-keys.sh` (PowerShell: `scripts/gen-openiddict-keys.ps1`) prints a comment
+line and five `KEY=VALUE` lines:
 
 ```
 # Generated by scripts/gen-openiddict-keys.sh — keep secret, never commit.
 OpenIddict__EncryptionKey__Key=<base64 of a 32-byte key>
 OpenIddict__ApiClientSecret=<48 hex chars>
 OpenIddict__SigningKey__RsaPrivateKeyXml=<base64 of RSA.ToXmlString(true), 2048-bit>
+FRONTEND_CALLER_KEY=<base64 of 32 random bytes>
+HEALTH_CHECK_KEY=<base64 of 32 random bytes>
 ```
+
+`scripts/up-prod.sh` uses it to fill a new `.env.prod`. For a box `.env`, put each value into its
+empty line from `.env.hetzner.example`. **For a rotation, copy only the line you rotate.** Never
+append the whole output to a live box `.env`: it would also change the API client secret, the caller
+key and the health check key, and each of those has its own rotation steps in the table above.
 
 Manual equivalents for the two simple ones (if you cannot run the script):
 
@@ -390,29 +376,28 @@ openssl rand -base64 32        # OpenIddict__EncryptionKey__Key  (256-bit symmet
 openssl rand -hex 24           # OpenIddict__ApiClientSecret     (48 chars, ≥ the 32 minimum)
 ```
 
-`RsaPrivateKeyXml` is base64 of .NET's `RSA.ToXmlString(true)` for a ≥2048-bit key — the script does
-the PEM→.NET-XML conversion (it needs `openssl` + `python3`); reproduce it with the script rather than
+`RsaPrivateKeyXml` is base64 of .NET's `RSA.ToXmlString(true)` for a ≥2048-bit key. The script does
+the PEM → .NET XML conversion (it needs `openssl` + `python3`); use the script rather than doing it
 by hand.
 
 ### E-mail deliverability — the sender must be one Brevo is authorised to send as
 
 `Email__SenderEmail` is not a free-text label. It must be either Brevo's verified **single sender**
-(today: `koniecdev@gmail.com`) or an address on a domain **authenticated in Brevo** — i.e. one whose
-DKIM + SPF records are published in DNS. Any other value fails in the one way no alarm can see:
+(today: `koniecdev@gmail.com`) or an address on a domain **authenticated in Brevo**, i.e. one whose
+DKIM + SPF records are published in DNS. Any other value fails in a way no alarm can see:
 
 1. Brevo's relay **accepts** the message, so `IEmailService.SendAsync` returns success.
-2. The deep auth `/health` SMTP check stays **green** — it only proves connect + authenticate.
-3. The receiver (Gmail, etc.) sees mail claiming a domain with no SPF and no aligned DKIM, and
-   **silently drops it** — it does not even reach spam.
+2. The deep auth `/health` SMTP check stays **green**: it only proves connect + authenticate.
+3. The receiver (Gmail, etc.) sees mail that claims a domain with no SPF and no aligned DKIM, and
+   **silently drops it**. It does not even reach spam.
 4. `RegisterUser` auto-confirms a user only when the send **fails** (`RegisterUser.cs`, the
    `emailResult.IsFailure` branch). A send that "succeeded" skips that net, so every new account is
-   stranded at *"potwierdź adres e-mail"* and **nobody can log in**.
+   stuck at *"potwierdź adres e-mail"* and **nobody can log in**.
 
-This shipped to **both** prods during the Hetzner cutover (#491): `.env.hetzner.example` seeded
-`no-reply@lotro-translator.pl`, and `lotro-translator.pl` has **no SPF, DKIM or DMARC records at
-all**. Fixed by pointing both boxes at the verified single sender.
+That is how both prods shipped with `no-reply@lotro-translator.pl` during the Hetzner cutover (#491):
+`lotro-translator.pl` has **no SPF, DKIM or DMARC records at all**.
 
-**The only check that works is an end-to-end one** — register a real account and read a real inbox;
+**The only check that works is an end-to-end one**: register a real account and read a real inbox.
 `smoke.sh` cannot cover this, and neither can a health probe:
 
 ```bash
@@ -421,17 +406,17 @@ dig +short TXT lotro-translator.pl            # SPF/DKIM/DMARC present at all? (
 # koniecdev+check@gmail.com), because only delivery proves delivery.
 ```
 
-To move off the personal-gmail sender, authenticate the domain in Brevo (Senders → Domains → add
+To move off the personal Gmail sender, authenticate the domain in Brevo (Senders → Domains → add
 `lotro-translator.pl`, publish the DKIM + SPF records it prints, add a DMARC record), *then* switch
-`Email__SenderEmail` to `no-reply@lotro-translator.pl` — and re-run the registration check above.
+`Email__SenderEmail` to `no-reply@lotro-translator.pl`, and run the registration check again.
 
 ### Reseed traps — the auth seeder is create-if-missing
 
 `SeedAuthDatabaseAsync` (`AuthSystem.API/Extensions/DatabaseSeederExtensions.cs`) creates only what
-is absent: the admin user is skipped when its e-mail **or** username already exists (an existing
-account at the admin e-mail never gets the Admin role from the seeder), and each
-OpenIddict client is skipped when its `client_id` already exists. The Neon DBs long outlive any box,
-so this is the normal case — and it means **editing `.env` and restarting silently changes nothing**:
+is missing. The admin user is skipped when its e-mail **or** username already exists (the seeder
+never gives the Admin role to an existing account at the admin e-mail), and each OpenIddict client is
+skipped when its `client_id` already exists. The Neon DBs outlive any box, so this is the normal
+case, and it means **editing `.env` and restarting silently changes nothing**:
 
 | You changed in `.env` | What silently keeps the OLD value | Symptom |
 |---|---|---|
@@ -439,8 +424,8 @@ so this is the normal case — and it means **editing `.env` and restarting sile
 | `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_USERNAME` | the admin `Users` row | a new address with the same username is skipped, with warning `2353` in the auth-api log; a new address that already belongs to a non-admin account is skipped, with warning `2354` (that row may be a stranger's account: read "Warning `2354`" under [Admin account](#admin-account--first-sign-in-and-rotation) before you delete anything); a new address that an account left less than 14 days ago, and can still undo back to, is skipped, with warning `2355`; a new address **and** a new username seed a **second** admin, and the first one keeps its role |
 | `DOMAIN_APP` | the `lotrokoniecdev-web` client's redirect + post-logout URIs (written **only at creation**) | login bounces with `invalid_redirect_uri` |
 
-Fix = delete the rows and let the seeder rebuild them from the current `.env`. Schema is
-**`authsystem`** and the Identity tables are **renamed** (`authsystem."Users"`, *not* `AspNetUsers`).
+Fix = delete the rows and let the seeder rebuild them from the current `.env`. The schema is
+**`authsystem`**, and the Identity tables are **renamed** (`authsystem."Users"`, *not* `AspNetUsers`).
 Delete in FK order:
 
 ```sql
@@ -457,8 +442,7 @@ DELETE FROM authsystem."Users" WHERE "NormalizedEmail" = upper('<admin e-mail>')
 docker compose -f compose.hetzner.yaml restart auth-api   # seeder runs at startup, recreates the rows
 ```
 
-Every logged-in user is signed out by this (their tokens are gone) — free pre-launch, a real outage
-after launch.
+This signs out every user (their tokens are gone): free before launch, a real outage after it.
 
 ### Admin account — first sign-in and rotation
 
@@ -472,15 +456,15 @@ AUTH_ADMIN_USERNAME=…        # letters + digits only (^[a-zA-Z0-9]+$) — ADR-
 AUTH_ADMIN_EMAIL=…           # a mailbox the operator reads: the first password arrives there
 ```
 
-The username is a display-only handle; the admin **logs in by e-mail + password**. A username
-containing `-`, `.`, `_`, spaces or diacritics fails Identity's `AllowedUserNameCharacters` and
-crashes auth-api at startup (loud, by design).
+The username is a display-only handle; the admin **logs in by e-mail + password**. A username with
+`-`, `.`, `_`, spaces or diacritics fails Identity's `AllowedUserNameCharacters` and stops auth-api
+at startup (loud, by design).
 
 **There is no admin password in the `.env` (ADR-0056).** The seeder creates the admin without a
 password, so nobody can sign in to it until someone opens the reset mail. auth-api logs event `2351`
-("Seeded the admin account … without a password") when it does this. The ADR says what this does
-and does not protect: the `.env` still holds the OpenIddict signing key and the Neon connection
-strings, and anyone who can read that file is already stronger than any admin password.
+("Seeded the admin account … without a password") when it does this. The ADR says what this does and
+does not protect: the `.env` still holds the OpenIddict signing key and the Neon connection strings,
+and anyone who can read that file is already stronger than any admin password.
 
 **Before the first sign-in, prove that mail works.** The admin gets its password through the same
 mail path as every translator's confirmation: outbox → RabbitMQ → Brevo. If registration mail does
@@ -496,12 +480,11 @@ not arrive on this box, the admin mail will not arrive either, so fix that first
    a pasted space shows the normal "Jeśli konto istnieje…" panel and sends nothing.
 3. Open the mail, follow the link and set a long random password from a password manager. Never
    write it into the `.env`, a ticket, the wiki or a public channel. The staging admin is shared with
-   testers: hand its password over in a private message, the same way as any other credential. The
-   prod admin must never use the same password as staging. Nothing in the code checks that, so it
-   is up to you.
+   testers: hand its password over in a private message, like any other credential. The prod admin
+   must never use the same password as staging. Nothing in the code checks that, so it is up to you.
 4. Sign in with it. A reset also revokes every session the admin had (ADR-0049), which is the point
-   of a rotation. An access token that was already issued keeps working until it expires, which
-   takes at most five minutes.
+   of a rotation. An access token that was already issued keeps working until it expires, which takes
+   at most five minutes.
 
 If the sign-in right after a successful reset shows "Nieprawidłowy e-mail lub hasło.", the account
 may be **locked**. Five wrong passwords lock it for 5 minutes, and anyone who knows the admin address
@@ -519,14 +502,14 @@ Two limits apply to the reset page, and they look different:
 Wait out that window before you blame delivery.
 
 **Migrating a box seeded before #696.** Its admin row still has the password that was in
-`AUTH_ADMIN_PASSWORD`, and this change does not remove it: the seeder skips an admin that already
+`AUTH_ADMIN_PASSWORD`, and the seeder does not remove it, because it skips an admin that already
 exists. Rotate first, then remove the line, in this order:
 
 1. Do the four steps above for the box's admin. The old password stops working the moment the reset
    succeeds. Check it: sign in with the old one and get the generic error.
 2. Delete the line as the `deploy` user, so the file stays owned by `deploy` and CD can still read it
    (never edit it as root). The second command must print `0`. No restart is needed: neither compose
-   file reads the line any more.
+   file reads the line.
 
    ```bash
    ssh lotro-<env> "sudo -u deploy sed -i '/^AUTH_ADMIN_PASSWORD=/d' /opt/lotro/.env"
@@ -534,7 +517,7 @@ exists. Rotate first, then remove the line, in this order:
    ```
 3. Clean up the other copies of the old value. It is a leaked password now:
    - the `ADMIN_PASSWORD` GitHub secret and the `ADMIN_EMAIL` / `ADMIN_USERNAME` variables are
-     leftovers from the Azure era (ADR-0013 already calls them unused). Delete them;
+     leftovers from the Azure era (ADR-0013 calls them unused). Delete them;
    - any backup of the box `.env` still holds it;
    - if the value was ever reused anywhere else, change it there too.
 4. Remember that a database restore brings the old password back. A Neon restore (PITR or a
@@ -577,12 +560,12 @@ their address would get its first password from their inbox.
 **It is your address.** Give the row the role by hand **only** when it is confirmed, has no password
 and has no armed undo link. That is what an admin half-made by a crash before #839 looks like: only
 the admin inbox can give it a password. `EmailConfirmed` alone is **not** enough. An e-mail change
-moves someone else's account onto your address, with their password, as soon as you click the confirm
-link it mails you, and its undo link can later take the row back, role included (ADR-0048). The
-statements below end any session still open on the row, then grant the role only when all three
-conditions hold. Granting a role does not change the security stamp, so a session that survived would
-get the Admin role at its next refresh or sign-in. Changing the stamp ends both the auth cookie and
-every refresh token (#848). The deletes are a second layer.
+moves someone else's account onto your address, with their password, as soon as you click the
+confirm link it mails you, and its undo link can later take the row back, role included (ADR-0048).
+The statements below end any session still open on the row, then grant the role only when all three
+conditions hold. Granting a role does not change the security stamp, so a session that survived
+would get the Admin role at its next refresh or sign-in. Changing the stamp ends both the auth cookie
+and every refresh token (#848); the deletes are a second layer.
 
 ```sql
 UPDATE authsystem."Users" SET "SecurityStamp" = gen_random_uuid()::text
@@ -598,8 +581,7 @@ WHERE u."Id" = '<Id from the SELECT>'
   AND r."NormalizedName" = 'ADMIN';
 ```
 
-Then set the password through the reset mail, as for any new admin
-([Admin account](#admin-account--first-sign-in-and-rotation)).
+Then set the password through the reset mail, as for any new admin (the four steps above).
 
 When the INSERT refuses a row at your address, what to do depends on whose account it is:
 
@@ -642,19 +624,19 @@ SELECT "Id", "UserName", "Email", "EmailChangeRevertArmedAt" FROM authsystem."Us
 ### TLS certificates
 
 - **Real environment:** **Caddy** obtains and renews Let's Encrypt certificates automatically, one
-  per vhost (`ACME_EMAIL` in the box `.env`). The app containers validate nothing — they speak plain
-  HTTP behind the proxy. ACME needs the DNS A record to resolve **before** first bring-up.
+  per vhost (`ACME_EMAIL` in the box `.env`). The app containers handle no TLS: they speak plain HTTP
+  behind the proxy. ACME needs the DNS A record to resolve **before** the first bring-up.
 - **Local prod-parity:** `scripts/init-prod-https.sh` mints a local CA + a `*.lotro.test` leaf for
   Caddy; `.docker/trust-ca-entrypoint.sh` installs the CA into the tms-api/frontend OS store so their
   OIDC back-channel to `https://auth.lotro.test` is trusted (.NET ignores `SSL_CERT_FILE`).
-- **Local dev (host Kestrels):** the apps serve HTTPS with the **native** ASP.NET Core dev cert — run
+- **Local dev (host Kestrels):** the apps serve HTTPS with the **native** ASP.NET Core dev cert. Run
   `dotnet dev-certs https --trust` once. No PFX, no mount.
 
 ### Databases
 
 The system uses **two** databases: `lotro_translation` (TMS) and `lotro_auth` (Auth). Both live in
 the environment's **Neon** project (one project per environment, ADR-0018) on the same branch.
-A managed Postgres typically provisions one database — create the second:
+A managed Postgres usually provisions one database, so create the second:
 
 ```sql
 CREATE DATABASE "lotro_auth";
@@ -665,104 +647,99 @@ boot.
 
 ### Hygiene
 
-- The box `.env` is the **only** live copy of the set → the owner keeps one encrypted off-box copy
-  (password manager). Losing it costs a re-mint plus the reseed above — never data.
-- `.gitignore` ignores `.env`, `.env.*` and `*.env`, whitelisting only the placeholder examples, so a
-  filled env file cannot be committed by accident; the required **GitGuardian** check on `main` is
-  the second net. Values travel to a box over ssh only — never through an issue, PR, or commit.
+- The box `.env` is the **only** live copy of the set, so the owner keeps one encrypted off-box copy
+  (password manager). Losing it costs a re-mint plus the reseed above, never data.
+- `.gitignore` ignores `.env`, `.env.*` and `*.env` and lets through only the placeholder examples,
+  so a filled env file cannot be committed by accident; the required **GitGuardian** check on `main`
+  is the second net. Values travel to a box over ssh only, never through an issue, PR or commit.
 
 ## Consistency rules that bite
 
-The cross-service settings that are individually valid but break the system when they disagree. Most
-"works locally, 401/redirect error on staging" failures are one of these.
+The cross-service settings that are each valid on their own but break the system when they disagree.
+Most "works locally, 401 or redirect error on staging" failures are one of these.
 
 1. **Issuer must equal the token `iss`.** auth-api stamps `OpenIddict__Issuer` into every token's
-   `iss`; tms-api validates it against `Auth__Issuer` (`ValidIssuer`). The two MUST be byte-identical
-   and MUST be the **public auth origin the browser uses**. Mismatch → tms-api `401`s every request.
-   Outside Development the value may not contain `localhost` (the validator rejects it).
+   `iss`; tms-api validates it against `Auth__Issuer` (`ValidIssuer`). The two must be byte-identical
+   and must be the **public auth origin the browser uses**. A mismatch makes tms-api answer `401` to
+   every request. Outside Development and Testing, auth-api refuses an issuer that contains
+   `localhost`.
 
 2. **Authority is the back-channel address, not the issuer.** `Auth__Authority` (tms-api) and
    `AuthSystem__Authority` (frontend) are where the app **fetches OIDC metadata + JWKS**; the issuer
-   is what it **validates `iss` against**. They can legitimately differ — but in this repo they
-   coincide in every environment: dev leaves `Auth__Authority` unset so it falls back to
-   `Auth__Issuer` (`https://localhost:5003`, the host auth Kestrel), and both containerized stacks
-   (Hetzner and the prod-parity rehearsal) set both to the **public proxy origin**. Two production
-   traps: (a) in Production **OpenIddict rejects plain HTTP**, so the Authority MUST be `https` — use
-   the public Caddy origin, never `http://auth-api:8080`; (b) that host MUST be reachable from inside
-   the container and its cert trusted by the container's OS store (on the boxes it is a real Let's
-   Encrypt cert, so this is free; only the local parity stack needs the CA shim). One more coupling:
-   the frontend's `AuthSystem__BaseUrl` MUST share the issuer's origin. The sign-out revoke goes to the
-   `revocation_endpoint` from discovery, which OpenIddict builds from `OpenIddict__Issuer`, and the
-   frontend refuses an endpoint off `AuthSystem__BaseUrl`'s origin. A mismatch shows only as two
-   warnings per sign-out ("Refused an API request to …" and "Refresh token revocation threw an
-   exception."), and the session is then revoked only if the browser reaches `connect/logout`
-   (#964). The same warnings appear, once per token, when the website ends a session on its own, and
-   then the refresh token stays valid until it expires (#1027).
+   is what it **validates `iss` against**. They may differ, but in this repo they are the same in
+   every environment: dev leaves `Auth__Authority` unset so it falls back to `Auth__Issuer`
+   (`https://localhost:5003`, the host auth Kestrel), and both containerized stacks (Hetzner and the
+   parity stack) set both to the **public proxy origin**. Two traps outside dev: (a) in Production
+   **OpenIddict rejects plain HTTP**, so the Authority must be `https`: use the public Caddy origin,
+   never `http://auth-api:8080`; (b) that host must be reachable from inside the container, with a
+   certificate the container's OS store trusts. On the boxes it is a real Let's Encrypt certificate;
+   only the local parity stack needs the CA shim.
+   One more coupling: the frontend's `AuthSystem__BaseUrl` must share the issuer's origin. The
+   refresh-token revoke goes to the `revocation_endpoint` from discovery, which OpenIddict builds from
+   `OpenIddict__Issuer`, and the frontend refuses an endpoint off `AuthSystem__BaseUrl`'s origin. A
+   mismatch shows only as two warnings per sign-out ("Refused an API request to …" and "Refresh token
+   revocation threw an exception."), and the session is then revoked only if the browser reaches
+   `connect/logout` (#964). The same warnings appear, once per token, when the website ends a session
+   on its own, and then the refresh token stays valid until it expires (#1027).
 
 3. **Frontend redirect URIs must be registered at the auth server.** The frontend sends
    `redirect_uri = <its public origin> + AuthSystem__CallbackPath` (and post-logout = origin +
-   `SignedOutCallbackPath`). Those exact absolute URLs MUST appear in auth's
+   `SignedOutCallbackPath`). Those exact absolute URLs must appear in auth's
    `OpenIddict__WebClient__RedirectUris` / `…PostLogoutRedirectUris`. Any difference (scheme, host,
    trailing slash) → OIDC `invalid redirect_uri` at login. `AuthSystem__ClientId` must equal the
    registered web-client id (`lotrokoniecdev-web`). ⚠️ These URIs are written to the DB **only when
-   the client row is created** — changing `DOMAIN_APP` later needs the
+   the client row is created**, so changing `DOMAIN_APP` later needs the
    [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing).
 
 4. **CORS origin = the frontend's public URL, as a bare origin.** auth/tms `Cors__AllowedOrigins__0`
-   MUST be the browser app's exact origin — **lowercase scheme+host, no port if default, no userinfo,
+   must be the browser app's exact origin: **lowercase scheme + host, no default port, no userinfo,
    no path, no query, no trailing slash** (the validator rejects anything else at boot). It is the
    same value as a redirect URI's origin part.
 
-5. **Behind the TLS-terminating proxy, forwarded headers are load-bearing.** Caddy MUST send
-   `X-Forwarded-Proto` (and Host); all three apps read them (`UseForwardedHeaders`) to reconstruct the
-   `https` scheme used for `iss`, `redirect_uri`, and `Secure` cookies. Trust is scoped to Caddy's
-   exact host address (#399, narrowed from the `/24` to a `/32` by #506):
-   `ForwardedHeaders__KnownNetworks__0` = `10.60.0.100/32` in `compose.hetzner.yaml`
-   (`compose.prod.yaml` keeps the `/24` — it has no co-tenant stack to fence off), set for all three
-   apps; a malformed CIDR aborts boot. That value MUST stay in lockstep with Caddy's `ipv4_address`
-   on the default network (see [Topology](#topology)); moving Caddy's pinned IP without updating all
-   three apps silently drops forwarded-header trust and breaks `https` reconstruction. Leaving it
-   unset trusts every upstream (with an explicit `ForwardLimit = 1`), which is safe **only** while the
-   container port is unreachable except through the proxy — so **never publish `:8080`**. In prod the
-   apps serve HTTP only; Caddy owns TLS.
+5. **Behind the TLS-terminating proxy, forwarded headers carry the scheme.** Caddy sends
+   `X-Forwarded-Proto` (and Host); all three apps read them (`UseForwardedHeaders`) to rebuild the
+   `https` scheme used for `iss`, `redirect_uri` and `Secure` cookies. Trust is limited to Caddy's
+   exact address: `ForwardedHeaders__KnownNetworks__0` = `10.60.0.100/32` for all three apps in
+   `compose.hetzner.yaml` (#506; `compose.prod.yaml` keeps the `/24`, because it has no second stack
+   to fence off). A malformed CIDR aborts boot. The value must stay in step with Caddy's
+   `ipv4_address` on the default network (see [Topology](#topology)): moving Caddy's pinned IP without
+   updating all three apps silently drops the trust and breaks the `https` scheme. Leaving it unset
+   trusts every upstream (with `ForwardLimit = 1`), which is safe **only** while the container port is
+   unreachable except through the proxy, so **never publish `:8080`**.
 
 6. **The Data Protection keyring must be persistent.** auth-api + frontend need
-   `DataProtection__KeyRingPath` pointing at a persistent volume (`/keys`). An ephemeral keyring →
-   every deploy logs everyone out and breaks antiforgery + password-reset/email-confirmation links.
-   Fails fast at boot if unset outside Development.
+   `DataProtection__KeyRingPath` pointing at a persistent volume (`/keys`). A throwaway keyring logs
+   everyone out on every deploy and breaks antiforgery and password-reset / e-mail-confirmation
+   links. Boot fails fast when it is unset outside Development.
 
 7. **The frontend caller key is one value read by three services.** `FRONTEND_CALLER_KEY` in the box
    `.env` feeds auth-api's and tms-api's `FrontendCaller__Key` and the frontend's
-   `AuthSystem__CallerKey` and `TranslationSystem__CallerKey` (ADR-0054, #823). Every frontend→API
-   call arrives from the frontend container, so without the key each API's per-address rate limits
-   are one bucket for every user; with it, each API meters the visitor the frontend forwards.
-   Compose refuses to render without it, so **the key goes into the staging `.env` before a change
-   that needs it merges, and into the prod `.env` before it is promoted**. If the services hold
-   different values, nothing fails: calls just fall back to the old shared bucket. So never set the
-   key on one side by hand.
+   `AuthSystem__CallerKey` and `TranslationSystem__CallerKey` (ADR-0054). Every frontend→API call
+   arrives from the frontend container, so without the key each API's per-address rate limits are
+   one bucket for every user; with it, each API meters the visitor the frontend forwards. If the
+   services hold different values, nothing fails: calls just fall back to the shared bucket. So never
+   set the key on one side by hand.
 
-8. **The health check key is one value per box, and on prod also a GitHub secret.** `HEALTH_CHECK_KEY`
-   in the box `.env` feeds auth-api's and tms-api's `HealthCheck__Key` (ADR-0058, #853). Without the
-   key in `X-LOTRO-Health-Key`, the full `/health` answers 404 and runs no check; `/health/live` and
-   `/health/ready` stay open. Compose refuses to render without it, so **the key goes into the staging
-   `.env` before a change that needs it merges, and into the prod `.env` before it is promoted**. On
-   prod, the `PROD_HEALTH_CHECK_KEY` repository secret must hold the same value, or the daily health
-   ping goes red with HTTP 404. The ping change ships with the merge, so **the secret must exist
-   before the merge** too (the command is in the "Secrets" table).
+8. **The health check key is one value per box, and on prod also a GitHub secret.**
+   `HEALTH_CHECK_KEY` in the box `.env` feeds auth-api's and tms-api's `HealthCheck__Key`
+   (ADR-0058). Without the key in `X-LOTRO-Health-Key`, the full `/health` answers 404 and runs no
+   check; `/health/live` and `/health/ready` stay open. On prod, the `PROD_HEALTH_CHECK_KEY`
+   repository secret must hold the same value, or the daily health ping goes red with HTTP 404 (the
+   command is in the [secrets table](#secret-material--source-of-truth-and-how-to-rotate)).
 
 ## Bringing the stack up
 
 ### Locally, development (infra + host Kestrels)
 
-The day-to-day inner loop (ADR-0006, amended by #190 / M6-14). Boot the infra-only stack, then run the
-three apps on the host:
+The day-to-day inner loop (ADR-0006, amended by #190). Boot the infra-only stack, then run the three
+apps on the host:
 
 ```bash
-scripts/up.sh                       # PowerShell: scripts/up.ps1 — boots postgres + migrator + mailpit + aspire
+scripts/up.sh                       # PowerShell: scripts/up.ps1 — boots postgres + rabbitmq + migrator + mailpit + aspire
 dotnet dev-certs https --trust      # one-time, so the host Kestrels serve trusted HTTPS
 ```
 
-Then start the three host Kestrels — all at once via the Rider compound **`TMS dev (all hosts)`**, or
+Then start the three host Kestrels: all at once via the Rider compound **`TMS dev (all hosts)`**, or
 each in its own terminal:
 
 ```bash
@@ -771,26 +748,28 @@ dotnet run --project src/TranslationSystem/LotroKoniecDev.TranslationSystem.API 
 dotnet run --project src/Frontend/LotroKoniecDev.Frontend                         # → https://localhost:7017
 ```
 
-Verify: open `https://localhost:7017`, log in via OIDC, and confirm an authenticated TMS call succeeds.
-An app-code change is picked up by re-running that one project (or hot reload) — no image rebuild.
+Verify: open `https://localhost:7017`, log in via OIDC, and confirm an authenticated TMS call works.
+An app-code change is picked up by re-running that one project (or hot reload), with no image
+rebuild.
 
 ### Locally, production-parity (the rehearsal)
 
-The fastest way to exercise the real topology — real keys, forwarded headers, DP volumes,
-containerized frontend, Caddy TLS — on a laptop (ADR-0008 §4). It runs the **same four images and the
-same proxy shape** as the box, so prod-only breakage surfaces before staging:
+The fastest way to exercise the real topology (real keys, forwarded headers, DP volumes, a
+containerized frontend, Caddy TLS) on a laptop (ADR-0008 §4). It runs the **same four images and the
+same proxy shape** as the box, so prod-only breakage shows up before staging:
 
 ```bash
 scripts/up-prod.sh --build          # PowerShell: scripts/up-prod.ps1 --build
 ```
 
 It bootstraps `.env.prod` (with freshly generated OpenIddict secrets, the frontend caller key and the
-health check key), the local CA + certs, and the `*.lotro.test` hosts mapping, then runs
-`docker compose -f compose.prod.yaml up`. The bootstrap runs only when `.env.prod` is absent: one that
-predates ADR-0054 or ADR-0058 needs the missing key appended by hand —
+health check key), the local CA + certs and the `*.lotro.test` hosts mapping, then runs
+`docker compose -f compose.prod.yaml up`. The `.env.prod` bootstrap runs only when the file is
+missing. An older `.env.prod` without `FRONTEND_CALLER_KEY` or `HEALTH_CHECK_KEY` needs them appended
+by hand, or compose refuses to render:
 `printf 'FRONTEND_CALLER_KEY=%s\n' "$(openssl rand -base64 32)" >> .env.prod`, and the same for
-`HEALTH_CHECK_KEY` — or compose refuses to render. Verify (the full `/health` needs the health check
-key from `.env.prod`; without it the answer is 404):
+`HEALTH_CHECK_KEY`. Verify (the full `/health` needs the health check key from `.env.prod`; without it
+the answer is 404):
 
 ```bash
 HEALTH_CHECK_KEY="$(grep '^HEALTH_CHECK_KEY=' .env.prod | cut -d= -f2-)"
@@ -799,15 +778,15 @@ curl --cacert .docker/prod-https/rootCA.crt -H "X-LOTRO-Health-Key: $HEALTH_CHEC
 # browser OIDC login: https://app.lotro.test
 ```
 
-For an all-local run (no external SMTP/OTLP), add the profiles so the SMTP leg of the deep auth
-`/health` passes and traces are viewable, and set `Email__Host=mailpit` / `Email__Port=1025` / `Email__Mode=None`
-+ `OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889` in `.env.prod`:
+For an all-local run (no external SMTP or OTLP), add the profiles, so the SMTP check of the deep auth
+`/health` passes and traces are viewable, and set `Email__Host=mailpit` / `Email__Port=1025` /
+`Email__Mode=None` + `OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889` in `.env.prod`:
 
 ```bash
 docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --profile local-otel up --build
 ```
 
-The parity stack runs Production, so its admin is seeded **without a password**, exactly like a box
+The parity stack runs Production, so its admin is seeded **without a password**, like a box
 (ADR-0056). Set `AUTH_ADMIN_USERNAME` / `AUTH_ADMIN_EMAIL` in `.env.prod` and run with
 `--profile local-smtp`. Then do the [first sign-in steps](#admin-account--first-sign-in-and-rotation)
 against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://localhost:8026`.
@@ -816,10 +795,10 @@ against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://
 
 1. **Owner:** Hetzner console → create the box (Ubuntu LTS, backups on for prod) with the owner's ssh
    **public key** → note the IP.
-2. **DNS first** (ACME needs it resolving before certs can issue): registrar panel → A records for
-   every public hostname → the new IP, TTL 300. Hostname list = the
-   [env matrix](#environment-variable-matrix). Prod trio → prod IP, staging trio → staging IP.
-3. **Bootstrap** (idempotent — re-running changes nothing). Preferred form (`-t` gives the GHCR prompt
+2. **DNS first** (ACME needs it to resolve before certificates can issue): registrar panel → A
+   records for every public hostname → the new IP, TTL 300. The hostnames are in the
+   [env matrix](#environment-variable-matrix): prod trio → prod IP, staging trio → staging IP.
+3. **Bootstrap** (idempotent: a re-run changes nothing). Preferred form (`-t` gives the GHCR prompt
    a TTY, so the PAT is typed at a hidden prompt and never lands in shell history):
 
    ```bash
@@ -829,24 +808,25 @@ against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://
 
    The PAT is a GitHub token with **only `read:packages`**. For automation you *can* pass it via env
    (`ssh root@<ip> 'GHCR_USER=<u> GHCR_TOKEN=<pat> bash -s' < scripts/hetzner/bootstrap.sh`), but the
-   inline assignment **lands in your local shell history** — prefer the prompt for hand runs. Without
-   env vars and without a TTY the script skips the GHCR login with a warning and the rest still
-   completes.
+   inline assignment **lands in your local shell history**, so prefer the prompt for hand runs.
+   Without env vars and without a TTY, the script skips the GHCR login with a warning and the rest
+   still completes.
 
-   **The GHCR login is optional today** — the four images are **public** packages, so `deploy` pulls
+   **The GHCR login is optional today**: the four images are **public** packages, so `deploy` pulls
    them anonymously. It stays in the script because a *private* package would need it.
 
    **Bootstrap overwrites `/etc/ssh/sshd_config.d/00-hardening.conf`, `/etc/fail2ban/jail.local`,
    `/usr/local/sbin/docker-user-firewall` and `/etc/systemd/system/docker-user-firewall.service`**
    (it converges them to the repo version), so fold any hand-tuned directive into the script first.
 
-   **The Docker leg adopts the box's engine, it does not install one** — see [Gotchas](#gotchas).
-4. **Stack files:** copy `compose.hetzner.yaml` + `.docker/hetzner/` to `/opt/lotro/` and
-   `scripts/hetzner/deploy.sh` to `/opt/lotro/deploy.sh` (as `deploy`), assemble the box's `.env` from
-   `.env.hetzner.example` ([Secrets](#secrets) has every value's source of truth and rotation command),
-   `chmod 600` it.
-5. **Bring-up (staging box first as the rehearsal):** as `deploy`, on each box, through `deploy.sh`
-   and not a plain `up -d`. It is the same rollout CD runs, and it is the one step that gives the new
+   **The Docker leg adopts the box's engine; it does not install one**: see [Gotchas](#gotchas).
+   Swap needs no separate step: bootstrap's first leg lays it down.
+4. **Stack files:** as `deploy`, copy `compose.hetzner.yaml` + `.docker/hetzner/` to `/opt/lotro/`
+   and `scripts/hetzner/deploy.sh` to `/opt/lotro/deploy.sh`. Assemble the box's `.env` from
+   `.env.hetzner.example` ([Secrets](#secrets) has every value's source of truth and rotation command)
+   and `chmod 600` it.
+5. **Bring-up (staging box first, as the rehearsal):** as `deploy`, on each box, through `deploy.sh`
+   and not a plain `up -d`. It is the same rollout CD runs, and it is the one step that gives a new
    broker its policy for parked e-mail (ADR-0036 §6). Name a `sha-<short sha>` tag of a green commit
    on `main`, never `latest`: the script pins the tag in `.env`, CD's next rollback returns to whatever
    `.env` names, and `latest` moves with every green CI run on `main`:
@@ -857,40 +837,39 @@ against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://
    docker compose -f compose.hetzner.yaml logs -f migrator caddy   # one-shot migration + ACME
    ```
 
-   Then re-check the [consistency rules](#consistency-rules-that-bite) across services, run the
-   [smoke test](#post-deploy-smoke-test) against the public origins from an external network —
-   remember `GET / -> 200` proves nothing; smoke's fingerprint leg is the real check — and check that
+   Then re-check the [consistency rules](#consistency-rules-that-bite), run the
+   [smoke test](#post-deploy-smoke-test) against the public origins from an external network
+   (`GET / -> 200` proves nothing; smoke's fingerprint leg is the real check), and check that
    `emails.send.dlq` carries the policy
    ([the dead-letter parking lot](#the-dead-letter-parking-lot-emailssenddlq)).
-6. **Re-pin the CD host key** (`ssh-keyscan`) — see
-   [One-time setup per environment](#one-time-setup-per-environment). Swap is not a step here: step
-   3's bootstrap provisions it ([Gotchas](#gotchas)).
+6. **Re-pin the CD host key** (`ssh-keyscan`): see
+   [One-time setup per environment](#one-time-setup-per-environment).
 
 ### One-time: cutting a live box over to the two segregated networks (#506)
 
-Both stacks are already running on these boxes, so #506 is a **migration of a live box**, not a fresh
-bring-up. The lotro deploy recreates our containers on the new topology and creates `${project}_tks`;
-the TKS containers keep running meanwhile, but on the old network and **without** the Caddy aliases
-they need — so they must be recreated straight after (compose cannot move a running container between
-networks). Do the whole sequence on **staging first**, prod only once staging is verified. A short TKS
-outage is expected and acceptable pre-launch.
+This moved a box that already ran both stacks on one shared network to the two networks of #506. The
+lotro deploy recreates our containers on the new topology and creates `${project}_tks`. The TKS
+containers keep running meanwhile, but on the old network and **without** the Caddy aliases they
+need, so they must be recreated straight after (compose cannot move a running container between
+networks). Do the whole sequence on **staging first**, and on prod only once staging is verified. A
+short TKS outage is expected and acceptable before launch.
 
-**Pre-flight** — record what you are changing, as `deploy` (`lotro-prod` shown; staging is
+**Pre-flight**: record what you are changing, as `deploy` (`lotro-prod` shown; staging is
 `lotro-staging`):
 
 ```bash
-docker network ls                                     # today: ONE shared network, both stacks on it
+docker network ls                                     # before the cutover: ONE shared network, both stacks on it
 docker network inspect lotro-prod_default \
   --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}'
 ```
 
-Everything that is **not** ours in that list (every `tks-*` container) is exactly what this change
-fences off. If Caddy already sits at `10.60.0.100` and a `lotro-prod_tks` network exists, the box has
-been cut over already — stop here.
+Everything in that list that is **not** ours (every `tks-*` container) is what this change fences
+off. If Caddy already sits at `10.60.0.100` and a `lotro-prod_tks` network exists, the box has been
+cut over already: stop here.
 
 1. **Deploy lotro.** CD does it on merge; by hand: `IMAGE_TAG=<tag> bash /opt/lotro/deploy.sh`.
-2. **Verify the boundary before touching TKS** — Caddy must hold both pinned addresses, and nothing
-   but our four containers may remain on `10.60.0.0/24`:
+2. **Verify the boundary before touching TKS**: Caddy must hold both pinned addresses, and nothing
+   but our containers may remain on `10.60.0.0/24`:
 
    ```bash
    docker inspect lotro-prod-caddy-1 \
@@ -901,7 +880,7 @@ been cut over already — stop here.
 
 3. **Recreate the TKS stack onto `${project}_tks`** (its compose change is the twin ticket,
    koniecdev/TheKittySaver#295). Ship its new `compose.hetzner.yaml`, point `LOTRO_NETWORK` at THIS
-   box's network, then recreate — compose cannot move a running container between networks:
+   box's network, then recreate:
 
    ```bash
    # from a TheKittySaver checkout on main:
@@ -917,9 +896,9 @@ been cut over already — stop here.
    docker compose -f compose.hetzner.yaml up -d
    ```
 
-4. **Verify both sites from outside the box** — ours with the [smoke test](#post-deploy-smoke-test),
+4. **Verify both sites from outside the box**: ours with the [smoke test](#post-deploy-smoke-test),
    TKS by loading its public origin. A 502 on TKS means its containers did not land on
-   `${project}_tks` (or lost their `tks-` service-key prefix) — Caddy itself is fine; re-check step 3.
+   `${project}_tks` (or lost their `tks-` service-key prefix). Caddy itself is fine; re-check step 3.
 
 ## Continuous deployment (CD over ssh)
 
@@ -935,15 +914,15 @@ CI green on main → cd.yml gate (pins the tested commit)
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `cd.yml` → `gate` | CI finishing on main (`workflow_run`), `v*` tag, dispatch | the **CI-success gate**: CD fires when CI completes, proceeds only on a green CI, and pins the exact tested commit (`head_sha`) for build + rollout. Docs-only pushes run no CI, so they trigger no CD. |
-| `cd.yml` → `build-and-push` | after a passing `gate` | builds the 4 images, **scans each with Trivy** (fails on a fixable HIGH/CRITICAL), then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)** — `:sha-<short>`, `:latest` on main, semver on tags |
-| `cd.yml` → `deploy-staging` | after `build-and-push`, `STAGING_ENABLED == true`, **auto** | calls the reusable [`deploy.yml`](../../.github/workflows/deploy.yml) under `environment: staging` |
+| `cd.yml` → `gate` | CI finishing on main (`workflow_run`), `v*` tag, dispatch | the **CI-success gate**: CD fires when CI completes, goes on only after a green CI, and pins the exact tested commit (`head_sha`) for build + rollout. Docs-only pushes run no CI, so they trigger no CD. |
+| `cd.yml` → `build-and-push` | after a passing `gate` | builds the 4 images, **scans each with Trivy** (fails on a fixable HIGH/CRITICAL), then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)**: `:sha-<short>`, `:latest` on main, semver on tags. A `v*` tag only publishes; it does not deploy |
+| `cd.yml` → `deploy-staging` | after `build-and-push`, `STAGING_ENABLED == true`, **automatic** | calls the reusable [`deploy.yml`](../../.github/workflows/deploy.yml) under `environment: staging` |
 | `cd.yml` → `deploy-prod` | after `deploy-staging`, **behind the `production` approval gate** | the SAME reusable `deploy.yml` under `environment: production` |
 
 **The two-stage promotion model.** Every merge to main with a green CI builds once and
 **automatically deploys to staging**. The same `sha-<short>` then **waits at the `production`
 environment** for a human. Clicking *Approve* (GitHub → the run → *Review deployments*) **is** the
-staging→prod promotion: the identical image that passed staging is what production receives.
+staging→prod promotion: production receives the same image that passed staging.
 
 **The switches** (repo Variables): `CD_ENABLED=true` arms the deploy jobs at all; `STAGING_ENABLED=true`
 arms the staging leg and makes prod wait on it (ADR-0018).
@@ -951,99 +930,95 @@ arms the staging leg and makes prod wait on it (ADR-0018).
 **Stale candidates expire after 24 h.** The gate pins the tested commit, so approving a days-old
 run would deploy a days-old SHA. [`cd-janitor.yml`](../../.github/workflows/cd-janitor.yml) (#527)
 cancels any CD run left `waiting` at the `production` gate for more than 24 hours (nightly cron,
-04:25 UTC; on demand: `gh workflow run cd-janitor.yml`). Nothing is lost — every newer green-CI
-merge produces a fresh candidate, and any older commit can still be deployed explicitly via
-`cd.yml`'s `workflow_dispatch`.
+04:25 UTC; on demand: `gh workflow run cd-janitor.yml`). Nothing is lost: every newer green-CI merge
+produces a fresh candidate, and any older commit can still be deployed through `cd.yml`'s
+`workflow_dispatch`.
 
-**Cancelling a `waiting` run by hand:** the UI *Cancel* button and `gh run cancel` do **not** work
-on approval-gated runs — they only file a cancellation request no runner will ever pick up, so the
-run stays `waiting` ("requested to cancel" forever, #592). Use the same call the janitor makes:
+**Cancelling a `waiting` run by hand:** the UI *Cancel* button and `gh run cancel` do **not** work on
+approval-gated runs. They only file a cancellation request no runner ever picks up, so the run stays
+`waiting` ("requested to cancel") for good (#592). Use the call the janitor makes:
 `gh api -X POST repos/koniecdev/LotroKoniecDev/actions/runs/<run-id>/force-cancel`.
 
 ### What `deploy.yml` does
 
-**Prod leg only, first (#534 — the N-1 promotion gate):** promotion is batched, so the sha the
-approval replaces is the last *deployed* one, not the last *merged* one. The job resolves the sha
-actually serving (last successful `production` deployment via the API, cross-checked against the
-box-pinned `IMAGE_TAG`, which also stands in when the API cannot answer) and, when the span since it
-touches `Migrations/`, re-runs the ADR-0024 proof against that baseline. Two different red verdicts,
-two different fixes:
+**Prod leg only, first: the N-1 promotion gate (#534).** Promotion is batched, so the release the
+approval replaces is the last *deployed* one, not the last *merged* one. The job finds the release
+that is actually serving: the last successful `production` deployment from the API, cross-checked
+against the `IMAGE_TAG` pinned on the box, which also stands in when the API cannot answer. When the
+span since that release touches `Migrations/`, it re-runs the ADR-0024 proof against it. There are two
+different red verdicts, with two different fixes:
 
-- **`RED` — the batch's schema breaks the release prod is running right now. Do not retry:** approve
-  a candidate containing only the expand, let it serve, then promote the contract.
-- **`COULD NOT RUN` — nothing was executed against the schema, so the batch is UNJUDGED,** not
-  proven bad. That covers the proof's own setup (script generation, the worktree, the seam) *and*
-  a serving release that no longer restores or builds with today's toolchain — an old tree is not
-  re-judged by today's rules, so a warning-shaped failure there is infra, never a schema verdict
-  (#679). Fix the failure named in the log and re-run the job. Do **not** split the batch, and do
-  not reach for the `image_tag` dispatch: it skips the gate entirely, so nothing would be proven
-  at all.
+- **`RED`: the batch's schema breaks the release prod is running right now. Do not retry.** Approve a
+  candidate that contains only the expand, let it serve, then promote the contract.
+- **`COULD NOT RUN`: nothing ran against the schema, so the batch is unjudged, not proven bad.** That
+  covers the proof's own setup (script generation, the worktree, the seam), and a serving release
+  that no longer restores or builds with today's toolchain: an old tree is not judged again by
+  today's rules, so a warning-shaped failure there is infra, never a schema verdict (#679). Fix the
+  failure named in the log and re-run the job. Do **not** split the batch, and do not reach for the
+  `image_tag` dispatch: it skips the gate, so nothing would be proven at all.
 
-Migration-free promotions skip in seconds. An unresolvable baseline fails closed. The
-nothing-serving-yet skip needs **two agreeing signals** — no `production` deployment on record ever
-reached `success`, *and* the box pins no `IMAGE_TAG` — because it is the one verdict that lets a batch
-through unproven; a silent box the API cannot corroborate therefore blocks instead of skipping (check
-`/opt/lotro/.env` and `docker compose ps`; if it truly is the first deploy here, dispatch with an
-explicit `image_tag`, which bypasses the gate by design). A manual `image_tag` dispatch bypasses the
-gate with a warning — that path is yours to verify, and note that the deployment record it leaves
-behind names the *run's* sha rather than the tag you rolled, which is exactly what the box
-cross-check exists to catch on the promotion after it.
+A promotion without migrations skips the proof in seconds. A baseline that cannot be found fails
+closed. "Nothing is serving yet" is the one verdict that lets a batch through unproven, so it needs
+**two signals that agree**: no `production` deployment on record ever reached `success`, *and* the
+box pins no `IMAGE_TAG`. A silent box the API cannot back up therefore blocks instead of skipping.
+Check `/opt/lotro/.env` and `docker compose ps`; if it really is the first deploy there, dispatch with
+an explicit `image_tag`. A manual `image_tag` dispatch skips the gate with a warning, so verifying
+that path is up to you. Note that the deployment record it leaves names the *run's* sha, not the tag
+you rolled; the box cross-check catches that on the next promotion.
 
-On the runner it resolves the tag to **digests**, verifies each image's build provenance (fails
-closed), cuts the Neon pre-migration snapshot branch (MIGR-04) and publishes the restore point. Then
-it ssh'es to **that environment's box** (`vars.HETZNER_HOST` — one box IS one environment), snapshots
-the live config into `/opt/lotro/.previous/`, scp's `compose.hetzner.yaml`, the Caddyfile and
-`scripts/hetzner/deploy.sh` into `/opt/lotro`, and runs the script:
+On the runner, the job then resolves the tag to **digests**, verifies each image's build provenance
+(fails closed), cuts the Neon pre-migration snapshot branch (MIGR-04) and publishes the restore
+point. Then it ssh-es to **that environment's box** (`vars.HETZNER_HOST`: one box IS one
+environment), snapshots the live config into `/opt/lotro/.previous/`, copies `compose.hetzner.yaml`,
+the Caddyfile and `scripts/hetzner/deploy.sh` into `/opt/lotro`, and runs the script:
 
-1. validates the composed config **and the Caddyfile** — a typo aborts here, while the running Caddy
-   is still serving its current config;
-2. `pull`, then asserts the pulled digests are the ones whose provenance CD just verified (GHCR tags
-   are mutable — this closes the gap between the gate and what actually starts);
+1. validates the composed config **and the Caddyfile**: a typo stops here, while the running Caddy
+   still serves its current config;
+2. `pull`, then checks that the pulled digests are the ones whose provenance CD just verified (GHCR
+   tags are mutable, so this closes the gap between the gate and what actually starts);
 3. **the migration gate:** runs the migrator as its own one-off container (`compose run --rm --no-deps
-   migrator`) and proceeds only on exit 0. A bad migration therefore aborts the roll with the
-   **previous release still serving** — it is a no-op for the live site;
-4. `up -d` — only now are the app containers recreated, onto an already-migrated schema;
-5. reloads Caddy (its Caddyfile is a bind mount — compose does not notice content changes);
-6. sets the broker policy that makes a parked e-mail message expire after 7 days (ADR-0036 §6) — see
+   migrator`) and goes on only on exit 0. A bad migration therefore stops the roll with the
+   **previous release still serving**: it changes nothing for the live site;
+4. `up -d`: only now are the app containers recreated, onto an already-migrated schema;
+5. reloads Caddy (its Caddyfile is a bind mount, and compose does not notice content changes);
+6. sets the broker policy that makes a parked e-mail message expire after 7 days (ADR-0036 §6): see
    [the dead-letter parking lot](#the-dead-letter-parking-lot-emailssenddlq). A broker that does not
-   answer only prints a warning: it never fails the deploy;
-7. pins `IMAGE_TAG` in the box `.env` **last, on success only**, so the file always describes what is
-   actually running.
+   answer only prints a warning; it never fails the deploy;
+7. pins `IMAGE_TAG` in the box `.env` **last, and only on success**, so the file always describes
+   what is actually running.
 
-Finally the runner waits for the public origins to answer, then smokes them. Red smoke ⇒ the box is
-rolled back automatically — **images and config** (from `.previous/`) — and the job fails.
+Finally the runner waits for the public origins to answer, then smokes them. A red smoke rolls the
+box back automatically, **images and config** (from `.previous/`), and the job fails.
 
-> ⚠️ **Never fold the migration gate back into `up -d`.** `compose.hetzner.yaml` does declare
+> ⚠️ **Never fold the migration gate back into `up -d`.** `compose.hetzner.yaml` declares
 > `depends_on: { migrator: { condition: service_completed_successfully } }`, and it is tempting to let
 > that be the gate. It is not: the condition gates the **start** of the apps, not their **creation**.
 > `compose up` recreates every changed service first (and every deploy changes the image tag), so the
-> old app containers are destroyed *before* the migrator runs — a failed migration then leaves the
-> apps `created`-but-never-started and the site **down**, serving 502s through the surviving Caddy.
-> Verified against Docker 29.6.1 (#490). Running the migrator as its own container first is what makes
-> the "old release keeps serving" property real.
+> old app containers are destroyed *before* the migrator runs. A failed migration then leaves the apps
+> created but never started, and the site **down** behind the surviving Caddy (verified on Docker
+> 29.6.1, #490). Running the migrator as its own container first is what keeps the old release serving.
 
 **There is no blue/green.** A 4 GB box cannot hold a second live set of three apps, so containers are
-recreated in place: a deploy costs a few seconds of downtime per app, and the smoke necessarily runs
-after the new containers are live (the retired ACA rollout could smoke a 0%-traffic candidate first).
-The migration gate + the automatic rollback are what replace it. Recreating Caddy also blips
-TheKittySaver, which it proxies.
+recreated in place: a deploy costs a few seconds of downtime per app, and the smoke can only run after
+the new containers are live. The migration gate and the automatic rollback take its place.
+Recreating Caddy also blips TheKittySaver, which it proxies.
 
 **A rollback reverts code, never schema** (ADR-0023). Re-deploying the previous tag re-runs the
-*older* migrator, which only applies pending migrations — it never reverts one — so the old app comes
-back up against the **new** schema. That is safe precisely because every migration is N-1
-backward-compatible; it is also why a bad *migration* is not a rollback case at all but a roll-forward
-or a restore ([Database migrations](#database-migrations)).
+*older* migrator, which only applies pending migrations and never reverts one, so the old app comes
+back up against the **new** schema. That is safe because every migration is N-1 backward-compatible.
+It is also why a bad *migration* is not a rollback case at all, but a roll-forward or a restore
+([Database migrations](#database-migrations)).
 
 ### One-time setup per environment
 
-**Precondition — the box needs a `deploy` user that owns the stack.** CD connects as `deploy` and
-scp's over `/opt/lotro`, so a box brought up by hand as root is not deployable: there is no `deploy`
-to log in as, and even once created it cannot read the root-owned `0600` `.env` nor overwrite the
-root-owned stack files. `bootstrap.sh` provisions the user *and* converges the ownership of
-`/opt/lotro` + `/opt/tks` recursively — that is the fix, not a `chown` by hand.
+**Precondition: the box needs a `deploy` user that owns the stack.** CD connects as `deploy` and
+copies files over `/opt/lotro`, so a box brought up by hand as root cannot be deployed: there is no
+`deploy` to log in as, and even once created it cannot read the root-owned `0600` `.env` nor
+overwrite root-owned stack files. `bootstrap.sh` creates the user *and* gives it `/opt/lotro` +
+`/opt/tks` recursively. That is the fix, not a `chown` by hand.
 
-CD fails closed with an explicit "not wired for ssh deploys" error until each environment (`staging`,
-`production`) carries these:
+CD fails closed with a "not wired for ssh deploys" error until each environment (`staging`,
+`production`) has these:
 
 | Kind | Name | Value |
 |---|---|---|
@@ -1051,21 +1026,21 @@ CD fails closed with an explicit "not wired for ssh deploys" error until each en
 | var | `HETZNER_SSH_KNOWN_HOSTS` | `ssh-keyscan` output for that IP (host-key pinning — see below) |
 | var | `HETZNER_USER` | optional; defaults to `deploy` |
 | var | `AUTH_URL` / `TMS_URL` / `FRONTEND_URL` | the environment's public origins (smoke targets) |
-| var | `NEON_PROJECT_ID` | that environment's Neon project (MIGR-04 snapshot; unset ⇒ the snapshot leg skips) |
+| var | `NEON_PROJECT_ID` | that environment's Neon project (MIGR-04 snapshot; unset ⇒ the snapshot step skips) |
 | secret | `HETZNER_SSH_KEY` | the CD deploy **private** key for that box (below) |
 | secret | `SMOKE_CLIENT_SECRET` | `= OpenIddict__ApiClientSecret` from that box's `.env` |
 | secret | `NEON_API_KEY` | project-scoped Neon key (MIGR-04) |
 
 > ⚠️ **A stale `SMOKE_CLIENT_SECRET` looks exactly like a broken deploy.** It is the one value here
-> that lives in *two* places — the box `.env` and the GitHub secret — and nothing reconciles them. Roll
-> the OpenIddict keys on a box without re-setting the secret and CD still deploys perfectly: images
-> pull, the migration gate passes, the containers come up — and then smoke's `client_credentials` leg
-> **401s**, CD judges the rollout red and **automatically rolls it back**. The log accuses the release;
-> the fault is the secret. Whenever you rotate `OpenIddict__ApiClientSecret`, re-set this in the same
-> breath — and set it **per environment**, because an env with no `SMOKE_CLIENT_SECRET` silently falls
-> back to the repo-level one.
+> that lives in *two* places, the box `.env` and the GitHub secret, and nothing keeps them in step.
+> Rotate the OpenIddict keys on a box without setting the secret again and CD still deploys: images
+> pull, the migration gate passes, the containers come up, and then smoke's `client_credentials` leg
+> gets **401**, CD judges the rollout red and **rolls it back automatically**. The log blames the
+> release; the fault is the secret. Whenever you rotate `OpenIddict__ApiClientSecret`, set this again
+> at the same time, and set it **per environment**: an environment with no `SMOKE_CLIENT_SECRET`
+> silently falls back to the repository-level one.
 
-**Mint a CD deploy key per box** — one key per environment, so a staging compromise cannot touch prod.
+**Mint a CD deploy key per box**: one key per environment, so a staging compromise cannot touch prod.
 It is the `deploy` user's key, never `root`'s:
 
 ```bash
@@ -1077,97 +1052,93 @@ gh variable set HETZNER_SSH_KNOWN_HOSTS --env staging --body "$(ssh-keyscan -t e
 rm ./cd-staging ./cd-staging.pub                                        # GitHub + the box now hold the only copies
 ```
 
-Repeat for `production` with the prod IP and `--env production`. Then delete the local private key —
+Repeat for `production` with the prod IP and `--env production`. Then delete the local private key:
 losing it costs one re-mint, and a copy lying around is a spare key to prod.
 
-**Host-key pinning is not optional.** `HETZNER_SSH_KNOWN_HOSTS` is why CD runs with
+**Host-key pinning is not optional.** `HETZNER_SSH_KNOWN_HOSTS` is why CD can run with
 `StrictHostKeyChecking=yes`; without it the deploy would trust whoever answers on that IP and hand
-them the deploy key. Re-provisioning a box changes its host key — re-run the `ssh-keyscan` line above
-or every deploy fails at the ssh step (that failure is the pin working, not a bug).
+them the deploy key. Re-provisioning a box changes its host key: run the `ssh-keyscan` line above
+again, or every deploy fails at the ssh step (that failure is the pin working, not a bug).
 
 ### Deploy or roll back by hand
 
-The same script CD runs, so a hand-run and a CD run leave the box in identical states:
+The same script CD runs, so a hand run and a CD run leave the box in the same state:
 
 ```bash
 ssh deploy@<box>
 IMAGE_TAG=sha-1a2b3c4 bash /opt/lotro/deploy.sh    # roll to a specific commit's images
-IMAGE_TAG=latest      bash /opt/lotro/deploy.sh    # roll to the tip of main
 ```
 
-Rolling back = deploying the previous tag. The tag currently live is the `IMAGE_TAG` line in
-`/opt/lotro/.env` (written only on a successful roll, so it never lies), and every CD run prints the
+Always name a `sha-<short>` tag, never `latest`: the script pins the tag in `.env`, the next
+automatic rollback returns to whatever `.env` names, and `latest` moves with every green CI run.
+
+Rolling back = deploying the previous tag. The tag that is live now is the `IMAGE_TAG` line in
+`/opt/lotro/.env` (written only after a successful roll, so it never lies), and every CD run prints the
 one it replaced (`PREVIOUS_IMAGE_TAG=…` in the job log, plus the deployed tag in the run summary).
-GHCR keeps every `sha-<short>`, so any commit that ever built is still deployable. The config that was
-live before the last deploy sits in `/opt/lotro/.previous/` — restore those three files first if you
-are undoing a compose/Caddyfile change, not just an image change.
+GHCR keeps every `sha-<short>`, so any commit that ever built can still be deployed. The config that
+was live before the last deploy sits in `/opt/lotro/.previous/`: restore those three files first if
+you are undoing a compose or Caddyfile change, not just an image change.
 
 Two edges worth knowing. `deploy.sh` prunes unused images older than 14 days
-(`PRUNE_UNUSED_OLDER_THAN`), so a tag older than that may need a fresh `docker pull` on the box; GHCR
-still has it. And re-running CD for a commit (**Actions → CD → Run workflow**, optionally with an
-explicit `image_tag`) still passes the staging→prod gate.
+(`PRUNE_UNUSED_OLDER_THAN`), so an older tag may need a fresh `docker pull` on the box; GHCR still
+has it. And re-running CD for a commit (**Actions → CD → Run workflow**, optionally with an explicit
+`image_tag`) still goes through the staging→prod gate.
 
 ## Database migrations
 
 ### Strategy (ADR-0008 §6, ADR-0023)
 
-Schema changes apply as a **pre-deploy step** — a one-shot container that runs to completion *before*
-the APIs serve traffic — never from inside the application at startup. The rules:
+Schema changes apply as a **pre-deploy step**: a one-shot container that runs to completion *before*
+the app containers are recreated, never from inside an application at startup. The rules:
 
 - **Two write contexts, one job.** The Translation Management System (`ApplicationWriteDbContext`,
   schema `translation`, database `lotro_translation`) and the Auth server (`AuthDbContext`, schema
   `authsystem`, database `lotro_auth`) each have their own migration history. The job applies
   Translation first, then Auth.
-- **The artifact is the migrator image** `ghcr.io/koniecdev/lotrokoniecdev-migrator` — built by
-  `Dockerfile.migrator.prod` and published by CD. It bakes two **self-contained**
-  `dotnet ef migrations bundle` executables (one per context) onto a lean `runtime-deps` base — no
-  SDK, no `dotnet-ef` tool, no source.
+- **The artifact is the migrator image** `ghcr.io/koniecdev/lotrokoniecdev-migrator`, built from
+  `Dockerfile.migrator.prod` and published by CD. It holds two **self-contained**
+  `dotnet ef migrations bundle` executables (one per context) on a lean `runtime-deps` base: no SDK,
+  no `dotnet-ef` tool, no source.
 - **Idempotent.** Each bundle applies only the migrations missing from that context's
   `__EFMigrationsHistory` table, so re-running it is a safe no-op.
-- **The bundle RID follows the build platform** (#594). Because the bundles are self-contained, their
-  architecture must match the `runtime-deps` base — which is a manifest list and resolves to whatever
-  is being built for. The Dockerfile derives the RID from BuildKit's `TARGETARCH`
-  (`amd64` → `linux-x64`, `arm64` → `linux-arm64`), so CD's amd64 runners keep producing the
-  `linux-x64` image the Hetzner boxes run, and a local prod-parity build on Apple Silicon gets arm64
-  bundles with no build-arg. Override with `--build-arg TARGET_RUNTIME=<rid>`; an architecture with no
-  mapping fails the build rather than shipping a wrong-arch image.
-- **Fail-fast = no half-migrated serving.** Any failure (unreachable DB, bad migration, missing
+- **The bundle RID follows the build platform** (#594). The bundles are self-contained, so their
+  architecture must match the `runtime-deps` base, which resolves to whatever is being built for. The
+  Dockerfile derives the RID from BuildKit's `TARGETARCH` (`amd64` → `linux-x64`, `arm64` →
+  `linux-arm64`): CD's amd64 runners produce the `linux-x64` image the boxes run, and a local
+  prod-parity build on Apple Silicon gets arm64 bundles with no build-arg. Override with
+  `--build-arg TARGET_RUNTIME=<rid>`; an architecture with no mapping fails the build rather than
+  shipping a wrong-arch image.
+- **Fail fast = nothing serves half-migrated.** Any failure (unreachable DB, bad migration, missing
   connection string) exits non-zero. On the box, CD runs the migrator as **its own container before
-  `up -d`** — see the warning in [What `deploy.yml` does](#what-deployyml-does).
+  `up -d`**: see the warning in [What `deploy.yml` does](#what-deployyml-does).
 - **Forward-only (ADR-0023).** There is no automated rollback step. EF down-migrations exist but are
   never run in a real environment; a bad migration is rolled forward with a new migration. The
-  recovery valve for a logically-bad migration is a Neon restore — the deploy's pre-migration
+  safety valve for a logically bad migration is a Neon restore: the deploy's pre-migration
   auto-snapshot (MIGR-04) or a point-in-time restore.
 
 ### Inputs (environment variables)
 
-The migrator reads exactly two variables — Npgsql connection strings, one per context:
-
-| Variable | Context |
-|---|---|
-| `ConnectionStrings__TranslationDatabase` | TMS write context (`lotro_translation`) |
-| `ConnectionStrings__AuthDatabase` | Auth context (`lotro_auth`) |
-
-Both databases must already exist (see [Databases](#databases)).
+The migrator reads only the two Npgsql connection strings in the [migrator table](#migrator). Both
+databases must already exist (see [Databases](#databases)).
 
 ### Running migrations
 
-**On a box** — CD does this for you (the migration gate). By hand, as `deploy`:
+**On a box**: CD does this for you (the migration gate). By hand, as `deploy`:
 
 ```bash
 cd /opt/lotro
 docker compose -f compose.hetzner.yaml run --rm --no-deps migrator
 ```
 
-**Local production-parity stack (`compose.prod.yaml`).** Automatic — the `migrator` service runs to
-completion and `auth-api` / `tms-api` wait on its success:
+**Local production-parity stack (`compose.prod.yaml`)**: automatic. The `migrator` service runs to
+completion and `auth-api` / `tms-api` wait for its success:
 
 ```bash
 scripts/up-prod.sh --build
 docker compose -f compose.prod.yaml --env-file .env.prod logs migrator   # watch it apply
 ```
 
-**Anywhere else** — pull the published image and run it once against the target databases, using the
+**Anywhere else**: pull the published image and run it once against the target databases. Use the
 **same image tag** you are about to deploy for the APIs, so schema and code move together:
 
 ```bash
@@ -1185,16 +1156,15 @@ Expected tail on success:
 == MIGRATOR COMPLETE ==
 ```
 
-A non-zero exit means migrations did **not** fully apply — do not roll out the APIs; read the log, fix
-forward, re-run.
+A non-zero exit means the migrations did **not** fully apply. Do not roll out the APIs; read the log,
+fix forward, run it again.
 
 ### Authoring a new migration (developer, not operator)
 
-Migrations are generated with the SDK + `dotnet-ef` against the source — see the CLAUDE.md "TMS — EF
-Core migrations" command block for the exact `dotnet ef migrations add …` invocations (TMS resolves
-through its Persistence project; Auth through its API project — only those two carry EF Core Design).
-Once committed, the next CD build bakes them into the migrator image automatically; operators never
-generate migrations.
+Migrations are generated with the SDK + `dotnet-ef` against the source: see the CLAUDE.md "TMS — EF
+Core migrations" command block for the exact `dotnet ef migrations add …` call (TMS resolves through
+its Persistence project, Auth through its API project; only those two carry EF Core Design). Once
+committed, the next CD build bakes them into the migrator image; operators never generate migrations.
 
 ### Verifying
 
@@ -1207,21 +1177,28 @@ psql "$ConnectionStrings__AuthDatabase"        -c 'SELECT "MigrationId" FROM aut
 
 ### Recover from a bad migration (Neon PITR)
 
-Forward-only (ADR-0023) means a logically-bad or data-corrupting migration is **never** undone by a
+Forward-only (ADR-0023) means a logically bad or data-corrupting migration is **never** undone by a
 down-migration in a real environment: the deploy's migrator gate commits the schema *before* any
 traffic moves, and the pipeline's failure path rolls back **app code only**. The real safety valve is
-the database's own history: both real environments run on Neon (prod — ADR-0014; staging — a separate
-Neon project, ADR-0018), and Neon keeps continuous page history supporting an instant point-in-time
-restore of a branch to any moment inside the retention window.
-
-The topology below was read live via the Neon API on **2026-07-05**:
+the database's own history. Both real environments run on Neon (prod: ADR-0014; staging: a separate
+Neon project, ADR-0018), and Neon keeps page history that allows an instant point-in-time restore of
+a branch to any moment inside the retention window.
 
 | Environment | Neon project | Branch (single, default) | History retention |
 |---|---|---|---|
-| production | `lotro-translator-prod` (`empty-voice-65414159`) | `production` (`br-jolly-river-as0a1b99`) | **6 h** (21600 s) |
-| staging | `lotro-translator-staging` (`holy-mode-18368797`) | `production` (`br-sweet-band-as9xg1ut`) | **6 h** (21600 s) |
+| production | `lotro-translator-prod` | `production` | **6 h** (21600 s) |
+| staging | `lotro-translator-staging` | `production` | **6 h** (21600 s) |
 
-- **6 hours is the Free-plan ceiling.** Re-verify the live value anytime:
+- **Look the ids up live**; they change when a project is re-created. The project id is the
+  `NEON_PROJECT_ID` variable of that GitHub environment, and the API lists the branch ids:
+
+  ```bash
+  gh variable get NEON_PROJECT_ID --env production        # staging: --env staging
+  curl -s -H "Authorization: Bearer $NEON_API_KEY" \
+    https://console.neon.tech/api/v2/projects/<project_id>/branches | jq '.branches[] | {id, name, default}'
+  ```
+
+- **6 hours is the Free-plan ceiling.** Check the live value at any time:
 
   ```bash
   curl -s -H "Authorization: Bearer $NEON_API_KEY" \
@@ -1229,49 +1206,49 @@ The topology below was read live via the Neon API on **2026-07-05**:
   ```
 
 - **A branch restore is branch-wide.** `lotro_translation` and `lotro_auth` live on the same branch,
-  so they always rewind **together** — exactly right for "undo the migrator run", since the one
+  so they always rewind **together**. That is right for "undo the migrator run", because the one
   migrator applies both contexts.
 
 #### Risk boundary — the accepted backup posture (MIGR-01, 2026-07)
 
-**Neon-PITR-only; no off-platform logical backup is scheduled.** Consequence, stated plainly: **a bad
-migration (or any data corruption) noticed more than 6 hours after the fact is unrecoverable.** The
-blast radius today is a DB whose content is re-creatable by hand (re-import `exported.txt`, re-seed
-the admin — zero production users), which is why the window is accepted. Revisit trigger: **the first
-real translators start contributing** (their edits are *not* re-creatable) → add a nightly encrypted
+**Neon PITR only; no off-platform logical backup is scheduled.** So: **a bad migration (or any data
+corruption) noticed more than 6 hours later cannot be recovered**, unless a pre-migration snapshot
+covers it (below). The window is accepted because the database content can be re-created by hand
+today (re-import `exported.txt`, re-seed the admin; zero production users). Revisit when **the first
+real translators start contributing** (their edits cannot be re-created): add a nightly encrypted
 `pg_dump` off-platform, or raise the Neon plan.
 
-**MIGR-04 (#339) is in place:** every configured deploy auto-branches Neon right before the migrator
-runs, which caps the **bad-migration** case regardless of the 6 h window (below). General data
-corruption (not tied to a migrator run) is still bound by the 6 h window.
+**MIGR-04 (#339):** every configured deploy branches Neon right before the migrator runs, which
+covers the **bad-migration** case however late it is noticed. General data corruption that is not
+tied to a migrator run is still bound by the 6 h window.
 
 #### Procedure
 
-Scenario: the migrator gate ran a migration that is *executionally* fine but *logically* wrong —
-dropped or corrupted data, or broke the serving release past what N-1 compatibility (ADR-0023)
-guarantees. Time matters: **the restore point must still be inside the 6 h retention window** (unless
-you have the auto-snapshot, which never expires).
+Scenario: the migrator gate ran a migration that runs fine but is *logically* wrong: it dropped or
+corrupted data, or broke the serving release beyond what N-1 compatibility (ADR-0023) guarantees.
+Time matters: **the restore point must still be inside the 6 h retention window**, unless you have
+the auto-snapshot, which never expires.
 
 **0. Find the restore point.** The deploy run's step summary prints a **"DB restore point
-(pre-migration)"** table — the UTC timestamp captured immediately *before* the migrator ran, plus the
-target migration per context, plus the **auto-snapshot branch**. When it names one, prefer
-[Restore from the auto-snapshot](#restore-from-the-auto-snapshot-migr-04) — no timestamp math, no 6 h
+(pre-migration)"** table: the UTC timestamp captured just *before* the migrator ran, the target
+migration per context, and the **auto-snapshot branch**. When it names one, prefer
+[Restore from the auto-snapshot](#restore-from-the-auto-snapshot-migr-04): no timestamp math, no 6 h
 pressure.
 
-**1. Put the last-good release back first.** After the restore the schema is pre-migration again, and
-only the previous release's code is guaranteed against it (N-1 holds one step back — *new* code on the
-*old* schema is exactly the combination nothing proves). Redeploy the previous tag on the box:
+**1. Put the last good release back first.** After the restore the schema is pre-migration again, and
+only the previous release's code is proven against it (N-1 holds one step back; *new* code on the
+*old* schema is the combination nothing proves). Redeploy the previous tag on the box:
 
 ```bash
 ssh deploy@<box>
 IMAGE_TAG=<previous-good-sha> bash /opt/lotro/deploy.sh
 ```
 
-(When the rollout fails by itself, CD's automatic rollback already did this — then only steps 2–4
+(When the rollout failed on its own, CD's automatic rollback already did this, and only steps 2–4
 remain.)
 
-**2. Restore the Neon branch to just before the migrator ran.** Substitute the project + branch IDs
-from the table above and the step-0 timestamp:
+**2. Restore the Neon branch to just before the migrator ran.** Use the project + branch ids you
+looked up above and the step-0 timestamp:
 
 ```bash
 curl -sf -X POST -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" \
@@ -1283,22 +1260,22 @@ curl -sf -X POST -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: appl
   }'
 ```
 
-- `source_branch_id` is the **same branch** (a restore into its own history); in that mode
-  `preserve_under_name` is **mandatory** and is also the undo: Neon parks the current
-  (post-migration) head as a branch under that name, so the restore itself is reversible and any
-  post-migration writes stay salvageable from it.
-- Console-UI alternative: project → *Branches* → `production` → **Restore** → *From this branch's
+- `source_branch_id` is the **same branch** (a restore into its own history). In that mode
+  `preserve_under_name` is **mandatory**, and it is also the undo: Neon parks the current
+  (post-migration) head as a branch under that name, so the restore can be reversed and any
+  post-migration writes can still be salvaged from it.
+- Console alternative: project → *Branches* → `production` → **Restore** → *From this branch's
   history* → pick the timestamp.
 - The restore is near-instant (copy-on-write). Active connections drop once; the apps' Npgsql pools
   reconnect on the next request.
 
-**3. Verify.** Run the [Verifying](#verifying) queries — the bad migration's row must be **gone** from
-that context's `__EFMigrationsHistory` (the restore rewinds schema, data and history together) — then
+**3. Verify.** Run the [Verifying](#verifying) queries: the bad migration's row must be **gone** from
+that context's `__EFMigrationsHistory` (the restore rewinds schema, data and history together). Then
 [smoke](#post-deploy-smoke-test) the environment.
 
-**4. Roll forward.** Fix the migration in a new commit and let the normal pipeline redeploy — the
-migrator gate re-applies from the rewound history. Once confident, delete the `pre-restore-*` safety
-branch (Free-plan projects cap the branch count at 10):
+**4. Roll forward.** Fix the migration in a new commit and let the normal pipeline redeploy; the
+migrator gate re-applies from the rewound history. Once you are confident, delete the `pre-restore-*`
+safety branch (Free-plan projects allow at most 10 branches):
 
 ```bash
 curl -sf -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
@@ -1307,30 +1284,31 @@ curl -sf -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
 
 #### Restore from the auto-snapshot (MIGR-04)
 
-Every deploy with the Neon leg configured creates a **pre-migration snapshot branch** in that
-environment's Neon project — right after pinning the migrator image, right before starting the
-migrator:
+Every deploy with the Neon step configured creates a **pre-migration snapshot branch** in that
+environment's Neon project. It runs on the runner after the images are verified and before anything
+touches the box, so before the migrator starts:
 
 - **Shape:** `migr04-pre-<short-sha>-<utc-ts>`, branched from the project's default branch head, with
-  **no compute endpoint** — it costs no compute, only pinned history/storage.
-- **Where it is recorded:** the run summary's "DB restore point (pre-migration)" table — name + id.
+  **no compute endpoint**: it costs no compute, only pinned history and storage.
+- **Where it is recorded:** the run summary's "DB restore point (pre-migration)" table, name + id.
 - **Why it exists next to PITR:** a branch head never expires. PITR history lasts 6 h on the Free
   plan; the snapshot stays restorable however late the bad migration is noticed.
-- **Configuration (per GitHub environment; optional):** env-scoped secret `NEON_API_KEY`
-  (project-scoped) + variable `NEON_PROJECT_ID`. When either is missing the deploy logs
-  `Neon snapshot skipped (not configured)` and proceeds; a Neon API error logs a warning and proceeds
-  too. **The snapshot is a net, not a gate** — the deploy never fails because of it.
+- **Configuration (per GitHub environment; optional):** the environment secret `NEON_API_KEY`
+  (project-scoped) + the variable `NEON_PROJECT_ID`. When either is missing, the deploy logs
+  `Neon snapshot skipped (not configured)` and goes on; a Neon API error logs a warning and goes on
+  too. **The snapshot is a net, not a gate**: the deploy never fails because of it.
 
-**Retention: at most ONE snapshot branch per project.** Right before creating the new snapshot, the
-deploy deletes every older `migr04-pre-*` branch (both Free-plan projects sit near the 0.5 GB storage
+**Retention: at most ONE snapshot branch per project.** Right before it creates the new snapshot, the
+deploy deletes every older `migr04-pre-*` branch: both Free-plan projects sit near the 0.5 GB storage
 cap, every branch pins history, and by the time deploy N+1 runs, deploy N's migration has proven
-itself). Consequence: **the snapshot protects the latest deploy only**; an older bad migration falls
-back to PITR (≤ 6 h) or the accepted risk boundary above.
+itself. So **the snapshot protects the latest deploy only**; an older bad migration falls back to
+PITR (≤ 6 h) or the risk boundary above.
 
-**Restore procedure** — identical to the [PITR procedure](#procedure) except step 2: restore the
-default branch **from the snapshot branch's head** instead of from its own history. `source_timestamp`
-omitted ⇒ the source is *"restored to head"*, which for the snapshot **is** the pre-migration state;
-`preserve_under_name` is **required** here because the restored branch has children:
+**Restore procedure**: the same as the [PITR procedure](#procedure) except step 2. Restore the
+default branch **from the snapshot branch's head** instead of from its own history. With
+`source_timestamp` left out, the source is restored to its head, which for the snapshot **is** the
+pre-migration state. `preserve_under_name` is **required** here because the restored branch has
+children:
 
 ```bash
 curl -sf -X POST -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" \
@@ -1341,47 +1319,46 @@ curl -sf -X POST -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: appl
   }'
 ```
 
-- The current (post-migration) head is parked as the `pre-restore-*` branch — the undo — and the
-  branch's existing children (including the snapshot) are re-parented under it.
-- Cleanup order matters: delete the `migr04-pre-*` branch **before** the `pre-restore-*` branch — Neon
+- The current (post-migration) head is parked as the `pre-restore-*` branch (the undo), and the
+  branch's existing children, the snapshot included, move under it.
+- Cleanup order matters: delete the `migr04-pre-*` branch **before** the `pre-restore-*` branch. Neon
   refuses to delete a branch that still has children.
 
 #### Rehearsal (staging drill)
 
 Steps 2–4 can be rehearsed on staging at any time, without a deploy: restore the staging branch to
-five minutes ago (a data no-op while staging is idle), check the [Verifying](#verifying) output is
-unchanged, then delete the preserved branch. Do **not** run it while manual QA is in progress — the
-restore drops connections and rewinds anything written after the restore point.
+five minutes ago (no data change while staging is idle), check that the [Verifying](#verifying)
+output is unchanged, then delete the preserved branch. Do **not** run it while manual QA is in
+progress: the restore drops connections and rewinds anything written after the restore point.
 
 ## Message broker (RabbitMQ)
 
-Since the outbox/broker work (ADRs 0035–0037) each box runs a **single-node RabbitMQ container** in
-the stack (`rabbitmq` in `compose.hetzner.yaml` — pinned image, pinned `hostname`, named
-`rabbitmq-data` volume). **auth-api** publishes committed outbox rows: e-mail work to the
-`lotro.emails` exchange, which its own e-mail consumer reads from `emails.send`, and the
-`AccountErased` event to the `lotro.accounts` exchange (ADR-0065). **tms-api** reads that event from
-its own queue `tms.account-erased` and takes the person's name and address off the translator
-profile. Both use the one broker user `rabbitmq`; #1086 tracks a least-privilege user for tms-api.
-Everything each side needs — exchanges, quorum queues, bindings, the dead-letter wiring — is
-**declared idempotently by the app on channel open**, so a fresh broker needs zero manual
-provisioning. The one thing an app does not declare, the 7-day expiry of parked e-mail messages, is
-a broker policy that `deploy.sh` sets on every deploy (ADR-0036 §6). auth-api declares
-`lotro.accounts`; tms-api only checks that it exists, so until auth-api has started once, the tms-api
-consumer keeps retrying its connection.
+Each box runs a **single-node RabbitMQ container** in the stack (`rabbitmq` in
+`compose.hetzner.yaml`: pinned image, pinned `hostname`, named `rabbitmq-data` volume; ADRs
+0035–0037). **auth-api** publishes committed outbox rows: e-mail work to the `lotro.emails`
+exchange, which its own e-mail consumer reads from `emails.send`, and the `AccountErased` event to the
+`lotro.accounts` exchange (ADR-0065). **tms-api** reads that event from its own queue
+`tms.account-erased` and takes the person's name and address off the translator profile. Both use the
+one broker user `rabbitmq`; #1086 tracks a least-privilege user for tms-api.
 
-The broker is deliberately a **soft dependency**:
+Each app **declares what it needs when it opens a channel** (exchanges, quorum queues, bindings, the
+dead-letter wiring), so a fresh broker needs no manual setup. auth-api declares `lotro.accounts`;
+tms-api only checks that it exists, so the tms-api consumer keeps retrying until auth-api has started
+once. The one thing no app declares, the 7-day expiry of parked e-mail messages, is a broker policy
+that `deploy.sh` sets on every deploy (ADR-0036 §6).
 
-- **auth-api boots and serves with the broker down** — there is no `depends_on` edge on purpose. The
-  publisher connects lazily, the consumer retries with escalating backoff, committed outbox rows
-  wait (ADR-0035's safety sweep is the ceiling). An outage delays confirmation e-mails; it never
-  blocks login or token issuance.
-- It surfaces as the **`rabbitmq` check on auth's deep `/health`** (deliberately not on
-  `/health/ready`, same reasoning as SMTP) — the daily health ping is what tells you the container
-  died between deploys.
+The broker is a **soft dependency** on purpose:
+
+- **auth-api boots and serves with the broker down**: there is no `depends_on` edge. The publisher
+  connects lazily, the consumer retries with growing backoff, and committed outbox rows wait
+  (ADR-0035's safety sweep is the ceiling). An outage delays confirmation e-mails; it never blocks
+  login or token issuance.
+- It shows up as the **`rabbitmq` check on auth's deep `/health`** (not on `/health/ready`, for the
+  same reason as SMTP). The daily health ping is what tells you the container died between deploys.
 
 ### Management UI — over an ssh tunnel only
 
-The UI is published on the **box loopback** only, never the internet:
+The UI is published on the **box loopback** only, never on the internet:
 
 ```bash
 ssh -L 15672:localhost:15672 deploy@<box-ip>
@@ -1390,30 +1367,29 @@ ssh -L 15672:localhost:15672 deploy@<box-ip>
 
 ### The dead-letter parking lot (`emails.send.dlq`)
 
-Messages land there in exactly two ways (ADR-0036): **poison** (unreadable payload or unusable
-message id — rejected on first sight) and **exhausted** (`x-delivery-limit` = 5 redeliveries spent,
-e.g. an SMTP outage the backoff ladder could not outlast). Nothing consumes the queue; it waits for
-a human — a parked message usually means a user never got a confirmation e-mail, so diagnose from
-the payload's `IdentityUserId` plus the matching outbox row's error.
+Messages land there in two ways only (ADR-0036): **poison** (unreadable payload or unusable message
+id, rejected on first sight) and **exhausted** (`x-delivery-limit` = 5 redeliveries spent, e.g. an
+SMTP outage the backoff could not outlast). Nothing consumes the queue; it waits for a human. A parked
+message usually means a user never got a confirmation e-mail, so diagnose from the payload's
+`IdentityUserId` plus the matching outbox row's error.
 
-**Replay = ack-and-republish, NEVER reject-requeue** (ADR-0036 §5). The parking lot is a quorum
-queue with the *default* delivery limit (20) and no DLX of its own, so a reject-requeue loop
-**silently drops** the parked message. In the management UI:
+**Replay = ack-and-republish, NEVER reject-requeue** (ADR-0036 §5). The parking lot is a quorum queue
+with the *default* delivery limit (20) and no DLX of its own, so a reject-requeue loop **silently
+drops** the parked message. In the management UI:
 
 1. **Inspect** without consuming: `emails.send.dlq` → *Get messages* with ack mode *Nack message
-   requeue true* (a nack is an "explicit return" — it does not tick the delivery count; a reject
-   does).
+   requeue true* (a nack is an "explicit return" and does not count a delivery; a reject does).
 2. **Replay**: *Publish message* on the **`lotro.emails`** exchange with the message's preserved
    routing key (e.g. `email.confirmation`), its original **`message_id` and `type` properties** and
    body. The consumer picks its processor by `type` (ADR-0038), so a replay without it is parked
-   again at once. The inbox deduplicates on the message id (ADR-0037), so replaying an
-   already-processed id is a safe no-op.
-3. Only after the replay demonstrably processed (e-mail sent / inbox row present): remove the parked
-   copy — *Get messages* with ack mode *Automatic ack*.
+   again at once. The inbox deduplicates on the message id (ADR-0037), so replaying an id that was
+   already processed is a safe no-op.
+3. Only after the replay has visibly worked (e-mail sent / inbox row present): remove the parked
+   copy with *Get messages*, ack mode *Automatic ack*.
 
-**A parked message expires 7 days after it parks** (ADR-0036 §6, #1085), so replay within that week
-or it is gone for good. The limit exists because an e-mail change message holds the person's old and
-new address, and an account erasure cannot reach a queue. It is the RabbitMQ **operator** policy
+**A parked message expires 7 days after it parks** (ADR-0036 §6, #1085), so replay it within that
+week or it is gone for good. The limit exists because an e-mail change message holds the person's old
+and new address, and an account erasure cannot reach a queue. It is the RabbitMQ **operator** policy
 `emails-send-dlq-ttl` (pattern `^emails\.send\.dlq$`, `message-ttl` 604800000 ms; in the management UI
 under *Admin → Policies → Operator policies*). `deploy.sh` sets it on every deploy, on both boxes, so
 nobody sets it by hand. Check that it is on:
@@ -1426,8 +1402,8 @@ docker compose -f compose.hetzner.yaml exec -T --user rabbitmq rabbitmq rabbitmq
 Run `rabbitmqctl` as the `rabbitmq` user, as above. On a broker whose volume is new, a root CLI can
 write the Erlang cookie before the server does, and the server then stops at boot.
 
-- **A broker you start by hand has no policy.** `deploy.sh` is the only thing that sets it, so a broker
-  whose volume is new (a rebuilt box, a `down -v`, a deleted `rabbitmq-data`) gets it only when
+- **A broker you start by hand has no policy.** `deploy.sh` is the only thing that sets it, so a
+  broker whose volume is new (a rebuilt box, a `down -v`, a deleted `rabbitmq-data`) gets it only when
   `deploy.sh` runs. Bring such a broker up with `deploy.sh`, never with a plain `docker compose up -d`
   ([bring-up](#reprovisioning-a-box), [disaster recovery](#disaster-recovery)), and check it with the
   command above before anything can park.
@@ -1435,11 +1411,10 @@ write the Erlang cookie before the server does, and the server then stops at boo
   had the policy keeps it, so this matters only for a new broker. Deploy again once the broker is
   healthy, then check `emails.send.dlq`: a message that parked while the policy was missing never
   expires.
-- **A message with no expiry blocks the others.** A quorum queue gets a message's expiry when the
-  message parks, and it drops expired messages only from its head. So a message that parked before the
-  policy existed stays for good, and every message behind it stays too. Replay or remove such a message
-  by hand. Both parking lots were empty when checked on 2026-10-11, before the first deploy with the
-  policy.
+- **A message with no expiry blocks the others.** A quorum queue gives a message its expiry when the
+  message parks, and it drops expired messages only from its head. So a message that parked before
+  the policy existed stays for good, and so does every message behind it. Replay or remove such a
+  message by hand.
 - **A user policy cannot switch it off.** An operator policy applies next to whatever user policy
   matches the queue, and the lower `message-ttl` wins, so a policy added in the management UI can
   shorten the limit but never lengthen or remove it. Change or remove the operator policy only through
@@ -1448,34 +1423,33 @@ write the Erlang cookie before the server does, and the server then stops at boo
 ### The account events parking lot (`tms.account-erased.dlq`)
 
 Only a message tms-api can never handle lands here: an unknown type, an unreadable payload or a
-command the handler refuses, parked on first sight, or one that failed for a reason other than the
-database five times in a row, which means a bug. A database error never parks a message, whatever
+command the handler refuses (parked on first sight), or one that failed five times in a row for a
+reason other than the database, which means a bug. A database error never parks a message, whatever
 its cause (an outage, a rotated password, a lost grant): the consumer returns it with a nack, which
-does not count against the delivery limit, and tries again every 15 minutes at most until the
-database answers (ADR-0065). A parked message means a person's
-name may still be on a translator profile, so look at it the same day. If you delete
-`tms.account-erased` to change its arguments, do it while the tms-api release with the new arguments
-is running, or while tms-api is stopped. The running tms-api declares it again with **its own**
-arguments and attaches, usually within a minute and with no restart, so a delete under the old
-release brings the old arguments straight back. The release with the new arguments cannot read the
-old queue, so check in the management UI that it holds no messages right before the delete: the
-AuthSystem never sends an erasure again once it was sent, so a message lost there leaves the
-person's name on the profile for good. An erasure that is waiting out a database outage at that
-moment holds the attach back until its pause ends (about 15 minutes at most). Replay works as for `emails.send.dlq`, on the **`lotro.accounts`** exchange with the routing
-key `account.erased` and the `type` property `AccountErased`. Erasing a profile twice is harmless,
-so a replay never needs a duplicate check. This parking lot has **no time limit, on purpose**: a parked
+does not count against the delivery limit, and tries again at most every 15 minutes until the
+database answers (ADR-0065). A parked message means a person's name may still be on a translator
+profile, so look at it the same day.
+
+Replay works as for `emails.send.dlq`, on the **`lotro.accounts`** exchange with the routing key
+`account.erased` and the `type` property `AccountErased`. Erasing a profile twice is harmless, so a
+replay never needs a duplicate check. This parking lot has **no time limit, on purpose**: a parked
 message is erasure work that must wait for a person. Never give it a policy (user or operator) with
 a `message-ttl`, and never widen the e-mail expiry pattern to reach it (ADR-0036 §6).
+
+Changing the arguments of `tms.account-erased` follows the same rules as `emails.send` (see
+[Traps](#traps)), with tms-api in auth-api's place. A message lost there is worse than a lost e-mail:
+the AuthSystem never sends an erasure again once it was sent, so the person's name stays on the
+profile for good.
 
 ### Rolling back past ADR-0065
 
 A release from before ADR-0065 cannot route `AccountErased`. Its relay marks such a row failed
-("No routing key is mapped…", an Error line), moves on to the other rows and keeps the row for
-later. Nothing is lost: the row goes out once a release that routes it runs again. Two things to
-know: the first run of the deletion finalizer after ADR-0065 writes one such row for every account
-erased before it, and a run of 100 or more failing rows at the head of the outbox holds newer
-e-mail back on the old release. So roll forward rather than back once those rows exist, or roll
-back only long enough to fix forward.
+("No routing key is mapped…", an Error line), moves on to the other rows and keeps the row for later.
+Nothing is lost: the row goes out once a release that routes it runs again. Two things to know: the
+first run of the deletion finalizer after ADR-0065 writes one such row for every account erased before
+it, and a run of 100 or more failing rows at the head of the outbox holds newer e-mail back on the old
+release. So roll forward rather than back once those rows exist, or roll back only long enough to fix
+forward.
 
 ### Rolling back past #860
 
@@ -1487,65 +1461,61 @@ dead-letter queue by hand, once a release that routes them runs again.
 
 ### Traps
 
-- **The broker-carrying release needs the box `.env` updated FIRST**: append `RABBITMQ_PASSWORD`
-  (`openssl rand -base64 24`) to `/opt/lotro/.env` on **both** boxes before merging it. Missing it
-  is loud, not silent: compose interpolation fails (`${RABBITMQ_PASSWORD:?…}`) inside `deploy.sh`'s
-  config-validation step, which aborts the deploy while the old release keeps serving.
-- **`RABBITMQ_DEFAULT_PASS` applies on first boot only** (empty data volume). Editing the box `.env`
-  later rotates what auth-api and tms-api present but **not** what the broker expects — rotate in
-  lockstep via `rabbitmqctl change_password`, then restart **both** apps (exact commands: the
+- **`RABBITMQ_PASSWORD` is required.** Compose interpolation fails without it
+  (`${RABBITMQ_PASSWORD:?…}`) in `deploy.sh`'s first step, which stops the deploy while the old release
+  keeps serving.
+- **`RABBITMQ_DEFAULT_PASS` applies on first boot only** (empty data volume). Rotate it in lockstep
+  with `rabbitmqctl change_password`, then restart **both** apps (commands: the
   [secrets table](#secret-material--source-of-truth-and-how-to-rotate)).
-- **Queue arguments are immutable.** Redeclaring `emails.send` with different `x-*` arguments fails
-  the channel with `PRECONDITION_FAILED` (ADR-0036). Changing them on a live box means draining and
-  deleting the queue — treat it as a small migration, not a config tweak. Delete it only while the
-  release with the new arguments is running, or while auth-api is stopped. The running auth-api
-  declares the queue again with **its own** arguments and attaches, usually within a minute and with
-  no restart (#1088), so a delete under the old release brings the old arguments straight back. The
-  release with the new arguments cannot read the old queue, so check in the management UI that it
-  holds no messages right before the delete: anything still in it is lost. An e-mail that is waiting
-  out an SMTP outage at that moment holds the attach back until its pause ends (about 15 minutes at
-  most).
+- **Queue arguments cannot change.** Declaring `emails.send` again with different `x-*` arguments
+  fails the channel with `PRECONDITION_FAILED` (ADR-0036). Changing them on a live box means draining
+  and deleting the queue: treat it as a small migration, not a config tweak.
+  - Delete it only while the release with the new arguments is running, or while auth-api is
+    stopped. The running auth-api declares the queue again with **its own** arguments and attaches,
+    usually within a minute and with no restart (#1088), so a delete under the old release brings the
+    old arguments straight back.
+  - The release with the new arguments cannot read the old queue, so check in the management UI that
+    it holds no messages right before the delete: anything still in it is lost.
+  - A message that is waiting out an outage at that moment (SMTP for e-mail, the database for an
+    erasure) holds the attach back until its pause ends, about 15 minutes at most.
 - **Never remove the `hostname:` pin** on the service. RabbitMQ keys its on-disk state by node name
-  (`rabbit@<hostname>`); an unpinned recreation boots a fresh node beside the old data and orphans
-  the volume's quorum queues — parked dead letters included.
+  (`rabbit@<hostname>`); a recreation without the pin boots a fresh node beside the old data and
+  orphans the volume's quorum queues, parked dead letters included.
 
 ## Post-deploy smoke test
 
 One command that gives a green/red signal that a deployed environment came up correctly, without
-manual clicking — run it as the final [bring-up](#bringing-the-stack-up) step and after every
-subsequent deploy (CD runs it for you). `scripts/smoke.sh` (with a `scripts/smoke.ps1` twin) takes the
-three base URLs + the OpenIddict API client secret and exercises the seven legs that actually break on
-a deploy:
+manual clicking. Run it as the final [bring-up](#bringing-the-stack-up) step and after every later
+deploy (CD runs it for you). `scripts/smoke.sh` (with a `scripts/smoke.ps1` twin) takes the three
+base URLs + the OpenIddict API client secret and runs the seven legs that actually break on a deploy:
 
 | # | Check | Pass condition |
 |---|---|---|
 | 1 | **Health** | `GET {auth}/health/ready` = 200, `GET {tms}/health/ready` = 200, `GET {frontend}/` = 2xx/3xx |
-| 2 | **Frontend assets + CSP** | `GET {frontend}/` references a fingerprinted `_framework/blazor.web.<hash>.js` that serves 200, and the page carries no inline `<script>` its own `script-src` would block (#414, #670) |
+| 2 | **Frontend assets + CSP** | `GET {frontend}/` references a fingerprinted `_framework/blazor.web.<hash>.js` that serves 200, and the page has no inline `<script>` its own `script-src` would block (#414, #670) |
 | 3 | **OIDC token** | `POST {auth}/connect/token` (client_credentials) = 200 + an `access_token` |
-| 4 | **Token accepted by tms** | anonymous `GET {tms}/api/v1/game-versions` = **401**; the same call **with** the bearer token is **NOT 401** |
+| 4 | **Token accepted by tms** | anonymous `GET {tms}/api/v1/game-versions` = **401**; the same call **with** the bearer token is **200 or 403** (401 = token rejected) |
 | 5 | **File distribution** | `GET {tms}/api/v1/translation-files/{lang}` = 200 + `ETag`, then a re-GET with `If-None-Match` = 304 |
 | 6 | **Auth pages: headers + CSP** | `GET {auth}/Account/Login` (a form) and `/Account/ConfirmEmail` (no form) each send `X-Frame-Options: DENY` with `frame-ancestors 'none'`, `nosniff` and a `Referrer-Policy` of `no-referrer`, `same-origin`, `strict-origin` or `strict-origin-when-cross-origin`; every `<style>` carries the header's nonce, no inline `<script>`, no `'unsafe-inline'` (#693) |
 | 7 | **Discovery links** | `GET {tms}/` and `GET {auth}/` with the HATEOAS `Accept` header (`application/vnd.dev-lotrokoniecdev.hateoas.json`) = 200 with at least one link, and every `href` has the scheme, host and port of the configured URL (#898) |
 
-It prints a `✓`/`✗`/`⚠` per check and **exits non-zero (1) on any failure** (a usage/config problem
-exits 2). Two behaviours are deliberate and worth knowing before you read a result:
+It prints a `✓`/`✗`/`⚠` per check and **exits 1 on any failure** (a usage or config problem exits 2).
+Two behaviours are worth knowing before you read a result:
 
-- **Leg 4 expects 403, and that is success.** The only non-interactive OIDC grant in a deployed
-  environment is **client-credentials**. Such a token carries **no user role**, and every TMS endpoint
-  is role-gated — so a *validated* token is **403 Forbidden**, not 200. The check therefore proves the
-  token is **accepted** (got past authentication), pairing it with an anonymous 401 to prove the
-  endpoint is genuinely protected. A **401 with a valid token is the real red flag**: it means tms
-  rejected it — almost always an issuer / audience / JWKS mismatch (see
-  [Consistency rules that bite](#consistency-rules-that-bite), rules #1–#2), or a **stale
-  `SMOKE_CLIENT_SECRET`**.
-- **Leg 5 warns (does not fail) on 404.** A freshly deployed but not-yet-imported environment has no
-  translation artifact, so the endpoint returns 404 — the endpoint is up, there is just nothing to
-  distribute yet.
+- **Leg 4 passes on 403.** The only non-interactive OIDC grant in a deployed environment is
+  **client credentials**. Such a token carries **no user role**, and every TMS endpoint is role-gated,
+  so a *validated* token gets **403 Forbidden** (200 also passes). The check proves the token was
+  **accepted** (it got past authentication), and the anonymous 401 proves the endpoint is protected.
+  **A 401 with a valid token is the real red flag**: tms rejected it, almost always because of an
+  issuer / audience / JWKS mismatch (see [Consistency rules that bite](#consistency-rules-that-bite),
+  rules 1–2) or a **stale `SMOKE_CLIENT_SECRET`**.
+- **Leg 5 warns (does not fail) on 404.** A freshly deployed environment with nothing imported yet has
+  no translation file, so the endpoint returns 404: it is up, there is just nothing to distribute yet.
 
 ### Running it
 
 ```bash
-# A real environment (publicly-trusted Let's Encrypt cert — no --insecure needed):
+# A real environment (publicly trusted Let's Encrypt cert — no --insecure needed):
 SMOKE_CLIENT_SECRET="$OPENIDDICT_API_CLIENT_SECRET" scripts/smoke.sh \
   --auth-url     https://auth.lotro-translator.pl \
   --tms-url      https://tms.lotro-translator.pl \
@@ -1571,25 +1541,23 @@ Each flag has a `SMOKE_*` environment fallback (`--auth-url`/`SMOKE_AUTH_URL`, `
 prints the full reference.
 
 `--require-csp` makes a frontend or auth page with **no** `Content-Security-Policy` header a failure
-instead of a warning. Pass it against any deployed environment — CD and the reusable workflow both do.
-Leave it off only for a local Development stack, which skips the security-headers middleware on
-purpose and would otherwise always report red.
+instead of a warning. Pass it against any deployed environment; CD and the `Smoke test` workflow
+both do. Leave it off only for a local Development stack, which skips the security-headers middleware
+on purpose and would otherwise always report red.
 
 The flag also means an image from before the CSP legs cannot pass: an auth image older than #693
 fails leg 6, a frontend image older than #670 fails leg 2. So a deliberate CD deploy of such an old
-`image_tag` goes red and the rollback step puts the newer tag back. Pick a rollback target from #693
-on. For the same reason, an on-demand smoke of prod stays red on leg 6 until the batched promotion
-that carries #693 has run there.
+`image_tag` goes red, and the rollback step puts the newer tag back. Pick a rollback target from #693
+on.
 
 **In CI:** `deploy.yml` runs it against the environment's public origins after `up -d`; a red smoke
-triggers the automatic rollback. The [`Smoke test`](../../.github/workflows/smoke.yml) reusable
-workflow stays runnable **on demand** (`workflow_dispatch` — enter the three URLs).
+triggers the automatic rollback. The [`Smoke test`](../../.github/workflows/smoke.yml) workflow can
+also run **on demand** (`workflow_dispatch`: enter the three URLs).
 
 > **`GET / -> 200` never proves the frontend works.** A `[StreamRendering]` page returns 200 with its
-> spinner frame before it fetches anything. Smoke leg 1's frontend check is paired with leg 2's
-> **fingerprint** assertion — `@Assets[]` renders `_framework/blazor.web.<hash>.js` only when
-> `MapStaticAssets` resolved its manifest. That is the signature of a healthy image. Leg 2 also
-> catches the other invisible frontend break: an inline `<script>` the page's own CSP blocks, which
+> spinner frame before it fetches anything. Leg 2's **fingerprint** check is the signature of a
+> healthy image: `@Assets[]` renders `_framework/blazor.web.<hash>.js` only when `MapStaticAssets`
+> resolved its manifest. Leg 2 also catches an inline `<script>` the page's own CSP blocks, which
 > shows up nowhere but the browser console (#670). Leg 6 does the same for the auth pages, where the
 > styles are inline and each `<style>` must carry the nonce of its own response (#693).
 >
@@ -1597,116 +1565,134 @@ workflow stays runnable **on demand** (`workflow_dispatch` — enter the three U
 > the address the request came in on, which Caddy passes on in the forwarded headers. A change to
 > Caddy, to the forwarded-headers setup or to a domain variable can turn those links into `http://`,
 > an internal host name or another port. The website and the CLI refuse to follow a link off the
-> configured origin and follow no redirect (#611, #830), so every page that follows a link would break,
-> while the health checks stay green. Leg 7 reads both discovery roots and catches that (#898).
+> configured origin and follow no redirect (#611, #830), so every page that follows a link would
+> break while the health checks stay green. Leg 7 reads both discovery roots and catches that (#898).
 > ADR-0041 allows one link off the origin: after a service split, the root links to the root of the
 > service that left. The change that adds such a link must also allow it in leg 7, or every deploy
 > fails there and rolls back.
 
 ## Observability & monitoring
 
-**What exists today:**
+**What exists:**
 
-- **Structured logs** — every app logs JSON to stdout (Serilog). Read them on the box:
+- **Structured logs**: every app logs JSON to stdout (Serilog). Read them on the box:
   `docker compose -f compose.hetzner.yaml logs -f <service>`.
-- **Health endpoints** — deep `/health` (DB, + SMTP and the broker on auth; only with the health check
-  key, else 404 — ADR-0058), `/health/live`, `/health/ready`
-  (DB-free by ADR-0025, so container probes cannot keep the scale-to-zero Neon compute awake — that
-  ruling outlives Azure, because **Neon still suspends**). The deep answer names each check and its
-  status only; the reason a check failed is in the app's log at Error level.
-- **The daily health ping** — [`.github/workflows/health-ping.yml`](../../.github/workflows/health-ping.yml)
+- **Health endpoints**: deep `/health` (DB, plus SMTP and the broker on auth; only with the health
+  check key, else 404 — ADR-0058), `/health/live`, `/health/ready`. The probes run no DB check
+  (ADR-0025), so container probes cannot keep the scale-to-zero Neon compute awake: **Neon still
+  suspends**. The deep answer names each check and its status only; the reason a check failed is in
+  the app's log at Error level.
+- **The daily health ping**: [`.github/workflows/health-ping.yml`](../../.github/workflows/health-ping.yml)
   probes the prod origins once a day (06:40 UTC) on the **deep** `/health`, so it is the one check
-  that proves the database is reachable. It sends the key from the `PROD_HEALTH_CHECK_KEY` repository
-  secret; a red run with **HTTP 404** means that secret and the prod box's `HEALTH_CHECK_KEY` differ,
-  not that the site is down. A failed run e-mails the last committer of that file.
-  Trigger on demand: `gh workflow run health-ping.yml`.
-- **Post-deploy smoke** — every CD rollout, with automatic rollback on red.
-- **Grafana** — logs, metrics and traces for **both projects** on the stack described below
-  (epic #707), from both boxes once the prod agent has been brought up (#755, the procedure is
-  below) — until then staging only.
+  that proves the database is reachable. It runs on GitHub, so it is also the off-box backstop for
+  this stack's own failure: a dead staging box means no dashboards, no alert evaluation and no alert
+  delivery, alerts about prod included. Keep both. It sends the key from the `PROD_HEALTH_CHECK_KEY`
+  repository secret; a red run with **HTTP 404** means that secret and the prod box's
+  `HEALTH_CHECK_KEY` differ, not that the site is down. A failed run e-mails the last committer of
+  that file. Trigger it on demand: `gh workflow run health-ping.yml`.
+- **Post-deploy smoke**: every CD rollout, with automatic rollback on red.
+- **Grafana**: logs, metrics and traces for **both projects** from both boxes, on the stack described
+  below (epic #707).
 
 ### The observability stack
 
 Grafana, Loki, Prometheus, Tempo and Alloy, deployed from `compose.observability.yaml` as its **own
-compose project** in `/opt/obs` — outside CD, because CD overwrites `compose.hetzner.yaml` and
-recreates every service in it on each rollout, and monitoring must not have its lifetime tied to the
+compose project** in `/opt/obs`. It stays outside CD, because CD overwrites `compose.hetzner.yaml`
+and recreates every service in it on each rollout, and monitoring must not share the lifetime of the
 thing it monitors (ADR-0050 §2).
 
 **Every command against this project carries `-f compose.observability.yaml`.** The file is not one
-of the four names compose looks for on its own, so a bare `docker compose …` in `/opt/obs` does not
-find it: it exits with *"no configuration file provided: not found"* and does nothing. That failure
-is loud and harmless on a `down`, but it is silent about the thing you actually wanted — and the
-same bare command in a chain (`down && up -d`) simply never runs. Do not "simplify" the flag away,
-and do not add a `compose.yaml` symlink either: the project name comes from the `name: obs` key in
-this file, and a second entry point is a second thing to keep in step.
+of the names compose looks for on its own, so a bare `docker compose …` in `/opt/obs` exits with
+*"no configuration file provided: not found"* and does nothing. In a chain (`down && up -d`) the rest
+then never runs. Do not drop the flag, and do not add a `compose.yaml` symlink either: the project
+name comes from the `name: obs` key in this file, and a second entry point is one more thing to keep
+in step.
 
 | | |
 |---|---|
-| Backend box | **`lotro-staging`**, on purpose. A backend co-hosted with the workload it observes dies in the same outage and takes the evidence with it; on staging, a *prod* outage leaves the dashboards up and prod's last minutes readable (ADR-0050 §1) |
+| Backend box | **`lotro-staging`**, on purpose. A backend on the same box as the workload it observes dies in the same outage and takes the evidence with it; on staging, a *prod* outage leaves the dashboards up and prod's last minutes readable (ADR-0050 §1) |
 | Agent | Alloy, on every box. Tails the Docker socket, accepts OTLP, scrapes the host and containers |
-| Retention | Loki 14 d · Prometheus 15 d **and** 4 GB (whichever first, size enforced by the store) · Tempo 14 d |
-| Memory | hard `mem_limit` on every component, **1856 MiB** of ceilings against ~810 MiB measured (ADR-0051 + its #782 amendment: Tempo 384 MiB, Grafana 512 MiB — the original numbers were measured with nobody querying, and Tempo was OOM-killed by one person browsing traces) |
+| Retention | Loki 14 d · Prometheus 15 d **and** 4 GB (whichever comes first, size enforced by the store) · Tempo 14 d |
+| Memory | a hard `mem_limit` on every component, **1856 MiB** of ceilings against ~810 MiB measured (ADR-0051 and its #782 amendment: Tempo 384 MiB and Grafana 512 MiB, because a measurement with nobody querying got Tempo OOM-killed by one person browsing traces) |
 | Reaching it | **no public hostname.** `ssh -L 3000:127.0.0.1:3000 lotro-staging` → `http://localhost:3000`. Password: `ssh lotro-staging 'grep GF_SECURITY_ADMIN_PASSWORD /opt/obs/.env'` |
-| The other box | pushes over **`obs.lotro-translator.pl`** — a Caddy vhost on the backend box with exactly three ingest paths (the Loki push, the Prometheus remote-write, the OTLP trace gRPC method), each admitted only from the prod box's public `/32` **and** with one basic-auth credential; everything else answers 404, and Grafana is deliberately not behind it (ADR-0050 §4, #755). Agent side: `alloy/ship.agent.alloy` (TLS + the credential) versus `alloy/ship.backend.alloy` (the containers next door), picked by `COMPOSE_PROFILES` |
+| The other box | pushes over **`obs.lotro-translator.pl`**: a Caddy vhost on the backend box with three ingest paths (the Loki push, the Prometheus remote-write, the OTLP trace gRPC method), each admitted only from the prod box's public `/32` **and** with one basic-auth credential. Everything else answers 404, and Grafana is not behind it (ADR-0050 §4, #755). Agent side: `alloy/ship.agent.alloy` (TLS + the credential) versus `alloy/ship.backend.alloy` (the containers next door), picked by `COMPOSE_PROFILES` |
 | Dashboards & alerts | provisioned as code: ours from `.docker/observability/`, TheKittySaver's from its own repo into `/opt/obs/grafana/dashboards/tks/` |
 
-**Nothing is published to the internet by the observability project itself.** Grafana binds to loopback. Alloy's OTLP receiver binds the
-two docker **bridge gateways** (`10.60.0.1` ours, `10.61.0.1` the guest stack's) and never `0.0.0.0`
-— a port published on `0.0.0.0` bypasses `ufw`, because Docker inserts its DNAT rules ahead of the
-ufw chain; since #808 the `DOCKER-USER` leg of `bootstrap.sh` drops it from the public interface,
-and binding the gateways stays the rule anyway (the chain is a second wall, not the first). Loki,
-Prometheus and Tempo publish nothing.
-No observability container joins `default` or `tks`: the agent reads the Docker socket, containerd
-and `/proc`, so it never needs a route to an app container and does not have one (ADR-0050 §3).
+**Deploying a change** to the configs, dashboards or alert rules, as `deploy` (staging box shown;
+the prod box takes the same `rsync` + `scp`):
 
-**Alerts (#713)** — the four ADR-0034 deleted, restored, plus a disk backstop. Three are
-project-scoped (crash-loop, 5xx rate, error-log spike; TheKittySaver ships its own mirror set) and
-eight are fleet-scoped, because box saturation belongs to neither project. This repo ships eleven
-of them; TheKittySaver's rules live in its own repo:
+```bash
+rsync -az .docker/observability/ lotro-staging:/opt/obs/ && scp compose.observability.yaml lotro-staging:/opt/obs/
+ssh lotro-staging 'cd /opt/obs && docker compose -f compose.observability.yaml up -d --force-recreate && docker compose -f compose.observability.yaml ps'
+```
+
+`--force-recreate` is needed: each config file is a bind mount, `rsync` replaces the file, and
+compose does not look inside a mounted file, so a plain `up -d` leaves every container on its old
+config (the same reason `deploy.sh` reloads Caddy). It costs about a minute of telemetry.
+
+This carries our half only. TheKittySaver's dashboard and alert rules live in its own repo and land
+in the same tree, so run its two lines from a TheKittySaver checkout in the same sitting, or the box
+keeps whatever version it had (`docs/observability/README.md` there):
+
+```bash
+rsync -az docs/observability/dashboards/ lotro-staging:/opt/obs/grafana/dashboards/tks/
+rsync -az docs/observability/alerting/  lotro-staging:/opt/obs/grafana/provisioning/alerting/
+```
+
+Run `docker restart obs-grafana` after TheKittySaver's two lines, so Grafana reads its new provisioning.
+
+**Nothing is published to the internet by the observability project itself.** Grafana binds to
+loopback. Alloy's OTLP receiver binds the two docker **bridge gateways** (`10.60.0.1` ours,
+`10.61.0.1` the guest stack's), never `0.0.0.0`, because a port published on `0.0.0.0` bypasses ufw
+(see [Gotchas](#gotchas)). The `DOCKER-USER` leg would still drop it, but binding the gateways stays
+the rule: that chain is a second wall, not the first. Loki, Prometheus and Tempo publish nothing. No observability container
+joins `default` or `tks`: the agent reads the Docker socket, containerd and `/proc`, so it never needs
+a route to an app container and does not have one (ADR-0050 §3).
+
+**Alerts (#713).** Three are project-scoped (crash loop, 5xx rate, error-log spike; TheKittySaver
+ships its own set) and eight are fleet-scoped, because box saturation belongs to neither project.
+This repo ships eleven; TheKittySaver's rules live in its own repo. All of them deliver to **one**
+contact point, `owner-email`, over the Brevo relay the apps already use. There is no second channel.
 
 | Folder | Rules |
 |---|---|
-| LotroKoniecDev | crash-loop · 5xx above 5% · error-level log spike |
+| LotroKoniecDev | crash loop · 5xx above 5% · error-level log spike |
 | Fleet | memory > 85% · swapping hard or waiting for memory · swap > 70% full · CPU > 85% · disk < 20% · disk < 10% · a box has gone silent · a container above 85% of its own `mem_limit` |
 | TheKittySaver | its own set (that repo's #511 and later additions) |
 
 **What the two swap rules measure (#1084).** How full swap is says little on its own. Linux moves
 memory that nothing has used for a while into swap and leaves it there until something reads it
-again, so on a calm box swap fills slowly over weeks and almost never empties. Staging went from
-199 MiB to 523 MiB of its 2 GiB between 2026-09-23 and 2026-10-08 with almost no swapping, and the
-old rule ("more than a quarter of swap in use") then mailed every 6 hours about a healthy box.
+again, so on a calm box swap fills slowly over weeks and almost never empties. A rule on swap use
+alone mailed every 6 hours about a healthy staging box.
 
 - **Swapping hard or waiting for memory** (`fleet-swap-in-use`, warning) fires when either holds
-  for 5 minutes: on average more than 350 pages a second (about 1.4 MiB/s) moved in and out of swap
+  for 5 minutes: more than 350 pages a second (about 1.4 MiB/s) moved in and out of swap on average
   over the last 30 minutes (`node_vmstat_pswpin` + `node_vmstat_pswpout`), or at least one program
-  was waiting for memory during more than 10% of the last 5 minutes
-  (`node_pressure_memory_waiting_seconds_total`, the kernel's "some" memory pressure).
-  The window is 30 minutes because real squeezes come as bursts of 5 to 15 minutes: the night of
-  2026-10-02 was five of them, so a long `for:` on a 5-minute rate never fires. Replayed against
-  both boxes' history from 2026-09-25 to 2026-10-10, it fires twice on that night (20:54 and
-  23:44 UTC; peaks 660 and 799 pages/s) and nothing else. A normal CI-job burst on 2026-10-09
-  peaked at 202 pages/s, and calm days stay under 15. The 10% stall line did not fire on
-  its own in that window. It is there for memory waits that do not show up as swap traffic.
+  waiting for memory during more than 10% of the last 5 minutes
+  (`node_pressure_memory_waiting_seconds_total`, the kernel's "some" memory pressure). The window is
+  30 minutes because real squeezes come as bursts of 5 to 15 minutes, so a long `for:` on a 5-minute
+  rate never fires. Replayed against two weeks of both boxes' history, it fired only on the one real
+  squeeze, the night of 2026-10-02. The 10% stall line is there for memory waits that do not show up
+  as swap traffic.
 - **Swap nearly full** (`fleet-swap-nearly-full`, warning) is the late guard: more than 70% for
-  15 minutes. That leaves about 600 MiB of swap, and one ordinary CI job pushed 650 MiB into swap
-  in five minutes on 2026-10-09. Above the line, the next such burst can fill swap, and then the
-  kernel kills a container. It fired on nothing in the same window, because no burst kept swap
-  above 70% for even five minutes.
+  15 minutes. That leaves about 600 MiB of swap, and one ordinary CI job pushed 650 MiB into swap in
+  five minutes on 2026-10-09. Above the line, the next such burst can fill swap, and then the kernel
+  kills a container.
 
 To find what holds the swap, list `VmSwap` per process (`grep VmSwap /proc/*/status`) and map a pid
-to its container with `/proc/<pid>/cgroup`. A host service outside Docker, such as a CI runner,
-does not show up in the container memory panels. If the processes together hold much less than the
-swap in use, the rest is shared memory, most often files in `/tmp`.
+to its container with `/proc/<pid>/cgroup`. A host service outside Docker, such as a CI runner, does
+not show up in the container memory panels. If the processes together hold much less than the swap in
+use, the rest is shared memory, most often files in `/tmp`.
 
 **`/tmp` is memory on these boxes.** On Ubuntu 26.04 it is a tmpfs (1.9 GiB), so a file left there
 counts as memory and can end up in swap. `systemd-tmpfiles` deletes old files only after 10 days
-(`Q /tmp 1777 root root 10d`). On 2026-10-08 staging held 168 MiB of stale files there. Check
+(`Q /tmp 1777 root root 10d`); on 2026-10-08 staging held 168 MiB of stale files there. Check
 `du -sh /tmp` before you blame the apps.
 
-To check a line against history, query the staging Prometheus over read-only ssh. It holds both
-boxes, with labels `box="lotro-staging"` and `box="lotro-prod"`, for 15 days. URL-encode the query
-on your machine first: a raw `+` arrives as a space, and a `"` breaks the ssh quoting. Prometheus
-returns at most 11,000 points per series, so 7 days fit at `step=60` and 15 days need `step=120`:
+To check a threshold against history, query the staging Prometheus over read-only ssh. It holds both
+boxes, with labels `box="lotro-staging"` and `box="lotro-prod"`, for 15 days. URL-encode the query on
+your machine first: a raw `+` arrives as a space, and a `"` breaks the ssh quoting. Prometheus returns
+at most 11,000 points per series, so 7 days fit at `step=60` and 15 days need `step=120`:
 
 ```bash
 q='max by (box) (rate(node_vmstat_pswpin[30m]) + rate(node_vmstat_pswpout[30m]))'
@@ -1715,60 +1701,50 @@ end=$(date +%s); start=$((end - 7 * 86400))
 ssh lotro-staging "docker exec obs-prometheus wget -qO- 'http://localhost:9090/api/v1/query_range?query=$enc&start=$start&end=$end&step=60'"
 ```
 
-All of them deliver to **one** contact point, `owner-email`, over the Brevo relay the apps already
-use. There is deliberately no second channel.
-
-**The daily health ping stays.** It is not superseded — it is the *off-box* backstop, and it is the
-answer to this stack's own failure mode: a dead staging box means no dashboards, no alert evaluation
-and no alert delivery, including alerts about prod. The health ping runs on GitHub, probes the prod
-origins on the deep `/health`, and is the one check that proves the database is reachable. Keep both.
-
 **Turning telemetry on for a box** is an `.env` edit and a restart, never an image rebuild:
 
 ```bash
 # /opt/lotro/.env
 OTEL_EXPORTER_OTLP_ENDPOINT=http://10.60.0.1:4317
-OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 OTEL_LOGS_EXPORTER=                  # keep EMPTY
 OTEL_DEPLOYMENT_ENVIRONMENT=staging  # or production
 docker compose -f compose.hetzner.yaml up -d
 ```
 
-`OTEL_LOGS_EXPORTER` stays empty because **logs have exactly one path**: Alloy tailing stdout, which
-is the strictly larger set (it catches a crash before the logging pipeline is up, and it covers Caddy,
-RabbitMQ and the migrator, which speak no OTLP). Alloy drops OTLP log records outright, so a box that
-sets it by mistake still cannot produce duplicates (ADR-0051).
+The protocol is fixed to `grpc` in `compose.hetzner.yaml`, so the box `.env` does not set it.
 
-`OTEL_DEPLOYMENT_ENVIRONMENT` is the **only** thing separating the two environments in Grafana —
-both boxes run `ASPNETCORE_ENVIRONMENT=Production`. Set it wrong and every metric and trace that box
-emits is filed under the other environment.
+`OTEL_LOGS_EXPORTER` stays empty because **logs have one path only**: Alloy tailing stdout, which is
+the larger set (it catches a crash before the logging pipeline is up, and it covers Caddy, RabbitMQ
+and the migrator, which speak no OTLP). Alloy drops OTLP log records, so a box that sets it by mistake
+still cannot produce duplicates (ADR-0051).
+
+`OTEL_DEPLOYMENT_ENVIRONMENT` is the **only** thing that separates the two environments in Grafana,
+because both boxes run `ASPNETCORE_ENVIRONMENT=Production`. Set it wrong and every metric and trace
+that box emits is filed under the other environment.
 
 ### Bringing up the prod agent (the agent-only role)
 
-The route and the role are in the repo since #755 (the sister ticket koniecdev/TheKittySaver#599
-covers the TKS half). **This ran on 2026-09-09 and prod has been shipping since** — what follows is
-the reference: how it was done, and what to repeat when the prod box is rebuilt or the credential
-is rotated. Every step is idempotent, none of them touches a running app container, and only step 4
-interrupts anything (telemetry, for about a minute).
+The route and the role came with #755 (the TKS half is koniecdev/TheKittySaver#599), and prod has
+shipped telemetry since 2026-09-09. These are the steps to repeat when the prod box is rebuilt or the
+credential is rotated. Every step is idempotent, none touches a running app container, and only
+step 4 interrupts anything (telemetry, for about a minute).
 
-1. **DNS** — registrar panel → `A obs.lotro-translator.pl → 91.98.74.228` (the **staging** box:
-   that is where the backend runs), TTL 300. ACME needs it resolving before the vhost's first
-   request, and `remote_ip` needs the prod box's egress to still be `167.233.159.221`
+1. **DNS**: registrar panel → `A obs.lotro-translator.pl → 91.98.74.228` (the **staging** box,
+   where the backend runs), TTL 300. ACME needs it to resolve before the vhost's first request, and
+   `remote_ip` needs the prod box's egress to still be `167.233.159.221`
    (`ssh lotro-prod curl -4s https://ifconfig.me`). **An `A` record and no `AAAA`**: the gate is an
-   IPv4 `/32`, and an `AAAA` would let the agent's resolver prefer IPv6, whose source address Caddy
-   sees as a bridge gateway — every push would then be a 404 for a reason the runbook's own
-   diagnosis below would not name. No vhost on this fleet has an `AAAA` today.
+   IPv4 `/32`, and with an `AAAA` the agent's resolver may prefer IPv6, whose source address Caddy
+   sees as a bridge gateway, so every push would get a 404 for a reason the diagnosis below does not
+   name. No vhost on this fleet has an `AAAA` today.
 
-   **Do this step FIRST, and do not let anything look the name up before it exists.** A failed
-   lookup is cached as hard as a successful one: the zone's negative TTL is
-   `min(SOA TTL, SOA minimum)` — three hours here — and it is Hetzner's recursive resolvers
-   (`185.12.64.1/2` and their v6 twins, which is all four the boxes use) that hold it, so
-   `resolvectl flush-caches` on the box does nothing. That is what happened on 2026-09-09: the
-   record went in after the agent had already tried, and the prod box could not resolve it for
-   another 35 minutes while every public resolver already could. `dig @185.12.64.1 obs.<domain>`
-   shows the remaining time as the TTL on the SOA in the authority section. Waiting it out is the
-   only clean fix — the agent retries on its own — and it is why this step is first.
-2. **Mint the push credential.** One password, two forms, and the two never travel together:
+   **Do this step FIRST, and do not let anything look the name up before it exists.** A failed lookup
+   is cached too, for the zone's negative TTL (`min(SOA TTL, SOA minimum)`, three hours here), and
+   Hetzner's recursive resolvers (`185.12.64.1/2` and their v6 twins, all the boxes use) hold it, so
+   `resolvectl flush-caches` on the box does nothing. On 2026-09-09 that kept the prod box from
+   resolving the name for 35 minutes after the record went in. `dig @185.12.64.1 obs.<domain>` shows
+   the time left as the TTL on the SOA in the authority section. Waiting is the only clean fix; the
+   agent retries on its own.
+2. **Mint the push credential.** One password in two forms, and the two never travel together:
    ```bash
    openssl rand -base64 24                                  # the password → prod /opt/obs/.env (step 5)
    docker run --rm -it caddy:2-alpine caddy hash-password   # prompts for it; the hash → staging /opt/lotro/.env
@@ -1782,16 +1758,16 @@ interrupts anything (telemetry, for about a minute).
                                           # compose expands the salt after the third $ to nothing,
                                           # and caddy validate accepts the result — see the probe below
    ```
-   Then a rollout to staging — any merge, or re-apply the current tag by hand:
+   Then a rollout to staging: any merge, or re-apply the current tag by hand:
    `sudo -u deploy env IMAGE_TAG=$(sed -n 's/^IMAGE_TAG=//p' /opt/lotro/.env) bash /opt/lotro/deploy.sh`.
    It creates `lotro-staging_obs`, attaches Caddy, validates and reloads the Caddyfile, and ACME
    issues the certificate. Check from anywhere: `curl -sI https://obs.lotro-translator.pl/` → `404`
    with `x-robots-tag: noindex, nofollow`, and `curl -sI https://obs.lotro-translator.pl/loki/api/v1/push`
    → **also 404**: from a source the vhost does not admit, the push paths do not exist.
 
-   Then prove the credential actually landed, **from the prod box** (the only source the vhost
-   admits), before any agent exists there. This is the check that catches a hash mangled by the
-   wrong quoting, which nothing in the rollout catches:
+   Then prove the credential landed, **from the prod box** (the only source the vhost admits), before
+   any agent exists there. This is the check that catches a hash broken by the wrong quoting, which
+   nothing in the rollout catches:
 
    ```bash
    # -u with no password makes curl prompt for it: it never reaches argv or shell history.
@@ -1800,14 +1776,14 @@ interrupts anything (telemetry, for about a minute).
      https://obs.lotro-translator.pl/loki/api/v1/push'
    ```
 
-   **422** = route and credential both good (that is Loki rejecting an empty push, which means it
-   received it). **401** = the credential does not match — most likely the hash was corrupted by
-   quoting. **404** = this source address is not the one `OBS_ALLOWED_PUSH_IP` admits.
+   **422** = route and credential both good (Loki rejecting an empty push means it received it).
+   **401** = the credential does not match, most likely because quoting corrupted the hash. **404** =
+   this source address is not the one `OBS_ALLOWED_PUSH_IP` admits.
 
    That probe needs the route, so it needs step 1's DNS and the certificate ACME issues from it.
-   **When the record is not there yet** — and step 1 is the one step you may be waiting on somebody
-   else for — the credential can still be proven on its own, against the hash the running Caddy
-   actually holds, by the same bcrypt verifier, on loopback:
+   **When the record is not there yet** (step 1 is the one you may be waiting on someone else for),
+   the credential can still be proven on its own: against the hash the running Caddy actually holds,
+   with the same bcrypt check, on loopback:
 
    ```bash
    # On the prod box, with the plaintext in a 600 file there and the DEPLOYED hash read back out
@@ -1826,207 +1802,182 @@ interrupts anything (telemetry, for about a minute).
      docker rm -f obs-cred-probe >/dev/null; rm -rf "$d"'
    ```
 
-   **200** = the pair matches. **401** = it does not, and the hash is the usual reason. Worth the
-   twenty lines: it takes the quoting trap off the critical path, so when the route does come up the
-   only thing left that can be wrong is the route. The netrc file keeps the password off argv, where
-   `ps` and the shell history would both see it; publishing on `127.0.0.1` keeps the throwaway Caddy
-   off the box's public interface, where a bare `-p 8899:8899` would get past ufw (Docker's DNAT
-   rules sit ahead of the ufw chain) and be held back only by the `DOCKER-USER` leg (#808).
+   **200** = the pair matches. **401** = it does not, and the hash is the usual reason. Once this
+   passes, only the route itself can still be wrong. The netrc file keeps the password off argv, where `ps` and the shell history would both see
+   it. Publishing on `127.0.0.1` keeps the throwaway Caddy off the box's public interface, where a
+   bare `-p 8899:8899` would get past ufw and be held back only by the `DOCKER-USER` leg (see
+   [Gotchas](#gotchas)).
 
-4. **Staging box, re-plumb `/opt/obs` onto the new network** — about a minute without telemetry;
-   the volumes, and the history in them, survive a `down` without `-v`. **Check the network exists
-   before taking the stack down**: it is created by step 3's rollout, and a `down` followed by an
-   `up -d` that cannot find it leaves the whole backend — and all alerting, for both environments —
+4. **Staging box, `/opt/obs` on the `lotro-staging_obs` network**: about a minute without
+   telemetry; the volumes, and the history in them, survive a `down` without `-v`. **Check that the
+   network exists before you take the stack down**: step 3's rollout creates it, and a `down` followed
+   by an `up -d` that cannot find it leaves the whole backend, and all alerting for both environments,
    off until someone notices.
    ```bash
    rsync -az .docker/observability/ lotro-staging:/opt/obs/ && scp compose.observability.yaml lotro-staging:/opt/obs/
    ssh lotro-staging 'docker network inspect lotro-staging_obs >/dev/null'   # step 3 landed? if not, STOP
    ssh lotro-staging 'cd /opt/obs && grep -q "^OBS_NETWORK=" .env || printf "OBS_NETWORK=lotro-staging_obs\n" >> .env'
    ssh lotro-staging 'cd /opt/obs && docker compose -f compose.observability.yaml down && docker compose -f compose.observability.yaml up -d && docker compose -f compose.observability.yaml ps'
-   ssh lotro-staging 'docker network rm obs_obs'      # only once the stack is back up
    ```
-   **This rsync carries our half only.** TheKittySaver's dashboard and alert rules live in its own
-   repo and land in the same tree — run its two lines from a TheKittySaver checkout in the same
-   sitting, or the box keeps whatever version of them it had (`docs/observability/README.md`
-   there):
+   The network check is a separate command on purpose: on one `&&` chain, a failure anywhere after
+   the `down` would leave the backend stopped and the rest not run. Run TheKittySaver's two `rsync`
+   lines from [Deploying a change](#the-observability-stack) in the same sitting.
+5. **Prod box, `/opt/obs`**: the first time, **as root**, `install -d -o deploy -g deploy /opt/obs`
+   (`bootstrap.sh` does not create this directory). Then, **as `deploy`**, the same `rsync` + `scp`
+   as above pointed at `lotro-prod` (never write into a `deploy`-owned stack as root: see
+   [Gotchas](#gotchas)), and a `/opt/obs/.env` in the agent-only form of
+   `.env.observability.example`: `COMPOSE_PROFILES=` empty, `OBS_BOX=lotro-prod`,
+   `OBS_ENVIRONMENT=production`, `OBS_NETWORK=lotro-prod_obs`, `OBS_ALLOY_OOM_SCORE_ADJ=300`,
+   `OBS_BACKEND_HOST=obs.lotro-translator.pl`, `OBS_PUSH_USER=prod-agent`,
+   `OBS_PUSH_PASSWORD=<step 2>`, both `OBS_OTLP_BIND_*` gateways, `chmod 600`. Keep the `GF_*` and
+   `OBS_ALERT_EMAIL` placeholders the template has for this role: compose interpolates every service
+   before it applies profiles, so their guards are checked even though Grafana never starts here.
+   The network exists once a prod rollout has run with the current `compose.hetzner.yaml`:
+   `docker network ls | grep lotro-prod_obs`. Then `docker compose -f compose.observability.yaml up -d`
+   (never `--profile` anything; the env file is the only switch) and `docker logs -f obs-alloy`. A
+   wrong credential shows up within seconds as a 401 on every push, a source address the vhost does
+   not admit as a 404; a correct pair is silent.
 
-   ```bash
-   rsync -az docs/observability/dashboards/ lotro-staging:/opt/obs/grafana/dashboards/tks/
-   rsync -az docs/observability/alerting/  lotro-staging:/opt/obs/grafana/provisioning/alerting/
-   ```
-
-   The network check and the `docker network rm` are separate commands on purpose: on one `&&`
-   chain, a failure anywhere after the `down` would leave the backend stopped and the rest unrun.
-   `docker network rm obs_obs` is not optional —
-   the old project-owned network stays behind otherwise, and it is what `compose down` used to
-   remove. The rsync also lands the new alert rule (*Fleet — a box has gone silent*);
-   `docker restart obs-grafana` if the stack was not recreated.
-5. **Prod box, `/opt/obs`** — the first time, **as root**:
-   `install -d -o deploy -g deploy /opt/obs` (`bootstrap.sh` predates the directory), then the same
-   `rsync` + `scp` as above **as `deploy`** (the `/opt/lotro` root-ownership gotcha applies here
-   too), pointed at
-   `lotro-prod`, and a `/opt/obs/.env` in the agent-only form of `.env.observability.example`
-   (`COMPOSE_PROFILES=` empty, `OBS_BOX=lotro-prod`, `OBS_ENVIRONMENT=production`,
-   `OBS_NETWORK=lotro-prod_obs`, `OBS_BACKEND_HOST=obs.lotro-translator.pl`,
-   `OBS_PUSH_USER=prod-agent`, `OBS_PUSH_PASSWORD=<step 2>`, both `OBS_OTLP_BIND_*` gateways),
-   `chmod 600` — including the `GF_*` and `OBS_ALERT_EMAIL` placeholders the template carries for
-   this role (compose interpolates every service before it applies profiles, so their guards are
-   evaluated even though Grafana never starts here). The network exists once the prod rollout
-   carrying #755 has been **approved** (`deploy-prod` waits on the `production` environment):
-   `docker network ls | grep lotro-prod_obs`. Then
-   `docker compose -f compose.observability.yaml up -d` — never
-   `--profile` anything, the env file is the only switch — and `docker logs -f obs-alloy`: a wrong
-   credential shows up within seconds as a 401 on every push, a source address the vhost does not
-   admit as a 404; a correct pair is silent.
-
-   **If the agent was ever up while the name did not resolve, restart it once it does** —
+   **If the agent was ever up while the name did not resolve, restart it once it does**:
    `docker restart obs-alloy`. The three writers do not recover equally. `prometheus.remote_write`
-   re-resolves and catches up on its own; `otelcol.exporter.otlp` does not — its gRPC client keeps
-   the empty address list it built at startup and every trace after that dies with
-   `Unavailable desc = no children to pick from`, which reads like the backend is down rather than
-   like a stale resolver. Observed on 2026-09-09: metrics were already arriving in Grafana while
-   traces had been dropping for four minutes. One restart fixes all three, and it costs nothing.
-6. **Prod box, the apps** — `/opt/lotro/.env`: the same `OTEL_*` lines as staging with
+   resolves the name again and catches up on its own; `otelcol.exporter.otlp` does not: its gRPC
+   client keeps the empty address list it built at startup, and every trace after that dies with
+   `Unavailable desc = no children to pick from`, which reads like a dead backend rather than a stale
+   resolver (seen on 2026-09-09: metrics arrived while traces had been dropping for four minutes).
+   One restart fixes all three and costs nothing.
+6. **Prod box, the apps**: in `/opt/lotro/.env` the same `OTEL_*` lines as staging with
    `OTEL_DEPLOYMENT_ENVIRONMENT=production`, then `docker compose -f compose.hetzner.yaml up -d`.
-   TheKittySaver's half is the same four-line edit in `/opt/tks/.env` (its runbook, #599).
-7. **Prove it in Grafana** (tunnel): Explore → Loki `{box="lotro-prod"}` lists every prod
-   container; the LotroKoniecDev dashboard's environment picker offers `production` with data behind
-   it; a trace from a prod request opens from its log line. Then **prove the absence rule**:
-   `ssh lotro-prod docker stop obs-alloy`, wait ~20 minutes for *Fleet — a box has gone silent*
-   to fire and the e-mail to arrive, `docker start obs-alloy`, and watch it resolve.
+   TheKittySaver's half is the same edit in `/opt/tks/.env` (its runbook, #599).
+7. **Prove it in Grafana** (tunnel): Explore → Loki `{box="lotro-prod"}` lists the prod containers;
+   the LotroKoniecDev dashboard's environment picker offers `production` with data behind it; a trace
+   from a prod request opens from its log line. Then **prove the absence rule**:
+   `ssh lotro-prod docker stop obs-alloy`, wait ~20 minutes for *Fleet — a box has gone silent* to
+   fire and the e-mail to arrive, `docker start obs-alloy`, and watch it resolve. Measured on
+   2026-09-09: the rule went `pending` 15 minutes after the last sample and `firing` 5 minutes later,
+   both e-mails arrived within 90 seconds, and the agent coming back cleared the rule in under two
+   minutes.
 
    **`{box="lotro-prod"}` lists the containers that WRITE, which is not all of them.** Caddy and
-   RabbitMQ produce zero stdout lines in a quiet half-hour — Caddy has no `log` directive, so it
-   says nothing about a request it served, and RabbitMQ is silent after boot — and `obs-alloy` is
-   dropped on purpose (shipping its own log through itself is a feedback loop that only shows up
-   once something is already wrong). So the expected list is the five **application** containers,
-   and it is the same list on the staging box: check against that one before believing discovery is
-   broken. Nothing filters discovery — `discovery.docker` takes every container on the socket.
-
-   Timings, measured on 2026-09-09 so the wait is not a guess: the last sample was at 01:00, the
-   rules went `pending` at 01:15 (the 15-minute window) and `firing` at 01:20 (the 5-minute `for`),
-   both e-mails arrived within 90 seconds of that, and the agent coming back cleared both rules in
-   under two minutes.
-8. Delete the first bullet under "Not done yet", and close #755 with that evidence.
+   RabbitMQ write nothing to stdout in a quiet half-hour (Caddy has no `log` directive, and RabbitMQ
+   is silent after boot), and `obs-alloy` drops its own log on purpose (shipping it through itself is
+   a feedback loop). So the expected list is the five **application** containers, the same as on the
+   staging box: check against that before you believe discovery is broken. Nothing filters discovery:
+   `discovery.docker` takes every container on the socket.
 
 ### Not done yet
 
-- **A dead staging box means no alerting at all**, for either environment. See the health ping above.
+- **A dead staging box means no alerting at all**, for either environment. The daily health ping
+  (above) is the only backstop.
 
 ## Disaster recovery
 
-Each box is **fully disposable** — nothing on it is the source of truth for anything:
+Each box is **fully disposable**: nothing on it is the source of truth for anything.
 
 | What | Lives | Recovery |
 |---|---|---|
 | Databases | Neon (prod + staging, PITR + MIGR-04 snapshots) | nothing to do |
 | Images | GHCR (built by `cd.yml`) | nothing to do |
-| Config | this repo (`compose.hetzner.yaml`, Caddyfile, `deploy.sh`) | scp again |
-| Secrets | `/opt/lotro/.env` per box — owner's backup + every value re-mintable ([Secrets](#secrets)) | restore or re-mint |
-| TLS certs | Caddy volume; Let's Encrypt re-issues | automatic on first bring-up |
+| Config | this repo (`compose.hetzner.yaml`, Caddyfile, `deploy.sh`, `compose.observability.yaml` + `.docker/observability/`) | copy again |
+| Secrets | `/opt/lotro/.env` and `/opt/obs/.env` per box: the owner's backup, and every value can be minted again ([Secrets](#secrets)) | restore or re-mint |
+| TLS certs | Caddy volume; Let's Encrypt issues them again | automatic on first bring-up |
 | DP keyrings | `auth-keys` / `frontend-keys` volumes | losing them logs everyone out; nothing to restore |
-| Telemetry history | the `obs_*` volumes on **lotro-staging** only | **nothing to restore, on purpose** — telemetry is not a source of truth. A rebuilt box gets the dashboards, datasources and alert rules back from this repo; the history is gone and that is accepted (ADR-0050) |
+| Telemetry history | the `obs_*` volumes on **lotro-staging** only | **nothing to restore, on purpose**: telemetry is not a source of truth. A rebuilt box gets the dashboards, datasources and alert rules back from this repo; the history is gone, and that is accepted (ADR-0050) |
 
-Recovery = **new VPS → `bootstrap.sh` → scp stack files → restore/re-mint the box's `.env` →
-`IMAGE_TAG=<the tag the box ran> bash /opt/lotro/deploy.sh` as `deploy` → re-point DNS A records →
-re-pin `HETZNER_SSH_KNOWN_HOSTS`**. Use `deploy.sh`, not a plain `up -d`: the broker volume is new,
-and `deploy.sh` is what sets its policy for parked e-mail (ADR-0036 §6). Hetzner backups (prod box)
-are a shortcut for the same outcome, not a dependency. Neither stack file is named `compose.yaml`, so
-the `-f` is not optional in any hand-run compose command either —
-`docker compose ps` in `/opt/lotro` happens to work (it finds the project by the
-`COMPOSE_PROJECT_NAME` in `.env` and never reads a file), which makes it easy to believe the bare
-form works for `up` too. It does not.
+Recovery = **new VPS → `bootstrap.sh` → copy the stack files → restore or re-mint the box's `.env` →
+`IMAGE_TAG=<the tag the box ran> bash /opt/lotro/deploy.sh` as `deploy` → re-point the DNS A records →
+re-pin `HETZNER_SSH_KNOWN_HOSTS` → bring `/opt/obs` back**: as root `install -d -o deploy -g deploy
+/opt/obs`, restore its `.env`, then, as `deploy`, the commands under
+[Deploying a change](#the-observability-stack). On a rebuilt prod box follow
+[the prod agent](#bringing-up-the-prod-agent-the-agent-only-role) steps 5–6, plus steps 1 and 3 when
+its public IP changed (the staging Caddy admits pushes only from `OBS_ALLOWED_PUSH_IP`). Use
+`deploy.sh`, not a plain `up -d`: the broker volume is new, and `deploy.sh` is what sets its policy for
+parked e-mail (ADR-0036 §6). Hetzner backups (prod box) are a shortcut to the same result, not a
+dependency.
+
+Neither stack file is named `compose.yaml`, so the `-f` is not optional in any hand-run compose
+command. `docker compose ps` in `/opt/lotro` happens to work (it finds the project by the
+`COMPOSE_PROJECT_NAME` in `.env` and never reads a file), which makes it easy to believe the bare form
+works for `up` too. It does not.
 
 ## Gotchas
 
-- **`/opt/lotro` belongs to `deploy` — never write into it as `root`.** CD ssh's in as `deploy` and
-  **overwrites** `compose.hetzner.yaml`, `.docker/hetzner/Caddyfile` and `deploy.sh` on every rollout.
-  A file that a hand-run `scp` left **root-owned** is not writable by `deploy` (the directory being
-  deploy-owned does not help — `scp` truncates the existing file, it does not unlink it), so the next
-  CD run dies in *"Sync the stack files to the box"* and the rollout never starts. This is not
-  theoretical: it failed the #507 production rollout on 2026-07-13. If you must stage files by hand,
-  `scp` as `deploy` — or `chown -R deploy:deploy /opt/lotro` afterwards. Run `deploy.sh` itself
-  **as `deploy`** too (`sudo -u deploy env IMAGE_TAG=… bash /opt/lotro/deploy.sh`), so a hand run
-  does exactly what CD does. A root run no longer locks CD out: the last step rewrites `.env` and
-  gives the new file the owner of the old one (#1206). Any other user who does not own `.env`
-  (`deploy` aside) is refused before anything runs. A root run does not repair an `.env` that is
-  already root-owned; the `chown` below does. `deploy.sh` now refuses an `.env` or compose file it
-  cannot read, and a `/opt/lotro` it cannot write to (#806): it exits 2 before it pulls anything and
-  prints the owner, the mode and the fix
-  (for `.env`: `chown deploy:deploy /opt/lotro/.env && chmod 600 /opt/lotro/.env`).
-  (`/opt/tks` has no CD and is root-owned — that one is fine to touch as root.)
-- **The bootstrap Docker leg adopts the box's engine, it does not install one.** The live pair runs
-  **Ubuntu's** `docker.io` + `containerd` + `docker-compose-v2`, not Docker's `docker-ce` stack — and
-  the two CONFLICT. An unguarded `apt-get install docker-ce containerd.io` on such a box is an engine
-  **swap**: apt removes the running engine, dockerd restarts, and every container on the host goes
-  with it — *both* stacks, `/opt/lotro` **and** `/opt/tks`. `bootstrap.sh` therefore probes for
-  `docker` + `docker compose` and installs `docker-ce` only when the box has no engine at all (fixed
-  2026-07-13, #502). Do not "simplify" that guard away; the engine's vendor is irrelevant to us, its
-  presence is not.
+- **`/opt/lotro` belongs to `deploy`: never write into it as `root`.** CD connects as `deploy` and
+  **overwrites** `compose.hetzner.yaml`, `.docker/hetzner/Caddyfile` and `deploy.sh` on every
+  rollout. A file that a hand-run `scp` left **root-owned** is not writable by `deploy` (a
+  deploy-owned directory does not help: `scp` truncates the existing file, it does not unlink it), so
+  the next CD run dies in *"Sync the stack files to the box"* and the rollout never starts. That failed
+  the #507 production rollout on 2026-07-13. If you must stage files by hand, `scp` as `deploy`, or
+  run `chown -R deploy:deploy /opt/lotro` afterwards. Run `deploy.sh` itself **as `deploy`** too
+  (`sudo -u deploy env IMAGE_TAG=… bash /opt/lotro/deploy.sh`), so a hand run does what CD does.
+  - A root run does not lock CD out: the last step rewrites `.env` and gives the new file the owner of
+    the old one (#1206). Any other user who does not own `.env` (`deploy` aside) is refused before
+    anything runs.
+  - A root run does not repair an `.env` that is already root-owned. `deploy.sh` refuses an `.env` or
+    compose file it cannot read, and a `/opt/lotro` it cannot write to (#806): it exits 2 before it
+    pulls anything and prints the owner, the mode and the fix (for `.env`:
+    `chown deploy:deploy /opt/lotro/.env && chmod 600 /opt/lotro/.env`).
+  - `bootstrap.sh` gives `/opt/tks` to `deploy` as well.
+- **The bootstrap Docker leg adopts the box's engine; it does not install one.** The live pair runs
+  **Ubuntu's** `docker.io` + `containerd` + `docker-compose-v2`, not Docker's `docker-ce` stack, and
+  the two CONFLICT. An unguarded `apt-get install docker-ce containerd.io` on such a box swaps the
+  engine: apt removes the running engine, dockerd restarts, and every container on the host goes with
+  it, *both* stacks (`/opt/lotro` **and** `/opt/tks`). So `bootstrap.sh` checks for `docker` +
+  `docker compose` and installs `docker-ce` only when the box has no engine at all (#502). Do not
+  "simplify" that guard away: the engine's vendor does not matter to us, its presence does.
 - **Two segregated networks per box; Caddy is the only shared component (#506).** Our stack lives
   alone on `${project}_default` (`10.60.0.0/24`); the guest TheKittySaver stack lives alone on
-  `${project}_tks` (`10.61.0.0/24`, which our `compose.hetzner.yaml` defines and TKS joins as
-  `external` — its twin ticket koniecdev/TheKittySaver#295). Caddy sits on both at pinned static IPs
-  (`10.60.0.100` / `10.61.0.100`) and is the ONLY container that crosses. This fences off the
-  cross-stack pivot and the header-spoof that one shared network allowed (see the ADR-0034
-  amendment). **Coordinated bring-up:** deploying this topology change **re-creates the lotro stack**,
-  so the TKS containers keep running but lose the Caddy-side aliases on the old network — the TKS
-  stack must be re-pointed to `${project}_tks` and re-upped (`down` + `up -d` in `/opt/tks`) **right
-  after** the lotro deploy on each box (**staging first, then prod**; brief TKS downtime is fine
-  pre-launch).
-- **Compose service KEYS must still be globally unique per network.** Compose registers the service
-  key itself as a Docker DNS alias on top of `container_name`. Before #506 both stacks shared one
-  network, so a guest whose compose also said `frontend:`/`auth-api:` collided with ours and Caddy's
-  `reverse_proxy frontend:8080` round-robined into the WRONG stack (2026-07-12 prod incident:
-  lotro-translator.pl served uratujkota.pl). Segmentation removes that cross-stack collision, but the
-  `tks-` prefix on every TKS service key stays the rule — Caddy resolves `reverse_proxy tks-frontend:8080`
-  on the `tks` network, and the public-hostname aliases must remain unique there. Detection:
-  `docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$v.Aliases}}{{end}}' <ctr>` — no
+  `${project}_tks` (`10.61.0.0/24`), which our `compose.hetzner.yaml` defines and TKS joins as
+  `external` (koniecdev/TheKittySaver#295). Caddy sits on both at pinned static IPs (`10.60.0.100` /
+  `10.61.0.100`) and is the only container that crosses. This fences off the cross-stack pivot and the
+  header spoofing that one shared network allowed (ADR-0034 amendment). Because TKS joins a network
+  our stack creates, our stack must deploy first on a new box; the
+  [cutover section](#one-time-cutting-a-live-box-over-to-the-two-segregated-networks-506) shows how
+  TKS points `LOTRO_NETWORK` at it.
+- **Compose service KEYS must still be unique per network.** Compose registers the service key itself
+  as a Docker DNS alias on top of `container_name`. When both stacks shared one network, a guest
+  service also named `frontend:` collided with ours, and Caddy's `reverse_proxy frontend:8080`
+  round-robined into the WRONG stack (2026-07-12 prod incident: lotro-translator.pl served
+  uratujkota.pl). Separate networks remove that collision, but the `tks-` prefix on every TKS service
+  key stays the rule: Caddy resolves `reverse_proxy tks-frontend:8080` on the `tks` network, and the
+  public-hostname aliases must stay unique there. Detection:
+  `docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$v.Aliases}}{{end}}' <ctr>`: no
   alias may appear on two containers of the same network.
 - **Docker bypasses ufw for published ports** (it programs iptables directly). Our stacks publish only
-  Caddy's 80/443 — which ufw allows anyway. Since #808 the `DOCKER-USER` leg of `bootstrap.sh` drops
-  every other published port arriving on the public interface, so a port published on `0.0.0.0`
-  answers on the box and on the bridges but **not from the internet**: a service that genuinely needs
-  a new public port needs that leg changed, not just a `ports:` line. The staging box needs the rule
-  most — TheKittySaver's CI runner starts Testcontainers there, which publish Postgres, MinIO and
-  Ryuk (it deletes containers on a plain TCP command) on `0.0.0.0` at random ports. On a box that
-  predates the leg: `scp scripts/hetzner/bootstrap.sh root@<ip>:/root/ && ssh root@<ip>
-  'BOOTSTRAP_SOURCE_ONLY=1 bash -c ". /root/bootstrap.sh; ensure_docker_user_firewall"'`, then read
-  it back with `iptables -S DOCKER-USER` (four rules: replies, 80, 443, drop) and the same for
-  `ip6tables`. Re-running the leg also repairs a chain someone edited by hand — every pass re-applies
-  it. Applied to `lotro-staging` on 2026-10-02 (a throwaway container on `0.0.0.0:47123`
-  answered from outside before, timed out after; both sites kept answering on 80/443); `lotro-prod`
-  publishes only Caddy and gets it with its next bootstrap pass. Never publish another service's port
-  "just to debug"; exec into the network instead
+  Caddy's 80/443, which ufw allows anyway. The `DOCKER-USER` leg of `bootstrap.sh` drops every other
+  published port that arrives on the public interface (#808), so a port published on `0.0.0.0`
+  answers on the box and on the bridges but **not from the internet**. A service that really needs a
+  new public port needs that leg changed, not just a `ports:` line. The staging box needs the rule
+  most: TheKittySaver's CI runner starts Testcontainers there, which publish Postgres, MinIO and Ryuk
+  (it deletes containers on a plain TCP command) on `0.0.0.0` at random ports. On a box that predates
+  the leg: `scp scripts/hetzner/bootstrap.sh root@<ip>:/root/ && ssh root@<ip>
+  'BOOTSTRAP_SOURCE_ONLY=1 bash -c ". /root/bootstrap.sh; ensure_docker_user_firewall"'`, then read it
+  back with `iptables -S DOCKER-USER` (four rules: replies, 80, 443, drop) and the same for
+  `ip6tables`. Re-running the leg also repairs a chain someone edited by hand, because every pass
+  re-applies it. Never publish another service's port "just to debug"; exec into the network instead
   (`docker compose exec caddy wget -qO- http://tms-api:8080/health/live`; the full `/health` also
   needs the `X-LOTRO-Health-Key` header, ADR-0058).
 - **sshd config precedence:** sshd honours the *first* occurrence of a keyword, and
   `/etc/ssh/sshd_config.d/` is included at the top in lexical order. Bootstrap's hardening lives in
-  `00-hardening.conf` precisely so it wins over cloud-init's `50-cloud-init.conf` — don't rename it to
-  a higher number.
-- **ACME fails until DNS propagates** — that's retry-resolved, not an error to fix. Start DNS before
-  bring-up; Caddy keeps retrying on its own.
+  `00-hardening.conf` so it wins over cloud-init's `50-cloud-init.conf`: don't rename it to a higher
+  number.
+- **ACME fails until DNS propagates.** Caddy keeps retrying on its own, so it is not an error to fix.
+  Set up DNS before the bring-up.
 - **First cold hit after Neon scale-to-zero** wakes the database in a few seconds. Measured on Hetzner
   from 2026-09-26 to 2026-10-11: the auth database in 0.7 s typically and 4.7 s at worst, the
-  translation database in 7.7 s at worst. The old "~31 s" came from the Azure days, where it was the
-  whole container cold start. The auth API caps each connection open at 20 s in code. The website's
-  login renewal and its OIDC back-channel give up after 30 s per call, and its account client after
-  10 s per attempt (#923). EF's own retries can still keep the auth API working past 30 s (#1121).
-- **4 GB box + ~9 containers → swap is mandatory, and `bootstrap.sh` provisions it** (OBS-01 / #708).
-  Hetzner images ship with none, and a box with no swap does not slow down under a memory spike — the
+  translation database in 7.7 s at worst. The auth API caps each connection open at 20 s in code. The
+  website's login renewal and its OIDC back-channel give up after 30 s per call, and its account
+  client after 10 s per attempt (#923). EF's own retries can still keep the auth API working past
+  30 s (#1121).
+- **4 GB box + ~9 containers → swap is mandatory, and `bootstrap.sh` provisions it** (#708).
+  Hetzner images ship with none, and a box with no swap does not slow down under a memory spike: the
   kernel OOM-kills a container and picks the victim by score, not by importance. The bootstrap's first
   leg lays down a **2 GiB `/swapfile`**, persists it in `/etc/fstab` and sets **`vm.swappiness = 10`**
-  (`/etc/sysctl.d/99-swappiness.conf`) — an emergency buffer, not a working tier. Safe on a running
-  box: no restart, and every step is guarded, so a re-run changes nothing.
+  (`/etc/sysctl.d/99-swappiness.conf`): an emergency buffer, not a working tier. It is safe on a
+  running box: no restart, and every step is guarded, so a re-run changes nothing.
+  `scripts/tests/hetzner-bootstrap-swap.tests.sh` drives the real `ensure_swap` against a throwaway
+  root with stubbed swap tools, in `pr-verify` and `ci`.
 
-  This bullet used to say the opposite — "deliberately NOT in `bootstrap.sh`: swapfile creation +
-  `/etc/fstab` edits can't be faithfully proven in the container idempotency harness". There was no
-  such harness, and the manual step that replaced it was never executed on either box. It is proven
-  the same way `deploy.sh` is: `scripts/tests/hetzner-bootstrap-swap.tests.sh` stubs `swapon`/`mkswap`/
-  `fallocate`/`dd`/`sysctl` and drives the real `ensure_swap` against a throwaway root, asserting the
-  no-op shape from every state a box can be in. It runs in the `guards` job of both `pr-verify` and `ci`.
-
-  To apply the leg alone to a box that is already bootstrapped — no full re-bootstrap, no restart:
+  To apply the leg alone to a box that is already bootstrapped (no full re-bootstrap, no restart):
 
   ```bash
   scp scripts/hetzner/bootstrap.sh root@<ip>:/root/
@@ -2035,57 +1986,59 @@ form works for `up` too. It does not.
 
   `BOOTSTRAP_SOURCE_ONLY=1` is the script's source seam: it defines the helpers and stops before the
   script touches anything, so you run one function instead of the whole bootstrap. `bash -c` because
-  the script needs bash — `. file` alone would run it in whatever login shell root has.
+  the script needs bash: `. file` alone would run it in whatever login shell root has.
 
-  Verify without a reboot. `swapon -a` re-reads `/etc/fstab`, which is exactly what boot does, and
-  `findmnt --verify` catches the fstab damage that otherwise only shows up at the next boot:
+  Verify without a reboot. `swapon -a` reads `/etc/fstab` again, which is what boot does, and
+  `findmnt --verify` catches fstab damage that otherwise only shows up at the next boot:
 
   ```bash
   ssh root@<ip> 'swapon --show; findmnt --verify --fstab; swapoff /swapfile && swapon -a && swapon --show; cat /proc/sys/vm/swappiness'
   ```
 
-  Only run that `swapoff` right after creation, while nothing is paged out (`swapon --show` USED = 0B)
-  — on a box that is actually using swap it forces every page back into RAM at once.
-- **Container log rotation is unbounded by default** (json-file driver, small VPS disk). Cap it at the
+  Only run that `swapoff` right after creation, while nothing is paged out (`swapon --show` USED = 0B):
+  on a box that is actually using swap, it forces every page back into RAM at once.
+- **Container log rotation is unbounded by default** (json-file driver, small VPS disk).
+  `compose.observability.yaml` caps it per service; `compose.hetzner.yaml` does not yet. Cap it at the
   compose level (`logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }` per
-  service) — NOT via `/etc/docker/daemon.json` on the live boxes, since a daemon-config change
-  restarts dockerd and bounces every running container.
+  service), NOT via `/etc/docker/daemon.json` on the live boxes: a daemon-config change restarts
+  dockerd and bounces every running container.
 - `.github/workflows/*` pushes need the koniecdev token.
 - **auth-api calls Have I Been Pwned when a password is set** (registration, password change, reset;
   ADR-0066). It needs outbound HTTPS to `api.pwnedpasswords.com`. When that call fails, the password is
-  accepted unchecked and auth-api logs warning `3300`, `3301`, `3302` or `3303`. A run of those warnings means
-  the breach check is off in practice: look at the box's outbound network first. Information `2740`
-  means the check works: it refused a password found in a breach.
+  accepted unchecked and auth-api logs warning `3300`, `3301`, `3302` or `3303`. A run of those
+  warnings means the breach check is off in practice: look at the box's outbound network first.
+  Information `2740` means the check works: it refused a password found in a breach.
 
 ## History — the Azure era
 
-From M6 (2026-06) until **2026-07-12** the stack ran on **Azure Container Apps** (Terraform-provisioned,
-Key Vault secrets, Log Analytics + Application Insights, scale-to-zero with a scheduled warm window).
-The Azure for Students subscription was disabled that day — credits exhausted, renewal refused — and
-both prods went dark. [ADR-0034](../adr/0034-hetzner-vps-instead-of-azure-container-apps.md) records
-the decision to move; [`hetzner-migration-plan.md`](hetzner-migration-plan.md) is the executed
-playbook; epic #486 tracked it. The ACA-specific workflow legs were removed from the repo by #492.
-The Terraform root and the Key Vault seeders were taken out of the build but **kept as a read-only
-tombstone** in [`azure-graveyard/`](azure-graveyard/README.md) — the ADRs of the Azure era argue
-about those files line-by-line, so they stay readable. Nothing in there is runnable: the
-subscription is disabled and the Terraform state died with it.
+From M6 (2026-06) until **2026-07-12** the stack ran on **Azure Container Apps** (Terraform, Key
+Vault secrets, Log Analytics + Application Insights, scale-to-zero with a scheduled warm window). The
+Azure for Students subscription was disabled that day (credits used up, renewal refused) and both
+prods went dark. [ADR-0034](../adr/0034-hetzner-vps-instead-of-azure-container-apps.md) records the
+move; [`hetzner-migration-plan.md`](hetzner-migration-plan.md) is the executed playbook; epic #486
+tracked it. The Terraform root and the Key Vault seeders are kept as a read-only record in
+[`azure-graveyard/`](azure-graveyard/README.md), because the ADRs of that era discuss those files
+line by line. Nothing in there can run: the subscription is disabled and the Terraform state died with
+it.
 
-**Recorded so nobody retries it:** with the subscription disabled, Key Vault serves secret *metadata*
-but refuses every *value* read (`az keyvault secret list` works and returns the 8 names;
+**Recorded so nobody tries again:** with the subscription disabled, Key Vault serves secret
+*metadata* but refuses every *value* read (`az keyvault secret list` works and returns the 8 names;
 `az keyvault secret show` → **Forbidden — the subscription associated with this vault has been
-disabled**). **No secret value was recoverable.** Every secret on the Hetzner boxes was re-minted from
-scratch (see [Secrets](#secrets)) — which is also why the auth DBs needed the
+disabled**). **No secret value could be recovered.** Every secret on the Hetzner boxes was minted from
+scratch (see [Secrets](#secrets)), which is also why the auth DBs needed the
 [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing).
 
-Two ADR rulings died with the platform and are marked obsolete-by-platform: ADR-0027 (scheduled warm
-window — the boxes are always on) and ADR-0029 (single-active-revision sweep — there are no
-revisions). ADR-0025 (DB-free readiness probes) **still binds**: Neon still scales to zero.
+Two ADR rulings died with the platform and are marked obsolete by platform: ADR-0027 (the scheduled
+warm window; the boxes are always on) and ADR-0029 (the single-active-revision sweep; there are no
+revisions). ADR-0025 (DB-free readiness probes) **still applies**: Neon still scales to zero.
 
 ## See also
 
 - [`compose.hetzner.yaml`](../../compose.hetzner.yaml) — the deployed stack; the authoritative list of
-  what each container consumes.
+  what each container reads.
 - [`.env.hetzner.example`](../../.env.hetzner.example) — the box env template (every key, placeholder values).
+- [`compose.observability.yaml`](../../compose.observability.yaml) / [`.env.observability.example`](../../.env.observability.example)
+  — the hand-deployed observability project and its env template.
 - [`.env.example`](../../.env.example) / [`.env.prod.example`](../../.env.prod.example) — the dev-compose
   and production-parity env templates.
 - [`compose.yaml`](../../compose.yaml) / [`compose.prod.yaml`](../../compose.prod.yaml) — the dev and
@@ -2094,5 +2047,5 @@ revisions). ADR-0025 (DB-free readiness probes) **still binds**: Neon still scal
   rollout script CD runs).
 - [ADR-0034](../adr/0034-hetzner-vps-instead-of-azure-container-apps.md) — the Hetzner decision.
 - [ADR-0008](../adr/0008-cloud-agnostic-deployment-and-environment-strategy.md) — the provider-neutral
-  container contract this runbook operationalizes.
+  container contract this runbook puts into practice.
 - [ADR-0023](../adr/0023-forward-only-n-1-backward-compatible-migrations.md) / [ADR-0024](../adr/0024-n1-backward-compat-ci-proof.md) — forward-only, N-1 compatible migrations.

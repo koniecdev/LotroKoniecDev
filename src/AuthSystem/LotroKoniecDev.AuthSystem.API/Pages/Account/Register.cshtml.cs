@@ -15,8 +15,7 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 internal sealed partial class RegisterModel : PageModel
 {
     /// <summary>
-    /// The frontend's terms-of-service route. That page belongs to the other context, so renaming it
-    /// there has to be repeated here.
+    /// The frontend's terms-of-service route: a rename there has to be repeated here.
     /// </summary>
     private const string TermsOfServicePath = "/regulamin";
 
@@ -52,9 +51,7 @@ internal sealed partial class RegisterModel : PageModel
     public bool IsRegistered { get; set; }
 
     /// <summary>
-    /// The absolute URL of the terms-of-service page on the frontend. It is null when the web client is
-    /// not configured, for example on a bare test host, and the register page then shows the consent
-    /// text without a link.
+    /// Null when the web client is not configured, and the page then shows the consent text without a link.
     /// </summary>
     public string? TermsOfServiceUrl =>
         FrontendUrl.For(_openIddictSettings.Value.WebClient, TermsOfServicePath);
@@ -62,11 +59,8 @@ internal sealed partial class RegisterModel : PageModel
     public string? ErrorMessage { get; set; }
 
     /// <summary>
-    /// Where to continue, taken from the login flow. It is usually the <c>/connect/authorize</c> URL
-    /// the user was sent away from. It is passed on to the login link shown after registration, so the
-    /// interrupted authorization continues once the account is confirmed and signed in. It is only
-    /// printed into the page after <see cref="LocalReturnUrl.Sanitize"/> accepts it, which blocks open
-    /// redirects.
+    /// Usually the <c>/connect/authorize</c> URL the user came from, passed on to the login link shown
+    /// after registration. Printed only after <see cref="LocalReturnUrl.Sanitize"/> accepts it.
     /// </summary>
     public string? ReturnUrl { get; set; }
 
@@ -86,9 +80,8 @@ internal sealed partial class RegisterModel : PageModel
             return Page();
         }
 
-        // A copy of the UsernameConstants rule from RegisterUser.CommandValidator, here only for the
-        // message. Without it, a bad character would fall through to the general message, which talks
-        // about the password.
+        // A copy of the validator's rule, only for the message: otherwise a bad character would get the
+        // general message, which talks about the password.
         if (!UsernameRegex().IsMatch(Username.Trim()))
         {
             ErrorMessage = "Nazwa użytkownika może zawierać tylko litery i cyfry, bez spacji.";
@@ -134,10 +127,7 @@ internal sealed partial class RegisterModel : PageModel
     }
 
     /// <summary>
-    /// Turns the handler's error into a Polish message for the user. The missing field, password match
-    /// and consent cases are handled above, so what is left is a taken name, a spent registration budget
-    /// of the inbox (ADR-0057), a password found in data breaches (ADR-0066) and the password rules. A
-    /// taken e-mail address is not an error: it gets the same answer as a free one (#860).
+    /// A taken e-mail address is not an error here: it gets the same answer as a free one (#860).
     /// </summary>
     private static string MapErrorToMessage(Error error)
     {

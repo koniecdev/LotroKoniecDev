@@ -5,10 +5,9 @@ using Microsoft.AspNetCore.DataProtection;
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 
 /// <summary>
-/// The undo link and the cancel-deletion link end by sending the visitor on to set a new password. Back from
-/// that form leads to the used link's form, and its button would call the link dead (#941). This cookie
-/// remembers, in the browser that used the link, where the link sent it, so the used link sends it there
-/// again. That place carries a live reset token, so the cookie is encrypted (ADR-0063).
+/// The undo and cancel-deletion links end on the set-a-new-password form, and Back from it would show the
+/// used link as dead (#941). This cookie remembers where the link sent the browser, so it goes there again.
+/// That place carries a live reset token, so the cookie is encrypted (ADR-0063).
 /// </summary>
 internal sealed class UsedLinkNextStepCookie
 {
@@ -28,8 +27,7 @@ internal sealed class UsedLinkNextStepCookie
 
     public void Remember(HttpContext httpContext, UsedLinkFlow flow, string usedToken, PasswordResetStep nextStep)
     {
-        // The expiry rides inside the encrypted value, so a copied cookie stops working on the server too,
-        // not only in a browser that keeps to the cookie's max-age.
+        // Inside the encrypted value, so a copied cookie also expires on the server, not only in the browser.
         Payload value = new(
             UsedLinkCookie.HashOf(usedToken),
             nextStep.Email,
@@ -68,8 +66,7 @@ internal sealed class UsedLinkNextStepCookie
     };
 
     /// <summary>
-    /// A value that does not decrypt is not ours, or comes from a keyring that is gone. Either way it marks
-    /// nothing, and the page shows its form as before.
+    /// A value that does not decrypt marks nothing, and the page shows its form as before.
     /// </summary>
     private static Payload? Read(IDataProtector protector, string value)
     {

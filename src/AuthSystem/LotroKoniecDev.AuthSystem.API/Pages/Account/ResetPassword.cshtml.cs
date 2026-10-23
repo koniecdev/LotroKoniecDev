@@ -17,13 +17,13 @@ internal sealed partial class ResetPasswordModel : PageModel
     private const string BreachedPasswordMessage = "To hasło pojawiło się w wyciekach danych, wybierz inne.";
 
     /// <summary>
-    /// Every password rule has its own sentence, so only a failed save or another account rule gets here.
-    /// The form stays, and a second try either works or shows that the link is used up.
+    /// Every password rule has its own sentence, so only a failed save or another rule gets here. The form
+    /// stays, and a second try either works or shows the link is used up.
     /// </summary>
     private const string GeneralRefusalMessage = "Spróbuj jeszcze raz. Jeśli błąd się powtórzy, napisz do nas.";
 
     /// <summary>
-    /// A hash computed up front, so every path verifies exactly one hash.
+    /// So every path verifies exactly one hash.
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -68,16 +68,14 @@ internal sealed partial class ResetPasswordModel : PageModel
         Email = email ?? string.Empty;
         Token = token ?? string.Empty;
 
-        // Back from the done view loads this link again. Its button would send the used link (#941). The
-        // answer rests on this browser's own cookie, so it says nothing about whether the address has an
-        // account, and it needs no time floor.
+        // Back from the done view loads this link again, and its button would send the used link (#941).
+        // The answer rests on this browser's own cookie, so it reveals nothing and needs no time floor.
         IsCompleted = UsedLinkCookie.PasswordReset.WasUsedHere(Request, Token);
     }
 
     /// <summary>
-    /// The done view a successful POST redirects to. A reload then repeats only this GET and never sends
-    /// the used link again, which would call it dead (#886). Anybody can open this URL, so it prints
-    /// nothing about any account.
+    /// A successful POST redirects here, so a reload never sends the used link again (#886). Anybody can
+    /// open this URL, so it prints nothing about any account.
     /// </summary>
     public void OnGetDone()
     {
@@ -100,7 +98,7 @@ internal sealed partial class ResetPasswordModel : PageModel
         }
 
         // The branches differ in cost: a wrong token fails at a cheap check, and a scheduled deletion
-        // returns before it. So every answer waits for the floor (ADR-0059).
+        // returns before it (ADR-0059).
         await _responseTimeFloor.HoldAsync(ResponseTimeFloors.AccountLookup, ResetAsync);
 
         if (!IsCompleted)
@@ -108,9 +106,8 @@ internal sealed partial class ResetPasswordModel : PageModel
             return Page();
         }
 
-        // The POST deliberately does not read this cookie: a second send of the used link carries a
-        // password the user typed again, maybe a different one, and "Twoje nowe hasło jest aktywne"
-        // would then be false (ADR-0063).
+        // The POST never reads this cookie: a second send carries a password typed again, maybe a
+        // different one, and "Twoje nowe hasło jest aktywne" would be false (ADR-0063).
         UsedLinkCookie.PasswordReset.Remember(HttpContext, Token);
         return RedirectToPage("/Account/ResetPassword", "Done");
     }
@@ -119,7 +116,7 @@ internal sealed partial class ResetPasswordModel : PageModel
     {
         ApplicationUser? user = await _userManager.FindByEmailAsync(Email);
 
-        // Every path pays the same PBKDF2 cost, the second layer under the floor (ADR-0059 §5).
+        // On every path, the second layer under the floor (ADR-0059 §5).
         _ = _userManager.PasswordHasher.VerifyHashedPassword(
             new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
@@ -130,9 +127,8 @@ internal sealed partial class ResetPasswordModel : PageModel
             return;
         }
 
-        // While a GDPR deletion is scheduled, only the cancel link in the e-mail can bring the account
-        // back. We show the general invalid-token message, so nobody can learn the state of an
-        // account.
+        // During a scheduled deletion only the cancel link brings the account back. The general message
+        // hides the account's state.
         if (user.DeletionScheduledAt is not null)
         {
             LogPasswordResetBlockedDeletionScheduled(_logger, user.Id);
@@ -184,8 +180,7 @@ internal sealed partial class ResetPasswordModel : PageModel
     }
 
     /// <summary>
-    /// Identity writes its errors in English, so the page names each broken rule in Polish by the error's
-    /// code (#1076). It never prints Identity's own text.
+    /// Identity's errors are English, so the page names each broken rule in Polish by its code (#1076).
     /// </summary>
     private static string? PolishFor(string code) =>
         code switch

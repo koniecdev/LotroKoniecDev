@@ -10,9 +10,8 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 internal sealed partial class ConfirmEmailModel : PageModel
 {
     /// <summary>
-    /// The same words for an unknown address and for any link that does not verify, so they reveal nothing.
-    /// The last sentence is for the owner of an active account who opens an old link: sending a new
-    /// activation link would do nothing for them (ADR-0059 §7).
+    /// The same words for an unknown address and any link that does not verify. The last sentence is for
+    /// the owner of an active account who opens an old link (ADR-0059 §7).
     /// </summary>
     private const string InvalidOrExpiredLinkMessage =
         "Link potwierdzający jest nieprawidłowy lub wygasł. Jeśli Twoje konto jest już aktywne, po prostu się zaloguj.";
@@ -25,7 +24,7 @@ internal sealed partial class ConfirmEmailModel : PageModel
         "Otwórz link z wiadomości jeszcze raz. Jeśli błąd się powtórzy, napisz do nas.";
 
     /// <summary>
-    /// A hash computed up front, so every path verifies exactly one hash.
+    /// So every path verifies exactly one hash.
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -41,8 +40,7 @@ internal sealed partial class ConfirmEmailModel : PageModel
     public bool IsCompleted { get; set; }
 
     /// <summary>
-    /// Identity checked the link and then refused for another reason. The page must not call such a link
-    /// dead, or the visitor asks for a new one when opening this one again would work (#869).
+    /// The link verified and Identity refused for another reason, so the page must not call it dead (#869).
     /// </summary>
     public bool LinkWasGood { get; set; }
 
@@ -72,7 +70,7 @@ internal sealed partial class ConfirmEmailModel : PageModel
         }
 
         // The branches differ in cost: a wrong token fails at a cheap check, and a confirmed address
-        // checks only the token. So every answer waits for the floor (ADR-0059).
+        // checks only the token (ADR-0059).
         await _responseTimeFloor.HoldAsync(ResponseTimeFloors.AccountLookup, ConfirmAsync);
     }
 
@@ -80,7 +78,7 @@ internal sealed partial class ConfirmEmailModel : PageModel
     {
         ApplicationUser? user = await _userManager.FindByEmailAsync(Email);
 
-        // Every path pays the same PBKDF2 cost, the second layer under the floor (ADR-0059 §5).
+        // On every path, the second layer under the floor (ADR-0059 §5).
         _ = _userManager.PasswordHasher.VerifyHashedPassword(
             new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
@@ -92,9 +90,8 @@ internal sealed partial class ConfirmEmailModel : PageModel
 
         if (user.EmailConfirmed)
         {
-            // The success page names the account, so it needs the mailed token too: without this check
-            // any address with a confirmed account showed "confirmed" (ADR-0059 §7). Confirming does not
-            // change the security stamp, so the owner's second click on the link still gets here.
+            // The success page names the account, so it needs the mailed token too (ADR-0059 §7).
+            // Confirming does not change the stamp, so the owner's second click still gets here.
             bool tokenValid = await _userManager.VerifyUserTokenAsync(
                 user,
                 _userManager.Options.Tokens.EmailConfirmationTokenProvider,
@@ -129,7 +126,7 @@ internal sealed partial class ConfirmEmailModel : PageModel
             return;
         }
 
-        // Identity's own text is English, so the page never prints it, and the log keeps the codes (#1076).
+        // Identity's text is English, so the page never prints it; the log keeps the codes (#1076).
         LogEmailConfirmationFailedViaUi(_logger, user.Id, string.Join(", ", result.Errors.Select(e => e.Code)));
         LinkWasGood = true;
         ErrorMessage = ConfirmationFailedMessage;

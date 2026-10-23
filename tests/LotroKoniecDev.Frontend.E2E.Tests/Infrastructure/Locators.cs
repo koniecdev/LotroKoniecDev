@@ -1,10 +1,8 @@
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// The few <c>data-testid</c> hooks added to the auth Razor Pages where an element has no stable
-/// accessible name: the two consent checkboxes and the panels shown after an action.
-/// Inputs, buttons and navigation links have no test id. They are found by role or label, as
-/// Playwright recommends (<see cref="FieldLabels"/>, <see cref="Buttons"/>, <see cref="Links"/>).
+/// Only for elements with no stable accessible name. Everything else is found by role or label, as
+/// Playwright recommends.
 /// </summary>
 internal static class TestIds
 {

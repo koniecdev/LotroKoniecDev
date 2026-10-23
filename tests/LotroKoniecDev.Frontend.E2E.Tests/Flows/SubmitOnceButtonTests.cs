@@ -5,11 +5,9 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// The visible side of the forms that are sent only once (#871): after the first click the button is
-/// disabled, shows its busy label, and swaps its arrow for a spinner. Every page carries its own copy of
-/// the spinner style, so each page is checked on its own.
-/// These tests need no account: a link only has to parse for the page to render its form, and the test
-/// cancels the navigation, so the server never sees the POST.
+/// #871: after the first click the button is disabled with its busy label and spinner. Every page has its
+/// own copy of the spinner style, so each is checked. The test cancels the navigation, so the links only
+/// have to parse.
 /// </summary>
 public sealed class SubmitOnceButtonTests : E2ETestBase
 {
@@ -42,9 +40,8 @@ public sealed class SubmitOnceButtonTests : E2ETestBase
         string busyLabel = await button.GetAttributeAsync("data-busy-label")
             ?? throw new InvalidOperationException($"The submit button on {path} has no busy label.");
 
-        // The page must stay put to be looked at, so the test cancels the navigation itself. Its listener
-        // is added after the page script, so the page script still sees a normal submit first. Holding the
-        // request open instead did not work here: reading the page then hung.
+        // The test cancels the navigation, after the page script, which still sees a normal submit.
+        // Holding the request open made reading the page hang.
         await Page.Locator("form[data-submit-once]").EvaluateAsync(
             "form => form.addEventListener('submit', event => event.preventDefault())");
 
@@ -60,8 +57,7 @@ public sealed class SubmitOnceButtonTests : E2ETestBase
     }
 
     /// <summary>
-    /// The browser refuses a form with an empty required field before the submit event fires. The script
-    /// listens for that event, not for the click, so the button must stay ready for the real attempt.
+    /// The browser refuses an empty required field before the submit event the script listens for.
     /// </summary>
     [Fact]
     public async Task Login_still_signs_in_after_a_click_the_browser_refused_for_empty_fields()

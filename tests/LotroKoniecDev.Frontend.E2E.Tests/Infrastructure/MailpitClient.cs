@@ -5,9 +5,7 @@ using System.Text.RegularExpressions;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// Thin client over the Mailpit HTTP API. The Auth server sends the confirmation link to Mailpit;
-/// the flow polls for the message by recipient + subject, then extracts the link (HTML-encoded in the
-/// body) so the browser can follow it. The base URL is the host-mapped Mailpit port from the fixture.
+/// Polls for a message by recipient and subject, then extracts the link, which is HTML-encoded in the body.
 /// </summary>
 internal static partial class MailpitClient
 {

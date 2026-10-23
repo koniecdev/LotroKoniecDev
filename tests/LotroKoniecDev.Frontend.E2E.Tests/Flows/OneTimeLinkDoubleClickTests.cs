@@ -5,15 +5,10 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// Regression guard for #871. A button behind a one-time link does its work on the first POST. A quick
-/// second click sent a second POST, which found the link already used, and the browser showed that answer:
-/// "link dead", although the first click had done the work.
-/// Each test double-clicks one such button and checks that the browser sent the form once and ended on the
-/// success answer. Counting the POSTs matters: the server can still answer "done" to a second POST that
-/// passed the token check before the first one saved (#869), so the final page alone could stay green.
-/// Each flow waits for its success answer or for any alert, so an unexpected answer (a dead link, the
-/// #869 retry panel, a password rule) fails at once on the assert instead of on a 30-second timeout.
-/// Nothing has to be seeded: each flow creates its own account.
+/// #871: a double click on a one-time link's button must send one POST and end on the success answer. The
+/// POST count matters, because the server can still answer "done" to a second POST (#869). Each flow also
+/// waits for any alert, so an unexpected answer fails at once instead of on a timeout. Each flow creates
+/// its own account.
 /// </summary>
 public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
 {
@@ -23,9 +18,8 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
     private const string ConfirmNewAddressSubject = "Potwierdź nowy adres e-mail";
 
     /// <summary>
-    /// After the change, the old address gets this notice with the undo link. The new address gets a
-    /// notice with a similar subject but no undo link; the search is by the old address, so only this
-    /// one matches.
+    /// The new address gets a notice with a similar subject but no undo link; the search is by the old
+    /// address, so only this one matches.
     /// </summary>
     private const string RevertOfferSubject = "Adres e-mail Twojego konta został zmieniony";
 
@@ -179,9 +173,8 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
     }
 
     /// <summary>
-    /// DblClickAsync would not do: its two clicks come so close that the browser folds them into one
-    /// request, and the test would stay green without the fix. The mouse clicks here also do not wait for
-    /// the page to load, so the second one lands while the first request is still open.
+    /// Not DblClickAsync: the browser folds its two clicks into one request, so the test would pass without
+    /// the fix.
     /// </summary>
     private async Task ClickTwiceLikeAPersonAsync(ILocator button)
     {

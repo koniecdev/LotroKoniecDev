@@ -5,13 +5,8 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// Regression guard for #886. Confirming a new address and setting a new password used to answer the POST
-/// with the success page itself. A reload then sent the form again with the used link, and the page said
-/// the link was dead, although the change had worked. Both now redirect to a done view after the POST.
-/// Each test reloads the success page and checks that the reload was a GET, that the form went out only
-/// once, and that the page still shows the success answer. A reload that repeats a GET is also what keeps
-/// the browser from asking to send the form again.
-/// Nothing has to be seeded: each flow creates its own account.
+/// #886: a reload of the success page after a confirmed address or a new password must be a GET, send the
+/// form only once and still show the success answer. Each flow creates its own account.
 /// </summary>
 public sealed class OneTimeLinkReloadTests : E2ETestBase
 {

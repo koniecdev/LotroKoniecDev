@@ -5,11 +5,8 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// LEGAL-04: what the cookie banner has to do, checked in a real browser. With JavaScript turned off, a
-/// new visitor sees the banner on any page, accepting it with a plain form post and no script hides it
-/// everywhere, and the consent survives navigation. On a phone-sized screen the bar stays at the bottom
-/// edge and still leaves the footer's legal links reachable (#672).
-/// It needs no account and nothing seeded, because the banner is for anonymous visitors.
+/// LEGAL-04 in a real browser: the banner works with JavaScript off, and on a phone-sized screen it stays at
+/// the bottom edge and leaves the footer's legal links reachable (#672). No account needed.
 /// </summary>
 public sealed class CookieConsentBannerTests : E2ETestBase
 {
@@ -37,32 +34,25 @@ public sealed class CookieConsentBannerTests : E2ETestBase
         jsLessContext.SetDefaultTimeout(20_000);
         IPage page = await jsLessContext.NewPageAsync();
 
-        // A brand-new visitor sees the banner on the home page…
         await page.GotoAsync($"{Fixture.FrontendBaseUrl}/");
         ILocator banner = page.GetByRole(AriaRole.Region, new() { Name = BannerLabel });
         await banner.WaitForAsync();
 
-        // …and on any other page.
         await page.GotoAsync($"{Fixture.FrontendBaseUrl}/regulamin");
         (await banner.IsVisibleAsync()).ShouldBeTrue();
 
-        // Accepting is a plain form post that works without JavaScript.
         await page.GetByRole(AriaRole.Button, new() { Name = AcceptButtonName, Exact = true }).ClickAsync();
         await banner.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Detached });
 
-        // The accept redirect returns to the page the form was posted from.
         page.Url.ShouldContain("/regulamin");
 
-        // The consent cookie survives navigation, so the banner stays hidden everywhere.
         await page.GotoAsync($"{Fixture.FrontendBaseUrl}/");
         (await banner.IsVisibleAsync()).ShouldBeFalse();
     }
 
     /// <summary>
-    /// #672, the half of the deal that is easy to lose: the bar is sticky and not in the normal flow, so
-    /// it is still stuck to the bottom of the screen at the top of a long page.
-    /// A bar in the normal flow would pass the reachability test below just as well while scrolling the
-    /// consent notice out of sight, which is the whole point of LEGAL-04. So it is checked separately.
+    /// #672: a bar in the normal flow would pass the reachability test below while scrolling the consent
+    /// notice out of sight, so this is checked separately.
     /// </summary>
     [Fact]
     public async Task Banner_on_a_phone_viewport_stays_pinned_to_the_bottom_edge_while_the_page_can_still_scroll()
@@ -79,13 +69,9 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     }
 
     /// <summary>
-    /// #672: the bar used to be <c>position: fixed</c>, so it was out of the flow and, at the end of the
-    /// page, sat on top of the last 165 pixels or so. That is exactly where "Regulamin" and "Polityka
-    /// prywatności" are, the two links a visitor who has not consented yet needs most.
-    /// The rule is stated at maximum scroll on purpose: a bar stuck to the bottom passes over the footer
-    /// while scrolling by design, and what matters is where the visitor ends up.
-    /// JavaScript is on here only as the test's measuring tool, to scroll to the end and read boxes. That
-    /// the banner itself works without JavaScript is pinned by the test above.
+    /// #672: the legal links sit at the end of the page, where a fixed bar would cover them. Checked at
+    /// maximum scroll, because a sticky bar passes over the footer while scrolling by design. JavaScript is
+    /// on only to scroll and measure.
     /// </summary>
     [Fact]
     public async Task Banner_on_a_phone_viewport_leaves_the_legal_footer_links_reachable_at_the_end_of_the_page()
@@ -101,9 +87,8 @@ public sealed class CookieConsentBannerTests : E2ETestBase
         // Act: a first-time visitor looking for the legal texts scrolls to the very end of the page.
         await ScrollToBottomAsync(page);
 
-        // Assert: the whole footer ends up above the bar, which is stronger than only the two links doing
-        // so, and both links really respond to a tap. The trial click runs Playwright's hit-target check,
-        // so anything drawn over the link fails it.
+        // Assert: the whole footer ends up above the bar, and the trial click's hit-target check fails if
+        // anything is drawn over a link.
         LocatorBoundingBoxResult bar = await RequireBoundingBoxAsync(banner);
         LocatorBoundingBoxResult footerBox = await RequireBoundingBoxAsync(footer);
         LocatorBoundingBoxResult termsBox = await RequireBoundingBoxAsync(termsLink);
@@ -117,9 +102,7 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     }
 
     /// <summary>
-    /// #672, the other end of the same deal: no space may stay reserved for a bar that is gone. The bar
-    /// takes up its space by being in the flow, so removing it from the markup after consent is what
-    /// makes the footer sit flush again. A rewrite that padded the footer instead would fail this.
+    /// #672: no space may stay reserved for a bar that is gone. A footer padded for the bar would fail this.
     /// </summary>
     [Fact]
     public async Task Accepting_on_a_phone_viewport_leaves_the_footer_flush_with_the_end_of_the_page()
@@ -141,10 +124,8 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     }
 
     /// <summary>
-    /// The screen size the reporter used. Below 640px the bar stacks its parts and the button becomes
-    /// full width, so it is at its tallest exactly where the screen is shortest.
-    /// This copies the size and not the device; real iOS Safari is covered by the ticket's manual retest
-    /// on staging.
+    /// The reporter's screen size. Below 640px the bar is at its tallest. Real iOS Safari is covered by
+    /// the manual retest on staging.
     /// </summary>
     private async Task<IBrowserContext> NewPhoneContextAsync()
     {
@@ -166,8 +147,7 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     }
 
     /// <summary>
-    /// Every font in <c>fonts.css</c> uses <c>font-display: swap</c>, so a font that arrives late would
-    /// move the page after it was measured. Wait for them before reading any box.
+    /// <c>font-display: swap</c> means a late font would move the page after it was measured.
     /// </summary>
     private static async Task WaitForFontsAsync(IPage page) =>
         await page.EvaluateAsync<bool>("document.fonts.ready.then(() => true)");

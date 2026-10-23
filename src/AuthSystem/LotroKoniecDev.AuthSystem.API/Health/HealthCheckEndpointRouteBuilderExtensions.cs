@@ -5,10 +5,9 @@ namespace LotroKoniecDev.AuthSystem.API.Health;
 internal static class HealthCheckEndpointRouteBuilderExtensions
 {
     /// <summary>
-    /// Maps the checks the way <c>MapHealthChecks</c> does, but with <see cref="HealthCheckKeyMiddleware"/>
-    /// in front of them inside the same endpoint (ADR-0058). The key check therefore always runs first and
-    /// cannot be left out by a pipeline change. The endpoint is anonymous because the key, not a login,
-    /// is what admits the caller, so a fallback policy added later cannot put a login in front of it.
+    /// Like <c>MapHealthChecks</c>, but with <see cref="HealthCheckKeyMiddleware"/> inside the same
+    /// endpoint, so a pipeline change cannot skip the key (ADR-0058). Anonymous, because the key admits
+    /// the caller, not a login.
     /// </summary>
     public static IEndpointConventionBuilder MapKeyGatedHealthChecks(
         this IEndpointRouteBuilder endpoints,

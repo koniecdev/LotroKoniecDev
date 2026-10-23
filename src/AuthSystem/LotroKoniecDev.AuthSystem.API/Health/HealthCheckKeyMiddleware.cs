@@ -7,13 +7,10 @@ using LotroKoniecDev.AuthSystem.API.Settings;
 namespace LotroKoniecDev.AuthSystem.API.Health;
 
 /// <summary>
-/// Lets a request into the full /health only when it carries the health check key (ADR-0058, #853).
-/// Any other request gets 404 before a single check runs, so a stranger cannot make this API query the
-/// database, connect to the mail server or open a broker connection. The keys are compared as SHA-256
-/// digests in constant time, and exactly one header value is accepted, as in
-/// <see cref="Services.RateLimiting.RateLimitPartitionKeyResolver"/>. With no key set the gate is open;
-/// <see cref="HealthCheckSettingsValidator"/> allows that only in Development and Testing.
-/// The TMS API has its own copy of this class.
+/// Any request without the key gets 404 before a check runs, so a stranger cannot make this API touch
+/// the database, mail server or broker (ADR-0058). SHA-256 digests in constant time, one header value
+/// only, as in <see cref="Services.RateLimiting.RateLimitPartitionKeyResolver"/>. With no key set the
+/// gate is open. The TMS API has its own copy of this class.
 /// </summary>
 internal sealed class HealthCheckKeyMiddleware
 {

@@ -27,9 +27,7 @@ internal static partial class DatabaseSeederExtensions
         ILogger logger = services.GetRequiredService<ILoggerFactory>()
             .CreateLogger(typeof(DatabaseSeederExtensions));
 
-        // The "AdminUser" configuration section: environment variables on a box, appsettings.Local.json
-        // locally. It is read once, before the retry, so a leftover password logs its warning once per
-        // start and not once per attempt.
+        // Read once, before the retry, so a leftover password logs its warning once per start.
         IConfiguration configuration = services.GetRequiredService<IConfiguration>();
         string? adminEmail = configuration["AdminUser:Email"];
         string adminUsername = ReadAdminUsername(configuration);
@@ -37,9 +35,8 @@ internal static partial class DatabaseSeederExtensions
 
         OpenIddictSettings openIddictSettings = services.GetRequiredService<IOptions<OpenIddictSettings>>().Value;
 
-        // The whole seed can be run twice without harm, so retrying after a temporary failure is
-        // safe. Each attempt gets a new scope, and with it a new AuthDbContext, because a context that
-        // failed during a migration must not be reused.
+        // The seed is safe to repeat. Each attempt gets a new scope, because a context that failed
+        // during a migration must not be reused.
         await ColdStartRetry.ExecuteAsync(
             async () =>
             {
@@ -86,9 +83,8 @@ internal static partial class DatabaseSeederExtensions
             return;
         }
 
-        // One transaction, so a failure between the two writes cannot leave an admin without its role
-        // (#839, ADR-0056). The context has EnableRetryOnFailure on, so EF refuses a transaction we start
-        // ourselves unless it runs inside the execution strategy.
+        // One transaction, so a failure cannot leave an admin without its role (ADR-0056). With
+        // EnableRetryOnFailure on, EF refuses our own transaction outside the execution strategy.
         AuthDbContext dbContext = serviceProvider.GetRequiredService<AuthDbContext>();
         IExecutionStrategy executionStrategy = dbContext.Database.CreateExecutionStrategy();
 
@@ -104,8 +100,7 @@ internal static partial class DatabaseSeederExtensions
         string? password,
         ILogger logger)
     {
-        // A replay starts after a rolled-back transaction, but the change tracker still holds the
-        // previous attempt's rows. Replaying without clearing it would write them twice.
+        // After a rollback the change tracker still holds the previous attempt's rows.
         dbContext.ChangeTracker.Clear();
 
         await using IDbContextTransaction transaction = await dbContext.Database.BeginTransactionAsync();
@@ -113,7 +108,7 @@ internal static partial class DatabaseSeederExtensions
         UserManager<ApplicationUser> userManager = serviceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
         // Never promotes an account it did not create: it cannot tell the operator's account from a
-        // stranger's, so it only logs (ADR-0056 amendment, #839).
+        // stranger's (ADR-0056 amendment).
         ApplicationUser? existingUser = await userManager.FindByEmailAsync(email);
         if (existingUser is not null)
         {
@@ -125,18 +120,16 @@ internal static partial class DatabaseSeederExtensions
             return;
         }
 
-        // A username that is already taken must not break every later startup. We skip it and leave it
-        // to the operator to free the username or change AdminUser.
+        // A taken username must not break every later startup; the operator frees it or changes AdminUser.
         if (await userManager.FindByNameAsync(username) is not null)
         {
             LogAdminSeedUsernameTaken(logger, username);
             return;
         }
 
-        // An address freed by an e-mail change stays held while its owner can still undo the change
-        // (#684). An admin seeded there would make that undo link fail (#849). This runs after the
-        // username check on purpose: when the admin itself moved off the address, the operator keeps
-        // getting 2353, which ADR-0056 decision 5 explains.
+        // An admin seeded on an address held for an undo would make that undo link fail (#849). After
+        // the username check, so an admin that moved off the address keeps getting 2353 (ADR-0056
+        // decision 5).
         IEmailChangeRevertReservation revertReservation =
             serviceProvider.GetRequiredService<IEmailChangeRevertReservation>();
         if (await revertReservation.IsReservedAsync(email, exceptUserId: null, CancellationToken.None))
@@ -194,9 +187,8 @@ internal static partial class DatabaseSeederExtensions
     }
 
     /// <summary>
-    /// Only Development and Testing take the admin password from configuration. Everywhere else the
-    /// admin is created without one and the operator sets it through the password reset mail, so no
-    /// environment file on a box ever holds it (ADR-0056).
+    /// Only Development and Testing take the admin password from configuration. Elsewhere the operator
+    /// sets it through the password reset mail, so no file on a box holds it (ADR-0056).
     /// </summary>
     internal static string? ReadBootstrapPassword(
         IConfiguration configuration,
@@ -227,7 +219,6 @@ internal static partial class DatabaseSeederExtensions
         IOpenIddictApplicationManager applicationManager =
             serviceProvider.GetRequiredService<IOpenIddictApplicationManager>();
 
-        // Web Application Client
         if (await applicationManager.FindByClientIdAsync(AuthConstants.ClientIds.Web) is null)
         {
             OpenIddictApplicationDescriptor webClient = new()
@@ -254,10 +245,8 @@ internal static partial class DatabaseSeederExtensions
                 }
             };
 
-            // Every environment takes the addresses from configuration. OpenIddictSettingsValidator
-            // requires at least one of each outside Development and Testing (ADR-0008 §3, note 6).
-            // They are written only here, when the client is created, so a later change needs a reseed
-            // (runbook, "Reseed traps").
+            // Written only when the client is created, so a later change needs a reseed (runbook,
+            // "Reseed traps").
             foreach (string redirectUri in settings.WebClient.RedirectUris)
             {
                 webClient.RedirectUris.Add(new Uri(redirectUri));
@@ -271,7 +260,6 @@ internal static partial class DatabaseSeederExtensions
             await applicationManager.CreateAsync(webClient);
         }
 
-        // The API client, used for calls between services.
         if (await applicationManager.FindByClientIdAsync(AuthConstants.ClientIds.Api) is null)
         {
             await applicationManager.CreateAsync(new OpenIddictApplicationDescriptor
@@ -291,8 +279,7 @@ internal static partial class DatabaseSeederExtensions
             });
         }
 
-        // The test client, used by integration and E2E tests only. It uses the password flow and is
-        // created only in the Testing environment.
+        // The password-flow client for the integration and E2E tests.
         if (environment.IsTesting())
         {
             const string testClientId = "lotrokoniecdev-test";

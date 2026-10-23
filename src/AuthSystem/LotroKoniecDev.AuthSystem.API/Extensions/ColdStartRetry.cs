@@ -3,16 +3,11 @@ using Npgsql;
 namespace LotroKoniecDev.AuthSystem.API.Extensions;
 
 /// <summary>
-/// A limited retry for database work that runs before the app starts listening (#451). A sleeping Neon
-/// compute can take longer to wake up than Npgsql waits to open a connection, so the first open fails
-/// for a moment. On Azure the whole cold start took about 31 seconds. On Hetzner the database wakes in a
-/// few seconds (runbook, #923).
-/// EF's <c>EnableRetryOnFailure</c> does not retry the open inside <c>MigrateAsync</c> (checked again on
-/// #923), so without this wrapper the exception kills the process before <c>RunAsync</c> and the container
-/// restarts. When that open keeps failing, this takes about 95 seconds (4 attempts of up to 20 seconds,
-/// the open limit in <c>AuthDatabaseConnectionString</c>, plus 3 waits of 5). The deploy waits for
-/// <c>/health/ready</c> for about 300 seconds. A database that stalls later, inside the seed's own
-/// queries, can take longer, because EF retries those (#1121).
+/// A sleeping Neon compute can take longer to wake than Npgsql waits to open a connection (#451), and
+/// EF's <c>EnableRetryOnFailure</c> does not retry the open inside <c>MigrateAsync</c> (#923). Without
+/// this the process dies before <c>RunAsync</c>. A failing open costs about 95 seconds (4 attempts of up
+/// to 20 seconds plus 3 waits of 5), well inside the deploy's 300-second wait for <c>/health/ready</c>.
+/// A stall inside the seed's own queries can take longer, because EF retries those (#1121).
 /// </summary>
 internal static partial class ColdStartRetry
 {

@@ -5,30 +5,18 @@ using LotroKoniecDev.AuthSystem.API.Extensions;
 namespace LotroKoniecDev.AuthSystem.API.Settings;
 
 /// <summary>
-/// Stops the boot when the OpenIddict server is misconfigured in a deployed environment, Staging or
-/// Production, and names the key and the environment at fault (ADR-0008 §3, M6-05). It checks the
-/// signing and encryption keys, the API client secret, the issuer and, since the base
-/// <c>appsettings.json</c> no longer holds them (M6-06), the web client redirect URIs the seeder
-/// registers.
-/// Development and Testing create throwaway signing and encryption keys (see
-/// <c>OpenIddictExtensions</c>) and take a fixed client secret and localhost addresses from their own
-/// configuration, so those checks are skipped there, like in <see cref="CorsSettingsValidator"/> and the
-/// Data Protection keyring check.
-/// The access token lifetime is checked in every environment, because a lifetime that is too short
-/// breaks the sign-in the same way everywhere (#1025).
-/// A message about an address names the key, and for a list the entry number, but never repeats the
-/// address. A refused address can hold a user name and password, and the message goes to the startup
-/// log (#1131).
+/// Stops the boot in Staging and Production when a key, the client secret, the issuer or a web client
+/// address is missing or malformed (ADR-0008 §3). Development and Testing use throwaway keys and local
+/// addresses, so only the access token lifetime is checked there. A message names the key but never
+/// repeats the address: it can hold a user name and password, and it goes to the startup log (#1131).
 /// </summary>
 internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictSettings>
 {
     private const int MinimumApiClientSecretLength = 32;
 
     /// <summary>
-    /// Many clients renew a token a minute before it runs out, and the website does so for every token
-    /// that lives two minutes or more. A token that lives a minute or less looks "about to run out" as soon
-    /// as it arrives, so such a client renews it on every page (#1025). The website copes with a one-minute
-    /// token, which it refreshes after 30 seconds, but the server should not depend on that (ADR-0049).
+    /// Many clients renew a token a minute before it runs out, so a token that lives a minute or less is
+    /// renewed on every page (#1025). The website copes with that, but the server should not depend on it.
     /// </summary>
     private const int MinimumAccessTokenLifetimeMinutes = 2;
 
@@ -188,11 +176,9 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
     }
 
     /// <summary>
-    /// Nothing on the sign-in server needs a user name or password in these addresses. Each one is public.
-    /// The issuer is in the discovery document and in every token. A redirect URI is where the browser
-    /// goes after sign-in. The first post-logout URI is printed on every account page and in every e-mail
-    /// (<see cref="FrontendUrl"/>). So a user name or password here can only be a mistake, and everyone
-    /// would see it (#1108, ADR-0067 decision 4).
+    /// Every one of these addresses is public: in the discovery document, in every token, in the browser
+    /// or on every page and e-mail (<see cref="FrontendUrl"/>). So a user name or password here can only be
+    /// a mistake, and everyone would see it (#1108).
     /// </summary>
     private static bool CarriesUserInfo(string value)
     {

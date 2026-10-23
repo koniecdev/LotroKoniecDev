@@ -24,10 +24,9 @@ internal static class EndpointExtensions
     extension(WebApplication app)
     {
         /// <summary>
-        /// Maps every <see cref="IApiEndpoint"/>. They sit at the root; the group exists only so rate
-        /// limiting can cover them all without also covering OpenIddict's <c>/connect/*</c> endpoints.
+        /// The group exists only so one rate limit covers every <see cref="IApiEndpoint"/> without also
+        /// covering OpenIddict's <c>/connect/*</c> endpoints.
         /// </summary>
-        /// <param name="routeGroupBuilder">The rate-limited root <see cref="RouteGroupBuilder"/>.</param>
         public IApplicationBuilder MapApiEndpoints(RouteGroupBuilder routeGroupBuilder)
         {
             IEnumerable<IEndpoint> endpoints = app.Services.GetRequiredService<IEnumerable<IEndpoint>>();
@@ -41,13 +40,9 @@ internal static class EndpointExtensions
         }
 
         /// <summary>
-        /// Maps the endpoints at the application root: everything that is a plain
-        /// <see cref="IEndpoint"/> but not an <see cref="IApiEndpoint"/>, which is OpenIddict's
-        /// <c>/connect/*</c> endpoints. They sit at the root; the group exists only so the
-        /// brute-force rate-limit policy really applies to them, because a group convention reaches
-        /// only the endpoints mapped through that group.
+        /// Maps every <see cref="IEndpoint"/> that is not an <see cref="IApiEndpoint"/>: OpenIddict's
+        /// <c>/connect/*</c> endpoints. The group exists only so the brute-force limit reaches them.
         /// </summary>
-        /// <param name="routeGroupBuilder">The rate-limited root <see cref="RouteGroupBuilder"/>.</param>
         public IApplicationBuilder MapRootEndpoints(RouteGroupBuilder routeGroupBuilder)
         {
             IEnumerable<IEndpoint> endpoints = app.Services.GetRequiredService<IEnumerable<IEndpoint>>();

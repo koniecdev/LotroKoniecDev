@@ -24,14 +24,9 @@ using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Persistence.Settings;
 using LotroKoniecDev.Logging.Redaction;
 
-// Not CreateBootstrapLogger(), on purpose. That logger lives in the shared static Log.Logger slot,
-// and AddSerilog freezes it the first time a host resolves a logger. The integration tests start
-// several hosts from this Program at the same time, the shared factory plus one broker factory per
-// pipeline suite, so one host can freeze the bootstrap logger another host has just installed, and the
-// second freeze fails with "The logger is already frozen".
-// A plain console logger keeps startup logging, and the catch and finally below, working while
-// AddSerilog builds each host its own pipeline. Nothing changes in production: the single host's final
-// logger still replaces this one.
+// Not CreateBootstrapLogger(): it lives in the static Log.Logger, and the integration tests start
+// several hosts from this Program at once, so the second host fails with "The logger is already
+// frozen". In production the host's own logger still replaces this one.
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture)
     .CreateLogger();
@@ -42,21 +37,17 @@ try
 
     WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-    // DI validation runs in every environment, not only in Development (#572). A captive dependency or
-    // a constructor that cannot be resolved, even one that only appears under production config, then
-    // fails at startup, where CD smoke-tests the candidate before it takes traffic, instead of turning
-    // into a 500 on the first request.
-    // It only checks registered services. A forgotten closed handler registration is still resolved at
-    // request time, so endpoint integration tests stay the guard for that.
+    // In every environment (#572), so a broken graph that only appears under production config fails at
+    // startup, before CD moves traffic, not as a 500. A forgotten handler registration is still caught
+    // only by the endpoint integration tests.
     builder.Host.UseDefaultServiceProvider(static (_, options) =>
     {
         options.ValidateScopes = true;
         options.ValidateOnBuild = true;
     });
 
-    // Optional per-developer overrides, such as the AdminUser:* seed credentials. The file is
-    // git-ignored and is the same one the EF design-time factories already read. It survives
-    // `docker compose down -v`, so a local admin is created again on the next start.
+    // Optional git-ignored per-developer overrides, such as the AdminUser:* seed credentials. It
+    // survives `docker compose down -v`, so a local admin is created again on the next start.
     builder.Configuration.AddJsonFile(
         "appsettings.Local.json",
         optional: true,
@@ -65,24 +56,17 @@ try
     string? otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
     bool otlpExportEnabled = !string.IsNullOrWhiteSpace(otlpEndpoint);
 
-    // Logs reach Loki by exactly ONE path: the box agent tailing this container's stdout (ADR-0050
-    // §7). That set is strictly larger than the OTLP sink's - it also catches a crash that happens
-    // before the logging pipeline is up, and it covers the containers that speak no OTLP at all
-    // (Caddy, RabbitMQ, the migrator). So the OTLP log sink stays OFF even when the endpoint is set,
-    // and only a stack with no tailer in front of it turns it back on.
-    //
-    // Alloy drops OTLP log records regardless (ADR-0051), so setting this cannot actually duplicate
-    // a line today. The switch exists so the app stops SENDING what nothing will accept.
+    // Logs reach Loki only through the box agent tailing stdout (ADR-0050 §7), which also catches a
+    // crash before the logging pipeline is up. So the OTLP log sink stays off even when the endpoint is
+    // set, unless OTEL_LOGS_EXPORTER=otlp asks for it on a stack with no tailer.
     bool otlpLogExportEnabled = otlpExportEnabled && string.Equals(
         builder.Configuration["OTEL_LOGS_EXPORTER"],
         "otlp",
         StringComparison.OrdinalIgnoreCase);
 
-    // Both projects' containers share a box and both boxes report ASPNETCORE_ENVIRONMENT
-    // "Production", so once a signal leaves the process neither the container nor the hosting
-    // environment can place it. These two attributes do: service.namespace separates
-    // LotroKoniecDev from TheKittySaver, deployment.environment separates staging from prod.
-    // OTEL_DEPLOYMENT_ENVIRONMENT is set per box; absent, the attribute is omitted, never guessed.
+    // Two projects share a box and both boxes run as "Production", so service.namespace tells the
+    // projects apart and deployment.environment tells staging from prod. Without
+    // OTEL_DEPLOYMENT_ENVIRONMENT the attribute is left out, never guessed.
     string? deploymentEnvironment = builder.Configuration["OTEL_DEPLOYMENT_ENVIRONMENT"];
     Dictionary<string, object> telemetryResourceAttributes = new()
     {
@@ -119,11 +103,8 @@ try
 
     builder.Services.AddAuthSystem(builder.Environment);
 
-    // Set up before the host is built, straight from configuration (M6-04, the same approach the
-    // Frontend takes in ADR-0005). The keyring has to be kept and the application name has to stay the
-    // same, so the Identity login cookie, the Razor antiforgery tokens and the password-reset and
-    // e-mail-confirmation tokens survive a restart and work across replicas.
-    // It is registered before AddAuthentication, which needs the keyring to protect its cookie.
+    // A kept keyring and a fixed application name, so cookies, antiforgery tokens and e-mailed tokens
+    // survive a restart (ADR-0005). Registered before AddAuthentication, which needs the keyring.
     builder.Services.AddAuthDataProtection(builder.Configuration, builder.Environment);
 
     builder.Services.AddAuthentication(options =>
@@ -145,9 +126,8 @@ try
             options.Cookie.SameSite = SameSiteMode.Strict;
             options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
 
-            // Check the Identity security stamp on every request, so a password reset, change or delete,
-            // which all change the stamp, drops an auth cookie that is still valid before it can get fresh
-            // tokens from /connect/authorize (SEC-03, #282).
+            // A password reset, change or account deletion rotates the stamp, and this drops a cookie
+            // that is still valid before it can get fresh tokens from /connect/authorize (#282).
             options.Events.OnValidatePrincipal = SecurityStampCookieValidator.ValidatePrincipalAsync;
         });
 
@@ -160,8 +140,7 @@ try
         .Validate(options => options.Cookie.Expiration == null, "Cookie.Expiration is ignored, use ExpireTimeSpan instead.")
         .Configure<SignInSessionTicketStore>((options, ticketStore) => options.SessionStore = ticketStore);
 
-    // A plain RequireAuthorization means a user's token here, not any valid token (#966). UserTokenPolicy
-    // says why.
+    // A plain RequireAuthorization means a user's token, not any valid token (#966).
     builder.Services.AddAuthorizationBuilder()
         .SetDefaultPolicy(UserTokenPolicy.Policy);
     builder.Services.AddRazorPages()
@@ -172,10 +151,8 @@ try
 
     IOpenTelemetryBuilder openTelemetryBuilder = builder.Services.AddOpenTelemetry()
         .ConfigureResource(resource => resource
-            // No auto-generated service.instance.id: it is a fresh GUID per process, and the agent
-            // promotes resource attributes to Prometheus labels - so keeping it would start a new
-            // series on every restart and break rate() across a deploy. One container per service
-            // makes the id redundant anyway.
+            // No service.instance.id: a fresh GUID per process becomes a Prometheus label, which starts
+            // a new series on every restart and breaks rate() across a deploy.
             .AddService(builder.Environment.ApplicationName, autoGenerateServiceInstanceId: false)
             .AddAttributes(telemetryResourceAttributes))
         .WithTracing(tracing => tracing
@@ -189,8 +166,7 @@ try
             .AddMeter("Microsoft.EntityFrameworkCore")
             .AddMeter("Npgsql"));
 
-    // Add the OTLP exporter only when an endpoint is configured. Otherwise the SDK keeps retrying
-    // against its own default localhost:4317, which exists on no box we run.
+    // Without an endpoint the SDK would keep retrying its default localhost:4317, which no box runs.
     if (otlpExportEnabled)
     {
         openTelemetryBuilder.UseOtlpExporter();
@@ -204,22 +180,14 @@ try
         options.MimeTypes = ResponseCompressionDefaults.MimeTypes;
     });
 
-    // Behind the reverse proxy, TLS ends at the proxy and the container gets plain HTTP with
-    // X-Forwarded-* headers. We read them so Request.Scheme is https, which OAuth redirects, HATEOAS
-    // hrefs, Secure cookies and UseHttpsRedirection all depend on. The `iss` value in OpenIddict tokens
-    // and discovery does not come from the scheme: it is fixed in OpenIddictSettings.Issuer and stays
-    // correct whatever these headers say.
-    //
-    // Who we trust (#399): ForwardedHeaders:KnownNetworks limits trust to the proxy's network, and
-    // every deployed stack sets it. compose.hetzner.yaml for the Hetzner boxes and compose.prod.yaml
-    // for the local parity stack both point at the Caddy network. An empty list would trust every
-    // upstream. That is only safe because the container port is never published directly: both stacks
-    // use expose: and not ports:, so Caddy is the only way in. Since the move off ACA (ADR-0034) no
-    // environment relies on that fallback.
-    // ForwardLimit = 1 is written out either way: exactly one proxy sets these headers, so only the
-    // right-most X-Forwarded-* entry, the client the ingress saw, is used. A malformed network, or a
-    // setting that exists but produces no entries, for example a scalar value missing the __0 index,
-    // stops the boot here instead of quietly trusting more (ADR-0008 §3).
+    // TLS ends at the proxy, so the X-Forwarded-* headers make Request.Scheme https for OAuth
+    // redirects, HATEOAS hrefs and Secure cookies. The token `iss` does not depend on them: it is fixed
+    // in OpenIddictSettings.Issuer.
+    // Trust is limited to ForwardedHeaders:KnownNetworks (#399), which compose.hetzner.yaml and
+    // compose.prod.yaml point at Caddy. An empty list would trust every upstream, which is safe only
+    // because both stacks use expose:, not ports:. ForwardLimit = 1 because exactly one proxy sets
+    // the headers. A setting that yields no networks, such as a scalar without the __0 index, stops the
+    // boot instead of trusting more (ADR-0008 §3).
     IConfigurationSection trustedProxyNetworksSection =
         builder.Configuration.GetSection("ForwardedHeaders:KnownNetworks");
     System.Net.IPNetwork[] trustedProxyNetworks = (trustedProxyNetworksSection.Get<string[]>() ?? [])
@@ -251,13 +219,9 @@ try
         options.ThrowOnBadRequest = true;
     });
 
-    // The CORS origins come from the environment and are not written into the code (ADR-0008 §3,
-    // M6-03). The production policy allows only the configured browser origins, and they are checked at
-    // startup, so a missing or malformed origin stops the boot in Staging and Production
-    // (CorsSettingsValidator) instead of quietly blocking the browser. Development uses the open policy
-    // below and ignores this list.
-    // AllowCredentials(), which the cookie and OIDC flows need, stays. It works together with the
-    // explicit WithOrigins list and never with AllowAnyOrigin, which the framework would refuse.
+    // The origins come from configuration and CorsSettingsValidator stops the boot in Staging and
+    // Production when one is missing or malformed (ADR-0008 §3). Development uses the open policy.
+    // AllowCredentials() needs the explicit WithOrigins list: the framework refuses it with AllowAnyOrigin.
     builder.Services.AddOptions<CorsSettings>()
         .BindConfiguration(CorsSettings.ConfigurationSection)
         .ValidateOnStart();
@@ -291,25 +255,20 @@ try
 
     builder.Services
         .AddHealthChecks()
-        // The database check is not tagged "ready" on purpose. The platform probes /health/ready every
-        // few seconds, and a database ping there would keep the Neon compute awake all day. A suspended
-        // database is normal operation and not a sign that the app is not ready (ADR-0025). The check
-        // is still available on the full /health, and a deploy proves the database through the smoke
-        // test's real endpoints.
+        // Not tagged "ready": /health/ready is probed every few seconds, and a database ping there would
+        // keep the Neon compute awake all day (ADR-0025). The full /health still runs it.
         .AddNpgSql(
             connectionStringFactory: sp => AuthDatabaseConnectionString.CapOpenTimeout(
                 sp.GetRequiredService<IOptions<ConnectionStringSettings>>().Value.AuthDatabase),
             name: "authdb",
             tags: ["db", "postgres"])
-        // SMTP is not tagged "ready" either. A Brevo outage must not take the auth service out of the
-        // load balancer, because login and token issuance work without mail. Mail problems show up in
-        // the logs, through "resend confirmation", and on the full /health.
+        // Not "ready" either: login and token issuance work without mail, so a Brevo outage must not
+        // take the service out of rotation.
         .AddCheck<SmtpHealthCheck>(
             "smtp",
             tags: ["smtp"])
-        // The broker is not tagged "ready" either. While it is down, e-mail simply waits: outbox rows
-        // stay and the consumer reconnects. Login and token issuance do not need it. A broker that is
-        // down shows up on the full /health, which the daily health ping reads.
+        // Not "ready" either: while the broker is down, outbox rows wait and the consumer reconnects.
+        // The daily health ping reads the full /health.
         .AddCheck<RabbitMqHealthCheck>(
             "rabbitmq",
             tags: ["broker"]);
@@ -338,9 +297,8 @@ try
                     Window = TimeSpan.FromMinutes(1)
                 }));
 
-        // A stricter rate limit on the auth endpoints, against brute-force attacks. The endpoints that
-        // confirm the current password are off it: their brake is the per-account budget behind
-        // IPasswordConfirmationThrottle (ADR-0053), which no change of address can dodge.
+        // Stricter, against brute force. Endpoints that confirm the current password are off it: their
+        // brake is the per-account budget behind IPasswordConfirmationThrottle (ADR-0053).
         options.AddPolicy(authEndpointRateLimitPolicy, httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: ResolvePartitionKey(httpContext),
@@ -350,12 +308,9 @@ try
                     Window = TimeSpan.FromMinutes(1)
                 }));
 
-        // Registration sends a confirmation mail to an address the caller typed, and nothing per account
-        // can brake it: the account does not exist yet. The per-inbox half of this budget lives behind
-        // IRegistrationMailboxThrottle (ADR-0057). The frontend never calls this endpoint (the
-        // registration form is a Razor page), so it keys on the connection's own address like the page
-        // policies do (ADR-0054 §3): a leaked frontend key must not buy a fresh mail budget per invented
-        // address. Same numbers as auth-endpoint-limit.
+        // The frontend never calls this endpoint, so it keys on the connection's own address (ADR-0054
+        // §3): a leaked frontend key must not buy a fresh mail budget per invented address. The per-inbox
+        // half lives behind IRegistrationMailboxThrottle (ADR-0057).
         options.AddPolicy(registerRateLimitPolicy, httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: ConnectionAddress(httpContext),
@@ -365,13 +320,9 @@ try
                     Window = TimeSpan.FromMinutes(1)
                 }));
 
-        // A very strict rate limit on forgot-password, so nobody can flood an inbox. The API endpoint
-        // and the Razor page share it on purpose: using both must not buy a caller twice the budget.
-        // It skips page views for the same reason resend-confirmation does. The page is one endpoint for
-        // GET and POST, so a budget sized for sends would be spent on opening the form, and three views
-        // in a quarter of an hour would leave the user unable to ask for a reset at all.
-        // The per-account and per-inbox half of this budget lives behind IPasswordResetRequestThrottle
-        // (ADR-0057), because a policy runs before the endpoint and knows nothing about the account yet.
+        // Very strict, so nobody can flood an inbox. The API endpoint and the Razor page share it, so
+        // using both does not double the budget. POST only, like resend-confirmation below. The
+        // per-account and per-inbox half lives behind IPasswordResetRequestThrottle (ADR-0057).
         options.AddPolicy(forgotPasswordRateLimitPolicy, httpContext =>
             HttpMethods.IsPost(httpContext.Request.Method)
                 ? RateLimitPartition.GetFixedWindowLimiter(
@@ -383,13 +334,10 @@ try
                     })
                 : RateLimitPartition.GetNoLimiter<string>(forgotPasswordPageViewPartition));
 
-        // The e-mail change request sends mail to an address the caller typed in, so it can be used to
-        // flood a stranger's inbox. Same threat as forgot-password, same budget.
-        // The key is the client and not the user: UseRateLimiter runs before UseAuthentication on purpose
-        // (see below), so httpContext.User is still anonymous here and a "per user" key would collapse
-        // into one bucket shared by everybody. Behind the frontend the client is the visitor it forwards
-        // (ADR-0054), so this budget no longer gives the whole product three changes an hour (#819).
-        // The per-inbox half of this budget lives behind IEmailChangeRecipientThrottle (ADR-0055, ADR-0057).
+        // Mails an address the caller typed, so it is strict like forgot-password. Keyed on the client,
+        // not the user: the limiter runs before authentication, so the user is still anonymous here.
+        // Behind the frontend the client is the forwarded visitor (ADR-0054, #819). The per-inbox half
+        // lives behind IEmailChangeRecipientThrottle (ADR-0057).
         options.AddPolicy(changeEmailRateLimitPolicy, httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: ResolvePartitionKey(httpContext),
@@ -399,14 +347,9 @@ try
                     Window = TimeSpan.FromHours(1)
                 }));
 
-        // A separate rate limit for resending the confirmation e-mail. The limit belongs to the send,
-        // not to the page. The policy sits on an [EnableRateLimiting] attribute on the Razor PageModel,
-        // and a Razor Page is one endpoint for both GET and POST. A limit that ignored the verb would
-        // spend its 3-per-15-minutes budget on page views, and after three views the user could not
-        // even reach the form. ADR-0046 made that form the one-click fix we advertise for a blocked
-        // login, so the difference matters. Showing a form costs nothing; sending mail is what needs
-        // the limit. The per-inbox half of this budget lives behind IEmailConfirmationResendThrottle
-        // (ADR-0055, ADR-0057).
+        // POST only: a Razor Page is one endpoint for GET and POST, and a budget spent on page views
+        // would lock the user out of the form ADR-0046 advertises for a blocked login. The per-inbox half
+        // lives behind IEmailConfirmationResendThrottle (ADR-0057).
         options.AddPolicy(resendConfirmationRateLimitPolicy, httpContext =>
             HttpMethods.IsPost(httpContext.Request.Method)
                 ? RateLimitPartition.GetFixedWindowLimiter(
@@ -418,33 +361,25 @@ try
                     })
                 : RateLimitPartition.GetNoLimiter<string>(resendConfirmationPageViewPartition));
 
-        // The default for every account page (#692). A login POST is a full PBKDF2 verify and a register
-        // or reset POST is a hash plus a queued e-mail, and none of it used to be counted.
-        // POST-only, for the reason spelled out on resend-confirmation above. The key carries the route as
-        // well as the IP, so a few wrong passwords cannot eat the budget for registering.
-        // The budget is per IP, so everyone behind one office router or one mobile carrier shares it. That
-        // is deliberate: production issues no password grant (only the Testing host does), so this form is
-        // the single place a password can be guessed, and the cost of a shared budget is bounded — the
-        // refusal is a Polish page that names the longest wait, not a dead end.
+        // The default for every account page (#692). POST only, like resend-confirmation. The key carries
+        // the route as well as the IP, so a few wrong passwords cannot eat the budget for registering.
+        // Everyone behind one router shares it, which is accepted: this form is the only place a password
+        // can be guessed in production, and the refusal page names the wait.
         options.AddPolicy(authPageRateLimitPolicy, httpContext =>
             HttpMethods.IsPost(httpContext.Request.Method)
                 ? RateLimitPartition.GetFixedWindowLimiter(
                     partitionKey: BuildPagePostPartitionKey(httpContext),
                     factory: _ => new FixedWindowRateLimiterOptions
                     {
-                        // A person mistypes a password a few times and then asks for a reset. Ten posts
-                        // in a quarter of an hour is room for that and far too little to spray with.
+                        // Room for a few typos and a reset request, far too little to spray with.
                         PermitLimit = 10,
                         Window = TimeSpan.FromMinutes(15)
                     })
                 : RateLimitPartition.GetNoLimiter<string>(authPageViewPartition));
 
-        // 429 is the one rejection a caller can act on, so it names a wait. Every policy here is a fixed
-        // window with no queue, and such a window reports its whole length, not the time left in it. So the
-        // value is an upper bound: by then the window has renewed (give or take the runtime's 100 ms renewal
-        // timer), and it may renew much sooner (#892). Rounding up keeps it an upper bound.
-        // A browser gets a page instead of the problem-details JSON UseStatusCodePages writes: this is
-        // now reachable from the login and register forms, and an English dead end there is no answer.
+        // A fixed window reports its whole length, not the time left, so Retry-After is an upper bound
+        // (#892); rounding up keeps it one. A browser gets a Polish page instead of problem-details JSON,
+        // because the login and register forms can reach this.
         options.OnRejected = async (context, cancellationToken) =>
         {
             if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
@@ -457,9 +392,8 @@ try
         };
     });
 
-    // The route template, never Request.Path. Routing matches a path whatever its casing, so
-    // "/account/login" and "/Account/Login" are the same page — keying on the path would hand a caller
-    // a fresh budget for every spelling of it.
+    // The route template, never Request.Path: routing ignores casing, so keying on the path would give
+    // a fresh budget for every spelling of the same page.
     static string BuildPagePostPartitionKey(HttpContext httpContext)
     {
         string route = httpContext.GetEndpoint() is RouteEndpoint routeEndpoint
@@ -469,27 +403,22 @@ try
         return $"{route}:{ConnectionAddress(httpContext)}";
     }
 
-    // The client a request is metered as (ADR-0054 §3): a direct caller's own address, or the visitor's
-    // address the frontend forwards next to the environment's key. Only the three policies the frontend
-    // reaches key through it: fixed-by-ip, auth-endpoint-limit and change-email-limit.
+    // A direct caller's address, or the visitor's address the frontend forwards with its key (ADR-0054
+    // §3). Only the policies the frontend reaches use it: fixed-by-ip, auth-endpoint-limit and
+    // change-email-limit.
     static string ResolvePartitionKey(HttpContext httpContext) =>
         httpContext.RequestServices.GetRequiredService<RateLimitPartitionKeyResolver>().Resolve(httpContext);
 
-    // The browser-facing page policies and register-limit stay on the connection's own address on
-    // purpose. The frontend never posts to a Razor page nor to auth/register, so for them that address
-    // already is the client, and honouring the key there would only let a leaked key dodge the login
-    // form's brake or buy a fresh mail budget per invented address. The address is keyed the way the
-    // resolver keys it, so an IPv6 client cannot get a fresh bucket by moving inside its /64 (#831).
+    // For the page policies and register-limit, which the frontend never calls, so honouring the key
+    // would only let a leaked key dodge the brake. Keyed like the resolver keys it, so an IPv6 client
+    // cannot get a fresh bucket inside its /64 (#831).
     static string ConnectionAddress(HttpContext httpContext) =>
         RateLimitPartitionKeyResolver.KeyFor(httpContext.Connection.RemoteIpAddress);
 
     WebApplication app = builder.Build();
 
-    // This has to run before anything that reads the request scheme or host: logging, HSTS, the
-    // redirect, authentication and OpenIddict's endpoint resolution. It is skipped in Development so
-    // `docker compose up` keeps working over plain http, and it is on in Testing, Staging and
-    // Production, where a proxy terminates TLS and sets X-Forwarded-Proto. Because the scheme is read
-    // first, UseHttpsRedirection below does nothing and there is no redirect loop.
+    // Before anything that reads the scheme or host, so UseHttpsRedirection below sees https and does
+    // not loop. Skipped in Development, which runs over plain http with no proxy.
     if (!app.Environment.IsDevelopment())
     {
         app.UseForwardedHeaders();
@@ -499,9 +428,7 @@ try
 
     app.UseSerilogRequestLogging(options =>
     {
-        // Clean the request log (audit #0001, M5): keep the query string out of RequestPath and log it
-        // separately with secrets removed and e-mails masked, so no OAuth code, token or personal data
-        // is stored.
+        // The query string is logged separately and redacted, so no OAuth code, token or e-mail is stored.
         options.IncludeQueryInRequestPath = false;
         options.MessageTemplate =
             "HTTP {RequestMethod} {RequestPath}{RequestQuery} responded {StatusCode} in {Elapsed:0.0000} ms";
@@ -518,10 +445,9 @@ try
         };
     });
 
-    // Off in Development, like the frontend's: the CSP would block Scalar and the hot-reload script
-    // there. Testing keeps it, so the integration tests and the browser E2E suite check it (#693).
-    // It sits outside everything that can end a request early (the HTTPS redirect, a CORS preflight,
-    // the rate limiter and its 429 page), so those responses carry the headers too.
+    // Off in Development, where the CSP would block Scalar and hot reload; Testing keeps it so the tests
+    // check it (#693). It sits outside everything that can end a request early, so a redirect, a CORS
+    // preflight or a 429 page carries the headers too.
     if (!app.Environment.IsDevelopment())
     {
         app.UseSecurityHeaders();
@@ -538,30 +464,23 @@ try
     app.UseRouting();
     app.UseGlobalNoCache();
 
-    // Only Development gets the open AllowAnyOrigin policy. Every deployed environment, Staging and
-    // Production (ADR-0008 §1), uses the configured-origins policy, so a staging origin is never let
-    // through by accident.
+    // Only Development gets the open policy (ADR-0008 §1).
     string corsPolicy = app.Environment.IsDevelopment()
         ? localCorsPolicy
         : productionCorsPolicy;
     app.UseCors(corsPolicy);
 
-    // This runs before authentication. OpenIddict checks /connect/* requests during authentication and
-    // stops the invalid ones early, for example a flood with an unknown client_id, so a limiter placed
-    // after it would never count the junk traffic it exists to stop. Routing has already picked the
-    // endpoint here, so the limiter can read the per-endpoint policy.
-    // It is off in Development and Testing, so local flows and the test suites never hit the limits.
-    // RateLimiting:ForceEnable lets a test host turn it on to see a real 429.
+    // Before authentication, because OpenIddict ends invalid /connect/* requests there, and a limiter
+    // after it would never count that junk traffic. After routing, so it can read the endpoint's policy.
+    // Off in Development and Testing; RateLimiting:ForceEnable lets a test host see a real 429.
     bool rateLimiterOffByEnvironment = app.Environment.IsDevelopment() || app.Environment.IsTesting();
     if (!rateLimiterOffByEnvironment || app.Configuration.GetValue<bool>("RateLimiting:ForceEnable"))
     {
         app.UseRateLimiter();
     }
 
-    // This goes around authentication and authorization, so it sees their answers. Both can refuse a
-    // call with 401 or 403 themselves and never call the next step: UseAuthorization for a missing or
-    // bad token, and OpenIddict during authentication, for example for a wrong client secret at
-    // /connect/token. When this ran after them, it saw almost no refused call (#854).
+    // Around authentication and authorization, because both can end a call with 401 or 403 without
+    // calling the next step (#854).
     app.UseAuthorizationLogging();
 
     app.UseAuthentication();
@@ -573,9 +492,8 @@ try
         app.MapScalarApiReference();
     }
 
-    // The full /health queries the database, connects to the mail server and opens a broker connection,
-    // so it answers only a caller with the health check key (ADR-0058). The two probes below run no
-    // checks and stay open.
+    // The full /health touches the database, mail server and broker, so it needs the health check key
+    // (ADR-0058). The two probes below run no checks and stay open.
     app.MapKeyGatedHealthChecks("/health", new HealthCheckOptions
     {
         ResponseWriter = HealthCheckResponseWriter.WriteResponse
@@ -593,33 +511,28 @@ try
         ResponseWriter = HealthCheckResponseWriter.WriteResponse
     });
 
-    // The policy metadata is always attached, like the per-endpoint RequireRateLimiting calls in the
-    // feature slices. UseRateLimiter above is the one switch that decides whether it is enforced.
+    // The metadata is always attached; UseRateLimiter above decides whether it is enforced.
     RouteGroupBuilder endpointsGroup = app.MapGroup("")
         .RequireRateLimiting(rateLimitPolicy);
 
     app.MapApiEndpoints(endpointsGroup);
 
-    // OpenIddict's /connect/* endpoints live at the root and are mapped through this group. A group
-    // convention only reaches the endpoints mapped through it, so this is what really turns the
-    // brute-force limiter on for /connect/token. A plain MapGroup("/connect") never did.
+    // A group convention reaches only the endpoints mapped through it, so this is what puts the
+    // brute-force limiter on OpenIddict's /connect/* endpoints.
     RouteGroupBuilder rootEndpointsGroup = app.MapGroup("")
         .RequireRateLimiting(authEndpointRateLimitPolicy);
 
     app.MapRootEndpoints(rootEndpointsGroup);
 
     // Every account page is limited, and a page that wants something else says so with
-    // [EnableRateLimiting] or [DisableRateLimiting]. Opting out is the deliberate act now, which is the
-    // part attribute-per-page got wrong: five of the ten pages here, login and register among them, were
-    // simply never given one (#692).
+    // [EnableRateLimiting] or [DisableRateLimiting], so a new page cannot be forgotten (#692).
     app.MapRazorPages().RequireRateLimitingByDefault(authPageRateLimitPolicy);
 
-    // Serves the web fonts the account pages use, which we host ourselves (LEGAL-06). It sets its own
-    // Cache-Control with ETag revalidation, so GlobalNoCacheMiddleware leaves these responses alone.
+    // The self-hosted web fonts (LEGAL-06). It sets its own Cache-Control, which GlobalNoCacheMiddleware
+    // leaves alone.
     app.MapStaticAssets();
 
-    // The seed checks for existing rows before it inserts, so running it twice is safe. Some
-    // integration tests run it again in their own arrange step.
+    // Safe to run twice: some integration tests run it again in their arrange step.
     await app.SeedAuthDatabaseAsync();
 
     await app.RunAsync();

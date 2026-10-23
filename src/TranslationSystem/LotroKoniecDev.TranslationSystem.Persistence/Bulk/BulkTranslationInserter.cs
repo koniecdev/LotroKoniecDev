@@ -10,11 +10,9 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Bulk;
 internal sealed class BulkTranslationInserter : IBulkTranslationInserter
 {
     /// <summary>
-    /// This column list must match <c>TranslationConfiguration</c> and the model snapshot exactly.
-    /// The binary <c>COPY</c> goes around the EF mapping, so this list and the value writes below are
-    /// a second place that has to follow every schema change to <c>Translations</c>. That is the
-    /// trade-off ADR-0011 accepted. The import integration tests check the written columns, so a
-    /// mismatch fails a test.
+    /// Must match <c>TranslationConfiguration</c> exactly: the binary <c>COPY</c> goes around the EF
+    /// mapping, so this list and the writes below follow every schema change by hand (ADR-0011). The
+    /// import integration tests fail on a mismatch.
     /// </summary>
     private const string CopyCommand =
         """
@@ -37,11 +35,10 @@ internal sealed class BulkTranslationInserter : IBulkTranslationInserter
     {
         ArgumentNullException.ThrowIfNull(translations);
 
-        // The COPY opens on the first row, not before: an empty stream must do nothing, and the only
-        // way to know a stream is empty is to enumerate it. While the COPY is open the connection is
-        // in CopyIn state, so the producing stream must not use the database. The import's producer
-        // reads the buffered upload file instead. Disposing without CompleteAsync aborts the COPY, so
-        // a producer that fails halfway leaves no partial rows behind.
+        // The COPY opens on the first row, so an empty stream does nothing. While it is open the
+        // connection is in CopyIn state, so the producer must not use the database (the import reads
+        // the buffered upload). Disposing without CompleteAsync aborts the COPY, so a producer that
+        // fails halfway leaves no partial rows.
         NpgsqlBinaryImporter? writer = null;
         try
         {
@@ -49,9 +46,7 @@ internal sealed class BulkTranslationInserter : IBulkTranslationInserter
             {
                 if (writer is null)
                 {
-                    // The write context's own connection. When the caller already opened a
-                    // transaction, as the import does through ExecuteInTransactionAsync, the
-                    // connection is open and the COPY joins that transaction.
+                    // The write context's own connection, so the COPY joins the caller's transaction.
                     NpgsqlConnection connection = (NpgsqlConnection)_dbContext.Database.GetDbConnection();
                     if (connection.State != ConnectionState.Open)
                     {

@@ -48,12 +48,8 @@ internal sealed class ApplicationWriteDbContext : DbContext, IUnitOfWork
 
             await operation(cancellationToken);
 
-            // Save the tracked changes but do not accept them yet. With retry-on-failure on, a
-            // temporary fault at commit makes the strategy run this whole lambda again. If the tracker
-            // accepted the changes now, which is what SaveChanges does by default, the retry would
-            // find nothing pending and quietly lose them. Waiting for the commit to succeed keeps them
-            // ready to send again. The COPY inside `operation` also runs again from scratch, because
-            // the failed attempt rolled back.
+            // Accept only after the commit: a fault at commit re-runs this lambda, and changes accepted
+            // now would leave the retry with nothing pending, so they would be lost.
             await SaveChangesAsync(acceptAllChangesOnSuccess: false, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             ChangeTracker.AcceptAllChanges();
@@ -74,9 +70,8 @@ internal sealed class ApplicationWriteDbContext : DbContext, IUnitOfWork
     {
         modelBuilder.HasDefaultSchema(DatabaseSchemas.Translation);
 
-        // The trigram GIN indexes on Translations (TranslationConfiguration) need pg_trgm. The
-        // migration emits CREATE EXTENSION IF NOT EXISTS, so the migrator role must be allowed to run
-        // it.
+        // For the trigram indexes in TranslationConfiguration. The migrator role must be allowed to
+        // run CREATE EXTENSION.
         modelBuilder.HasPostgresExtension("pg_trgm");
 
         modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());

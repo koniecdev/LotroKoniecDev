@@ -67,9 +67,8 @@ public static class PersistenceDependencyInjection
                     AccountDeletionCancellationTokenProvider.ProviderName)
                 .AddTokenProvider<EmailChangeTokenProvider>(
                     EmailChangeTokenProvider.ProviderName)
-                // AddTokenProvider checks for IUserTwoFactorTokenProvider<TUser>, not for
-                // DataProtectorTokenProvider, so the hand-written revert provider registers the same
-                // way the others do (ADR-0048).
+                // AddTokenProvider needs only IUserTwoFactorTokenProvider<TUser>, so the hand-written
+                // revert provider registers like the others (ADR-0048).
                 .AddTokenProvider<EmailChangeRevertTokenProvider>(
                     EmailChangeRevertTokenProvider.ProviderName)
                 .AddEntityFrameworkStores<AuthDbContext>();

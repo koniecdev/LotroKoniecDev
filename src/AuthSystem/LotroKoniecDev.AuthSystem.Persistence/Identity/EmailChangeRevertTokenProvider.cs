@@ -9,9 +9,8 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 namespace LotroKoniecDev.AuthSystem.Persistence.Identity;
 
 /// <summary>
-/// Options for the revert token. Fourteen days is long on purpose: the person who needs this link is
-/// someone who has just been locked out of their own account and may not read that mailbox daily.
-/// A scheduled account deletion waits for this undo, and 14 days is about the most that keeps the
+/// Fourteen days, because the person who needs this link has just been locked out and may not read that
+/// mailbox daily. A scheduled deletion waits for this undo, and 14 days is about the most that keeps the
 /// erasure inside one month, so do not make it longer (ADR-0031, #946 amendment).
 /// </summary>
 public sealed class EmailChangeRevertTokenProviderOptions
@@ -25,20 +24,14 @@ public sealed class EmailChangeRevertTokenProviderOptions
 /// </summary>
 /// <remarks>
 /// <para>
-/// It does <b>not</b> extend <see cref="DataProtectorTokenProvider{TUser}"/>, and that is the whole
-/// point. That provider writes the user's security stamp into the token and refuses the token once
-/// the stamp moves. Changing the password rotates the stamp, and changing the password is exactly
-/// what an attacker does after taking over the address — so a stamp-bound revert link would already
-/// be dead by the time the real owner read their mail. This one protects the creation time, the user
-/// id and the purpose, and nothing else.
+/// It does not extend <see cref="DataProtectorTokenProvider{TUser}"/>, because that provider binds the
+/// token to the security stamp. An attacker who took over the address changes the password, which
+/// rotates the stamp, so a stamp-bound revert link would be dead before the owner read the mail.
 /// </para>
 /// <para>
-/// What it does carry instead is
-/// <see cref="ApplicationUser.EmailChangeRevertStamp"/>, which rotates on a successful revert and on
-/// nothing else. That is what makes these links single-use, and it is not optional: every revert
-/// token is a bearer credential to move the account to its previous address, and after a chain of
-/// changes an attacker holds one too. Without this field their token stays live and they simply undo
-/// the owner's recovery. Rotating on revert kills every token in the chain at once.
+/// It binds to <see cref="ApplicationUser.EmailChangeRevertStamp"/> instead, which rotates only on a
+/// successful revert. That makes the links single-use: after a chain of changes an attacker holds a
+/// revert token too, and without this stamp they could undo the owner's recovery.
 /// </para>
 /// </remarks>
 public sealed class EmailChangeRevertTokenProvider : IUserTwoFactorTokenProvider<ApplicationUser>
@@ -102,8 +95,7 @@ public sealed class EmailChangeRevertTokenProvider : IUserTwoFactorTokenProvider
         }
         catch (Exception exception) when (exception is CryptographicException or FormatException)
         {
-            // A token that was tampered with, or was signed by a key ring we no longer hold, is simply
-            // not a token. Both look the same from here and both mean "refuse".
+            // Tampered, or signed by a key ring we no longer hold: both mean "refuse".
             return Task.FromResult(false);
         }
 
@@ -132,15 +124,14 @@ public sealed class EmailChangeRevertTokenProvider : IUserTwoFactorTokenProvider
     }
 
     /// <summary>
-    /// An account that has never been reverted has no stamp yet, and every token it issues shares that
-    /// same empty value. The first successful revert sets one, which is what retires them all.
+    /// An account never reverted has no stamp, so all its tokens share the empty value. The first
+    /// successful revert sets one and retires them all.
     /// </summary>
     private static string StampOf(ApplicationUser user) =>
         user.EmailChangeRevertStamp?.ToString() ?? string.Empty;
 
     /// <summary>
-    /// Never a two-factor option. This provider only backs a link we e-mail, so nothing may offer it
-    /// as a login step.
+    /// This provider only backs an e-mailed link, so nothing may offer it as a login step.
     /// </summary>
     public Task<bool> CanGenerateTwoFactorTokenAsync(UserManager<ApplicationUser> manager, ApplicationUser user) =>
         Task.FromResult(false);

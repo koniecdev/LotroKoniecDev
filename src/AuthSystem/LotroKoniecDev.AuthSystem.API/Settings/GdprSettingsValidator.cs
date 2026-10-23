@@ -27,8 +27,9 @@ internal sealed class GdprSettingsValidator : IValidateOptions<GdprSettings>
         }
 
         // The TMS copies a token's name and address into the translator profile and accepts the token
-        // until it expires. A grace period longer than the token lifetime means no token is left to write
-        // them back after the erasure (ADR-0065).
+        // until it expires, with no clock skew (#933). Sign-in and refresh stop when the deletion is
+        // scheduled, so a grace period longer than the token lifetime leaves no token to write them back
+        // after the erasure (ADR-0065).
         TimeSpan accessTokenLifetime = TimeSpan.FromMinutes(_openIddictSettings.Value.AccessTokenLifetimeMinutes);
         if (options.DeletionGracePeriod <= accessTokenLifetime)
         {

@@ -6,8 +6,9 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Accounts;
 /// </summary>
 /// <remarks>
 /// Measured from <c>EmailChangeRevertArmedAt</c>, stamped at the confirm. The token is minted a moment
-/// later by the outbox processor, so the window closes slightly before the link does (ADR-0048 rule 4):
-/// seconds, because delivery gets only five retries before the dead-letter queue.
+/// later by the outbox processor, so the window closes slightly before the link does (ADR-0048 rule 4),
+/// normally by seconds. A failing relay stretches the gap, but never to days, because delivery gets only
+/// five retries before the dead-letter queue.
 /// </remarks>
 internal interface IEmailChangeRevertWindow
 {

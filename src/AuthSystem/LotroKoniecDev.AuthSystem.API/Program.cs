@@ -418,7 +418,7 @@ try
     WebApplication app = builder.Build();
 
     // Before anything that reads the scheme or host, so UseHttpsRedirection below sees https and does
-    // not loop. Skipped in Development, which runs over plain http with no proxy.
+    // not loop. Skipped in Development, where no proxy sits in front.
     if (!app.Environment.IsDevelopment())
     {
         app.UseForwardedHeaders();
@@ -532,7 +532,8 @@ try
     // leaves alone.
     app.MapStaticAssets();
 
-    // Safe to run twice: some integration tests run it again in their arrange step.
+    // The seed checks for existing rows first, so it is safe to run twice; some integration tests run it
+    // again in their arrange step.
     await app.SeedAuthDatabaseAsync();
 
     await app.RunAsync();

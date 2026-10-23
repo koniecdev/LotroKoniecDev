@@ -396,8 +396,9 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     /// the account from the finalizer, which finds work by the real address (#908, #937).
     /// </summary>
     /// <remarks>
-    /// An account that no longer waits is left alone. The security stamp stays, because a new one would
-    /// only break the cancel link the owner may hold. A failure is returned, not logged: whether a lock was
+    /// An account that no longer waits is left alone. The security stamp stays: scheduling the deletion
+    /// already ended every session and sign-in is refused while it waits, so a new stamp would only break
+    /// the cancel link the owner may hold. A failure is returned, not logged: whether a lock was
     /// needed is known only after the read that follows (#980, #1018). No lock and no failure means no row
     /// matched.
     /// </remarks>

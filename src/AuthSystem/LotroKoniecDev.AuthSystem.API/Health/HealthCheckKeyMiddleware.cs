@@ -10,7 +10,8 @@ namespace LotroKoniecDev.AuthSystem.API.Health;
 /// Any request without the key gets 404 before a check runs, so a stranger cannot make this API touch
 /// the database, mail server or broker (ADR-0058). SHA-256 digests in constant time, one header value
 /// only, as in <see cref="Services.RateLimiting.RateLimitPartitionKeyResolver"/>. With no key set the
-/// gate is open. The TMS API has its own copy of this class.
+/// gate is open; <see cref="Settings.HealthCheckSettingsValidator"/> allows that only in Development and
+/// Testing. The TMS API has its own copy of this class.
 /// </summary>
 internal sealed class HealthCheckKeyMiddleware
 {

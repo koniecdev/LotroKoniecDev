@@ -74,8 +74,8 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
                 ? UnknownEmail
                 : user.Email.MaskEmail();
 
-            // After the permit, so the audit line can carry the masked address. The frontend never sends
-            // an empty password.
+            // After the permit, so the audit line can carry the masked address. Only a direct caller pays a
+            // permit for an empty password: the frontend never sends one.
             if (string.IsNullOrWhiteSpace(query.Password))
             {
                 LogExportRefused(_logger, user.Id, maskedEmail, "no password was sent", query.IpAddress, query.UserAgent);

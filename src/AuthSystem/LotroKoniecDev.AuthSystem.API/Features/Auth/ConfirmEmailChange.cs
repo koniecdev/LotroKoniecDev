@@ -181,7 +181,8 @@ internal sealed partial class ConfirmEmailChange
             if (backOnTheArmedAddress)
             {
                 // Back where the chain started, so it is settled as a revert settles it. Left armed, a
-                // later change would mint a fresh 14-day link that outlives the reservation (#684).
+                // later change would mint a fresh 14-day link that outlives the reservation (#684). Only the
+                // reader of the armed mailbox can get here: the confirm link went there.
                 user.DisarmEmailChangeRevert();
                 user.EmailChangeRevertStamp = Guid.NewGuid();
             }

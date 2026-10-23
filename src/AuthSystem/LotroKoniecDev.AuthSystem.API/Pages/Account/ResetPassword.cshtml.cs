@@ -116,7 +116,7 @@ internal sealed partial class ResetPasswordModel : PageModel
     {
         ApplicationUser? user = await _userManager.FindByEmailAsync(Email);
 
-        // On every path, the second layer under the floor (ADR-0059 §5).
+        // The dummy hash runs on every path: the second layer under the floor (ADR-0059 §5).
         _ = _userManager.PasswordHasher.VerifyHashedPassword(
             new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 

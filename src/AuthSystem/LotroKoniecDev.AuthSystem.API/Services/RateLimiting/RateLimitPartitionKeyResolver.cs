@@ -13,8 +13,9 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 /// Names the client a request is metered as (ADR-0054). All frontend calls leave from one container, so
 /// the frontend sends the visitor's address with the shared key, and that address counts only when the
 /// key matches and the address parses. Everything else is metered on <c>Connection.RemoteIpAddress</c>,
-/// which comes from Caddy's pinned /32 (#399, #506), so a caller without the key cannot choose its
-/// bucket. SHA-256 digests in constant time, so a wrong guess learns nothing about the key.
+/// which <c>UseForwardedHeaders</c> takes only from Caddy's pinned /32 (#399, #506), so a caller without
+/// the key cannot choose its bucket. The keys are compared as SHA-256 digests in constant time, so a
+/// wrong guess learns nothing about the key.
 /// </summary>
 internal sealed class RateLimitPartitionKeyResolver
 {

@@ -80,8 +80,8 @@ internal sealed partial class RegisterModel : PageModel
             return Page();
         }
 
-        // A copy of the validator's rule, only for the message: otherwise a bad character would get the
-        // general message, which talks about the password.
+        // A copy of the UsernameConstants rule in RegisterUser.CommandValidator, only for the message:
+        // otherwise a bad character would get the general message, which talks about the password.
         if (!UsernameRegex().IsMatch(Username.Trim()))
         {
             ErrorMessage = "Nazwa użytkownika może zawierać tylko litery i cyfry, bez spacji.";

@@ -42,8 +42,8 @@ internal sealed partial class RevertEmailChangeModel : PageModel
     public string From { get; set; } = string.Empty;
 
     /// <summary>
-    /// The address the link was issued for. It is part of the token's purpose, but the account need not
-    /// still be on it: a revert after a further change still works.
+    /// The address the account was moved to. It is part of the token's purpose with <see cref="From"/>,
+    /// but the account need not still be on it: a revert after a further change still works.
     /// </summary>
     [BindProperty]
     public string To { get; set; } = string.Empty;

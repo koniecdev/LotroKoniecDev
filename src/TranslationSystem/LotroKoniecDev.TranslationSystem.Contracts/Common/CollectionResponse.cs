@@ -3,9 +3,8 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.TranslationSystem.Contracts.Common;
 
 /// <summary>
-/// A list without paging: the items plus the links that belong to the collection itself, such as
-/// <c>self</c> and the create actions. It is the counterpart of <see cref="PaginationResponse{T}"/>
-/// for lists that never need paging, like game versions, where only a few rows ever exist.
+/// The unpaged counterpart of <see cref="PaginationResponse{T}"/>, for lists with only a few rows,
+/// like game versions.
 /// </summary>
 public sealed record CollectionResponse<T> : ILinksResponse
 {

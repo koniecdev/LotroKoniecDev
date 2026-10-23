@@ -459,43 +459,43 @@ run_suite() {
     TMS_OK="$(discovery_doc https://tms.invalid/ https://tms.invalid/api/v1/progress)"
     AUTH_OK="$(discovery_doc https://auth.invalid/ https://auth.invalid/auth/register)"
 
-    # 20. Both roots link only to their own origin. The stub sends links only for the HATEOAS
+    # 22. Both roots link only to their own origin. The stub sends links only for the HATEOAS
     # Accept header, so this also proves the leg asks for them.
     run_discovery_case "discovery links on the configured origins pass" "$TMS_OK" "$AUTH_OK"
     expect_line "tms / sends 2 link(s), all on https://tms.invalid:443"
     expect_line "auth / sends 2 link(s), all on https://auth.invalid:443"
     reject_line "$FAIL_MARK"
 
-    # 21. The drift this leg exists for: http instead of https, on one API only.
+    # 23. The drift this leg exists for: http instead of https, on one API only.
     run_discovery_case "an http link fails" \
         "$(discovery_doc https://tms.invalid/ http://tms.invalid/api/v1/progress)" "$AUTH_OK"
     expect_line "tms / sends 1 of 2 link(s) outside https://tms.invalid:443, first http://tms.invalid:80"
     expect_line "auth / sends 2 link(s), all on https://auth.invalid:443"
 
-    # 22. An internal host name, on the other API.
+    # 24. An internal host name, on the other API.
     run_discovery_case "an internal host fails" "$TMS_OK" \
         "$(discovery_doc http://auth-api:8080/ http://auth-api:8080/auth/register)"
     expect_line "tms / sends 2 link(s), all on https://tms.invalid:443"
     expect_line "auth / sends 2 of 2 link(s) outside https://auth.invalid:443, first http://auth-api:8080"
 
-    # 23. The right scheme and host on another port.
+    # 25. The right scheme and host on another port.
     run_discovery_case "another port fails" "$(discovery_doc https://tms.invalid:8443/)" "$AUTH_OK"
     expect_line "tms / sends 1 of 1 link(s) outside https://tms.invalid:443, first https://tms.invalid:8443"
 
-    # 24. A host that only starts like the configured one, and a host hidden behind user info.
+    # 26. A host that only starts like the configured one, and a host hidden behind user info.
     run_discovery_case "a look-alike host fails" "$(discovery_doc https://tms.invalid.example/)" "$AUTH_OK"
     expect_line "tms / sends 1 of 1 link(s) outside https://tms.invalid:443, first https://tms.invalid.example:443"
     run_discovery_case "the host after user info is the one compared" \
         "$(discovery_doc https://tms.invalid@example.invalid/)" "$AUTH_OK"
     expect_line "tms / sends 1 of 1 link(s) outside https://tms.invalid:443, first https://example.invalid:443"
 
-    # 25. Another spelling of the same origin passes, because the frontend compares it that way.
+    # 27. Another spelling of the same origin passes, because the frontend compares it that way.
     run_discovery_case "upper case and the default port still pass" \
         "$(discovery_doc https://TMS.invalid:443/ HTTPS://tms.INVALID/api)" "$AUTH_OK"
     expect_line "tms / sends 2 link(s), all on https://tms.invalid:443"
     reject_line "$FAIL_MARK"
 
-    # 26. JSON may escape a slash, and may be spread over lines with spaces around the colon.
+    # 28. JSON may escape a slash, and may be spread over lines with spaces around the colon.
     run_discovery_case "an escaped slash is read as a slash" \
         "$(discovery_doc 'https:\/\/tms.invalid\/')" "$AUTH_OK"
     expect_line "tms / sends 1 link(s), all on https://tms.invalid:443"
@@ -504,30 +504,30 @@ run_suite() {
         "$AUTH_OK"
     expect_line "tms / sends 1 of 2 link(s) outside https://tms.invalid:443, first http://tms.invalid:80"
 
-    # 27. A relative link, or an empty one, is on no origin.
+    # 29. A relative link, or an empty one, is on no origin.
     run_discovery_case "a relative link fails" "$(discovery_doc https://tms.invalid/ /api/v1/progress)" "$AUTH_OK"
     expect_line "tms / sends 1 of 2 link(s) outside https://tms.invalid:443, first (not an absolute address)"
     run_discovery_case "an empty href fails" "$(discovery_doc '')" "$AUTH_OK"
     expect_line "tms / sends 1 of 1 link(s) outside https://tms.invalid:443, first (not an absolute address)"
 
-    # 28. A root without links proves nothing, so it is a failure, not a pass.
+    # 30. A root without links proves nothing, so it is a failure, not a pass.
     run_discovery_case "a root with no links fails" '{"name":"stub","links":[]}' "$AUTH_OK"
     expect_line "tms / sends no links with the HATEOAS Accept header"
     expect_line "auth / sends 2 link(s), all on https://auth.invalid:443"
 
-    # 29. A root that does not answer 200 fails before any link is read.
+    # 31. A root that does not answer 200 fails before any link is read.
     run_discovery_case "a root that answers 503 fails" "$TMS_OK" "$AUTH_OK" 503
     expect_line "tms / (discovery) -> 503 (expected 200)"
     expect_line "auth / (discovery) -> 503 (expected 200)"
     reject_line "link(s)"
 
-    # 30. A root that redirects fails, because the clients follow no redirect. Both stubs follow it
+    # 32. A root that redirects fails, because the clients follow no redirect. Both stubs follow it
     # if the leg lets them, so this also proves the leg does not.
     run_discovery_case "a redirecting root fails" "$TMS_OK" "$AUTH_OK" 308
     expect_line "tms / (discovery) -> 308 (expected 200)"
     expect_line "auth / (discovery) -> 308 (expected 200)"
 
-    # 31. Links the strict pattern cannot read are on no origin: a second @, an empty host label, a
+    # 33. Links the strict pattern cannot read are on no origin: a second @, an empty host label, a
     # backslash.
     run_discovery_case "a link with a second @ fails" "$(discovery_doc 'https://evil.invalid@x@tms.invalid/')" "$AUTH_OK"
     expect_line "tms / sends 1 of 1 link(s) outside https://tms.invalid:443, first (not an absolute address)"
@@ -537,7 +537,7 @@ run_suite() {
         "$(discovery_doc 'https://evil.invalid\\@tms.invalid/')" "$AUTH_OK"
     expect_line "tms / sends 1 of 1 link(s) outside https://tms.invalid:443, first (not an absolute address)"
 
-    # 32. A configured URL leg 7 cannot read, such as a typo in the on-demand workflow, is a usage
+    # 34. A configured URL leg 7 cannot read, such as a typo in the on-demand workflow, is a usage
     # problem: exit 2 before any leg runs, so the leg can never skip itself.
     run_usage_case "a TMS URL with no scheme exits 2" tms.invalid https://auth.invalid
     expect_line "'tms.invalid' is not an absolute URL with a plain host name"

@@ -45,7 +45,8 @@ public sealed class HttpClientDefaultsTests
     }
 
     /// <summary>
-    /// The typed clients never replace their handler, so without renewal they would never see a DNS change.
+    /// The TMS and auth typed clients never replace their handler, so without renewal they would never see
+    /// a DNS change.
     /// </summary>
     [Theory]
     [InlineData(nameof(ITranslationSystemClient))]

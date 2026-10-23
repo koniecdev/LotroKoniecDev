@@ -304,7 +304,8 @@
         ImportFormModel input = ImportInput ?? new ImportFormModel();
 
         // A refusal keeps the list loaded at the start of this request: the import is all or nothing, and a
-        // second call would carry this request's token, which a long import may have outlived (#933).
+        // second call would carry this request's token, which a long import may have outlived (#933). An
+        // import that timed out may still finish on the TMS; a reload shows it.
         if (input.File is null || input.File.Length == 0)
         {
             _importProblem = ApiProblemCopy.FrontendAuthored("Wybierz plik exported.txt do wgrania.");

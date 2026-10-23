@@ -104,8 +104,8 @@ public static class HttpClientsDependencyInjectionExtensions
     /// <summary>
     /// No redirects: .NET drops <c>Authorization</c> on a redirect but sends every other header again, the
     /// caller key too, and a <c>307</c>/<c>308</c> sends the form body again (#830, #899). No cookies: one
-    /// handler serves every visitor, so a kept cookie would go out with other visitors' calls (#924). The
-    /// typed clients never replace their handler, so connections are renewed every 15 minutes for DNS.
+    /// handler serves every visitor, so a kept cookie would go out with other visitors' calls (#924). The TMS
+    /// and auth typed clients never replace their handler, so connections are renewed every 15 minutes for DNS.
     /// </summary>
     internal static SocketsHttpHandler CreatePrimaryHandler() => new()
     {

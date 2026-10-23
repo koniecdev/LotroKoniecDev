@@ -121,7 +121,8 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         {
             // Signed in, but the API sent the anonymous links, so it did not accept the token. The next
             // cookie validation signs the user out; this answer still renders the public pages. It is cached
-            // under neither key: under the account's key it would hide every signed-in feature for a day.
+            // under neither key: under the account's key it would hide every signed-in feature for a day, and
+            // an answer to a call that carried a bearer is not what a guest gets.
             await MarkSessionDeadAsync(httpContext, cancellationToken);
             return live;
         }

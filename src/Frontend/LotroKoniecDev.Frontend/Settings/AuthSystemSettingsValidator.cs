@@ -3,9 +3,9 @@ using FluentValidation;
 namespace LotroKoniecDev.Frontend.Settings;
 
 /// <summary>
-/// Stops the boot on wrong settings (ADR-0008 §3). The caller key is required outside Development and
-/// Testing only, where the auth API's limiter is off (ADR-0054 §6). Anywhere else a missing key would put
-/// every visitor's calls into this container's one bucket.
+/// Stops the boot on wrong settings (ADR-0008 §3). Development and Testing run with the auth API's limiter
+/// off, so the caller key is required only outside them (ADR-0054 §6). Anywhere else a missing key would
+/// put every visitor's calls into this container's one bucket.
 /// </summary>
 internal sealed class AuthSystemSettingsValidator : AbstractValidator<AuthSystemSettings>
 {

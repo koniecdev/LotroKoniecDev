@@ -21,8 +21,8 @@ public static class DiscoveryDependencyInjectionExtensions
                 };
             });
 
-            // Scoped, so it never holds a typed HTTP client past its handler recycling. HybridCache is a
-            // singleton, so an entry still lives across requests.
+            // Scoped, because it uses the scoped IDeadSessionRegistry. HybridCache is a singleton, so an
+            // entry still lives across requests.
             services.AddScoped<IDiscoveryCache, DiscoveryCache>();
 
             return services;

@@ -26,7 +26,7 @@ public sealed class FrontendCallerDelegatingHandlerTests
     // Built rather than written out, so no secret scanner mistakes test data for a key.
     private static readonly string CallerKey = new('k', 40);
 
-    // Differs from the auth API's, so a client reading the wrong settings shows.
+    // Differs from the auth API's, so a client that read the wrong settings would show it.
     private static readonly string TranslationSystemCallerKey = new('t', 40);
 
     private const string VisitorAddress = "203.0.113.7";

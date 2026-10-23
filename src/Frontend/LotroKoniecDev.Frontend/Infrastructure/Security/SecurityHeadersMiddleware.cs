@@ -48,7 +48,8 @@ internal sealed class SecurityHeadersMiddleware
     /// No page needs an inline script, so <c>script-src</c> stays at <c>'self'</c>. A new inline script
     /// needs a nonce here, never <c>'unsafe-inline'</c> (#670). <c>style-src</c> needs
     /// <c>'unsafe-inline'</c> for the inline <c>style</c> attributes, such as the progress-bar widths. The
-    /// auth origin is in <c>connect-src</c> and <c>form-action</c> for the OIDC login flow.
+    /// fonts are self-hosted (LEGAL-06), so <c>font-src</c> stays at <c>'self'</c>. The auth origin is in
+    /// <c>connect-src</c> and <c>form-action</c> for the OIDC login flow.
     /// </summary>
     internal static string BuildContentSecurityPolicy(string authOrigin) => string.Join("; ",
     [

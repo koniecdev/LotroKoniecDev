@@ -38,7 +38,9 @@ public sealed class DiscoveryCacheRequestContextTests
     /// <summary>Built rather than written out, so no secret scanner mistakes test data for a key.</summary>
     private static readonly string AuthCallerKey = new('k', 40);
 
-    /// <summary>Differs from <see cref="AuthCallerKey"/>, so a client reading the wrong settings shows.</summary>
+    /// <summary>
+    /// Differs from <see cref="AuthCallerKey"/>, so a client that read the wrong settings would show it.
+    /// </summary>
     private static readonly string TranslationSystemCallerKey = new('t', 40);
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);

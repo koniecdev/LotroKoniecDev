@@ -68,7 +68,8 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     private const string AdminEmail = "fe-e2e-admin@lotro-translator.pl";
     private const string AdminPassword = "FeE2eAdminPass123!";
 
-    // The image's guest account can connect only from the broker's own host, as in the compose stacks.
+    // The image's guest account can connect only from the broker's own host, so auth-api needs a user of
+    // its own, as in the compose stacks.
     private const string RabbitMqUsername = "rabbitmq";
     private const string RabbitMqPassword = "fe-e2e-rabbitmq-password";
 

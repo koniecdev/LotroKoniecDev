@@ -9,9 +9,9 @@ using LotroKoniecDev.Tests.Infrastructure.Shared;
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 /// <summary>
-/// Exercises the fetcher's response-size limit (AUDIT-SEC-04, #394) over an in-memory stub handler, with
-/// no network. The forum page comes from outside, so a body over the limit has to come back as a failure
-/// instead of using up all our memory.
+/// The fetcher's response-size limit (#394), timeout and charset handling, over an in-memory stub
+/// handler with no network. The forum page comes from outside, so a body over the limit must come
+/// back as a failure instead of using up our memory.
 /// </summary>
 public sealed class ForumPageFetcherTests
 {
@@ -54,8 +54,8 @@ public sealed class ForumPageFetcherTests
     [Fact]
     public async Task FetchReleaseNotesPageAsync_UndeclaredBodyStreamingPastTheSizeCap_ShouldReturnFailure()
     {
-        // Arrange: no Content-Length (chunked-style), the body itself overruns the cap while
-        // streaming: the buffer limit must cut it off instead of growing without bound.
+        // Arrange: no Content-Length, and the body overruns the cap while streaming: the buffer
+        // limit must cut it off.
         using HttpResponseMessage response = new(HttpStatusCode.OK)
         {
             Content = new UndeclaredLengthContent(ForumPageFetcher.MaxResponseContentBytes + 1)
@@ -74,8 +74,8 @@ public sealed class ForumPageFetcherTests
     [Fact]
     public async Task FetchReleaseNotesPageAsync_BodyThatStallsPastTheClientTimeout_ShouldFailAsTimedOutInsteadOfHanging()
     {
-        // Arrange: ResponseHeadersRead moves the body read out of HttpClient.Timeout's scope;
-        // the fetcher must re-apply the timeout itself or a stalling server hangs preflight.
+        // Arrange: ResponseHeadersRead moves the body read out of HttpClient.Timeout, so the fetcher
+        // must apply the timeout itself, or a stalling server hangs preflight.
         using HttpResponseMessage response = new(HttpStatusCode.OK) { Content = new StallingContent() };
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));
         httpClient.Timeout = TimeSpan.FromMilliseconds(250);

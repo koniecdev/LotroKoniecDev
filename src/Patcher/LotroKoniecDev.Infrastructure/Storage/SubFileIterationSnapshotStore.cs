@@ -13,10 +13,9 @@ namespace LotroKoniecDev.Infrastructure.Storage;
 /// <remarks>
 /// Unlike the ledger, one broken line makes the whole file unreadable. The file is always written in
 /// one step, so a broken line means it is not the file we wrote, and its other lines cannot be
-/// trusted either. An unreadable snapshot turns detection off until the next patch saves a new one,
-/// with a warning on every launch until then. A wrong one could report subfiles that nobody replaced
-/// and force a repair that nothing justifies. That repair would pass the source guard and save a
-/// fresh snapshot, but spec 0012 asks for no forced repair at all from a snapshot we cannot trust.
+/// trusted either. An unreadable snapshot turns detection off, with a warning on every launch, until
+/// the next patch saves a new one. A wrong one could report subfiles nobody replaced and force a
+/// repair, and spec 0012 asks for no forced repair from a snapshot we cannot trust.
 /// </remarks>
 public sealed class SubFileIterationSnapshotStore : ISubFileIterationSnapshotStore
 {

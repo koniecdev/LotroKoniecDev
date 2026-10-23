@@ -1089,63 +1089,57 @@ has it. And re-running CD for a commit (**Actions → CD → Run workflow**, opt
 
 ### Strategy (ADR-0008 §6, ADR-0023)
 
-Schema changes apply as a **pre-deploy step** — a one-shot container that runs to completion *before*
-the APIs serve traffic — never from inside the application at startup. The rules:
+Schema changes apply as a **pre-deploy step**: a one-shot container that runs to completion *before*
+the app containers are recreated, never from inside an application at startup. The rules:
 
 - **Two write contexts, one job.** The Translation Management System (`ApplicationWriteDbContext`,
   schema `translation`, database `lotro_translation`) and the Auth server (`AuthDbContext`, schema
   `authsystem`, database `lotro_auth`) each have their own migration history. The job applies
   Translation first, then Auth.
-- **The artifact is the migrator image** `ghcr.io/koniecdev/lotrokoniecdev-migrator` — built by
-  `Dockerfile.migrator.prod` and published by CD. It bakes two **self-contained**
-  `dotnet ef migrations bundle` executables (one per context) onto a lean `runtime-deps` base — no
-  SDK, no `dotnet-ef` tool, no source.
+- **The artifact is the migrator image** `ghcr.io/koniecdev/lotrokoniecdev-migrator`, built from
+  `Dockerfile.migrator.prod` and published by CD. It holds two **self-contained**
+  `dotnet ef migrations bundle` executables (one per context) on a lean `runtime-deps` base: no SDK,
+  no `dotnet-ef` tool, no source.
 - **Idempotent.** Each bundle applies only the migrations missing from that context's
   `__EFMigrationsHistory` table, so re-running it is a safe no-op.
-- **The bundle RID follows the build platform** (#594). Because the bundles are self-contained, their
-  architecture must match the `runtime-deps` base — which is a manifest list and resolves to whatever
-  is being built for. The Dockerfile derives the RID from BuildKit's `TARGETARCH`
-  (`amd64` → `linux-x64`, `arm64` → `linux-arm64`), so CD's amd64 runners keep producing the
-  `linux-x64` image the Hetzner boxes run, and a local prod-parity build on Apple Silicon gets arm64
-  bundles with no build-arg. Override with `--build-arg TARGET_RUNTIME=<rid>`; an architecture with no
-  mapping fails the build rather than shipping a wrong-arch image.
-- **Fail-fast = no half-migrated serving.** Any failure (unreachable DB, bad migration, missing
+- **The bundle RID follows the build platform** (#594). The bundles are self-contained, so their
+  architecture must match the `runtime-deps` base, which resolves to whatever is being built for. The
+  Dockerfile derives the RID from BuildKit's `TARGETARCH` (`amd64` → `linux-x64`, `arm64` →
+  `linux-arm64`): CD's amd64 runners produce the `linux-x64` image the boxes run, and a local
+  prod-parity build on Apple Silicon gets arm64 bundles with no build-arg. Override with
+  `--build-arg TARGET_RUNTIME=<rid>`; an architecture with no mapping fails the build rather than
+  shipping a wrong-arch image.
+- **Fail fast = nothing serves half-migrated.** Any failure (unreachable DB, bad migration, missing
   connection string) exits non-zero. On the box, CD runs the migrator as **its own container before
-  `up -d`** — see the warning in [What `deploy.yml` does](#what-deployyml-does).
+  `up -d`**: see the warning in [What `deploy.yml` does](#what-deployyml-does).
 - **Forward-only (ADR-0023).** There is no automated rollback step. EF down-migrations exist but are
   never run in a real environment; a bad migration is rolled forward with a new migration. The
-  recovery valve for a logically-bad migration is a Neon restore — the deploy's pre-migration
+  safety valve for a logically bad migration is a Neon restore: the deploy's pre-migration
   auto-snapshot (MIGR-04) or a point-in-time restore.
 
 ### Inputs (environment variables)
 
-The migrator reads exactly two variables — Npgsql connection strings, one per context:
-
-| Variable | Context |
-|---|---|
-| `ConnectionStrings__TranslationDatabase` | TMS write context (`lotro_translation`) |
-| `ConnectionStrings__AuthDatabase` | Auth context (`lotro_auth`) |
-
-Both databases must already exist (see [Databases](#databases)).
+The migrator reads only the two Npgsql connection strings in the [migrator table](#migrator). Both
+databases must already exist (see [Databases](#databases)).
 
 ### Running migrations
 
-**On a box** — CD does this for you (the migration gate). By hand, as `deploy`:
+**On a box**: CD does this for you (the migration gate). By hand, as `deploy`:
 
 ```bash
 cd /opt/lotro
 docker compose -f compose.hetzner.yaml run --rm --no-deps migrator
 ```
 
-**Local production-parity stack (`compose.prod.yaml`).** Automatic — the `migrator` service runs to
-completion and `auth-api` / `tms-api` wait on its success:
+**Local production-parity stack (`compose.prod.yaml`)**: automatic. The `migrator` service runs to
+completion and `auth-api` / `tms-api` wait for its success:
 
 ```bash
 scripts/up-prod.sh --build
 docker compose -f compose.prod.yaml --env-file .env.prod logs migrator   # watch it apply
 ```
 
-**Anywhere else** — pull the published image and run it once against the target databases, using the
+**Anywhere else**: pull the published image and run it once against the target databases. Use the
 **same image tag** you are about to deploy for the APIs, so schema and code move together:
 
 ```bash
@@ -1163,16 +1157,15 @@ Expected tail on success:
 == MIGRATOR COMPLETE ==
 ```
 
-A non-zero exit means migrations did **not** fully apply — do not roll out the APIs; read the log, fix
-forward, re-run.
+A non-zero exit means the migrations did **not** fully apply. Do not roll out the APIs; read the log,
+fix forward, run it again.
 
 ### Authoring a new migration (developer, not operator)
 
-Migrations are generated with the SDK + `dotnet-ef` against the source — see the CLAUDE.md "TMS — EF
-Core migrations" command block for the exact `dotnet ef migrations add …` invocations (TMS resolves
-through its Persistence project; Auth through its API project — only those two carry EF Core Design).
-Once committed, the next CD build bakes them into the migrator image automatically; operators never
-generate migrations.
+Migrations are generated with the SDK + `dotnet-ef` against the source: see the CLAUDE.md "TMS — EF
+Core migrations" command block for the exact `dotnet ef migrations add …` call (TMS resolves through
+its Persistence project, Auth through its API project; only those two carry EF Core Design). Once
+committed, the next CD build bakes them into the migrator image; operators never generate migrations.
 
 ### Verifying
 
@@ -1185,21 +1178,28 @@ psql "$ConnectionStrings__AuthDatabase"        -c 'SELECT "MigrationId" FROM aut
 
 ### Recover from a bad migration (Neon PITR)
 
-Forward-only (ADR-0023) means a logically-bad or data-corrupting migration is **never** undone by a
+Forward-only (ADR-0023) means a logically bad or data-corrupting migration is **never** undone by a
 down-migration in a real environment: the deploy's migrator gate commits the schema *before* any
 traffic moves, and the pipeline's failure path rolls back **app code only**. The real safety valve is
-the database's own history: both real environments run on Neon (prod — ADR-0014; staging — a separate
-Neon project, ADR-0018), and Neon keeps continuous page history supporting an instant point-in-time
-restore of a branch to any moment inside the retention window.
-
-The topology below was read live via the Neon API on **2026-07-05**:
+the database's own history. Both real environments run on Neon (prod: ADR-0014; staging: a separate
+Neon project, ADR-0018), and Neon keeps page history that allows an instant point-in-time restore of
+a branch to any moment inside the retention window.
 
 | Environment | Neon project | Branch (single, default) | History retention |
 |---|---|---|---|
-| production | `lotro-translator-prod` (`empty-voice-65414159`) | `production` (`br-jolly-river-as0a1b99`) | **6 h** (21600 s) |
-| staging | `lotro-translator-staging` (`holy-mode-18368797`) | `production` (`br-sweet-band-as9xg1ut`) | **6 h** (21600 s) |
+| production | `lotro-translator-prod` | `production` | **6 h** (21600 s) |
+| staging | `lotro-translator-staging` | `production` | **6 h** (21600 s) |
 
-- **6 hours is the Free-plan ceiling.** Re-verify the live value anytime:
+- **Look the ids up live**; they change when a project is re-created. The project id is the
+  `NEON_PROJECT_ID` variable of that GitHub environment, and the API lists the branch ids:
+
+  ```bash
+  gh variable get NEON_PROJECT_ID --env production        # staging: --env staging
+  curl -s -H "Authorization: Bearer $NEON_API_KEY" \
+    https://console.neon.tech/api/v2/projects/<project_id>/branches | jq '.branches[] | {id, name, default}'
+  ```
+
+- **6 hours is the Free-plan ceiling.** Check the live value at any time:
 
   ```bash
   curl -s -H "Authorization: Bearer $NEON_API_KEY" \
@@ -1207,49 +1207,49 @@ The topology below was read live via the Neon API on **2026-07-05**:
   ```
 
 - **A branch restore is branch-wide.** `lotro_translation` and `lotro_auth` live on the same branch,
-  so they always rewind **together** — exactly right for "undo the migrator run", since the one
+  so they always rewind **together**. That is right for "undo the migrator run", because the one
   migrator applies both contexts.
 
 #### Risk boundary — the accepted backup posture (MIGR-01, 2026-07)
 
-**Neon-PITR-only; no off-platform logical backup is scheduled.** Consequence, stated plainly: **a bad
-migration (or any data corruption) noticed more than 6 hours after the fact is unrecoverable.** The
-blast radius today is a DB whose content is re-creatable by hand (re-import `exported.txt`, re-seed
-the admin — zero production users), which is why the window is accepted. Revisit trigger: **the first
-real translators start contributing** (their edits are *not* re-creatable) → add a nightly encrypted
+**Neon PITR only; no off-platform logical backup is scheduled.** So: **a bad migration (or any data
+corruption) noticed more than 6 hours later cannot be recovered**, unless a pre-migration snapshot
+covers it (below). The window is accepted because the database content can be re-created by hand
+today (re-import `exported.txt`, re-seed the admin; zero production users). Revisit when **the first
+real translators start contributing** (their edits cannot be re-created): add a nightly encrypted
 `pg_dump` off-platform, or raise the Neon plan.
 
-**MIGR-04 (#339) is in place:** every configured deploy auto-branches Neon right before the migrator
-runs, which caps the **bad-migration** case regardless of the 6 h window (below). General data
-corruption (not tied to a migrator run) is still bound by the 6 h window.
+**MIGR-04 (#339):** every configured deploy branches Neon right before the migrator runs, which
+covers the **bad-migration** case however late it is noticed. General data corruption that is not
+tied to a migrator run is still bound by the 6 h window.
 
 #### Procedure
 
-Scenario: the migrator gate ran a migration that is *executionally* fine but *logically* wrong —
-dropped or corrupted data, or broke the serving release past what N-1 compatibility (ADR-0023)
-guarantees. Time matters: **the restore point must still be inside the 6 h retention window** (unless
-you have the auto-snapshot, which never expires).
+Scenario: the migrator gate ran a migration that runs fine but is *logically* wrong: it dropped or
+corrupted data, or broke the serving release beyond what N-1 compatibility (ADR-0023) guarantees.
+Time matters: **the restore point must still be inside the 6 h retention window**, unless you have
+the auto-snapshot, which never expires.
 
 **0. Find the restore point.** The deploy run's step summary prints a **"DB restore point
-(pre-migration)"** table — the UTC timestamp captured immediately *before* the migrator ran, plus the
-target migration per context, plus the **auto-snapshot branch**. When it names one, prefer
-[Restore from the auto-snapshot](#restore-from-the-auto-snapshot-migr-04) — no timestamp math, no 6 h
+(pre-migration)"** table: the UTC timestamp captured just *before* the migrator ran, the target
+migration per context, and the **auto-snapshot branch**. When it names one, prefer
+[Restore from the auto-snapshot](#restore-from-the-auto-snapshot-migr-04): no timestamp math, no 6 h
 pressure.
 
-**1. Put the last-good release back first.** After the restore the schema is pre-migration again, and
-only the previous release's code is guaranteed against it (N-1 holds one step back — *new* code on the
-*old* schema is exactly the combination nothing proves). Redeploy the previous tag on the box:
+**1. Put the last good release back first.** After the restore the schema is pre-migration again, and
+only the previous release's code is proven against it (N-1 holds one step back; *new* code on the
+*old* schema is the combination nothing proves). Redeploy the previous tag on the box:
 
 ```bash
 ssh deploy@<box>
 IMAGE_TAG=<previous-good-sha> bash /opt/lotro/deploy.sh
 ```
 
-(When the rollout fails by itself, CD's automatic rollback already did this — then only steps 2–4
+(When the rollout failed on its own, CD's automatic rollback already did this, and only steps 2–4
 remain.)
 
-**2. Restore the Neon branch to just before the migrator ran.** Substitute the project + branch IDs
-from the table above and the step-0 timestamp:
+**2. Restore the Neon branch to just before the migrator ran.** Use the project + branch ids you
+looked up above and the step-0 timestamp:
 
 ```bash
 curl -sf -X POST -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" \
@@ -1261,22 +1261,22 @@ curl -sf -X POST -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: appl
   }'
 ```
 
-- `source_branch_id` is the **same branch** (a restore into its own history); in that mode
-  `preserve_under_name` is **mandatory** and is also the undo: Neon parks the current
-  (post-migration) head as a branch under that name, so the restore itself is reversible and any
-  post-migration writes stay salvageable from it.
-- Console-UI alternative: project → *Branches* → `production` → **Restore** → *From this branch's
+- `source_branch_id` is the **same branch** (a restore into its own history). In that mode
+  `preserve_under_name` is **mandatory**, and it is also the undo: Neon parks the current
+  (post-migration) head as a branch under that name, so the restore can be reversed and any
+  post-migration writes can still be salvaged from it.
+- Console alternative: project → *Branches* → `production` → **Restore** → *From this branch's
   history* → pick the timestamp.
 - The restore is near-instant (copy-on-write). Active connections drop once; the apps' Npgsql pools
   reconnect on the next request.
 
-**3. Verify.** Run the [Verifying](#verifying) queries — the bad migration's row must be **gone** from
-that context's `__EFMigrationsHistory` (the restore rewinds schema, data and history together) — then
+**3. Verify.** Run the [Verifying](#verifying) queries: the bad migration's row must be **gone** from
+that context's `__EFMigrationsHistory` (the restore rewinds schema, data and history together). Then
 [smoke](#post-deploy-smoke-test) the environment.
 
-**4. Roll forward.** Fix the migration in a new commit and let the normal pipeline redeploy — the
-migrator gate re-applies from the rewound history. Once confident, delete the `pre-restore-*` safety
-branch (Free-plan projects cap the branch count at 10):
+**4. Roll forward.** Fix the migration in a new commit and let the normal pipeline redeploy; the
+migrator gate re-applies from the rewound history. Once you are confident, delete the `pre-restore-*`
+safety branch (Free-plan projects allow at most 10 branches):
 
 ```bash
 curl -sf -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
@@ -1285,30 +1285,31 @@ curl -sf -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
 
 #### Restore from the auto-snapshot (MIGR-04)
 
-Every deploy with the Neon leg configured creates a **pre-migration snapshot branch** in that
-environment's Neon project — right after pinning the migrator image, right before starting the
-migrator:
+Every deploy with the Neon step configured creates a **pre-migration snapshot branch** in that
+environment's Neon project. It runs on the runner after the images are verified and before anything
+touches the box, so before the migrator starts:
 
 - **Shape:** `migr04-pre-<short-sha>-<utc-ts>`, branched from the project's default branch head, with
-  **no compute endpoint** — it costs no compute, only pinned history/storage.
-- **Where it is recorded:** the run summary's "DB restore point (pre-migration)" table — name + id.
+  **no compute endpoint**: it costs no compute, only pinned history and storage.
+- **Where it is recorded:** the run summary's "DB restore point (pre-migration)" table, name + id.
 - **Why it exists next to PITR:** a branch head never expires. PITR history lasts 6 h on the Free
   plan; the snapshot stays restorable however late the bad migration is noticed.
-- **Configuration (per GitHub environment; optional):** env-scoped secret `NEON_API_KEY`
-  (project-scoped) + variable `NEON_PROJECT_ID`. When either is missing the deploy logs
-  `Neon snapshot skipped (not configured)` and proceeds; a Neon API error logs a warning and proceeds
-  too. **The snapshot is a net, not a gate** — the deploy never fails because of it.
+- **Configuration (per GitHub environment; optional):** the environment secret `NEON_API_KEY`
+  (project-scoped) + the variable `NEON_PROJECT_ID`. When either is missing, the deploy logs
+  `Neon snapshot skipped (not configured)` and goes on; a Neon API error logs a warning and goes on
+  too. **The snapshot is a net, not a gate**: the deploy never fails because of it.
 
-**Retention: at most ONE snapshot branch per project.** Right before creating the new snapshot, the
-deploy deletes every older `migr04-pre-*` branch (both Free-plan projects sit near the 0.5 GB storage
+**Retention: at most ONE snapshot branch per project.** Right before it creates the new snapshot, the
+deploy deletes every older `migr04-pre-*` branch: both Free-plan projects sit near the 0.5 GB storage
 cap, every branch pins history, and by the time deploy N+1 runs, deploy N's migration has proven
-itself). Consequence: **the snapshot protects the latest deploy only**; an older bad migration falls
-back to PITR (≤ 6 h) or the accepted risk boundary above.
+itself. So **the snapshot protects the latest deploy only**; an older bad migration falls back to
+PITR (≤ 6 h) or the risk boundary above.
 
-**Restore procedure** — identical to the [PITR procedure](#procedure) except step 2: restore the
-default branch **from the snapshot branch's head** instead of from its own history. `source_timestamp`
-omitted ⇒ the source is *"restored to head"*, which for the snapshot **is** the pre-migration state;
-`preserve_under_name` is **required** here because the restored branch has children:
+**Restore procedure**: the same as the [PITR procedure](#procedure) except step 2. Restore the
+default branch **from the snapshot branch's head** instead of from its own history. With
+`source_timestamp` left out, the source is restored to its head, which for the snapshot **is** the
+pre-migration state. `preserve_under_name` is **required** here because the restored branch has
+children:
 
 ```bash
 curl -sf -X POST -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" \
@@ -1319,17 +1320,17 @@ curl -sf -X POST -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: appl
   }'
 ```
 
-- The current (post-migration) head is parked as the `pre-restore-*` branch — the undo — and the
-  branch's existing children (including the snapshot) are re-parented under it.
-- Cleanup order matters: delete the `migr04-pre-*` branch **before** the `pre-restore-*` branch — Neon
+- The current (post-migration) head is parked as the `pre-restore-*` branch (the undo), and the
+  branch's existing children, the snapshot included, move under it.
+- Cleanup order matters: delete the `migr04-pre-*` branch **before** the `pre-restore-*` branch. Neon
   refuses to delete a branch that still has children.
 
 #### Rehearsal (staging drill)
 
 Steps 2–4 can be rehearsed on staging at any time, without a deploy: restore the staging branch to
-five minutes ago (a data no-op while staging is idle), check the [Verifying](#verifying) output is
-unchanged, then delete the preserved branch. Do **not** run it while manual QA is in progress — the
-restore drops connections and rewinds anything written after the restore point.
+five minutes ago (no data change while staging is idle), check that the [Verifying](#verifying)
+output is unchanged, then delete the preserved branch. Do **not** run it while manual QA is in
+progress: the restore drops connections and rewinds anything written after the restore point.
 
 ## Message broker (RabbitMQ)
 

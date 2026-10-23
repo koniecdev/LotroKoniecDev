@@ -5,14 +5,9 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// LEGAL-02: the self-service loop the privacy policy promises under "Moje konto". A logged-in
-/// translator downloads their data export as a JSON file after confirming their password, schedules an
-/// account deletion, first with the
-/// wrong confirmation phrase so nothing happens, ends up signed out on the public "deletion scheduled"
-/// page with the real finalization date, cannot log in any more, then cancels through the link in
-/// Mailpit, which is a page on the auth server, sets a new password in the forced reset and logs back in
-/// through the frontend's OIDC challenge.
-/// Nothing has to be seeded: the flow creates the account itself.
+/// LEGAL-02: the self-service loop the privacy policy promises under "Moje konto": export, password change,
+/// scheduled deletion, cancel through the e-mailed link, forced password reset and sign-in again. The flow
+/// creates its own account.
 /// </summary>
 public sealed class AccountGdprSelfServiceTests : E2ETestBase
 {
@@ -36,19 +31,16 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         await AuthActions.ConfirmEmailAsync(Page, Fixture, user);
         await AuthActions.LoginAsync(Page, Fixture, user);
 
-        // Accept the cookie banner first. Its fixed bar at the bottom would otherwise cover the submit
-        // buttons of the change-password and delete forms this flow clicks (LEGAL-04).
+        // Accept the cookie banner first, or its bar would cover the form buttons this flow clicks.
         await AuthActions.AcceptCookieBannerAsync(Page);
 
-        // The nav offers "Moje konto" (the privacy-policy wording) and it lands on the account page
-        // showing the live auth data.
+        // "Moje konto" is the privacy policy's wording.
         await Page.GetByTestId("nav-account").ClickAsync();
         await Page.GetByTestId("account-export").WaitForAsync(LongWait);
         (await Page.GetByText(user.Email).First.IsVisibleAsync()).ShouldBeTrue();
 
-        // The data export now asks for the current password first (#690, ADR-0052). A wrong one comes
-        // back with a Polish sentence, hands over no file, and shows no form: the way on is a link to a
-        // clean page. The right password then downloads the JSON named after the account dump.
+        // The export asks for the current password first (ADR-0052). A wrong one hands over no file and
+        // shows no form.
         await Page.GetByTestId("account-export").ClickAsync();
         await Page.Locator("#export-password").WaitForAsync(LongWait);
         await Page.Locator("#export-password").FillAsync("Wr0ng-Current!");
@@ -66,13 +58,11 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         download.SuggestedFilename.ShouldStartWith("lotro-translator-moje-dane-");
         download.SuggestedFilename.ShouldEndWith(".json");
 
-        // The file came as an attachment, so the page never moved — and it must not be one that says
-        // the password was wrong.
+        // The file came as an attachment, so the page never moved.
         (await Page.GetByTestId("export-error").CountAsync()).ShouldBe(0);
 
-        // The same POST without the antiforgery token is refused. The token requirement comes from the
-        // route binding a form field, which is an easy thing to undo by accident, and it is what stands
-        // between a cross-site POST and somebody's data file.
+        // Without the antiforgery token the POST is refused. The requirement comes from binding a form field,
+        // which is easy to undo by accident.
         IAPIResponse forged = await Context.APIRequest.PostAsync(
             new Uri(new Uri(Page.Url), "/account/export/download").ToString(),
             new APIRequestContextOptions
@@ -85,8 +75,7 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         await Page.GetByTestId("nav-account").ClickAsync();
         await Page.GetByTestId("account-change-password").WaitForAsync(LongWait);
 
-        // Change the password. A wrong current password shows the API error, and the correct one really
-        // changes it: the old password stops working and every later login uses the new one.
+        // A wrong current password shows the API error; the correct one changes the password.
         await Page.GetByTestId("account-change-password").ClickAsync();
         await Page.Locator("#current-password").WaitForAsync(LongWait);
         await Page.Locator("#current-password").FillAsync("Wr0ng-Current!");
@@ -101,7 +90,7 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         await Page.GetByTestId("change-password-submit").ClickAsync();
         await Page.GetByText("Hasło zostało zmienione.").WaitForAsync(LongWait);
 
-        // The changed password is proven the honest way: fresh login through the FE OIDC loop.
+        // A fresh sign-in proves the changed password.
         await AuthActions.LogoutAsync(Page);
         await Page.GetByRole(AriaRole.Link, new() { Name = Links.Login, Exact = true }).ClickAsync();
         await Page.GetByLabel(FieldLabels.Email).FillAsync(user.Email);
@@ -111,8 +100,7 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         await Page.GetByTestId("nav-account").ClickAsync();
         await Page.GetByTestId("account-delete").WaitForAsync(LongWait);
 
-        // The delete page: a wrong confirmation phrase is rejected in the page and nothing is
-        // scheduled.
+        // A wrong confirmation phrase schedules nothing.
         await Page.GetByTestId("account-delete").ClickAsync();
         await Page.Locator("#delete-password").WaitForAsync(LongWait);
         await Page.Locator("#delete-password").FillAsync(ChangedPassword);
@@ -120,9 +108,8 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         await Page.GetByTestId("delete-submit").ClickAsync();
         await Page.GetByText("Nieprawidłowe potwierdzenie").WaitForAsync(LongWait);
 
-        // The correct phrase schedules the deletion; the success state hands over to the local
-        // sign-out, landing on the anonymous confirmation page with the REAL finalization date
-        // (from the X-Deletion-Finalizes-At header), not the generic fallback.
+        // The correct phrase schedules the deletion and ends on the confirmation page with the real date
+        // from the X-Deletion-Finalizes-At header, not the generic fallback.
         await Page.Locator("#delete-password").FillAsync(ChangedPassword);
         await Page.Locator("#delete-confirm").FillAsync("USUWAM");
         await Page.GetByTestId("delete-submit").ClickAsync();
@@ -134,29 +121,26 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         (await Page.GetByRole(AriaRole.Link, new() { Name = Links.Login, Exact = true }).IsVisibleAsync())
             .ShouldBeTrue();
 
-        // The account is locked for the whole grace period, so even the correct, changed password fails
-        // on the auth login page.
+        // The account is locked for the grace period, so even the correct password fails.
         await Page.GetByRole(AriaRole.Link, new() { Name = Links.Login, Exact = true }).ClickAsync();
         await Page.GetByLabel(FieldLabels.Email).FillAsync(user.Email);
         await Page.GetByLabel(FieldLabels.Password, new() { Exact = true }).FillAsync(ChangedPassword);
         await Page.GetByRole(AriaRole.Button, new() { Name = Buttons.Login, Exact = true }).ClickAsync();
         await Page.GetByRole(AriaRole.Alert).WaitForAsync(LongWait);
 
-        // Cancel through the emailed one-time link (auth-side page; GET renders, POST cancels).
+        // The cancel page lives on the auth server: GET renders, POST cancels.
         string cancelLink = await MailpitClient.WaitForLinkAsync(
             Fixture.MailpitBaseUrl, user.Email, DeletionScheduledSubject, CancelDeletionLinkPath, MailTimeout);
         await Page.GotoAsync(cancelLink);
         await Page.GetByTestId("cancel-deletion-submit").ClickAsync();
 
-        // Cancelling invalidates the old password, so the flow has to reset it before login works again.
-        // GetByLabel would be ambiguous here, because the reset panel's <section> also has the aria label
-        // "Nowe hasło", so we select by the textbox role instead.
+        // Cancelling invalidates the old password. Not GetByLabel: the reset panel's <section> has the
+        // same aria label.
         await Page.GetByRole(AriaRole.Textbox, new() { Name = "Nowe hasło", Exact = true }).FillAsync(NewPassword);
         await Page.GetByRole(AriaRole.Textbox, new() { Name = "Powtórz nowe hasło", Exact = true }).FillAsync(NewPassword);
         await Page.GetByRole(AriaRole.Button, new() { Name = "Ustaw nowe hasło", Exact = true }).ClickAsync();
         await Page.GetByRole(AriaRole.Status).WaitForAsync(LongWait);
 
-        // The revived account logs back in through the FE with the new password.
         await Page.GotoAsync($"{Fixture.FrontendBaseUrl}/");
         await Page.GetByRole(AriaRole.Link, new() { Name = Links.Login, Exact = true }).ClickAsync();
         await Page.GetByLabel(FieldLabels.Email).FillAsync(user.Email);

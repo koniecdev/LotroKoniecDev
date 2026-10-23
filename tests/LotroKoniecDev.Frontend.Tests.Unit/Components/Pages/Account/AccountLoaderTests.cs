@@ -16,10 +16,7 @@ using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.Disc
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 
 /// <summary>
-/// Drives the account loader end to end over a stubbed HTTP handler: discovery finds the
-/// <c>export-account-data</c> link, the export GET follows the href it was given, and the writes,
-/// scheduling a deletion and changing the password, post the exact request bodies to the hrefs the
-/// response offered. Nothing is decided here from role claims.
+/// Over a stubbed HTTP handler: every call follows an href the server offered, never a role claim.
 /// </summary>
 public sealed class AccountLoaderTests
 {
@@ -27,8 +24,7 @@ public sealed class AccountLoaderTests
     private const string ExportHref = "auth/account/data-export";
     private const string DownloadHref = "advertised/account-download";
 
-    // The same JSON options the Frontend's HTTP layer uses (HttpClientApiExtensions), so the stub
-    // body deserializes through the exact same contract the loader relies on.
+    // The same JSON options as HttpClientApiExtensions.
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() }
@@ -225,8 +221,7 @@ public sealed class AccountLoaderTests
     [Fact]
     public async Task LoadExportAsync_WhenA200CarriesNoAuthData_IsABadGatewayAndNotAnAccount()
     {
-        // The serializer fills a missing constructor argument with null, so "{}" parses. The page reads
-        // AuthData straight away, and nothing may throw because of what came off the wire.
+        // "{}" parses with a null AuthData, which the page reads straight away.
         StubDiscovery(links: [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]);
         AccountLoader loader = CreateLoader(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}"), out _);
 
@@ -259,8 +254,8 @@ public sealed class AccountLoaderTests
     [Fact]
     public async Task DownloadExportAsync_WhenTheAccountAdvertisesIt_PostsThePasswordToThatHref()
     {
-        // The href comes from the account resource, never from the day-cached discovery document
-        // (#690). The two hrefs differ here on purpose, so a POST to the discovery one would fail.
+        // The href comes from the account resource, never the day-cached discovery document. The two
+        // hrefs differ, so a POST to the wrong one fails.
         StubDiscovery(links: [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]);
         AccountDataExportResponse envelope = CreateEnvelope(
             links: [new LinkDto(DownloadHref, Rels.DownloadAccountData, "POST")]);

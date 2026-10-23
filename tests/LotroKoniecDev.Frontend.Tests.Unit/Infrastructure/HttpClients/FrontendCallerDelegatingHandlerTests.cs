@@ -17,18 +17,16 @@ using NSubstitute;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 
 /// <summary>
-/// ADR-0054 (#819, #823): every auth API and TMS API call leaves from the Frontend's one container, so
-/// the handler sends the visitor's address, the one <c>UseForwardedHeaders</c> resolved, next to the
-/// environment's key, and the API meters the call on that visitor. The first tests drive the handler
-/// alone; the last four go through the real registrations, one per path to either API, because a
-/// handler that is written but not wired changes nothing.
+/// ADR-0054: the visitor's address goes next to the environment's key. The first tests drive the handler
+/// alone; the last four go through the real registrations, one per path to either API, because a handler
+/// that is not wired changes nothing.
 /// </summary>
 public sealed class FrontendCallerDelegatingHandlerTests
 {
     // Built rather than written out, so no secret scanner mistakes test data for a key.
     private static readonly string CallerKey = new('k', 40);
 
-    // A different value from the auth API's, so a client that read the wrong settings would show it.
+    // Differs from the auth API's, so a client that read the wrong settings would show it.
     private static readonly string TranslationSystemCallerKey = new('t', 40);
 
     private const string VisitorAddress = "203.0.113.7";
@@ -65,8 +63,7 @@ public sealed class FrontendCallerDelegatingHandlerTests
     [InlineData("   ")]
     public async Task SendAsync_WithNoKeyConfigured_SendsNeitherHeader(string? callerKey)
     {
-        // A visitor address is there to forward; only the key is missing, and without it the auth API
-        // would ignore the address anyway.
+        // Without the key the API would ignore the address anyway.
         (HttpMessageInvoker invoker, StubHttpMessageHandler inner) = CreateInvoker(AccessorFor(VisitorAddress), callerKey);
 
         using HttpRequestMessage request = new(HttpMethod.Get, AuthBaseUrl);
@@ -93,7 +90,7 @@ public sealed class FrontendCallerDelegatingHandlerTests
     [Fact]
     public async Task SendAsync_WithNoConnectionAddress_SendsNeitherHeader()
     {
-        // The key alone proves nothing without an address, so neither header is worth sending.
+        // The key alone proves nothing without an address.
         (HttpMessageInvoker invoker, StubHttpMessageHandler inner) = CreateInvoker(AccessorFor(address: null), CallerKey);
 
         using HttpRequestMessage request = new(HttpMethod.Get, AuthBaseUrl);
@@ -106,9 +103,8 @@ public sealed class FrontendCallerDelegatingHandlerTests
     [Fact]
     public async Task AuthSystemClient_ThroughTheRealPipeline_SendsEachHeaderOnceEvenWhenRetried()
     {
-        // The typed client's pipeline retries a server error. The handler sits outside the resilience
-        // handler, so the retried message carries one value per header; two values would make the auth
-        // API drop the address and meter the call on this container instead.
+        // The pipeline retries a server error. Two values per header would make the auth API drop the
+        // address and meter the call on this container.
         RecordingHttpMessageHandler primary = new(HttpStatusCode.InternalServerError);
         await using ServiceProvider provider = BuildProvider(primary, services => services.AddHttpClients());
         IAuthSystemClient client = provider.GetRequiredService<IAuthSystemClient>();
@@ -123,9 +119,7 @@ public sealed class FrontendCallerDelegatingHandlerTests
     [Fact]
     public async Task TranslationSystemClient_ThroughTheRealPipeline_SendsItsOwnKeyOnceEvenWhenRetried()
     {
-        // #823: every translator page load calls the TMS API from this container, so the TMS client
-        // carries the visitor too, with the key from the TMS settings. It sits outside the resilience
-        // handler as well, so a retried message still carries one value per header.
+        // #823: the TMS client carries the visitor too, with the TMS settings' key, one value per header.
         RecordingHttpMessageHandler primary = new(HttpStatusCode.InternalServerError);
         await using ServiceProvider provider = BuildProvider(primary, services => services.AddHttpClients());
         ITranslationSystemClient client = provider.GetRequiredService<ITranslationSystemClient>();
@@ -140,8 +134,7 @@ public sealed class FrontendCallerDelegatingHandlerTests
     [Fact]
     public async Task TokenEndpointClient_ThroughTheRealRegistration_SendsBothHeaders()
     {
-        // The refresh grant is the auth API call every near-expiry request makes, and it is not the typed
-        // account client, so it is wired separately and proved separately.
+        // The token client is wired apart from the typed account client, so it is proved apart.
         RecordingHttpMessageHandler primary = new(HttpStatusCode.OK);
         await using ServiceProvider provider = BuildProvider(primary, services => services.AddFrontendAuthentication());
         ITokenEndpointClient client = provider.GetRequiredService<ITokenEndpointClient>();
@@ -155,9 +148,8 @@ public sealed class FrontendCallerDelegatingHandlerTests
     [Fact]
     public async Task OpenIdConnectBackchannel_ThroughTheRealRegistration_SendsBothHeaders()
     {
-        // The code exchange and the userinfo call use the OIDC handler's own back-channel client. A
-        // handler put on that seam before the frontend's registration stands in for the transport, and
-        // the frontend's registration has to wrap it rather than replace it.
+        // The OIDC back-channel: a handler set before the frontend's registration stands in for the
+        // transport and must be wrapped, not replaced.
         RecordingHttpMessageHandler transport = new(HttpStatusCode.OK);
         await using ServiceProvider provider = BuildProvider(transport, services =>
         {
@@ -201,9 +193,8 @@ public sealed class FrontendCallerDelegatingHandlerTests
     }
 
     /// <summary>
-    /// The frontend's own registrations with the socket handler swapped for a recording stub, the way
-    /// HttpClientsResilienceTests does it. A later ConfigurePrimaryHttpMessageHandler on the same named
-    /// client wins, so the delegating handlers and the pipeline stay exactly as Program.cs wires them.
+    /// A later ConfigurePrimaryHttpMessageHandler wins, so only the transport changes; the handlers and
+    /// the pipeline stay as Program.cs wires them.
     /// </summary>
     private static ServiceProvider BuildProvider(HttpMessageHandler primary, Action<IServiceCollection> register)
     {

@@ -1,10 +1,8 @@
 namespace LotroKoniecDev.Frontend.Settings;
 
 /// <summary>
-/// The OpenID Connect settings the Frontend uses to log translators in against our own AuthSystem
-/// (OpenIddict). <see cref="BaseUrl"/> is the host of the token endpoint that
-/// <c>CookieTokenRefresher</c> calls. <see cref="Authority"/> is the host the OIDC metadata comes from
-/// and the value written into the tokens.
+/// <see cref="BaseUrl"/> is where this app calls the auth server: the account API and the token endpoint.
+/// <see cref="Authority"/> is where the OIDC metadata comes from, and the issuer in the tokens.
 /// </summary>
 internal sealed class AuthSystemSettings
 {
@@ -23,9 +21,8 @@ internal sealed class AuthSystemSettings
     public required IReadOnlyList<string> Scopes { get; init; }
 
     /// <summary>
-    /// The environment's shared key, sent next to the visitor's address so the auth API meters each
-    /// call on that visitor instead of on this container (ADR-0054). Compose feeds the auth API the same
-    /// <c>FRONTEND_CALLER_KEY</c>.
+    /// Sent next to the visitor's address, so the auth API meters each call on that visitor instead of on
+    /// this container (ADR-0054). Compose feeds the auth API the same <c>FRONTEND_CALLER_KEY</c>.
     /// </summary>
     public string? CallerKey { get; init; }
 }

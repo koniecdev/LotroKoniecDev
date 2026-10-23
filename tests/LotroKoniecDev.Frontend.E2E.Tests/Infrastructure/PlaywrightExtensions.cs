@@ -3,19 +3,12 @@ using Microsoft.Playwright;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// Playwright helpers for the Auth pages' custom-styled checkboxes. The real
-/// <c>&lt;input type="checkbox"&gt;</c> is hidden with <c>opacity:0; pointer-events:none</c> and a styled
-/// <c>.box</c> span is painted on top, so Playwright cannot click the input itself (its actionability
-/// check never sees the input receive a pointer event). A real user toggles it by clicking that painted
-/// box; this helper does the same, and the click propagates to the hidden input through the wrapping
-/// <c>&lt;label&gt;</c>.
+/// The auth pages hide the real checkbox under a styled <c>.box</c> span, so Playwright cannot click the
+/// input itself. Like a user, the helper clicks the box, and the wrapping label ticks the input.
 /// </summary>
 internal static class PlaywrightExtensions
 {
-    /// <summary>
-    /// Ensures a custom-styled checkbox ends up checked by clicking the decorative <c>.box</c> span
-    /// inside its wrapping <c>&lt;label&gt;</c>, which natively toggles the hidden input. Idempotent.
-    /// </summary>
+    /// <summary>Idempotent.</summary>
     public static async Task CheckViaLabelAsync(this ILocator checkbox)
     {
         if (await checkbox.IsCheckedAsync())
@@ -23,11 +16,8 @@ internal static class PlaywrightExtensions
             return;
         }
 
-        // Click the box and not the middle of the label. The privacy-consent label contains an <a>, the
-        // privacy-policy link, and on a wide viewport where the label fits on one line its middle lands
-        // on that link. By the HTML spec, clicking something interactive inside a <label> follows the
-        // link instead of ticking the box. The .box span does nothing on its own, so clicking it always
-        // ticks.
+        // Not the middle of the label: the privacy-consent label holds a link, and on a wide viewport its
+        // middle lands on it, which follows the link instead of ticking the box.
         await checkbox.Locator("xpath=ancestor::label[1]").Locator("span.box").ClickAsync();
     }
 }

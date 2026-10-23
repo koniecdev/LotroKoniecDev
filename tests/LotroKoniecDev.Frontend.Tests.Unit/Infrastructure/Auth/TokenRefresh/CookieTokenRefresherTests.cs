@@ -101,8 +101,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1062: a sign-in server that restarts, is busy, or refuses the address many users share does not sign
-    /// anyone out while the access token still works. The cookie is not rewritten, so the refresh stays due.
+    /// #1062: the cookie is not rewritten, so the refresh stays due.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenTheRefreshFailsForAMomentWhileTheAccessTokenWorks_KeepsTheSessionAsItIs()
@@ -149,10 +148,6 @@ public sealed class CookieTokenRefresherTests
         RevokedRefreshTokens(tokenEndpointClient).ShouldBeEmpty();
     }
 
-    /// <summary>
-    /// A refusal, and a failure once the access token has run out, end the session with the one-time
-    /// notice, the same as every other rejection.
-    /// </summary>
     [Theory]
     [InlineData(false, 30)]
     [InlineData(true, -1)]
@@ -197,10 +192,6 @@ public sealed class CookieTokenRefresherTests
         sessionExpiryNotice.DidNotReceive().Raise();
     }
 
-    /// <summary>
-    /// #1062: the refresh stays due, so the next page tries again, and once the sign-in server answers, the
-    /// session gets its new tokens.
-    /// </summary>
     [Fact]
     public async Task ValidateAsync_OnTheNextPageAfterARefreshFailedForAMoment_TriesAgainAndStoresTheNewTokens()
     {
@@ -240,10 +231,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1062: the session survives a temporary failure only while its access token still works. From the
-    /// moment the token runs out, the failure is final, as the owner ruled. A user who comes back after an
-    /// hour is signed out by a failed refresh too. The call to the sign-in server is checked as well,
-    /// because a session that was never due for a refresh would also be kept.
+    /// #1062: once the access token has run out, a temporary failure is final. The call to the sign-in
+    /// server is checked too, because a session never due for a refresh would also be kept.
     /// </summary>
     [Theory]
     [InlineData(59, true)]
@@ -276,8 +265,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1062: a timeout takes 30 seconds (#923), so the access token can run out while the website waits.
-    /// The clock is read after the call, so that failure is final.
+    /// A timeout takes 30 seconds (#923), so the access token can run out while the website waits.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenATemporaryFailureArrivesAfterTheAccessTokenRanOut_RejectsPrincipalAndSignsOut()
@@ -312,10 +300,6 @@ public sealed class CookieTokenRefresherTests
             Arg.Any<AuthenticationProperties>());
     }
 
-    /// <summary>
-    /// A failure after the access token ran out is final, so it ends the session the way a refusal does
-    /// (#1027).
-    /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenTheRefreshFailsForAMomentAfterTheAccessTokenRanOut_RevokesTheStoredRefreshToken()
     {
@@ -337,8 +321,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #977: a refresh that fails for a moment is the normal result of a busy or restarting sign-in server,
-    /// so it is Information. The token client has already logged the cause as a warning.
+    /// #977: a temporary failure is normal, so it is Information. The token client already logged the cause
+    /// as a warning.
     /// </summary>
     [Theory]
     [InlineData(30, "the session keeps its access token and the next request tries again")]
@@ -369,8 +353,7 @@ public sealed class CookieTokenRefresherTests
 
     /// <summary>
     /// The token client cannot tell a browser that left from a timeout, so a cancelled refresh is a
-    /// temporary failure too. While the access token works the session is kept, and nothing else on this
-    /// request waits for the browser that is gone.
+    /// temporary failure too.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenTheBrowserLeavesDuringTheRefreshWhileTheAccessTokenWorks_KeepsTheSession()
@@ -391,8 +374,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #974: the API refuses a blank token on every call, so storing it would cost the user a page before
-    /// the session is ended. The answer also carries new tokens, and none of them may be stored.
+    /// #974: the API refuses a blank token on every call. None of the answer's other new tokens may be
+    /// stored either.
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -433,8 +416,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #974, owner decision: a token with no lifetime would look expired at once, so every page would
-    /// redeem the refresh token again. Such an answer ends the session like any other bad answer.
+    /// #974: a token with no lifetime would look expired at once, so every page would redeem the refresh
+    /// token again.
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -474,10 +457,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// ADR-0067 decision 2: the tokens are opaque to the website, so it stores a renewal answer whatever its
-    /// tokens look like. That covers an encrypted access token, a reference token, and text a request header
-    /// cannot carry. The translation API judges the access token, and the sign-in server judges the refresh
-    /// token and the ID token it gets back as the sign-out's hint.
+    /// ADR-0067 decision 2: the tokens are opaque to the website, whatever they look like: an encrypted
+    /// token, a reference token, or text a request header cannot carry.
     /// </summary>
     [Theory]
     [InlineData("aGVhZGVy.a2V5.aXY.Y2lwaGVy.dGFn", RotatedIdToken, "rotated-refresh-token")]
@@ -516,8 +497,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// The session ends either way, so the log is the only place that says why. A warning, because our own
-    /// sign-in server never sends such an answer, so something between us and it is broken.
+    /// The log is the only place that says why. A warning, because our own sign-in server never sends such
+    /// an answer.
     /// </summary>
     [Theory]
     [InlineData(null, 300, "missing, empty or blank access_token")]
@@ -552,8 +533,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// Every rejection raises the one-time "session expired" notice, and an unusable answer is no
-    /// exception. The notice is not visible in the context, hence the check on the substitute.
+    /// The notice is not visible in the context, hence the check on the substitute.
     /// </summary>
     [Theory]
     [InlineData(null, 300)]
@@ -582,8 +562,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #974: a blank refresh or ID token counts as no token, like an empty one. It must not replace the
-    /// stored one: a blank refresh token would fail the next refresh, and a blank ID token would leave the
+    /// #974: a blank refresh token would fail the next refresh, and a blank ID token would leave the
     /// sign-out without its hint.
     /// </summary>
     [Theory]
@@ -620,8 +599,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #974 changes nothing for an answer with a positive lifetime. It rejects only a lifetime of zero or
-    /// less, so one second, the smallest positive value, is still stored.
+    /// One second, the smallest positive lifetime, is still stored (#974).
     /// </summary>
     [Theory]
     [InlineData(1)]
@@ -663,9 +641,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1025: a token is refreshed 60 seconds before it runs out, or after half of its lifetime when that
-    /// comes later. With a fixed 60 seconds, a token of a minute or less would be due again the moment it
-    /// arrived.
+    /// #1025: 60 seconds before expiry, or after half the lifetime when that is later.
     /// </summary>
     [Theory]
     [InlineData(1, 0.5)]
@@ -701,9 +677,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1025, the defect itself: after a refresh that answered with a one-minute token, the next page
-    /// redeemed the refresh token again. With rotating refresh tokens, two pages loading at once could then
-    /// use the same one.
+    /// #1025: with rotating refresh tokens, two pages loading at once could otherwise redeem the same one.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_OnTheNextPageAfterARefreshToAOneMinuteToken_DoesNotRefreshAgain()
@@ -746,8 +720,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1025: every session since the first sign-in already carries a refresh time, so each refresh has to
-    /// move it forward. A refresh time left in the past would make every later page refresh again.
+    /// #1025: a refresh time left in the past would make every later page refresh again.
     /// </summary>
     [Theory]
     [InlineData(60, 30)]
@@ -799,8 +772,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1025: the stored refresh time decides, not the last 60 seconds. A one-minute token is kept until
-    /// half of it is gone, although it is inside its last minute from the start.
+    /// #1025: the stored refresh time decides, not the last 60 seconds.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_InsideTheLastMinuteBeforeTheStoredRefreshTime_KeepsTheToken()
@@ -857,8 +829,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1025: a refresh time that cannot be read counts as none, so the token is refreshed in its last 60
-    /// seconds, and the refresh stores a readable one in its place.
+    /// #1025: an unreadable refresh time counts as none, and the refresh stores a readable one.
     /// </summary>
     [Theory]
     [InlineData("not-a-date")]
@@ -892,9 +863,6 @@ public sealed class CookieTokenRefresherTests
             .ShouldBe(Start.AddSeconds(240));
     }
 
-    /// <summary>
-    /// An unreadable refresh time must not make the token due on every page either.
-    /// </summary>
     [Fact]
     public async Task ValidateAsync_BeforeTheLastMinuteWithAnUnreadableStoredRefreshTime_KeepsTheToken()
     {
@@ -924,8 +892,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1025: this code never writes a refresh time later than the expiry. If one is there anyway, trusting
-    /// it would let the token run out before it is refreshed, so the last-minute rule applies.
+    /// #1025: trusting it would let the token run out before it is refreshed.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenTheStoredRefreshTimeIsLaterThanTheExpiry_RefreshesInTheLastMinute()
@@ -955,8 +922,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// A cookie written before #1025 has no stored refresh time. It keeps the old rule and is refreshed in
-    /// the last 60 seconds of its token, so the sessions that are already open carry on.
+    /// A cookie written before #1025 keeps the old rule, so open sessions carry on.
     /// </summary>
     [Theory]
     [InlineData(55, true)]
@@ -989,8 +955,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1026: with no expiry the session would never be renewed again, for the whole life of the cookie, so
-    /// it ends on the next request. The cookie holds both tokens, so the expiry is the only reason.
+    /// #1026: with no expiry the session would never be renewed again. The cookie holds both tokens, so the
+    /// expiry is the only reason.
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -1018,8 +984,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1026: the API refuses a blank token on every call, so the session ends on the next request, before
-    /// a page loses a call to the API. Far from expiry the refresh never runs, so it cannot catch it.
+    /// #1026: the API refuses a blank token on every call, and far from expiry the refresh never runs.
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -1048,9 +1013,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1026: near expiry, a blank stored access token still ends the session. A refresh would hide the
-    /// broken cookie, and it would spend the refresh token on a session that is already dead. Not spending it
-    /// is invisible in the context, hence the check on the substitute.
+    /// #1026: a refresh would hide the broken cookie and spend the refresh token on a dead session. Not
+    /// spending it is invisible in the context, hence the check on the substitute.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenTheStoredAccessTokenIsBlankNearExpiry_RejectsWithoutRedeemingTheRefreshToken()
@@ -1081,9 +1045,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1026: near expiry too, a blank stored refresh token is never sent to the sign-in server, which could
-    /// only answer with an error. Not sending it is invisible in the context, hence the check on the
-    /// substitute.
+    /// #1026: the sign-in server could only answer with an error. Not sending it is invisible in the
+    /// context, hence the check on the substitute.
     /// </summary>
     [Theory]
     [InlineData("")]
@@ -1114,8 +1077,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1026: a blank stored refresh token can renew nothing, so the session ends on the next request, even
-    /// far from expiry. An empty one is stored the same way, since only the sign-in handler skips it.
+    /// #1026: a blank refresh token can renew nothing. An empty one counts too: only the sign-in handler
+    /// skips it.
     /// </summary>
     [Theory]
     [InlineData("")]
@@ -1146,8 +1109,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1026: a missing refresh token is not a broken cookie, because OAuth makes it optional. Such a
-    /// session lives until its first renewal.
+    /// #1026: OAuth makes the refresh token optional, so the session lives until its first renewal.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenTheCookieHasNoRefreshTokenFarFromExpiry_KeepsPrincipal()
@@ -1167,8 +1129,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1026: the dead-session marker is read before the cookie's own checks, so the reason logged is the call
-    /// the API refused.
+    /// #1026: the reason logged is the call the API refused.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenMarkedDeadAndTheCookieHasNoExpiry_ConsumesTheMarkerFirst()
@@ -1193,9 +1154,9 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1026: the sign-out still reads a broken cookie, so it can revoke the refresh token (#964). Ending the
-    /// session here first would skip that revoke and show the "session expired" notice to a user who signed
-    /// out. The notice is not visible in the context, hence the check on the substitute.
+    /// Ending the session here first would skip the sign-out's revoke (#964) and show the "session
+    /// expired" notice to a user who signed out. The notice is not visible in the context, hence the check
+    /// on the substitute.
     /// </summary>
     [Theory]
     [InlineData("the-access-token", null, "refresh-token")]
@@ -1223,7 +1184,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1026: such a cookie means something on the sign-in path was broken, so the reason is a warning.
+    /// #1026: such a cookie means the sign-in path was broken, so it is a warning.
     /// </summary>
     [Theory]
     [InlineData("the-access-token", null, "missing or unreadable expires_at")]
@@ -1256,8 +1217,6 @@ public sealed class CookieTokenRefresherTests
     [Fact]
     public async Task ValidateAsync_WhenSessionMarkedDead_RejectsPrincipalAndSignsOut()
     {
-        // An earlier 401 marked this session's token dead. That check has to reject the session before any
-        // refresh runs, even though the token is far from expiry.
         string accessToken = "stored-access-token";
 
         IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
@@ -1298,8 +1257,6 @@ public sealed class CookieTokenRefresherTests
     [Fact]
     public async Task ValidateAsync_WhenSessionMarkedDead_RaisesOneShotExpiryNotice()
     {
-        // The API refused this token on an earlier request. The soft "session expired" notice must be raised
-        // so the next render can show the banner.
         string accessToken = "stored-access-token";
 
         IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
@@ -1321,9 +1278,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #964: the sign-out revokes the stored refresh token. A refresh first would redeem it, and OpenIddict
-    /// still accepts a redeemed token for its reuse window, so the token in a copied cookie would survive.
-    /// The local sign-out revokes it too, so the same holds there (#1027).
+    /// A refresh first would redeem the token the sign-out revokes, and OpenIddict accepts a redeemed token
+    /// for its reuse window, so a copied cookie's token would survive (#964, #1027).
     /// </summary>
     [Theory]
     [InlineData("/auth/logout")]
@@ -1358,9 +1314,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// Only what routing sends to the logout handler skips the check. A GET to the same path ends on the
-    /// 405 page, and skipping there would let a session marked dead through one more request and let the
-    /// cookie's sliding renewal write back a token that is about to be redeemed.
+    /// Only what routing sends to a sign-out handler skips the check. Skipping a GET to the same path (the
+    /// 405 page) would let a dead session through one more request.
     /// </summary>
     [Theory]
     [InlineData("POST", "/auth/logout-everywhere")]
@@ -1397,8 +1352,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// The sign-out ends the session itself, so a dead-session marker must not reject it first: that would
-    /// hide the tokens from the sign-out and show the "session expired" notice to a user who signed out.
+    /// Rejecting first would hide the tokens from the sign-out and show the "session expired" notice to a
+    /// user who signed out.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_OnTheSignOutRequestWhenMarkedDead_KeepsTheSessionForTheSignOut()
@@ -1426,8 +1381,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1061: the marker names the token the refused call carried, not the user. A phone of the same user
-    /// whose token works keeps its session.
+    /// #1061: the marker names the token, not the user.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenAnotherDeviceOfTheSameUserWasMarkedDead_KeepsThisSession()
@@ -1452,8 +1406,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1061: the marker used to be read and deleted by the first page any device of the user loaded, so the
-    /// laptop whose call was refused kept going. It must still end on the laptop's next page.
+    /// #1061: another device's page must not consume this device's marker.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenAnotherDeviceLoadsAPageFirst_StillSignsOutTheDeviceWhoseCallWasRefused()
@@ -1476,8 +1429,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1061: the sign-out used to delete the marker of every device of the user, so signing out on the phone
-    /// let the laptop whose call was refused keep going.
+    /// #1061: a sign-out on another device must not clear this device's marker.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_OnTheSignOutRequestOfAnotherDevice_StillSignsOutTheDeviceWhoseCallWasRefused()
@@ -1504,9 +1456,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// A sign-out from a tab that is closing arrives with its request already cancelled. Off the sign-out, the
-    /// dead-session lookup honours that cancellation and throws. On the sign-out nothing may run first, or the
-    /// sign-out never reads the refresh token it has to revoke (#964).
+    /// A closing tab's sign-out arrives already cancelled, and the dead-session lookup would throw. Nothing
+    /// may run first, or the sign-out never reads the refresh token it has to revoke (#964).
     /// </summary>
     [Fact]
     public async Task ValidateAsync_OnTheSignOutRequestAfterTheBrowserLeft_KeepsTheSessionWithoutChecks()
@@ -1535,10 +1486,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1027: the 401 may come from the TMS API, which checks the access token alone and revokes nothing, so
-    /// the refresh token can still be valid. When the auth server has already revoked it, the revoke does no
-    /// harm: OpenIddict answers 200 for a token that is no longer valid. The session is ended for a real
-    /// reason here, so a browser that left does not stop the revoke.
+    /// #1027: the 401 may come from the TMS API, which revokes nothing, so the refresh token can still be
+    /// valid. The session ends for a real reason, so a browser that left does not stop the revoke.
     /// </summary>
     [Theory]
     [InlineData(false)]
@@ -1566,9 +1515,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1027: the auth server has already swapped the stored refresh token for the one in the answer. The
-    /// swapped one is still accepted for OpenIddict's reuse window, and the new one for hours, so both are
-    /// revoked. Revoking only the stored one leaves the new one valid (checked against OpenIddict 7.7.1).
+    /// #1027: the auth server already swapped the stored token for the new one. The old one is accepted for
+    /// OpenIddict's reuse window and the new one for hours, so both are revoked.
     /// </summary>
     [Theory]
     [InlineData(null, 300)]
@@ -1602,8 +1550,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// An answer with no refresh token, a blank one or the stored one again leaves only the stored token to
-    /// revoke, and that one is revoked once.
+    /// Only the stored token is left to revoke, and it is revoked once.
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -1631,8 +1578,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1027: a refused refresh is not always a dead token. A lockout, for one, revokes nothing, and the
-    /// token works again once the lockout ends.
+    /// #1027: a refused refresh is not always a dead token. A lockout revokes nothing, and the token works
+    /// again once it ends.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenNearExpiryAndTheRefreshIsRefused_RevokesTheStoredRefreshToken()
@@ -1655,10 +1602,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// A browser that leaves during the refresh cancels it, which the token client reports as a temporary
-    /// failure. Once the access token has run out, that ends the session, but the token is not dead. The
-    /// browser never gets the deleted cookie and sends the same refresh token on its next request, so a
-    /// revoke here would sign out a user who only clicked a second link.
+    /// The browser never gets the deleted cookie and sends the same refresh token again, so a revoke here
+    /// would sign out a user who only clicked a second link.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenTheBrowserLeavesDuringTheRefreshAfterTheAccessTokenRanOut_KeepsTheStoredRefreshTokenAlive()
@@ -1700,8 +1645,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// The revoke runs only when a session ends, so a normal page load pays no extra call to the auth
-    /// server (#923, #940).
+    /// A normal page load pays no extra call to the auth server (#940).
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenSessionAlive_RevokesNothing()
@@ -1747,8 +1691,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// #1027: a stuck auth server never holds the page longer than the sign-out's own limit, even with two
-    /// tokens to revoke.
+    /// #1027: even with two tokens to revoke.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenTheAuthServerNeverAnswersTheRevokes_HoldsTheRequestNoLongerThanTheSignOutTimeLimit()
@@ -1791,8 +1734,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// The revoke is best effort: whatever it hits, the session still ends and no exception reaches the
-    /// cookie handler, which would turn it into an error page.
+    /// An exception reaching the cookie handler would turn into an error page.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenTheRevokeThrows_StillEndsTheSession()
@@ -1872,8 +1814,8 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// The refresh tokens sent to the auth server's revocation endpoint. A revoke is not visible in the
-    /// result, so the calls to the token client, the boundary to the auth server, are read instead.
+    /// A revoke is not visible in the result, so the calls to the token client, the boundary to the auth
+    /// server, are read instead.
     /// </summary>
     private static string[] RevokedRefreshTokens(ITokenEndpointClient tokenEndpointClient) =>
         tokenEndpointClient.ReceivedCalls()
@@ -1960,7 +1902,7 @@ public sealed class CookieTokenRefresherTests
     }
 
     /// <summary>
-    /// The next request of the same browser: its cookie carries the tokens an earlier request stored.
+    /// The next request of the same browser, whose cookie carries the tokens an earlier request stored.
     /// </summary>
     private static CookieValidatePrincipalContext CreateContext(
         AuthenticationProperties properties,

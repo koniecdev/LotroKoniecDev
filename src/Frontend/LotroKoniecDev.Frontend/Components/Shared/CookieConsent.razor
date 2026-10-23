@@ -37,8 +37,6 @@
     private string PrivacyPolicyCookiesUrl =>
         $"{AuthSystemOptions.Value.BaseUrl.TrimEnd('/')}/Account/PrivacyPolicy#cookies";
 
-    // Server-side, one-shot decision (no JS, no interactivity): the banner is hidden the moment
-    // the consent cookie is present on the request. HttpOnly does not affect this server read.
     protected override void OnInitialized()
     {
         string? cookieValue = HttpContextAccessor.HttpContext?.Request.Cookies[CookieConsentCookie.Name];

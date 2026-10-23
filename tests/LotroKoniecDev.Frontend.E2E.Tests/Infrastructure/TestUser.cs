@@ -1,9 +1,7 @@
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// A brand-new, unique account for one registration flow. The username and e-mail end in a GUID, so a
-/// rerun never clashes with the auth server's uniqueness rules, and the e-mail goes to Mailpit, where
-/// any domain works because nothing leaves the machine.
+/// The username and e-mail end in a GUID, so a rerun never clashes with the uniqueness rules.
 /// </summary>
 internal sealed class TestUser
 {
@@ -20,14 +18,10 @@ internal sealed class TestUser
 
     public string Password { get; }
 
-    /// <summary>
-    /// One address nobody has used yet, in the domain Mailpit accepts. A flow that only needs a free
-    /// address calls this instead of building a whole second user.
-    /// </summary>
     public static string CreateRandomEmail() => $"e2e{Guid.NewGuid().ToString("N")[..10]}@example.com";
 
     /// <summary>
-    /// Built from fragments so secret scanners don't mistake the test literal for a leaked credential.
+    /// Built from fragments, so no secret scanner mistakes it for a leaked credential.
     /// </summary>
     public static string ComposePassword(string prefix) => prefix + "-E2ePas" + "sw0rd!";
 

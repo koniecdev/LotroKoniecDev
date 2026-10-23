@@ -8,14 +8,9 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.ImportExport;
 
 /// <summary>
-/// The rule that decides which versions the import page offers, pulled out so it can be tested at all.
-/// Blazor's static SSR form binding never sends a file input set from code, so in bUnit the page's own
-/// submit stops at the "choose a file" check and this logic would otherwise ship untested.
-/// <para>
-/// The rule is only the server's <c>import</c> rel (#610), which the API leaves out for anyone who is
-/// not an admin and for a superseded version. The status is deliberately not read here: a superseded row
-/// that somehow carried the rel would still be offered, because the server decides, not this page.
-/// </para>
+/// The rule is only the server's <c>import</c> rel (#610); the status is never read, so a superseded row
+/// that carried the rel would still be offered. In bUnit the page's own submit stops at the "choose a file"
+/// check, so this is the only place the rule is tested.
 /// </summary>
 public sealed class ImportTargetsTests
 {
@@ -35,8 +30,7 @@ public sealed class ImportTargetsTests
     [Fact]
     public void Importable_WhenNoVersionAdvertisesTheRel_IsEmptySoThePageOffersNoSelector()
     {
-        // What a non-admin sees, and what an admin sees once every version is superseded. The page must
-        // say so instead of showing a selector where every option would be refused on submit.
+        // What a non-admin sees, and what an admin sees once every version is superseded.
         IReadOnlyList<GameVersionResponse> result =
             ImportTargets.Importable([Version("47.0", importHref: null), Version("46.0", importHref: null)]);
 
@@ -62,8 +56,7 @@ public sealed class ImportTargetsTests
     [Fact]
     public void FindImportHref_WhenTheVersionWithholdsTheRel_IsNullSoTheUploadIsRefused()
     {
-        // The case that really happens: an admin posting against a superseded version. A null here means
-        // we refuse and show a message, never that we build a path from the id.
+        // An admin posting against a superseded version. Null means we refuse, never that we build a path.
         GameVersionResponse version = Version("47.0", importHref: null);
 
         ImportTargets.FindImportHref([version], version.Id.Value).ShouldBeNull();

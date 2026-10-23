@@ -35,10 +35,8 @@
     {
         @if (_draftText is not null)
         {
-            @* The recovery path: a save was sent while the row could not be loaded. The form is drawn
-               here, so the save still runs (#1122). When it fails, the error shows with what the
-               translator typed, in a form they can send again, so the text is never lost without a
-               word. The hidden key fields survived the post. *@
+            @* A save sent while the row could not be loaded still runs (#1122). When it fails, the typed
+               text stays in a form that can be sent again. The hidden key fields survived the post. *@
             @if (_saveProblem is not null)
             {
                 <div class="error-message" role="alert">
@@ -78,9 +76,8 @@
         }
         else if (_loadProblem is not null)
         {
-            @* The redirect after a save or an approve loads the row again. The action happened even when
-               that load fails, so its confirmation still shows (#1122). A post carries the flag only
-               because the address still has it, so it shows no old confirmation. *@
+            @* The action happened even when the reload after its redirect fails, so the confirmation still
+               shows (#1122). A post keeps the flag only because the address still has it, so it shows none. *@
             @if (_postedFormName is null && Saved)
             {
                 <div class="status-message status-success" role="status">
@@ -129,9 +126,8 @@
             </span>
         </div>
 
-        @* A success flag stays in the URL after its redirect. Hide that old message when the other
-           action has just failed on this render, so a new error never sits next to an old
-           confirmation. *@
+        @* A success flag stays in the URL after its redirect. It is hidden when the other action just
+           failed, so a new error never sits next to an old confirmation. *@
         @if (_saveProblem is not null)
         {
             <div class="status-message status-error" role="alert">
@@ -258,10 +254,8 @@
     private long GossipIdField { get; set; }
 
     /// <summary>
-    /// Success flags the redirect puts into the query string, so the confirmation for a save or an approve
-    /// survives the redirect with no per-user state on the server and the page stays pure SSR (#321).
-    /// They stay if the user reloads the same URL by hand, which is a deliberate and harmless trade-off
-    /// against the heavier one-time cookie.
+    /// Set by the redirect, so the confirmation needs no per-user state on the server (#321). A manual
+    /// reload shows it again, which is harmless.
     /// </summary>
     [SupplyParameterFromQuery]
     private bool Saved { get; set; }
@@ -297,12 +291,9 @@
         _saveProblem = null;
         _draftText = DraftField ?? string.Empty;
 
-        // Follow the upsert href the server sent, never one that came with the post, because a changed
-        // post could send the request, and its token, to another host.
-        // The upsert rel does not depend on the row; it always points at the collection PUT. So whenever
-        // the row cannot give it to us, either because it could not be loaded on a recovery resubmit or
-        // because it was loaded without that rel, we read the same rel from the service document instead
-        // of using a path written into the code (#610). The server still decides on the request.
+        // Never an href that came with the post: a changed post could send the request, and its token, to
+        // another host. The upsert rel always points at the collection PUT, so when the row cannot give it,
+        // the service document does (#610). The server still decides on the request.
         string? upsertHref = _detail?.Links.FindLink(Rels.Upsert)?.Href;
         if (upsertHref is null)
         {
@@ -321,10 +312,7 @@
 
         if (result.IsSuccess)
         {
-            // Redirect after post (#321): go to the row's GET view, so a browser reload is a plain GET
-            // with no "resend this form?" prompt, and the fresh load reads the server's links again, which
-            // makes the approve button appear on a row that was just saved with no manual refresh.
-            // On failure we deliberately do not redirect, so the typed draft and the error stay on screen.
+            // A failure does not redirect, so the typed draft and the error stay on screen.
             Navigation.NavigateTo(EditorUriWithFlag("saved"));
             return;
         }
@@ -336,9 +324,8 @@
     {
         _approveProblem = null;
 
-        // Driven by the links: the API only sends the approve rel to a reviewer on a Draft or NeedsReview
-        // row, so its presence on the freshly loaded row is the whole check. Nothing here works out the
-        // role or the status.
+        // The API sends the approve rel only to an admin on a Draft or NeedsReview row, so its presence is
+        // the whole check.
         LinkDto? approveLink = _detail?.Links.FindLink(Rels.Approve);
         if (approveLink is null)
         {
@@ -348,9 +335,6 @@
         ApiResult result = await Loader.ApproveAsync(approveLink.Href, CancellationToken.None);
         if (result.IsSuccess)
         {
-            // Redirect after post (#321): the redirect's GET loads the row again, so the status badge and
-            // the approve button, which is now gone, show the approved state. It replaces the inline
-            // reload and makes a browser refresh safe.
             Navigation.NavigateTo(EditorUriWithFlag("approved"));
             return;
         }
@@ -359,10 +343,8 @@
     }
 
     /// <summary>
-    /// Where the redirect after a post goes: this row's own GET view with a one-time success flag.
-    /// Redirecting after a successful post makes a browser reload a plain GET and runs the load again, so
-    /// the server's fresh links appear without a manual refresh, and all of it needs no per-user state on
-    /// the server (#321).
+    /// Redirect after post (#321): a reload is a plain GET, and the fresh load shows the server's new
+    /// links, such as the approve button after a save.
     /// </summary>
     private string EditorUriWithFlag(string successFlag) =>
         string.Create(CultureInfo.InvariantCulture, $"/editor/{Id}?{successFlag}=true");

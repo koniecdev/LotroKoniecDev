@@ -5,10 +5,8 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// Pins how the browser-image tag is derived, so updating <c>Microsoft.Playwright</c> can never leave
-/// the server in the container speaking a different protocol from the client. That is the failure
-/// ADR-0015 is about.
-/// It is a pure test and needs no Docker: it joins no collection, so it never starts the stack.
+/// ADR-0015: the container's server must speak the client's protocol. A pure test: it joins no collection,
+/// so it never starts the stack.
 /// </summary>
 public sealed class PlaywrightBrowserImageTests
 {
@@ -35,9 +33,8 @@ public sealed class PlaywrightBrowserImageTests
     [Fact]
     public void Tag_TracksTheClientReleaseVersion_NotThePlaceholderInformationalVersion()
     {
-        // Cross-check against an INDEPENDENT source (FileVersion): Microsoft.Playwright's
-        // InformationalVersion is a "1.0.0" placeholder, so a derivation keyed off it would yield the
-        // unpullable v1.0.0-noble. FileVersion carries the real release, matching the published tags.
+        // Cross-checked against FileVersion: InformationalVersion is a "1.0.0" placeholder, which would
+        // give the unpullable v1.0.0-noble.
         Version releaseVersion = new(FileVersionInfo
             .GetVersionInfo(typeof(IPlaywright).Assembly.Location)
             .FileVersion!);

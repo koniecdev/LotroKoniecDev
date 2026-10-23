@@ -23,8 +23,7 @@ public sealed class TranslationListLoaderTests
     private static readonly string ResolvedTranslationsUri =
         BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.Translations);
 
-    // The same JSON options the Frontend's HTTP layer uses (HttpClientApiExtensions), so the stub
-    // body deserializes through the exact same contract the loader relies on.
+    // The same JSON options as HttpClientApiExtensions.
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() }
@@ -106,8 +105,7 @@ public sealed class TranslationListLoaderTests
     [Fact]
     public async Task LoadAsync_PastTheLastPage_SucceedsWithNoItemsSoThePageShowsTheEmptyState()
     {
-        // The API echoes the requested page with an empty Items collection when the caller overshoots;
-        // the page must degrade to "Brak wyników" rather than treat it as a failure.
+        // A page past the end comes back empty, which is not a failure.
         TranslationListLoader loader = CreateLoader(
             PageOf([], page: 99, pageSize: 50, totalCount: 120),
             out StubHttpMessageHandler handler);

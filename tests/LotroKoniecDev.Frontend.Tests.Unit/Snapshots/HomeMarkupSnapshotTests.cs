@@ -14,24 +14,11 @@ using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Snapshots;
 
 /// <summary>
-/// Pins the rendered markup of the landing page (#571). <c>HomeTests</c> checks the few selectors each
-/// behaviour is about, and the snapshot covers everything in between: the order of the sections, the
-/// buttons, the parts of the progress bar and the download link. So an accidental change to the public
-/// face of the project fails loudly instead of shipping.
+/// Pins the landing page's whole markup (#571); <c>HomeTests</c> checks the selectors each behaviour is
+/// about. The counters have five digits so the non-breaking group separator shows. The empty-catalog state
+/// has its own snapshot, because it changes the counter classes and collapses the bar. Read the diff before
+/// you accept a new verified file.
 /// </summary>
-/// <remarks>
-/// The counters have five digits on purpose. <c>HomeProgressView.Format</c> prints them with a fixed
-/// <c>NumberFormatInfo</c> whose group separator, a non-breaking space, only appears above 999, and that
-/// separator exists so the output never depends on the machine's culture. A snapshot with small numbers
-/// would never show it.
-/// The empty-catalog state has its own snapshot for the same reason: it is the branch that changes the
-/// counter classes and collapses the bar.
-/// <para>
-/// The page is static SSR, so its markup depends only on the stubbed progress result and on whether the
-/// visitor is logged in. Nothing here depends on the clock, the culture or a build fingerprint.
-/// Accepting a new verified file is a deliberate act: read the diff before you do it.
-/// </para>
-/// </remarks>
 public sealed class HomeMarkupSnapshotTests : BunitContext
 {
     private readonly ITranslationSystemClient _client = Substitute.For<ITranslationSystemClient>();
@@ -58,8 +45,7 @@ public sealed class HomeMarkupSnapshotTests : BunitContext
     [Fact]
     public async Task Render_WhenProgressUnavailable_MatchesTheDegradedLandingPageMarkup()
     {
-        // The outage fallback is the state nobody looks at in a browser, so it is exactly the one a
-        // markup regression would reach production in.
+        // Nobody looks at the outage state in a browser, so a regression there would reach production.
         AddAuthorization().SetNotAuthorized();
         StubProgress(ApiResult.Failure<PublicProgressResponse>(
             new ProblemDetails { Title = "API nieosiągalne", Status = 503 }));
@@ -72,8 +58,7 @@ public sealed class HomeMarkupSnapshotTests : BunitContext
     [Fact]
     public async Task Render_WithEmptyCatalog_MatchesTheZeroStateMarkup()
     {
-        // Before the first import every counter is zero: the tiles take their "zero" class and the
-        // meter has to collapse without dividing by zero.
+        // Before the first import the meter must collapse without dividing by zero.
         AddAuthorization().SetNotAuthorized();
         StubProgress(ApiResult.Success(new PublicProgressResponse(
             Total: 0, Translated: 0, Approved: 0, CurrentGameVersion: null)));
@@ -101,9 +86,8 @@ public sealed class HomeMarkupSnapshotTests : BunitContext
             .Returns(result);
 
     /// <summary>
-    /// Puts the page inside a render fragment and finds it with <c>FindComponent</c>. The page's
-    /// <c>AuthorizeView</c> resolves asynchronously, and the typed <c>Render&lt;Home&gt;</c> does not see
-    /// that on its first pass. <c>HomeTests</c> uses the same trick.
+    /// Through a render fragment, because the typed <c>Render&lt;Home&gt;</c> does not see the page's
+    /// asynchronous <c>AuthorizeView</c> on its first pass.
     /// </summary>
     private IRenderedComponent<HomeComponent> RenderHome()
     {

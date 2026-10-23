@@ -3,12 +3,10 @@ using System.Text;
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 
 /// <summary>
-/// Drops the charset from an answer's <c>Content-Type</c> when .NET cannot decode by that name (#972).
-/// .NET does not know some names, such as "utf8", and refuses others, such as "utf-7". The OIDC handler
-/// and its metadata fetch read the sign-in server's answers with <c>ReadAsStringAsync</c>, which throws
-/// on such a name, so sign-in failed. With no charset, that read looks for a byte order mark and
-/// otherwise uses UTF-8, which is what JSON between services is (RFC 8259 §8.1). Our own clients do not
-/// need this: they read the bytes as UTF-8 and never look at the charset.
+/// Drops a charset .NET cannot decode by ("utf8", "utf-7") from <c>Content-Type</c> (#972). The OIDC
+/// handler reads the sign-in server's answers with <c>ReadAsStringAsync</c>, which throws on such a name.
+/// With no charset it uses UTF-8, which is what JSON between services is (RFC 8259 §8.1). Our own clients
+/// read the bytes as UTF-8 and do not need this.
 /// </summary>
 internal sealed class UnknownCharsetDelegatingHandler : DelegatingHandler
 {

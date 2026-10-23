@@ -50,8 +50,7 @@ public sealed partial class CookieJarBrowser : IDisposable
         SendAsync(new HttpRequestMessage(HttpMethod.Get, pathAndQuery));
 
     /// <summary>
-    /// Loads a page to the end and throws the answer away. A streaming page makes its API calls while it
-    /// streams, after the headers have arrived, so only the whole body proves they ran.
+    /// A streaming page makes its API calls after the headers arrived, so only the whole body proves they ran.
     /// </summary>
     public async Task LoadAsync(string pathAndQuery)
     {
@@ -59,13 +58,11 @@ public sealed partial class CookieJarBrowser : IDisposable
         await response.Content.ReadAsStringAsync();
     }
 
-    /// <summary>The cookies an answer sets or deletes, as the raw header values.</summary>
     public static string[] SetCookiesOf(HttpResponseMessage response) =>
         response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? setCookies) ? [.. setCookies] : [];
 
     /// <summary>
-    /// Loads a page and reads the antiforgery token from a form on it. The token belongs to the session, so
-    /// it serves every form the session posts, not only the one it was read from.
+    /// The token belongs to the session, so it serves every form the session posts.
     /// </summary>
     public async Task<string> ReadAntiforgeryTokenAsync(string pageUri)
     {

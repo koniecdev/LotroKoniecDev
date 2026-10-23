@@ -7,19 +7,16 @@ using Microsoft.AspNetCore.WebUtilities;
 namespace LotroKoniecDev.Frontend.Components.Pages.ImportExport;
 
 /// <summary>
-/// Carries an import's summary, and the version it went into, across the redirect after the import
-/// (#933). The page redirects so that the version list loads in a new request with a renewed token: the
-/// token of the import request may already be dead when an import of several minutes ends, and the TMS
-/// allows no clock skew.
-/// Both travel in the query string, so the server keeps no state per user, like the other redirects
-/// after a post (#321). They are protected: a link that someone else wrote can neither put text on this
-/// page nor choose the version the next upload goes to.
+/// Carries an import's summary and version across the redirect after the import, so the list loads in a
+/// new request with a renewed token: a long import can outlive its token, and the TMS allows no clock skew
+/// (#933). The value travels in the query string, protected, so a link someone else wrote can neither put
+/// text on the page nor choose the version of the next upload.
 /// </summary>
 internal sealed class ImportSummaryRedirect
 {
     internal const string SummaryParameter = "summary";
 
-    /// <summary>A new version here makes the page ignore links written for an older shape of the value.</summary>
+    /// <summary>Bump it when the value's shape changes, so links for the old shape are ignored.</summary>
     internal const string Purpose = "LotroKoniecDev.Frontend.ImportSummary.v1";
 
     private const string PagePath = "/import-export";
@@ -40,8 +37,7 @@ internal sealed class ImportSummaryRedirect
             _protector.Protect(JsonSerializer.Serialize(completedImport, JsonOptions)));
 
     /// <summary>
-    /// A value this page did not write, one written with a key the key ring no longer has, or one written
-    /// for another shape, shows no summary at all.
+    /// A value this page did not write, or one whose key or shape is gone, shows no summary.
     /// </summary>
     public CompletedImport? Read(string? protectedValue)
     {

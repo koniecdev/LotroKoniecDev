@@ -29,8 +29,7 @@ public sealed class GameVersionsLoaderTests
     private static readonly string ResolvedGameVersionsUri =
         BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.GameVersions);
 
-    // The same JSON options the Frontend's HTTP layer uses (HttpClientApiExtensions), so the stub
-    // body deserializes through the exact same contract the loader relies on.
+    // The same JSON options as HttpClientApiExtensions.
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() }
@@ -54,8 +53,7 @@ public sealed class GameVersionsLoaderTests
     [Fact]
     public async Task ListGameVersionsAsync_PreservesTheCollectionRegisterRelSoTheFormCanBeGated()
     {
-        // The collection's admin-only `register` rel has to survive deserialization, because the page
-        // shows the register form only when it is there (#158) instead of checking the role itself.
+        // The page shows the register form only when the `register` rel survives (#158).
         CollectionResponse<GameVersionResponse> collection = new()
         {
             Items = [VersionFixture()],
@@ -87,9 +85,8 @@ public sealed class GameVersionsLoaderTests
     [Fact]
     public async Task ListGameVersionsAsync_WhenTheGameVersionsRelIsNotAdvertised_FailsWithoutCallingTheApi()
     {
-        // `game-versions` needs the translator role, while the /game-versions page only needs a login, so
-        // a logged-in user who is not a translator reaches this by simply navigating there. It has to be
-        // a clear failure and never a call to a guessed path (#610).
+        // `game-versions` needs the translator role but the page only a login, so a signed-in
+        // non-translator gets here. A clear failure, never a guessed path (#610).
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
         GameVersionsLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
 

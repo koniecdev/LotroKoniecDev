@@ -37,10 +37,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 
 /// <summary>
-/// Calls the GDPR export download route's handler directly, with no web host. On success it has to join
-/// the auth part with the TMS contribution part (ADR-0032) into an indented camelCase JSON attachment.
-/// When the auth part fails it has to return the API's problem, or our own 502. When the TMS part fails
-/// it must still serve the file, marked <c>isComplete: false</c>.
+/// Calls the GDPR export route's handler directly, with no web host. Only the auth part can fail the
+/// download; a failed TMS part marks the file <c>isComplete: false</c> (ADR-0032).
 /// </summary>
 public sealed class AccountEndpointsExtensionsTests
 {
@@ -142,9 +140,7 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenTheContributionRelIsNotAdvertised_ServesTheFileWithIsCompleteFalse()
     {
-        // A rel we cannot resolve is treated exactly like a failed TMS call (ADR-0032): the Art. 15
-        // document still downloads and is honestly marked incomplete. It must never fall back to a
-        // guessed path, and it must never fail the auth part's download either.
+        // A rel we cannot resolve counts as a failed TMS call, never a guessed path (ADR-0032).
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
         _discoveryCache.GetTranslationSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(new TranslationDiscoveryResponse("LotroKoniecDev.TranslationSystem")));
@@ -166,7 +162,6 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenTmsDiscoveryIsUnavailable_ServesTheFileWithIsCompleteFalse()
     {
-        // A TMS outage only makes the file incomplete. Only the auth part can fail the download.
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
         _discoveryCache.GetTranslationSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Failure<TranslationDiscoveryResponse>(new ProblemDetails { Status = 503 }));
@@ -183,9 +178,7 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenTmsReturnsAMalformedBody_StillServesTheFileWithIsCompleteFalse()
     {
-        // A 200 whose body is not JSON counts as a failed TMS part. The HTTP layer turns it into a
-        // failure (#638), and the route marks the file incomplete instead of failing the download
-        // (ADR-0032).
+        // A 200 whose body is not JSON counts as a failed TMS part (#638).
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
         ITranslationSystemClient tmsClient = CreateTmsClient(
             StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "this is not json"));
@@ -253,9 +246,8 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenTheAuthLegAnswersAMaintenancePageWithA200_ServesThePolishStatusCopyInsteadOfThrowing()
     {
-        // The #637 outage with a success status: the proxy's maintenance page arrives as 200 with HTML.
-        // That used to throw a JsonException out of the route (#638). It is a failed auth part like any
-        // other and gives the same Polish sentence the proxy's own 502 does.
+        // The proxy's maintenance page arrives as 200 with HTML (#638). It must read like the proxy's
+        // own 502.
         StubDiscoveryWithExportLink();
         AccountLoader loader = new(
             _discoveryCache,
@@ -274,8 +266,8 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenUpstreamReturnsAnEnglishProblem_RewritesItInPolish()
     {
-        // A download route answers with a raw problem body the browser shows verbatim, so it carries
-        // the same errorCode→Polish rule as a rendered page (#548 / ADR-0044).
+        // The browser shows a download route's problem body as it is, so the same Polish rule applies
+        // (ADR-0044).
         StubDiscoveryWithExportLink();
         AccountLoader loader = new(
             _discoveryCache,
@@ -297,8 +289,8 @@ public sealed class AccountEndpointsExtensionsTests
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(404);
         problem.ProblemDetails.Title.ShouldBe("Nie znaleziono konta.");
-        // The English only restates the Polish, so it is dropped here exactly as it is on a page (#703),
-        // which leaves the trace id as the only thing tying a user's report to the server log.
+        // The English only restates the Polish, so it is dropped (#703); the trace id ties a report to
+        // the server log.
         problem.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.TechnicalDetailExtensionKey);
         // Read off the wire, so the value is a JsonElement rather than a string.
         problem.ProblemDetails.Extensions[ApiProblemCopy.TraceIdExtensionKey]!.ToString().ShouldBe("00-abc-def-01");
@@ -373,8 +365,7 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenTheSessionExpired_SendsTheUserBackToTheCleanPage()
     {
-        // No marker. The 401 marked the session dead, so the redirected request signs the user out and
-        // sends them to log in; a "session expired" sentence would greet them right after they did.
+        // No marker: a "session expired" sentence would greet the user right after the new login.
         StubDiscoveryWithExportLink();
         AccountLoader loader = new(
             _discoveryCache,
@@ -395,8 +386,7 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenTheAccountsConfirmationBudgetIsSpent_SendsTheUserBackWithThePasswordThrottledMarker()
     {
-        // The auth API refuses the password POST with the account's own budget (ADR-0053): a 429 that
-        // carries a code and a 15-minute window, so the page has to say a longer wait than the bare 429.
+        // The account's own budget (ADR-0053): a 429 with a code and a 15-minute window.
         StubDiscoveryWithExportLink();
         AccountLoader loader = new(
             _discoveryCache,
@@ -417,9 +407,8 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenTheAuthApiThrottles_SendsTheUserBackToThePageWithTheThrottledMarker()
     {
-        // A bare 429 with no code is the per-address bucket the account GET on this route sits on, keyed
-        // on the reader's own address (ADR-0054). A technical problem page is the wrong answer to "come
-        // back in a minute".
+        // A bare 429 is the per-address limit (ADR-0054). A problem page is the wrong answer to "come back
+        // in a minute".
         StubDiscoveryWithExportLink();
         AccountLoader loader = new(
             _discoveryCache,
@@ -440,8 +429,8 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenA400CarriesNoErrorCode_ServesTheProblemInsteadOfBlamingThePassword()
     {
-        // The wrong-password marker is decided by the API's own error code, not by the bare status, so
-        // a validation rule added later cannot come out as "your password is wrong" (#690 review).
+        // The error code decides, not the status, so a later validation rule never reads as "wrong
+        // password".
         StubDiscoveryWithExportLink();
         AccountLoader loader = new(
             _discoveryCache,
@@ -523,8 +512,7 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_OnSuccess_LogsWhoTookTheFileAndFromWhere()
     {
-        // The auth API only ever sees this service as the caller, so this line is the one that carries
-        // the reader's real address (#690). A log line does not show in the result, so it is pinned.
+        // The auth API only sees this service, so this line carries the reader's real address (#690).
         AccountDataExportResponse envelope = AccountLoaderTests.CreateEnvelope();
         AccountLoader loader = CreateLoaderReturning(envelope);
         using CapturingLoggerProvider logs = new();
@@ -616,8 +604,7 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenTheAccountDoesNotAdvertiseTheDownload_ServesAProblemAndNoFile()
     {
-        // A missing rel means the server does not offer the operation to this caller. We never compose
-        // the path ourselves (#610).
+        // We never compose the path ourselves (#610).
         StubDiscoveryWithExportLink();
         AccountLoader loader = new(
             _discoveryCache,
@@ -649,14 +636,13 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public void MapAccountEndpoints_TheDownloadRoute_DemandsTheAntiforgeryToken()
     {
-        // The requirement comes from binding a form field, so removing that binding would silently
-        // remove the CSRF protection.
+        // The requirement comes from binding a form field, so removing it would silently remove the CSRF
+        // protection.
         DownloadRoute().Metadata.GetMetadata<IAntiforgeryMetadata>()!.RequiresValidation.ShouldBeTrue();
     }
 
     /// <summary>
-    /// Route metadata is read off a bare route builder, with no host behind it: a web host would read
-    /// configuration files and start watching them, and this suite is pure.
+    /// A bare route builder: a web host would read and watch configuration files, and this suite is pure.
     /// </summary>
     private static RouteEndpoint DownloadRoute()
     {
@@ -692,9 +678,8 @@ public sealed class AccountEndpointsExtensionsTests
     }
 
     /// <summary>
-    /// The download follows the <c>download-account-data</c> link on the account resource, so the stub
-    /// answers both calls with an envelope that advertises it. The stub replies the same way to the GET
-    /// and the POST, which is all these tests need.
+    /// The stub answers the GET and the POST alike, with an envelope that advertises the
+    /// <c>download-account-data</c> link.
     /// </summary>
     private AccountLoader CreateLoaderReturning(AccountDataExportResponse envelope)
     {
@@ -706,13 +691,11 @@ public sealed class AccountEndpointsExtensionsTests
                 JsonSerializer.Serialize(WithDownloadLink(envelope), ApiJsonOptions))));
     }
 
-    /// <summary>The account resource as the auth API sends it: advertising the gated download.</summary>
     private static string RepresentationJson() =>
         JsonSerializer.Serialize(WithDownloadLink(AccountLoaderTests.CreateEnvelope()), ApiJsonOptions);
 
     /// <summary>
-    /// Adds the link to whatever the envelope already advertises, as the API does. Its href differs from
-    /// the discovery one on purpose, so a POST sent to the wrong document's link shows up in a test.
+    /// Its href differs from the discovery one, so a POST sent to the wrong document's link shows up.
     /// </summary>
     private static AccountDataExportResponse WithDownloadLink(AccountDataExportResponse envelope)
     {

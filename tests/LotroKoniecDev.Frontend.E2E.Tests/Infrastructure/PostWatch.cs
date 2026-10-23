@@ -4,13 +4,9 @@ using Microsoft.Playwright;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// Counts every POST a page sends. <see cref="HoldAnswersAsync"/> also holds the answer to each POST to
-/// one path for a moment after the server sent it, as a slow connection would. A second click then lands
-/// while the first request is still open, whatever the speed of this machine (#871).
-/// A route that fails is recorded, not thrown: a route handler has no caller that could catch it. The
-/// request is then sent once more without the hold, so the page still ends and the test can report the
-/// record instead of a locator timeout 30 seconds later. If the server had already seen the first send,
-/// the page then shows the server's second answer; the recorded failure is what the test reports.
+/// Counts every POST. <see cref="HoldAnswersAsync"/> holds each answer for a moment, so a second click lands
+/// while the first request is open on any machine (#871). A failed route is recorded, not thrown, and the
+/// request is sent once more without the hold, so the test reports the record instead of a timeout.
 /// </summary>
 internal sealed class PostWatch
 {
@@ -22,8 +18,8 @@ internal sealed class PostWatch
     }
 
     /// <summary>
-    /// Each held request that could not be answered. Without the fix this is expected: the browser drops
-    /// the first request when a second click starts a new one. So check the POST count first.
+    /// Expected without the fix, because the browser drops the first request on a second click, so check the
+    /// POST count first.
     /// </summary>
     public IReadOnlyCollection<string> RouteFailures => _routeFailures;
 

@@ -3,13 +3,9 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 
 /// <summary>
-/// Sends the visitor's address to an API next to the environment's key (ADR-0054, #823). Every call
-/// leaves from this one container, so without it the API would meter all visitors as one client. The
-/// address is the one <c>UseForwardedHeaders</c> resolved from Caddy, so a visitor cannot choose it. The
-/// handler sits on every path to the auth API (the typed account client, the token client and the OIDC
-/// handler's back-channel) and on the TMS API's typed client, each with the key of the API it calls. A
-/// call made outside a request has no visitor and sends neither header, and so does a client with no
-/// key, whose API ignores the address anyway.
+/// Sends the visitor's address next to the environment's key, so the API does not meter all visitors as
+/// this one container (ADR-0054). The address is the one <c>UseForwardedHeaders</c> resolved from Caddy,
+/// so a visitor cannot choose it. A call outside a request, or a client with no key, sends neither header.
 /// </summary>
 internal sealed class FrontendCallerDelegatingHandler : DelegatingHandler
 {

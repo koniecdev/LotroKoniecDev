@@ -10,9 +10,8 @@ using Microsoft.Extensions.Options;
 namespace LotroKoniecDev.Frontend.Tests.Integration.Shared;
 
 /// <summary>
-/// The session cookie a sign-in leaves, protected with the host's own keys. Its access token is far from
-/// expiry, so the cookie check has no renewal to make and never calls the sign-in server. The token is
-/// opaque to the website, so any text serves.
+/// The session cookie, protected with the host's own keys. Its access token is far from expiry, so the
+/// cookie check never calls the sign-in server. The token is opaque to the website, so any text serves.
 /// </summary>
 public static class SignedInSession
 {

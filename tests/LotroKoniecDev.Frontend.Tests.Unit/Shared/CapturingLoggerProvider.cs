@@ -3,9 +3,8 @@ using Microsoft.Extensions.Logging;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Shared;
 
 /// <summary>
-/// Captures what the code under test logged. It is used where the log is the only visible behaviour:
-/// the warning about an unmapped error code (ADR-0044) is deliberately not in the markup, so a null
-/// logger would let that gap pass unnoticed, which is what the ADR forbids.
+/// For where the log is the only visible behaviour, such as the warning about an unmapped error code
+/// (ADR-0044).
 /// </summary>
 internal sealed class CapturingLoggerProvider : ILoggerProvider
 {

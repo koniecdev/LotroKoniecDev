@@ -5,15 +5,9 @@ using TermsComponent = LotroKoniecDev.Frontend.Components.Pages.Terms.Terms;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Snapshots;
 
 /// <summary>
-/// Pins the rendered markup of the terms-of-service page (#571). <c>TermsTests</c> checks the wording
-/// LEGAL-01 and spec 0011 depend on, and the snapshot pins the rest of the document. So a clause that is
-/// dropped, moved or reworded, on a page nobody reads again, shows up as a diff.
+/// Pins the whole terms page (#571); <c>TermsTests</c> checks the wording LEGAL-01 and spec 0011 depend on.
+/// A new verified file here means the terms themselves changed.
 /// </summary>
-/// <remarks>
-/// A legal text is a perfect snapshot target: it is long, completely static, and it should almost never
-/// change. Accepting a new verified file here is a deliberate act: it means the terms themselves
-/// changed.
-/// </remarks>
 public sealed class TermsMarkupSnapshotTests : BunitContext
 {
     public TermsMarkupSnapshotTests()

@@ -4,18 +4,13 @@ using LotroKoniecDev.TranslationSystem.Contracts.Progress;
 namespace LotroKoniecDev.Frontend.Components.Pages.Home;
 
 /// <summary>
-/// What the landing page shows, built from the public progress counters (#309): the whole percentages
-/// for the two-part progress bar, with the empty-catalog case handled and the second part computed from
-/// the already-rounded first one so the two never overlap, plus the numbers formatted with group
-/// separators for the tiles.
-/// It is kept out of the razor file so the maths and the formatting can be unit-tested without rendering
-/// the component, like <see cref="Dashboard.DashboardView"/>.
+/// The landing page's numbers from the public progress counters (#309). Kept out of the razor file so
+/// the maths and the formatting can be unit-tested without rendering.
 /// </summary>
 internal sealed record HomeProgressView
 {
-    // A fixed group separator, a non-breaking space as Polish uses, instead of pl-PL's "N0". The
-    // culture's separator character differs between ICU versions, which would make the output, and the
-    // tests, depend on the machine.
+    // A fixed non-breaking space instead of pl-PL's "N0": the culture's separator differs between ICU
+    // versions, which would make the output depend on the machine.
     private static readonly NumberFormatInfo GroupedFormat = new()
     {
         NumberGroupSeparator = " ",
@@ -46,20 +41,19 @@ internal sealed record HomeProgressView
 
     public int Approved { get; }
 
-    /// <summary>Rows that have Polish and are still waiting for approval (<c>Translated - Approved</c>).</summary>
+    /// <summary><c>Translated - Approved</c>.</summary>
     public int AwaitingApproval { get; }
 
-    /// <summary>Approved rows as a whole percentage of the active catalog, or <c>0</c> when it is empty.</summary>
+    /// <summary><c>0</c> when the catalog is empty.</summary>
     public int ApprovedPercent { get; }
 
     /// <summary>
-    /// The second part of the bar: rows that are translated but not approved, as a whole percentage. It
-    /// is the difference between the two rounded percentages, so the two parts together never exceed the
-    /// translated share. Rounding each of them on its own could push them over.
+    /// The difference between the two rounded percentages, so the two bar parts never exceed the
+    /// translated share. Rounding each on its own could push them over.
     /// </summary>
     public int AwaitingApprovalPercent { get; }
 
-    /// <summary>The dotted notation of the newest processed game version, or <c>null</c> before the first import.</summary>
+    /// <summary>The newest processed game version, or <c>null</c> before the first import.</summary>
     public string? CurrentGameVersion { get; }
 
     public string TotalDisplay => Format(Total);

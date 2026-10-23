@@ -51,8 +51,7 @@ public sealed class HttpClientApiExtensionsTests
     [Fact]
     public async Task GetBodyStreamAsync_OnSuccess_ReturnsTheBodyWithoutJsonParsing()
     {
-        // The body is a plain text file and not JSON, so it has to come back unchanged. The JSON helpers
-        // would throw on it.
+        // A plain text file: the JSON helpers would throw on it.
         const string body = "# polish.txt\n620756992||1001||Witaj||NULL||NULL||1";
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
 
@@ -66,9 +65,8 @@ public sealed class HttpClientApiExtensionsTests
     [Fact]
     public async Task GetBodyStreamAsync_OnSuccess_LeavesTheBodyOnTheConnectionAndKeepsItsLength()
     {
-        // Without ResponseHeadersRead the client copies the whole body into memory before it returns,
-        // about 82 MB per request on a public route (PERF-09, #715). A StringContent is in memory
-        // already, so only a content that notices being buffered can tell the two apart.
+        // Buffering would copy about 82 MB per request on a public route (#715). Only a content that
+        // notices being buffered can tell.
         byte[] body = Encoding.UTF8.GetBytes("620756992||1001||Witaj||NULL||NULL||1");
         TrackingContent content = new(body);
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, () => content));
@@ -147,7 +145,7 @@ public sealed class HttpClientApiExtensionsTests
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.GetValueOrDefault("X-Deletion-Finalizes-At").ShouldBe("2026-07-25T10:00:00.0000000+00:00");
-        // RFC 9110 says header names ignore case, and the capture has to do the same.
+        // RFC 9110: header names ignore case.
         result.Value.GetValueOrDefault("x-deletion-scheduled-at").ShouldBe("2026-07-11T10:00:00.0000000+00:00");
         result.Value.GetValueOrDefault("X-Missing").ShouldBeNull();
     }
@@ -184,8 +182,7 @@ public sealed class HttpClientApiExtensionsTests
     [Fact]
     public async Task GetApiResultAsync_WhenErrorBodyIsEmpty_SynthesizesAProblemCarryingTheStatusCode()
     {
-        // A plain 401 from the JWT bearer challenge has no body. The code must not crash on the empty
-        // JSON and must keep the status, so the IsUnauthorized check still works.
+        // A bearer challenge's 401 has no body; the status must survive for IsUnauthorized.
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.Unauthorized,
             string.Empty));
@@ -221,8 +218,7 @@ public sealed class HttpClientApiExtensionsTests
     [InlineData("plain text")]
     public async Task GetApiResultAsync_WhenTheErrorBodyCarriesNoProblem_SynthesizesOneThatStaysTranslatable(string body)
     {
-        // The marker means "already Polish, render as-is", so stamping it here skipped the status
-        // ladder and rendered a placeholder during the staging outage (#637).
+        // The marker means "already Polish", so stamping it here would skip the status texts (#637).
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.BadGateway, body));
 
         ApiResult<string> result = await httpClient.GetApiResultAsync<string>("translation-files/pl");
@@ -291,11 +287,8 @@ public sealed class HttpClientApiExtensionsTests
     [InlineData("""{ "total": 1""")]
     public async Task GetApiResultAsync_WhenASuccessBodyIsNotTheApisJson_FailsWithATranslatableBadGatewayProblem(string body)
     {
-        // A proxy serving its maintenance page with a 200, or an auth redirect putting a login page on an
-        // API URL: the status says success, but the body is not the API's answer. That used to throw a
-        // JsonException out of the render (#638). It belongs to the #637 outage class and is handled the
-        // same way: a problem with only a status, which the Polish text ladder answers, never an
-        // exception.
+        // A proxy's maintenance page with a 200: the status says success, but the body is not the API's
+        // answer (#638). It becomes a problem with only a status, never an exception.
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
 
         ApiResult<PublicProgressResponse> result =
@@ -313,9 +306,8 @@ public sealed class HttpClientApiExtensionsTests
     [Fact]
     public async Task GetApiResultAsync_WhenAStronglyTypedIdInTheSuccessBodyIsMalformed_FailsWithATranslatableBadGatewayProblem()
     {
-        // StronglyTypedIdJsonConverter is the one converter here that is ours and not System.Text.Json's.
-        // A bad GUID still has to come out as a JsonException, which we catch, and not as a
-        // FormatException, which would escape the render the way the raw JsonException used to (#638).
+        // StronglyTypedIdJsonConverter is our own converter. A bad GUID must come out as a JsonException,
+        // which we catch, not a FormatException, which would escape the render (#638).
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
             """
@@ -342,8 +334,7 @@ public sealed class HttpClientApiExtensionsTests
     [Fact]
     public async Task GetApiResultAsync_WhenASuccessBodyIsNotTheApisJson_DescribesAsTheSameCopyAsAProxyBadGateway()
     {
-        // The promise this code makes: what the page shows for a maintenance page with a 200 is exactly
-        // what it shows for the proxy's own 502. One kind of outage, one sentence.
+        // A maintenance page with a 200 reads exactly like the proxy's own 502.
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
             "<html><body>Maintenance</body></html>"));
@@ -377,9 +368,7 @@ public sealed class HttpClientApiExtensionsTests
     [InlineData("   ")]
     public async Task GetApiResultAsync_WhenASuccessBodyIsEmpty_FailsWithATranslatableBadGatewayProblem(string body)
     {
-        // The rule next to #638's: a call that promises a value and gets nothing back was not answered
-        // either. It used to succeed with a null Value that every caller then used (#653). Now it counts
-        // as the same unreadable body as a maintenance page and is handled the same way. Only the
+        // A call that promises a value and gets nothing back was not answered either (#653). Only the
         // body-less verbs and PostForHeadersApiResultAsync accept a 204.
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
 
@@ -408,8 +397,7 @@ public sealed class HttpClientApiExtensionsTests
     [Fact]
     public async Task PostApiResultAsync_WhenTheBodyLessVerbGetsNoContent_Succeeds()
     {
-        // The other side of that line: a 204 is still a success where nothing was promised. This is the
-        // approve and delete path, and it must not take on the rule for calls that promise a value.
+        // A 204 is still a success where nothing was promised: the approve and delete path.
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.NoContent, string.Empty));
 
         ApiResult result = await httpClient.PostApiResultAsync("translations/1/approve", new { });
@@ -433,9 +421,8 @@ public sealed class HttpClientApiExtensionsTests
     }
 
     /// <summary>
-    /// #972: decoding by the header's charset throws on a name .NET does not know or refuses, such as
-    /// "utf8" or "utf-7". The answer is JSON, so it is read as UTF-8 whatever the header says, with or
-    /// without a UTF-8 byte order mark.
+    /// #972: decoding by the header's charset throws on a name .NET does not know or refuses ("utf8",
+    /// "utf-7"), so the answer is read as UTF-8 whatever the header says.
     /// </summary>
     public static TheoryData<string?, bool> AnyCharsetWithAndWithoutBom => new()
     {
@@ -484,8 +471,8 @@ public sealed class HttpClientApiExtensionsTests
     [MemberData(nameof(AnyCharsetWithAndWithoutBom))]
     public async Task GetBodyStreamAsync_WhenTheAnswerNamesAnyCharset_ReturnsTheBytesUnchanged(string? charset, bool withBom)
     {
-        // The bytes are passed on, never decoded, so no charset can break the download (#1036), and the
-        // browser gets exactly what the TMS hashed into its ETag.
+        // The bytes are passed on, never decoded (#1036), so the browser gets what the TMS hashed into
+        // its ETag.
         const string body = "620756992||1001||Zażółć gęślą jaźń||NULL||NULL||1";
         byte[] sent = withBom ? [.. Encoding.UTF8.Preamble, .. Encoding.UTF8.GetBytes(body)] : Encoding.UTF8.GetBytes(body);
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
@@ -578,9 +565,8 @@ public sealed class HttpClientApiExtensionsTests
     [InlineData(null)]
     public async Task GetApiResultAsync_WhenASuccessBodyIsUtf16_FailsWithATranslatableBadGatewayProblem(string? charset)
     {
-        // The header's charset is not read any more, so a correct "utf-16" label does not help, and
-        // neither does a UTF-16 byte order mark with no label: JSON between services is UTF-8
-        // (RFC 8259 §8.1). Read as UTF-8, these bytes are not JSON.
+        // The charset is never read, so neither a "utf-16" label nor a UTF-16 byte order mark helps: JSON
+        // between services is UTF-8 (RFC 8259 §8.1).
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
             BytesBody(

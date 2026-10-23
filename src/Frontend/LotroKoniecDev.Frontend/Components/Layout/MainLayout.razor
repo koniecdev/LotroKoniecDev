@@ -53,7 +53,6 @@
     private string PrivacyPolicyUrl =>
         $"{AuthSystemOptions.Value.BaseUrl.TrimEnd('/')}/Account/PrivacyPolicy";
 
-    // One-shot: consumed at render time (no JS, no interactivity). Clearing the marker here means the
-    // banner shows exactly once after a forced logout and is gone on the next navigation.
+    // Consumed at render time, so the banner shows once after a forced logout.
     protected override void OnInitialized() => _showSessionExpiredNotice = SessionExpiryNotice.Consume();
 }

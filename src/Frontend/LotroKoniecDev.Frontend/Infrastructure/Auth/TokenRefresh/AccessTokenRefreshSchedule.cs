@@ -4,11 +4,10 @@ using Microsoft.AspNetCore.Authentication;
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 
 /// <summary>
-/// Decides when the website refreshes the access token: 60 seconds before it runs out, or after half of
-/// its lifetime when that comes later. A fixed 60 seconds would make a token that lives a minute or less
-/// look "about to run out" the moment it arrives, so every page would redeem the refresh token again
-/// (#1025). The lifetime is known only when a token arrives, so the refresh time is worked out then and
-/// stored in the cookie next to <c>expires_at</c>.
+/// The access token is refreshed 60 seconds before it runs out, or after half its lifetime when that is
+/// later. A fixed 60 seconds would make a short-lived token look "about to run out" on arrival, so every
+/// page would redeem the refresh token again (#1025). The refresh time is stored next to
+/// <c>expires_at</c>, because the lifetime is known only when a token arrives.
 /// </summary>
 internal static class AccessTokenRefreshSchedule
 {
@@ -16,8 +15,7 @@ internal static class AccessTokenRefreshSchedule
     internal const string RefreshAtName = "refresh_at";
 
     /// <summary>
-    /// Refresh a little before the token really expires, so a call already on its way cannot arrive with
-    /// a token that still looks valid here but is already refused by the server.
+    /// So a call already on its way never arrives with a token the server has just started to refuse.
     /// </summary>
     private static readonly TimeSpan MaximumLead = TimeSpan.FromSeconds(60);
 
@@ -30,10 +28,8 @@ internal static class AccessTokenRefreshSchedule
     }
 
     /// <summary>
-    /// A cookie with no refresh time was written before #1025. This code never writes a refresh time that
-    /// cannot be read or that is later than the expiry, so such a value is ignored: trusting it could let
-    /// the token run out before it is refreshed. All three cases keep the old rule, 60 seconds before
-    /// expiry.
+    /// A missing, unreadable or later-than-expiry refresh time falls back to 60 seconds before expiry:
+    /// trusting it could let the token run out before it is refreshed.
     /// </summary>
     internal static bool IsDue(AuthenticationProperties properties, DateTimeOffset expiresAt, DateTimeOffset now)
     {
@@ -62,8 +58,7 @@ internal static class AccessTokenRefreshSchedule
     }
 
     /// <summary>
-    /// A token that was already dead when it arrived gets no lead at all, so it is refreshed on the next
-    /// request and never later than its own expiry.
+    /// A token already dead on arrival gets no lead, so it is refreshed on the next request.
     /// </summary>
     private static DateTimeOffset RefreshAt(DateTimeOffset receivedAt, DateTimeOffset expiresAt)
     {

@@ -20,14 +20,9 @@ using OpenTelemetry.Trace;
 using Serilog;
 using Serilog.Sinks.OpenTelemetry;
 
-// Not CreateBootstrapLogger(), on purpose. That logger lives in the shared static Log.Logger slot, and
-// AddSerilog freezes it the first time a host resolves a logger. Any test run that starts a second host
-// from this Program, such as a WithWebHostBuilder child or a second class fixture, lets one host freeze
-// the bootstrap logger another host has just installed, and the second freeze fails with "The logger is
-// already frozen".
-// A plain console logger keeps startup logging, and the catch and finally below, working while
-// AddSerilog builds each host its own pipeline. Nothing changes in production: the single host's final
-// logger still replaces this one.
+// Not CreateBootstrapLogger(): it lives in the static Log.Logger, and a test run that starts a second
+// host from this Program fails with "The logger is already frozen". In production the host's own logger
+// still replaces this one.
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture)
     .CreateLogger();
@@ -38,12 +33,8 @@ try
 
     WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-    // DI validation runs in every environment, not only in Development (#572). A captive dependency or
-    // a constructor that cannot be resolved, even one that only appears under production config, then
-    // fails at startup, where CD smoke-tests the candidate before it takes traffic, instead of turning
-    // into a 500 on the first request.
-    // It only checks registered services. A forgotten closed handler registration is still resolved at
-    // request time, so endpoint integration tests stay the guard for that.
+    // DI validation in every environment (#572): a broken graph fails at startup, where CD smoke-tests
+    // the candidate, instead of as a 500 on the first request.
     builder.Host.UseDefaultServiceProvider(static (_, options) =>
     {
         options.ValidateScopes = true;
@@ -53,24 +44,17 @@ try
     string? otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
     bool otlpExportEnabled = !string.IsNullOrWhiteSpace(otlpEndpoint);
 
-    // Logs reach Loki by exactly ONE path: the box agent tailing this container's stdout (ADR-0050
-    // §7). That set is strictly larger than the OTLP sink's - it also catches a crash that happens
-    // before the logging pipeline is up, and it covers the containers that speak no OTLP at all
-    // (Caddy, RabbitMQ, the migrator). So the OTLP log sink stays OFF even when the endpoint is set,
-    // and only a stack with no tailer in front of it turns it back on.
-    //
-    // Alloy drops OTLP log records regardless (ADR-0051), so setting this cannot actually duplicate
-    // a line today. The switch exists so the app stops SENDING what nothing will accept.
+    // Logs reach Loki only through the box agent tailing stdout (ADR-0050 §7), which also catches a crash
+    // before logging is up. So the OTLP log sink stays off even when the endpoint is set; only a stack
+    // with no tailer turns it on. Alloy drops OTLP log records anyway (ADR-0051).
     bool otlpLogExportEnabled = otlpExportEnabled && string.Equals(
         builder.Configuration["OTEL_LOGS_EXPORTER"],
         "otlp",
         StringComparison.OrdinalIgnoreCase);
 
-    // Both projects' containers share a box and both boxes report ASPNETCORE_ENVIRONMENT
-    // "Production", so once a signal leaves the process neither the container nor the hosting
-    // environment can place it. These two attributes do: service.namespace separates
-    // LotroKoniecDev from TheKittySaver, deployment.environment separates staging from prod.
-    // OTEL_DEPLOYMENT_ENVIRONMENT is set per box; absent, the attribute is omitted, never guessed.
+    // Two projects share each box and both boxes run as "Production", so these attributes place a
+    // signal: service.namespace names the project, deployment.environment names staging or prod.
+    // OTEL_DEPLOYMENT_ENVIRONMENT is set per box; when absent, the attribute is omitted, never guessed.
     string? deploymentEnvironment = builder.Configuration["OTEL_DEPLOYMENT_ENVIRONMENT"];
     Dictionary<string, object> telemetryResourceAttributes = new()
     {
@@ -108,10 +92,8 @@ try
 
     IOpenTelemetryBuilder openTelemetryBuilder = builder.Services.AddOpenTelemetry()
         .ConfigureResource(resource => resource
-            // No auto-generated service.instance.id: it is a fresh GUID per process, and the agent
-            // promotes resource attributes to Prometheus labels - so keeping it would start a new
-            // series on every restart and break rate() across a deploy. One container per service
-            // makes the id redundant anyway.
+            // No service.instance.id: a fresh GUID per process becomes a Prometheus label, so every
+            // restart would start a new series and break rate() across a deploy.
             .AddService(builder.Environment.ApplicationName, autoGenerateServiceInstanceId: false)
             .AddAttributes(telemetryResourceAttributes))
         .WithTracing(tracing => tracing
@@ -122,27 +104,19 @@ try
             .AddAspNetCoreInstrumentation()
             .AddRuntimeInstrumentation());
 
-    // Add the OTLP exporter only when an endpoint is configured. Otherwise the SDK keeps retrying
-    // against its own default localhost:4317, which exists on no box we run.
+    // Without an endpoint the SDK keeps retrying its default localhost:4317, which no box runs.
     if (otlpExportEnabled)
     {
         openTelemetryBuilder.UseOtlpExporter();
     }
 
-    // Behind the reverse proxy, TLS ends at the proxy and the container gets plain HTTP with
-    // X-Forwarded-* headers. We read them so Request.Scheme is https, which keeps the OIDC redirect_uri,
-    // the antiforgery and Secure cookies and UseHttpsRedirection correct.
+    // TLS ends at the proxy, so Request.Scheme must come from X-Forwarded-Proto for the OIDC
+    // redirect_uri, the Secure cookies and UseHttpsRedirection to be right.
     //
-    // Who we trust (#399): ForwardedHeaders:KnownNetworks limits trust to the proxy's network, and
-    // every deployed stack sets it. compose.hetzner.yaml for the Hetzner boxes and compose.prod.yaml
-    // for the local parity stack both point at the Caddy network. An empty list would trust every
-    // upstream. That is only safe because the container port is never published directly: both stacks
-    // use expose: and not ports:, so Caddy is the only way in. Since the move off ACA (ADR-0034) no
-    // environment relies on that fallback.
-    // ForwardLimit = 1 is written out either way: exactly one proxy sets these headers, so only the
-    // right-most X-Forwarded-* entry, the client the ingress saw, is used. A malformed network, or a
-    // setting that exists but produces no entries, for example a scalar value missing the __0 index,
-    // stops the boot here instead of quietly trusting more (ADR-0008 §3).
+    // ForwardedHeaders:KnownNetworks limits trust to the Caddy network (#399); compose.hetzner.yaml and
+    // compose.prod.yaml both set it. An empty list would trust every upstream, which is safe only because
+    // both stacks use expose: and not ports:. Exactly one proxy sets these headers, hence ForwardLimit = 1.
+    // A setting that yields no networks (a scalar missing the __0 index) stops the boot (ADR-0008 §3).
     IConfigurationSection trustedProxyNetworksSection =
         builder.Configuration.GetSection("ForwardedHeaders:KnownNetworks");
     System.Net.IPNetwork[] trustedProxyNetworks = (trustedProxyNetworksSection.Get<string[]>() ?? [])
@@ -169,9 +143,6 @@ try
         }
     });
 
-    // HSTS settings (audit #0001, M7): a max-age of one year, covering subdomains and marked for the
-    // preload list. UseHsts() only sends it outside Development, where the deployed stack is HTTPS only
-    // behind the ingress. The local dev loop never sends it, so localhost over HTTP still works.
     builder.Services.AddHsts(options =>
     {
         options.MaxAge = TimeSpan.FromDays(365);
@@ -179,10 +150,8 @@ try
         options.Preload = true;
     });
 
-    // The admin-only import form uploads exported.txt, which is about 80 MB and keeps growing, far past
-    // Kestrel's 30 MB default body limit and the framework's multipart form limit. Both are raised to
-    // the shared upload size, so the whole file reaches this host in one request and is then sent on to
-    // the TMS API (spec 0003, #208).
+    // exported.txt is about 80 MB and growing, past Kestrel's 30 MB default and the multipart limit, so
+    // both take the shared upload size (spec 0003).
     builder.WebHost.ConfigureKestrel(kestrelOptions =>
         kestrelOptions.Limits.MaxRequestBodySize = ImportUploadLimits.MaxUploadBytes);
     builder.Services.Configure<FormOptions>(formOptions =>
@@ -190,8 +159,7 @@ try
 
     builder.Services.AddRazorComponents();
 
-    // The liveness and readiness endpoints the ingress probes. The Frontend has no database, so an empty
-    // set of checks is enough: they report healthy as soon as the host is serving requests.
+    // No database, so no checks: healthy as soon as the host serves requests.
     builder.Services.AddHealthChecks();
 
     builder.Services
@@ -201,27 +169,20 @@ try
 
     builder.Services.AddHttpContextAccessor();
 
-    // Set up before the host is built, straight from configuration. The keyring has to be kept and the
-    // application name has to stay the same, so the cookies, the antiforgery tokens and the OIDC
-    // correlation survive a restart and work across replicas.
     builder.Services.AddFrontendDataProtection(builder.Configuration, builder.Environment);
 
     builder.Services.AddFrontend();
 
     WebApplication app = builder.Build();
 
-    // This has to run before anything that reads the request scheme or host: logging, HSTS, the redirect
-    // and the OIDC correlation. It is skipped in Development so the local dev loop keeps working as it
-    // is, and it is on in Testing and Production, where a proxy terminates TLS and sets
-    // X-Forwarded-Proto. Because the scheme is read first, UseHttpsRedirection below does nothing and
-    // there is no redirect loop.
+    // Must run before anything that reads the scheme or host. Outside Development a proxy terminates TLS,
+    // and reading the scheme first keeps UseHttpsRedirection from looping.
     if (!app.Environment.IsDevelopment())
     {
         app.UseForwardedHeaders();
     }
 
-    // Clean the request log (audit #0001, M5): keep the query string out of RequestPath and log it
-    // separately with secrets removed and e-mails masked, so no OAuth code, token or personal data is
+    // The query string is logged apart from the path, redacted, so no OAuth code, token or e-mail is
     // stored.
     app.UseSerilogRequestLogging(options =>
     {

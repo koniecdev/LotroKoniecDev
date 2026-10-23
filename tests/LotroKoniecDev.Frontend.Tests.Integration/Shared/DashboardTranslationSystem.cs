@@ -7,9 +7,8 @@ using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 namespace LotroKoniecDev.Frontend.Tests.Integration.Shared;
 
 /// <summary>
-/// The translation API as the dashboard sees it, through the website's typed client. The service document
-/// is open to everyone, so a refused token gets the anonymous links there, never a 401. The statistics need a
-/// sign-in, so a refused token gets a 401 there.
+/// A refused token gets the anonymous links from the open service document, never a 401, and a 401 from the
+/// statistics.
 /// </summary>
 public sealed class DashboardTranslationSystem : HttpMessageHandler
 {
@@ -23,7 +22,7 @@ public sealed class DashboardTranslationSystem : HttpMessageHandler
 
     public bool AcceptsTheToken { get; set; } = true;
 
-    /// <summary>How many 401 answers the API sent, so a test can tell which path marked the session.</summary>
+    /// <summary>So a test can tell which path marked the session.</summary>
     public int Unauthorized => _unauthorized;
 
     protected override Task<HttpResponseMessage> SendAsync(

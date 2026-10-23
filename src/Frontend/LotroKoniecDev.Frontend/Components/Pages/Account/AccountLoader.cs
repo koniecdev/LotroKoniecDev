@@ -13,12 +13,8 @@ using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.Disc
 namespace LotroKoniecDev.Frontend.Components.Pages.Account;
 
 /// <summary>
-/// Makes the account pages' calls to the auth API through the typed client (LEGAL-02). It finds the
-/// <c>export-account-data</c> link in auth discovery, fetches the account resource whose <c>Links</c>
-/// decide what else the user may do, and follows that resource's links: <c>delete-account</c>,
-/// <c>change-password</c> and <c>download-account-data</c>, the password-gated GDPR export (#690).
-/// It stays a thin injectable class, so the pages' data flow can be unit-tested against a substituted
-/// client and bUnit render tests can drive the pages through a substituted loader.
+/// The account pages' calls to the auth API (LEGAL-02). The account resource's links decide what else the
+/// user may do. A thin class, so bUnit tests can drive the pages through a substituted loader.
 /// </summary>
 internal sealed class AccountLoader
 {
@@ -32,10 +28,8 @@ internal sealed class AccountLoader
     }
 
     /// <summary>
-    /// Loads the account resource: auth discovery, then the <c>export-account-data</c> link, then a GET.
-    /// When that link is missing in a logged-in session, the API does not offer the account section to
-    /// this caller. That becomes a 403 <see cref="ProblemDetails"/>, and it is never decided here from
-    /// role claims.
+    /// A missing <c>export-account-data</c> link means the API does not offer the account section to this
+    /// caller, which becomes a 403. It is never decided here from role claims.
     /// </summary>
     public async Task<ApiResult<AccountDataExportResponse>> LoadExportAsync(
         CancellationToken cancellationToken = default)
@@ -62,13 +56,9 @@ internal sealed class AccountLoader
     }
 
     /// <summary>
-    /// Asks the auth API to hand the export over, which it does only when the current password comes
-    /// with the request (#690, ADR-0052).
-    /// The target is the <c>download-account-data</c> link on the account resource, fetched fresh on
-    /// every attempt and never read from the day-cached discovery document (ADR-0052 says why). It is
-    /// the same document the account page gates its export button on, so the button and this call can
-    /// never disagree.
-    /// A rel we cannot find is a refusal, never a locally composed path (#610).
+    /// The auth API hands the export over only with the current password (ADR-0052). The link comes from
+    /// the account resource, fetched fresh on every attempt and never from the day-cached discovery
+    /// document, so the export button and this call cannot disagree. A missing rel is a refusal (#610).
     /// </summary>
     public async Task<ApiResult<AccountDataExportResponse>> DownloadExportAsync(
         string password,
@@ -96,9 +86,9 @@ internal sealed class AccountLoader
     }
 
     /// <summary>
-    /// A 200 whose JSON parses but carries no <c>authData</c> — a proxy's own body, for one — is a bad
-    /// gateway, not an account. The serializer fills a missing constructor argument with null, and both
-    /// callers read <c>AuthData</c> straight away, so that one body is refused here.
+    /// A 200 whose JSON parses but has no <c>authData</c>, such as a proxy's own body, is a bad gateway. The
+    /// serializer fills a missing constructor argument with null, and both callers read <c>AuthData</c>
+    /// straight away.
     /// </summary>
     private static ApiResult<AccountDataExportResponse> RejectABodyWithoutAuthData(
         ApiResult<AccountDataExportResponse> result) =>
@@ -107,9 +97,8 @@ internal sealed class AccountLoader
             : result;
 
     /// <summary>
-    /// Schedules an account deletion, which happens in two phases (ADR-0031). On success the data comes
-    /// back in response headers, <c>X-Deletion-Scheduled-At</c> and <c>X-Deletion-Finalizes-At</c>, and
-    /// not in a body.
+    /// The first of the two deletion phases (ADR-0031). The dates come back in response headers, not in a
+    /// body.
     /// </summary>
     public Task<ApiResult<ApiResponseHeaders>> ScheduleDeletionAsync(
         string href,
@@ -123,8 +112,7 @@ internal sealed class AccountLoader
     }
 
     /// <summary>
-    /// Starts an e-mail change. Nothing on the account moves yet: the address changes only when the
-    /// link sent to the new mailbox is used (ADR-0048).
+    /// The address changes only when the link sent to the new mailbox is used (ADR-0048).
     /// </summary>
     public Task<ApiResult> RequestEmailChangeAsync(
         string href,

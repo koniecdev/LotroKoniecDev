@@ -86,7 +86,7 @@ public sealed class ImportSummaryRedirectTests
         ImportSummaryRedirect redirect = new(_dataProtectionProvider);
         string protectedValue = SummaryParameterOf(
             redirect.PageUriWith(new CompletedImport(GameVersionId, new ImportSummary(1, 0, 0, 0, 0, 0, []))));
-        // A character in the middle: the last one may carry only padding bits, so changing it may change nothing.
+        // Not the last character: it may carry only padding bits.
         int middle = protectedValue.Length / 2;
         char replacement = protectedValue[middle] == 'A' ? 'B' : 'A';
         string tampered = string.Concat(protectedValue.AsSpan(0, middle), [replacement], protectedValue.AsSpan(middle + 1));

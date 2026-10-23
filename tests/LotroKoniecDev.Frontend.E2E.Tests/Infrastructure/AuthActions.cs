@@ -3,18 +3,12 @@ using Microsoft.Playwright;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// The reusable steps of the account loop: register on the auth server's Razor Pages, confirm through
-/// the link in Mailpit, and log in through the frontend's OIDC challenge, so the frontend ends up logged
-/// in too and not only the auth server.
-/// Registration happens on the auth origin at <c>/Account/Register</c> and not on the frontend, and the
-/// pages exist in Polish only.
-/// Elements are found by role or label where the page gives them one. The consent checkboxes, the state
-/// panels and the account page's links and forms are found by <c>data-testid</c> or id.
+/// The reusable steps of the account loop. Registration lives on the auth origin, in Polish only. Elements
+/// are found by role or label where the page gives them one, otherwise by <c>data-testid</c> or id.
 /// </summary>
 internal static class AuthActions
 {
-    // Matches part of the real subject, "Potwierdź konto - <brand>" (#541). It ignores the brand name on
-    // purpose, so renaming it does not break this flow again.
+    // Part of "Potwierdź konto - <brand>", so a brand rename does not break this flow (#541).
     private const string ConfirmationSubject = "Potwierdź konto";
     private const string ConfirmationLinkPath = "/Account/ConfirmEmail";
     private static readonly TimeSpan MailTimeout = TimeSpan.FromSeconds(45);
@@ -45,8 +39,8 @@ internal static class AuthActions
         }
         catch (TimeoutException ex)
         {
-            // The e-mail rides outbox -> broker -> consumer -> Mailpit; only the auth-api logs
-            // say which leg failed, and the containers are gone by the time a human looks.
+            // Only the auth-api logs say which leg failed, and the containers are gone by the time a human
+            // looks.
             throw new TimeoutException($"{ex.Message}\n{await fixture.GetAuthApiLogsAsync()}", ex);
         }
 
@@ -56,9 +50,7 @@ internal static class AuthActions
 
     public static async Task LoginAsync(IPage page, PlaywrightStackFixture fixture, TestUser user)
     {
-        // Enter through the Frontend so the FE (not only the Auth server) ends up authenticated:
-        // the home nav's "Zaloguj" link hits /auth/login → OIDC challenge → Auth login page →
-        // callback → FE authenticated (the "Wyloguj" button appears).
+        // Enter through the frontend, so it ends up signed in too, not only the auth server.
         await page.GotoAsync($"{fixture.FrontendBaseUrl}/");
         await page.GetByRole(AriaRole.Link, new() { Name = Links.Login, Exact = true }).ClickAsync();
 
@@ -70,9 +62,8 @@ internal static class AuthActions
     }
 
     /// <summary>
-    /// Accepts the LEGAL-04 cookie banner so its fixed bottom overlay never covers the controls a
-    /// flow clicks lower on the page. Call once after the first Frontend page load of a fresh
-    /// browser context.
+    /// So the banner never covers the controls a flow clicks. Call once after the first frontend page load
+    /// of a fresh browser context.
     /// </summary>
     public static async Task AcceptCookieBannerAsync(IPage page)
     {
@@ -81,10 +72,7 @@ internal static class AuthActions
             .WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Detached, Timeout = 30_000 });
     }
 
-    /// <summary>
-    /// Sends an e-mail change from the frontend's account page. The caller must be signed in with the
-    /// cookie banner already accepted.
-    /// </summary>
+    /// <summary>The caller must be signed in with the cookie banner already accepted.</summary>
     public static async Task RequestEmailChangeAsync(IPage page, TestUser user, string newEmail)
     {
         await page.GetByTestId("nav-account").ClickAsync();
@@ -97,8 +85,8 @@ internal static class AuthActions
     }
 
     /// <summary>
-    /// Schedules the account's deletion from the frontend's account page and ends on the signed-out
-    /// "deletion scheduled" page. The caller must be signed in with the cookie banner already accepted.
+    /// Ends on the signed-out "deletion scheduled" page. The caller must be signed in with the cookie
+    /// banner already accepted.
     /// </summary>
     public static async Task ScheduleDeletionAsync(IPage page, string password)
     {

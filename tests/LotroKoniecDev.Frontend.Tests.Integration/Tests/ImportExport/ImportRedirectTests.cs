@@ -25,10 +25,8 @@ using Microsoft.IdentityModel.Tokens;
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.ImportExport;
 
 /// <summary>
-/// #933: after a successful import the page redirects, so the version list loads in a new request with a
-/// renewed token, and the summary survives the redirect. bUnit cannot bind the posted file, so this test
-/// signs in through the real OIDC handler and posts the real form, with antiforgery, against stubbed
-/// sign-in and translation servers.
+/// #933: the redirect after an import, so the list loads with a renewed token. bUnit cannot bind the posted
+/// file, so this signs in through the real OIDC handler and posts the real form against stubbed servers.
 /// </summary>
 public sealed partial class ImportRedirectTests : IClassFixture<ProductionFrontendFactory>, IDisposable
 {
@@ -54,9 +52,8 @@ public sealed partial class ImportRedirectTests : IClassFixture<ProductionFronte
     [Fact]
     public async Task Post_WhenTheImportSucceeds_RedirectsToTheImportPageWithoutASecondListLoad()
     {
-        // Arrange: the list is loaded again only in the request the redirect starts, which renews the token
-        // first. A second load before the redirect would carry this request's token, which an import of
-        // several minutes may have outlived (#933).
+        // Arrange: the list loads again only after the redirect. A load before it would carry this
+        // request's token, which a long import may have outlived (#933).
         StubTranslationSystem translationSystem = new(ImportAnswer.Accepted(new ImportSummary(1, 0, 0, 0, 0, 0, [])));
         StubSignInServer signInServer = new(_signingKey);
         using WebApplicationFactory<Program> host = CreateHost(signInServer, translationSystem);
@@ -112,8 +109,7 @@ public sealed partial class ImportRedirectTests : IClassFixture<ProductionFronte
     [Fact]
     public async Task Post_FromTheRedirectAfterAnImport_SendsTheFileToTheVersionTheAdminChoseNow()
     {
-        // Arrange: the form posts to the address the redirect left, which names the last import's version.
-        // The version posted with the form must win, or the next file lands in the last version (#933).
+        // Arrange: the address names the last import's version; the posted version must win (#933).
         StubTranslationSystem translationSystem = new(ImportAnswer.Accepted(new ImportSummary(1, 0, 0, 0, 0, 0, [])));
         StubSignInServer signInServer = new(_signingKey);
         using WebApplicationFactory<Program> host = CreateHost(signInServer, translationSystem);
@@ -137,8 +133,7 @@ public sealed partial class ImportRedirectTests : IClassFixture<ProductionFronte
     [Fact]
     public async Task Post_WhenTheImportIsRefused_ShowsTheProblemWithoutARedirectOrASecondListLoad()
     {
-        // Arrange: a refused import changes nothing, so the list loaded at the start of the request stays.
-        // A second load would carry this request's token, which a long import may have outlived (#933).
+        // Arrange: a refused import keeps the list loaded at the start of the request (#933).
         StubTranslationSystem translationSystem = new(ImportAnswer.Refused("Import.EmptyUpload"));
         StubSignInServer signInServer = new(_signingKey);
         using WebApplicationFactory<Program> host = CreateHost(signInServer, translationSystem);
@@ -162,9 +157,8 @@ public sealed partial class ImportRedirectTests : IClassFixture<ProductionFronte
     [Fact]
     public async Task Post_FromTheRedirectAfterAnImport_WhenTheVersionListFailsToLoad_ShowsTheErrorAndNotTheLastSuccess()
     {
-        // Arrange: the second import posts to the address the first one's redirect left, which carries the
-        // first summary. The list fails in the second request, so the second import never runs, and the
-        // page must not answer it with the first import's success (#1122).
+        // Arrange: the second import posts to an address with the first summary, and its list fails, so it
+        // never runs. The page must not answer it with the first import's success (#1122).
         StubTranslationSystem translationSystem = new(ImportAnswer.Accepted(new ImportSummary(21, 22, 23, 24, 25, 26, [])));
         StubSignInServer signInServer = new(_signingKey);
         using WebApplicationFactory<Program> host = CreateHost(signInServer, translationSystem);
@@ -217,8 +211,7 @@ public sealed partial class ImportRedirectTests : IClassFixture<ProductionFronte
         };
         configuration.SigningKeys.Add(_signingKey);
 
-        // Registered after the app's own setup, so these win: the OIDC handler reads the stub's endpoints
-        // and keys, and the TMS client sends every call to the stub. Nothing goes to the network.
+        // Registered after the app's own setup, so these win. Nothing goes to the network.
         return _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.Configure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme, options =>
@@ -257,7 +250,6 @@ public sealed partial class ImportRedirectTests : IClassFixture<ProductionFronte
             .Select(pair => pair.Split('=', 2))
             .ToDictionary(pair => Uri.UnescapeDataString(pair[0]), pair => Uri.UnescapeDataString(pair[1]));
 
-    /// <summary>What the stubbed import endpoint answers: a summary, or a refusal with an error code.</summary>
     private sealed record ImportAnswer(ImportSummary? Summary, string? ErrorCode)
     {
         public static ImportAnswer Accepted(ImportSummary summary) => new(summary, null);
@@ -265,9 +257,6 @@ public sealed partial class ImportRedirectTests : IClassFixture<ProductionFronte
         public static ImportAnswer Refused(string errorCode) => new(null, errorCode);
     }
 
-    /// <summary>
-    /// The token and userinfo endpoints of the sign-in server, as the OIDC handler's back-channel sees them.
-    /// </summary>
     private sealed class StubSignInServer : HttpMessageHandler
     {
         private readonly SecurityKey _signingKey;
@@ -330,8 +319,7 @@ public sealed partial class ImportRedirectTests : IClassFixture<ProductionFronte
     }
 
     /// <summary>
-    /// The translation API as the Frontend's typed client sees it: the service document, the version list
-    /// with two versions an admin may import into, and each version's own import link.
+    /// The version list has two versions an admin may import into, each with its own import link.
     /// </summary>
     private sealed class StubTranslationSystem : HttpMessageHandler
     {
@@ -346,7 +334,7 @@ public sealed partial class ImportRedirectTests : IClassFixture<ProductionFronte
         /// <summary>When set, the version list answers 503, as it does while the API is down.</summary>
         public bool VersionListFails { get; set; }
 
-        /// <summary>The versions the imports went into, in order, read from the import link each one followed.</summary>
+        /// <summary>In order, read from the import link each one followed.</summary>
         public IReadOnlyList<Guid> ImportedInto => [.. _importedInto];
 
         protected override Task<HttpResponseMessage> SendAsync(

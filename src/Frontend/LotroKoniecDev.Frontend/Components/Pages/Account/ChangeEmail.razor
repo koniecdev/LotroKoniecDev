@@ -149,8 +149,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // A property initializer is rejected for a [SupplyParameterFromForm] model (BL0008), so seed it
-        // here instead.
+        // A property initializer is rejected for a [SupplyParameterFromForm] model (BL0008).
         EmailInput ??= new ChangeEmailFormModel();
 
         _loadResult = await Loader.LoadExportAsync(CancellationToken.None);

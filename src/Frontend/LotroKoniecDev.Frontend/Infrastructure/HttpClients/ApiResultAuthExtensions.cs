@@ -1,12 +1,8 @@
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 
 /// <summary>
-/// Sorts a failed <see cref="ApiResult"/> by what its status says about login and permissions, so every
-/// call site reacts the same way.
-/// A <c>401</c> means the cookie was accepted here but the token was refused by the API, so the session
-/// has expired and the user should go through login again.
-/// A <c>403</c> means the user is logged in but may not do this, and only needs a clear "not allowed"
-/// message, never a redirect.
+/// A <c>401</c> means the API refused the token, so the user must sign in again. A <c>403</c> means the
+/// user may not do this and gets a "not allowed" message, never a redirect.
 /// </summary>
 internal static class ApiResultAuthExtensions
 {

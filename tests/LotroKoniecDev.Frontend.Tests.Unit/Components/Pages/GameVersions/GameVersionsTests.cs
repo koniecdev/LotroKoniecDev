@@ -17,24 +17,10 @@ using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.GameVersions;
 
 /// <summary>
-/// Renders the <see cref="GameVersionsComponent"/> through bUnit over a stubbed TMS client, to pin what
-/// the loader tests cannot reach: the list shows every version with its Polish status label; the
-/// register form appears only when the collection carries the admin-only <c>register</c> rel and the
-/// per-row delete button only when the item carries the admin-only <c>delete</c> rel (#158), never
-/// because of a role check in the page; submitting the register form with no version shows the
-/// validation notice without posting; and submitting a delete form reaches the loader and then either
-/// confirms or shows a problem.
-/// <para>
-/// The two blocks both actions render through, the <c>_actionMessage</c> success line and the
-/// <c>_actionProblem</c> error line, are pinned here by the two delete-submit tests, one success and one
-/// refusal from the API. The empty-register test pins the validation-failure render and that the list
-/// survives it.
-/// A register submit with a typed version cannot be driven here, because bUnit's static SSR form
-/// submission does not send a text field set from code. That is the same reason
-/// <c>ImportExportTests</c> and <c>EditorTests</c> never fill SSR text inputs. So the register POST
-/// request and its success and 422 handling are covered by <c>GameVersionsLoaderTests</c>, and the full
-/// typed-form flow by the Playwright E2E tests (ADR-0009).
-/// </para>
+/// Pins what the loader tests cannot reach: the register form and the delete buttons follow the admin-only
+/// rels (#158). The two delete-submit tests pin the success and error lines both actions share. bUnit
+/// cannot send a typed SSR text field, so a register with a version is covered by
+/// <c>GameVersionsLoaderTests</c> instead.
 /// </summary>
 public sealed class GameVersionsTests : BunitContext
 {
@@ -69,8 +55,7 @@ public sealed class GameVersionsTests : BunitContext
     [Fact]
     public void Render_WhenVersionsExist_ShowsTheRegistrationTimeInPolandTime()
     {
-        // The API sends the instant in UTC, the page shows the clock the reader is looking at (#736):
-        // 21:48 UTC on a summer day is 23:48 in Poland.
+        // #736: 21:48 UTC on a summer day is 23:48 in Poland.
         AuthorizeAs("Frodo");
         StubVersions(Version(
             "49.4",
@@ -87,9 +72,7 @@ public sealed class GameVersionsTests : BunitContext
     [Fact]
     public void Render_WhenVersionsExist_NamesTheDateColumnAfterRegistrationAndNeverClaimsDetection()
     {
-        // #741: the wiki says plainly that nothing finds a version by itself — an admin types it in.
-        // The page used to head this column "Wykryto" and promise a forum reader that was cut to
-        // post-MVP (ADR-0030), which sent testers hunting for a mechanism that does not exist.
+        // #741: nothing finds a version by itself, an admin types it in (ADR-0030).
         AuthorizeAs("Frodo");
         StubVersions(Version("49.4", GameVersionStatus.Unprocessed));
 
@@ -147,7 +130,6 @@ public sealed class GameVersionsTests : BunitContext
     public async Task Register_WhenVersionEmpty_ShowsTheValidationNoticeAndDoesNotCallRegister()
     {
         AuthorizeAs("Sam");
-        // A single non-deletable item keeps the register form as the only form on the page.
         StubVersionsWithRegisterRel(Version("48.0", GameVersionStatus.Unprocessed));
         IRenderedComponent<GameVersionsComponent> component = RenderPage();
 
@@ -156,7 +138,7 @@ public sealed class GameVersionsTests : BunitContext
         component.Find(".status-message.status-error").TextContent.ShouldContain("Podaj wersję");
         await _client.DidNotReceive().PostApiResultAsync<GameVersionResponse>(
             Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>());
-        // A rejected register must not wipe the list (the reload still renders the table).
+        // A rejected register must not wipe the list.
         component.FindAll("table.data-table").ShouldNotBeEmpty();
     }
 
@@ -164,7 +146,6 @@ public sealed class GameVersionsTests : BunitContext
     public async Task Delete_WhenSubmitted_CallsTheLoaderAndConfirms()
     {
         AuthorizeAs("Sam");
-        // No register rel + one deletable item → the delete form is the only form to submit.
         StubVersions(Version("48.0", GameVersionStatus.Unprocessed, canDelete: true));
         _client.DeleteApiResultAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success());
@@ -172,7 +153,6 @@ public sealed class GameVersionsTests : BunitContext
 
         await component.Find(".col-actions form").SubmitAsync();
 
-        // Behaviour-visible proof the delete ran: the confirmation only renders when the loader succeeded.
         component.Find(".status-message.status-success").TextContent.ShouldContain("Usunięto");
     }
 
@@ -188,16 +168,14 @@ public sealed class GameVersionsTests : BunitContext
         await component.Find(".col-actions form").SubmitAsync();
 
         component.Find(".status-message.status-error").TextContent.ShouldContain("Nie można usunąć");
-        // The refused delete must not wipe the list (the reload still renders the table).
+        // A refused delete must not wipe the list.
         component.FindAll("table.data-table").ShouldNotBeEmpty();
     }
 
     [Fact]
     public async Task Delete_WhenTheApiRefusesInEnglish_ShowsPolishInTheSharedActionErrorBlock()
     {
-        // #548: the shared _actionProblem block, which register uses too, used to print the API's English
-        // straight into the Polish page. Register's own submit cannot be driven in bUnit, see the class
-        // summary above, so the delete test pins the block both actions render through.
+        // #548: the error block register shares; register's own submit cannot be driven in bUnit.
         AuthorizeAs("Sam");
         StubVersions(Version("48.0", GameVersionStatus.Unprocessed, canDelete: true));
         _client.DeleteApiResultAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -216,8 +194,7 @@ public sealed class GameVersionsTests : BunitContext
         error.QuerySelector(".problem-headline")!.TextContent
             .ShouldBe("Tej wersji gry nie można usunąć, bo są z nią powiązane tłumaczenia.");
         error.QuerySelector(".problem-headline")!.TextContent.ShouldNotContain("Data Conflict");
-        // The API's wording only restates the Polish here, so it is not rendered at all (#703). It is
-        // kept behind the technical-details block for the import codes whose English carries data.
+        // The API's wording only restates the Polish here, so it is not rendered (#703).
         error.QuerySelectorAll("details.problem-tech").ShouldBeEmpty();
         error.TextContent.ShouldNotContain("is referenced by one or more translations");
     }
@@ -267,13 +244,11 @@ public sealed class GameVersionsTests : BunitContext
     private void AuthorizeAs(string userName) =>
         AddAuthorization().SetAuthorized(userName);
 
-    /// <summary>Stubs the versions list as a plain translator sees it, with no admin <c>register</c> rel.</summary>
     private void StubVersions(params GameVersionResponse[] versions) =>
         _client
             .GetApiResultAsync<CollectionResponse<GameVersionResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(new CollectionResponse<GameVersionResponse> { Items = versions }));
 
-    /// <summary>Stubs the versions list as an admin sees it, where the collection carries <c>register</c>.</summary>
     private void StubVersionsWithRegisterRel(params GameVersionResponse[] versions) =>
         _client
             .GetApiResultAsync<CollectionResponse<GameVersionResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())

@@ -13,9 +13,8 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 
 /// <summary>
-/// #972: the OIDC library reads the sign-in server's answers by the charset they name, and that read
-/// throws on a name .NET does not know or refuses. The first tests drive the handler alone. The last one
-/// goes through the real registration, because a handler that is written but not wired changes nothing.
+/// #972. The first tests drive the handler alone; the last one goes through the real registration,
+/// because a handler that is not wired changes nothing.
 /// </summary>
 public sealed class UnknownCharsetDelegatingHandlerTests
 {
@@ -60,8 +59,8 @@ public sealed class UnknownCharsetDelegatingHandlerTests
     [InlineData("application/json; charset=utf8; charset=utf-8")]
     public async Task SendAsync_WhenTheRawHeaderNamesTheCharsetTwice_LetsItBeReadAsUtf8(string contentType)
     {
-        // The transport keeps the header as raw text and parses it on first use. Once the first unusable
-        // name is gone, the second one is what the read sees.
+        // The header is parsed on first use, so once the first unusable name is gone the read sees the
+        // second.
         const string body = """{ "name": "Zażółć gęślą jaźń" }""";
         StubHttpMessageHandler inner = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, () =>
         {
@@ -95,8 +94,8 @@ public sealed class UnknownCharsetDelegatingHandlerTests
     [Fact]
     public async Task SendAsync_WhenTheRawHeaderNamesAUsableCharsetFirst_KeepsIt()
     {
-        // The read decodes by the first charset in the header, so the handler must stop at the first name
-        // it can use and not look past it. In Latin-1 "é" is the single byte 0xE9.
+        // The read decodes by the first charset, so the handler stops at the first usable name. In
+        // Latin-1 "é" is the single byte 0xE9.
         HttpMessageInvoker invoker = new(new UnknownCharsetDelegatingHandler
         {
             InnerHandler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, () =>
@@ -138,8 +137,7 @@ public sealed class UnknownCharsetDelegatingHandlerTests
     [InlineData("utf-7")]
     public async Task AddFrontendAuthentication_WhenTheMetadataNamesAnUnknownCharset_ReadsIt(string charset)
     {
-        // The discovery document is the first thing a sign-in reads, through the back-channel the
-        // frontend's registration builds. A handler put on that seam first stands in for the transport.
+        // The discovery document is the first thing a sign-in reads through the back-channel.
         StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
             JsonBytes(

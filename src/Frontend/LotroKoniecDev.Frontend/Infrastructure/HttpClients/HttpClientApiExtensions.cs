@@ -10,13 +10,10 @@ using Polly.Timeout;
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 
 /// <summary>
-/// Turns raw <see cref="HttpClient"/> calls into <see cref="ApiResult"/> and
-/// <see cref="ApiResult{T}"/>. On success it reads the body, on an error status it reads the API's
-/// <c>ProblemDetails</c>, and a transport failure with no HTTP status, such as a Polly timeout, an open
-/// circuit or a socket error, becomes a Polish <c>ProblemDetails</c> so the page shows a message instead
-/// of crashing. The Frontend is Polish only, so these messages are written here.
-/// Nothing here throws because of what came off the wire: a body that is not the API's answer, on an
-/// error status or on a success one, is a failed result and never an exception escaping the render.
+/// Turns <see cref="HttpClient"/> calls into <see cref="ApiResult"/>. A transport failure with no status
+/// (a Polly timeout, an open circuit, a socket error) becomes a Polish <c>ProblemDetails</c>. Nothing here
+/// throws because of what came off the wire: a body that is not the API's answer is a failed result,
+/// never an exception escaping the render.
 /// </summary>
 internal static class HttpClientApiExtensions
 {
@@ -38,11 +35,8 @@ internal static class HttpClientApiExtensions
         }
 
         /// <summary>
-        /// For a body too large to hold in memory, which is the ready-made translation file (PERF-09,
-        /// #715). Only the headers are awaited here. Without <see cref="HttpCompletionOption.ResponseHeadersRead"/>
-        /// the client would first copy the whole body into memory. On success the caller owns the stream,
-        /// reads the bytes exactly as they came off the wire, and disposes it, which also ends the
-        /// response.
+        /// For a body too large to hold in memory, such as the translation file (#715). On success the
+        /// caller owns the stream and disposes it, which also ends the response.
         /// </summary>
         public async Task<ApiResult<ApiBodyStream>> GetBodyStreamAsync(
             string uri,
@@ -96,10 +90,8 @@ internal static class HttpClientApiExtensions
         }
 
         /// <summary>
-        /// For endpoints that return their data in response headers instead of a body, such as a
-        /// <c>204</c> with <c>X-Deletion-Finalizes-At</c> when an account deletion is scheduled. On
-        /// failure it behaves exactly like the body-less <c>PostApiResultAsync</c>: a
-        /// <c>ProblemDetails</c> keeps the result path intact.
+        /// For an endpoint that answers in headers instead of a body, such as the <c>204</c> with
+        /// <c>X-Deletion-Finalizes-At</c> when an account deletion is scheduled.
         /// </summary>
         public async Task<ApiResult<ApiResponseHeaders>> PostForHeadersApiResultAsync(
             string uri,
@@ -196,10 +188,8 @@ internal static class HttpClientApiExtensions
     }
 
     /// <summary>
-    /// The one place a JSON body is attached. The body's runtime type goes into <c>JsonContent</c> on
-    /// purpose: it is what lets the resilience pipeline see a password confirmation and send it exactly
-    /// once (ADR-0053). A <c>JsonContent.Create&lt;object&gt;</c> here would serialise the same bytes and
-    /// silently lose that.
+    /// The body's runtime type goes into <c>JsonContent</c> so the resilience pipeline can see a password
+    /// confirmation and send it only once (ADR-0053). <c>JsonContent.Create&lt;object&gt;</c> would lose that.
     /// </summary>
     private static HttpRequestMessage CreateJsonRequest(HttpMethod method, string uri, object body) =>
         new(method, new Uri(uri, UriKind.RelativeOrAbsolute))
@@ -254,11 +244,9 @@ internal static class HttpClientApiExtensions
     }
 
     /// <summary>
-    /// Reads the body as UTF-8 and never looks at the charset in <c>Content-Type</c>. Decoding by that
-    /// charset throws when .NET does not know the name, such as "utf8", or refuses it, such as "utf-7",
-    /// and the exception would escape the render (#972, the same cause as #943). Both APIs answer in
-    /// JSON, which is UTF-8 between services (RFC 8259 §8.1), and the translation file is UTF-8 too.
-    /// A UTF-8 byte order mark is dropped, as <c>ReadAsStringAsync</c> did.
+    /// Never decodes by the charset in <c>Content-Type</c>: that throws for a name .NET does not know
+    /// ("utf8") or refuses ("utf-7") (#972). JSON between services is UTF-8 (RFC 8259 §8.1), and so is the
+    /// translation file. A UTF-8 byte order mark is dropped.
     /// </summary>
     private static async Task<string> ReadBodyAsUtf8Async(HttpContent content, CancellationToken cancellationToken)
     {
@@ -268,19 +256,11 @@ internal static class HttpClientApiExtensions
     }
 
     /// <summary>
-    /// Reads a success body into <typeparamref name="T"/>. A success status does not prove the body is
-    /// the API's answer: a reverse proxy serves its maintenance page with a <c>200</c>.
-    /// So a body that does not read as <typeparamref name="T"/>, or reads as the literal <c>null</c>, or
-    /// is empty (#653), is treated like an unreadable error body: it becomes a
-    /// <see cref="ProblemDetails"/> with only a status, which the Polish text ladder answers (#637). It
-    /// never becomes a <see cref="JsonException"/> escaping the render (#638), and never a <c>null</c>
-    /// <see cref="ApiResult{T}.Value"/> for the caller to use.
-    /// Every generic verb promises a value, so <c>204 No Content</c> is not handled here. The body-less
-    /// <see cref="ApiResult"/> verbs and <c>PostForHeadersApiResultAsync</c> are where nothing was
-    /// promised.
-    /// It reports <c>502 Bad Gateway</c> rather than the status it arrived with: whatever the status line
-    /// said, the response was not valid, <c>200</c> has no failure text, and a download route would
-    /// otherwise answer the browser with a problem carrying a <c>200</c>.
+    /// A success status does not prove the body is the API's answer: a reverse proxy serves its
+    /// maintenance page with a <c>200</c>. So an unreadable, <c>null</c> or empty body is a failure with
+    /// only a status (#637, #638, #653), never a <c>null</c> value for the caller. Every generic verb
+    /// promises a value, so a <c>204</c> fails here too. It reports <c>502</c>, because a download route
+    /// would otherwise answer the browser with a problem carrying a <c>200</c>.
     /// </summary>
     private static ApiResult<T> ParseSuccessBody<T>(string content)
     {
@@ -306,17 +286,14 @@ internal static class HttpClientApiExtensions
     }
 
     /// <summary>
-    /// Reads the API's error body into <see cref="ProblemDetails"/>. Not every error has one: a plain
-    /// <c>401</c> from the JWT bearer challenge has an empty body, and a service that is down answers
-    /// through the reverse proxy with the proxy's own HTML.
-    /// So an empty or malformed body becomes a bare <see cref="ProblemDetails"/> that still carries the
-    /// real status code. Checks such as <c>IsUnauthorized</c> keep working, and the page does not crash
-    /// on a <see cref="JsonException"/>.
+    /// Not every error has a problem body: a bearer challenge's <c>401</c> is empty, and a service that is
+    /// down answers with the proxy's HTML. Those become a bare problem with the real status, so checks such
+    /// as <c>IsUnauthorized</c> keep working.
     /// </summary>
     private static ProblemDetails ParseProblemDetails(string content, HttpResponseMessage response)
     {
-        // The typed clients follow no redirects (#830), so a 3xx is no answer this app can use. Its status
-        // must not reach the browser either: a download route would pass on a redirect with no Location.
+        // The typed clients follow no redirects (#830), so a 3xx is unusable. Its status must not reach
+        // the browser either: a download route would pass on a redirect with no Location.
         if ((int)response.StatusCode is >= 300 and < 400)
         {
             return ApiProblemCopy.StatusOnly(StatusCodes.Status502BadGateway);
@@ -331,8 +308,8 @@ internal static class HttpClientApiExtensions
                 {
                     problem.Status ??= (int)response.StatusCode;
 
-                    // Whatever the body says, it came off the wire and counts as English. It does not get
-                    // to carry the Frontend-authored marker (ADR-0044 §2).
+                    // Off the wire means English, so it may not carry the Frontend-authored marker
+                    // (ADR-0044 §2).
                     ApiProblemCopy.StripFrontendAuthoredMarker(problem);
                     return problem;
                 }
@@ -346,11 +323,6 @@ internal static class HttpClientApiExtensions
         return ApiProblemCopy.StatusOnly((int)response.StatusCode);
     }
 
-    /// <summary>
-    /// The resilience pipeline (Polly) can throw before we ever see an HTTP status code. Those failures
-    /// become a <see cref="ProblemDetails"/>, so callers stay on the <c>ApiResult</c> path and can show a
-    /// message instead of crashing the page.
-    /// </summary>
     private static bool IsTransportFailure(Exception ex) =>
         ex is HttpRequestException
             or TaskCanceledException

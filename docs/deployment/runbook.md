@@ -732,15 +732,15 @@ Most "works locally, 401 or redirect error on staging" failures are one of these
 
 ### Locally, development (infra + host Kestrels)
 
-The day-to-day inner loop (ADR-0006, amended by #190 / M6-14). Boot the infra-only stack, then run the
-three apps on the host:
+The day-to-day inner loop (ADR-0006, amended by #190). Boot the infra-only stack, then run the three
+apps on the host:
 
 ```bash
-scripts/up.sh                       # PowerShell: scripts/up.ps1 — boots postgres + migrator + mailpit + aspire
+scripts/up.sh                       # PowerShell: scripts/up.ps1 — boots postgres + rabbitmq + migrator + mailpit + aspire
 dotnet dev-certs https --trust      # one-time, so the host Kestrels serve trusted HTTPS
 ```
 
-Then start the three host Kestrels — all at once via the Rider compound **`TMS dev (all hosts)`**, or
+Then start the three host Kestrels: all at once via the Rider compound **`TMS dev (all hosts)`**, or
 each in its own terminal:
 
 ```bash
@@ -749,26 +749,28 @@ dotnet run --project src/TranslationSystem/LotroKoniecDev.TranslationSystem.API 
 dotnet run --project src/Frontend/LotroKoniecDev.Frontend                         # → https://localhost:7017
 ```
 
-Verify: open `https://localhost:7017`, log in via OIDC, and confirm an authenticated TMS call succeeds.
-An app-code change is picked up by re-running that one project (or hot reload) — no image rebuild.
+Verify: open `https://localhost:7017`, log in via OIDC, and confirm an authenticated TMS call works.
+An app-code change is picked up by re-running that one project (or hot reload), with no image
+rebuild.
 
 ### Locally, production-parity (the rehearsal)
 
-The fastest way to exercise the real topology — real keys, forwarded headers, DP volumes,
-containerized frontend, Caddy TLS — on a laptop (ADR-0008 §4). It runs the **same four images and the
-same proxy shape** as the box, so prod-only breakage surfaces before staging:
+The fastest way to exercise the real topology (real keys, forwarded headers, DP volumes, a
+containerized frontend, Caddy TLS) on a laptop (ADR-0008 §4). It runs the **same four images and the
+same proxy shape** as the box, so prod-only breakage shows up before staging:
 
 ```bash
 scripts/up-prod.sh --build          # PowerShell: scripts/up-prod.ps1 --build
 ```
 
 It bootstraps `.env.prod` (with freshly generated OpenIddict secrets, the frontend caller key and the
-health check key), the local CA + certs, and the `*.lotro.test` hosts mapping, then runs
-`docker compose -f compose.prod.yaml up`. The bootstrap runs only when `.env.prod` is absent: one that
-predates ADR-0054 or ADR-0058 needs the missing key appended by hand —
+health check key), the local CA + certs and the `*.lotro.test` hosts mapping, then runs
+`docker compose -f compose.prod.yaml up`. The `.env.prod` bootstrap runs only when the file is
+missing. An older `.env.prod` without `FRONTEND_CALLER_KEY` or `HEALTH_CHECK_KEY` needs them appended
+by hand, or compose refuses to render:
 `printf 'FRONTEND_CALLER_KEY=%s\n' "$(openssl rand -base64 32)" >> .env.prod`, and the same for
-`HEALTH_CHECK_KEY` — or compose refuses to render. Verify (the full `/health` needs the health check
-key from `.env.prod`; without it the answer is 404):
+`HEALTH_CHECK_KEY`. Verify (the full `/health` needs the health check key from `.env.prod`; without it
+the answer is 404):
 
 ```bash
 HEALTH_CHECK_KEY="$(grep '^HEALTH_CHECK_KEY=' .env.prod | cut -d= -f2-)"
@@ -777,15 +779,15 @@ curl --cacert .docker/prod-https/rootCA.crt -H "X-LOTRO-Health-Key: $HEALTH_CHEC
 # browser OIDC login: https://app.lotro.test
 ```
 
-For an all-local run (no external SMTP/OTLP), add the profiles so the SMTP leg of the deep auth
-`/health` passes and traces are viewable, and set `Email__Host=mailpit` / `Email__Port=1025` / `Email__Mode=None`
-+ `OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889` in `.env.prod`:
+For an all-local run (no external SMTP or OTLP), add the profiles, so the SMTP check of the deep auth
+`/health` passes and traces are viewable, and set `Email__Host=mailpit` / `Email__Port=1025` /
+`Email__Mode=None` + `OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889` in `.env.prod`:
 
 ```bash
 docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --profile local-otel up --build
 ```
 
-The parity stack runs Production, so its admin is seeded **without a password**, exactly like a box
+The parity stack runs Production, so its admin is seeded **without a password**, like a box
 (ADR-0056). Set `AUTH_ADMIN_USERNAME` / `AUTH_ADMIN_EMAIL` in `.env.prod` and run with
 `--profile local-smtp`. Then do the [first sign-in steps](#admin-account--first-sign-in-and-rotation)
 against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://localhost:8026`.
@@ -794,10 +796,10 @@ against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://
 
 1. **Owner:** Hetzner console → create the box (Ubuntu LTS, backups on for prod) with the owner's ssh
    **public key** → note the IP.
-2. **DNS first** (ACME needs it resolving before certs can issue): registrar panel → A records for
-   every public hostname → the new IP, TTL 300. Hostname list = the
-   [env matrix](#environment-variable-matrix). Prod trio → prod IP, staging trio → staging IP.
-3. **Bootstrap** (idempotent — re-running changes nothing). Preferred form (`-t` gives the GHCR prompt
+2. **DNS first** (ACME needs it to resolve before certificates can issue): registrar panel → A
+   records for every public hostname → the new IP, TTL 300. The hostnames are in the
+   [env matrix](#environment-variable-matrix): prod trio → prod IP, staging trio → staging IP.
+3. **Bootstrap** (idempotent: a re-run changes nothing). Preferred form (`-t` gives the GHCR prompt
    a TTY, so the PAT is typed at a hidden prompt and never lands in shell history):
 
    ```bash
@@ -807,24 +809,25 @@ against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://
 
    The PAT is a GitHub token with **only `read:packages`**. For automation you *can* pass it via env
    (`ssh root@<ip> 'GHCR_USER=<u> GHCR_TOKEN=<pat> bash -s' < scripts/hetzner/bootstrap.sh`), but the
-   inline assignment **lands in your local shell history** — prefer the prompt for hand runs. Without
-   env vars and without a TTY the script skips the GHCR login with a warning and the rest still
-   completes.
+   inline assignment **lands in your local shell history**, so prefer the prompt for hand runs.
+   Without env vars and without a TTY, the script skips the GHCR login with a warning and the rest
+   still completes.
 
-   **The GHCR login is optional today** — the four images are **public** packages, so `deploy` pulls
+   **The GHCR login is optional today**: the four images are **public** packages, so `deploy` pulls
    them anonymously. It stays in the script because a *private* package would need it.
 
    **Bootstrap overwrites `/etc/ssh/sshd_config.d/00-hardening.conf`, `/etc/fail2ban/jail.local`,
    `/usr/local/sbin/docker-user-firewall` and `/etc/systemd/system/docker-user-firewall.service`**
    (it converges them to the repo version), so fold any hand-tuned directive into the script first.
 
-   **The Docker leg adopts the box's engine, it does not install one** — see [Gotchas](#gotchas).
-4. **Stack files:** copy `compose.hetzner.yaml` + `.docker/hetzner/` to `/opt/lotro/` and
-   `scripts/hetzner/deploy.sh` to `/opt/lotro/deploy.sh` (as `deploy`), assemble the box's `.env` from
-   `.env.hetzner.example` ([Secrets](#secrets) has every value's source of truth and rotation command),
-   `chmod 600` it.
-5. **Bring-up (staging box first as the rehearsal):** as `deploy`, on each box, through `deploy.sh`
-   and not a plain `up -d`. It is the same rollout CD runs, and it is the one step that gives the new
+   **The Docker leg adopts the box's engine; it does not install one**: see [Gotchas](#gotchas).
+   Swap needs no separate step: bootstrap's first leg lays it down.
+4. **Stack files:** as `deploy`, copy `compose.hetzner.yaml` + `.docker/hetzner/` to `/opt/lotro/`
+   and `scripts/hetzner/deploy.sh` to `/opt/lotro/deploy.sh`. Assemble the box's `.env` from
+   `.env.hetzner.example` ([Secrets](#secrets) has every value's source of truth and rotation command)
+   and `chmod 600` it.
+5. **Bring-up (staging box first, as the rehearsal):** as `deploy`, on each box, through `deploy.sh`
+   and not a plain `up -d`. It is the same rollout CD runs, and it is the one step that gives a new
    broker its policy for parked e-mail (ADR-0036 §6). Name a `sha-<short sha>` tag of a green commit
    on `main`, never `latest`: the script pins the tag in `.env`, CD's next rollback returns to whatever
    `.env` names, and `latest` moves with every green CI run on `main`:
@@ -835,40 +838,39 @@ against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://
    docker compose -f compose.hetzner.yaml logs -f migrator caddy   # one-shot migration + ACME
    ```
 
-   Then re-check the [consistency rules](#consistency-rules-that-bite) across services, run the
-   [smoke test](#post-deploy-smoke-test) against the public origins from an external network —
-   remember `GET / -> 200` proves nothing; smoke's fingerprint leg is the real check — and check that
+   Then re-check the [consistency rules](#consistency-rules-that-bite), run the
+   [smoke test](#post-deploy-smoke-test) against the public origins from an external network
+   (`GET / -> 200` proves nothing; smoke's fingerprint leg is the real check), and check that
    `emails.send.dlq` carries the policy
    ([the dead-letter parking lot](#the-dead-letter-parking-lot-emailssenddlq)).
-6. **Re-pin the CD host key** (`ssh-keyscan`) — see
-   [One-time setup per environment](#one-time-setup-per-environment). Swap is not a step here: step
-   3's bootstrap provisions it ([Gotchas](#gotchas)).
+6. **Re-pin the CD host key** (`ssh-keyscan`): see
+   [One-time setup per environment](#one-time-setup-per-environment).
 
 ### One-time: cutting a live box over to the two segregated networks (#506)
 
-Both stacks are already running on these boxes, so #506 is a **migration of a live box**, not a fresh
-bring-up. The lotro deploy recreates our containers on the new topology and creates `${project}_tks`;
-the TKS containers keep running meanwhile, but on the old network and **without** the Caddy aliases
-they need — so they must be recreated straight after (compose cannot move a running container between
-networks). Do the whole sequence on **staging first**, prod only once staging is verified. A short TKS
-outage is expected and acceptable pre-launch.
+This moved a box that already ran both stacks on one shared network to the two networks of #506. The
+lotro deploy recreates our containers on the new topology and creates `${project}_tks`. The TKS
+containers keep running meanwhile, but on the old network and **without** the Caddy aliases they
+need, so they must be recreated straight after (compose cannot move a running container between
+networks). Do the whole sequence on **staging first**, and on prod only once staging is verified. A
+short TKS outage is expected and acceptable before launch.
 
-**Pre-flight** — record what you are changing, as `deploy` (`lotro-prod` shown; staging is
+**Pre-flight**: record what you are changing, as `deploy` (`lotro-prod` shown; staging is
 `lotro-staging`):
 
 ```bash
-docker network ls                                     # today: ONE shared network, both stacks on it
+docker network ls                                     # before the cutover: ONE shared network, both stacks on it
 docker network inspect lotro-prod_default \
   --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}'
 ```
 
-Everything that is **not** ours in that list (every `tks-*` container) is exactly what this change
-fences off. If Caddy already sits at `10.60.0.100` and a `lotro-prod_tks` network exists, the box has
-been cut over already — stop here.
+Everything in that list that is **not** ours (every `tks-*` container) is what this change fences
+off. If Caddy already sits at `10.60.0.100` and a `lotro-prod_tks` network exists, the box has been
+cut over already: stop here.
 
 1. **Deploy lotro.** CD does it on merge; by hand: `IMAGE_TAG=<tag> bash /opt/lotro/deploy.sh`.
-2. **Verify the boundary before touching TKS** — Caddy must hold both pinned addresses, and nothing
-   but our four containers may remain on `10.60.0.0/24`:
+2. **Verify the boundary before touching TKS**: Caddy must hold both pinned addresses, and nothing
+   but our containers may remain on `10.60.0.0/24`:
 
    ```bash
    docker inspect lotro-prod-caddy-1 \
@@ -879,7 +881,7 @@ been cut over already — stop here.
 
 3. **Recreate the TKS stack onto `${project}_tks`** (its compose change is the twin ticket,
    koniecdev/TheKittySaver#295). Ship its new `compose.hetzner.yaml`, point `LOTRO_NETWORK` at THIS
-   box's network, then recreate — compose cannot move a running container between networks:
+   box's network, then recreate:
 
    ```bash
    # from a TheKittySaver checkout on main:
@@ -895,9 +897,9 @@ been cut over already — stop here.
    docker compose -f compose.hetzner.yaml up -d
    ```
 
-4. **Verify both sites from outside the box** — ours with the [smoke test](#post-deploy-smoke-test),
+4. **Verify both sites from outside the box**: ours with the [smoke test](#post-deploy-smoke-test),
    TKS by loading its public origin. A 502 on TKS means its containers did not land on
-   `${project}_tks` (or lost their `tks-` service-key prefix) — Caddy itself is fine; re-check step 3.
+   `${project}_tks` (or lost their `tks-` service-key prefix). Caddy itself is fine; re-check step 3.
 
 ## Continuous deployment (CD over ssh)
 
@@ -913,15 +915,15 @@ CI green on main → cd.yml gate (pins the tested commit)
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `cd.yml` → `gate` | CI finishing on main (`workflow_run`), `v*` tag, dispatch | the **CI-success gate**: CD fires when CI completes, proceeds only on a green CI, and pins the exact tested commit (`head_sha`) for build + rollout. Docs-only pushes run no CI, so they trigger no CD. |
-| `cd.yml` → `build-and-push` | after a passing `gate` | builds the 4 images, **scans each with Trivy** (fails on a fixable HIGH/CRITICAL), then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)** — `:sha-<short>`, `:latest` on main, semver on tags |
-| `cd.yml` → `deploy-staging` | after `build-and-push`, `STAGING_ENABLED == true`, **auto** | calls the reusable [`deploy.yml`](../../.github/workflows/deploy.yml) under `environment: staging` |
+| `cd.yml` → `gate` | CI finishing on main (`workflow_run`), `v*` tag, dispatch | the **CI-success gate**: CD fires when CI completes, goes on only after a green CI, and pins the exact tested commit (`head_sha`) for build + rollout. Docs-only pushes run no CI, so they trigger no CD. |
+| `cd.yml` → `build-and-push` | after a passing `gate` | builds the 4 images, **scans each with Trivy** (fails on a fixable HIGH/CRITICAL), then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)**: `:sha-<short>`, `:latest` on main, semver on tags. A `v*` tag only publishes; it does not deploy |
+| `cd.yml` → `deploy-staging` | after `build-and-push`, `STAGING_ENABLED == true`, **automatic** | calls the reusable [`deploy.yml`](../../.github/workflows/deploy.yml) under `environment: staging` |
 | `cd.yml` → `deploy-prod` | after `deploy-staging`, **behind the `production` approval gate** | the SAME reusable `deploy.yml` under `environment: production` |
 
 **The two-stage promotion model.** Every merge to main with a green CI builds once and
 **automatically deploys to staging**. The same `sha-<short>` then **waits at the `production`
 environment** for a human. Clicking *Approve* (GitHub → the run → *Review deployments*) **is** the
-staging→prod promotion: the identical image that passed staging is what production receives.
+staging→prod promotion: production receives the same image that passed staging.
 
 **The switches** (repo Variables): `CD_ENABLED=true` arms the deploy jobs at all; `STAGING_ENABLED=true`
 arms the staging leg and makes prod wait on it (ADR-0018).
@@ -929,99 +931,95 @@ arms the staging leg and makes prod wait on it (ADR-0018).
 **Stale candidates expire after 24 h.** The gate pins the tested commit, so approving a days-old
 run would deploy a days-old SHA. [`cd-janitor.yml`](../../.github/workflows/cd-janitor.yml) (#527)
 cancels any CD run left `waiting` at the `production` gate for more than 24 hours (nightly cron,
-04:25 UTC; on demand: `gh workflow run cd-janitor.yml`). Nothing is lost — every newer green-CI
-merge produces a fresh candidate, and any older commit can still be deployed explicitly via
-`cd.yml`'s `workflow_dispatch`.
+04:25 UTC; on demand: `gh workflow run cd-janitor.yml`). Nothing is lost: every newer green-CI merge
+produces a fresh candidate, and any older commit can still be deployed through `cd.yml`'s
+`workflow_dispatch`.
 
-**Cancelling a `waiting` run by hand:** the UI *Cancel* button and `gh run cancel` do **not** work
-on approval-gated runs — they only file a cancellation request no runner will ever pick up, so the
-run stays `waiting` ("requested to cancel" forever, #592). Use the same call the janitor makes:
+**Cancelling a `waiting` run by hand:** the UI *Cancel* button and `gh run cancel` do **not** work on
+approval-gated runs. They only file a cancellation request no runner ever picks up, so the run stays
+`waiting` ("requested to cancel") for good (#592). Use the call the janitor makes:
 `gh api -X POST repos/koniecdev/LotroKoniecDev/actions/runs/<run-id>/force-cancel`.
 
 ### What `deploy.yml` does
 
-**Prod leg only, first (#534 — the N-1 promotion gate):** promotion is batched, so the sha the
-approval replaces is the last *deployed* one, not the last *merged* one. The job resolves the sha
-actually serving (last successful `production` deployment via the API, cross-checked against the
-box-pinned `IMAGE_TAG`, which also stands in when the API cannot answer) and, when the span since it
-touches `Migrations/`, re-runs the ADR-0024 proof against that baseline. Two different red verdicts,
-two different fixes:
+**Prod leg only, first: the N-1 promotion gate (#534).** Promotion is batched, so the release the
+approval replaces is the last *deployed* one, not the last *merged* one. The job finds the release
+that is actually serving: the last successful `production` deployment from the API, cross-checked
+against the `IMAGE_TAG` pinned on the box, which also stands in when the API cannot answer. When the
+span since that release touches `Migrations/`, it re-runs the ADR-0024 proof against it. There are two
+different red verdicts, with two different fixes:
 
-- **`RED` — the batch's schema breaks the release prod is running right now. Do not retry:** approve
-  a candidate containing only the expand, let it serve, then promote the contract.
-- **`COULD NOT RUN` — nothing was executed against the schema, so the batch is UNJUDGED,** not
-  proven bad. That covers the proof's own setup (script generation, the worktree, the seam) *and*
-  a serving release that no longer restores or builds with today's toolchain — an old tree is not
-  re-judged by today's rules, so a warning-shaped failure there is infra, never a schema verdict
-  (#679). Fix the failure named in the log and re-run the job. Do **not** split the batch, and do
-  not reach for the `image_tag` dispatch: it skips the gate entirely, so nothing would be proven
-  at all.
+- **`RED`: the batch's schema breaks the release prod is running right now. Do not retry.** Approve a
+  candidate that contains only the expand, let it serve, then promote the contract.
+- **`COULD NOT RUN`: nothing ran against the schema, so the batch is unjudged, not proven bad.** That
+  covers the proof's own setup (script generation, the worktree, the seam), and a serving release
+  that no longer restores or builds with today's toolchain: an old tree is not judged again by
+  today's rules, so a warning-shaped failure there is infra, never a schema verdict (#679). Fix the
+  failure named in the log and re-run the job. Do **not** split the batch, and do not reach for the
+  `image_tag` dispatch: it skips the gate, so nothing would be proven at all.
 
-Migration-free promotions skip in seconds. An unresolvable baseline fails closed. The
-nothing-serving-yet skip needs **two agreeing signals** — no `production` deployment on record ever
-reached `success`, *and* the box pins no `IMAGE_TAG` — because it is the one verdict that lets a batch
-through unproven; a silent box the API cannot corroborate therefore blocks instead of skipping (check
-`/opt/lotro/.env` and `docker compose ps`; if it truly is the first deploy here, dispatch with an
-explicit `image_tag`, which bypasses the gate by design). A manual `image_tag` dispatch bypasses the
-gate with a warning — that path is yours to verify, and note that the deployment record it leaves
-behind names the *run's* sha rather than the tag you rolled, which is exactly what the box
-cross-check exists to catch on the promotion after it.
+A promotion without migrations skips the proof in seconds. A baseline that cannot be found fails
+closed. "Nothing is serving yet" is the one verdict that lets a batch through unproven, so it needs
+**two signals that agree**: no `production` deployment on record ever reached `success`, *and* the
+box pins no `IMAGE_TAG`. A silent box the API cannot back up therefore blocks instead of skipping.
+Check `/opt/lotro/.env` and `docker compose ps`; if it really is the first deploy there, dispatch with
+an explicit `image_tag`. A manual `image_tag` dispatch skips the gate with a warning, so verifying
+that path is up to you. Note that the deployment record it leaves names the *run's* sha, not the tag
+you rolled; the box cross-check catches that on the next promotion.
 
-On the runner it resolves the tag to **digests**, verifies each image's build provenance (fails
-closed), cuts the Neon pre-migration snapshot branch (MIGR-04) and publishes the restore point. Then
-it ssh'es to **that environment's box** (`vars.HETZNER_HOST` — one box IS one environment), snapshots
-the live config into `/opt/lotro/.previous/`, scp's `compose.hetzner.yaml`, the Caddyfile and
-`scripts/hetzner/deploy.sh` into `/opt/lotro`, and runs the script:
+On the runner, the job then resolves the tag to **digests**, verifies each image's build provenance
+(fails closed), cuts the Neon pre-migration snapshot branch (MIGR-04) and publishes the restore
+point. Then it ssh-es to **that environment's box** (`vars.HETZNER_HOST`: one box IS one
+environment), snapshots the live config into `/opt/lotro/.previous/`, copies `compose.hetzner.yaml`,
+the Caddyfile and `scripts/hetzner/deploy.sh` into `/opt/lotro`, and runs the script:
 
-1. validates the composed config **and the Caddyfile** — a typo aborts here, while the running Caddy
-   is still serving its current config;
-2. `pull`, then asserts the pulled digests are the ones whose provenance CD just verified (GHCR tags
-   are mutable — this closes the gap between the gate and what actually starts);
+1. validates the composed config **and the Caddyfile**: a typo stops here, while the running Caddy
+   still serves its current config;
+2. `pull`, then checks that the pulled digests are the ones whose provenance CD just verified (GHCR
+   tags are mutable, so this closes the gap between the gate and what actually starts);
 3. **the migration gate:** runs the migrator as its own one-off container (`compose run --rm --no-deps
-   migrator`) and proceeds only on exit 0. A bad migration therefore aborts the roll with the
-   **previous release still serving** — it is a no-op for the live site;
-4. `up -d` — only now are the app containers recreated, onto an already-migrated schema;
-5. reloads Caddy (its Caddyfile is a bind mount — compose does not notice content changes);
-6. sets the broker policy that makes a parked e-mail message expire after 7 days (ADR-0036 §6) — see
+   migrator`) and goes on only on exit 0. A bad migration therefore stops the roll with the
+   **previous release still serving**: it changes nothing for the live site;
+4. `up -d`: only now are the app containers recreated, onto an already-migrated schema;
+5. reloads Caddy (its Caddyfile is a bind mount, and compose does not notice content changes);
+6. sets the broker policy that makes a parked e-mail message expire after 7 days (ADR-0036 §6): see
    [the dead-letter parking lot](#the-dead-letter-parking-lot-emailssenddlq). A broker that does not
-   answer only prints a warning: it never fails the deploy;
-7. pins `IMAGE_TAG` in the box `.env` **last, on success only**, so the file always describes what is
-   actually running.
+   answer only prints a warning; it never fails the deploy;
+7. pins `IMAGE_TAG` in the box `.env` **last, and only on success**, so the file always describes
+   what is actually running.
 
-Finally the runner waits for the public origins to answer, then smokes them. Red smoke ⇒ the box is
-rolled back automatically — **images and config** (from `.previous/`) — and the job fails.
+Finally the runner waits for the public origins to answer, then smokes them. A red smoke rolls the
+box back automatically, **images and config** (from `.previous/`), and the job fails.
 
-> ⚠️ **Never fold the migration gate back into `up -d`.** `compose.hetzner.yaml` does declare
+> ⚠️ **Never fold the migration gate back into `up -d`.** `compose.hetzner.yaml` declares
 > `depends_on: { migrator: { condition: service_completed_successfully } }`, and it is tempting to let
 > that be the gate. It is not: the condition gates the **start** of the apps, not their **creation**.
 > `compose up` recreates every changed service first (and every deploy changes the image tag), so the
-> old app containers are destroyed *before* the migrator runs — a failed migration then leaves the
-> apps `created`-but-never-started and the site **down**, serving 502s through the surviving Caddy.
-> Verified against Docker 29.6.1 (#490). Running the migrator as its own container first is what makes
-> the "old release keeps serving" property real.
+> old app containers are destroyed *before* the migrator runs. A failed migration then leaves the apps
+> created but never started, and the site **down** behind the surviving Caddy (verified on Docker
+> 29.6.1, #490). Running the migrator as its own container first is what keeps the old release serving.
 
 **There is no blue/green.** A 4 GB box cannot hold a second live set of three apps, so containers are
-recreated in place: a deploy costs a few seconds of downtime per app, and the smoke necessarily runs
-after the new containers are live (the retired ACA rollout could smoke a 0%-traffic candidate first).
-The migration gate + the automatic rollback are what replace it. Recreating Caddy also blips
-TheKittySaver, which it proxies.
+recreated in place: a deploy costs a few seconds of downtime per app, and the smoke can only run after
+the new containers are live. The migration gate and the automatic rollback take its place.
+Recreating Caddy also blips TheKittySaver, which it proxies.
 
 **A rollback reverts code, never schema** (ADR-0023). Re-deploying the previous tag re-runs the
-*older* migrator, which only applies pending migrations — it never reverts one — so the old app comes
-back up against the **new** schema. That is safe precisely because every migration is N-1
-backward-compatible; it is also why a bad *migration* is not a rollback case at all but a roll-forward
-or a restore ([Database migrations](#database-migrations)).
+*older* migrator, which only applies pending migrations and never reverts one, so the old app comes
+back up against the **new** schema. That is safe because every migration is N-1 backward-compatible.
+It is also why a bad *migration* is not a rollback case at all, but a roll-forward or a restore
+([Database migrations](#database-migrations)).
 
 ### One-time setup per environment
 
-**Precondition — the box needs a `deploy` user that owns the stack.** CD connects as `deploy` and
-scp's over `/opt/lotro`, so a box brought up by hand as root is not deployable: there is no `deploy`
-to log in as, and even once created it cannot read the root-owned `0600` `.env` nor overwrite the
-root-owned stack files. `bootstrap.sh` provisions the user *and* converges the ownership of
-`/opt/lotro` + `/opt/tks` recursively — that is the fix, not a `chown` by hand.
+**Precondition: the box needs a `deploy` user that owns the stack.** CD connects as `deploy` and
+copies files over `/opt/lotro`, so a box brought up by hand as root cannot be deployed: there is no
+`deploy` to log in as, and even once created it cannot read the root-owned `0600` `.env` nor
+overwrite root-owned stack files. `bootstrap.sh` creates the user *and* gives it `/opt/lotro` +
+`/opt/tks` recursively. That is the fix, not a `chown` by hand.
 
-CD fails closed with an explicit "not wired for ssh deploys" error until each environment (`staging`,
-`production`) carries these:
+CD fails closed with a "not wired for ssh deploys" error until each environment (`staging`,
+`production`) has these:
 
 | Kind | Name | Value |
 |---|---|---|
@@ -1029,21 +1027,21 @@ CD fails closed with an explicit "not wired for ssh deploys" error until each en
 | var | `HETZNER_SSH_KNOWN_HOSTS` | `ssh-keyscan` output for that IP (host-key pinning — see below) |
 | var | `HETZNER_USER` | optional; defaults to `deploy` |
 | var | `AUTH_URL` / `TMS_URL` / `FRONTEND_URL` | the environment's public origins (smoke targets) |
-| var | `NEON_PROJECT_ID` | that environment's Neon project (MIGR-04 snapshot; unset ⇒ the snapshot leg skips) |
+| var | `NEON_PROJECT_ID` | that environment's Neon project (MIGR-04 snapshot; unset ⇒ the snapshot step skips) |
 | secret | `HETZNER_SSH_KEY` | the CD deploy **private** key for that box (below) |
 | secret | `SMOKE_CLIENT_SECRET` | `= OpenIddict__ApiClientSecret` from that box's `.env` |
 | secret | `NEON_API_KEY` | project-scoped Neon key (MIGR-04) |
 
 > ⚠️ **A stale `SMOKE_CLIENT_SECRET` looks exactly like a broken deploy.** It is the one value here
-> that lives in *two* places — the box `.env` and the GitHub secret — and nothing reconciles them. Roll
-> the OpenIddict keys on a box without re-setting the secret and CD still deploys perfectly: images
-> pull, the migration gate passes, the containers come up — and then smoke's `client_credentials` leg
-> **401s**, CD judges the rollout red and **automatically rolls it back**. The log accuses the release;
-> the fault is the secret. Whenever you rotate `OpenIddict__ApiClientSecret`, re-set this in the same
-> breath — and set it **per environment**, because an env with no `SMOKE_CLIENT_SECRET` silently falls
-> back to the repo-level one.
+> that lives in *two* places, the box `.env` and the GitHub secret, and nothing keeps them in step.
+> Rotate the OpenIddict keys on a box without setting the secret again and CD still deploys: images
+> pull, the migration gate passes, the containers come up, and then smoke's `client_credentials` leg
+> gets **401**, CD judges the rollout red and **rolls it back automatically**. The log blames the
+> release; the fault is the secret. Whenever you rotate `OpenIddict__ApiClientSecret`, set this again
+> at the same time, and set it **per environment**: an environment with no `SMOKE_CLIENT_SECRET`
+> silently falls back to the repository-level one.
 
-**Mint a CD deploy key per box** — one key per environment, so a staging compromise cannot touch prod.
+**Mint a CD deploy key per box**: one key per environment, so a staging compromise cannot touch prod.
 It is the `deploy` user's key, never `root`'s:
 
 ```bash
@@ -1055,35 +1053,37 @@ gh variable set HETZNER_SSH_KNOWN_HOSTS --env staging --body "$(ssh-keyscan -t e
 rm ./cd-staging ./cd-staging.pub                                        # GitHub + the box now hold the only copies
 ```
 
-Repeat for `production` with the prod IP and `--env production`. Then delete the local private key —
+Repeat for `production` with the prod IP and `--env production`. Then delete the local private key:
 losing it costs one re-mint, and a copy lying around is a spare key to prod.
 
-**Host-key pinning is not optional.** `HETZNER_SSH_KNOWN_HOSTS` is why CD runs with
+**Host-key pinning is not optional.** `HETZNER_SSH_KNOWN_HOSTS` is why CD can run with
 `StrictHostKeyChecking=yes`; without it the deploy would trust whoever answers on that IP and hand
-them the deploy key. Re-provisioning a box changes its host key — re-run the `ssh-keyscan` line above
-or every deploy fails at the ssh step (that failure is the pin working, not a bug).
+them the deploy key. Re-provisioning a box changes its host key: run the `ssh-keyscan` line above
+again, or every deploy fails at the ssh step (that failure is the pin working, not a bug).
 
 ### Deploy or roll back by hand
 
-The same script CD runs, so a hand-run and a CD run leave the box in identical states:
+The same script CD runs, so a hand run and a CD run leave the box in the same state:
 
 ```bash
 ssh deploy@<box>
 IMAGE_TAG=sha-1a2b3c4 bash /opt/lotro/deploy.sh    # roll to a specific commit's images
-IMAGE_TAG=latest      bash /opt/lotro/deploy.sh    # roll to the tip of main
 ```
 
-Rolling back = deploying the previous tag. The tag currently live is the `IMAGE_TAG` line in
-`/opt/lotro/.env` (written only on a successful roll, so it never lies), and every CD run prints the
+Always name a `sha-<short>` tag, never `latest`: the script pins the tag in `.env`, the next
+automatic rollback returns to whatever `.env` names, and `latest` moves with every green CI run.
+
+Rolling back = deploying the previous tag. The tag that is live now is the `IMAGE_TAG` line in
+`/opt/lotro/.env` (written only after a successful roll, so it never lies), and every CD run prints the
 one it replaced (`PREVIOUS_IMAGE_TAG=…` in the job log, plus the deployed tag in the run summary).
-GHCR keeps every `sha-<short>`, so any commit that ever built is still deployable. The config that was
-live before the last deploy sits in `/opt/lotro/.previous/` — restore those three files first if you
-are undoing a compose/Caddyfile change, not just an image change.
+GHCR keeps every `sha-<short>`, so any commit that ever built can still be deployed. The config that
+was live before the last deploy sits in `/opt/lotro/.previous/`: restore those three files first if
+you are undoing a compose or Caddyfile change, not just an image change.
 
 Two edges worth knowing. `deploy.sh` prunes unused images older than 14 days
-(`PRUNE_UNUSED_OLDER_THAN`), so a tag older than that may need a fresh `docker pull` on the box; GHCR
-still has it. And re-running CD for a commit (**Actions → CD → Run workflow**, optionally with an
-explicit `image_tag`) still passes the staging→prod gate.
+(`PRUNE_UNUSED_OLDER_THAN`), so an older tag may need a fresh `docker pull` on the box; GHCR still
+has it. And re-running CD for a commit (**Actions → CD → Run workflow**, optionally with an explicit
+`image_tag`) still goes through the staging→prod gate.
 
 ## Database migrations
 

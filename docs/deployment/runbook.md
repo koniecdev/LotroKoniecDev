@@ -318,51 +318,57 @@ These decide **which environment a box is**. The full list with placeholders is 
 ### Where they live
 
 The live values sit in **`/opt/lotro/.env`** on each box (`chmod 600`, owner `deploy`): **one file
-per box**, because one box = one environment. Compose picks it up automatically — no `--env-file`.
-The tracked template carrying every key with placeholder values is **`.env.hetzner.example`**.
+per box**, because one box = one environment. Compose reads it automatically, so no `--env-file`.
+The tracked template with every key and placeholder values is **`.env.hetzner.example`**.
 
-Two pieces of credential-ish material live **outside** `.env` and outside the DB: the `auth-keys`
-and `frontend-keys` **Data Protection keyring volumes**. They are not minted from anywhere — losing
-a volume simply invalidates every auth cookie and OIDC correlation state (everyone re-logs in),
-which is why they are named volumes and not bind mounts.
+**A new required variable lands on a box before the change that needs it.** Put it into the staging
+`.env` before the merge, and into the prod `.env` before the promotion. Compose refuses to render
+without a required variable (`${VAR:?}`), so `deploy.sh` stops at its first gate and the old release
+keeps serving, but the deploy is red until the value is there.
+
+Two pieces of key material live **outside** `.env` and outside the DB: the `auth-keys` and
+`frontend-keys` **Data Protection keyring volumes**. Nothing mints them. Losing a volume invalidates
+every auth cookie and OIDC correlation state (everyone signs in again), which is why they are named
+volumes and not bind mounts.
 
 ### Secret material — source of truth and how to rotate
 
-| Variable | Consumed by | Source of truth | (Re)mint / rotate |
+| Variable | Read by | Source of truth | (Re)mint / rotate |
 |---|---|---|---|
-| `ConnectionStrings__AuthDatabase` | migrator, auth-api | **Neon** — the env's project (prod: `lotro-translator-prod`; staging has its own, ADR-0018), DB `lotro_auth` | Neon console → Roles → *Reset password* → rebuild the string by hand. **Keyword format only** — Npgsql does not parse `postgres://` URIs. Must carry `Ssl Mode=Require`. Use `Timeout=20`; an existing `Timeout=60` also works, because the auth API caps the open at 20 s in code and only the migrator reads the value as written (#923). |
+| `ConnectionStrings__AuthDatabase` | migrator, auth-api | **Neon**: the environment's project (prod: `lotro-translator-prod`; staging has its own, ADR-0018), DB `lotro_auth` | Neon console → Roles → *Reset password* → rebuild the string by hand, in the format the [auth-api matrix](#auth-api) shows (keyword form, `Ssl Mode=Require`, `Timeout=20`). |
 | `ConnectionStrings__TranslationDatabase` | migrator, tms-api | same Neon project, DB `lotro_translation` | same |
-| `OpenIddict__SigningKey__RsaPrivateKeyXml` | auth-api | **regenerate** — no canonical copy exists anywhere | `scripts/gen-openiddict-keys.sh` prints all three OpenIddict values as `KEY=VALUE` lines; append to the box `.env`. Pure config (never stored in the DB), so rotating just invalidates issued tokens → everyone re-logs in. Free pre-launch. |
-| `OpenIddict__EncryptionKey__Key` | auth-api | regenerate | same script, same blast radius. |
-| `OpenIddict__ApiClientSecret` | auth-api (**seeds** the `lotrokoniecdev-api` client row) | regenerate | same script — **but the DB row wins on restart; rotation needs the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing).** Must stay equal to the `SMOKE_CLIENT_SECRET` GitHub secret of the same environment. |
-| `Email__Username` | auth-api | **Brevo** dashboard → SMTP & API → SMTP keys | The SMTP **login**, shaped `<id>@smtp-brevo.com` — **not** the Brevo account e-mail, which fails the handshake with `535`. |
-| `Email__Password` | auth-api | **Brevo** (owner pastes) | Generate a new SMTP key in Brevo. Shown **once** and never readable back — the copies in the box `.env` and in GitHub secrets are both write-only, so a lost key is re-generated, never recovered. |
-| The admin password | the admin `Users` row | **the admin's own password manager**, never a file on the box | Not a `.env` value any more (ADR-0056): the seeder creates the admin without one. The first password and every rotation go through the reset mail ([Admin account](#admin-account--first-sign-in-and-rotation)). A box `.env` that still has an `AUTH_ADMIN_PASSWORD` line predates #696: follow the migration steps there. |
-| `RABBITMQ_PASSWORD` (→ auth-api and tms-api `RabbitMq__Password` **and** the broker's `RABBITMQ_DEFAULT_PASS`) | rabbitmq, auth-api, tms-api | **box-local** — generate: `openssl rand -base64 24` | ⚠️ Same create-if-missing shape as the admin seed: the broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** (empty data volume), so editing `.env` later rotates what the apps present but **not** what the broker expects. Rotate in lockstep: `docker compose -f compose.hetzner.yaml exec --user rabbitmq rabbitmq rabbitmqctl change_password rabbitmq '<new>'` → update `.env` → `docker compose -f compose.hetzner.yaml up -d auth-api tms-api`. Leave tms-api out and it keeps working until its next reconnect, then is refused for good while erasures wait unseen in its queue (ADR-0065). |
-| `FRONTEND_CALLER_KEY` (→ auth-api and tms-api `FrontendCaller__Key`, frontend `AuthSystem__CallerKey` **and** `TranslationSystem__CallerKey`) | auth-api, tms-api, frontend | **box-local** — generate: `openssl rand -base64 32`, one per environment (not one per API) | Lets the auth API and the TMS API rate-limit a frontend call on the visitor's forwarded address instead of on the frontend container (ADR-0054, #823). Put a new value into the box `.env` and redeploy: all three services read the same line, so they disagree only for the seconds of the restart, and a call in that window merely counts against the frontend's own bucket. **Required** — compose refuses to render without it (`deploy.sh` stops at its first gate and the rollback keeps the old release serving), and all three apps refuse to boot outside Development/Testing. Write the value **unquoted**: base64 needs no quotes, and a key with whitespace at either end stops all three apps at boot, because the APIs would compare it with a trimmed header and never match (#857). A line break or a non-ASCII character anywhere in the key (a multi-line value, a pasted non-breaking space) stops them at boot too, because such a key cannot reach the API in a header. So does a tab: it could reach the API, but it is refused to keep one simple rule (#877). A leaked key lets its holder dodge the three auth back-channel limits and the TMS API's one limit by inventing addresses and nothing more — rotate it. |
-| `HEALTH_CHECK_KEY` (→ auth-api and tms-api `HealthCheck__Key`) | auth-api, tms-api, **and on the prod box the daily health ping** | **box-local** — generate: `openssl rand -base64 32`, one per environment (not one per API) | Opens the full `/health` (ADR-0058, #853); without it both APIs answer 404 there and run no check. **Required** — compose refuses to render without it (`deploy.sh` stops at its first gate and the rollback keeps the old release serving), and both APIs refuse to boot outside Development/Testing. **Prod only: the same value is the `PROD_HEALTH_CHECK_KEY` repository secret** the daily health ping sends. Set or rotate it without the value ever reaching argv or the screen: `ssh deploy@<prod-box> "grep '^HEALTH_CHECK_KEY=' /opt/lotro/.env \| cut -d= -f2-" \| tr -d '"\r\n' \| gh secret set PROD_HEALTH_CHECK_KEY` (gh reads stdin when there is no `--body`; **never `--body -`**). The command copies the raw `.env` line, so write the value **unquoted** — base64 needs no quotes; `tr` drops double quotes, but single quotes would reach the secret and turn the ping red. Both APIs refuse to boot with a key that has whitespace at either end or anything but printable ASCII inside it (#853, #877). Rotate: new value into the prod `.env` → redeploy → that command. Between the two steps the ping gets 404 and goes red, so rotate outside its 06:40 UTC slot. A leaked key lets its holder run the database, SMTP and broker checks at will, and nothing more — rotate it. |
-| `OBS_PUSH_PASSWORD` (prod `/opt/obs/.env`) ↔ `OBS_PUSH_PASSWORD_HASH` (staging `/opt/lotro/.env`) | the prod agent (Alloy, `ship.agent.alloy`) ↔ the staging Caddy's ingest vhost | **box-local** — generate: `openssl rand -base64 24`; hash it with `docker run --rm -it caddy:2-alpine caddy hash-password` (prompts, never on argv) | One password, two forms, and the plaintext exists on the prod box only. Rotate hash-first: new hash into staging `.env` → `deploy.sh` (reloads Caddy) → new password into prod `.env` → `docker compose -f compose.observability.yaml up -d` in `/opt/obs`. **The window in between loses telemetry, it does not delay it** — a 401 is a permanent error for all three writers and each drops the batch — so pick a window you are willing to have a hole in, or give the vhost a second `basic_auth` account first so the two credentials overlap. **Single-quote the hash in `.env`**: bare *and* double-quoted both corrupt it, compose expands the salt after the third `$` to nothing, and `caddy validate` accepts the wreckage — prove it landed with the probe in "Bringing up the prod agent" step 3. |
-| `SMOKE_CLIENT_SECRET` *(GitHub secret, per environment — **not** a box var)* | `scripts/smoke.sh`, CD | == `OpenIddict__ApiClientSecret` of that env | `gh secret set SMOKE_CLIENT_SECRET --env <staging\|production> --body "$VALUE"` — **never `--body -`**: gh takes `-` literally and the smoke leg then 401s. |
-| GHCR pull token *(not an env var — `docker login` state in `/home/deploy/.docker/config.json`)* | `docker compose pull` | **GitHub PAT**, scope `read:packages` **only** | Re-run `scripts/hetzner/bootstrap.sh` (its login leg prompts for user + PAT on a TTY). |
-| `HETZNER_SSH_KEY` *(GitHub secret, per environment — **not** a box var)* | CD over ssh (`deploy.yml`) | generated for CD — one key per box | The `deploy` user's key, never `root`'s. Mint + install + pin the host key: [One-time setup per environment](#one-time-setup-per-environment). |
+| `OpenIddict__SigningKey__RsaPrivateKeyXml` | auth-api | **regenerate**: no copy exists anywhere else | Take the line from [`gen-openiddict-keys`](#openiddict-production-keys-auth-api) into the box `.env`. Pure config (never stored in the DB), so a rotation invalidates issued tokens and everyone signs in again. auth-api can also read `OpenIddict__SigningKey__PreviousRsaPrivateKeyXml` to keep old tokens valid during a rotation (`OpenIddictSettings`), but `compose.hetzner.yaml` does not pass it. |
+| `OpenIddict__EncryptionKey__Key` | auth-api | regenerate | same script, same effect. |
+| `OpenIddict__ApiClientSecret` | auth-api (**seeds** the `lotrokoniecdev-api` client row) | regenerate | same script, **but the DB row wins on restart: a rotation needs the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing).** Must stay equal to the `SMOKE_CLIENT_SECRET` GitHub secret of the same environment. |
+| `Email__Username` | auth-api | **Brevo** dashboard → SMTP & API → SMTP keys | The SMTP **login**, shaped `<id>@smtp-brevo.com`, **not** the Brevo account e-mail, which fails the handshake with `535`. |
+| `Email__Password` | auth-api | **Brevo** (the owner pastes it) | Generate a new SMTP key in Brevo. Brevo shows it **once**, so a lost key is generated again, never recovered. |
+| The admin password | the admin `Users` row | **the admin's own password manager**, never a file on the box | Not a `.env` value (ADR-0056): the seeder creates the admin without one. The first password and every rotation go through the reset mail ([Admin account](#admin-account--first-sign-in-and-rotation)). A box `.env` that still has an `AUTH_ADMIN_PASSWORD` line predates #696: follow the migration steps there. |
+| `RABBITMQ_PASSWORD` (→ auth-api and tms-api `RabbitMq__Password` **and** the broker's `RABBITMQ_DEFAULT_PASS`) | rabbitmq, auth-api, tms-api | **box-local**: `openssl rand -base64 24` | ⚠️ The broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** (empty data volume), so editing `.env` later changes what the apps send but **not** what the broker expects. Rotate in lockstep: `docker compose -f compose.hetzner.yaml exec --user rabbitmq rabbitmq rabbitmqctl change_password rabbitmq '<new>'` → update `.env` → `docker compose -f compose.hetzner.yaml up -d auth-api tms-api`. Leave tms-api out and it keeps working until its next reconnect, then is refused for good while erasures wait unseen in its queue (ADR-0065). |
+| `FRONTEND_CALLER_KEY` (→ auth-api and tms-api `FrontendCaller__Key`, frontend `AuthSystem__CallerKey` **and** `TranslationSystem__CallerKey`) | auth-api, tms-api, frontend | **box-local**: `openssl rand -base64 32`, one per environment (not one per API) | Lets both APIs rate-limit a frontend call on the visitor's forwarded address instead of on the frontend container (ADR-0054). Put a new value into the box `.env` and redeploy: all three services read the same line, so they disagree only during the restart, and a call in that window only counts against the frontend's own bucket. **Required**: compose refuses to render without it, and all three apps refuse to boot outside Development/Testing. Write it **unquoted**. A key with whitespace at either end, a line break, a tab or a non-ASCII character (a pasted non-breaking space) stops all three apps at boot, because such a key cannot match the header the APIs compare it with (#857, #877). A leaked key lets its holder dodge the three auth back-channel limits and the TMS API's one limit by inventing addresses, and nothing more: rotate it. |
+| `HEALTH_CHECK_KEY` (→ auth-api and tms-api `HealthCheck__Key`) | auth-api, tms-api, **and on the prod box the daily health ping** | **box-local**: `openssl rand -base64 32`, one per environment (not one per API) | Opens the full `/health` (ADR-0058); without it both APIs answer 404 there and run no check. **Required**, with the same format rules as `FRONTEND_CALLER_KEY`. **Prod only: the same value is the `PROD_HEALTH_CHECK_KEY` repository secret** the daily health ping sends. Set or rotate it without the value reaching argv or the screen: `ssh deploy@<prod-box> "grep '^HEALTH_CHECK_KEY=' /opt/lotro/.env \| cut -d= -f2-" \| tr -d '"\r\n' \| gh secret set PROD_HEALTH_CHECK_KEY` (gh reads stdin when there is no `--body`; **never `--body -`**). The command copies the raw `.env` line, so write the value **unquoted**: `tr` drops double quotes, but single quotes would reach the secret and turn the ping red. Rotate: new value into the prod `.env` → redeploy → that command. Between the two steps the ping gets 404 and goes red, so rotate outside its 06:40 UTC slot. A leaked key lets its holder run the database, SMTP and broker checks at will, and nothing more: rotate it. |
+| `OBS_PUSH_PASSWORD` (prod `/opt/obs/.env`) ↔ `OBS_PUSH_PASSWORD_HASH` (staging `/opt/lotro/.env`) | the prod agent (Alloy, `ship.agent.alloy`) ↔ the staging Caddy's ingest vhost | **box-local**: `openssl rand -base64 24`; hash it with `docker run --rm -it caddy:2-alpine caddy hash-password` (it prompts, never on argv) | One password in two forms; the plaintext exists on the prod box only. Rotate hash first: new hash into the staging `.env` → `deploy.sh` (reloads Caddy) → new password into the prod `.env` → `docker compose -f compose.observability.yaml up -d` in `/opt/obs`. **Telemetry sent in between is lost, not delayed**: all three writers treat a 401 as permanent and drop the batch. So pick a window you accept a hole in, or give the vhost a second `basic_auth` account first so the two credentials overlap. **Single-quote the hash in `.env`**: see [Bringing up the prod agent](#bringing-up-the-prod-agent-the-agent-only-role) step 3, which also has the probe that proves it landed. |
+| `SMOKE_CLIENT_SECRET` *(GitHub secret, per environment — **not** a box variable)* | `scripts/smoke.sh`, CD | == `OpenIddict__ApiClientSecret` of that environment | `gh secret set SMOKE_CLIENT_SECRET --env <staging\|production> --body "$VALUE"`. **Never `--body -`**: gh takes `-` literally and the smoke then gets 401. |
+| GHCR pull token *(not an env var — `docker login` state in `/home/deploy/.docker/config.json`)* | `docker compose pull` | **GitHub PAT**, scope `read:packages` **only** | Re-run `scripts/hetzner/bootstrap.sh` with `GHCR_USER` and `GHCR_TOKEN` set (the command and its shell-history caveat: [(Re)provisioning a box](#reprovisioning-a-box) step 3). Its login prompt runs only when `deploy` is not logged in yet, so a re-run without them keeps the old token. Today the images are public and pull without a login, so this matters only for a private package. |
+| `HETZNER_SSH_KEY` *(GitHub secret, per environment — **not** a box variable)* | CD over ssh (`deploy.yml`) | generated for CD, one key per box | The `deploy` user's key, never `root`'s. Mint + install + pin the host key: [One-time setup per environment](#one-time-setup-per-environment). |
 
 ### OpenIddict production keys (auth-api)
 
-The three OpenIddict secrets — generate all at once and append to the box `.env` (or `.env.prod` for
-the parity stack):
-
-```bash
-scripts/gen-openiddict-keys.sh >> .env.prod        # PowerShell: scripts/gen-openiddict-keys.ps1 >> .env.prod
-```
-
-It prints a leading comment line plus three `KEY=VALUE` lines:
+`scripts/gen-openiddict-keys.sh` (PowerShell: `scripts/gen-openiddict-keys.ps1`) prints a comment
+line and five `KEY=VALUE` lines:
 
 ```
 # Generated by scripts/gen-openiddict-keys.sh — keep secret, never commit.
 OpenIddict__EncryptionKey__Key=<base64 of a 32-byte key>
 OpenIddict__ApiClientSecret=<48 hex chars>
 OpenIddict__SigningKey__RsaPrivateKeyXml=<base64 of RSA.ToXmlString(true), 2048-bit>
+FRONTEND_CALLER_KEY=<base64 of 32 random bytes>
+HEALTH_CHECK_KEY=<base64 of 32 random bytes>
 ```
+
+`scripts/up-prod.sh` uses it to fill a new `.env.prod`. For a box `.env`, put each value into its
+empty line from `.env.hetzner.example`. **For a rotation, copy only the line you rotate.** Never
+append the whole output to a live box `.env`: it would also change the API client secret, the caller
+key and the health check key, and each of those has its own rotation steps in the table above.
 
 Manual equivalents for the two simple ones (if you cannot run the script):
 
@@ -371,29 +377,28 @@ openssl rand -base64 32        # OpenIddict__EncryptionKey__Key  (256-bit symmet
 openssl rand -hex 24           # OpenIddict__ApiClientSecret     (48 chars, ≥ the 32 minimum)
 ```
 
-`RsaPrivateKeyXml` is base64 of .NET's `RSA.ToXmlString(true)` for a ≥2048-bit key — the script does
-the PEM→.NET-XML conversion (it needs `openssl` + `python3`); reproduce it with the script rather than
+`RsaPrivateKeyXml` is base64 of .NET's `RSA.ToXmlString(true)` for a ≥2048-bit key. The script does
+the PEM → .NET XML conversion (it needs `openssl` + `python3`); use the script rather than doing it
 by hand.
 
 ### E-mail deliverability — the sender must be one Brevo is authorised to send as
 
 `Email__SenderEmail` is not a free-text label. It must be either Brevo's verified **single sender**
-(today: `koniecdev@gmail.com`) or an address on a domain **authenticated in Brevo** — i.e. one whose
-DKIM + SPF records are published in DNS. Any other value fails in the one way no alarm can see:
+(today: `koniecdev@gmail.com`) or an address on a domain **authenticated in Brevo**, i.e. one whose
+DKIM + SPF records are published in DNS. Any other value fails in a way no alarm can see:
 
 1. Brevo's relay **accepts** the message, so `IEmailService.SendAsync` returns success.
-2. The deep auth `/health` SMTP check stays **green** — it only proves connect + authenticate.
-3. The receiver (Gmail, etc.) sees mail claiming a domain with no SPF and no aligned DKIM, and
-   **silently drops it** — it does not even reach spam.
+2. The deep auth `/health` SMTP check stays **green**: it only proves connect + authenticate.
+3. The receiver (Gmail, etc.) sees mail that claims a domain with no SPF and no aligned DKIM, and
+   **silently drops it**. It does not even reach spam.
 4. `RegisterUser` auto-confirms a user only when the send **fails** (`RegisterUser.cs`, the
    `emailResult.IsFailure` branch). A send that "succeeded" skips that net, so every new account is
-   stranded at *"potwierdź adres e-mail"* and **nobody can log in**.
+   stuck at *"potwierdź adres e-mail"* and **nobody can log in**.
 
-This shipped to **both** prods during the Hetzner cutover (#491): `.env.hetzner.example` seeded
-`no-reply@lotro-translator.pl`, and `lotro-translator.pl` has **no SPF, DKIM or DMARC records at
-all**. Fixed by pointing both boxes at the verified single sender.
+That is how both prods shipped with `no-reply@lotro-translator.pl` during the Hetzner cutover (#491):
+`lotro-translator.pl` has **no SPF, DKIM or DMARC records at all**.
 
-**The only check that works is an end-to-end one** — register a real account and read a real inbox;
+**The only check that works is an end-to-end one**: register a real account and read a real inbox.
 `smoke.sh` cannot cover this, and neither can a health probe:
 
 ```bash
@@ -402,17 +407,17 @@ dig +short TXT lotro-translator.pl            # SPF/DKIM/DMARC present at all? (
 # koniecdev+check@gmail.com), because only delivery proves delivery.
 ```
 
-To move off the personal-gmail sender, authenticate the domain in Brevo (Senders → Domains → add
+To move off the personal Gmail sender, authenticate the domain in Brevo (Senders → Domains → add
 `lotro-translator.pl`, publish the DKIM + SPF records it prints, add a DMARC record), *then* switch
-`Email__SenderEmail` to `no-reply@lotro-translator.pl` — and re-run the registration check above.
+`Email__SenderEmail` to `no-reply@lotro-translator.pl`, and run the registration check again.
 
 ### Reseed traps — the auth seeder is create-if-missing
 
 `SeedAuthDatabaseAsync` (`AuthSystem.API/Extensions/DatabaseSeederExtensions.cs`) creates only what
-is absent: the admin user is skipped when its e-mail **or** username already exists (an existing
-account at the admin e-mail never gets the Admin role from the seeder), and each
-OpenIddict client is skipped when its `client_id` already exists. The Neon DBs long outlive any box,
-so this is the normal case — and it means **editing `.env` and restarting silently changes nothing**:
+is missing. The admin user is skipped when its e-mail **or** username already exists (the seeder
+never gives the Admin role to an existing account at the admin e-mail), and each OpenIddict client is
+skipped when its `client_id` already exists. The Neon DBs outlive any box, so this is the normal
+case, and it means **editing `.env` and restarting silently changes nothing**:
 
 | You changed in `.env` | What silently keeps the OLD value | Symptom |
 |---|---|---|
@@ -420,8 +425,8 @@ so this is the normal case — and it means **editing `.env` and restarting sile
 | `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_USERNAME` | the admin `Users` row | a new address with the same username is skipped, with warning `2353` in the auth-api log; a new address that already belongs to a non-admin account is skipped, with warning `2354` (that row may be a stranger's account: read "Warning `2354`" under [Admin account](#admin-account--first-sign-in-and-rotation) before you delete anything); a new address that an account left less than 14 days ago, and can still undo back to, is skipped, with warning `2355`; a new address **and** a new username seed a **second** admin, and the first one keeps its role |
 | `DOMAIN_APP` | the `lotrokoniecdev-web` client's redirect + post-logout URIs (written **only at creation**) | login bounces with `invalid_redirect_uri` |
 
-Fix = delete the rows and let the seeder rebuild them from the current `.env`. Schema is
-**`authsystem`** and the Identity tables are **renamed** (`authsystem."Users"`, *not* `AspNetUsers`).
+Fix = delete the rows and let the seeder rebuild them from the current `.env`. The schema is
+**`authsystem`**, and the Identity tables are **renamed** (`authsystem."Users"`, *not* `AspNetUsers`).
 Delete in FK order:
 
 ```sql
@@ -438,8 +443,7 @@ DELETE FROM authsystem."Users" WHERE "NormalizedEmail" = upper('<admin e-mail>')
 docker compose -f compose.hetzner.yaml restart auth-api   # seeder runs at startup, recreates the rows
 ```
 
-Every logged-in user is signed out by this (their tokens are gone) — free pre-launch, a real outage
-after launch.
+This signs out every user (their tokens are gone): free before launch, a real outage after it.
 
 ### Admin account — first sign-in and rotation
 
@@ -453,15 +457,15 @@ AUTH_ADMIN_USERNAME=…        # letters + digits only (^[a-zA-Z0-9]+$) — ADR-
 AUTH_ADMIN_EMAIL=…           # a mailbox the operator reads: the first password arrives there
 ```
 
-The username is a display-only handle; the admin **logs in by e-mail + password**. A username
-containing `-`, `.`, `_`, spaces or diacritics fails Identity's `AllowedUserNameCharacters` and
-crashes auth-api at startup (loud, by design).
+The username is a display-only handle; the admin **logs in by e-mail + password**. A username with
+`-`, `.`, `_`, spaces or diacritics fails Identity's `AllowedUserNameCharacters` and stops auth-api
+at startup (loud, by design).
 
 **There is no admin password in the `.env` (ADR-0056).** The seeder creates the admin without a
 password, so nobody can sign in to it until someone opens the reset mail. auth-api logs event `2351`
-("Seeded the admin account … without a password") when it does this. The ADR says what this does
-and does not protect: the `.env` still holds the OpenIddict signing key and the Neon connection
-strings, and anyone who can read that file is already stronger than any admin password.
+("Seeded the admin account … without a password") when it does this. The ADR says what this does and
+does not protect: the `.env` still holds the OpenIddict signing key and the Neon connection strings,
+and anyone who can read that file is already stronger than any admin password.
 
 **Before the first sign-in, prove that mail works.** The admin gets its password through the same
 mail path as every translator's confirmation: outbox → RabbitMQ → Brevo. If registration mail does
@@ -477,12 +481,11 @@ not arrive on this box, the admin mail will not arrive either, so fix that first
    a pasted space shows the normal "Jeśli konto istnieje…" panel and sends nothing.
 3. Open the mail, follow the link and set a long random password from a password manager. Never
    write it into the `.env`, a ticket, the wiki or a public channel. The staging admin is shared with
-   testers: hand its password over in a private message, the same way as any other credential. The
-   prod admin must never use the same password as staging. Nothing in the code checks that, so it
-   is up to you.
+   testers: hand its password over in a private message, like any other credential. The prod admin
+   must never use the same password as staging. Nothing in the code checks that, so it is up to you.
 4. Sign in with it. A reset also revokes every session the admin had (ADR-0049), which is the point
-   of a rotation. An access token that was already issued keeps working until it expires, which
-   takes at most five minutes.
+   of a rotation. An access token that was already issued keeps working until it expires, which takes
+   at most five minutes.
 
 If the sign-in right after a successful reset shows "Nieprawidłowy e-mail lub hasło.", the account
 may be **locked**. Five wrong passwords lock it for 5 minutes, and anyone who knows the admin address
@@ -500,14 +503,14 @@ Two limits apply to the reset page, and they look different:
 Wait out that window before you blame delivery.
 
 **Migrating a box seeded before #696.** Its admin row still has the password that was in
-`AUTH_ADMIN_PASSWORD`, and this change does not remove it: the seeder skips an admin that already
+`AUTH_ADMIN_PASSWORD`, and the seeder does not remove it, because it skips an admin that already
 exists. Rotate first, then remove the line, in this order:
 
 1. Do the four steps above for the box's admin. The old password stops working the moment the reset
    succeeds. Check it: sign in with the old one and get the generic error.
 2. Delete the line as the `deploy` user, so the file stays owned by `deploy` and CD can still read it
    (never edit it as root). The second command must print `0`. No restart is needed: neither compose
-   file reads the line any more.
+   file reads the line.
 
    ```bash
    ssh lotro-<env> "sudo -u deploy sed -i '/^AUTH_ADMIN_PASSWORD=/d' /opt/lotro/.env"
@@ -515,7 +518,7 @@ exists. Rotate first, then remove the line, in this order:
    ```
 3. Clean up the other copies of the old value. It is a leaked password now:
    - the `ADMIN_PASSWORD` GitHub secret and the `ADMIN_EMAIL` / `ADMIN_USERNAME` variables are
-     leftovers from the Azure era (ADR-0013 already calls them unused). Delete them;
+     leftovers from the Azure era (ADR-0013 calls them unused). Delete them;
    - any backup of the box `.env` still holds it;
    - if the value was ever reused anywhere else, change it there too.
 4. Remember that a database restore brings the old password back. A Neon restore (PITR or a
@@ -558,12 +561,12 @@ their address would get its first password from their inbox.
 **It is your address.** Give the row the role by hand **only** when it is confirmed, has no password
 and has no armed undo link. That is what an admin half-made by a crash before #839 looks like: only
 the admin inbox can give it a password. `EmailConfirmed` alone is **not** enough. An e-mail change
-moves someone else's account onto your address, with their password, as soon as you click the confirm
-link it mails you, and its undo link can later take the row back, role included (ADR-0048). The
-statements below end any session still open on the row, then grant the role only when all three
-conditions hold. Granting a role does not change the security stamp, so a session that survived would
-get the Admin role at its next refresh or sign-in. Changing the stamp ends both the auth cookie and
-every refresh token (#848). The deletes are a second layer.
+moves someone else's account onto your address, with their password, as soon as you click the
+confirm link it mails you, and its undo link can later take the row back, role included (ADR-0048).
+The statements below end any session still open on the row, then grant the role only when all three
+conditions hold. Granting a role does not change the security stamp, so a session that survived
+would get the Admin role at its next refresh or sign-in. Changing the stamp ends both the auth cookie
+and every refresh token (#848); the deletes are a second layer.
 
 ```sql
 UPDATE authsystem."Users" SET "SecurityStamp" = gen_random_uuid()::text
@@ -579,8 +582,7 @@ WHERE u."Id" = '<Id from the SELECT>'
   AND r."NormalizedName" = 'ADMIN';
 ```
 
-Then set the password through the reset mail, as for any new admin
-([Admin account](#admin-account--first-sign-in-and-rotation)).
+Then set the password through the reset mail, as for any new admin (the four steps above).
 
 When the INSERT refuses a row at your address, what to do depends on whose account it is:
 
@@ -623,19 +625,19 @@ SELECT "Id", "UserName", "Email", "EmailChangeRevertArmedAt" FROM authsystem."Us
 ### TLS certificates
 
 - **Real environment:** **Caddy** obtains and renews Let's Encrypt certificates automatically, one
-  per vhost (`ACME_EMAIL` in the box `.env`). The app containers validate nothing — they speak plain
-  HTTP behind the proxy. ACME needs the DNS A record to resolve **before** first bring-up.
+  per vhost (`ACME_EMAIL` in the box `.env`). The app containers handle no TLS: they speak plain HTTP
+  behind the proxy. ACME needs the DNS A record to resolve **before** the first bring-up.
 - **Local prod-parity:** `scripts/init-prod-https.sh` mints a local CA + a `*.lotro.test` leaf for
   Caddy; `.docker/trust-ca-entrypoint.sh` installs the CA into the tms-api/frontend OS store so their
   OIDC back-channel to `https://auth.lotro.test` is trusted (.NET ignores `SSL_CERT_FILE`).
-- **Local dev (host Kestrels):** the apps serve HTTPS with the **native** ASP.NET Core dev cert — run
+- **Local dev (host Kestrels):** the apps serve HTTPS with the **native** ASP.NET Core dev cert. Run
   `dotnet dev-certs https --trust` once. No PFX, no mount.
 
 ### Databases
 
 The system uses **two** databases: `lotro_translation` (TMS) and `lotro_auth` (Auth). Both live in
 the environment's **Neon** project (one project per environment, ADR-0018) on the same branch.
-A managed Postgres typically provisions one database — create the second:
+A managed Postgres usually provisions one database, so create the second:
 
 ```sql
 CREATE DATABASE "lotro_auth";
@@ -646,90 +648,85 @@ boot.
 
 ### Hygiene
 
-- The box `.env` is the **only** live copy of the set → the owner keeps one encrypted off-box copy
-  (password manager). Losing it costs a re-mint plus the reseed above — never data.
-- `.gitignore` ignores `.env`, `.env.*` and `*.env`, whitelisting only the placeholder examples, so a
-  filled env file cannot be committed by accident; the required **GitGuardian** check on `main` is
-  the second net. Values travel to a box over ssh only — never through an issue, PR, or commit.
+- The box `.env` is the **only** live copy of the set, so the owner keeps one encrypted off-box copy
+  (password manager). Losing it costs a re-mint plus the reseed above, never data.
+- `.gitignore` ignores `.env`, `.env.*` and `*.env` and lets through only the placeholder examples,
+  so a filled env file cannot be committed by accident; the required **GitGuardian** check on `main`
+  is the second net. Values travel to a box over ssh only, never through an issue, PR or commit.
 
 ## Consistency rules that bite
 
-The cross-service settings that are individually valid but break the system when they disagree. Most
-"works locally, 401/redirect error on staging" failures are one of these.
+The cross-service settings that are each valid on their own but break the system when they disagree.
+Most "works locally, 401 or redirect error on staging" failures are one of these.
 
 1. **Issuer must equal the token `iss`.** auth-api stamps `OpenIddict__Issuer` into every token's
-   `iss`; tms-api validates it against `Auth__Issuer` (`ValidIssuer`). The two MUST be byte-identical
-   and MUST be the **public auth origin the browser uses**. Mismatch → tms-api `401`s every request.
-   Outside Development the value may not contain `localhost` (the validator rejects it).
+   `iss`; tms-api validates it against `Auth__Issuer` (`ValidIssuer`). The two must be byte-identical
+   and must be the **public auth origin the browser uses**. A mismatch makes tms-api answer `401` to
+   every request. Outside Development and Testing, auth-api refuses an issuer that contains
+   `localhost`.
 
 2. **Authority is the back-channel address, not the issuer.** `Auth__Authority` (tms-api) and
    `AuthSystem__Authority` (frontend) are where the app **fetches OIDC metadata + JWKS**; the issuer
-   is what it **validates `iss` against**. They can legitimately differ — but in this repo they
-   coincide in every environment: dev leaves `Auth__Authority` unset so it falls back to
-   `Auth__Issuer` (`https://localhost:5003`, the host auth Kestrel), and both containerized stacks
-   (Hetzner and the prod-parity rehearsal) set both to the **public proxy origin**. Two production
-   traps: (a) in Production **OpenIddict rejects plain HTTP**, so the Authority MUST be `https` — use
-   the public Caddy origin, never `http://auth-api:8080`; (b) that host MUST be reachable from inside
-   the container and its cert trusted by the container's OS store (on the boxes it is a real Let's
-   Encrypt cert, so this is free; only the local parity stack needs the CA shim). One more coupling:
-   the frontend's `AuthSystem__BaseUrl` MUST share the issuer's origin. The sign-out revoke goes to the
-   `revocation_endpoint` from discovery, which OpenIddict builds from `OpenIddict__Issuer`, and the
-   frontend refuses an endpoint off `AuthSystem__BaseUrl`'s origin. A mismatch shows only as two
-   warnings per sign-out ("Refused an API request to …" and "Refresh token revocation threw an
-   exception."), and the session is then revoked only if the browser reaches `connect/logout`
-   (#964). The same warnings appear, once per token, when the website ends a session on its own, and
-   then the refresh token stays valid until it expires (#1027).
+   is what it **validates `iss` against**. They may differ, but in this repo they are the same in
+   every environment: dev leaves `Auth__Authority` unset so it falls back to `Auth__Issuer`
+   (`https://localhost:5003`, the host auth Kestrel), and both containerized stacks (Hetzner and the
+   parity stack) set both to the **public proxy origin**. Two traps outside dev: (a) in Production
+   **OpenIddict rejects plain HTTP**, so the Authority must be `https`: use the public Caddy origin,
+   never `http://auth-api:8080`; (b) that host must be reachable from inside the container, with a
+   certificate the container's OS store trusts. On the boxes it is a real Let's Encrypt certificate;
+   only the local parity stack needs the CA shim.
+   One more coupling: the frontend's `AuthSystem__BaseUrl` must share the issuer's origin. The
+   refresh-token revoke goes to the `revocation_endpoint` from discovery, which OpenIddict builds from
+   `OpenIddict__Issuer`, and the frontend refuses an endpoint off `AuthSystem__BaseUrl`'s origin. A
+   mismatch shows only as two warnings per sign-out ("Refused an API request to …" and "Refresh token
+   revocation threw an exception."), and the session is then revoked only if the browser reaches
+   `connect/logout` (#964). The same warnings appear, once per token, when the website ends a session
+   on its own, and then the refresh token stays valid until it expires (#1027).
 
 3. **Frontend redirect URIs must be registered at the auth server.** The frontend sends
    `redirect_uri = <its public origin> + AuthSystem__CallbackPath` (and post-logout = origin +
-   `SignedOutCallbackPath`). Those exact absolute URLs MUST appear in auth's
+   `SignedOutCallbackPath`). Those exact absolute URLs must appear in auth's
    `OpenIddict__WebClient__RedirectUris` / `…PostLogoutRedirectUris`. Any difference (scheme, host,
    trailing slash) → OIDC `invalid redirect_uri` at login. `AuthSystem__ClientId` must equal the
    registered web-client id (`lotrokoniecdev-web`). ⚠️ These URIs are written to the DB **only when
-   the client row is created** — changing `DOMAIN_APP` later needs the
+   the client row is created**, so changing `DOMAIN_APP` later needs the
    [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing).
 
 4. **CORS origin = the frontend's public URL, as a bare origin.** auth/tms `Cors__AllowedOrigins__0`
-   MUST be the browser app's exact origin — **lowercase scheme+host, no port if default, no userinfo,
+   must be the browser app's exact origin: **lowercase scheme + host, no default port, no userinfo,
    no path, no query, no trailing slash** (the validator rejects anything else at boot). It is the
    same value as a redirect URI's origin part.
 
-5. **Behind the TLS-terminating proxy, forwarded headers are load-bearing.** Caddy MUST send
-   `X-Forwarded-Proto` (and Host); all three apps read them (`UseForwardedHeaders`) to reconstruct the
-   `https` scheme used for `iss`, `redirect_uri`, and `Secure` cookies. Trust is scoped to Caddy's
-   exact host address (#399, narrowed from the `/24` to a `/32` by #506):
-   `ForwardedHeaders__KnownNetworks__0` = `10.60.0.100/32` in `compose.hetzner.yaml`
-   (`compose.prod.yaml` keeps the `/24` — it has no co-tenant stack to fence off), set for all three
-   apps; a malformed CIDR aborts boot. That value MUST stay in lockstep with Caddy's `ipv4_address`
-   on the default network (see [Topology](#topology)); moving Caddy's pinned IP without updating all
-   three apps silently drops forwarded-header trust and breaks `https` reconstruction. Leaving it
-   unset trusts every upstream (with an explicit `ForwardLimit = 1`), which is safe **only** while the
-   container port is unreachable except through the proxy — so **never publish `:8080`**. In prod the
-   apps serve HTTP only; Caddy owns TLS.
+5. **Behind the TLS-terminating proxy, forwarded headers carry the scheme.** Caddy sends
+   `X-Forwarded-Proto` (and Host); all three apps read them (`UseForwardedHeaders`) to rebuild the
+   `https` scheme used for `iss`, `redirect_uri` and `Secure` cookies. Trust is limited to Caddy's
+   exact address: `ForwardedHeaders__KnownNetworks__0` = `10.60.0.100/32` for all three apps in
+   `compose.hetzner.yaml` (#506; `compose.prod.yaml` keeps the `/24`, because it has no second stack
+   to fence off). A malformed CIDR aborts boot. The value must stay in step with Caddy's
+   `ipv4_address` on the default network (see [Topology](#topology)): moving Caddy's pinned IP without
+   updating all three apps silently drops the trust and breaks the `https` scheme. Leaving it unset
+   trusts every upstream (with `ForwardLimit = 1`), which is safe **only** while the container port is
+   unreachable except through the proxy, so **never publish `:8080`**.
 
 6. **The Data Protection keyring must be persistent.** auth-api + frontend need
-   `DataProtection__KeyRingPath` pointing at a persistent volume (`/keys`). An ephemeral keyring →
-   every deploy logs everyone out and breaks antiforgery + password-reset/email-confirmation links.
-   Fails fast at boot if unset outside Development.
+   `DataProtection__KeyRingPath` pointing at a persistent volume (`/keys`). A throwaway keyring logs
+   everyone out on every deploy and breaks antiforgery and password-reset / e-mail-confirmation
+   links. Boot fails fast when it is unset outside Development.
 
 7. **The frontend caller key is one value read by three services.** `FRONTEND_CALLER_KEY` in the box
    `.env` feeds auth-api's and tms-api's `FrontendCaller__Key` and the frontend's
-   `AuthSystem__CallerKey` and `TranslationSystem__CallerKey` (ADR-0054, #823). Every frontend→API
-   call arrives from the frontend container, so without the key each API's per-address rate limits
-   are one bucket for every user; with it, each API meters the visitor the frontend forwards.
-   Compose refuses to render without it, so **the key goes into the staging `.env` before a change
-   that needs it merges, and into the prod `.env` before it is promoted**. If the services hold
-   different values, nothing fails: calls just fall back to the old shared bucket. So never set the
-   key on one side by hand.
+   `AuthSystem__CallerKey` and `TranslationSystem__CallerKey` (ADR-0054). Every frontend→API call
+   arrives from the frontend container, so without the key each API's per-address rate limits are
+   one bucket for every user; with it, each API meters the visitor the frontend forwards. If the
+   services hold different values, nothing fails: calls just fall back to the shared bucket. So never
+   set the key on one side by hand.
 
-8. **The health check key is one value per box, and on prod also a GitHub secret.** `HEALTH_CHECK_KEY`
-   in the box `.env` feeds auth-api's and tms-api's `HealthCheck__Key` (ADR-0058, #853). Without the
-   key in `X-LOTRO-Health-Key`, the full `/health` answers 404 and runs no check; `/health/live` and
-   `/health/ready` stay open. Compose refuses to render without it, so **the key goes into the staging
-   `.env` before a change that needs it merges, and into the prod `.env` before it is promoted**. On
-   prod, the `PROD_HEALTH_CHECK_KEY` repository secret must hold the same value, or the daily health
-   ping goes red with HTTP 404. The ping change ships with the merge, so **the secret must exist
-   before the merge** too (the command is in the "Secrets" table).
+8. **The health check key is one value per box, and on prod also a GitHub secret.**
+   `HEALTH_CHECK_KEY` in the box `.env` feeds auth-api's and tms-api's `HealthCheck__Key`
+   (ADR-0058). Without the key in `X-LOTRO-Health-Key`, the full `/health` answers 404 and runs no
+   check; `/health/live` and `/health/ready` stay open. On prod, the `PROD_HEALTH_CHECK_KEY`
+   repository secret must hold the same value, or the daily health ping goes red with HTTP 404 (the
+   command is in the [secrets table](#secret-material--source-of-truth-and-how-to-rotate)).
 
 ## Bringing the stack up
 

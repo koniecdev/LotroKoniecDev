@@ -12,12 +12,9 @@ using LotroKoniecDev.SharedKernel.Authorization;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// The account endpoints act on the caller's own account. A token issued to a client has the client id as
-/// its subject, so these endpoints refuse it with the 403 a failed policy gives, before any handler runs
-/// (#966). A real service token does not name this API and gets a 401 first (#1023), so the host here
-/// gives it this API's audience too, and only the policy is left to refuse it. Each request carries a body
-/// the handler would accept: without the policy, data export answered 500 and the others 404
-/// <c>Auth.UserNotFound</c>.
+/// A client token's subject is the client id, so the account endpoints refuse it with the policy's 403
+/// before any handler runs (#966). A real service token gets a 401 first (#1023), so the host gives it this
+/// API's audience too. Each request carries a valid body, so only the policy can be the reason.
 /// </summary>
 public sealed class UserTokenPolicyTests : EndpointsTestBase
 {

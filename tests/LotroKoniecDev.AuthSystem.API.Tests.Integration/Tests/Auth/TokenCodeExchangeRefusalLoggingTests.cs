@@ -24,11 +24,9 @@ using OpenIddict.Server;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// #977: the code exchange runs the same account checks as the refresh, and each refusal writes the same
-/// log line, naming the step as a code exchange. The client still gets one answer for every case, which
-/// <see cref="AuthorizationCodeFlowTests"/> pins. OpenIddict refuses a used, expired or wrongly proven code
-/// before the handler runs, and that refusal names the user too. Every test signs in and exchanges the
-/// code on the host whose log it reads.
+/// #977: the code exchange runs the refresh's account checks, and each refusal writes the same log line,
+/// naming the step. The client still gets one answer for every case (<see cref="AuthorizationCodeFlowTests"/>).
+/// Every test signs in and exchanges the code on the host whose log it reads.
 /// </summary>
 public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTestBase
 {
@@ -363,9 +361,8 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
     }
 
     /// <summary>
-    /// Signs in through the login form like a browser that keeps no cookies, then authorizes with the
-    /// sign-in cookie. The code is sealed with the host's own keys, so it comes from the host that will
-    /// check it.
+    /// Signs in like a browser with no cookie jar, then authorizes with the sign-in cookie. The code is
+    /// sealed with this host's keys, so it comes from the host that will check it.
     /// </summary>
     private static async Task<(string Code, string CodeVerifier)> ObtainAuthorizationCodeAsync(
         WebApplicationFactory<Program> host,

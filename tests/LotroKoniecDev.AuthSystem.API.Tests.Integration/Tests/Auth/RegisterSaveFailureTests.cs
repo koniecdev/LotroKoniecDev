@@ -152,10 +152,9 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Both requests pass every check before either one writes, so the unique index decides. A value in
-    /// other letter case clashes only on the case-blind index, so both spellings are raced. A lost
-    /// username says so: the username is a public handle. A lost address answers as a taken address does,
-    /// with the same 202 as a free one, and spends a permit like it, so a spent budget answers 429 (#860).
+    /// Both requests pass every check before either writes, so the unique index decides, and both letter
+    /// cases are raced. A lost username says so, because it is a public handle. A lost address answers as a
+    /// taken one: the same 202, and a permit spent (#860).
     /// </summary>
     [Theory]
     [InlineData(Clash.Email, false, HttpStatusCode.Accepted, null)]
@@ -227,10 +226,9 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Identity looks the address up once more inside <c>CreateAsync</c>. A registration that commits the
-    /// same address between our lookup and that one makes Identity refuse with <c>DuplicateEmail</c>. That
-    /// answers like a taken address, permit included, and never with the general message, whose text names
-    /// the address (#860).
+    /// Identity looks the address up again inside <c>CreateAsync</c>. A registration that commits the address
+    /// in between makes it refuse with <c>DuplicateEmail</c>, which must answer as a taken address, never
+    /// with the general message that names it (#860).
     /// </summary>
     [Theory]
     [InlineData(false, HttpStatusCode.Accepted)]
@@ -315,9 +313,8 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
         new("The operation has timed out", new TimeoutException());
 
     /// <summary>
-    /// Holds one chosen command of a registration until a competing registration has committed. Those are
-    /// the moments two real requests can reach at the same time, and this suite cannot hit them on purpose
-    /// any other way.
+    /// Holds one chosen command until a competing registration has committed, the only race this suite
+    /// cannot reach otherwise.
     /// </summary>
     private sealed class CompetitorCommitsFirstInterceptor : DbCommandInterceptor
     {

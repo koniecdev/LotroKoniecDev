@@ -12,9 +12,8 @@ using LotroKoniecDev.SharedKernel.Authorization;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// The seeder registers the website as a sign-in client only when that client is missing. So each test
-/// deletes it first, and puts the host's own client back afterwards, because the other tests in the
-/// collection sign in through it (#1220).
+/// The seeder registers the website client only when it is missing, so each test deletes it first and
+/// restores the host's client afterwards: the other tests sign in through it (#1220).
 /// </summary>
 public sealed class WebClientSeedingTests : EndpointsTestBase
 {
@@ -141,8 +140,8 @@ public sealed class WebClientSeedingTests : EndpointsTestBase
         ImmutableArray<string> PostLogoutRedirectUris);
 
     /// <summary>
-    /// The test host's services with one change: the seeder reads the given OpenIddict settings. The
-    /// seeder reads them from the services it is handed, and the host's own settings cannot be changed.
+    /// The seeder reads the OpenIddict settings from the services it is handed, and the host's own settings
+    /// cannot be changed.
     /// </summary>
     private sealed class ServicesWithOpenIddictSettings : IServiceProvider
     {

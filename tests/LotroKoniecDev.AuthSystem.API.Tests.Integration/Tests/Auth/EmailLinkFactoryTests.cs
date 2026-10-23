@@ -52,10 +52,8 @@ public sealed class EmailLinkFactoryTests : EndpointsTestBase
     [Fact]
     public async Task ForgotPassword_BuildsResetLinkFromConfiguredIssuer_WhenRequestHostIsForged()
     {
-        // Arrange: the suite's default spy replaces the whole sender and never invokes the real
-        // link factory, so spin up a host running the real sender -> factory chain and capture the
-        // outgoing email at the SMTP boundary. This drives the real attack: a forged Host
-        // header on the (anonymous) forgot-password request.
+        // Arrange: the default spy skips the real link factory, so this host runs the real sender and
+        // captures the mail at the SMTP boundary, with a forged Host header on the anonymous request.
         const string forgedHost = "evil.attacker.com";
         SpyEmailService emailServiceSpy = new();
 
@@ -80,9 +78,8 @@ public sealed class EmailLinkFactoryTests : EndpointsTestBase
 
         apiClient.Http.DefaultRequestHeaders.Host = forgedHost;
 
-        // Act: the request only commits the outbox row; the real sender (and with it the link
-        // factory) runs at delivery, in a background scope no forged Host header can ever reach
-        // (ADR-0038), so the capture has to be awaited
+        // Act: the real sender runs at delivery, in a background scope no forged Host header reaches
+        // (ADR-0038), so the capture is awaited
         HttpResponseMessage response = await apiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));

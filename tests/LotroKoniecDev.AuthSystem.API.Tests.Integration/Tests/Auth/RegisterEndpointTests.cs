@@ -71,9 +71,8 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
     [Fact]
     public async Task Register_ShouldQueueNoSecondConfirmation_WhenTheAddressIsAlreadyRegistered()
     {
-        // Arrange: registration mails an address the caller typed, and one address registers once
-        // (ADR-0055). The account stays unconfirmed, because that is the state a flood would keep
-        // registering against. The budget per inbox on top of this is in MailboxBudgetTests (ADR-0057).
+        // Arrange: one address registers once (ADR-0055), and the account stays unconfirmed, the state a
+        // flood would keep registering against. The per-inbox budget is in MailboxBudgetTests.
         (RegisterRequest existingRequest, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         int rowsAfterFirst = await CountConfirmationRowsAsync();
@@ -239,7 +238,7 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
     [InlineData("kasia@92")]
     [InlineData("kaśka92")]
     [InlineData("kasia-92")]
-    [InlineData("kasia92\n")] // .NET's $ matches before a trailing \n — \A…\z anchoring must reject this
+    [InlineData("kasia92\n")] // .NET's $ matches before a trailing \n, so the pattern needs \A and \z to reject this
     [InlineData(" kasia92")]
     public async Task Register_ShouldReturnBadRequestWithCharsetMessage_WhenUsernameHasIllegalCharacters(
         string username)
@@ -399,11 +398,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             .CountAsync(row => row.Type == nameof(EmailConfirmationRequested));
     }
 
-    // The former Register_ShouldAutoConfirmEmail_WhenEmailSendingFails test died with the
-    // synchronous send: registration no longer touches SMTP, so there is no in-request failure
-    // to fall back from. A failed delivery now stays queued for redelivery, and the user-facing
-    // recovery is the resend-confirmation endpoint.
-
     [Fact]
     public async Task Register_ShouldRefuseThePasswordAndCreateNoAccount_WhenItAppearsInDataBreaches()
     {
@@ -426,8 +420,8 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The failure policy of ADR-0066: a breach service that is down lets the password through, so it does
-    /// not take registration down with it. The password here is one the service would refuse.
+    /// ADR-0066: a breach service that is down lets the password through instead of taking registration
+    /// down. The password here is one the service would refuse.
     /// </summary>
     [Fact]
     public async Task Register_ShouldCreateTheAccount_WhenThePwnedPasswordsServiceIsDown()

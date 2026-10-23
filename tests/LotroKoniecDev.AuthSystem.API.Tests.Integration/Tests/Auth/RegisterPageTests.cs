@@ -46,8 +46,8 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// A taken address gets the free address's answer, and its owner gets a notice instead (#860). The old
-    /// "an account with this address already exists" message told anyone which addresses have accounts.
+    /// A taken address gets the free address's answer, and its owner gets a notice instead (#860), so the
+    /// page never tells anyone which addresses have accounts.
     /// </summary>
     [Fact]
     public async Task RegisterPage_ShouldShowTheSameSuccessAndNotifyTheOwner_WhenTheAddressAlreadyHasAnAccount()
@@ -193,9 +193,8 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
 
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("register-accept-terms");
-        // The terms URL comes from the web client's first post-logout redirect URI, which
-        // AuthSystemApiFactory sets to https://localhost:5001. If it fell back to the version without a
-        // link, the consent checkbox would point at terms the person registering cannot open.
+        // The terms URL comes from the web client's first post-logout redirect URI (https://localhost:5001
+        // here). Without it the checkbox would point at terms nobody can open.
         html.ShouldContain("""<a href="https://localhost:5001/regulamin" target="_blank" rel="noopener">regulamin serwisu</a>""");
     }
 
@@ -226,9 +225,8 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The register half of #681. The target is a valid local path even with a quote in it, so the check
-    /// keeps it and the page prints it; the encoding of the attribute is what makes it harmless, which is
-    /// why the proof has to read the rendered body.
+    /// #681: the check keeps this local path, and the attribute encoding makes it harmless, so the proof
+    /// reads the rendered body.
     /// </summary>
     [Theory]
     [InlineData("""/x" onfocus="alert(1)""", "/x&quot; onfocus=&quot;alert(1)")]
@@ -248,9 +246,8 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Dropping the tag-helper route value also dropped the generated action attribute, and the form tag
-    /// helper decides on the antiforgery token from exactly that: it only leaves the token out when the
-    /// markup sets an action itself. Without the token every registration POST would answer 400.
+    /// The form tag helper leaves the antiforgery token out only when the markup sets an action itself
+    /// (#681). Without the token every registration POST would answer 400.
     /// </summary>
     [Fact]
     public async Task RegisterPage_ShouldStillEmitTheAntiforgeryToken_WhenTheFormCarriesNoAction()
@@ -265,9 +262,8 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Registration interrupts an authorization request, and the "log in" button on the success screen is
-    /// what resumes it. Since #681 only the hidden field carries that target across the POST, so the form
-    /// goes to the bare page path and the link is read back from the answer.
+    /// The success screen's "log in" button resumes the interrupted authorization. Only the hidden field
+    /// carries that target (#681), so the form goes to the bare page path.
     /// </summary>
     [Fact]
     public async Task RegisterPage_ShouldKeepTheContinuationOnTheLoginLink_WhenOnlyTheRenderedFormCarriesIt()
@@ -343,9 +339,8 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
             $"/Account/Register?returnUrl={Uri.EscapeDataString(returnUrl)}", UriKind.Relative));
 
     /// <summary>
-    /// Posts the given fields to the bare page path, carrying the antiforgery cookie and token from the
-    /// page that rendered them. That path is where a test sends the form when the hidden field alone has
-    /// to carry the target: a browser would post to the current address and repeat the query string.
+    /// Posts to the bare page path, as a test does when the hidden field alone has to carry the target; a
+    /// browser would repeat the query string.
     /// </summary>
     private async Task<HttpResponseMessage> PostRegisterFormAsync(
         HttpResponseMessage pageResponse,

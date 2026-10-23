@@ -16,14 +16,10 @@ using LotroKoniecDev.Tests.Shared;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// #854: every call the API refuses with 401 or 403 leaves a warning, including a call OpenIddict refuses
-/// during authentication. It names the visitor the frontend forwarded with the right key, or else the
-/// connection, and then the connection's own address (ADR-0054, amended by #854). Each test boots a
-/// derived host whose logger factory captures what the host logged. In Testing <c>UseForwardedHeaders</c>
-/// trusts every peer, so <c>X-Forwarded-For</c> plays the connection address Caddy resolves:
-/// <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses are visitors. The one 403 here is a
-/// client token at an account endpoint (#966). A real service token does not name this API (#1023), so
-/// that test gives it this API's audience.
+/// #854: every 401 or 403 leaves a warning, a refusal inside OpenIddict's authentication included. It names
+/// the forwarded visitor (with the right key) or the connection, then the connection's own address
+/// (ADR-0054). Each test's host captures its log. In Testing, <c>X-Forwarded-For</c> plays the address Caddy
+/// resolves: <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses are visitors.
 /// </summary>
 public sealed class AuthorizationLoggingTests : EndpointsTestBase
 {

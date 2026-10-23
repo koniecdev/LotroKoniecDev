@@ -32,10 +32,9 @@ using LotroKoniecDev.Tests.Shared;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// Runs the finalization that happens after the grace period through its own entry point,
-/// <see cref="IAccountDeletionFinalizer"/>, which is all the hosted service does on its timer, and
-/// checks the result: anonymized rows and logins that no longer work. A race the finalizer cannot be
-/// stopped in the middle of goes through <see cref="IAccountErasureService"/> instead.
+/// Runs the finalization through <see cref="IAccountDeletionFinalizer"/>, which is all the hosted service
+/// does on its timer. A race the finalizer cannot be stopped in goes through
+/// <see cref="IAccountErasureService"/> instead.
 /// </summary>
 public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
 {
@@ -76,7 +75,6 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         // DeletionScheduledAt stays set as the non-PII audit trace.
         user.DeletionScheduledAt.ShouldNotBeNull();
 
-        // Artifact cleanup removed roles and claims.
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
         bool hasRoles = await db.UserRoles.AnyAsync(ur => ur.UserId == identityId.Value);
@@ -91,9 +89,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldClearTheArmedRevertTarget_WhenItAnonymizesTheAccount()
     {
-        // The armed target is a former address of this person, so erasure has to take it with the
-        // rest. It also releases the reservation of #684 — an erased account must not keep somebody
-        // else's address blocked.
+        // The armed target is a former address of this person, and an erased account must not keep it
+        // reserved (#684).
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await ArmRevertTargetAsync(identityId.Value, "poprzedni@shire.me", TimeSpan.FromDays(15));
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
@@ -109,10 +106,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldNotTouchAccount_WhileAnArmedUndoIsStillLive()
     {
-        // #685's invariant: no path erases an account while a live undo link for it exists, because
-        // following that link cancels the deletion. The row is written by hand because the flows
-        // cannot produce it — a scheduled deletion refuses both e-mail-change legs, so arming always
-        // comes first — and the guard has to hold whatever order the two timestamps arrive in.
+        // #685: following a live undo link cancels the deletion. The row is written by hand, because the
+        // flows always arm first, and the guard must hold in either order.
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(20));
         await ArmRevertTargetAsync(identityId.Value, "poprzedni@shire.me", TimeSpan.FromDays(1));
@@ -129,8 +124,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldAnonymizeAccount_OnceTheHeldUndoWindowHasExpired()
     {
-        // The other half of the hold: it releases. An undo that can no longer be used stops protecting
-        // anything, and the deletion the owner never cancelled goes through.
+        // The other half of the hold: an undo that can no longer be used protects nothing.
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(20));
         await ArmRevertTargetAsync(identityId.Value, "poprzedni@shire.me", TimeSpan.FromDays(1));
@@ -201,9 +195,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldChangeTheSecurityStampInTheErasureSave_WhenTheNextSaveOfTheAccountFails()
     {
-        // #908: the erasure saves the account once, and the lockout and the new security stamp are
-        // part of that save. The next save of this account belongs to the cleanup, which is best
-        // effort, so its failure must not turn a finished erasure into a failed one.
+        // #908: the lockout and the new stamp are part of the one erasure save. The cleanup after it is
+        // best effort, so its failure must not fail a finished erasure.
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -229,8 +222,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [InlineData(ErasureSaveFailure.LostToAnotherWrite)]
     public async Task Finalizer_ShouldFinishTheErasureOnItsNextRun_WhenTheErasureSaveFailed(ErasureSaveFailure failure)
     {
-        // The finalizer finds its work by the real address, so a failed erasure has to leave it in
-        // place for the next run to pick the account up again (#908).
+        // The finalizer finds its work by the real address, so a failed erasure must leave it for the
+        // next run (#908).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -258,8 +251,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         ErasureSaveFailure failure,
         int criticalEventId)
     {
-        // The account still waits, so the retry comes (the test above). These lines are the alert for
-        // a failed erasure, and they may say so only because it is true (#962).
+        // These lines are the alert for a failed erasure, so they may say it only when it is true (#962).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -281,10 +273,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldRaiseTheAlertAndRetry_WhenTheEmergencyLockFailsToo()
     {
-        // Another write changed the account while the erasure ran, so the save loses on the concurrency
-        // stamp while the account still waits. Then the lock fails as well. The read after it finds the
-        // account still waiting and not locked for good, so the run raises the lock's alert once and
-        // promises the retry, and here the retry really comes (#962, #980, #1018).
+        // Another write wins the concurrency stamp while the account still waits, then the lock fails.
+        // The account is not locked for good, so the lock's alert is raised once (#980, #1018).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -318,9 +308,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldRaiseTheLockAlertOnceAndRetry_WhenADatabaseErrorMeetsAFailedLock()
     {
-        // The save fails on a real database error while the account still waits and is not locked for
-        // good, and the lock fails too. The lock's alert is written once, and the retry comes (#980,
-        // #1018).
+        // The account still waits and is not locked for good (#980, #1018).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -356,9 +344,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [InlineData(MidErasureChange.AnotherRunErasesIt)]
     public async Task Finalizer_ShouldNotSayItWillRetry_WhenTheLockFailsOnAnAccountThatStoppedWaiting(MidErasureChange change)
     {
-        // The account stops waiting during its erasure, so the save loses on the concurrency stamp, and
-        // then the lock fails. No lock was needed and no run comes back to the account, so nothing may
-        // ask a person to look or promise a retry (#980).
+        // No lock was needed and no run comes back to the account, so nothing may ask a person to look or
+        // promise a retry (#980).
 
         // Arrange
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -395,9 +382,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldRaiseTheLockAlertAndRetry_WhenTheCheckWhetherTheSaveLandedFailsAfterAFailedLock()
     {
-        // Nothing is known about the account, so the run keeps the answer it gave before #980: the retry
-        // is assumed, and the lock's alert asks a person to look. Here the account still waits, so the
-        // retry comes.
+        // Nothing is known about the account, so the run assumes the retry and the lock's alert asks a
+        // person to look.
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -442,10 +428,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         ErasureSaveFailure failure,
         int criticalEventId)
     {
-        // An earlier run's save failed and its lock landed, so the account still waits and is locked for
-        // good. This run's save fails again, and its lock fails too. Nothing can reach the account, so the
-        // failed lock is a warning and not a call for urgent help. The erasure's own alert and its retry
-        // stay, because the account still waits (#1018).
+        // An earlier run's lock landed, so nothing can reach the account and the failed lock is only a
+        // warning. The erasure's alert and its retry stay (#1018).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -481,10 +465,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldWarnWithoutTheLockAlertAndRetry_WhenTheCheckFailsAfterAFailedLockOnAnAccountAnEarlierRunLocked()
     {
-        // An earlier run locked the account for good. This run's save fails, its lock fails, and the check
-        // after them fails too. The finalizer's own read from before the erasure already showed the lock,
-        // and only a write that ends the schedule lowers it, so nobody has to lock it by hand. The retry
-        // stays (#1018).
+        // The finalizer's read before the erasure already showed the earlier run's lock, so nobody has to
+        // lock the account by hand (#1018).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -526,10 +508,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldWarnWithoutTheLockAlertAndRetry_WhenTheLockLandsButItsAnswerIsLostAndItsRetryFails()
     {
-        // The save fails while the account still waits. The lock lands, but its answer is lost, so EF runs
-        // it again, and that retry fails for good. The account is locked for good all the same, so the
-        // failed lock is a warning and not a call for urgent help. The erasure's own alert and its retry
-        // stay, because the account still waits (#1018).
+        // The lock's retry fails, but its first try landed, so the failed lock is only a warning. The
+        // erasure's alert and its retry stay (#1018).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -572,9 +552,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [InlineData(ErasureSaveFailure.LostToAnotherWrite)]
     public async Task Finalizer_ShouldLockTheAccountForGoodAndKeepItsAddress_WhenTheErasureSaveFailed(ErasureSaveFailure failure)
     {
-        // The failed save leaves the anonymized values on the tracked account. The emergency lock has
-        // to land anyway, and it must not write them: the next run finds the account by its real
-        // address (#937). It keeps the security stamp, so a cancel link the owner still holds works.
+        // The lock must not write the anonymized values left on the tracked account: the next run finds
+        // it by its real address (#937). It keeps the stamp, so the owner's cancel link still works.
 
         // Arrange
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -606,8 +585,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [InlineData(ErasureSaveFailure.LostToAnotherWrite)]
     public async Task Finalizer_ShouldEraseTheOtherDueAccounts_WhenOneErasureSaveFailed(ErasureSaveFailure failure)
     {
-        // The failing account has waited longest, so the finalizer takes it first and every later save
-        // in the run comes after its failure. None of them may carry its unsaved changes (#937).
+        // The failing account has waited longest, so it goes first, and no later save may carry its
+        // unsaved changes (#937).
 
         // Arrange
         (RegisterRequest failingRequest, IdentityId failingId) = await RegisterAndScheduleDeletionAsync();
@@ -636,9 +615,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldNotSaveTheMessageOfAFailedErasure_WhenTheReconciliationSavesAfterIt()
     {
-        // The last due account fails, so its AccountErased stays tracked. The reconciliation then saves
-        // through the same context for an account erased before ADR-0065. The failed account's message
-        // must not ride along: it would erase a live translator's name in the TMS.
+        // The reconciliation saves through the same context after the failed erasure. The failed account's
+        // AccountErased must not ride along: it would erase a live translator's name in the TMS.
 
         // Arrange
         (RegisterRequest failingRequest, IdentityId failingId) = await RegisterAndScheduleDeletionAsync();
@@ -660,8 +638,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldSkipTheReconciliation_WhenTheHostStopsDuringTheRun()
     {
-        // A shutdown lets the erasure finish (#981), but the reconciliation has nothing to finish, so the
-        // next run does it instead of this one failing on a cancelled token (ADR-0065).
+        // The reconciliation has nothing to finish, so the next run does it (#981, ADR-0065).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -713,10 +690,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldSkipAnAccount_WhenItsOwnerCancelledTheDeletionAfterTheRunListedIt()
     {
-        // A cancel that passed its window check just before the account became due can still save after
-        // a run listed the account (#947). The finalizer reads every account again, with the rule that
-        // listed it, right before its erasure. A read without that rule would hand the cancelled account
-        // to the erasure with its new stamp, and the erasure would win.
+        // #947: a cancel that passed its window check just before the account became due can save after
+        // the run listed the account. Without a second read by the listing rule, the erasure would win.
 
         // Arrange
         (_, IdentityId firstId) = await RegisterAndScheduleDeletionAsync();
@@ -753,9 +728,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Erasure_ShouldLeaveTheAccountUnlocked_WhenItsOwnerCancelledTheDeletionMeanwhile()
     {
-        // The erasure read the account, then the owner followed the cancel link, so the erasure save
-        // loses on the concurrency stamp. A lock after that would shut the owner out for good, with no
-        // cancel link left to undo it.
+        // A lock after losing the race to the cancel would shut the owner out, with no cancel link left.
 
         // Arrange
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -795,8 +768,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Erasure_ShouldNotLockTheAccountAgain_WhenAnotherRunErasedItMeanwhile()
     {
-        // Two runs can overlap, for example while a deploy starts a second instance. The run that loses
-        // on the concurrency stamp must not touch the row the other run erased, nor say it locked it.
+        // Two runs can overlap, for example while a deploy starts a second instance.
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -835,9 +807,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [InlineData(MidErasureChange.AnotherRunErasesIt)]
     public async Task Finalizer_ShouldNotSayItWillRetry_WhenTheAccountStopsWaitingDuringItsErasure(MidErasureChange change)
     {
-        // The run has read the account again and hands it to the erasure, and only then does the account
-        // stop waiting. The erasure save loses on the concurrency stamp, but no run will come back to the
-        // account, and nothing is wrong that a person has to look at (#962).
+        // No run will come back to the account, and nothing is wrong that a person has to look at (#962).
 
         // Arrange
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -864,9 +834,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldWarnWithoutPromisingARetry_WhenADatabaseErrorMeetsACancel()
     {
-        // A race alone is logged at Information. Here the save hit a real database error, and the next
-        // account may hit it too, so the same line is a warning. The owner cancelled, so it still
-        // promises no retry (#962).
+        // A race alone is Information. A real database error may hit the next account too, so it is a
+        // warning. The owner cancelled, so no retry is promised (#962).
 
         // Arrange
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -899,9 +868,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldWarnWithoutPromisingARetry_WhenItCannotTellWhetherTheErasureSaveLanded()
     {
-        // The owner cancelled, so the lock matches no row, and then the read that tells a landed save
-        // from a cancel fails. No run comes back to the account either way. If the save did land, its
-        // cleanup never runs, so the line is a warning, not a promise (#962).
+        // If the save did land, its cleanup never runs, so the line is a warning, not a promise (#962).
 
         // Arrange
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -934,10 +901,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldCleanUpAndCountTheAccount_WhenTheErasureSaveLandedButItsAnswerWasLost()
     {
-        // The save lands and its answer is lost. The save writes the account and its AccountErased message
-        // in one transaction (ADR-0065), so the commit is what lands. EF runs the transaction again, and
-        // the message already there or the old concurrency stamp makes it fail. The account is erased all
-        // the same, and no later run comes back to it, so this run has to finish the cleanup (#962).
+        // The erasure commit lands (ADR-0065) and EF's replay of it fails. No later run comes back to an
+        // erased account, so this run must finish the cleanup (#962).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -967,9 +932,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldCleanUpAndCountTheAccount_WhenTheErasureSaveLandedButItsAnswerWasLostAndTheLockFailed()
     {
-        // The save lands, its answer is lost, and then the emergency lock fails as well. A failed lock says
-        // nothing about the account, so the run still checks whether its own save landed. It did, so the
-        // lock was not needed, nobody has to look, and no later run comes back for the cleanup (#980).
+        // A failed lock says nothing about the account, so the run still checks whether its save landed
+        // (#980).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -1009,8 +973,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [InlineData(ErasureSaveFailure.LostToAnotherWrite)]
     public async Task Finalizer_ShouldNameTheRolesStep_WhenRemovingTheRolesFails(ErasureSaveFailure failure)
     {
-        // Removing the roles is the next save of the account after the erasure. Identity turns a lost
-        // write there into a failed result, which the cleanup used to take for a success (#962).
+        // Identity turns a lost write on the roles into a failed result, not an exception (#962).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -1066,9 +1029,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [InlineData(ErasureSaveFailure.LostToAnotherWrite)]
     public async Task Finalizer_ShouldStillRemoveTheClaims_WhenRemovingTheRolesFails(ErasureSaveFailure failure)
     {
-        // A failed step used to stop the cleanup, or to leave its changes in the context for the next
-        // save to send again. The claims have nothing wrong of their own, so they go (#981). The roles
-        // stay: their delete went with the failed save, and nothing sends it again.
+        // #981: the claims go. The roles stay, because their delete went with the failed save and nothing
+        // sends it again.
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -1089,8 +1051,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldStillRemoveTheLogins_WhenTheRolesAndClaimsKeepFailing()
     {
-        // The database refuses the deletes of the roles and the claims every time. Neither failed delete
-        // goes out again with a later save, so each is sent once and the logins still go (#981).
+        // Neither failed delete goes out again with a later save (#981).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -1111,8 +1072,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldNameEachFailedStep_WhenTheRolesAndClaimsKeepFailing()
     {
-        // Each of the two steps fails for its own reason, so the log names both and carries both
-        // exceptions (#981).
+        // Each step fails for its own reason, so the log carries both exceptions (#981).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -1225,8 +1185,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldFinishTheCleanup_WhenOneTokenKeepsFailing()
     {
-        // OpenIddict keeps a token whose save failed in the context, unless the save lost a concurrency
-        // check. Every later save in the cleanup used to send it again and fail with it (#981).
+        // OpenIddict keeps a token whose save failed in the context, so a later save could send it again
+        // (#981).
 
         // Arrange
         (IdentityId identityId, string failingTokenId, string otherTokenId) = await ArrangeATokenThatKeepsFailingAsync();
@@ -1245,7 +1205,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldNameOnlyTheFailedToken_WhenOneTokenKeepsFailing()
     {
-        // The steps after the failed token used to fail with it, and the log listed those echoes too (#981).
+        // #981: the steps after the failed token must not fail with it and add echoes to the log.
 
         // Arrange
         (_, string failingTokenId, _) = await ArrangeATokenThatKeepsFailingAsync();
@@ -1306,9 +1266,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [InlineData(ErasureSaveFailure.LostToAnotherWrite)]
     public async Task Finalizer_ShouldRemoveTheOtherLogin_WhenRemovingOneLoginFails(ErasureSaveFailure failure)
     {
-        // A lost write leaves the account in the context with a concurrency stamp that was never saved,
-        // and a database error ended the whole step. The next login reads the account again and goes
-        // on (#981).
+        // The lost write leaves an unsaved concurrency stamp in the context, so the next login reads the
+        // account again (#981).
 
         // Arrange
         (IdentityId identityId, _) = await ArrangeTwoLoginsWhoseFirstRemovalFailsAsync(failure);
@@ -1366,8 +1325,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldNotWriteATokenAgain_WhenItIsAlreadyRevoked()
     {
-        // OpenIddict's token manager writes a revoked token again. Scheduling the deletion already revoked
-        // the tokens, so each such write is work for nothing, and one that fails is a false warning.
+        // Scheduling the deletion already revoked the tokens, so writing them again is work for nothing,
+        // and a failed write is a false warning.
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -1388,8 +1347,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldEraseTheOtherDueAccounts_WhenReadingOneAccountFails()
     {
-        // The finalizer reads each account on its own, so one row it cannot read must not stop the
-        // accounts after it. The unreadable one has waited longest, so the finalizer comes to it first.
+        // The unreadable account has waited longest, so the finalizer comes to it first.
 
         // Arrange
         (RegisterRequest unreadableRequest, IdentityId unreadableId) = await RegisterAndScheduleDeletionAsync();
@@ -1419,8 +1377,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldDeleteTheAccountsSignInSessions_WhenItAnonymizesTheAccount()
     {
-        // A stored sign-in session holds the name and e-mail (ADR-0062), so the erasure takes it with the
-        // rest. Another account's session is left alone.
+        // A stored sign-in session holds the name and e-mail (ADR-0062).
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -1443,8 +1400,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Erasure_ShouldKeepTheOwnersNewSignInSession_WhenTheOwnerCancelledTheDeletionMeanwhile()
     {
-        // The erasure read the account, then the owner followed the cancel link and signed in again. Their
-        // new session must survive the erasure that lost.
+        // The owner's new session must survive the erasure that lost the race.
 
         // Arrange
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -1476,8 +1432,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldDeleteTheSignInSessionsOnTheNextRun_WhenTheDeleteFailed()
     {
-        // The delete runs before the anonymizing save. Once that save lands the finalizer never comes back
-        // to the account, so a delete that failed after it would never run again.
+        // Once the anonymizing save lands the finalizer never comes back to the account, so the delete
+        // runs before it.
 
         // Arrange
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -1586,11 +1542,9 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Ends the account's cancel window one hour from now and returns a clock one hour past that end.
-    /// The cancel link refuses a due account (#947), so a cancel can land during an erasure only when it
-    /// checked its window before the end and the run listed the account after it. The cancel request
-    /// runs on the real clock and the run on the returned one. An hour on each side keeps a slow run
-    /// from closing the window before the cancel arrives.
+    /// Ends the cancel window one hour from now and returns a clock one hour past that end. A cancel can
+    /// land during an erasure only when it checked its window before the end and the run listed the account
+    /// after it (#947). An hour on each side keeps a slow run from closing the window first.
     /// </summary>
     private async Task<TimeProvider> EndTheCancelWindowBetweenTheCancelAndTheRunAsync(Guid userId)
     {
@@ -1600,8 +1554,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Registration stopped asking for this consent in #1073, but accounts made before that still hold
-    /// it, and the erasure has to clear it.
+    /// Accounts made before #1073 still hold this consent, and the erasure has to clear it.
     /// </summary>
     private async Task GiveTheDataProcessingConsentAsAnOlderAccountDidAsync(Guid userId)
     {
@@ -1648,8 +1601,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Arms an undo at a chosen moment. The moment is a parameter because #685 made it decide whether
-    /// the row is due at all: an undo armed a second ago holds the erasure back for its whole window.
+    /// Arms an undo at a chosen moment. The moment decides whether the row is due at all (#685): an undo
+    /// armed a second ago holds the erasure back for its whole window.
     /// </summary>
     private async Task ArmRevertTargetAsync(Guid userId, string previousEmail, TimeSpan armedAge)
     {
@@ -1669,8 +1622,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
             () => CreateFailure(failure));
 
     /// <summary>
-    /// Counts the saves of one account and fails the second one. Other accounts are left alone, so a
-    /// save of some other account cannot move the count.
+    /// Other accounts are left alone, so a save of some other account cannot move the count.
     /// </summary>
     private void FailASecondSaveOf(Guid userId, ErasureSaveFailure failure)
     {
@@ -1714,9 +1666,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Fails the first login removal of the account, whichever login PostgreSQL hands back first, so the
-    /// other one always comes after it. The removal carries the account's id because EF sends it in one
-    /// command with the update of the account. The list gets the provider of the login that failed.
+    /// Fails the first login removal, whichever login PostgreSQL hands back first. The removal carries the
+    /// account's id because EF sends it in one command with the account update.
     /// </summary>
     private async Task<(IdentityId IdentityId, List<string> FailedProviders)> ArrangeTwoLoginsWhoseFirstRemovalFailsAsync(
         ErasureSaveFailure failure)

@@ -20,12 +20,10 @@ using OpenIddict.Server;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// #944: every refused refresh gets the same answer, so the client learns nothing about the account, and
-/// only the sign-in server's own log names the case. <see cref="TokenEndpointTests"/> and
-/// <see cref="SecurityStampTokenValidationTests"/> pin that answer. The account-change tests revoke
-/// nothing, so the token row stays valid and the handler's own checks do the refusing. The revoke, expiry
-/// and replay tests reach OpenIddict's own refusal, which runs before the handler (#977). Every test signs
-/// in on the host whose log it reads.
+/// #944: every refused refresh gets the same answer, and only the server's log names the case
+/// (<see cref="TokenEndpointTests"/> and <see cref="SecurityStampTokenValidationTests"/> pin the answer).
+/// The account-change tests revoke nothing, so the handler's own checks refuse; the revoke, expiry and
+/// replay tests reach OpenIddict's own refusal (#977). Every test signs in on the host whose log it reads.
 /// </summary>
 public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
 {
@@ -322,9 +320,8 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
     [Fact]
     public async Task Revoke_WhenOpenIddictRefusesAnotherClientsRefreshToken_ShouldLogNothingForTheTokenEndpoint()
     {
-        // Arrange: the revocation endpoint reads the same refresh token, and OpenIddict refuses to let another
-        // client revoke it. That is not a refused sign-in step. OpenIddict still answers 200 there, as
-        // RFC 7009 asks, so the token row shows the refusal.
+        // Arrange: OpenIddict refuses to let another client revoke the token, and still answers 200 (RFC
+        // 7009), so the token row shows the refusal. That is not a refused sign-in step.
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         using CapturingLoggerFactory loggerFactory = new();

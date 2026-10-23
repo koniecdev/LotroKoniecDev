@@ -48,7 +48,6 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
 
         string resetToken = await RequestResetTokenAsync(registerRequest.Email);
 
-        // Complete the reset through the browser Razor page
         HttpResponseMessage resetPageResponse = await PostToResetPasswordPageAsync(new Dictionary<string, string>
         {
             ["Email"] = registerRequest.Email,
@@ -61,7 +60,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         string resetHtml = await resetPageResponse.Content.ReadAsStringAsync();
         resetHtml.ShouldContain("Hasło zmienione"); // the IsCompleted success panel
 
-        // Act: try to use the refresh token that was issued BEFORE the reset
+        // Act: try to use the refresh token that was issued before the reset
         using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "refresh_token",
@@ -82,8 +81,8 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     [Fact]
     public async Task ResetPasswordPage_Post_ShouldRedirectToADoneViewThatCarriesNoAccountValue()
     {
-        // #886: the done answer used to be the POST's own page, so a reload sent the used link again and
-        // the page called it dead. Anybody can open the done view, so its URL names no address or token.
+        // #886: the POST redirects to a done view, so a reload does not send the used link again.
+        // Anybody can open the done view, so its URL names no address or token.
         const string newPassword = "NewPass99!";
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
@@ -105,8 +104,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     [Fact]
     public async Task ResetPasswordPage_GetTheRedirectTarget_ShouldShowThePasswordAsChanged()
     {
-        // The done view holds no state, so a reload of it gets this same answer. The browser test
-        // (OneTimeLinkReloadTests) is what proves that a reload repeats this GET and not the POST.
+        // The browser test OneTimeLinkReloadTests proves that a reload repeats this GET and not the POST.
         const string newPassword = "NewPass99!";
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
@@ -146,8 +144,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     [Fact]
     public async Task ResetPasswordPage_GetTheUsedLinkAgainInTheSameBrowser_ShouldShowThePasswordAsChanged()
     {
-        // #941: Back from the done view loads the link again. Its button would send the used link, and the
-        // page would call it dead although the new password works.
+        // #941: Back from the done view loads the link again, and its button would call the used link dead.
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
         string resetToken = await RequestResetTokenAsync(registerRequest.Email);
@@ -197,8 +194,8 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Only a done reset may leave the marker. A marker after a refusal would make Back say "Hasło zmienione"
-    /// while the old password still works, which is worse than the dead link of #941.
+    /// A marker after a refusal would make Back say "Hasło zmienione" while the old password still works
+    /// (#941).
     /// </summary>
     [Theory]
     [InlineData(ResetRefusal.DeadLink)]
@@ -312,8 +309,8 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     [Fact]
     public async Task ResetPasswordPage_Post_ShouldRefuseThePassword_WhenItIsLongerThanTheMaximum()
     {
-        // #1046: the page calls Identity directly, so it never ran the API's 128-character rule. It took a
-        // 500-character password and said the change worked.
+        // #1046: the page calls Identity directly, so the API's 128-character rule does not protect it.
+        // It has to refuse a 500-character password itself.
         const string originalPassword = "TestPass1!";
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, originalPassword);
@@ -378,8 +375,8 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The user has to shorten the password first, and the shorter one may be in no breach at all. So the
-    /// breach check stays out of the way of the length limit, as it does for the built-in rules (#1110).
+    /// The user must shorten the password first, and the shorter one may be in no breach, so the breach check
+    /// stays out of the length limit's way (#1110).
     /// </summary>
     [Fact]
     public async Task ResetPasswordPage_Post_ShouldNameOnlyTheLength_WhenAnOverLongPasswordIsAlsoInDataBreaches()

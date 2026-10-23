@@ -17,11 +17,9 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// No writer wakes the relay by hand: every commit that carries a new outbox row does it (#781,
-/// ADR-0038 §6). So do a failed or cancelled save with no transaction open and a failed commit, because
-/// their row may have landed. Nothing else does. The tests run on a host with no relay, so a wake-up
-/// stays in the signal until the test takes it. Every test that expects a wake-up fails when the
-/// interceptor is not registered.
+/// Every commit that carries a new outbox row wakes the relay, and so do a failed or cancelled save with no
+/// transaction open and a failed commit, because their row may have landed (#781, ADR-0038 §6). Nothing
+/// else does. The host runs no relay, so a wake-up stays in the signal until the test takes it.
 /// </summary>
 public sealed class OutboxWakeUpTests : EndpointsTestBase
 {
@@ -162,9 +160,8 @@ public sealed class OutboxWakeUpTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The failed save of <c>DeleteAccount</c>, <c>ConfirmEmailChange</c> and the account erasure: Identity
-    /// turns a lost concurrency check into a failed result. EF Core reports that failure to an interceptor
-    /// on its own path, not as a failed save.
+    /// Identity turns a lost concurrency check into a failed result (DeleteAccount, ConfirmEmailChange, the
+    /// erasure), and EF Core reports it to an interceptor on its own path, not as a failed save.
     /// </summary>
     [Fact]
     public async Task SaveChanges_ThatLosesItsConcurrencyCheck_StillWakesTheRelay()
@@ -255,9 +252,8 @@ public sealed class OutboxWakeUpTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// A save that another interceptor refuses before EF Core begins it reports no end and writes
-    /// nothing. Its wake-up must not wait for the next save, which inside a transaction comes before the
-    /// commit.
+    /// A save refused before EF Core begins it reports no end. Its wake-up must not wait for the next save,
+    /// which inside a transaction comes before the commit.
     /// </summary>
     [Fact]
     public async Task Commit_AfterASaveThatWasRefusedBeforeItBegan_IsStillTheOnlyWakeUp()
@@ -292,9 +288,8 @@ public sealed class OutboxWakeUpTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The relay's own saves only update rows. If that woke the relay, it would wake itself after every
-    /// pass. A failed attempt changes the row every time, so the save below is never empty, even when the
-    /// other host's relay sent the row first.
+    /// The relay's own saves only update rows; waking on them, the relay would wake itself after every pass.
+    /// A failed attempt changes the row every time, so the save below is never empty.
     /// </summary>
     [Fact]
     public async Task SaveChanges_ThatOnlyUpdatesAnOutboxRow_WakesNothing()
@@ -364,15 +359,14 @@ public sealed class OutboxWakeUpTests : EndpointsTestBase
     private Task<bool> TakeWakeUpAsync() => TakeWakeUpAsync(_outboxSignal);
 
     /// <summary>
-    /// Takes the wake-up the signal holds, if there is one, without waiting.
+    /// Never waits: answers at once whether the signal held a wake-up.
     /// </summary>
     private static Task<bool> TakeWakeUpAsync(OutboxSignal outboxSignal) =>
         outboxSignal.WaitAsync(TimeSpan.Zero, TimeProvider.System, CancellationToken.None);
 
     /// <summary>
     /// Sits after the wake-up interceptor and, once armed, refuses the next save before EF Core begins it.
-    /// EF Core then reports neither a saved nor a failed save. It waits to be armed because the host
-    /// saves its seed data at startup.
+    /// It waits to be armed because the host saves its seed data at startup.
     /// </summary>
     private sealed class SaveRefusal : ISaveChangesInterceptor
     {

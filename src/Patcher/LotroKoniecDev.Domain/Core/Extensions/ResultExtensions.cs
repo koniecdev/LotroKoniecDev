@@ -32,9 +32,6 @@ public static class ResultExtensions
             : Result.Failure<TOut>(result.Error);
     }
 
-    /// <summary>
-    /// Runs the next step only when this result succeeded, and passes any failure straight through.
-    /// </summary>
     public static Result<TOut> Bind<TIn, TOut>(this Result<TIn> result, Func<TIn, Result<TOut>> binder)
     {
         return result.IsSuccess
@@ -47,7 +44,6 @@ public static class ResultExtensions
         return result.IsSuccess ? result.Value : defaultValue;
     }
 
-    /// <summary>Runs one function on success and another on failure, and returns what it produced.</summary>
     public static TOut Match<TIn, TOut>(
         this Result<TIn> result,
         Func<TIn, TOut> onSuccess,
@@ -58,7 +54,6 @@ public static class ResultExtensions
             : onFailure(result.Error);
     }
 
-    /// <summary>Turns a null into a failure carrying <paramref name="errorIfNull"/>.</summary>
     public static Result<T> ToResult<T>(this T? value, Error errorIfNull)
         where T : class
     {
@@ -67,9 +62,7 @@ public static class ResultExtensions
             : Result.Failure<T>(errorIfNull);
     }
 
-    /// <summary>
-    /// Collects the values into one result, or fails with the first error it meets.
-    /// </summary>
+    /// <summary>Collects the values into one result, or fails with the first error it meets.</summary>
     public static Result<IReadOnlyList<T>> Combine<T>(this IEnumerable<Result<T>> results)
     {
         List<T> values = new List<T>();

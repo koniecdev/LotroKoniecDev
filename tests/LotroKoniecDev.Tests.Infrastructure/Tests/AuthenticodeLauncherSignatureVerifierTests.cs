@@ -5,8 +5,7 @@ using LotroKoniecDev.Infrastructure.GameLaunching;
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 /// <summary>
-/// Exercises the signature check done before launching (AUDIT-SEC-02, #392) against real files and the
-/// real WinVerifyTrust, so it is Windows-only, like the rest of this project.
+/// The signature check done before launching (#392), against real files and the real WinVerifyTrust.
 /// </summary>
 public sealed class AuthenticodeLauncherSignatureVerifierTests
 {
@@ -37,8 +36,8 @@ public sealed class AuthenticodeLauncherSignatureVerifierTests
     [Fact]
     public void Launch_FakeUnsignedLauncherNextToScannedDat_ShouldBeRefused()
     {
-        // The ticket's attack scenario end-to-end: a planted DAT + unsigned launcher pair in a
-        // writable folder must be refused by the real launcher + real verifier composition.
+        // The attack end to end: a planted DAT and unsigned launcher in a writable folder must be
+        // refused by the real launcher and verifier together.
         GameLauncher gameLauncher = new(_sut);
         string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(tempDir);

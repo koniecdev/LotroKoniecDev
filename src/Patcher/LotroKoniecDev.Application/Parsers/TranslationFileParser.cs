@@ -10,13 +10,11 @@ namespace LotroKoniecDev.Application.Parsers;
 /// </summary>
 /// <remarks>
 /// The format is <c>file_id||gossip_id||content||args_order||args_id||approved||source_digest</c>.
-/// A line starting with # is a comment, and empty lines are ignored.
-/// The last field, <c>source_digest</c> (ADR-0047), is optional on read. A six-column line parses as
-/// it always did and simply has no digest. It is the patcher's write guard, not this parser, that
-/// turns such a row into a skipped one.
-/// <see cref="TranslationLineCarver"/> cuts the fields out by working from both ends of the line
-/// (ADR-0042), so the content may hold the separator and may end in any number of <c>|</c>.
-/// The content arrives escaped (ADR-0039) and <see cref="TranslationLineEscaper"/> unescapes it, so
+/// A line starting with # is a comment, and empty lines are ignored. The last field,
+/// <c>source_digest</c> (ADR-0047), is optional on read.
+/// <see cref="TranslationLineCarver"/> cuts the fields out from both ends of the line (ADR-0042), so
+/// the content may hold the separator and may end in any number of <c>|</c>.
+/// <see cref="TranslationLineEscaper"/> unescapes the content (ADR-0039), so
 /// <see cref="Translation.Content"/> always holds the raw text that goes into the DAT.
 /// </remarks>
 public sealed class TranslationFileParser : ITranslationParser
@@ -27,9 +25,8 @@ public sealed class TranslationFileParser : ITranslationParser
     private const char ArgsPositionSeparator = '-';
 
     /// <summary>
-    /// The same limit the TMS import uses (spec 0006). A completely broken file is rejected either
-    /// way, and this only limits how many lines are quoted back. Without it, a 790k-row file gone bad
-    /// would print one full-line warning per row.
+    /// The same limit the TMS import uses (spec 0006). It only limits how many rejected lines are
+    /// quoted back, so a 790k-row file gone bad does not print one full-line warning per row.
     /// </summary>
     private const int MaxCollectedWarnings = 100;
 
@@ -132,10 +129,10 @@ public sealed class TranslationFileParser : ITranslationParser
             ArgsOrder = argsOrder,
             ArgsId = argsId,
             IsApproved = carved.Approved == "1",
-            // A missing digest is not a parse error (ADR-0047 §3). Rejecting it here would turn a
-            // file that is six columns throughout into NoTranslationsEveryLineRejected, which the
-            // launch path reads as RepatchFailed and refuses to start the game on. The write guard
-            // skips such rows instead, reports them, and lets the launch go ahead.
+            // A missing digest is not a parse error (ADR-0047 §3). Rejecting it would turn a
+            // six-column file into NoTranslationsEveryLineRejected, which the launch path reads as
+            // RepatchFailed and refuses to start the game on. The write guard skips and reports such
+            // rows instead.
             SourceDigest = carved.SourceDigest
         };
 
@@ -146,12 +143,11 @@ public sealed class TranslationFileParser : ITranslationParser
         string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith('#');
 
     /// <summary>
-    /// Reads an argument column such as "1-2-3" into 0-indexed integers. A column that is absent, so
-    /// <c>NULL</c>, empty or blank, succeeds and gives <see langword="null"/> arguments. Anything else
-    /// that is not a list of ASCII decimal numbers separated by <c>-</c> fails, so the caller rejects
-    /// and reports the row instead of patching it without its argument order (ADR-0042).
-    /// Whether those positions fit the fragment is checked later in
-    /// <c>Fragment.TryReorderArgRefs</c>, the only place that knows how many arguments there are.
+    /// Reads an argument column such as "1-2-3" into 0-indexed integers. An absent column
+    /// (<c>NULL</c>, empty or blank) gives <see langword="null"/> arguments. Anything else that is not
+    /// ASCII decimal numbers separated by <c>-</c> fails, so the caller rejects and reports the row
+    /// instead of patching it without its argument order (ADR-0042). Whether the positions fit is
+    /// checked later in <c>Fragment.TryReorderArgRefs</c>, the only place that knows the count.
     /// </summary>
     private static bool TryParseArgsArray(string value, out int[]? args)
     {
@@ -168,8 +164,8 @@ public sealed class TranslationFileParser : ITranslationParser
 
         for (int index = 0; index < positions.Length; index++)
         {
-            // NumberStyles.None on purpose: no sign, because '-' is the separator, no spaces around
-            // the number, ASCII digits only. A number too large for an int fails here as well.
+            // NumberStyles.None: no sign, because '-' is the separator, no spaces, ASCII digits only.
+            // A number too large for an int fails here as well.
             if (!int.TryParse(positions[index], NumberStyles.None, CultureInfo.InvariantCulture, out int position))
             {
                 return false;

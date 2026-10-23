@@ -7,16 +7,13 @@ namespace LotroKoniecDev.Infrastructure.GameLaunching;
 /// <summary>
 /// Checks the launcher's Authenticode signature with WinVerifyTrust and requires the signer to be one
 /// of the known LOTRO publishers. An executable someone dropped next to a DAT we found by scanning is
-/// then refused before it can run under our identity, possibly with admin rights (AUDIT-SEC-02,
-/// #392).
+/// then refused before it can run under our identity, possibly with admin rights (#392).
 /// </summary>
 public sealed class AuthenticodeLauncherSignatureVerifier : ILauncherSignatureVerifier
 {
     // Standing Stone Games LLC signs the current launcher, and Turbine, Inc. signed the old one.
-    // This repo's registry lookup already knows the same publisher history. After we normalize case,
-    // commas, periods and extra spaces, the signer's CN must equal one of these exactly. A different
-    // company such as "Turbine Dynamics Ltd" then never matches, while punctuation variants of the
-    // real names still do.
+    // After we normalize case, commas, periods and extra spaces, the signer's CN must equal one of
+    // these. So "Turbine Dynamics Ltd" never matches, while punctuation variants of the real names do.
     private static readonly string[] TrustedPublisherCommonNames =
     [
         "standing stone games",

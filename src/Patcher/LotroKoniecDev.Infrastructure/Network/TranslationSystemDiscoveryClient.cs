@@ -8,22 +8,20 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.Infrastructure.Network;
 
 /// <summary>
-/// Reads the TMS service document from the configured base URL, which is the discovery root anyone
-/// may read (#608). The CLI can then find its download endpoint by link relation instead of shipping
-/// a route it could never change (ADR-0041, #611).
+/// Reads the TMS service document from the configured base URL, the anonymous discovery root, so the
+/// CLI finds its download endpoint by link relation instead of a fixed route (ADR-0041, #611).
 /// <para>
 /// Links are opt-in: the server adds them only to a request that accepts
-/// <see cref="MediaTypes.HateoasJson"/>. That is why the constant comes from the shared Hateoas
-/// abstractions instead of being written again here. An Accept header that drifted would quietly
-/// return a document with no links, and every install would stay on its cached endpoint forever.
+/// <see cref="MediaTypes.HateoasJson"/>. The constant comes from the shared Hateoas abstractions
+/// because a drifted Accept header would quietly return a document with no links, and every install
+/// would stay on its cached endpoint forever.
 /// </para>
 /// </summary>
 public sealed class TranslationSystemDiscoveryClient : ITranslationSystemDiscoveryClient
 {
     /// <summary>
-    /// The largest service document we will read (AUDIT-SEC-04, #394). It is a short list of links, a
-    /// few KB, so 1 MiB leaves room to spare while a hostile or broken server cannot use up all our
-    /// memory.
+    /// The largest service document we read (#394). It is a few KB of links, so 1 MiB leaves room to
+    /// spare while a hostile or broken server cannot use up our memory.
     /// </summary>
     public const long MaxResponseContentBytes = 1024 * 1024;
 
@@ -55,9 +53,9 @@ public sealed class TranslationSystemDiscoveryClient : ITranslationSystemDiscove
             using HttpRequestMessage request = new(HttpMethod.Get, requestUri);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.HateoasJson));
 
-            // ResponseHeadersRead stops HttpClient from buffering the whole body before the size
-            // limit is checked. It also takes the body read out of HttpClient.Timeout, so we apply
-            // the same timeout around the whole fetch with a linked token.
+            // ResponseHeadersRead lets the size limit run before HttpClient buffers the body. It also
+            // takes the body read out of HttpClient.Timeout, so a linked token applies that timeout
+            // to the whole fetch.
             using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(_httpClient.Timeout);
 

@@ -4,14 +4,13 @@ namespace LotroKoniecDev.Application.Parsers;
 
 /// <summary>
 /// The content escape of the <c>||</c> translation file (ADR-0039): <c>\</c> becomes <c>\\</c>, CR
-/// becomes <c>\r</c> and LF becomes <c>\n</c>. A fragment with real newlines then stays on one line,
-/// and because the escape character is escaped too, no two different texts can produce the same
-/// output. Every writer of the file escapes and every reader unescapes. Text in memory, in the DAT and
-/// in the TMS database is always the raw form.
+/// becomes <c>\r</c> and LF becomes <c>\n</c>. A fragment with real newlines stays on one line, and
+/// because the escape character is escaped too, no two texts produce the same output. Every writer
+/// escapes and every reader unescapes; text in memory, in the DAT and in the TMS database is raw.
 /// </summary>
 /// <remarks>
-/// The TMS has an identical copy in its own <c>Parsing</c> namespace, because the two bounded contexts
-/// share the file and never the code (CLAUDE.md). The parity test suites keep the copies the same.
+/// Twin of the TMS copy in its <c>Parsing</c> namespace: the contexts share the file, never the code.
+/// Change both in the same commit; the parity tests keep them equal.
 /// </remarks>
 internal static class TranslationLineEscaper
 {
@@ -19,9 +18,7 @@ internal static class TranslationLineEscaper
     private const char CarriageReturnMarker = 'r';
     private const char LineFeedMarker = 'n';
 
-    /// <summary>
-    /// Turns raw content into the single-line form the file stores.
-    /// </summary>
+    /// <summary>Turns raw content into the single-line form the file stores.</summary>
     public static string Escape(string content)
     {
         ArgumentNullException.ThrowIfNull(content);

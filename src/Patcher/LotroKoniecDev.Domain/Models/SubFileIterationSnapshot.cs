@@ -5,12 +5,12 @@ namespace LotroKoniecDev.Domain.Models;
 /// right after each successful patch, and the launch compares it with the DAT as it is now.
 /// </summary>
 /// <remarks>
-/// E5 (#656) and E7 (#1094) measured the signal on real updates. SSG gives a subfile a new
-/// iteration every time it replaces it, even when the new text is identical. Our own patch keeps
-/// the iteration, and the launcher's write on every start does not move it either. So a subfile
-/// whose iteration moved, or which is gone, was replaced by an update after our patch, and the
-/// Polish rows in it are gone. Size is no signal: it misses replacements (49.4) and moves on every
-/// patch of ours. Only text subfiles are kept, because the patcher never writes any other kind.
+/// SSG gives a subfile a new iteration every time it replaces it, even when the new text is
+/// identical. Our own patch and the launcher's write on every start keep the iteration. So a
+/// subfile whose iteration moved, or which is gone, was replaced by an update after our patch, and
+/// its Polish rows are gone. Size is no signal: it misses replacements and moves on every patch of
+/// ours. Measured on real updates in E5 and E7 (docs/knowledge-base/README.md). Only text subfiles
+/// are kept, because the patcher never writes any other kind.
 /// </remarks>
 public sealed class SubFileIterationSnapshot
 {

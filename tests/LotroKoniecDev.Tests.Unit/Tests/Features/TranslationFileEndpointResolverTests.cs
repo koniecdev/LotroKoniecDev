@@ -7,9 +7,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace LotroKoniecDev.Tests.Unit.Tests.Features;
 
 /// <summary>
-/// The CLI ships to players' machines and cannot be updated remotely, so it resolves its download
-/// URL from the TMS service document by rel instead of carrying a route (ADR-0041 / #611). These
-/// tests pin what the resolver does when the document is missing, silent, or hostile.
+/// Pins what the resolver does when the service document is missing, silent or hostile. The CLI
+/// cannot be updated remotely, so it finds its download URL by rel, never by a route (ADR-0041, #611).
 /// </summary>
 public sealed class TranslationFileEndpointResolverTests
 {
@@ -95,8 +94,8 @@ public sealed class TranslationFileEndpointResolverTests
     [Fact]
     public async Task ResolveAsync_WhenTheDocumentDoesNotAdvertiseTheRel_ShouldFailWithoutUsingTheCache()
     {
-        // Arrange: the server answered and did not offer the action. That is a statement about
-        // what is on offer, not an outage, so the cached href must not paper over it.
+        // Arrange: the server answered and did not offer the action. That says what is on offer,
+        // not that the server is down, so the cached href must not cover it.
         DiscoveryReturns(new DiscoveredLink($"{BaseUrl}/", "self", "GET"));
 
         // Act
@@ -115,9 +114,8 @@ public sealed class TranslationFileEndpointResolverTests
     [InlineData("file:///etc/passwd")]
     [InlineData("/api/v1/translation-files/pl")]
     [InlineData("not a uri at all")]
-    // The well-known ways to get past an origin check. Each one is rejected because of a particular
-    // System.Uri rule, so they are pinned here: rewriting the check to use uri.Host, to
-    // AbsoluteUri.StartsWith(baseUrl) or to IdnHost quietly reopens one of them.
+    // Known ways past an origin check, each stopped by a particular System.Uri rule. Rewriting the
+    // check to use uri.Host, AbsoluteUri.StartsWith(baseUrl) or IdnHost quietly reopens one of them.
     // User info: the authority is everything after the '@', so this would fetch from evil.com.
     [InlineData("https://tms.example.com@evil.com/api/v1/translation-files/pl")]
     [InlineData("https://tms.example.com:443@evil.com/api/v1/translation-files/pl")]
@@ -140,9 +138,8 @@ public sealed class TranslationFileEndpointResolverTests
     }
 
     [Theory]
-    // A different case in the host, or the default port written out, is the same origin. Rejecting those
-    // would break a perfectly normal deployment, so what we accept is pinned as carefully as what we
-    // reject.
+    // A different case in the host, or the default port written out, is the same origin. Rejecting
+    // those would break a normal deployment, so what we accept is pinned as well.
     [InlineData(BaseUrl, "https://TMS.EXAMPLE.COM/api/v1/translation-files/pl")]
     [InlineData(BaseUrl, "https://tms.example.com:443/api/v1/translation-files/pl")]
     // A non-default port is fine as long as both sides agree on it.

@@ -20,9 +20,8 @@ public static partial class DomainErrors
 
         /// <summary>
         /// The file had rows to parse, but the parser rejected all of them. The error carries the
-        /// first rejection, because this path fails: the CLI prints the warning list only after a
-        /// successful patch, so an error saying just "no translations" would leave the user with no
-        /// reason at all, which is what ADR-0042 set out to fix.
+        /// first rejection: the CLI prints the warning list only after a successful patch, so on this
+        /// failure path it is the user's only reason (ADR-0042).
         /// </summary>
         public static Error NoTranslationsEveryLineRejected(int rejectedLineCount, string firstWarning) =>
             Error.Validation(

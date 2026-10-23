@@ -1,7 +1,8 @@
 namespace LotroKoniecDev.Domain.Models;
 
 /// <summary>
-/// What version.txt holds: the forum version string and the DAT vnum pair.
+/// What the stored game version file holds: the forum version, the DAT vnum pair and the hash of
+/// the translation file last applied.
 /// </summary>
 public sealed record StoredVersionInfo(
     string? ForumVersion,

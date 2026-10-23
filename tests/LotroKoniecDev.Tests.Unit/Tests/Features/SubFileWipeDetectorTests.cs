@@ -98,8 +98,8 @@ public sealed class SubFileWipeDetectorTests
     [Fact]
     public void Detect_WithAnEmptySnapshot_ShouldReturnAnEmptySet()
     {
-        // Arrange: the patch never saves an empty snapshot, so this is a damaged file. It must not
-        // report "all is well" either, which is why it gets its own warning in the log.
+        // Arrange: the patch never saves an empty snapshot, so this is a damaged file. It gets its
+        // own warning, so it does not read as "all is well".
         GivenSnapshotAfterPatch();
         GivenDatNow((TextFileA, 2));
 

@@ -12,11 +12,9 @@ namespace LotroKoniecDev.Infrastructure.Storage;
 /// fragment this patcher has written, where the digest describes what it left there.
 /// </summary>
 /// <remarks>
-/// The format is a flat version of the translation file with no comments: three fields, none of which
-/// can hold a <c>|</c>. So this file can be split, while the translation file has to be carved
-/// (ADR-0042 exists because translated text can hold the separator, and a digest cannot).
-/// A broken line is dropped instead of failing the read. The ledger is only a hint: losing an entry
-/// means a few rows are not patched, while refusing to read it at all would stop the launch.
+/// None of the three fields can hold a <c>|</c>, so this file is split, while the translation file
+/// has to be carved (ADR-0042). A broken line is dropped instead of failing the read: losing an entry
+/// means a few rows are not patched, while refusing the whole file would stop the launch.
 /// </remarks>
 public sealed class TranslationLedger : ITranslationLedger
 {
@@ -51,8 +49,8 @@ public sealed class TranslationLedger : ITranslationLedger
         {
             // A ledger we cannot read counts as an empty one (ADR-0047 §4). Rows that still hold the
             // English, or the current translation, pass the guard anyway; rows holding an older Polish
-            // are skipped with a warning. Falling back to English is the safe side, and this must not
-            // stop the launch, for the same reason as the cache files above.
+            // are skipped with a warning. Falling back to English is the safe side, and a sidecar
+            // file must never stop the launch.
             return new Dictionary<LedgerKey, string>();
         }
 

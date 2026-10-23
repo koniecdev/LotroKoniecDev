@@ -110,6 +110,9 @@ KEEP_WORKTREE="${LOOP_KEEP_WORKTREE:-0}"
 MAX_RESUMES="${LOOP_MAX_RESUMES:-2}"
 # A resume needs time for at least the test suite and the push.
 MIN_RESUME_MIN=10
+# The longest the fetch of a merged PR's head may take. Most such fetches find the commits already
+# here and end in seconds (#1165).
+MERGED_FETCH_LIMIT_SEC=60
 
 OUT="$RUN_DIR/ticket-$ISSUE.json"
 ERR="$RUN_DIR/ticket-$ISSUE.stderr"
@@ -264,29 +267,20 @@ follows_up() {
     [[ "$rest" =~ ^(-follow-up(-[0-9]+)?)+$ ]]
 }
 
-# commits_after_merge — prints how many commits on HEAD or on the merged PR's branch the merged PR
-# does not hold, plus one when the worktree has uncommitted files, which `finish` saves as a commit
-# on a salvage branch. The session may commit a fix after the merge, for example for a CodeQL alert:
-# on the PR's branch, on a new branch or on a detached HEAD. That fix is then not on main. When this
-# ticket has no worktree of its own any more, after an attempt the usage limit stopped and `finish`
-# salvaged, it reads the PR's branch and that attempt's salvage branch instead (#1096). Commits are
-# matched by their change, not by their id, so a rebase by GitHub before the merge still matches,
-# and commits main already has never count. The count can still be too high (a conflict fixed in a
-# rebase, an empty commit), so the log asks the owner to check, and never claims the commits are
-# lost. Fails when it cannot tell. The fetch runs where a stop is only noted, so it must never wait
-# for an answer (#1139). A password prompt makes it fail, on the terminal or in an askpass program,
-# and so does an OpenSSH question about a key's passphrase or a new host key, also for a jump host. A
-# stalled https transfer ends it as well. It goes to a ref of this run, not to FETCH_HEAD: outside a
-# worktree, FETCH_HEAD is shared with every ticket that fetches from the same checkout at the same
-# time.
-commits_after_merge() {
-    local dir="$WT" tips="HEAD refs/heads/$pr_branch" ref="refs/loop-merged/$ISSUE-$$" merged_head
-    local tip listed found="" commit count=0 ssh_command follow_tip="HEAD" moved
-    if [ "$own_worktree" -eq 0 ]; then
-        dir="$REPO_ROOT"
-        tips="refs/heads/$pr_branch${earlier_salvage:+ refs/heads/$earlier_salvage}"
-        follow_tip="refs/heads/$pr_branch"
-    fi
+# fetch_merged_head <folder> — sets merged_head to the head of the merged PR (pr_num) on origin, or
+# fails. It runs where a stop is only noted, so it must end on its own. It never waits for an answer
+# (#1139): a password prompt makes it fail, on the terminal or in an askpass program, and so does an
+# OpenSSH question about a key's passphrase or a new host key, also for a jump host. And it is ended
+# after MERGED_FETCH_LIMIT_SEC seconds, whatever else it waits for (#1165): a transfer that stalls, a
+# security key that waits for a touch, the window of a credential helper or of an ssh-agent, a
+# ProxyCommand that waits for a person, or a jump host on an OpenSSH that still asks on the terminal.
+# It runs as the session does, a watched command in `pid`: so the end reaches every process ssh
+# started too, and the EXIT trap ends it on every way out. It goes to a ref of this run, not to
+# FETCH_HEAD: outside a worktree, FETCH_HEAD is shared with every ticket that fetches from the same
+# checkout at the same time.
+fetch_merged_head() {
+    local dir="$1" ref="refs/loop-merged/$ISSUE-$$" ssh_command deadline now fetch_rc=0
+    merged_head=""
     # Batch mode goes on the ssh command git would use anyway. Git takes GIT_SSH_COMMAND first, then
     # core.sshCommand, then the GIT_SSH program, then plain ssh.
     ssh_command="${GIT_SSH_COMMAND:-$(git -C "$dir" config core.sshCommand 2>/dev/null || true)}"
@@ -294,17 +288,57 @@ commits_after_merge() {
         # shellcheck disable=SC2016  # the shell git starts expands it, so a path with spaces works too
         ssh_command='"$GIT_SSH"'
     fi
+    if ! open_lifeline; then
+        log "could not open the lifeline pipe for the watchdog of the merged-PR fetch — not fetched"
+        return 1
+    fi
     # Batch mode reaches only the ssh that git starts. A second ssh that it starts, for example for a
     # jump host, asks an askpass program that always fails. SSH_ASKPASS_REQUIRE needs OpenSSH 8.4: an
     # older one still asks on the terminal. For git's own prompt, an empty GIT_ASKPASS also turns off
     # core.askPass and SSH_ASKPASS.
-    GIT_SSH_COMMAND="${ssh_command:-ssh} -o BatchMode=yes" SSH_ASKPASS_REQUIRE=force SSH_ASKPASS=false \
-        GIT_TERMINAL_PROMPT=0 GIT_ASKPASS='' \
-        git -C "$dir" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 \
-        fetch --quiet --no-write-fetch-head origin "+refs/pull/$pr_num/head:$ref" 2>/dev/null < /dev/null || return 1
-    merged_head="$(git -C "$dir" rev-parse -q --verify "$ref^{commit}" 2>/dev/null || true)"
+    start_watched "$dir" /dev/null /dev/null 5 env GIT_SSH_COMMAND="${ssh_command:-ssh} -o BatchMode=yes" \
+        SSH_ASKPASS_REQUIRE=force SSH_ASKPASS=false GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= \
+        git fetch --quiet --no-write-fetch-head origin "+refs/pull/$pr_num/head:$ref"
+    # shellcheck disable=SC2006  # backquotes on purpose, see job_running
+    deadline=$(( `date +%s` + MERGED_FETCH_LIMIT_SEC ))
+    while session_running; do
+        # shellcheck disable=SC2006  # backquotes on purpose, see job_running
+        now=`date +%s`
+        if [ "$now" -ge "$deadline" ]; then
+            stop_session 5
+            fetch_rc=1
+            log "the fetch of PR #$pr_num's head did not end within ${MERGED_FETCH_LIMIT_SEC}s — ended it"
+            break
+        fi
+        sleep 1 9>&-
+    done
+    if [ -n "$pid" ]; then
+        wait "$pid" || fetch_rc=$?
+        kill -KILL -- "-$pid" 2>/dev/null || true
+        pid=""
+        release_lifeline
+    fi
+    [ "$fetch_rc" -ne 0 ] || merged_head="$(git -C "$dir" rev-parse -q --verify "$ref^{commit}" 2>/dev/null || true)"
     git -C "$dir" update-ref -d "$ref" 2>/dev/null || true
-    [ -n "$merged_head" ] || return 1
+    [ -n "$merged_head" ]
+}
+
+# commits_after_merge <folder> — prints how many commits on HEAD or on the merged PR's branch the
+# merged PR (merged_head) does not hold, plus one when the worktree has uncommitted files, which
+# `finish` saves as a commit on a salvage branch. The session may commit a fix after the merge, for
+# example for a CodeQL alert: on the PR's branch, on a new branch or on a detached HEAD. That fix is
+# then not on main. When this ticket has no worktree of its own any more, after an attempt the usage
+# limit stopped and `finish` salvaged, it reads the PR's branch and that attempt's salvage branch
+# instead (#1096). Commits are matched by their change, not by their id, so a rebase by GitHub
+# before the merge still matches, and commits main already has never count. The count can still be
+# too high (a conflict fixed in a rebase, an empty commit), so the log asks the owner to check, and
+# never claims the commits are lost. Fails when it cannot tell.
+commits_after_merge() {
+    local dir="$1" tips="HEAD refs/heads/$pr_branch" tip listed found="" commit count=0 follow_tip="HEAD" moved
+    if [ "$own_worktree" -eq 0 ]; then
+        tips="refs/heads/$pr_branch${earlier_salvage:+ refs/heads/$earlier_salvage}"
+        follow_tip="refs/heads/$pr_branch"
+    fi
     for tip in $tips; do
         git -C "$dir" rev-parse -q --verify "$tip^{commit}" >/dev/null 2>&1 || continue
         listed="$(git -C "$dir" cherry "$merged_head" "$tip" 2>/dev/null)" || return 1
@@ -332,10 +366,13 @@ commits_after_merge() {
 # so its work is on main (#1082, #1096): it counts what the merge did not take, removes the worktree
 # as for an opened PR and exits 13. Call it only where a stop is only noted (see `ending`).
 finish_merged() {
-    local after_merge head_place where checked="branch ${pr_branch:-?}"
+    local after_merge="?" head_place where checked="branch ${pr_branch:-?}" dir="$WT"
     meta outcome merged
     meta pr "$pr_num"
-    after_merge="$(commits_after_merge)" || after_merge="?"
+    [ "$own_worktree" -eq 1 ] || dir="$REPO_ROOT"
+    if fetch_merged_head "$dir"; then
+        after_merge="$(commits_after_merge "$dir")" || after_merge="?"
+    fi
     meta unmerged "$after_merge"
     where="$checked"
     if [ -n "$merged_branch" ] && [ "$merged_branch" != "$pr_branch" ]; then
@@ -778,6 +815,62 @@ end_session_tree() {
     kill -KILL -- "-$leader" 2>/dev/null || true
 }
 
+# start_watched <folder> <output file> <error file> <grace> <command...> — starts the command in the
+# folder, in a process group of its own, and sets pid. Open the lifeline first. The session runs
+# this way, and so does the merged-PR fetch (#1165).
+# `set -m` gives the command its own process group. It also stops bash from pointing a background
+# job's stdin at /dev/null, so that is done by hand: a job outside the terminal's foreground group
+# that reads the terminal is suspended. A SIGKILL to this script runs no trap, and the command is no
+# longer in this script's group, so a watchdog inside the group ends the command once the lifeline
+# says this script is gone. A session could otherwise go on working and pushing with nothing
+# watching it. The watchdog gives the command <grace> seconds to end its own children. It ignores
+# TERM: the TERM it sends to its own group must not end it half way. It ignores HUP too: when this
+# script dies while end_session_tree has paused the command, the system sends HUP to the command's
+# whole group (#935).
+start_watched() {
+    local dir="$1" out="$2" err="$3" grace="$4"
+    shift 4
+    set -m
+    (
+        set +m  # keep the watchdog in the command's group, so the group's end is its end too
+        group="$(exec sh -c 'echo "$PPID"')"
+        (
+            trap '' TERM HUP
+            exec 9>&-
+            # Nothing writes to the pipe, so `read` returns only at end of file.
+            while read -r -u 8 _; do :; done
+            # A dying worker closes its files a moment before the system gives its children a new
+            # parent. A pause in that moment leaves a paused command in a group that has just lost
+            # its last parent outside it, so the system sends HUP to the whole group. The command
+            # dies at once, and its children move to PID 1, where the watchdog no longer finds them
+            # (#1227). So the pause waits until the worker ($$, also in this subshell) is no longer
+            # the command's parent, for 50 naps of 0.1 seconds at most: about five seconds, a little
+            # more when the box is busy. Linux gives the new parent and decides on that HUP in one
+            # step, and a `ps` that has seen the new parent cannot exit before that step ends. When
+            # this script lets go of the lifeline itself, its command has already ended, so there is
+            # no wait. The one exception is a stop the moment the session starts: then the wait
+            # lasts until this script exits, or until the 50 naps are over.
+            tries=0
+            while [ "$tries" -lt 50 ] && kill -0 "$group" 2>/dev/null; do
+                parent="$(ps -o ppid= -p "$group" 2>/dev/null)" || break
+                [ "${parent// /}" = "$$" ] || break
+                sleep 0.1
+                tries=$((tries + 1))
+            done
+            end_session_tree "$group" "$grace"
+        ) < /dev/null > /dev/null 2>&1 &
+        # Only now: a command that cannot start must still leave the watchdog in its group (#983).
+        cd "$dir" || exit 1
+        # A bare `exec` first. On `exec cmd 8<&- 9>&-`, bash 3.2 keeps saved copies of both fds
+        # (as 10 and 11), so the command and all its children would hold the write end.
+        exec 8<&- 9>&-
+        exec "$@"
+    ) < /dev/null > "$out" 2>> "$err" &
+    pid=$!
+    set +m
+    exec 8<&-
+}
+
 # A background child of this script ignores SIGINT and would outlive it, so the session is stopped
 # on every way out. Bash reaps a finished background job at once, not at `wait`, and from then on
 # the system may give the session's number to another program (#983). It cannot do that while a
@@ -794,17 +887,24 @@ sleeper=""
 # Reads this shell's own job list. Bash takes the job off the running list in the same step in
 # which it reaps it. A stopped job is not on that list either, but with job control off (`set +m`)
 # bash never sees a job stop.
-# The list is read with backquotes, not $(...), and so is the clock in the poll loop of
-# run_session: a stop must reach this script while it waits for its session. Bash 5.2 runs a
-# waiting trap when it starts to parse a $(...). At that point it still expects the closing `)`,
-# so the trap's own text does not parse: the trap fails with "unexpected EOF while looking for
-# matching `)'", never runs, and the stop is lost (#1064). Bash parses a backquote in the child,
-# so the trap runs after the command.
+# The list is read with backquotes, not $(...), and so is the clock in the poll loops of
+# run_session and fetch_merged_head: a stop must reach this script while it waits for its session.
+# Bash 5.2 runs a waiting trap when it starts to parse a $(...). At that point it still expects the
+# closing `)`, so the trap's own text does not parse: the trap fails with "unexpected EOF while
+# looking for matching `)'", never runs, and the stop is lost (#1064). Bash parses a backquote in
+# the child, so the trap runs after the command.
+# In a run started by hand in a terminal, a Ctrl-C also reaches that child, which then dies and
+# lists nothing. A job that still runs would look ended, and the wait for it has no limit, so a
+# killed read is read again, up to five times in all (#1165). A read only looks at the list, so it
+# never signals a number.
 job_running() {
-    local running
+    local running tries=1
     [ -n "$1" ] || return 1
     # shellcheck disable=SC2006  # backquotes on purpose, see above
-    running=`jobs -rp`
+    until running=`jobs -rp`; do
+        [ "$tries" -lt 5 ] || break
+        tries=$((tries + 1))
+    done
     case $'\n'"$running"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac
     return 1
 }
@@ -813,10 +913,12 @@ session_running() {
     job_running "$pid"
 }
 
+# stop_session [grace] — <grace> is how many seconds the command gets to end its own children
+# (default 20, for claude).
 stop_session() {
     if [ -n "$pid" ]; then
         if session_running; then
-            end_session_tree "$pid" 20
+            end_session_tree "$pid" "${1:-20}"
         fi
         wait "$pid" 2>/dev/null || true
         pid=""
@@ -839,12 +941,12 @@ stop_sleeper() {
 # until the session starts, and again from the end of the last session, or while this script ends
 # one itself (a stop, the clock, a failed start), and while a ticket whose PR was merged during a
 # usage-limit nap ends with no session (#1096). Before a session starts, run_session acts on the
-# noted stop. After the last session it changes nothing: the script exits in moments anyway and
-# keeps its real outcome. A stop between a session and its resume cancels only the resume. Closing
-# a terminal sends HUP to the job and then TERM from the conductor: the second one lands here too,
-# so it cannot cut the first one's cleanup short. The signals stay caught, never ignored: an
-# ignored signal would carry over into every gh, git and docker started later, and a stuck one
-# could then not be stopped.
+# noted stop. After the last session it changes nothing: the script exits in moments anyway, at
+# most about a minute later when it fetches a merged PR's head (#1165), and keeps its real outcome.
+# A stop between a session and its resume cancels only the resume. Closing a terminal sends HUP to
+# the job and then TERM from the conductor: the second one lands here too, so it cannot cut the
+# first one's cleanup short. The signals stay caught, never ignored: an ignored signal would carry
+# over into every gh, git and docker started later, and a stuck one could then not be stopped.
 ending=0
 stop_requested=0
 
@@ -898,7 +1000,7 @@ elif [ -z "$merged_pr" ]; then
 fi
 
 # The ticket's PR was merged while a usage limit held its attempt (#1096). From here a stop is only
-# noted (see `ending`): the ticket ends in moments anyway.
+# noted (see `ending`): the ticket ends soon anyway, at most about a minute later (#1165).
 if [ -n "$merged_pr" ]; then
     ending=1
     pr_num="$merged_pr"
@@ -981,54 +1083,7 @@ run_session() {
     ending=0
     [ "$stop_requested" -eq 0 ] || stop_run
     set +e
-    # `set -m` gives the session its own process group. It also stops bash from pointing a
-    # background job's stdin at /dev/null, so that is done by hand: a job outside the terminal's
-    # foreground group that reads the terminal is suspended. A SIGKILL to this script runs no trap,
-    # and the session is no longer in this script's group, so a watchdog inside the group ends the
-    # session once the lifeline says this script is gone. The session could otherwise go on working
-    # and pushing with nothing watching it. The watchdog ignores TERM: the TERM it sends to its own
-    # group must not end it half way. It ignores HUP too: when this script dies while
-    # end_session_tree has paused the session, the system sends HUP to the session's whole group
-    # (#935).
-    set -m
-    (
-        set +m  # keep the watchdog in the session's group, so the group's end is its end too
-        group="$(exec sh -c 'echo "$PPID"')"
-        (
-            trap '' TERM HUP
-            exec 9>&-
-            # Nothing writes to the pipe, so `read` returns only at end of file.
-            while read -r -u 8 _; do :; done
-            # A dying worker closes its files a moment before the system gives its children a new
-            # parent. A pause in that moment leaves a paused session in a group that has just lost
-            # its last parent outside it, so the system sends HUP to the whole group. The session
-            # dies at once, and its commands move to PID 1, where the watchdog no longer finds them
-            # (#1227). So the pause waits until the worker ($$, also in this subshell) is no longer
-            # the session's parent, for 50 naps of 0.1 seconds at most: about five seconds, a little
-            # more when the box is busy. Linux gives the new parent and decides on that HUP in one
-            # step, and a `ps` that has seen the new parent cannot exit before that step ends. When
-            # this script lets go of the lifeline itself, its session has already ended, so there is
-            # no wait. The one exception is a stop the moment the session starts: then the wait
-            # lasts until this script exits, or until the 50 naps are over.
-            tries=0
-            while [ "$tries" -lt 50 ] && kill -0 "$group" 2>/dev/null; do
-                parent="$(ps -o ppid= -p "$group" 2>/dev/null)" || break
-                [ "${parent// /}" = "$$" ] || break
-                sleep 0.1
-                tries=$((tries + 1))
-            done
-            end_session_tree "$group" 15
-        ) < /dev/null > /dev/null 2>&1 &
-        # Only now: a session that cannot start must still leave the watchdog in its group (#983).
-        cd "$WT" || exit 1
-        # A bare `exec` first. On `exec cmd 8<&- 9>&-`, bash 3.2 keeps saved copies of both fds
-        # (as 10 and 11), so claude and all its children would hold the write end.
-        exec 8<&- 9>&-
-        exec "${cmd[@]}"
-    ) < /dev/null > "$out" 2>> "$ERR" &
-    pid=$!
-    set +m
-    exec 8<&-
+    start_watched "$WT" "$out" "$ERR" 15 "${cmd[@]}"
     while session_running; do
         # A background sleep + wait, so a stop signal runs its trap at once instead of after the nap.
         sleep 30 9>&- &

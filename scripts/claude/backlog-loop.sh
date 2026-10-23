@@ -157,12 +157,16 @@ RUNNING=""
 # stop, and a job is off that list only once it has ended.
 # The list is read with backquotes, not $(...), and count_running sets a variable: the main loop
 # must not lose a stop while it waits for its workers, and bash 5.2 loses one that arrives as it
-# starts to parse a $(...) (#1064, see job_running in work-ticket.sh).
+# starts to parse a $(...) (#1064, see job_running in work-ticket.sh). A read that a signal killed
+# lists nothing, so it is read again, as there (#1165).
 job_running() {
-    local running
+    local running tries=1
     [ -n "$1" ] || return 1
     # shellcheck disable=SC2006  # backquotes on purpose, see above
-    running=`jobs -rp`
+    until running=`jobs -rp`; do
+        [ "$tries" -lt 5 ] || break
+        tries=$((tries + 1))
+    done
     case $'\n'"$running"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac
     return 1
 }

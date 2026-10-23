@@ -18,10 +18,11 @@
 # open PR is resumed once to open it; the picker does not hide a worktree kept that way (#934).
 # A PR merged while a usage limit holds the ticket makes it merged, with no session resumed or
 # started again (#1096). The count of commits the merge did not take fails instead of waiting for
-# an ssh passphrase or a password (#1139). A relative run folder or LOOP_CONFIG_DIR means the
-# folder the caller started in, and a missing run folder or an empty LOOP_CONFIG_DIR keeps the
-# default (#1080). A usage limit whose message names its end writes that moment for the
-# conductor, and any other message writes none (#1078).
+# an ssh passphrase or a password (#1139), its fetch ends at a time limit whatever else it waits
+# for, and a stop during that fetch is only noted (#1165). A relative run folder or
+# LOOP_CONFIG_DIR means the folder the caller started in, and a missing run folder or an empty
+# LOOP_CONFIG_DIR keeps the default (#1080). A usage limit whose message names its end writes that
+# moment for the conductor, and any other message writes none (#1078).
 #
 # `gh` is stubbed from fixtures, so the suite is offline and hermetic. The stub applies the
 # caller's own `--jq` filter with real jq, which keeps the scripts' jq filters under test too.
@@ -49,6 +50,8 @@ export HOME="$TMP_ROOT/home"
 mkdir -p "$HOME"
 # The ticket clock when LOOP_TICKET_TIMEOUT_MIN is unset (#953).
 DEFAULT_TIMEOUT_MIN=240
+# The time limit of the fetch of a merged PR's head (#1165).
+MERGED_FETCH_LIMIT_SEC=60
 # A resume after a usage limit looks for the session's transcript in the worker's config dir; the
 # developer's real one must never be read.
 export LOOP_CONFIG_DIR="$TMP_ROOT/config"
@@ -2375,6 +2378,11 @@ expect_meta 172 outcome=merged pr=7172 'unmerged=?'
 # does, it fails at once in batch mode, and it asks the askpass program instead when that is forced.
 # With FAKE_SSH_JUMP=1 it first starts a second ssh for a jump host, without its own options, as
 # OpenSSH does for ProxyJump. Each call is logged with the name of the command that started it.
+# FAKE_SSH_SKEW=<seconds> jumps the clock that far once the transfer has started (jump-clock,
+# below), and the answer then comes a second later. With FAKE_SSH_HANG=1 no answer ever comes, as
+# when the network drops or a security key waits for a touch: the fake ignores TERM too, and gives
+# up after a minute. With either one it writes its own number, its child's (or -) and its group's to
+# $TMP_ROOT/fetch-ssh (#1165).
 # The fakes for these cases sit in a folder that only merged_remote_case puts on PATH, so no other
 # case reaches them.
 REMOTE_BIN="$TMP_ROOT/remote-bin"
@@ -2411,6 +2419,19 @@ if [ "\${FAKE_SSH_PASSPHRASE:-}" = 1 ]; then
         exit 255
     fi
 fi
+if [ "\${FAKE_SSH_HANG:-}" = 1 ]; then
+    trap '' TERM
+    "$REAL_SLEEP" 60 &
+    echo "\$\$ \$! \$(ps -o pgid= -p \$\$ | tr -d ' ')" > "$TMP_ROOT/fetch-ssh"
+    [ -z "\${FAKE_SSH_SKEW:-}" ] || "$TMP_ROOT/jump-clock" "\$FAKE_SSH_SKEW"
+    wait
+    exit 255
+fi
+if [ -n "\${FAKE_SSH_SKEW:-}" ]; then
+    echo "\$\$ - \$(ps -o pgid= -p \$\$ | tr -d ' ')" > "$TMP_ROOT/fetch-ssh"
+    "$TMP_ROOT/jump-clock" "\$FAKE_SSH_SKEW"
+    "$REAL_SLEEP" 1
+fi
 [ -n "\${2:-}" ] || exit 0  # a jump host only carries the connection
 PATH="\$(git --exec-path):\$PATH" exec sh -c "\$2"
 STUB
@@ -2423,6 +2444,32 @@ echo "\$*" >> "$TMP_ROOT/fakehttps-calls"
 printf 'protocol=https\nhost=fake-host\n\n' | git -c credential.helper= credential fill > /dev/null 2>&1
 exit 1
 STUB
+# The wall clock. The fake `date` of the timeout cases is gone by now, so these cases bring their
+# own: it adds $TMP_ROOT/clock-skew seconds to `date +%s`, and adds a line to $TMP_ROOT/clock-reads
+# for each such read.
+cat > "$REMOTE_BIN/date" <<STUB
+#!/usr/bin/env bash
+if [ "\${1:-}" = "+%s" ]; then
+    now=\$(( \$("$REAL_DATE" +%s) + \$(cat "$TMP_ROOT/clock-skew" 2>/dev/null || echo 0) ))
+    echo >> "$TMP_ROOT/clock-reads"
+    echo "\$now"
+else
+    exec "$REAL_DATE" "\$@"
+fi
+STUB
+# jump-clock <seconds> — sets the clock's skew once the worker has read the clock again. The worker
+# reads it to set the fetch's deadline and then on every poll, so that deadline never holds the jump.
+# The new skew replaces the file in one step, so a read never finds it empty.
+cat > "$TMP_ROOT/jump-clock" <<STUB
+#!/usr/bin/env bash
+reads=\$(( \$(cat "$TMP_ROOT/clock-reads" 2>/dev/null | wc -l) ))
+for _ in \$(seq 1 200); do
+    [ \$(( \$(cat "$TMP_ROOT/clock-reads" 2>/dev/null | wc -l) )) -le "\$reads" ] || break
+    "$REAL_SLEEP" 0.05
+done
+echo "\$1" > "$TMP_ROOT/clock-skew.new"
+mv "$TMP_ROOT/clock-skew.new" "$TMP_ROOT/clock-skew"
+STUB
 ASKPASS="$TMP_ROOT/askpass"
 cat > "$ASKPASS" <<STUB
 #!/usr/bin/env bash
@@ -2430,7 +2477,7 @@ echo "askpass: \$1" >> "$TMP_ROOT/asked"
 "$REAL_SLEEP" 5
 exit 1
 STUB
-chmod +x "$REMOTE_BIN/ssh" "$REMOTE_BIN/git-remote-fakehttps" "$ASKPASS"
+chmod +x "$REMOTE_BIN/ssh" "$REMOTE_BIN/git-remote-fakehttps" "$REMOTE_BIN/date" "$TMP_ROOT/jump-clock" "$ASKPASS"
 
 # ssh_wrapper <name> — the user's own ssh command, in a folder whose name has a space. Its calls are
 # logged under <name>. Prints its path.
@@ -2517,6 +2564,152 @@ git -C "$FAKE_REPO" config --unset core.askPass
     || fail "the merged head should come from the remote that wants a password, or the case proves nothing" "$LAST_OUTPUT"
 expect_in_output "but the loop could not check whether branch 236-fixture has commits the merge did not take"
 expect_meta 236 outcome=merged pr=7236 'unmerged=?'
+
+# ── work-ticket.sh: a merged-PR fetch that never ends (#1165) ─────────────────────────────────────
+# Some waits are not questions that git or OpenSSH can turn off: a transfer that stalls, a security
+# key that waits for a touch. So the fetch has a time limit. FAKE_SSH_HANG and FAKE_SSH_SKEW are
+# above.
+
+# fetch_gone <why> — the fake ssh of the fetch, its child and every process of the fetch's group,
+# the watchdog among them, are gone within five seconds. Otherwise they are killed and the case
+# fails with <why>.
+fetch_gone() {
+    local ssh_pid ssh_child group left process
+    read -r ssh_pid ssh_child group < "$TMP_ROOT/fetch-ssh"
+    for _ in $(seq 1 50); do
+        left=""
+        for process in "$ssh_pid" "$ssh_child" $(ps -A -o pid= -o pgid= | awk -v g="$group" '$2 == g { print $1 }'); do
+            if alive "$process"; then left="$left $process"; fi
+        done
+        [ -n "$left" ] || return 0
+        "$REAL_SLEEP" 0.1
+    done
+    # shellcheck disable=SC2086  # one number per word
+    kill -KILL $left 2>/dev/null || true
+    fail "$1" "still running:$left"
+}
+
+rm -f "$TMP_ROOT/fetch-ssh" "$TMP_ROOT/clock-skew"
+began=$SECONDS
+merged_remote_case 238 "work-ticket: a merged-PR fetch that never answers ends at its time limit" \
+    FAKE_SSH_HANG=1 FAKE_SSH_SKEW="$MERGED_FETCH_LIMIT_SEC"
+rm -f "$TMP_ROOT/clock-skew"
+[ -s "$TMP_ROOT/fetch-ssh" ] \
+    || fail "the merged head should be fetched over the ssh that never answers, or the case proves nothing" "$LAST_OUTPUT"
+[ $(( SECONDS - began )) -lt $(( MERGED_FETCH_LIMIT_SEC / 2 )) ] \
+    || fail "the clock jump should end the fetch, not a real minute, or the case proves nothing" "$LAST_OUTPUT"
+expect_in_output "the fetch of PR #7238's head did not end within ${MERGED_FETCH_LIMIT_SEC}s — ended it"
+expect_in_output "but the loop could not check whether branch 238-fixture has commits the merge did not take"
+expect_meta 238 outcome=merged pr=7238 'unmerged=?'
+fetch_gone "a process of the merged-PR fetch outlived its time limit"
+
+# Ten seconds before the limit the fetch still runs, and its answer counts.
+rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/fetch-ssh"
+merged_remote_case 239 "work-ticket: a merged-PR fetch that answers before its time limit still counts" \
+    FAKE_SSH_SKEW="$(( MERGED_FETCH_LIMIT_SEC - 10 ))"
+rm -f "$TMP_ROOT/clock-skew"
+grep -q '^ssh .*git-upload-pack' "$TMP_ROOT/ssh-calls" 2>/dev/null && [ -s "$TMP_ROOT/fetch-ssh" ] \
+    || fail "the merged head should be fetched over ssh, or the case proves nothing" "$LAST_OUTPUT"
+expect_in_output "PR #7239 was merged before the session ended — the work is on main"
+expect_meta 239 outcome=merged pr=7239 unmerged=0
+fetch_gone "a process of the merged-PR fetch outlived its normal end"
+
+# A stop during the fetch is only noted, as anywhere after the last session: the fetch goes on until
+# its time limit, and the ticket stays merged.
+reset_fixtures
+rm -f "$TMP_ROOT/ssh-calls" "$TMP_ROOT/asked" "$TMP_ROOT/fetch-ssh" "$TMP_ROOT/clock-skew"
+fixture_issue 240 maintainer OWNER
+began=$SECONDS
+env PATH="$REMOTE_BIN:$PATH" FAKE_SSH_HANG=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged-remote.sh" \
+    "$WORK" 240 "$TMP_ROOT/run" > "$TMP_ROOT/stopped-fetch.out" 2>&1 &
+worker=$!
+for _ in $(seq 1 100); do [ -s "$TMP_ROOT/fetch-ssh" ] && break; "$REAL_SLEEP" 0.1; done
+[ -s "$TMP_ROOT/fetch-ssh" ] || { kill -KILL "$worker" 2>/dev/null || true
+    fail "the merged head's fetch never reached the ssh that never answers" "$(cat "$TMP_ROOT/stopped-fetch.out")"; }
+read -r hung_ssh _ < "$TMP_ROOT/fetch-ssh"
+kill -TERM "$worker" 2>/dev/null || true
+"$REAL_SLEEP" 0.5
+if ! alive "$worker" || ! alive "$hung_ssh"; then
+    kill -KILL "$worker" 2>/dev/null || true
+    fetch_gone "a process of the merged-PR fetch outlived a stopped worker"
+    fail "a stop during the merged-PR fetch should only be noted" "$(cat "$TMP_ROOT/stopped-fetch.out")"
+fi
+"$TMP_ROOT/jump-clock" "$MERGED_FETCH_LIMIT_SEC"
+for _ in $(seq 1 300); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
+if alive "$worker"; then
+    kill -KILL "$worker"
+    fetch_gone "a process of the merged-PR fetch outlived a killed worker"
+    fail "work-ticket did not end within 30 seconds of the fetch's time limit" "$(cat "$TMP_ROOT/stopped-fetch.out")"
+fi
+stopped_rc=0
+wait "$worker" || stopped_rc=$?
+rm -f "$TMP_ROOT/clock-skew"
+[ $(( SECONDS - began )) -lt $(( MERGED_FETCH_LIMIT_SEC / 2 )) ] \
+    || fail "the clock jump should end the fetch, not a real minute, or the case proves nothing" "$(cat "$TMP_ROOT/stopped-fetch.out")"
+git -C "$FAKE_REPO" remote set-url origin "$TMP_ROOT/origin.git"
+LAST_OUTPUT="$(cat "$TMP_ROOT/stopped-fetch.out")"
+[ "$stopped_rc" -eq 13 ] || fail "a stop during the merged-PR fetch should keep exit 13, got $stopped_rc" "$LAST_OUTPUT"
+expect_in_output "the fetch of PR #7240's head did not end within ${MERGED_FETCH_LIMIT_SEC}s — ended it"
+! grep -q "STOPPED" <<< "$LAST_OUTPUT" || fail "a stop during the merged-PR fetch should only be noted" "$LAST_OUTPUT"
+expect_meta 240 outcome=merged pr=7240 'unmerged=?'
+fetch_gone "a process of the merged-PR fetch outlived its time limit after a stop"
+[ ! -e "$TMP_ROOT/asked" ] || fail "nothing may ask for an answer" "$(cat "$TMP_ROOT/asked")"
+cases=$((cases + 1)); printf '✓ work-ticket: a stop during the merged-PR fetch is only noted, and the ticket stays merged\n'
+
+# In a run started by hand in a terminal, a Ctrl-C also kills the child that reads the job list, so
+# a running fetch looked ended, and the worker then waited for it with no limit. No test can send a
+# signal at that moment, so a `jobs` function kills its own read while $TMP_ROOT/jobs-hook holds a
+# count above 0: here three reads in a row, as from a Ctrl-C pressed again. It uses KILL: with HUP
+# the fetch ended too in this setup, so the case proved nothing.
+reset_fixtures
+rm -f "$TMP_ROOT/ssh-calls" "$TMP_ROOT/asked" "$TMP_ROOT/fetch-ssh" "$TMP_ROOT/clock-skew" \
+    "$TMP_ROOT/jobs-hook"
+fixture_issue 242 maintainer OWNER
+began=$SECONDS
+(
+    export JOBS_HOOK="$TMP_ROOT/jobs-hook"
+    jobs() {
+        local left
+        left="$(cat "$JOBS_HOOK" 2>/dev/null || echo 0)"
+        if [ "$left" -gt 0 ]; then
+            echo "$(( left - 1 ))" > "$JOBS_HOOK"
+            kill -KILL "$(exec sh -c 'echo "$PPID"')"
+        fi
+        builtin jobs "$@"
+    }
+    export -f jobs
+    exec env PATH="$REMOTE_BIN:$PATH" FAKE_SSH_HANG=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done-merged-remote.sh" \
+        "$WORK" 242 "$TMP_ROOT/run" > "$TMP_ROOT/killed-read.out" 2>&1
+) &
+worker=$!
+for _ in $(seq 1 100); do [ -s "$TMP_ROOT/fetch-ssh" ] && break; "$REAL_SLEEP" 0.1; done
+[ -s "$TMP_ROOT/fetch-ssh" ] || { kill -KILL "$worker" 2>/dev/null || true
+    fail "the merged head's fetch never reached the ssh that never answers" "$(cat "$TMP_ROOT/killed-read.out")"; }
+echo 3 > "$TMP_ROOT/jobs-hook"
+for _ in $(seq 1 100); do [ "$(cat "$TMP_ROOT/jobs-hook")" = 0 ] && break; "$REAL_SLEEP" 0.05; done
+# The worker stops reading once a killed read has hidden the fetch, so the count stays above 0.
+[ "$(cat "$TMP_ROOT/jobs-hook")" = 0 ] || { kill -KILL "$worker" 2>/dev/null || true; fetch_gone "a process of the merged-PR fetch outlived a killed worker"
+    fail "the worker stopped reading its job list after $(( 3 - $(cat "$TMP_ROOT/jobs-hook") )) killed read(s), so it waits for the hung fetch with no limit" \
+        "$(cat "$TMP_ROOT/killed-read.out")"; }
+"$TMP_ROOT/jump-clock" "$MERGED_FETCH_LIMIT_SEC"
+for _ in $(seq 1 300); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
+if alive "$worker"; then
+    kill -KILL "$worker"
+    fetch_gone "a process of the merged-PR fetch outlived a killed worker"
+    fail "work-ticket did not end within 30 seconds of the fetch's time limit" "$(cat "$TMP_ROOT/killed-read.out")"
+fi
+killed_read_rc=0
+wait "$worker" || killed_read_rc=$?
+rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/jobs-hook"
+git -C "$FAKE_REPO" remote set-url origin "$TMP_ROOT/origin.git"
+LAST_OUTPUT="$(cat "$TMP_ROOT/killed-read.out")"
+[ $(( SECONDS - began )) -lt $(( MERGED_FETCH_LIMIT_SEC / 2 )) ] \
+    || fail "a killed read of the job list should not make the worker wait for the hung fetch" "$LAST_OUTPUT"
+[ "$killed_read_rc" -eq 13 ] || fail "a killed read during the merged-PR fetch should keep exit 13, got $killed_read_rc" "$LAST_OUTPUT"
+expect_in_output "the fetch of PR #7242's head did not end within ${MERGED_FETCH_LIMIT_SEC}s — ended it"
+expect_meta 242 outcome=merged pr=7242 'unmerged=?'
+fetch_gone "a process of the merged-PR fetch outlived its time limit after a killed read"
+cases=$((cases + 1)); printf '✓ work-ticket: a killed read of the job list does not hide a running merged-PR fetch\n'
 
 # A summary with no link finds the merged PR by its branch.
 behavior "$TMP_ROOT/done-merged-unlinked.sh" 'ticket="${PWD##*ticket-}"
@@ -2734,6 +2927,24 @@ run_case 0 "work-ticket: the run after that resumes the kept session" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 140 "$TMP_ROOT/run"
 expect_in_output "resuming session s-140 after a usage limit"
 expect_in_output "PR #7140 opened"
+
+# The merged-PR fetch needs a pipe for its watchdog too (#1165). Without one it does not start, and
+# the count is `?`. Only a ticket merged during a usage-limit nap gets that far: after a session,
+# run_session has asked for the same pipe first.
+reset_fixtures
+fixture_issue 241 maintainer OWNER
+run_case 6 "work-ticket: a usage limit with no session id after #241 pushed its PR" \
+    env NO_SESSION=1 LEFTOVER=1 CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-pr.sh" "$WORK" 241 "$TMP_ROOT/run"
+salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/241-*')"
+[ -n "$salvage_branch" ] || fail "the uncommitted file should be saved on a salvage branch" "$LAST_OUTPUT"
+fixture_prs_state "7241,241-fixture,MERGED"
+run_case 13 "work-ticket: a merged-PR fetch that cannot get its watchdog's pipe does not start" \
+    env PATH="$TMP_ROOT/no-fifo-bin:$PATH" CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 241 "$TMP_ROOT/run"
+expect_in_output "could not open the lifeline pipe for the watchdog of the merged-PR fetch — not fetched"
+expect_in_output "but the loop could not check whether branch 241-fixture or branch $salvage_branch has commits the merge did not take"
+expect_meta 241 outcome=merged pr=7241 'unmerged=?' "salvage=$salvage_branch"
+[ -z "$(git -C "$FAKE_REPO" for-each-ref refs/loop-merged)" ] || fail "no ref of the run may stay behind"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no new session may start on a merged ticket" "$LAST_OUTPUT"
 
 # A stop signal ends the session and everything it started, then salvages and cleans up.
 # Claude Code runs each Bash command in a process group of its own, so the fake session starts its

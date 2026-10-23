@@ -26,8 +26,7 @@ public sealed class ExportMyContributionDataHandlerTests
     [Fact]
     public async Task Handle_WhenNoTranslatorProfileExists_ShouldReturnNullProfileWithAnEmptySummary()
     {
-        // Arrange: the eager provisioning middleware is best-effort, so an identity can reach the
-        // handler without a profile; the export must still succeed with a defined empty document.
+        // Arrange: provisioning is best-effort, so an identity can arrive without a profile.
         IdentityId unknownIdentity = IdentityId.Create();
 
         // Act
@@ -47,8 +46,7 @@ public sealed class ExportMyContributionDataHandlerTests
     [Fact]
     public async Task Handle_WithAttributedRows_ShouldSummarizeOnlyTheCallersAttribution()
     {
-        // Arrange: caller submitted a draft, an approved and a needs-review row and approved one
-        // foreign row; the other translator's own rows must not leak into the caller's export.
+        // Arrange: the other translator's rows must not leak into the caller's export.
         IdentityId callerIdentity = IdentityId.Create();
         TranslatorId callerId = GivenTranslator(callerIdentity, "Frodo Baggins", "frodo@shire.me");
         TranslatorId otherId = GivenTranslator(IdentityId.Create(), "Samwise Gamgee", email: null);
@@ -79,8 +77,7 @@ public sealed class ExportMyContributionDataHandlerTests
     [Fact]
     public async Task Handle_ShouldOrderRowsByFileIdThenGossipId()
     {
-        // Arrange: rows land unsorted across two files; the export must order them for a stable,
-        // diffable document.
+        // Arrange: unsorted rows across two files.
         IdentityId callerIdentity = IdentityId.Create();
         TranslatorId callerId = GivenTranslator(callerIdentity, "Frodo Baggins", "frodo@shire.me");
         GivenRow(2000, TranslationStatus.Draft, submittedBy: callerId, fileId: FileId + 1);

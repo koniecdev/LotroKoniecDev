@@ -16,18 +16,12 @@ using LotroKoniecDev.TranslationSystem.API.Messaging;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration;
 
 /// <summary>
-/// The twin of <see cref="TranslationSystemApiFactory"/> with a real broker. The base host has no broker
-/// and removes the account event consumer, and this factory undoes exactly that: the settings point at
-/// a RabbitMQ container and the real <see cref="AccountErasedConsumer"/> runs again. It is the only
-/// host where the TMS half of an erasure, broker to consumer to database, runs in one process
-/// (ADR-0065).
-/// Two seams make the slow paths testable in seconds: <see cref="ErasureFailures"/> fails the next
-/// erasures, and the consumer runs faster than in production. It pauses 50 ms instead of up to 15
-/// minutes before a failed message goes back, waits 200 ms instead of up to a minute before it connects
-/// again, and checks its subscription every 200 ms instead of every 30 seconds. Its automatic recovery
-/// retries every 100 ms instead of every 5 seconds, so after a dropped connection recovery starts before
-/// the second look, as in production. The margin is small, so on a slow run the consumer may attach
-/// again instead. No test here drops a connection.
+/// <see cref="TranslationSystemApiFactory"/> with a real RabbitMQ container and the real
+/// <see cref="AccountErasedConsumer"/>: the only host where broker, consumer and database run together
+/// (ADR-0065). <see cref="ErasureFailures"/> fails the next erasures, and every pause is shortened (50 ms
+/// retry, 200 ms reconnect and watch, 100 ms recovery) so the slow paths run in seconds. Recovery still
+/// starts before the second look, as in production, but the margin is small; no test here drops a
+/// connection.
 /// </summary>
 #pragma warning disable CA1515
 public sealed class BrokeredTranslationSystemApiFactory : TranslationSystemApiFactory
@@ -106,8 +100,7 @@ public sealed class BrokeredTranslationSystemApiFactory : TranslationSystemApiFa
 
     public override async Task InitializeAsync()
     {
-        // The broker must be up before the base touches Services: building the host reads the
-        // configuration above, which needs the container's mapped port.
+        // Before the base touches Services: building the host needs the container's mapped port.
         await _broker.StartAsync();
         BrokerUri = new Uri(_broker.GetConnectionString());
         await base.InitializeAsync();

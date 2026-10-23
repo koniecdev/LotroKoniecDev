@@ -4,11 +4,8 @@ using LotroKoniecDev.TranslationSystem.API.Extensions;
 namespace LotroKoniecDev.TranslationSystem.API.Settings;
 
 /// <summary>
-/// Stops the boot when the health check key is missing in a deployed environment. Anywhere it is set, it
-/// also stops the boot when the key is too short, has whitespace at either end, or holds a character a
-/// header cannot carry (ADR-0058, #853, #877). Without a key the full /health is open to every
-/// caller. That is fine in Development and Testing and nowhere else: an open /health lets anyone run the
-/// database check as often as they like.
+/// Without a key the full /health is open, which is fine only in Development and Testing: elsewhere
+/// anyone could run the database check as often as they like (ADR-0058).
 /// </summary>
 internal sealed class HealthCheckSettingsValidator : IValidateOptions<HealthCheckSettings>
 {
@@ -56,8 +53,7 @@ internal sealed class HealthCheckSettingsValidator : IValidateOptions<HealthChec
                 + "end with whitespace. Check the quoting of HEALTH_CHECK_KEY in the box .env.");
         }
 
-        // A header cannot carry most of these characters, and the frontend caller key has the same rule
-        // (ADR-0058 §2, #877).
+        // A header cannot carry most of these; the frontend caller key has the same rule (#877).
         if (!key.All(IsPrintableAscii))
         {
             return ValidateOptionsResult.Fail(

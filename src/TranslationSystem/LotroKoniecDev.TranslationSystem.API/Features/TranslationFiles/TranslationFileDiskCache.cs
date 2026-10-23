@@ -8,15 +8,11 @@ using Microsoft.Extensions.Options;
 namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 
 /// <summary>
-/// Keeps one copy of the translation file per content hash on the API's own disk (PERF-09, #715,
-/// ADR-0064). A full download streams that copy in small pieces. So a crowd of players whose ETags all
-/// went stale at once, for example on the day of a game update, costs one database read of the
-/// multi-MB content, not one read and one in-memory copy per player.
-/// Only one copy is written at a time. Everyone else waits for it and then reads the same file. A file
-/// gets its final name only after it is fully on disk and its SHA-256 matches the stored hash, so a
-/// file with that name always holds exactly the bytes the ETag promises (AUDIT-SEC-01, #391).
-/// Like the projector's gate, this assumes one API process per directory. The containers configure a
-/// fixed one; without it each process makes its own private one and removes it when the host stops.
+/// One copy of the translation file per content hash on the API's disk (PERF-09, ADR-0064), so a crowd
+/// of stale ETags on update day costs one database read, not one read and one in-memory copy per
+/// player. One write at a time; a file gets its final name only after its SHA-256 matches the stored
+/// hash, so it always holds the bytes the ETag promises (AUDIT-SEC-01). Like the projector's gate, this
+/// assumes one API process per directory.
 /// </summary>
 internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCache, IDisposable
 {
@@ -26,7 +22,7 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
     private const int WriteBufferSize = 64 * 1024;
 
     /// <summary>
-    /// The same bytes the projector hashes with <see cref="Encoding.UTF8"/>, which adds no BOM.
+    /// The bytes the projector hashes: <see cref="Encoding.UTF8"/> adds no BOM either.
     /// </summary>
     private static readonly UTF8Encoding Utf8WithoutBom = new(encoderShouldEmitUTF8Identifier: false);
 
@@ -37,8 +33,8 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
     private readonly SemaphoreSlim _writeGate = new(1, 1);
 
     /// <summary>
-    /// Set only inside the write gate. A read outside it sees either no directory yet, which means no
-    /// copy yet, or a complete one.
+    /// Set only inside the write gate. A read outside it sees no directory (no copy yet) or a complete
+    /// one.
     /// </summary>
     private string? _directory;
 
@@ -65,10 +61,9 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
         await _writeGate.WaitAsync(cancellationToken);
         try
         {
-            // Only the wait follows the caller's token. The CLI gives up after a few seconds, so a slow
-            // first write cut short by its own caller would make the next waiter load the whole file
-            // from the database again. The write also outlives the start of a shutdown: it stops only
-            // once the host has stopped, after the server has let running requests finish.
+            // Only the wait follows the caller's token. The CLI gives up after a few seconds, and a first
+            // write cut short by its caller would make the next waiter load the file again. The write
+            // stops only once the host has stopped, after running requests finished.
             return await OpenOrWriteCopyAsync(language, contentHash, _applicationStopped);
         }
         finally
@@ -90,7 +85,7 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            // It sits in the temp folder, which the OS, or a new container on the next deploy, clears.
+            // It sits in the temp folder, which the OS or the next container clears.
         }
     }
 
@@ -107,8 +102,8 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
         await using AsyncServiceScope scope = _scopeFactory.CreateAsyncScope();
         IApplicationReadDbContext readDbContext = scope.ServiceProvider.GetRequiredService<IApplicationReadDbContext>();
 
-        // A rebuild may have replaced the file after the caller read its hash, and the caller before
-        // this one may already have written the new copy. The hash is cheap to read, the content is not.
+        // A rebuild may have replaced the file since the caller read its hash, and the previous waiter
+        // may have written the new copy. The hash is cheap to read, the content is not.
         string? currentHash = await readDbContext.PrecomputedTranslationFiles
             .Where(file => file.Language == language)
             .Select(file => file.ContentHash)
@@ -182,18 +177,16 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
         LogCopyWritten(_logger, language, stored.ContentHash, byteCount);
         RemoveOtherCopies(directory, language, copyFileName);
 
-        // The response reads from a new read-only handle, not from the writer's. On Windows every
-        // reader would have to share write access with a handle that can write, so the writer's handle
-        // would lock all other downloads out of the file until the first one ends.
+        // A new read-only handle: on Windows the writer's handle would lock every other download out of
+        // the file until the first one ends.
         return TryOpenCopy(language, stored.ContentHash)
             ?? throw new IOException($"The translation file copy '{copyFileName}' was gone right after it was written.");
     }
 
     /// <summary>
-    /// A configured directory is used as it is. Otherwise the process makes its own:
-    /// <see cref="Directory.CreateTempSubdirectory"/> gives it a random name and, on Linux and macOS,
-    /// access for its owner only. So no other local user can place a file there in advance that would
-    /// then be served under a valid ETag. Called only inside the write gate.
+    /// Without a configured directory, <see cref="Directory.CreateTempSubdirectory"/> gives a random,
+    /// owner-only folder, so no other local user can plant a file that would be served under a valid
+    /// ETag. Called only inside the write gate.
     /// </summary>
     private string PrepareDirectory()
     {
@@ -241,10 +234,8 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
     }
 
     /// <summary>
-    /// Removes every older copy of the language, and any half-written file a crash left behind, so the
-    /// directory never holds more than one copy. A download still reading an old copy keeps it until it
-    /// ends, because the handle stays valid after the name is gone. A failure here never fails the
-    /// download: the next write tries again.
+    /// Also removes half-written files a crash left behind. A download still reading an old copy keeps
+    /// it, because its handle stays valid. A failure here never fails the download.
     /// </summary>
     private void RemoveOtherCopies(string directory, string language, string keptFileName)
     {
@@ -290,10 +281,9 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
     }
 
     /// <summary>
-    /// Both parts become a file name, so both are checked here, where every name is built. The
-    /// language is a constant of the endpoint, so a bad one is a bug in the caller. The hash always
-    /// comes from the stored file, so a bad one is a fault in our own data: it must end in a 500, never
-    /// in the 400 that an <see cref="ArgumentException"/> becomes.
+    /// Both parts become a file name, so both are checked where every name is built. The language is a
+    /// constant of the endpoint, so a bad one is a bug in the caller. The hash comes from our own stored
+    /// file, so a bad one must end in a 500, never in the 400 an <see cref="ArgumentException"/> becomes.
     /// </summary>
     private static string CopyFileName(string language, string contentHash)
     {
@@ -307,7 +297,7 @@ internal sealed partial class TranslationFileDiskCache : ITranslationFileDiskCac
             throw new InvalidOperationException($"The stored content hash '{contentHash}' is not a hex SHA-256.");
         }
 
-        // Hashes compare without regard to case, so one hash must always give one file name.
+        // Hashes compare case-insensitively, so one hash must give one file name.
         return $"{language}-{contentHash.ToUpperInvariant()}{CopyExtension}";
     }
 

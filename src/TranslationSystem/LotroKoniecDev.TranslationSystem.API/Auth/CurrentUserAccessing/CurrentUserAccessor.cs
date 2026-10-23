@@ -7,7 +7,7 @@ namespace LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
 
 internal sealed class CurrentUserAccessor : ICurrentUserAccessor
 {
-    // The standard OpenIddict claim names. MapInboundClaims is off, so they arrive unchanged.
+    // MapInboundClaims is off, so the OpenIddict claim names arrive unchanged.
     private const string SubjectClaimType = "sub";
     private const string EmailClaimType = "email";
     private const string NameClaimType = "name";

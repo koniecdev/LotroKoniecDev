@@ -3,8 +3,8 @@ using FluentValidation;
 namespace LotroKoniecDev.TranslationSystem.API.Messaging;
 
 /// <summary>
-/// Stops the boot when the broker settings are missing. Without them the account events never arrive,
-/// and nothing but a stale name in the editor would show it.
+/// Without these settings the account events never arrive, and only a stale name in the editor would
+/// show it, so the boot stops.
 /// </summary>
 internal sealed class RabbitMqSettingsValidator : AbstractValidator<RabbitMqSettings>
 {

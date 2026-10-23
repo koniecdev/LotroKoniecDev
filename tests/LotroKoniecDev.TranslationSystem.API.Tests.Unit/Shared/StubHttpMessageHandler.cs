@@ -3,8 +3,7 @@ using System.Net;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Shared;
 
 /// <summary>
-/// An <see cref="HttpMessageHandler"/> that answers every request with a 200 and the content you build,
-/// with no network.
+/// Answers every request with a 200 and the content you build.
 /// </summary>
 internal sealed class StubHttpMessageHandler : HttpMessageHandler
 {

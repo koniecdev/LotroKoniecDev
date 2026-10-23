@@ -30,10 +30,7 @@ internal sealed partial class BadHttpRequestExceptionHandler : IExceptionHandler
             return false;
         }
 
-        // An upload that is too large arrives in two different shapes. Kestrel's request-body limit
-        // throws a 413, while the multipart form limit throws an InvalidDataException that minimal-API
-        // binding turns into a plain 400. We turn both into a 413, so an admin who uploads too large an
-        // exported.txt is told the file is too large instead of just "Bad Request" (#208).
+        // So an admin uploading too large an exported.txt is told so, not just "Bad Request" (#208).
         ProblemDetails problemDetails = IsPayloadTooLarge(badHttpRequestException)
             ? new ProblemDetails
             {
@@ -72,18 +69,10 @@ internal sealed partial class BadHttpRequestExceptionHandler : IExceptionHandler
     }
 
     /// <summary>
-    /// True when the bad request is really an upload that is too large and should become a 413. That is
-    /// either a 413 straight from Kestrel's request-body limit, or a wrapped
-    /// <see cref="InvalidDataException"/> or wrapped 413, because the multipart form reader's limit
-    /// throws an <see cref="InvalidDataException"/> that minimal-API binding turns into a 400.
-    /// <para>
-    /// The <see cref="InvalidDataException"/> case turns <em>every</em> wrapped form-read error into a
-    /// 413, not only the size one. That is fine today, because the import upload is the API's only
-    /// endpoint that accepts a form, and with the framework's default limits the only failure it can
-    /// realistically hit is the body-length one. Look at this check again before adding another form
-    /// endpoint, where the other limits on key, value or count could be hit for real. Those are proper
-    /// 400s and not "too large".
-    /// </para>
+    /// Kestrel's body limit throws a 413, but the multipart limit throws an
+    /// <see cref="InvalidDataException"/> that minimal-API binding wraps in a 400. This treats every
+    /// wrapped form-read error as too large, which holds only while the import is the one form endpoint.
+    /// Revisit it before adding another, where key, value or count limits are real 400s.
     /// </summary>
     private static bool IsPayloadTooLarge(BadHttpRequestException exception)
         => exception.StatusCode == StatusCodes.Status413PayloadTooLarge

@@ -16,9 +16,7 @@ using Microsoft.EntityFrameworkCore;
 namespace LotroKoniecDev.TranslationSystem.API.Features.GameVersions;
 
 /// <summary>
-/// Returns one full game version by id, read from the read model and never from the write aggregate
-/// (CQRS, ADR-0002 amendment). This endpoint exists so a game version has a real <c>self</c> link
-/// (M2-25). An unknown id, or an all-zeros one, gives a <c>NotFound</c>.
+/// Exists so a game version has a real <c>self</c> link (M2-25).
 /// </summary>
 internal sealed class GetGameVersion : IEndpoint
 {
@@ -35,7 +33,6 @@ internal sealed class GetGameVersion : IEndpoint
 
         public async ValueTask<Result<GameVersionResponse>> Handle(Query query, CancellationToken cancellationToken)
         {
-            // An all-zeros id can never match a row, so answer before touching the database.
             if (query.Id == GameVersionId.Empty)
             {
                 return Result.Failure<GameVersionResponse>(DomainErrors.GameVersionEntity.NotFound(query.Id));

@@ -10,15 +10,12 @@ using LotroKoniecDev.TranslationSystem.API.Settings;
 namespace LotroKoniecDev.TranslationSystem.API.Services.RateLimiting;
 
 /// <summary>
-/// Names the client a request is metered as (ADR-0054, #823). The frontend's calls all leave from one
-/// container, so it sends the visitor's address along with the environment's shared key: such a call
-/// is metered on that address only when the key matches and the address parses. Everything else is
-/// metered on <c>Connection.RemoteIpAddress</c>: a direct caller such as the CLI, a wrong or missing
-/// key, and a missing, repeated or broken address. <c>UseForwardedHeaders</c> resolved that address
-/// from Caddy's pinned /32 (#399, #506), so a caller without the key can never choose its bucket.
-/// The keys are compared as SHA-256 digests in constant time: a wrong guess learns neither the key's
-/// length nor how much of it matched. The auth API has its own copy of this class: the two APIs share
-/// the header names, not code.
+/// The frontend's calls all come from one container, so it forwards the visitor's address with the
+/// environment's key (ADR-0054). That address is used only when the key matches and the address parses;
+/// anything else is metered on <c>Connection.RemoteIpAddress</c>, which <c>UseForwardedHeaders</c> takes
+/// only from Caddy's pinned /32 (#399), so a caller without the key cannot choose its bucket. Keys compare
+/// as SHA-256 digests in constant time, so a guess learns neither length nor prefix. The auth API has its
+/// own copy.
 /// </summary>
 internal sealed class RateLimitPartitionKeyResolver
 {
@@ -36,16 +33,14 @@ internal sealed class RateLimitPartitionKeyResolver
     public string Resolve(HttpContext httpContext) => KeyFor(ResolveClientAddress(httpContext));
 
     /// <summary>
-    /// The full address behind <see cref="Resolve"/>: the visitor the frontend forwarded with the right key,
-    /// otherwise the connection's own address. The warning about a refused call names it (#854).
+    /// The full address behind <see cref="Resolve"/>, which the refused-call warning names (#854).
     /// </summary>
     public IPAddress? ResolveClientAddress(HttpContext httpContext) =>
         ReadForwardedClientAddress(httpContext.Request.Headers) ?? httpContext.Connection.RemoteIpAddress;
 
     /// <summary>
-    /// One client, one key (#831). An IPv6 client usually owns a whole /64 and can move to a new address
-    /// inside it for free, so an IPv6 address counts as its /64. An IPv4 address written in IPv6 form
-    /// (<c>::ffff:203.0.113.7</c>) counts as the IPv4 address it is.
+    /// An IPv6 client usually owns a whole /64 and moves inside it for free, so it counts as its /64;
+    /// <c>::ffff:a.b.c.d</c> counts as plain IPv4 (#831).
     /// </summary>
     public static string KeyFor(IPAddress? address)
     {

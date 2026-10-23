@@ -89,10 +89,8 @@ public sealed class GetTranslationStatsTests : IAsyncLifetime
 
         // Assert
         stats.Total.ShouldBe(7);
-        // Translated = everything carrying Polish = drafts + approved + invalidated (all but untranslated).
         stats.Translated.ShouldBe(6);
         stats.Approved.ShouldBe(3);
-        // Remaining = active rows not yet approved = Total - Approved.
         stats.Remaining.ShouldBe(4);
     }
 
@@ -128,7 +126,7 @@ public sealed class GetTranslationStatsTests : IAsyncLifetime
     [Fact]
     public async Task Stats_RepeatedWithinTtl_ShouldNotRerunTheCounterQuery()
     {
-        // Arrange: the first call populates the server-side cache (AUDIT-EF-04/#354).
+        // Arrange: the first call fills the server-side cache (#354).
         await SeedAsync(Row(1, "a", TranslationStatus.Approved), Row(2, "b"));
         TranslationStatsResponse first = await StatsAsync();
         _factory.ReadContextSqlRecorder.Clear();
@@ -136,8 +134,7 @@ public sealed class GetTranslationStatsTests : IAsyncLifetime
         // Act
         TranslationStatsResponse second = await StatsAsync();
 
-        // Assert: served entirely from the cache: identical payload and zero read-context SQL
-        // (translator provisioning touches only the write context, so the read stream stays clean).
+        // Assert: provisioning uses only the write context, so any read SQL would be a second query.
         second.ShouldBe(first);
         _factory.ReadContextSqlRecorder.Commands.ShouldBeEmpty();
     }

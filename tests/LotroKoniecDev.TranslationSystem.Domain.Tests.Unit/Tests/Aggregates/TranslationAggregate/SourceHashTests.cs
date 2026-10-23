@@ -67,9 +67,8 @@ public sealed class SourceHashTests
     [Fact]
     public void Compute_FromValueObjectAndFromStoredColumns_ShouldMatch()
     {
-        // Arrange: the incoming side hashes through the VO (which normalizes the raw "NULL" args
-        // column to null); the catalog side hashes the stored columns, which were written from the
-        // VO. Both must land on the same hash or the diff would report phantom source changes.
+        // Arrange: the upload hashes through the VO ("NULL" becomes null), the catalog hashes the
+        // stored columns. They must agree, or the diff reports phantom source changes.
         TranslationSource source = TranslationSource.Create("Witaj w Srodziemiu!", "NULL", "NULL").Value;
 
         // Act
@@ -104,8 +103,8 @@ public sealed class SourceHashTests
     [Fact]
     public void ComputeEcho_WithPolish_ShouldEqualTheIncomingHashOfThePatchedTriple()
     {
-        // Arrange: the incoming side of an echo is the exported row (our Polish as text, the
-        // source's identity args), hashed through the VO like every upload row (spec 0012).
+        // Arrange: the exported row (our Polish with the source's args), hashed through the VO like
+        // every upload row (spec 0012).
         TranslationSource echoedRow = TranslationSource.Create("Witaj <--DO_NOT_TOUCH!--> przyjacielu", "1-1", "1-1").Value;
 
         // Act
@@ -118,7 +117,7 @@ public sealed class SourceHashTests
     [Fact]
     public void Compute_LargeText_ShouldHashWithoutError()
     {
-        // Arrange: a multi-kilobyte fragment exercises the pooled-buffer path beyond typical sizes.
+        // Arrange: exercises the pooled-buffer path beyond typical sizes.
         string largeText = new('x', 100_000);
 
         // Act

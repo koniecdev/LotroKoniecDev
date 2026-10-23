@@ -17,17 +17,15 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.DomainRepositories;
 internal sealed class TranslationRepository : GenericRepository<Translation, TranslationId>, ITranslationRepository
 {
     /// <summary>
-    /// This read streams the whole catalog, about 800k rows today and up to 2M by design, from a
-    /// 0.25 vCPU container against a remote Postgres. It therefore gets a much longer timeout than the
-    /// context's 30 second default (spec 0006). While streaming, Npgsql applies the value to each
-    /// network read, so it limits how long one read may stall, not how long the whole scan may take.
+    /// The full-catalog stream (up to 2M rows from a small container to a remote Postgres) needs more
+    /// than the 30 s default (spec 0006). While streaming, Npgsql applies it to each network read, so
+    /// it limits one stall, not the whole scan.
     /// </summary>
     private static readonly TimeSpan SourceDigestReadTimeout = TimeSpan.FromMinutes(5);
 
     /// <summary>
-    /// These column names must match <c>TranslationConfiguration</c>, the same way the ADR-0011
-    /// <c>COPY</c> list in <c>BulkTranslationInserter</c> does. It is a second place that has to
-    /// follow a schema change to these columns, and the import integration tests fail if it does not.
+    /// Must match <c>TranslationConfiguration</c>, like the <c>COPY</c> list in
+    /// <c>BulkTranslationInserter</c> (ADR-0011). The import integration tests fail if it drifts.
     /// </summary>
     private const string SourceDigestQuery =
         """
@@ -40,17 +38,14 @@ internal sealed class TranslationRepository : GenericRepository<Translation, Tra
     }
 
     /// <summary>
-    /// This is raw Npgsql and not an EF query on purpose. With retry-on-failure on, EF wraps every
-    /// result set in its <c>BufferedDataReader</c>, which reads all rows into memory before it hands
-    /// out the first one. That is where the memory test ran out of memory on the 792k-row re-import.
-    /// Streaming and automatic retry cannot both work, so this read gives up the retry. It runs in
-    /// pass 1, before any write, so a temporary fault only fails the request and the admin uploads
-    /// again (spec 0006).
+    /// Raw Npgsql, not EF: with retry-on-failure on, EF buffers the whole result set in memory, which
+    /// ran out of memory on the 792k-row re-import. So this read gives up the retry. It runs before
+    /// any write, so a temporary fault only fails the request and the admin uploads again (spec 0006).
     /// </summary>
     public async IAsyncEnumerable<StoredSourceDigest> StreamSourceDigestsAsync(
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        // The write context's own connection, like the COPY inserter. Open it if EF has not.
+        // The write context's own connection, like the COPY inserter.
         NpgsqlConnection connection = (NpgsqlConnection)DbContext.Database.GetDbConnection();
         if (connection.State != ConnectionState.Open)
         {
@@ -68,9 +63,6 @@ internal sealed class TranslationRepository : GenericRepository<Translation, Tra
             string? argsId = reader.IsDBNull(5) ? null : reader.GetString(5);
             string? translatedText = reader.IsDBNull(8) ? null : reader.GetString(8);
 
-            // Both hashes come from the row's own columns, and the strings are dropped before the
-            // next read. The echo hash pairs the Polish with the source's args columns, because that
-            // is the triple the artifact carries and the one a patched DAT sends back (spec 0012).
             yield return new StoredSourceDigest(
                 TranslationId.FromValue(reader.GetGuid(0)),
                 new FragmentKeyValue(reader.GetInt32(1), reader.GetInt64(2)),

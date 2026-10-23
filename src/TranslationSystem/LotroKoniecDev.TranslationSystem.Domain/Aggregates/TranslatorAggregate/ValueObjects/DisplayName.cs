@@ -5,8 +5,7 @@ using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.ValueObjects;
 
 /// <summary>
-/// The name a translator is shown by in the UI, in "submitted by" and "approved by". It comes from
-/// the authenticated <c>name</c> claim when the profile is created, and it cannot be empty.
+/// The "submitted by" and "approved by" name, from the authenticated <c>name</c> claim.
 /// </summary>
 public sealed class DisplayName : ValueObject
 {

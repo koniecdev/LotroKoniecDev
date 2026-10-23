@@ -11,13 +11,9 @@ using Npgsql;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.GameVersions;
 
 /// <summary>
-/// Pins the database backstop behind the DeleteGameVersion guard (AUDIT-EF-05). The three version
-/// pointer columns on Translations have Restrict foreign keys to GameVersions, so even a delete that
-/// goes around <c>AnyReferencesGameVersionAsync</c> cannot leave rows pointing at nothing. That happens
-/// in the gap between the check and the delete, for example when an import stamps the version in
-/// between.
-/// It uses the DbContext directly on purpose; the endpoint path is covered by
-/// <see cref="DeleteGameVersionTests"/>.
+/// Pins the Restrict foreign keys behind the DeleteGameVersion guard (AUDIT-EF-05), for the gap between
+/// the check and the delete. It uses the DbContext directly; <see cref="DeleteGameVersionTests"/> covers
+/// the endpoint.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class GameVersionPointerForeignKeyTests : IAsyncLifetime
@@ -53,8 +49,7 @@ public sealed class GameVersionPointerForeignKeyTests : IAsyncLifetime
     public async Task DeleteGameVersion_RowStillReferencedByAPointerColumn_ShouldBeRejectedByTheForeignKey(
         VersionPointer pointer)
     {
-        // Arrange: a translation whose given pointer references the version under deletion (the
-        // other pointers reference a different version, so each FK is exercised in isolation).
+        // Arrange: only the given pointer references the version, so each key is tested alone.
         GameVersionId baseVersionId = await SeedVersionAsync("47.0");
         GameVersionId referencedVersionId = await SeedVersionAsync("48.0");
         await SeedTranslationWithPointerAsync(pointer, baseVersionId, referencedVersionId);

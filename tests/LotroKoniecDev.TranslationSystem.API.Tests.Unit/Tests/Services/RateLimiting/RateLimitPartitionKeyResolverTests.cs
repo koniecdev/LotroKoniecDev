@@ -7,12 +7,10 @@ using Microsoft.AspNetCore.Http;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Services.RateLimiting;
 
 /// <summary>
-/// The client a TMS API request is metered as (ADR-0054, #823): the visitor the frontend forwards, but
-/// only next to the environment's key, and the connection's own address for everything short of that.
-/// Each row of the "short of a proven visitor" matrix would, if believed, land in a fresh bucket instead
-/// of its connection's full one. The address rows pin what one client is (#831): a whole IPv6 /64, and
-/// an IPv4 address however it is written. The auth API's copy of the resolver has the same suite: the
-/// two APIs share the header names, not code.
+/// Pins which client a request is metered as (ADR-0054): the forwarded visitor only next to the right
+/// key, otherwise the connection's address; each row short of a proven visitor would, if believed, land
+/// in a fresh bucket. The address rows pin what one client is (#831). The auth API's copy has the same
+/// suite.
 /// </summary>
 public sealed class RateLimitPartitionKeyResolverTests
 {
@@ -70,8 +68,7 @@ public sealed class RateLimitPartitionKeyResolverTests
     }
 
     /// <summary>
-    /// #831: an IPv6 client owns its whole /64, and an IPv4 address written in IPv6 form is still that
-    /// IPv4 address. The last row is one address written two ways.
+    /// The last row is one address written two ways (#831).
     /// </summary>
     public static TheoryData<string, string, bool> AddressesOfOneClient => BothWays(
     [

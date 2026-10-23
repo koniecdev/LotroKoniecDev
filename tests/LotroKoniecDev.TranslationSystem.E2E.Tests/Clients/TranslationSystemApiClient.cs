@@ -11,9 +11,8 @@ using LotroKoniecDev.TranslationSystem.E2E.Tests.Extensions;
 namespace LotroKoniecDev.TranslationSystem.E2E.Tests.Clients;
 
 /// <summary>
-/// Talks to the running tms-api over real HTTP with an optional bearer token. Happy-path methods unwrap the
-/// typed response (and surface the API's problem details on failure); the <c>Raw</c> variants return the
-/// <see cref="HttpResponseMessage"/> so tests can assert status codes (204, 304, 401) and headers (ETag).
+/// Plain methods unwrap the typed response; the <c>Raw</c> variants return the
+/// <see cref="HttpResponseMessage"/>, so tests can check status codes and headers.
 /// </summary>
 public sealed class TranslationSystemApiClient : IDisposable
 {

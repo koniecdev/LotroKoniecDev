@@ -5,24 +5,19 @@ using Microsoft.EntityFrameworkCore;
 namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 
 /// <summary>
-/// Rebuilds a stored artifact once at startup when it was written before the <c>source_digest</c>
-/// column existed (ADR-0047, "Deploy ordering" in its Consequences). Otherwise the artifact is only
-/// rebuilt on the next approve or import, so without this an updated CLI would download a six-column
-/// file, patch nothing, report that, and launch the game, until someone happened to approve something.
+/// Rebuilds a stored artifact written before the <c>source_digest</c> column existed (ADR-0047, "Deploy
+/// ordering" in its Consequences). Without it an updated CLI would patch nothing until someone happened
+/// to approve something.
 /// </summary>
 /// <remarks>
-/// It runs outside the startup path on purpose. It must never keep the API from becoming ready, and a
-/// database that is still waking up, for example a serverless Postgres taking longer to resume than
-/// the connect timeout allows, must end in a logged failure and not a dead host. The next write
-/// rebuilds the artifact anyway.
-/// Running it twice is harmless: once the artifact has the column, later starts do nothing.
+/// Outside the startup path: it must never keep the API from becoming ready, and a database still
+/// waking up must end in a log line, not a dead host. Once the artifact has the column, later starts do
+/// nothing.
 /// </remarks>
 internal sealed partial class TranslationFileFormatUpgradeService : BackgroundService
 {
     /// <summary>
-    /// How much of the stored artifact to read to tell its format. Only the first data row matters, and
-    /// the column sits at its end, so reading a small prefix keeps the multi-MB column out of the
-    /// startup path.
+    /// Only the first data row matters, so a small prefix keeps the multi-MB column out of the read.
     /// </summary>
     private const int InspectedPrefixLength = 8192;
 
@@ -49,19 +44,15 @@ internal sealed partial class TranslationFileFormatUpgradeService : BackgroundSe
         catch (Exception exception)
             when (exception is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
         {
-            // Ignored on purpose. An exception leaving ExecuteAsync stops the whole host, and an
-            // out-of-date artifact only means a worse patch, not a dead API. The next approve or import
-            // rebuilds it.
+            // An exception leaving ExecuteAsync stops the host, and an old artifact only means a worse
+            // patch. The next approve or import rebuilds it.
             LogRegenerationFailed(_logger, exception);
         }
     }
 
     /// <summary>
-    /// The upgrade itself. It is exposed so an integration test can run it against a real PostgreSQL.
-    /// That is worth it: the format check reads only a prefix of the artifact, so the multi-MB column
-    /// never reaches the startup path, and only a real database can say whether that query translates
-    /// to SQL. The catch above would otherwise turn a failure to translate it into a log line nobody
-    /// reads and a feature that never runs.
+    /// Internal so an integration test can prove the prefix query translates to SQL. The catch above
+    /// would otherwise hide that failure in a log line nobody reads.
     /// </summary>
     internal async Task UpgradeAsync(CancellationToken stoppingToken)
     {
@@ -90,23 +81,19 @@ internal sealed partial class TranslationFileFormatUpgradeService : BackgroundSe
     private static partial void LogRegenerationFailed(ILogger logger, Exception exception);
 }
 
-/// <summary>The first part of one language's stored artifact, enough to read its first data row.</summary>
 internal sealed record ArtifactFormatProbe(string Language, string ContentPrefix);
 
 /// <summary>
-/// Works out a stored artifact's format from its own content. There is no header to stamp, because the
-/// serializer writes rows only, so the format is simply whether the first data row has the seventh
-/// column.
+/// The serializer writes rows only, with no header, so the format is whether the first data row has the
+/// seventh column.
 /// </summary>
 internal static class ArtifactFormatStamp
 {
     private const string LineTerminator = "\r\n";
 
     /// <summary>
-    /// Whether the artifact was written before ADR-0047. It looks only at the first complete data row:
-    /// a line the prefix cut in half cannot be parsed, and answering <see langword="true"/> for it would
-    /// rebuild a perfectly current artifact on every start. An empty artifact has no format at all, so
-    /// there is nothing to upgrade there either.
+    /// Only a complete first row counts: a line the prefix cut in half would otherwise rebuild a current
+    /// artifact on every start. An empty artifact has nothing to upgrade.
     /// </summary>
     public static bool PredatesSourceDigest(string contentPrefix)
     {

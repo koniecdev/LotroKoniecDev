@@ -23,18 +23,12 @@ using Microsoft.EntityFrameworkCore;
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
 /// <summary>
-/// Lists translations for the editor (spec 0001): paged, with an optional text search over the English
-/// source or the Polish translation, an optional status filter, and always the same order by
-/// <c>(FileId, GossipId)</c>. Soft-removed rows are left out, and <c>status=NeedsReview</c> is the
-/// "needs retranslation" view, the rows a game update invalidated.
-/// It reads the read model and never the write aggregate (CQRS, ADR-0002 amendment).
-/// Anyone may read the list (#309), because the data is public by nature: game texts and their
-/// translations. Every action still needs a login, so a caller who is not a translator gets items with
-/// no action links.
+/// The editor's list (spec 0001), without soft-removed rows; <c>status=NeedsReview</c> is the "needs
+/// retranslation" view. Anyone may read it (#309), because game texts and their translations are public
+/// by nature; every action still needs a login, so other callers get no action links.
 /// </summary>
 internal sealed class ListTranslations : IEndpoint
 {
-    /// <summary>The only language the catalog holds today. More languages are post-MVP.</summary>
     private const string SupportedLanguage = SupportedLanguages.Polish;
 
     internal sealed record Query(
@@ -63,7 +57,6 @@ internal sealed class ListTranslations : IEndpoint
             Query query,
             CancellationToken cancellationToken)
         {
-            // Queries validate here in the handler. FluentValidation is for commands only (house rule).
             if (!string.IsNullOrWhiteSpace(query.Lang)
                 && !string.Equals(query.Lang, SupportedLanguage, StringComparison.OrdinalIgnoreCase))
             {
@@ -83,8 +76,7 @@ internal sealed class ListTranslations : IEndpoint
 
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
-                // ILIKE ignores case. Escape the LIKE special characters, so a % or _ in the term
-                // matches itself instead of acting as a wildcard. LOTRO source text contains both.
+                // LOTRO source text contains both % and _, so they must match themselves.
                 string pattern = $"%{EscapeLike(query.Search.Trim())}%";
                 filtered = filtered.Where(translation =>
                     EF.Functions.ILike(translation.SourceText, pattern, LikeEscapeCharacter)
@@ -119,11 +111,8 @@ internal sealed class ListTranslations : IEndpoint
         }
 
         /// <summary>
-        /// Maps a <c>?sort=</c> key to the read-model column it orders by. An unknown key falls back to
-        /// <c>FileId</c> ascending, the first part of the default order, so a typo still returns a list
-        /// instead of an error.
-        /// <c>submittedAt</c> means <c>UpdatedAt</c>, the time of the last submission the row shows.
-        /// <c>status</c> sorts by the enum's name, because the column stores the name, not the number.
+        /// An unknown key falls back to <c>FileId</c>, so a typo still returns a list. <c>submittedAt</c>
+        /// means <c>UpdatedAt</c>. <c>status</c> sorts by the enum's name, because the column stores it.
         /// </summary>
         private static Expression<Func<TranslationReadModel, object>> GetSortProperty(string propertyName)
             => propertyName.ToLower(CultureInfo.InvariantCulture) switch
@@ -137,7 +126,6 @@ internal sealed class ListTranslations : IEndpoint
 
         private const string LikeEscapeCharacter = "\\";
 
-        /// <summary>Escapes the LIKE and ILIKE special characters, so the search term matches itself.</summary>
         private static string EscapeLike(string term)
             => term
                 .Replace("\\", "\\\\")

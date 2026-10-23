@@ -35,9 +35,7 @@ public static class StronglyTypedIdsConverters
             .Properties<TranslatorId>()
             .HaveConversion<StronglyTypedIdValueConverter<TranslatorId>>();
 
-        // IdentityId is the AuthSystem user id. The Translator carries it as the key for creating a
-        // profile on first use (ADR-0004). It lives in the SharedKernel and not in the TMS Primitives,
-        // but it is stored the same way.
+        // The AuthSystem user id (ADR-0004). It lives in the SharedKernel, not the TMS Primitives.
         configurationBuilder
             .Properties<IdentityId>()
             .HaveConversion<StronglyTypedIdValueConverter<IdentityId>>();

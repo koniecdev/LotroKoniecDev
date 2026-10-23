@@ -8,10 +8,9 @@ using Testcontainers.PostgreSql;
 namespace LotroKoniecDev.TranslationSystem.E2E.Tests;
 
 /// <summary>
-/// Starts the full TMS backend the way it ships, as real containers on a private Docker network:
-/// Postgres, the one-shot migrator, auth-api and tms-api. So the suite runs the core loop over real HTTP
-/// through real JWT issuance, JWKS validation and lazy translator provisioning. This is the layer the
-/// in-process integration tests cannot reach (they forge HS256 tokens and disable JWKS discovery).
+/// The TMS backend as it ships, as real containers on a private network, so the core loop runs through
+/// real token issuance, JWKS validation and provisioning: the layer the in-process tests fake with
+/// HS256 tokens.
 /// </summary>
 public sealed class E2ETestFixture : IAsyncLifetime
 {
@@ -19,7 +18,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
     private const string AuthRepository = "lotrokoniecdev-auth";
     private const string TmsRepository = "lotrokoniecdev-tms";
 
-    /// <summary>Image repository → Dockerfile path (relative to the solution root), built in this order.</summary>
+    /// <summary>Dockerfile paths relative to the solution root, built in this order.</summary>
     private static readonly (string Repository, string Dockerfile)[] DockerImages =
     [
         (AuthRepository, "src/AuthSystem/LotroKoniecDev.AuthSystem.API/Dockerfile"),
@@ -32,20 +31,19 @@ public sealed class E2ETestFixture : IAsyncLifetime
     private const string PostgresUser = "postgres";
     private const string PostgresPassword = "e2e-postgres-password";
 
-    /// <summary>The audience tms-api validates; matches the resource the auth token endpoint stamps on the JWT.</summary>
+    /// <summary>Must match the resource the auth token endpoint stamps on the token.</summary>
     private const string Audience = "lotrokoniecdev-api";
     private const string ApiClientSecret = "e2e-test-api-client-secret-min-32-characters";
 
     /// <summary>
-    /// Created by auth-api at startup from the <c>AdminUser__*</c> configuration, with
-    /// <c>EmailConfirmed = true</c> and the <c>Admin</c> role, so a password login gives a real admin token
-    /// without going through e-mail confirmation.
+    /// Seeded by auth-api from <c>AdminUser__*</c> with a confirmed e-mail, so a password login gives a real
+    /// admin token.
     /// </summary>
     public const string AdminUsername = "e2eadmin";
     public const string AdminEmail = "e2e-admin@lotro-translator.pl";
     public const string AdminPassword = "E2eAdminPass123!";
 
-    /// <summary>The public, password-grant OpenIddict client seeded only under the <c>Testing</c> environment.</summary>
+    /// <summary>Seeded only in the <c>Testing</c> environment.</summary>
     public const string TestClientId = "lotrokoniecdev-test";
 
     private E2EWorktree _worktree = null!;
@@ -72,8 +70,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
             .Build();
         await _network.CreateAsync();
 
-        // POSTGRES_DB creates lotro_translation on the first boot, and the mounted init script adds the
-        // second database, lotro_auth, that the AuthSystem needs. The compose stack does the same.
+        // As in compose: POSTGRES_DB creates lotro_translation, the init script adds lotro_auth.
         string initScriptPath = Path.Combine(_worktree.SolutionDirectory, "scripts", "init-postgres.sh");
         _postgres = new PostgreSqlBuilder(PostgresImage.Name)
             .WithNetwork(_network)
@@ -90,9 +87,8 @@ public sealed class E2ETestFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Truncates the translation lifecycle tables so each loop test starts from an empty catalog and can assert
-    /// exact counts. Runs <c>psql</c> inside the Postgres container (local-socket trust), mirroring the in-process
-    /// <c>CoreLoopTests</c> reset; the <c>Translators</c> table is intentionally left (the provisioner is idempotent).
+    /// Runs <c>psql</c> inside the container (local-socket trust). <c>Translators</c> stays, because
+    /// provisioning is safe to repeat.
     /// </summary>
     public async Task ResetTranslationDataAsync()
     {
@@ -110,14 +106,9 @@ public sealed class E2ETestFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Confirms a newly registered user's e-mail directly in the auth database. The confirmation e-mail
-    /// is now an outbox message that travels through the broker, and this network has no broker and no
-    /// mailpit, so it can never arrive, while <c>RequireConfirmedEmail</c> blocks the password login until
-    /// the address is confirmed.
-    /// The real journey from register to e-mail link to confirm belongs to the frontend browser suite.
-    /// This suite is about real tokens against the TMS loop, so it skips the delivery step the same way it
-    /// resets data: through psql.
-    /// It returns the account's id, because registration answers 202 with no body (#860).
+    /// This network has no broker and no mailpit, so the confirmation e-mail never arrives, and login needs
+    /// a confirmed address. The real e-mail journey belongs to the frontend browser suite. Returns the
+    /// account id, because registration answers 202 with no body (#860).
     /// </summary>
     public async Task<IdentityId> ConfirmUserEmailAsync(string email)
     {
@@ -150,9 +141,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
 
     private async Task RunMigratorAsync()
     {
-        // A one-shot container: it migrates the TMS context through Persistence and then the Auth context
-        // through the Auth API, exactly as the compose migrator does. Its environment matches compose and
-        // carries only the connection strings.
+        // One-shot, exactly like the compose migrator, with only the connection strings.
         _migrator = new ContainerBuilder(_worktree.Image(MigratorRepository))
             .WithNetwork(_network)
             .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
@@ -173,9 +162,8 @@ public sealed class E2ETestFixture : IAsyncLifetime
 
     private async Task StartApiContainersAsync()
     {
-        // Registration creates no TMS profile (the translator profile is provisioned lazily on the first
-        // authenticated TMS request), so there is no auth->tms startup dependency. auth-api is started first only
-        // because tms-api fetches its JWKS from it; the seeded admin must also be live before any test logs in.
+        // auth-api first, because tms-api fetches its JWKS from it and the seeded admin must be live
+        // before any test logs in.
         _authApi = new ContainerBuilder(_worktree.Image(AuthRepository))
             .WithNetwork(_network)
             .WithNetworkAliases("auth-api")
@@ -183,28 +171,23 @@ public sealed class E2ETestFixture : IAsyncLifetime
             .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Testing")
             .WithEnvironment("ASPNETCORE_URLS", "http://+:8080")
             .WithEnvironment("ConnectionStrings__AuthDatabase", AuthConnectionString)
-            // The token iss; tms-api validates against this and fetches its JWKS from the same in-network address.
+            // The token issuer; tms-api also fetches its JWKS from this address.
             .WithEnvironment("OpenIddict__Issuer", "http://auth-api:8080")
             .WithEnvironment("OpenIddict__ApiClientSecret", ApiClientSecret)
-            // The web client's addresses. Testing skips the startup check that asks for them, so the host
-            // would start without them. The seeder registers them, and the first post-logout address is
-            // also the website root that the account pages and e-mails link to.
+            // Testing skips the startup check for these, but the seeder registers them, and the first
+            // post-logout address is the website root the account pages link to.
             .WithEnvironment("OpenIddict__WebClient__RedirectUris__0", "http://localhost:8080/callback")
             .WithEnvironment("OpenIddict__WebClient__PostLogoutRedirectUris__0", "http://localhost:8080")
             .WithEnvironment("AdminUser__Username", AdminUsername)
             .WithEnvironment("AdminUser__Email", AdminEmail)
             .WithEnvironment("AdminUser__Password", AdminPassword)
-            // There is no mailpit in this network, so the confirmation e-mail, which became an outbox
-            // message when the broker arrived, is never delivered. Tests confirm accounts through
-            // ConfirmUserEmailAsync instead of waiting for an e-mail.
-            // The sender identity is no longer in the base appsettings.json (M6-06), so it is set here
-            // too, or EmailOptionsValidator would stop auth-api at startup.
+            // No mail is ever delivered here (see ConfirmUserEmailAsync). These values only satisfy
+            // EmailOptionsValidator, which needs a sender identity (M6-06).
             .WithEnvironment("Email__SenderEmail", "noreply@lotro-translator.pl")
             .WithEnvironment("Email__Sender", "lotro-translator.pl")
             .WithEnvironment("Email__Host", "localhost")
             .WithEnvironment("Email__Port", "2525")
-            // There is no broker in this network either. These values only have to satisfy
-            // RabbitMqOptionsValidator at startup.
+            // No broker either; these values only satisfy RabbitMqOptionsValidator.
             .WithEnvironment("RabbitMq__Host", "localhost")
             .WithEnvironment("RabbitMq__Username", "rabbitmq")
             .WithEnvironment("RabbitMq__Password", "changeme")
@@ -224,8 +207,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
             .WithEnvironment("Auth__Issuer", "http://auth-api:8080")
             .WithEnvironment("Auth__Authority", "http://auth-api:8080")
             .WithEnvironment("Auth__Audience", Audience)
-            // Short debounce so the background artifact rebuild (PERF-04) converges fast; the
-            // download polls stay meaningful while the suite stays quick.
+            // Short, so the background rebuild converges fast (PERF-04).
             .WithEnvironment("TranslationFileRebuild__DebounceWindow", "00:00:00.100")
             .WithWaitStrategy(Wait.ForUnixContainer()
                 .UntilHttpRequestIsSucceeded(request => request.ForPath("/health/live").ForPort(8080)))

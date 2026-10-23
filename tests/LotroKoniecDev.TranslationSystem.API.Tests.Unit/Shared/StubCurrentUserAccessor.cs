@@ -5,8 +5,7 @@ using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Shared;
 
 /// <summary>
-/// Hand-written double for the internal <see cref="ICurrentUserAccessor"/> (NSubstitute can't proxy
-/// internal interfaces here): exposes a fixed identity and the <c>name</c> / <c>email</c> claims.
+/// NSubstitute cannot proxy the internal <see cref="ICurrentUserAccessor"/>.
 /// </summary>
 internal sealed class StubCurrentUserAccessor : ICurrentUserAccessor
 {

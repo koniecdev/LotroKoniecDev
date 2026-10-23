@@ -82,10 +82,7 @@ public sealed class GetTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Get_WithInvalidatedRow_ShouldExposePreviousSourceArgsAndTranslation()
     {
-        // Arrange: a row that carried Polish, then a game update reworded its source: NeedsReview,
-        // with the args columns and the superseded English preserved for side-by-side review. These
-        // are the detail endpoint's reason to exist beyond the list item; distinct args values also
-        // pin the projection's column order (a swapped ArgsOrder/ArgsId would fail here).
+        // Arrange: an invalidated row. Distinct args values also catch a swapped ArgsOrder and ArgsId.
         TranslationId id = await SeedInvalidatedAsync();
 
         // Act
@@ -101,7 +98,6 @@ public sealed class GetTranslationTests : IAsyncLifetime
         body.TranslatedText.ShouldBe("Polski tekst");
         body.ArgsOrder.ShouldBe("1-2");
         body.ArgsId.ShouldBe("3-4");
-        // The detail view joins the submitter's display name (ADR-0004).
         body.Submitter.ShouldNotBeNull();
         body.Submitter.DisplayName.ShouldBe(SeederDisplayName);
     }

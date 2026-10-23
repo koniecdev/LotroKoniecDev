@@ -4,9 +4,7 @@ using Microsoft.EntityFrameworkCore;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Settings;
 
 /// <summary>
-/// Pure unit coverage for the connection string the migrator hands to the design-time factory (#1157).
-/// It lives in the integration project because the factory is internal to the Persistence assembly,
-/// whose internals are visible only to this project. It starts no container and opens no connection.
+/// Pure unit tests (#1157), here because only this project sees the Persistence internals.
 /// </summary>
 public sealed class ApplicationWriteDbContextDesignTimeFactoryTests
 {
@@ -23,8 +21,7 @@ public sealed class ApplicationWriteDbContextDesignTimeFactoryTests
     }
 
     /// <summary>
-    /// The migrator prints every inner error in full, so the error must name the setting and carry
-    /// neither Npgsql's error nor any part of the password.
+    /// The migrator prints every inner error in full.
     /// </summary>
     [Theory]
     [InlineData("Host=db;Database=lotro_translation;Username=deploy;Password=Zq8;Wx3=Kp5", "Zq8", "Wx3", "Kp5")]

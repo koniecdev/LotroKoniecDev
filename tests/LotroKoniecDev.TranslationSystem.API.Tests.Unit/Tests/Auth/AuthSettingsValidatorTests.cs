@@ -59,8 +59,8 @@ public sealed class AuthSettingsValidatorTests
     }
 
     /// <summary>
-    /// #1131: these messages never printed the address, and these tests keep it that way. A '/' in the
-    /// password stops the address from parsing, and a typo in the scheme makes it the wrong kind.
+    /// The messages must never print the address (#1131). A '/' in the password stops it parsing; a
+    /// scheme typo makes it the wrong kind.
     /// </summary>
     [Theory]
     [InlineData("https://deploy:hun/ter2@auth.lotro-translator.pl", "hun/ter2")]

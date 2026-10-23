@@ -4,49 +4,41 @@ using RabbitMQ.Client;
 namespace LotroKoniecDev.TranslationSystem.API.Messaging;
 
 /// <summary>
-/// The TMS's own part of the account events topology (ADR-0065). The AuthSystem owns
-/// <see cref="AccountEvents.Exchange"/> and declares it. The TMS only checks that it exists, so the two
-/// contexts can never declare it with different arguments, and the TMS's broker user needs no right to
-/// create or delete it. The queue, its dead-letter side and the binding belong to the TMS alone, so the
-/// AuthSystem never has to know them.
-/// The AuthSystem publishes with <c>mandatory</c> and waits for the broker's confirmation, so an
-/// event published before this queue exists comes back to its outbox and is sent again later. It is
+/// The TMS's part of the account events topology (ADR-0065). The AuthSystem owns and declares
+/// <see cref="AccountEvents.Exchange"/>; the TMS only checks it exists, so the two can never declare it
+/// with different arguments and the TMS broker user needs no right to create it. An event published
+/// before this queue exists returns to the AuthSystem's outbox (<c>mandatory</c> + confirms), so it is
 /// never dropped.
 /// </summary>
 /// <remarks>
-/// Declaring the same thing twice is safe only while the arguments stay the same. A changed argument
-/// fails the channel with <c>PRECONDITION_FAILED</c>, so changing <see cref="ErasedQueueArguments"/>
-/// means deleting the queue, as with the e-mail queue (ADR-0036). Delete it only while the release
-/// with the new arguments runs: the running consumer declares the queue again with its own arguments.
+/// A changed argument fails the channel with <c>PRECONDITION_FAILED</c>, so changing
+/// <see cref="ErasedQueueArguments"/> means deleting the queue (ADR-0036). Delete it only while the
+/// release with the new arguments runs: the running consumer declares it again with its own.
 /// </remarks>
 internal static class AccountEventsTopology
 {
     public const string ErasedQueue = "tms.account-erased";
 
     /// <summary>
-    /// Where the broker sends a message the consumer rejected or that passed
-    /// <see cref="ErasedDeliveryLimit"/>. Nothing consumes <see cref="ErasedDeadLetterQueue"/>: a person
-    /// looks at it and replays the message to <see cref="AccountEvents.Exchange"/>.
+    /// Nothing consumes <see cref="ErasedDeadLetterQueue"/>: a person looks at it and replays the
+    /// message to <see cref="AccountEvents.Exchange"/>.
     /// </summary>
     public const string ErasedDeadLetterExchange = "tms.account-erased.dlx";
 
     /// <summary>
-    /// No time limit, unlike the e-mail parking lot: a message parked here is erasure work, and it waits
-    /// for a person however long that takes. Never give it a <c>message-ttl</c> (ADR-0036 §6, #1085).
+    /// Unlike the e-mail parking lot, never give it a <c>message-ttl</c>: a parked message is erasure
+    /// work and waits for a person however long that takes (ADR-0036 §6, #1085).
     /// </summary>
     public const string ErasedDeadLetterQueue = "tms.account-erased.dlq";
 
     /// <summary>
-    /// How often the broker hands a message out again after a <c>basic.reject</c> or a lost connection
-    /// before it parks it. A database failure does not count against it: the consumer returns the
-    /// message with <c>basic.nack</c>, which RabbitMQ 4.3 does not count, so an outage of any length
-    /// loses no erasure. What it does bound is a message that keeps breaking the consumer itself.
+    /// Counts a <c>basic.reject</c> or a lost connection, not the <c>basic.nack</c> the consumer sends on
+    /// a database outage (RabbitMQ 4.3), so it bounds only a message that keeps breaking the consumer.
     /// </summary>
     public const int ErasedDeliveryLimit = 5;
 
     /// <summary>
-    /// A quorum queue, so the broker counts the retries and applies the limit itself, the same shape
-    /// as the AuthSystem's e-mail queue (ADR-0036).
+    /// A quorum queue, so the broker counts the retries itself, as on the e-mail queue (ADR-0036).
     /// </summary>
     private static readonly Dictionary<string, object?> ErasedQueueArguments = new()
     {
@@ -64,8 +56,7 @@ internal static class AccountEventsTopology
 
     public static async Task DeclareAsync(IChannel channel, CancellationToken cancellationToken)
     {
-        // The dead-letter side comes first, so nothing can be dead-lettered into an exchange with no
-        // queue behind it.
+        // Dead-letter side first, so nothing is dead-lettered into an exchange with no queue behind it.
         await channel.ExchangeDeclareAsync(
             exchange: ErasedDeadLetterExchange,
             type: ExchangeType.Fanout,
@@ -89,8 +80,7 @@ internal static class AccountEventsTopology
             arguments: null,
             cancellationToken: cancellationToken);
 
-        // Fails while the AuthSystem has not declared it yet, on a fresh broker. The consumer then
-        // retries its connection until it is there.
+        // Fails on a fresh broker until the AuthSystem declares it; the consumer keeps retrying.
         await channel.ExchangeDeclarePassiveAsync(AccountEvents.Exchange, cancellationToken);
 
         await channel.QueueDeclareAsync(

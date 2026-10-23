@@ -3,9 +3,8 @@ using System.Net.Http.Headers;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Compression;
 
 /// <summary>
-/// The TMS API registers Brotli + Gzip response compression (Program.cs); these tests prove the
-/// negotiated <c>Content-Encoding</c> honours the client's <c>Accept-Encoding</c> and stays absent
-/// when none is requested. Mirrors the AuthSystem suite, targeting the anonymous JSON health probe.
+/// Pins that <c>Content-Encoding</c> follows the client's <c>Accept-Encoding</c> and is absent when none
+/// is asked for, on the anonymous health probe. Mirrors the AuthSystem suite.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class ResponseCompressionTests

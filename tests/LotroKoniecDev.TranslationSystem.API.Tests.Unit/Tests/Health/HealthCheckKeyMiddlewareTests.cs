@@ -6,9 +6,8 @@ using Microsoft.AspNetCore.Http;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Health;
 
 /// <summary>
-/// The gate in front of the full /health (ADR-0058, #853). The next delegate stands in for the health
-/// checks. It answers 202, a status a fresh context never has, so a 202 means the checks ran and a 404
-/// means they never started.
+/// Pins the key gate in front of the full /health (ADR-0058). The next delegate answers 202, a status a
+/// fresh context never has, so 202 means the checks ran and 404 means they never started.
 /// </summary>
 public sealed class HealthCheckKeyMiddlewareTests
 {

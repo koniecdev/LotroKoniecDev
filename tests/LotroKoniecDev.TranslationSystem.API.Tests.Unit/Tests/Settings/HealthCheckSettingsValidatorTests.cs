@@ -6,8 +6,7 @@ using NSubstitute;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Settings;
 
 /// <summary>
-/// The health check key guard on the TMS API (ADR-0058, #853). Without the key the full /health is open to
-/// every caller, so a deployed host refuses to boot without it.
+/// Without the key the full /health is open to everyone, so a deployed host refuses to boot (ADR-0058).
 /// </summary>
 public sealed class HealthCheckSettingsValidatorTests
 {

@@ -5,19 +5,10 @@ using LotroKoniecDev.SharedKernel.Authorization;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Snapshots;
 
 /// <summary>
-/// Pins the whole service document for the two callers that mark its limits: the anonymous root (#608)
-/// and an admin. The anonymous snapshot is the one that matters for security: the root can be read
-/// without credentials, so a rel that appears there is an action we gave away, and this file forces that
-/// into a diff a reviewer can see. The admin snapshot pins the full list of rels, so a rel that quietly
-/// moves between the two shows up as two diffs instead of none.
+/// Pins the whole service document for the anonymous root (#608) and an admin. A rel that appears in the
+/// anonymous file is an action given away, so the diff makes it visible; a rel moving between the two
+/// shows as two diffs. Who may see which rel stays <c>DiscoveryHateoasTests</c>' job. Nothing is seeded.
 /// </summary>
-/// <remarks>
-/// <c>DiscoveryHateoasTests</c> still owns the behaviour, which caller may see which rel, and it checks
-/// the sets exactly. These snapshots answer a different question: did anything about the document change
-/// at all, such as the shape of an href, a method or a property name.
-/// The API holds no state here, so nothing has to be seeded and the payload is the same bytes every time
-/// for a given caller.
-/// </remarks>
 [Collection("TranslationApi")]
 public sealed class DiscoveryContractSnapshotTests
 {

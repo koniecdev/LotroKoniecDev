@@ -44,8 +44,8 @@ public sealed class GetTranslationFileHandlerTests
     [Fact]
     public async Task Handle_WhenTheCopyIsNewerThanAsked_ShouldTagTheBodyWithTheCopysHash()
     {
-        // Arrange: a rebuild landed after the hash lookup, so the cache hands out a newer copy. The
-        // ETag must name the bytes that are sent, or the patcher's integrity check refuses them.
+        // Arrange: a rebuild landed after the hash lookup. The ETag must name the bytes sent, or the
+        // patcher's integrity check refuses them.
         await using MemoryStream body = new("2||1||Nowszy||NULL||NULL||1"u8.ToArray());
         GetTranslationFile.Handler handler = new(new StubDiskCache(new TranslationFileCopy(body, NewerHash)));
 
@@ -65,8 +65,8 @@ public sealed class GetTranslationFileHandlerTests
     [InlineData("Pl")]
     public async Task Handle_WithAnyCasingOfTheLanguage_ShouldAskTheCacheForTheSupportedCode(string language)
     {
-        // Arrange: the route accepts "PL", but the copy's file name is built from the supported code
-        // and never from the route value. The stub answers only for "pl".
+        // Arrange: the copy's file name comes from the supported code, never the route value. The stub
+        // answers only for "pl".
         await using MemoryStream body = new("1||1||Alfa||NULL||NULL||1"u8.ToArray());
         GetTranslationFile.Handler handler = new(new StubDiskCache(new TranslationFileCopy(body, AskedHash)));
 
@@ -80,8 +80,7 @@ public sealed class GetTranslationFileHandlerTests
     }
 
     /// <summary>
-    /// NSubstitute cannot proxy an internal interface of this assembly, so the seam gets a hand-written
-    /// stub, as in <see cref="TranslationFileRebuildWorkerTests"/>.
+    /// NSubstitute cannot proxy an internal interface of this assembly.
     /// </summary>
     private sealed class StubDiskCache : ITranslationFileDiskCache
     {

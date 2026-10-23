@@ -6,16 +6,11 @@ using Testcontainers.PostgreSql;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration;
 
 /// <summary>
-/// The hook for the N-1 compatibility check (ADR-0024, #340). When
-/// <see cref="SchemaScriptsDirEnvVar"/> is set, which only <c>scripts/n1-compat.sh</c> ever does, the
-/// factory runs a prepared HEAD schema script against its fresh PostgreSQL container before its own
-/// <c>MigrateAsync()</c>. That call then does nothing, because <c>__EFMigrationsHistory</c> is already
-/// filled, and this older suite runs against the newer schema.
-/// When the variable is not set, none of this runs and a normal test run is unchanged.
-/// Every misconfiguration throws: an N-1 check that tested nothing must show up as red, never as green.
-/// There is a twin copy in
-/// <c>tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/N1CompatSchemaSeam.cs</c>. Keep the two in
-/// sync.
+/// The N-1 hook (ADR-0024): when <see cref="SchemaScriptsDirEnvVar"/> is set, which only
+/// <c>scripts/n1-compat.sh</c> does, the HEAD schema is applied first, so <c>MigrateAsync()</c> does
+/// nothing and this older suite runs against the newer schema. Every misconfiguration throws: an N-1
+/// check that tested nothing must be red. Keep the twin in
+/// <c>tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/N1CompatSchemaSeam.cs</c> in sync.
 /// </summary>
 internal static partial class N1CompatSchemaSeam
 {
@@ -75,8 +70,7 @@ internal static partial class N1CompatSchemaSeam
         {
             HashSet<string> appliedIds = [];
 
-            // The identifier is not parameterizable; it is safe to interpolate because the regex
-            // only ever captures an optional plain-identifier schema plus the fixed quoted table name.
+            // Safe to interpolate: the regex only captures a plain schema name and the fixed table name.
             await using NpgsqlCommand command = new($"SELECT \"MigrationId\" FROM {tableGroup.Key}", connection);
             await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync())
             {

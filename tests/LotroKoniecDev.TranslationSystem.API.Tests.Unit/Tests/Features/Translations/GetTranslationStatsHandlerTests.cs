@@ -93,8 +93,8 @@ public sealed class GetTranslationStatsHandlerTests
     [Fact]
     public async Task Handle_SecondCallWithinTtl_ShouldServeCountersFromCacheWithoutRequerying()
     {
-        // Arrange: two handlers share one cache but read different catalogs: a second database
-        // read would surface the grown catalog, so identical counters prove the cache served it.
+        // Arrange: two handlers share one cache but read different catalogs, so equal counters prove
+        // the cache served the second call.
         HybridCache hybridCache = TestHybridCache.Create();
         Given(1, TranslationStatus.Approved);
         GetTranslationStats.Handler first = new(TestReadScopeFactory.Create(new FakeReadDbContext(_readModels)), hybridCache);
@@ -117,8 +117,7 @@ public sealed class GetTranslationStatsHandlerTests
     [Fact]
     public async Task Handle_AfterTheEntryExpires_ShouldRecomputeCountersFromTheLiveCatalog()
     {
-        // Arrange: eviction is the state HybridCache reaches once the TTL lapses (the expiry timer
-        // itself is HybridCache's contract); the handler must then recompute, not hold on.
+        // Arrange: eviction stands in for the TTL running out; the timer itself is HybridCache's job.
         HybridCache hybridCache = TestHybridCache.Create();
         Given(1, TranslationStatus.Approved);
         GetTranslationStats.Handler first = new(TestReadScopeFactory.Create(new FakeReadDbContext(_readModels)), hybridCache);

@@ -13,11 +13,9 @@ using Microsoft.Extensions.Logging;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// #854: every call the API refuses with 401 or 403 leaves a warning. It names the client the rate
-/// limiter counts and the connection's own address (ADR-0054, amended by #854). Each test boots a derived
-/// host whose logger factory captures what the host logged. In Testing <c>UseForwardedHeaders</c> trusts
-/// every peer, so <c>X-Forwarded-For</c> plays the connection address Caddy resolves: <c>10.60.0.x</c> is
-/// the frontend container, RFC 5737 addresses are visitors.
+/// Pins that every 401 or 403 leaves a warning naming the client the rate limiter counts and the
+/// connection's own address (ADR-0054, amended by #854). In Testing <c>X-Forwarded-For</c> plays the
+/// address Caddy resolves: <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses are visitors.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class AuthorizationLoggingTests : IAsyncLifetime
@@ -94,8 +92,7 @@ public sealed class AuthorizationLoggingTests : IAsyncLifetime
         bool keyMatches,
         string namedClient)
     {
-        // Arrange: the frontend forwards a visitor. Only the right key makes the forwarded address the
-        // client, and the connection's own address is in the line either way.
+        // Arrange: only the right key makes the forwarded address the client.
         using CapturingLoggerFactory loggerFactory = new();
         using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
         using HttpClient client = host.CreateClient();
@@ -118,8 +115,7 @@ public sealed class AuthorizationLoggingTests : IAsyncLifetime
     [InlineData("HEAD", GameVersionsPath)]
     public async Task Request_ToNoRealEndpoint_ShouldNotWarn(string method, string path)
     {
-        // Arrange: the fallback policy refuses a path that matches no endpoint, and a method the route does
-        // not map, with 401. Neither carries a rate limit, so a warning there would have no cap.
+        // Arrange: no rate limit covers these 401s, so a warning there would have no cap.
         using CapturingLoggerFactory loggerFactory = new();
         using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
         using HttpClient client = host.CreateClient();

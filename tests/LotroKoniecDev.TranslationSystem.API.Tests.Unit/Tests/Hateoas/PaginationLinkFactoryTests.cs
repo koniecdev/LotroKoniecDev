@@ -63,8 +63,7 @@ public sealed class PaginationLinkFactoryTests
     [Fact]
     public async Task CreatePaginationLinks_OnASinglePage_AdvertisesNothingButSelf()
     {
-        // The pager is hidden entirely in this state, so any boundary rel here is a control the user
-        // could click to reload the page they are already on (#545).
+        // Any boundary rel here would reload the page the user is on (#545).
         PaginationResponse<string> response = new()
         {
             Items = [],
@@ -81,8 +80,8 @@ public sealed class PaginationLinkFactoryTests
     [Fact]
     public async Task CreatePaginationLinks_OnAnOverRangePage_KeepsBothAbsoluteJumpsSoTheCallerCanGetBack()
     {
-        // Page is clamped at the lower bound only, so ?page=99 of 3 is reachable. previous/next are
-        // relative and next is correctly absent; first/last are absolute and stay the way back.
+        // Page is clamped at the lower bound only, so ?page=99 of 3 is reachable; first and last are
+        // the way back.
         PaginationResponse<string> response = new()
         {
             Items = [],
@@ -99,8 +98,7 @@ public sealed class PaginationLinkFactoryTests
     [Fact]
     public async Task CreatePaginationLinks_WhenTheLinkFactoryRefusesARel_OmitsItRatherThanEmittingNull()
     {
-        // ILinkFactory returns null when the caller would be rejected by the target endpoint's own
-        // policy (ADR-0040); the pagination set must degrade to what is left.
+        // ILinkFactory returns null for a target the caller may not reach (ADR-0040).
         _linkFactory
             .CreateAsync(Arg.Any<string>(), Rels.LastPage, Arg.Any<string>(), Arg.Any<object?>())
             .Returns((LinkDto?)null);

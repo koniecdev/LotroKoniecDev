@@ -7,8 +7,7 @@ using LotroKoniecDev.TranslationSystem.E2E.Tests.Extensions;
 namespace LotroKoniecDev.TranslationSystem.E2E.Tests.Clients;
 
 /// <summary>
-/// Talks to the running auth-api over real HTTP: registration and the OAuth2 password grant
-/// (the <c>lotrokoniecdev-test</c> client, live only under the <c>Testing</c> environment).
+/// The password grant uses the <c>lotrokoniecdev-test</c> client, which exists only in <c>Testing</c>.
 /// </summary>
 public sealed class AuthApiClient : IDisposable
 {

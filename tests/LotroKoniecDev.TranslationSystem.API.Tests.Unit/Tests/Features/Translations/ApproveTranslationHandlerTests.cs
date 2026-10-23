@@ -24,9 +24,8 @@ public sealed class ApproveTranslationHandlerTests
     private static readonly TranslatorId Submitter = TranslatorId.Create();
     private static readonly TranslatorId Approver = TranslatorId.Create();
 
-    // ITranslationRepository / IUnitOfWork are genuine public boundaries (stubbed); the provisioner +
-    // rebuild scheduler are internal interfaces NSubstitute can't proxy, so each gets a hand-written
-    // double.
+    // The provisioner and the rebuild scheduler are internal, which NSubstitute cannot proxy, so each
+    // gets a hand-written double.
     private readonly ITranslationRepository _translationRepository = Substitute.For<ITranslationRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
     private readonly List<string> _callOrder = [];
@@ -77,8 +76,7 @@ public sealed class ApproveTranslationHandlerTests
     [Fact]
     public async Task Handle_WhenProvisioningFails_ShouldReturnFailureAndNotPersist()
     {
-        // Arrange: defensive guard: a token without a parseable subject must never be attributed to
-        // an empty approver; the provisioner surfaces that and the handler must not approve or persist.
+        // Arrange: a token without a usable subject must never be credited.
         Translation row = Untranslated();
         row.ProvideTranslation("Polski", Submitter, Now);
         GivenStoredRow(row);
@@ -165,16 +163,14 @@ public sealed class ApproveTranslationHandlerTests
         row.Status.ShouldBe(TranslationStatus.Approved);
         row.ApprovedById.ShouldBe(Approver);
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
-        // The row enters the distributed set, so a rebuild is always scheduled on a successful approve.
         _rebuildScheduler.ScheduleCount.ShouldBe(1);
     }
 
     [Fact]
     public async Task Handle_OnSuccess_ShouldScheduleTheRebuildAfterTheCommit()
     {
-        // Arrange: ADR-0021 §1: the dirty signal must follow SaveChanges; signalled before the
-        // commit, a zero-debounce rebuild could publish a snapshot missing its own trigger and park
-        // the artifact stale. Ordering is invisible in the return value, hence the call log.
+        // Arrange: signalled before the commit, a zero-debounce rebuild could miss its own trigger and
+        // leave the artifact stale (ADR-0021 §1). The return value cannot show order, hence the call log.
         Translation row = Untranslated();
         row.ProvideTranslation("Witaj", Submitter, Now);
         GivenStoredRow(row);
@@ -190,7 +186,7 @@ public sealed class ApproveTranslationHandlerTests
     [Fact]
     public async Task Handle_OnNeedsReviewRow_ShouldClearInvalidationAndRebuild()
     {
-        // Arrange: a re-translated invalidated row: approving resolves the invalidation (spec 0001).
+        // Arrange
         Translation row = Untranslated(source: "Old English");
         row.ProvideTranslation("Stary polski", Submitter, Now);
         row.ApplySourceChange(TranslationSource.Create("New English", null, null).Value, VersionId, Now);

@@ -45,8 +45,8 @@ public sealed class TranslationExportParserTests
         // Act
         ParsedExport result = await ParseFixtureAsync("exported-sample.txt");
 
-        // Assert: the catalog stores raw text, never the file representation (ADR-0039). The
-        // backslash row is what proves the transform is injective: it must NOT become a newline.
+        // Assert: raw text (ADR-0039). The backslash row proves injectivity: it must not become a
+        // newline.
         result.Rows.Single(row => row.GossipId == 1006).Content
             .ShouldBe("Wiersz jeden\nWiersz dwa\r\nWiersz trzy");
         result.Rows.Single(row => row.GossipId == 1007).Content
@@ -59,8 +59,7 @@ public sealed class TranslationExportParserTests
         // Act
         ParsedExport result = await ParseFixtureAsync("exported-sample.txt");
 
-        // Assert: the separator is not escaped; the boundary is recovered by scanning backward, so
-        // the run's last two pipes are the separator and every earlier one is content (ADR-0042).
+        // Assert: scanning backward, a run's last two pipes are the separator (ADR-0042).
         ParsedExportRow singlePipe = result.Rows.Single(row => row.GossipId == 1008);
         singlePipe.Content.ShouldBe("Koniec rury|");
         singlePipe.ArgsOrder.ShouldBe("NULL");
@@ -174,8 +173,7 @@ public sealed class TranslationExportParserTests
     [Fact]
     public async Task ParseAsync_WithInvalidUtf8Bytes_ShouldRejectTheUpload()
     {
-        // Arrange: a stray 0xFF is never valid UTF-8. A wrong-charset/corrupt upload must be rejected,
-        // not silently mis-decoded into content the diff would then treat as a mass source change.
+        // Arrange: a stray 0xFF is never valid UTF-8. Mis-decoded, it would read as a mass source change.
         byte[] content =
         [
             .. Encoding.ASCII.GetBytes("620756992||1001||"),
@@ -194,8 +192,7 @@ public sealed class TranslationExportParserTests
     [Fact]
     public async Task ParseLinesAsync_WithMixedContent_ShouldStreamRowsAndErrorsInFileOrder()
     {
-        // Arrange: comment, valid row, unparseable line, valid row: the stream must interleave
-        // rows and errors exactly as the file reads, with 1-based line numbers.
+        // Arrange: comment, row, broken line, row. Line numbers are 1-based.
         string content = "# comment\n620756992||1||Alpha||NULL||NULL||1\nbroken line\n620756992||2||Beta||NULL||NULL||1";
         using MemoryStream stream = new(Encoding.UTF8.GetBytes(content));
 
@@ -258,9 +255,8 @@ public sealed class TranslationExportParserTests
     [Fact]
     public async Task ParseAsync_WithTheSevenColumnGoldenFixture_ShouldParseEveryRowAndKeepItsDigest()
     {
-        // Act: the seven-column golden fixture (ADR-0047). Its digests were computed outside both
-        // implementations, so a row surviving here means the parser AND the verification agree with
-        // the contract rather than merely with themselves.
+        // Act: the digests were computed outside both implementations, so passing means agreement with
+        // the contract, not just with itself (ADR-0047).
         ParsedExport parsed = await ParseFixtureAsync("exported-sample-digested.txt");
 
         // Assert
@@ -274,8 +270,7 @@ public sealed class TranslationExportParserTests
     [Fact]
     public async Task ParseAsync_BothGoldenFixtures_ShouldAgreeOnEveryContentField()
     {
-        // Act: the two fixtures are the same rows at the two widths, so the seventh column must
-        // change nothing about how the first six are read.
+        // Act: the same rows at both widths.
         ParsedExport sixColumn = await ParseFixtureAsync("exported-sample.txt");
         ParsedExport sevenColumn = await ParseFixtureAsync("exported-sample-digested.txt");
 
@@ -290,8 +285,7 @@ public sealed class TranslationExportParserTests
     [Fact]
     public async Task ParseAsync_SixColumnUpload_ShouldStillImportWithoutADigest()
     {
-        // Act: an older export or a hand-made file. A missing digest is "no parity check for this
-        // row" on the import side; refusing it would break every existing exported.txt.
+        // Act: refusing a six-column row would break every existing exported.txt.
         ParsedExport parsed = await ParseAsync("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1\r\n");
 
         // Assert
@@ -305,9 +299,7 @@ public sealed class TranslationExportParserTests
     [InlineData("620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1||a37cc1683216cd32")]
     public async Task ParseAsync_SevenColumnUploadWhoseDigestDoesNotMatchTheRow_ShouldRejectThatRow(string line)
     {
-        // Act: a wrong-file upload, or a drift between the two contexts' digest implementations.
-        // It has to fail HERE, loudly, instead of shipping an artifact whose every row every
-        // player's patcher would then refuse as "source moved" (ADR-0047 §2).
+        // Act: it must fail here, not as "source moved" on every player's machine (ADR-0047 §2).
         ParsedExport parsed = await ParseAsync($"{line}\r\n");
 
         // Assert
@@ -320,8 +312,7 @@ public sealed class TranslationExportParserTests
     [InlineData("A37CC1683216CD32")]
     public async Task ParseAsync_SevenColumnUploadWithAMatchingDigest_ShouldAcceptItInEitherCase(string digest)
     {
-        // Act: writers emit lowercase; a hand-edited file that upper-cased the column is still
-        // unambiguously the same digest, so rejecting it would be pedantry with a real cost.
+        // Act: a hand-edited upper-case digest is still the same digest.
         ParsedExport parsed = await ParseAsync($"620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||{digest}\r\n");
 
         // Assert
@@ -332,9 +323,8 @@ public sealed class TranslationExportParserTests
     [Fact]
     public async Task ParseAsync_SevenColumnRowWhoseArgsColumnsAreBlankRatherThanNull_ShouldStillVerify()
     {
-        // Act: the verification hashes the row the way the CATALOG will store it, so blank and
-        // NULL must both normalize to an absent column. Hashing the literal would reject a row the
-        // import then stores under a different triple.
+        // Act: the check hashes the row the way the catalog stores it, so blank and NULL are both
+        // absent.
         ParsedExport parsed = await ParseAsync("620756992||1001||Witaj w Srodziemiu!||||||1||a37cc1683216cd32\r\n");
 
         // Assert

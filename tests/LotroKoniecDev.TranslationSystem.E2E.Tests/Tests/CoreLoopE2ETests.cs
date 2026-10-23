@@ -12,11 +12,8 @@ using Xunit.Abstractions;
 namespace LotroKoniecDev.TranslationSystem.E2E.Tests.Tests;
 
 /// <summary>
-/// Runs the whole M2 core loop through the public HTTP endpoints of the tms-api container: register a game
-/// version, import the English baseline, list, translate, approve and distribute. It uses a real admin
-/// token from auth-api, and admin also satisfies the translator policy.
-/// That shows the separate slices work together over the network and that the distributed file can be
-/// cached with an ETag.
+/// The whole M2 core loop against the tms-api container, with a real admin token from auth-api (admin
+/// also passes the translator policy).
 /// </summary>
 public sealed class CoreLoopE2ETests : E2ETestBase
 {
@@ -49,7 +46,7 @@ public sealed class CoreLoopE2ETests : E2ETestBase
             list.TotalCount.ShouldBe(2);
             list.Items.ShouldAllBe(item => item.Status == TranslationStatus.Untranslated);
 
-            // Translate row 1 -> Draft (lazily provisioning the translator), then approve it -> published.
+            // Translate row 1, which provisions the translator, then approve it.
             TranslationDetailResponse edited = await admin.UpsertAsync(FileId, gossipId: 1, translatedText: "Polski jeden");
             edited.Status.ShouldBe(TranslationStatus.Draft);
             edited.Submitter.ShouldNotBeNull();
@@ -57,9 +54,7 @@ public sealed class CoreLoopE2ETests : E2ETestBase
             HttpResponseMessage approve = await admin.ApproveRawAsync(edited.Id.Value);
             approve.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-            // Download the distributed file without logging in: the approved row is in it and the
-            // untranslated one is not. The file is rebuilt in the background after a short delay
-            // (PERF-04), so poll until the approve's rebuild has finished.
+            // Download without logging in. The rebuild runs in the background (PERF-04), so poll.
             (HttpResponseMessage download, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
                 anonymous,
                 Language,

@@ -6,22 +6,14 @@ using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Snapshots;
 
 /// <summary>
-/// Pins the full <c>application/problem+json</c> body for every status family the error contract can
-/// produce (#571): the three domain failures <c>ErrorExtensions.ToProblemDetails</c> maps (400
-/// Validation, 404 NotFound, 422 DataConflict) plus the two auth rejections, which share the media
-/// type but carry no domain <c>errorCode</c>.
+/// Pins the whole problem body for 400, 404, 422, 401 and 403 (#571). <c>ProblemDetailsContractTests</c>
+/// checks the meaningful fields; these catch the rest: a quietly changed <c>type</c>, an extension that
+/// comes or goes, or a <c>detail</c> that starts to reveal internals.
 /// </summary>
-/// <remarks>
-/// <c>ProblemDetailsContractTests</c> checks the fields that carry meaning. These snapshots exist for
-/// the fields nobody thought to check: a <c>type</c> URI changing quietly, an extension appearing or
-/// disappearing, or <c>detail</c> starting to reveal internals, which is most likely on the 403, where
-/// the framework knows why the policy failed.
-/// A deliberate change accepts the new verified file in the same PR.
-/// </remarks>
 [Collection("TranslationApi")]
 public sealed class ProblemDetailsSnapshotTests : IAsyncLifetime
 {
-    /// <summary>Fixed so the 404 request is byte-identical on every run, before scrubbing.</summary>
+    /// <summary>Fixed, so the 404 request is the same on every run.</summary>
     private static readonly Guid UnknownTranslationId = new("11111111-2222-3333-4444-555555555555");
 
     private readonly TranslationSystemApiFactory _factory;
@@ -83,8 +75,7 @@ public sealed class ProblemDetailsSnapshotTests : IAsyncLifetime
     [Fact]
     public async Task ProtectedEndpoint_WithoutToken_MatchesTheUnauthorizedProblemContract()
     {
-        // The framework writes the authentication rejections, not our own error mapper. The snapshot is
-        // what proves a client cannot tell the two apart.
+        // The framework writes this, not our error mapper; the snapshot proves clients see one shape.
         using HttpClient client = _factory.CreateClient();
 
         using HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");
@@ -97,8 +88,7 @@ public sealed class ProblemDetailsSnapshotTests : IAsyncLifetime
     [Fact]
     public async Task AdminEndpoint_AsTranslator_MatchesTheForbiddenProblemContract()
     {
-        // The 403 body is where an authorization failure would leak the policy that rejected the
-        // caller; pinning it whole is the only way that stays visible.
+        // A 403 is where a leak of the rejecting policy would show.
         using HttpClient client = TranslatorClient();
 
         using HttpResponseMessage response =

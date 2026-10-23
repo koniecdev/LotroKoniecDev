@@ -9,9 +9,8 @@ using Xunit.Abstractions;
 namespace LotroKoniecDev.TranslationSystem.E2E.Tests.Tests;
 
 /// <summary>
-/// Proves the layer the in-process integration tests cannot reach: a JWT minted by the real auth-api
-/// (OAuth2 password grant) is accepted by a separate tms-api process after it validates the signature
-/// against the live JWKS endpoint, and that the first authenticated write lazily provisions the translator.
+/// The layer the in-process tests cannot reach: a token from the real auth-api passes tms-api's live
+/// JWKS check, and the first authenticated write provisions the translator.
 /// </summary>
 public sealed class AuthFlowE2ETests : E2ETestBase
 {
@@ -73,9 +72,8 @@ public sealed class AuthFlowE2ETests : E2ETestBase
         }
     }
 
-    // The stats endpoint stands in for "any protected endpoint": the translations LIST went
-    // deliberately anonymous in #310 (public read-only landing page), which these two probes
-    // originally targeted.
+    // The stats endpoint stands in for any protected endpoint, because the translations list is public
+    // (#309).
     [Fact]
     public async Task TmsApi_RejectsProtectedEndpoint_WithoutToken()
     {

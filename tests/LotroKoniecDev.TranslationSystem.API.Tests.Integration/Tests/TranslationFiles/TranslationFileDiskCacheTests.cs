@@ -20,8 +20,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.TranslationFiles;
 
 /// <summary>
-/// The disk cache's own seam (PERF-09, #715, ADR-0064): the cases a single HTTP request cannot set up,
-/// such as a hash that a rebuild replaced between the endpoint's hash lookup and the copy.
+/// The disk cache cases a single HTTP request cannot set up, such as a rebuild between the hash lookup
+/// and the copy (PERF-09, ADR-0064).
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
@@ -69,7 +69,7 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
     [Fact]
     public async Task OpenAsync_WithAHashARebuildReplaced_ShouldReturnTheCurrentCopy()
     {
-        // Arrange: the caller read the hash, then a rebuild replaced the file before the copy was opened.
+        // Arrange: a rebuild replaced the file after the caller read the hash.
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa");
         await RebuildAsync();
         string replacedHash = await CurrentHashAsync();
@@ -80,7 +80,7 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
         // Act
         TranslationFileCopy? copy = await DiskCache().OpenAsync(Language, replacedHash, CancellationToken.None);
 
-        // Assert: the newer copy comes back under its own hash, so the endpoint tags the body it sends.
+        // Assert: the newer copy comes back under its own hash.
         copy.ShouldNotBeNull();
         await using Stream content = copy.Content;
         copy.ContentHash.ShouldBe(currentHash);
@@ -101,12 +101,12 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
     [Fact]
     public async Task OpenAsync_WhenTheStoredHashDoesNotMatchTheContent_ShouldThrowAndKeepNoFile()
     {
-        // Arrange: the row's hash no longer describes its content, so the patcher would refuse the body.
+        // Arrange: the stored hash no longer matches the content.
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa");
         await RebuildAsync();
         await OverwriteStoredHashAsync(AnyHash);
 
-        // Act + Assert: a loud failure, and no file under a name that promises the wrong bytes.
+        // Act + Assert: no file may carry a name that promises the wrong bytes.
         await Should.ThrowAsync<InvalidOperationException>(
             () => DiskCache().OpenAsync(Language, AnyHash, CancellationToken.None));
         Directory.GetFiles(_factory.TranslationFileCopiesDirectory).ShouldBeEmpty();
@@ -139,8 +139,7 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
     [Fact]
     public async Task OpenAsync_WhenTheCallerCancelsDuringTheWrite_ShouldStillFinishTheCopy()
     {
-        // Arrange: the caller gives up at the moment the content starts loading, as a CLI does after its
-        // 10 seconds on a slow first write.
+        // Arrange: the caller gives up as the content starts loading, as the CLI does after 10 seconds.
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa");
         await RebuildAsync();
         string hash = await CurrentHashAsync();
@@ -156,8 +155,7 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
         // Act
         TranslationFileCopy? copy = await DiskCache().OpenAsync(Language, hash, caller.Token);
 
-        // Assert: the write runs on the host's token, so the next waiter finds the copy instead of
-        // loading the whole file again.
+        // Assert: the write runs on the host's token, so the next waiter finds the copy.
         caller.IsCancellationRequested.ShouldBeTrue();
         copy.ShouldNotBeNull();
         await using Stream content = copy.Content;
@@ -190,8 +188,8 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
     [Fact]
     public async Task OpenAsync_WithNoDirectoryConfigured_ShouldUseAPrivateFolderPerProcessAndRemoveItOnDispose()
     {
-        // Arrange: the deployed setup. A fixed folder in a shared temp folder could be created first by
-        // another local user, who could then place a file there under a valid ETag.
+        // Arrange: the deployed setup. A fixed shared folder could be created first by another local
+        // user, who could plant a file under a valid ETag.
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa");
         await RebuildAsync();
         string hash = await CurrentHashAsync();
@@ -208,7 +206,7 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
             secondFolder = Path.GetDirectoryName(((FileStream)secondContent).Name)!;
         }
 
-        // Windows keeps the temp folder per user, so the owner-only mode exists on Linux and macOS only.
+        // Windows keeps temp per user, so the owner-only mode exists on Linux and macOS only.
         bool ownerOnly = OperatingSystem.IsWindows()
                          || File.GetUnixFileMode(firstFolder) == (UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         first.Dispose();
@@ -225,7 +223,7 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
     [Fact]
     public async Task OpenAsync_WhenTheStoredHashIsLowerCase_ShouldServeTheCopyLikeThePatcherWouldAcceptIt()
     {
-        // Arrange: the patcher compares the hash without regard to case, so the copy must too.
+        // Arrange: the patcher compares the hash case-insensitively.
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa");
         await RebuildAsync();
         string lowerCaseHash = (await CurrentHashAsync()).ToLowerInvariant();
@@ -251,8 +249,8 @@ public sealed class TranslationFileDiskCacheTests : IAsyncLifetime
     [InlineData("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF012345678/ABCDEF")]
     public async Task OpenAsync_WithSomethingOtherThanAHexSha256_ShouldThrowAsAFaultInOurOwnData(string contentHash)
     {
-        // Act + Assert: the hash becomes a file name, so it can never carry a path. It always comes
-        // from the stored file, so a bad one is our fault and must not turn into the client's 400.
+        // Act + Assert: the hash becomes a file name and comes from our own data, so a bad one is a 500,
+        // never the client's 400.
         await Should.ThrowAsync<InvalidOperationException>(
             () => DiskCache().OpenAsync(Language, contentHash, CancellationToken.None));
     }

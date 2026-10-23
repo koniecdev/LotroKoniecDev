@@ -24,15 +24,8 @@ using Microsoft.EntityFrameworkCore;
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
 /// <summary>
-/// Creates or updates the Polish text of an existing translation row (spec 0001, #100). The row comes
-/// from the import with the English source only, and this slice adds the translator's Polish.
-/// Whatever the status was, it becomes <see cref="TranslationStatus.Draft"/>, and the translator is
-/// taken from the authenticated identity.
-/// Editing an <see cref="TranslationStatus.Approved"/> row takes it out of the distributed set, so a
-/// rebuild of the ready-made file is scheduled after the change commits (PERF-04, ADR-0021).
-/// Retranslating a <see cref="TranslationStatus.NeedsReview"/> row keeps its
-/// <c>PreviousSourceText</c> until someone approves it.
-/// Placeholders are stored exactly as they are; warning about a wrong number of them is M3's job.
+/// Stores the translator's Polish on an imported row (spec 0001). It never creates a row: an unknown
+/// fragment is a 404. Placeholders are stored as they are; the frontend editor checks them.
 /// </summary>
 internal sealed class UpsertTranslation : IEndpoint
 {
@@ -49,10 +42,8 @@ internal sealed class UpsertTranslation : IEndpoint
             RuleFor(command => command.GossipId)
                 .GreaterThanOrEqualTo(0);
 
-            // The upper limit comes from the DAT format and is not a matter of taste: above it the
-            // patcher cannot write the row at all (#598). Refusing here turns a failure halfway through
-            // a patch on someone else's machine into a validation message the translator sees while
-            // editing.
+            // Above the DAT limit the patcher cannot write the row at all (#598, ADR-0043), so the
+            // translator is told here, not a player halfway through a patch.
             RuleFor(command => command.TranslatedText)
                 .NotEmpty()
                 .MaximumLength(DatFormatConstants.MaxTranslatedTextLength);
@@ -110,24 +101,20 @@ internal sealed class UpsertTranslation : IEndpoint
 
             Translation translation = translationMaybe.Value;
 
-            // A soft-removed row was dropped from the game and from the distributed file. It is out of
-            // translation work (spec 0001), so it cannot take new Polish.
+            // A soft-removed row is out of translation work (spec 0001).
             if (translation.IsRemoved)
             {
                 return Result.Failure<TranslationDetailResponse>(DomainErrors.TranslationEntity.CannotEditRemoved);
             }
 
-            // Create the caller's Translator row if it does not exist yet, and commit it before the
-            // foreign key is written (ADR-0004), so the submitter is a TranslatorId that really exists.
+            // Commits the caller's Translator row before the foreign key is written (ADR-0004).
             Result<TranslatorId> provisionResult = await _translatorProvisioner.ProvisionCurrentAsync(cancellationToken);
             if (provisionResult.IsFailure)
             {
                 return Result.Failure<TranslationDetailResponse>(provisionResult.Error);
             }
 
-            // Editing an approved row takes it out of the distributed set, because the status becomes
-            // Draft, so the file has to be rebuilt. Editing a row in any other status changes nothing
-            // there.
+            // Only an approved row leaves the distributed set, so only then is a rebuild needed.
             bool wasApproved = translation.Status is TranslationStatus.Approved;
 
             translation.ProvideTranslation(command.TranslatedText, provisionResult.Value, _timeProvider.GetUtcNow());
@@ -136,14 +123,11 @@ internal sealed class UpsertTranslation : IEndpoint
 
             if (wasApproved)
             {
-                // We schedule the rebuild instead of waiting for it (PERF-04): it runs in the
-                // background, the response returns now, and a client that disconnects cannot leave the
-                // commit stranded.
+                // Scheduled, not awaited (PERF-04), so a client that disconnects cannot strand it.
                 _rebuildScheduler.Schedule(SupportedLanguages.Polish);
             }
 
-            // Read the committed row back through the read model, so the response carries the joined
-            // display names of the submitter and the approver (ADR-0004), just like the get-one view.
+            // Through the read model, so the response carries the joined display names (ADR-0004).
             TranslationDetailResponse? response = await _readDbContext.Translations
                 .Where(row => row.Id == translation.Id)
                 .Select(TranslationProjections.ToDetail)

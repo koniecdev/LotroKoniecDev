@@ -29,21 +29,16 @@ using Microsoft.Extensions.Options;
 namespace LotroKoniecDev.TranslationSystem.API.Features.Import;
 
 /// <summary>
-/// Imports a fresh <c>exported.txt</c> against one game version (spec 0001). It streams the file in two
-/// passes, so memory use follows one chunk and never the whole file or catalog (spec 0006).
-/// Pass 1 validates the upload into a key to hash map and compares it with a streamed compact view of
-/// the catalog. It writes nothing, so the mass-removal guard can look at the finished plan first.
-/// Pass 2 reads the buffered upload again inside one transaction: new rows go straight into a binary
-/// <c>COPY</c>, everything else changes aggregates in chunks of a fixed size, and the version becomes
-/// processed with the last save. Either all of it lands or none of it does, and uploading the same
-/// file again is safe.
+/// Imports an <c>exported.txt</c> against one game version (spec 0001) in two streamed passes, so memory
+/// follows one chunk, never the whole file or catalog (spec 0006). Pass 1 builds the diff plan and
+/// writes nothing, so the mass-removal guard sees the finished plan first. Pass 2 re-reads the upload
+/// in one transaction (<c>COPY</c> for new rows, fixed-size chunks for the rest). All of it lands or
+/// none of it does, and uploading the same file again is safe.
 /// </summary>
 internal sealed partial class ImportExportedTexts : IEndpoint
 {
     /// <summary>
     /// <paramref name="FileStream"/> must support seeking, because the import reads it once per pass.
-    /// The endpoint makes sure of that: ASP.NET buffers multipart files, and a stream that cannot seek
-    /// is copied to a temp file first.
     /// </summary>
     internal sealed record Command(GameVersionId GameVersionId, Stream FileStream, bool AllowMassRemoval)
         : ICommand<Result<ImportSummary>>;
@@ -64,8 +59,8 @@ internal sealed partial class ImportExportedTexts : IEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result<ImportSummary>>
     {
         /// <summary>
-        /// A 79 MB upload full of broken lines is rejected either way. This limit only says how many
-        /// line errors are collected for the message (spec 0006).
+        /// One broken line already rejects the upload; this only caps the errors collected for the
+        /// message (spec 0006).
         /// </summary>
         private const int MaxCollectedParseErrors = 100;
 
@@ -121,9 +116,7 @@ internal sealed partial class ImportExportedTexts : IEndpoint
 
             GameVersion gameVersion = gameVersionMaybe.Value;
 
-            // Pass 1, the upload side: validate every row while streaming and put it into a key to hash
-            // map. The value objects and strings of a row are dropped as soon as they are hashed, so
-            // the map is the only thing that grows with the file.
+            // Pass 1, upload side: each row is dropped once hashed, so only the map grows with the file.
             Stopwatch passStopwatch = Stopwatch.StartNew();
             Result<Dictionary<FragmentKeyValue, SourceHash>> incomingResult =
                 await BuildIncomingMapAsync(command.FileStream, cancellationToken);
@@ -143,8 +136,6 @@ internal sealed partial class ImportExportedTexts : IEndpoint
 
             DateTimeOffset now = _timeProvider.GetUtcNow();
 
-            // Pass 1, the catalog side: the diff compares the incoming map with the streamed untracked
-            // view and returns a plan of plain values, only ids, keys and counters.
             passStopwatch.Restart();
             TranslationDiffPlan plan = await TranslationDiffService.ComputePlanAsync(
                 _translationRepository.StreamSourceDigestsAsync(cancellationToken),
@@ -162,24 +153,17 @@ internal sealed partial class ImportExportedTexts : IEndpoint
                         _settings.MaxRemovedFractionWithoutOverride));
             }
 
-            // A domain check before anything is written, so a superseded version still answers 422 and
-            // saves nothing. The real change is applied again at the end of the transaction on a freshly
-            // loaded instance, because the chunked apply clears the change tracker. This call only
-            // proves the change is allowed right now. Imports are admin-only and run one at a time
-            // (spec 0001), so the answer cannot change in between.
+            // Only a pre-check, so a superseded version answers 422 before anything is written. The real
+            // change happens at the end of the transaction on a reloaded instance, because the chunked
+            // apply clears the tracker. Imports run one at a time (spec 0001), so the answer holds.
             Result markProcessedResult = gameVersion.MarkAsProcessed();
             if (markProcessedResult.IsFailure)
             {
                 return Result.Failure<ImportSummary>(markProcessedResult.Error);
             }
 
-            // Pass 2 runs in one transaction (spec 0001, ADR-0011). The new rows stream from the
-            // buffered upload into a binary COPY on the write context's connection, the other changes
-            // update aggregates in fixed-size chunks on that same connection, and the version change
-            // commits with the last save.
-            // The whole unit runs under the provider's retrying execution strategy and can be run
-            // again: every pass seeks the buffered upload back to the start and reloads its chunks, and
-            // no tracked state survives into a retry.
+            // Pass 2, one transaction (spec 0001, ADR-0011). The retrying strategy may run it again, so
+            // every pass seeks the upload back to the start and no tracked state survives a retry.
             passStopwatch.Restart();
             int supersededVersions = 0;
             await _unitOfWork.ExecuteInTransactionAsync(
@@ -187,19 +171,15 @@ internal sealed partial class ImportExportedTexts : IEndpoint
                 cancellationToken);
             long applyPassMilliseconds = passStopwatch.ElapsedMilliseconds;
 
-            // The pass durations are the data behind the "Oś B" async-import decision (spec 0006).
-            // Watching them grow toward the request timeout on staging or production is what would
-            // justify that ADR.
+            // The data behind the "Oś B" async-import decision (spec 0006): the durations growing toward
+            // the request timeout would justify that ADR.
             LogImportPasses(
                 _logger,
                 incomingCount, uploadPassMilliseconds, diffPassMilliseconds, applyPassMilliseconds,
                 plan.AddedCount, plan.SourceChangedByKey.Count, plan.RemovedIds.Count, plan.RestoredIds.Count, plan.EchoedCount);
 
-            // Processing a version changes which rows are distributed: removed rows drop out and
-            // re-added rows come back. So the ready-made translation file is rebuilt after the import
-            // commits, because the download endpoint never builds it per request (spec 0001).
-            // We schedule the rebuild instead of waiting for it (PERF-04): it walks every row and runs
-            // in the background, and several requests in a row cause only one rebuild.
+            // Removed and restored rows change the distributed file (spec 0001). Scheduled, not awaited
+            // (PERF-04): the rebuild walks every row in the background.
             _rebuildScheduler.Schedule(SupportedLanguages.Polish);
 
             return Result.Success(BuildSummary(plan, supersededVersions));
@@ -227,9 +207,8 @@ internal sealed partial class ImportExportedTexts : IEndpoint
                     continue;
                 }
 
-                // A single line we cannot parse already rejects the whole upload, because a skipped line
-                // looks exactly like a removed row (spec 0001). From here on we keep reading only to
-                // collect more errors for the message, not to validate rows.
+                // One unparsable line rejects the whole upload, because a skipped line looks like a removed
+                // row (spec 0001). From here on we only collect errors for the message.
                 if (parseErrors.Count > 0)
                 {
                     continue;
@@ -273,9 +252,7 @@ internal sealed partial class ImportExportedTexts : IEndpoint
             DateTimeOffset now,
             CancellationToken cancellationToken)
         {
-            // The retrying execution strategy may run this again, and a new run has to start with an
-            // empty change tracker, so nothing from a rolled-back attempt, such as leftover chunks or
-            // the version instance we checked earlier, is saved twice.
+            // A retry must start empty, so nothing from a rolled-back attempt is saved twice.
             _unitOfWork.ClearChangeTracker();
 
             if (plan.AddedCount > 0)
@@ -301,10 +278,8 @@ internal sealed partial class ImportExportedTexts : IEndpoint
                 translation => translation.Restore(now),
                 cancellationToken);
 
-            // The version's processed flag is saved with the last save of the unit, so it only changes
-            // once the whole diff is stored (spec 0001). It is loaded again here because the chunked
-            // saves above cleared the tracker. The change was already checked, so a failure now means a
-            // rule was broken in code, not a business outcome.
+            // Saved with the last save, so the version is processed only once the whole diff is stored
+            // (spec 0001). The pre-check passed, so a failure here is a bug, not a business outcome.
             Maybe<GameVersion> gameVersionMaybe =
                 await _gameVersionRepository.GetByIdAsync(command.GameVersionId, cancellationToken);
             GameVersion processedVersion = gameVersionMaybe.Value;
@@ -315,13 +290,9 @@ internal sealed partial class ImportExportedTexts : IEndpoint
                     $"The game version refused MarkAsProcessed inside the apply transaction after passing the pre-check: {markProcessedResult.Error.Message}");
             }
 
-            // Older versions that piled up never get an upload of their own (spec 0001). Processing the
-            // newest one supersedes every unprocessed version detected before it, saved with the same
-            // final save, so it lands together with the diff.
-            // That is what protects us from an old export: a later import against one of those versions
-            // fails MarkAsProcessed with SupersededCannotBeProcessed instead of rolling the catalog
-            // back. All these rows are Unprocessed, because the repository filters them, so
-            // MarkSuperseded can only fail on a broken rule, handled like the change above.
+            // Older versions never get an upload of their own (spec 0001). Superseding them protects the
+            // catalog from an old export: a later import against one fails instead of rolling the catalog
+            // back. The repository returns only unprocessed versions, so a failure here is a bug.
             IReadOnlyList<GameVersion> olderUnprocessedVersions =
                 await _gameVersionRepository.GetUnprocessedDetectedBeforeAsync(processedVersion.DetectedAt, cancellationToken);
             foreach (GameVersion olderVersion in olderUnprocessedVersions)
@@ -429,9 +400,8 @@ internal sealed partial class ImportExportedTexts : IEndpoint
         }
 
         /// <summary>
-        /// Pass 2 reading the buffered upload again. Every line already passed pass 1, and the buffered
-        /// file cannot change in between, so a parse or value-object failure here means a broken rule in
-        /// code. <see cref="Result{T}.Value"/>'s guard surfaces it; there is no per-row handling.
+        /// Every line already passed pass 1 and the buffered file cannot change, so a failure here is a
+        /// bug, surfaced by the <see cref="Result{T}.Value"/> guard.
         /// </summary>
         private async IAsyncEnumerable<(FragmentKey Key, TranslationSource Source)> StreamValidatedRowsAsync(
             Stream fileStream,
@@ -480,10 +450,9 @@ internal sealed partial class ImportExportedTexts : IEndpoint
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
     {
-        // The exported.txt is about 80 MB and keeps growing, so this one endpoint replaces Kestrel's
-        // 30 MB default body limit with the configured one (spec 0003, #208). There is no request
-        // timeout on the server: a full-catalog import really does take minutes, and the only timeout
-        // that had to be raised was the Frontend's, in HttpClientsDependencyInjectionExtensions.
+        // Replaces Kestrel's 30 MB default body limit (spec 0003, #208). A full import takes minutes;
+        // the server has no request timeout, and the Frontend's is raised in
+        // HttpClientsDependencyInjectionExtensions.
         long maxUploadBytes = endpointRouteBuilder.ServiceProvider
             .GetRequiredService<IOptions<ImportSettings>>().Value.MaxUploadBytes;
 
@@ -496,10 +465,8 @@ internal sealed partial class ImportExportedTexts : IEndpoint
             {
                 await using Stream stream = file.OpenReadStream();
 
-                // The two-pass import reads the upload twice (spec 0006). ASP.NET buffers multipart
-                // files, in memory below 64 KB and in a temp file above, so the form-file stream can
-                // seek. The copy below is only a fallback in case a host ever hands us a stream that
-                // can only be read forward.
+                // ASP.NET buffers multipart files, so the stream can seek. The copy below is only a
+                // fallback for a forward-only stream.
                 if (stream.CanSeek)
                 {
                     Command command = new(GameVersionId.Create(id), stream, allowMassRemoval);

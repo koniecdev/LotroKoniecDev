@@ -17,10 +17,8 @@ public sealed class AuthorizationDefaultsTests
     [Fact]
     public async Task GetDiscovery_WithoutToken_ShouldReturn200()
     {
-        // Arrange: the service document is the one deliberate hole in authorized-by-default (#608):
-        // it advertises only endpoints the caller may already reach, and an unauthenticated client
-        // has no other way to bootstrap. What it hands back per caller is
-        // DiscoveryHateoasTests' subject; here the point is only that the root is not walled off.
+        // Arrange: the one deliberate hole in authorized-by-default (#608). What it returns per caller
+        // is DiscoveryHateoasTests' subject.
         using HttpClient client = _factory.CreateClient();
 
         // Act
@@ -58,8 +56,7 @@ public sealed class AuthorizationDefaultsTests
         HttpResponseMessage response = await client.GetAsync("/does-not-exist");
 
         // Assert
-        // The fallback policy covers paths that match no route too, so an anonymous caller cannot map
-        // the API by telling a 401 apart from a 404.
+        // Unknown paths get 401 too, so an anonymous caller cannot map the API by 401 versus 404.
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 
@@ -85,10 +82,8 @@ public sealed class AuthorizationDefaultsTests
     [InlineData(1200)]
     public async Task GetProtectedResource_WithExpiredToken_ShouldReturn401(int secondsSinceExpiry)
     {
-        // Arrange: token rejection is enforced on every protected route, not just discovery.
-        // (/api/v1/game-versions: the translations list itself is publicly readable since #309.)
-        // Everything under 300 seconds sits inside JwtBearer's default clock skew. The TMS allows none,
-        // so the access-token lifetime is the whole revocation window (#933, ADR-0049).
+        // Arrange: game versions, because the translations list is public (#309). Under 300 seconds is
+        // inside JwtBearer's default skew; the TMS allows none (#933, ADR-0049).
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
@@ -104,7 +99,7 @@ public sealed class AuthorizationDefaultsTests
     [Fact]
     public async Task GetProtectedResource_WithTokenExpiringInAMinute_ShouldReturn200()
     {
-        // Arrange: the other side of the zero skew. A token that has not expired yet is still accepted.
+        // Arrange: the other side of the zero skew.
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
@@ -140,8 +135,8 @@ public sealed class AuthorizationDefaultsTests
     [InlineData("oi_auc+jwt")]
     public async Task GetProtectedResource_WithSignedTokenOfAnotherType_ShouldReturn401(string tokenType)
     {
-        // Arrange: signature, issuer, audience and lifetime are all good. Only the type is wrong. `JWT` is
-        // what the auth server writes on an ID token, and `application/JWT` is its long form (#933, RFC 9068).
+        // Arrange: only the type is wrong. `JWT` is what the auth server writes on an ID token (#933,
+        // RFC 9068).
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessTokenOfType(tokenType));
@@ -205,8 +200,7 @@ public sealed class AuthorizationDefaultsTests
     [Fact]
     public async Task GetTranslatorResource_WithUnrecognizedRole_ShouldReturn403()
     {
-        // Arrange: a correctly-signed token whose role is neither Admin nor Translator is
-        // authenticated, but the RequireTranslatorRole policy still rejects it.
+        // Arrange: authenticated, but neither Admin nor Translator.
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessToken("Reviewer"));
@@ -225,10 +219,8 @@ public sealed class AuthorizationDefaultsTests
     [InlineData("GET", "/api/v1/game-versions/11111111-1111-1111-1111-111111111111")]
     public async Task TranslatorGatedEndpoint_WithUnrecognizedRole_ShouldReturn403(string method, string route)
     {
-        // Arrange: the same unrecognized-role token as above, sent at each translator-gated
-        // route so every endpoint's own RequireTranslatorRole binding is proven, not just the
-        // policy definition. Authorization short-circuits before the endpoint runs, so the write
-        // route needs no request body.
+        // Arrange: proves each endpoint's own binding, not just the policy. Authorization answers before
+        // the endpoint runs, so the write route needs no body.
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessToken("Reviewer"));

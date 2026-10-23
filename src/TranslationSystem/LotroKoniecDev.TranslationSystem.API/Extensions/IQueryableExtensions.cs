@@ -17,14 +17,9 @@ internal static class IQueryableExtensions
         }
 
         /// <summary>
-        /// Orders <paramref name="query"/> by the keys from the user's <c>?sort=</c>, and always adds
-        /// the unique <paramref name="tiebreaker"/> at the end. That last unique key is required: a
-        /// paged list ordered only by keys that can repeat has no defined order for equal rows, so
-        /// PostgreSQL may return a different order per page and quietly show a row twice on one page and
-        /// not at all on another.
-        /// When the sort is empty or malformed, the tiebreaker becomes the only order, so the result is
-        /// always fully ordered. The direction of a unique key does not matter, so tiebreakers always
-        /// ascend.
+        /// The unique <paramref name="tiebreaker"/> always goes last: ordered only by keys that repeat,
+        /// PostgreSQL may order equal rows differently per page and show a row twice or not at all. With
+        /// an empty or malformed sort the tiebreaker is the only order.
         /// </summary>
         public IQueryable<TAggregate> ApplyMultipleSorting(
             string sort,

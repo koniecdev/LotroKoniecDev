@@ -17,13 +17,9 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Concurrency;
 
 /// <summary>
-/// The xmin concurrency token on Translation (AUDIT-EF-01). Both writes an import can race with,
-/// approve and upsert, are shown to lose to a commit that happened in between rather than overwrite it
-/// silently: EF's version check fails and throws <see cref="DbUpdateConcurrencyException"/>, which the
-/// registered <c>DbUpdateConcurrencyExceptionHandler</c> turns into an HTTP 409.
-/// The tests are built to be repeatable: load a copy of the row, change the row another way, then save
-/// the old copy. A real overlap over HTTP would be a race, and that fan-out lives in
-/// <c>ConcurrencyEndpointsTests</c>.
+/// Pins the xmin token (AUDIT-EF-01): an approve or upsert built on an old copy loses to a commit in
+/// between with <see cref="DbUpdateConcurrencyException"/> (a 409 over HTTP). Load, change out of band,
+/// save the old copy: repeatable, unlike a real race (see <c>ConcurrencyEndpointsTests</c>).
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class TranslationConcurrencyTokenTests : IAsyncLifetime
@@ -51,7 +47,7 @@ public sealed class TranslationConcurrencyTokenTests : IAsyncLifetime
         GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create("48.0").Value, Now).Value;
         dbContext.GameVersions.Add(gameVersion);
 
-        // Attributed writes (submitter / approver) are local TranslatorId FKs (ADR-0004); the target must exist.
+        // The submitter's foreign key target must exist (ADR-0004).
         Translator seeder = Translator.Create(
             IdentityId.Create(), DisplayName.Create("Seed Author").Value, email: null, Now).Value;
         dbContext.Translators.Add(seeder);
@@ -66,7 +62,7 @@ public sealed class TranslationConcurrencyTokenTests : IAsyncLifetime
     [Fact]
     public async Task Approve_WhenAConcurrentImportInvalidatesTheRowFirst_ThrowsConcurrencyAndKeepsTheInvalidation()
     {
-        // Arrange: a reviewer opens a Draft row to approve it (captures its version token).
+        // Arrange
         Guid id = await SeedDraftRowAsync(gossipId: 1, polish: "Witaj");
 
         using IServiceScope reviewerScope = _factory.Services.CreateScope();
@@ -74,15 +70,13 @@ public sealed class TranslationConcurrencyTokenTests : IAsyncLifetime
             reviewerScope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         Translation reviewerCopy = await LoadTrackedAsync(reviewerContext, id);
 
-        // A concurrent import reworded the English and parked the row for review (bumps xmin).
+        // A concurrent import rewords the English.
         await ApplySourceChangeOutOfBandAsync(id, rewordedSource: "English reworded");
 
         Result approveResult = reviewerCopy.Approve(_seederId, Now);
         approveResult.IsSuccess.ShouldBeTrue();
 
-        // Act and assert: the version check rejects the old approve, so the import's invalidation stands
-        // and is not hidden, which is the core rule of spec 0001. The handler turns this throw into a
-        // 409.
+        // Act and assert: the import's invalidation must stand (spec 0001).
         await Should.ThrowAsync<DbUpdateConcurrencyException>(() => reviewerContext.SaveChangesAsync());
 
         Translation persisted = await ReadFreshAsync(id);
@@ -94,7 +88,7 @@ public sealed class TranslationConcurrencyTokenTests : IAsyncLifetime
     [Fact]
     public async Task Upsert_WhenAnotherTranslatorSavedFirst_ThrowsConcurrencyAndDoesNotOverwrite()
     {
-        // Arrange: a translator opens an untranslated row to attach Polish (captures its version token).
+        // Arrange
         Guid id = await SeedUntranslatedRowAsync(gossipId: 2);
 
         using IServiceScope editorScope = _factory.Services.CreateScope();
@@ -102,13 +96,12 @@ public sealed class TranslationConcurrencyTokenTests : IAsyncLifetime
             editorScope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         Translation editorCopy = await LoadTrackedAsync(editorContext, id);
 
-        // Another translator committed their Polish first (bumps xmin).
+        // Another translator commits first.
         await ProvideTranslationOutOfBandAsync(id, polish: "Pierwszy polski");
 
         editorCopy.ProvideTranslation("Drugi polski", _seederId, Now);
 
-        // Act and assert: the version check rejects the old upsert, and the first writer's Polish
-        // survives.
+        // Act and assert
         await Should.ThrowAsync<DbUpdateConcurrencyException>(() => editorContext.SaveChangesAsync());
 
         Translation persisted = await ReadFreshAsync(id);

@@ -45,7 +45,7 @@ public sealed class TranslationFileRebuildSchedulerTests
         // Act
         scheduler.MarkCompleted(3);
 
-        // Assert: idle means every scheduled rebuild has finished, which is what the tests wait for.
+        // Assert
         scheduler.PendingCount.ShouldBe(0);
     }
 }

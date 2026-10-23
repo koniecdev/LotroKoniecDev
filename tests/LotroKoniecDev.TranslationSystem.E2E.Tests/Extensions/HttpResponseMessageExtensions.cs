@@ -15,9 +15,8 @@ internal static class HttpResponseMessageExtensions
     };
 
     /// <summary>
-    /// Returns the response body on success; on failure throws an <see cref="HttpRequestException"/>
-    /// whose message unpacks the RFC-7807 problem details, so a failing E2E call reports the API's
-    /// own error instead of a bare status code.
+    /// On failure the exception carries the problem details, so a failing call reports the API's own
+    /// error, not a bare status code.
     /// </summary>
     public static async Task<string> EnsureSuccessWithDetailsAsync(this HttpResponseMessage response)
     {

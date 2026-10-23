@@ -5,11 +5,8 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregat
 namespace LotroKoniecDev.TranslationSystem.Contracts.Translations;
 
 /// <summary>
-/// One row of the paged translation list, keyed by the <c>(FileId, GossipId)</c> fragment: the
-/// English source, the current Polish if there is any, the status and the translator who last sent
-/// Polish (<c>null</c> while the row is untranslated), shown with their display name (ADR-0004).
-/// The rest of the row, such as the args, the old source and the approver, comes from the detail
-/// endpoint.
+/// The args, the old source and the approver come from the detail endpoint. <see cref="Submitter"/> is
+/// <c>null</c> while the row is untranslated.
 /// </summary>
 public sealed record TranslationListItemResponse(
     TranslationId Id,

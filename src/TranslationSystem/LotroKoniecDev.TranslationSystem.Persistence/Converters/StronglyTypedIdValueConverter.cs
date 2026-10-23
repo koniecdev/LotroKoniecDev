@@ -4,9 +4,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace LotroKoniecDev.TranslationSystem.Persistence.Converters;
 
 /// <summary>
-/// Maps any <see cref="IStronglyTypedId{TSelf}"/> onto its Guid column. It reads values back through
-/// <see cref="IStronglyTypedId{TSelf}.FromValue"/>, which does not validate, because the database is
-/// the source of truth. Both directions go through static helpers, because an expression tree may not
+/// Reads back through <see cref="IStronglyTypedId{TSelf}.FromValue"/>, which does not validate, because
+/// the database is the source of truth. The static helpers exist because an expression tree may not
 /// call a static abstract interface member.
 /// </summary>
 public sealed class StronglyTypedIdValueConverter<TId> : ValueConverter<TId, Guid>

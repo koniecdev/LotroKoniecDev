@@ -6,18 +6,15 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate
 namespace LotroKoniecDev.TranslationSystem.Contracts.Translators;
 
 /// <summary>
-/// The caller's TMS-side personal data for the GDPR Art. 15 export (LEGAL-07, ADR-0032): their
-/// translator profile (ADR-0004) and what they contributed, as a summary per status plus the ids of
-/// every row credited to them, per role.
-/// It carries row ids only and never the texts. The catalog content is not the user's personal data;
-/// the link between them and a row is. <see cref="Profile"/> is <c>null</c> when the identity never
-/// got a translator profile, and then the contribution lists are empty as well.
+/// The caller's TMS-side personal data for the GDPR Art. 15 export (ADR-0032). Row ids only, never the
+/// texts: the catalog is not personal data, the link between the user and a row is.
+/// <see cref="Profile"/> is <c>null</c> when the identity never got a profile, and then the
+/// contribution lists are empty too.
 /// </summary>
 public sealed record TranslatorDataExportResponse(
     TranslatorProfileExportDto? Profile,
     ContributionSummaryDto Contributions);
 
-/// <summary>The translator profile as the TMS stores it (ADR-0004).</summary>
 public sealed record TranslatorProfileExportDto(
     TranslatorId TranslatorId,
     IdentityId IdentityId,
@@ -26,10 +23,8 @@ public sealed record TranslatorProfileExportDto(
     DateTimeOffset ProvisionedAt);
 
 /// <summary>
-/// Counts per status over the rows the caller submitted, the number of rows they approved, and the
-/// list of ids for each role. A submitted row is never
-/// <see cref="TranslationStatus.Untranslated"/>, because sending Polish is what moves it out of that
-/// status, so the three counters add up to <see cref="SubmittedTotal"/>.
+/// A submitted row is never <see cref="TranslationStatus.Untranslated"/>, so the three submitted
+/// counters add up to <see cref="SubmittedTotal"/>.
 /// </summary>
 public sealed record ContributionSummaryDto(
     int SubmittedTotal,
@@ -40,7 +35,6 @@ public sealed record ContributionSummaryDto(
     IReadOnlyList<ContributionRowDto> SubmittedRows,
     IReadOnlyList<ContributionRowDto> ApprovedRows);
 
-/// <summary>One credited row: the ids that locate it in the catalog, plus its status.</summary>
 public sealed record ContributionRowDto(
     TranslationId Id,
     int FileId,

@@ -1,10 +1,8 @@
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration;
 
 /// <summary>
-/// Polls the anonymous translation-file download until the debounced background rebuild
-/// (PERF-04, ADR-0021) has converged on the caller's condition. On timeout the last snapshot is
-/// returned anyway, so the caller's regular assertions fail with the actually observed response
-/// instead of a bare timeout exception.
+/// Waits for the debounced rebuild (ADR-0021). On timeout it returns the last snapshot, so the caller's
+/// assertions fail on the response actually seen, not on a bare timeout.
 /// </summary>
 internal static class TranslationFileDownloadPolling
 {

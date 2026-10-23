@@ -11,10 +11,8 @@ using NSubstitute;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Shared;
 
 /// <summary>
-/// A pure in-memory <see cref="IApplicationReadDbContext"/> double for unit-testing read-side
-/// handlers: <see cref="Translations"/> is always populated, <see cref="GameVersions"/> and
-/// <see cref="Translators"/> optionally (the public progress snapshot reads the former, the GDPR
-/// contribution export reads the latter). EF Core's async operators run via
+/// <see cref="GameVersions"/> and <see cref="Translators"/> are optional: only the public progress and
+/// the GDPR export read them. EF Core's async operators run through
 /// <see cref="TestAsyncQueryProvider{T}"/>.
 /// </summary>
 internal sealed class FakeReadDbContext : IApplicationReadDbContext

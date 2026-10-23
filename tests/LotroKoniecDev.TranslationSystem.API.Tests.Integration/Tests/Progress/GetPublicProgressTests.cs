@@ -17,9 +17,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Progress;
 
 /// <summary>
-/// The public progress endpoint the landing page uses (#309). Every test calls it without a token,
-/// because being open to anyone is the point: the landing page shows these counters before anybody logs
-/// in.
+/// Pins the landing page's public progress endpoint (#309). Every test calls it without a token, because
+/// being open to anyone is the point.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class GetPublicProgressTests : IAsyncLifetime
@@ -71,7 +70,7 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
         progress.Total.ShouldBe(0);
         progress.Translated.ShouldBe(0);
         progress.Approved.ShouldBe(0);
-        // The seeded base version is still Unprocessed, because nothing has been imported for it yet.
+        // The seeded base version is still Unprocessed.
         progress.CurrentGameVersion.ShouldBeNull();
     }
 
@@ -93,7 +92,6 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
 
         // Assert
         progress.Total.ShouldBe(7);
-        // Translated = everything carrying Polish = drafts + approved + invalidated.
         progress.Translated.ShouldBe(6);
         progress.Approved.ShouldBe(3);
     }
@@ -119,8 +117,7 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
     [Fact]
     public async Task Progress_WithProcessedVersions_ShouldReturnTheNewestProcessedOne()
     {
-        // Arrange: an older and a newer processed version plus a newest merely-detected one: the
-        // catalog is current for the newest PROCESSED version, not the newest known version.
+        // Arrange: the newest version is only detected, so the newest processed one counts.
         await SeedVersionAsync("47.2", Now.AddDays(-30), processed: true);
         await SeedVersionAsync("48.1", Now.AddDays(-1), processed: true);
         await SeedVersionAsync("48.2", Now, processed: false);
@@ -148,7 +145,7 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
     [Fact]
     public async Task Progress_RepeatedWithinTtl_ShouldNotRerunTheCounterQueries()
     {
-        // Arrange: the first call populates the server-side cache (AUDIT-EF-04/#354).
+        // Arrange: the first call fills the server-side cache (#354).
         await SeedAsync(Row(1, "a", TranslationStatus.Approved), Row(2, "b"));
         PublicProgressResponse first = await ProgressAsync();
         _factory.ReadContextSqlRecorder.Clear();
@@ -156,13 +153,12 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
         // Act
         PublicProgressResponse second = await ProgressAsync();
 
-        // Assert: served entirely from the cache: identical payload and zero read-context SQL
-        // (the recorded command stream is the only place that can prove "no second query").
+        // Assert: only the recorded SQL can prove there was no second query.
         second.ShouldBe(first);
         _factory.ReadContextSqlRecorder.Commands.ShouldBeEmpty();
     }
 
-    /// <summary>Anonymous by construction: the shared helper never attaches a bearer token.</summary>
+    /// <summary>Never attaches a bearer token.</summary>
     private async Task<PublicProgressResponse> ProgressAsync()
     {
         HttpResponseMessage response = await _factory.CreateClient().GetAsync("/api/v1/progress");

@@ -9,12 +9,8 @@ internal sealed class Discovery : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
     {
-        // The root is open to anyone on purpose (#608). What it shows an anonymous caller is itself
-        // anonymous, so nothing appears that the caller could not already reach, and a client without a
-        // login, the CLI today and the Avalonia app later, has no other way to start.
-        // The admin endpoints stay hidden because the link factory checks each target endpoint's own
-        // policy before it emits a link, not because the root is closed.
-        // It is still inside the rate-limited endpoint group mapped in Program.cs.
+        // Open to anyone (#608, ADR-0040): it shows only what the caller can already reach, and a
+        // client without a login (the CLI) has no other way to start. Still rate-limited.
         endpointRouteBuilder.MapGet("", (IDiscoveryLinkFactory discoveryLinkFactory) =>
             {
                 DiscoveryResponse response = new("LotroKoniecDev.TranslationSystem");

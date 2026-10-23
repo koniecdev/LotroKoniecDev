@@ -21,14 +21,9 @@ using LotroKoniecDev.TranslationSystem.API.Settings;
 using LotroKoniecDev.TranslationSystem.Persistence.Settings;
 using LotroKoniecDev.Logging.Redaction;
 
-// Not CreateBootstrapLogger(), on purpose. That logger lives in the shared static Log.Logger slot, and
-// AddSerilog freezes it the first time a host resolves a logger. Any test run that starts a second host
-// from this Program, such as a WithWebHostBuilder child or a second class fixture, lets one host freeze
-// the bootstrap logger another host has just installed, and the second freeze fails with "The logger is
-// already frozen".
-// A plain console logger keeps startup logging, and the catch and finally below, working while
-// AddSerilog builds each host its own pipeline. Nothing changes in production: the single host's final
-// logger still replaces this one.
+// Not CreateBootstrapLogger(): it lives in the static Log.Logger, and a test run that starts a second
+// host from this Program fails with "The logger is already frozen". In production the host's own logger
+// still replaces this one.
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture)
     .CreateLogger();
@@ -39,12 +34,9 @@ try
 
     WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-    // DI validation runs in every environment, not only in Development (#572). A captive dependency or
-    // a constructor that cannot be resolved, even one that only appears under production config, then
-    // fails at startup, where CD smoke-tests the candidate before it takes traffic, instead of turning
-    // into a 500 on the first request.
-    // It only checks registered services. A forgotten closed handler registration is still resolved at
-    // request time, so endpoint integration tests stay the guard for that.
+    // In every environment (#572), so a bad graph fails at startup, where CD smoke-tests the candidate,
+    // not as a 500. It checks registered services only: endpoint integration tests still guard a
+    // forgotten closed handler registration.
     builder.Host.UseDefaultServiceProvider(static (_, options) =>
     {
         options.ValidateScopes = true;
@@ -54,24 +46,17 @@ try
     string? otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
     bool otlpExportEnabled = !string.IsNullOrWhiteSpace(otlpEndpoint);
 
-    // Logs reach Loki by exactly ONE path: the box agent tailing this container's stdout (ADR-0050
-    // §7). That set is strictly larger than the OTLP sink's - it also catches a crash that happens
-    // before the logging pipeline is up, and it covers the containers that speak no OTLP at all
-    // (Caddy, RabbitMQ, the migrator). So the OTLP log sink stays OFF even when the endpoint is set,
-    // and only a stack with no tailer in front of it turns it back on.
-    //
-    // Alloy drops OTLP log records regardless (ADR-0051), so setting this cannot actually duplicate
-    // a line today. The switch exists so the app stops SENDING what nothing will accept.
+    // Logs reach Loki only through the box agent tailing stdout (ADR-0050 §7), which also catches a
+    // crash before the logging pipeline is up. So the OTLP log sink stays off even when the endpoint is
+    // set; only a stack with no tailer turns it on. Alloy drops OTLP log records anyway (ADR-0051).
     bool otlpLogExportEnabled = otlpExportEnabled && string.Equals(
         builder.Configuration["OTEL_LOGS_EXPORTER"],
         "otlp",
         StringComparison.OrdinalIgnoreCase);
 
-    // Both projects' containers share a box and both boxes report ASPNETCORE_ENVIRONMENT
-    // "Production", so once a signal leaves the process neither the container nor the hosting
-    // environment can place it. These two attributes do: service.namespace separates
-    // LotroKoniecDev from TheKittySaver, deployment.environment separates staging from prod.
-    // OTEL_DEPLOYMENT_ENVIRONMENT is set per box; absent, the attribute is omitted, never guessed.
+    // Two projects share each box and both boxes run "Production", so these attributes place a signal:
+    // service.namespace tells the projects apart, deployment.environment staging from prod. Without
+    // OTEL_DEPLOYMENT_ENVIRONMENT the attribute is omitted, never guessed.
     string? deploymentEnvironment = builder.Configuration["OTEL_DEPLOYMENT_ENVIRONMENT"];
     Dictionary<string, object> telemetryResourceAttributes = new()
     {
@@ -114,10 +99,8 @@ try
 
     IOpenTelemetryBuilder openTelemetryBuilder = builder.Services.AddOpenTelemetry()
         .ConfigureResource(resource => resource
-            // No auto-generated service.instance.id: it is a fresh GUID per process, and the agent
-            // promotes resource attributes to Prometheus labels - so keeping it would start a new
-            // series on every restart and break rate() across a deploy. One container per service
-            // makes the id redundant anyway.
+            // No service.instance.id: a fresh GUID per process becomes a Prometheus label, so every
+            // restart would start a new series and break rate() across a deploy.
             .AddService(builder.Environment.ApplicationName, autoGenerateServiceInstanceId: false)
             .AddAttributes(telemetryResourceAttributes))
         .WithTracing(tracing => tracing
@@ -131,8 +114,7 @@ try
             .AddMeter("Microsoft.EntityFrameworkCore")
             .AddMeter("Npgsql"));
 
-    // Add the OTLP exporter only when an endpoint is configured. Otherwise the SDK keeps retrying
-    // against its own default localhost:4317, which exists on no box we run.
+    // Without an endpoint the SDK keeps retrying its default localhost:4317, which no box runs.
     if (otlpExportEnabled)
     {
         openTelemetryBuilder.UseOtlpExporter();
@@ -146,20 +128,12 @@ try
         options.MimeTypes = ResponseCompressionDefaults.MimeTypes;
     });
 
-    // Behind the reverse proxy, TLS ends at the proxy and the container gets plain HTTP with
-    // X-Forwarded-* headers. We read them so Request.Scheme is https, which keeps the JWT issuer, the
-    // HATEOAS hrefs, Secure cookies and UseHttpsRedirection correct.
-    //
-    // Who we trust (#399): ForwardedHeaders:KnownNetworks limits trust to the proxy's network, and
-    // every deployed stack sets it. compose.hetzner.yaml for the Hetzner boxes and compose.prod.yaml
-    // for the local parity stack both point at the Caddy network. An empty list would trust every
-    // upstream. That is only safe because the container port is never published directly: both stacks
-    // use expose: and not ports:, so Caddy is the only way in. Since the move off ACA (ADR-0034) no
-    // environment relies on that fallback.
-    // ForwardLimit = 1 is written out either way: exactly one proxy sets these headers, so only the
-    // right-most X-Forwarded-* entry, the client the ingress saw, is used. A malformed network, or a
-    // setting that exists but produces no entries, for example a scalar value missing the __0 index,
-    // stops the boot here instead of quietly trusting more (ADR-0008 §3).
+    // TLS ends at the proxy, so reading X-Forwarded-* keeps the scheme https for the JWT issuer, the
+    // HATEOAS hrefs and the redirect. ForwardedHeaders:KnownNetworks must match the Caddy network in
+    // compose.hetzner.yaml and compose.prod.yaml (#399). An empty list trusts every upstream, which is
+    // safe only because both stacks use expose:, not ports:. One proxy sets the headers, so
+    // ForwardLimit = 1. A setting that yields no networks (a scalar missing the __0 index) stops the boot
+    // instead of trusting more (ADR-0008 §3).
     IConfigurationSection trustedProxyNetworksSection =
         builder.Configuration.GetSection("ForwardedHeaders:KnownNetworks");
     System.Net.IPNetwork[] trustedProxyNetworks = (trustedProxyNetworksSection.Get<string[]>() ?? [])
@@ -191,11 +165,8 @@ try
         options.ThrowOnBadRequest = true;
     });
 
-    // The CORS origins come from the environment and are not written into the code (ADR-0008 §3,
-    // M6-03). The production policy allows only the configured browser origins, and they are checked at
-    // startup, so a missing or malformed origin stops the boot in Staging and Production
-    // (CorsSettingsValidator) instead of quietly blocking the browser. Development uses the open policy
-    // below and ignores this list.
+    // Origins come from the environment and are checked at startup, so a missing or malformed origin
+    // stops the boot instead of quietly blocking the browser (ADR-0008 §3). Development ignores them.
     builder.Services.AddOptions<CorsSettings>()
         .BindConfiguration(CorsSettings.ConfigurationSection)
         .ValidateOnStart();
@@ -230,27 +201,21 @@ try
 
     builder.Services
         .AddHealthChecks()
-        // The database check is not tagged "ready" on purpose. The platform probes /health/ready every
-        // few seconds, and a database ping there would keep the Neon compute awake all day. A suspended
-        // database is normal operation and not a sign that the app is not ready (ADR-0025). The check
-        // is still available on the full /health, and a deploy proves the database through the smoke
-        // test's real endpoints.
+        // Not tagged "ready": a ping on every readiness probe would keep the Neon compute awake all day,
+        // and a suspended database is normal operation (ADR-0025). The full /health still runs it.
         .AddNpgSql(
             connectionStringFactory: sp => sp.GetRequiredService<IOptions<ConnectionStringSettings>>().Value.TranslationDatabase,
             name: "translationdb",
             tags: ["db", "postgres"]);
 
-    // The full /health runs only for a caller with this key (ADR-0058, #853). The key is required outside
-    // Development and Testing.
+    // The full /health runs only for a caller with this key (ADR-0058).
     builder.Services.AddOptions<HealthCheckSettings>()
         .BindConfiguration(HealthCheckSettings.ConfigurationSection)
         .ValidateOnStart();
     builder.Services.AddSingleton<IValidateOptions<HealthCheckSettings>, HealthCheckSettingsValidator>();
 
-    // Every frontend call reaches this API from the frontend's one container, so the policy takes its
-    // key from this resolver: a direct caller's own address, or the visitor's address the frontend
-    // forwards next to the environment's key (ADR-0054, #823). The key is required outside Development
-    // and Testing.
+    // Every frontend call comes from one container, so the rate-limit key is the visitor's address the
+    // frontend forwards next to the environment's key, or else the caller's own (ADR-0054).
     builder.Services.AddOptions<FrontendCallerSettings>()
         .BindConfiguration(FrontendCallerSettings.ConfigurationSection)
         .ValidateOnStart();
@@ -272,10 +237,8 @@ try
                     Window = TimeSpan.FromMinutes(1)
                 }));
 
-        // 429 is the one rejection a caller can act on, so it names a wait (#855). A fixed window with no
-        // queue reports its whole length here, not the time left in it. So the value is an upper bound: by
-        // then the window has renewed (give or take the runtime's 100 ms renewal timer), and it may renew
-        // much sooner (#892). Rounding up keeps it an upper bound.
+        // A fixed window reports its whole length, not the time left, so Retry-After is an upper bound
+        // (#855, #892). Rounding up keeps it one.
         options.OnRejected = (context, _) =>
         {
             if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
@@ -290,11 +253,8 @@ try
 
     WebApplication app = builder.Build();
 
-    // This has to run before anything that reads the request scheme or host: logging, HSTS, the
-    // redirect, authentication and HATEOAS link generation. It is skipped in Development so
-    // `docker compose up` keeps working over plain http, and it is on in Testing, Staging and
-    // Production, where a proxy terminates TLS and sets X-Forwarded-Proto. Because the scheme is read
-    // first, UseHttpsRedirection below does nothing and there is no redirect loop.
+    // Before anything that reads the scheme or host. Reading the forwarded scheme first is also what
+    // keeps UseHttpsRedirection from looping. Skipped in Development, where no proxy sits in front.
     if (!app.Environment.IsDevelopment())
     {
         app.UseForwardedHeaders();
@@ -304,9 +264,8 @@ try
 
     app.UseSerilogRequestLogging(options =>
     {
-        // Clean the request log (audit #0001, M5): keep the query string out of RequestPath and log it
-        // separately with secrets removed and e-mails masked, so no OAuth code, token or personal data
-        // is stored.
+        // The query string is logged separately, redacted, so no OAuth code, token or e-mail is stored
+        // (audit #0001).
         options.IncludeQueryInRequestPath = false;
         options.MessageTemplate =
             "HTTP {RequestMethod} {RequestPath}{RequestQuery} responded {StatusCode} in {Elapsed:0.0000} ms";
@@ -334,39 +293,29 @@ try
     app.UseRouting();
     app.UseGlobalNoCache();
 
-    // Only Development gets the open AllowAnyOrigin policy. Every deployed environment, Staging and
-    // Production (ADR-0008 §1), uses the configured-origins policy, so a staging origin is never let
-    // through by accident.
     string corsPolicy = app.Environment.IsDevelopment()
         ? localCorsPolicy
         : productionCorsPolicy;
     app.UseCors(corsPolicy);
 
-    // This runs before authentication, as on the auth API (#829). UseAuthorization refuses a missing,
-    // expired or forged token with 401, so a limiter placed after it would never count that traffic.
-    // A call over the limit also ends here, before the translator provisioning below can write.
-    // fixed-by-ip keys on the address and never on the user, so it does not need the login. Routing
-    // has already picked the endpoint here, so the limiter can read the policy.
-    // It is off in Development and Testing, so local flows and the test suites never hit the limit.
-    // RateLimiting:ForceEnable lets a test host turn it on to see a real 429.
+    // Before authentication (#829): a limiter after it would never count the 401s, and a call over the
+    // limit stops before translator provisioning can write. After routing, so it can read the policy.
+    // RateLimiting:ForceEnable lets a test host see a real 429.
     bool rateLimiterOffByEnvironment = app.Environment.IsDevelopment() || app.Environment.IsTesting();
     if (!rateLimiterOffByEnvironment || app.Configuration.GetValue<bool>("RateLimiting:ForceEnable"))
     {
         app.UseRateLimiter();
     }
 
-    // This goes around authentication and authorization, so it sees their answers. UseAuthorization
-    // refuses a call with 401 or 403 itself and never calls the next step. When this ran after it, it
-    // saw almost no refused call (#854).
+    // Around authentication and authorization, so it sees the 401s and 403s they answer themselves
+    // (#854).
     app.UseAuthorizationLogging();
 
     app.UseAuthentication();
     app.UseAuthorization();
 
-    // Create the caller's Translator on their first authenticated request (ADR-0004, amended
-    // 2026-06-24), so a user who just registered and logged in already has a TMS profile before any
-    // write. It sits after UseAuthorization, so a 401 or 403 stops earlier. The provisioner only writes
-    // when the claims changed, so an authenticated read stays a plain lookup.
+    // Creates the caller's Translator on the first authenticated request (ADR-0004, amended
+    // 2026-06-24). After UseAuthorization, so a 401 or 403 stops earlier.
     app.UseTranslatorProvisioning();
 
     if (app.Environment.IsDevelopment())
@@ -375,8 +324,8 @@ try
         app.MapScalarApiReference().AllowAnonymous();
     }
 
-    // The full /health queries the database, so it answers only a caller with the health check key
-    // (ADR-0058). The two probes below run no checks and stay open.
+    // The full /health queries the database, so it needs the key (ADR-0058). The probes below run no
+    // checks and stay open.
     app.MapKeyGatedHealthChecks("/health", new HealthCheckOptions
     {
         ResponseWriter = HealthCheckResponseWriter.WriteResponse
@@ -394,8 +343,7 @@ try
         ResponseWriter = HealthCheckResponseWriter.WriteResponse
     }).AllowAnonymous();
 
-    // The policy metadata is always attached. UseRateLimiter above is the one switch that decides
-    // whether it is enforced.
+    // Always attached; UseRateLimiter above decides whether it is enforced.
     RouteGroupBuilder endpointsGroup = app.MapGroup("")
         .RequireRateLimiting(rateLimitPolicy);
 

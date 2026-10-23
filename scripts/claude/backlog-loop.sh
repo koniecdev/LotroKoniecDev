@@ -182,7 +182,8 @@ stop_jobs() {
 }
 
 # Every wait here is a background sleep + `wait`, so a stop signal runs its trap at once instead
-# of after the nap (a usage-limit nap can last hours). The sleep writes nowhere: a nap left behind
+# of after the sleep. A usage-limit nap is a chain of these (see nap_until) and can last hours.
+# The sleep writes nowhere: a nap left behind
 # by a conductor killed with SIGKILL must not keep the launcher's console copy, and its terminal,
 # busy.
 nap() {
@@ -190,6 +191,26 @@ nap() {
     sleep "$1" > /dev/null 2>&1 &
     timer=$!
     wait "$timer" 2>/dev/null || true
+}
+
+# nap_until <epoch> — a usage-limit nap, which lasts until a time on the clock. `sleep` does not
+# count the time the computer sleeps, so this sleeps at most a minute at a time and reads the clock
+# after each step. It ends at most a minute after its time, or after the computer wakes if that is
+# later (#1199, docs/claude-loop.md). It reads with backquotes, for the reason in job_running: the
+# nap can last hours, and a stop lost here would be lost for all of it.
+NAP_STEP_SEC=60
+nap_until() {
+    local now
+    while :; do
+        # shellcheck disable=SC2006  # backquotes on purpose, see above
+        now=`date +%s`
+        [ "$now" -lt "$1" ] || return 0
+        if [ $(( $1 - now )) -gt "$NAP_STEP_SEC" ]; then
+            nap "$NAP_STEP_SEC"
+        else
+            nap $(( $1 - now ))
+        fi
+    done
 }
 
 # A second signal, such as a second Ctrl-C, must not cut the cleanup short: its `exit 130` would
@@ -388,10 +409,10 @@ while :; do
                 wake_clock="$CLOCK"
                 local_time "$RESET_AT" %H:%M
                 echo "[conductor] usage limit — sleeping until $wake_clock (resets $CLOCK, nap $limit_naps/$LIMIT_RETRIES)"
-                nap $(( wake - now ))
+                nap_until "$wake"
             else
                 echo "[conductor] usage limit — sleeping ${LIMIT_SLEEP_MIN}m (nap $limit_naps/$LIMIT_RETRIES)"
-                nap $(( LIMIT_SLEEP_MIN * 60 ))
+                nap_until $(( now + LIMIT_SLEEP_MIN * 60 ))
             fi
             limit_hold=0
             continue

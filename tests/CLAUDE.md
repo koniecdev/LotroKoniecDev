@@ -381,3 +381,7 @@ apply call) to be covered.
   it in **Production**. Both boxes run Production (`compose.hetzner.yaml`). A Staging row may sit next
   to it, never in its place: a test that boots only Staging stays green when a change breaks the rule
   in Production (#1187)
+- Every in-memory host factory overrides `CreateHost` with `HostStartOrder.BuildAndStart`
+  (`tests/Shared/HostStartOrder.cs`, linked into the three in-memory host suites), and a new
+  `WebApplicationFactory` does the same. Without it, a test that expects a refused start flakes in a
+  busy full run (#1040). `HostStartOrderTests` checks the start order on every run

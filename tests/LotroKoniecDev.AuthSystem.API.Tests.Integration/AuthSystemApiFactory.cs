@@ -270,6 +270,8 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         });
     }
 
+    protected override IHost CreateHost(IHostBuilder builder) => HostStartOrder.BuildAndStart(builder);
+
     /// <summary>
     /// This suite's stand-in for the step from broker to consumer. What the relay publishes goes
     /// through the same <see cref="IEmailMessageProcessor"/> the registry selects and the same

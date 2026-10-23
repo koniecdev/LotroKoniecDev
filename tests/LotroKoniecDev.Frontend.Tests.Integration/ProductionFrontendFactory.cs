@@ -1,5 +1,7 @@
+using LotroKoniecDev.Tests.Shared;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Hosting;
 
 namespace LotroKoniecDev.Frontend.Tests.Integration;
 
@@ -10,7 +12,7 @@ namespace LotroKoniecDev.Frontend.Tests.Integration;
 /// like the staging box's. The values only have to pass the startup checks, because nothing calls out
 /// during these tests.
 /// </summary>
-public sealed class ProductionFrontendFactory : WebApplicationFactory<Program>
+public class ProductionFrontendFactory : WebApplicationFactory<Program>
 {
     // Built rather than written out, so no secret scanner mistakes test data for a key.
     private static readonly string CallerKey = new('k', 40);
@@ -31,6 +33,8 @@ public sealed class ProductionFrontendFactory : WebApplicationFactory<Program>
         builder.UseSetting("AuthSystem:Authority", "https://auth.staging.invalid");
         builder.UseSetting("AuthSystem:CallerKey", CallerKey);
     }
+
+    protected override IHost CreateHost(IHostBuilder builder) => HostStartOrder.BuildAndStart(builder);
 
     protected override void Dispose(bool disposing)
     {

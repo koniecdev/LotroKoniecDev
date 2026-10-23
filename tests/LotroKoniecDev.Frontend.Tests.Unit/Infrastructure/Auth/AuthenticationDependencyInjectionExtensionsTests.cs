@@ -102,20 +102,9 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     }
 
     /// <summary>
-    /// #899: a followed redirect would carry the caller key, the visitor's address and, on a 307/308, the
-    /// refresh token to wherever the auth API pointed.
-    /// </summary>
-    [Fact]
-    public void AddFrontendAuthentication_TokenEndpointClient_DoesNotFollowRedirects()
-    {
-        List<HttpMessageHandler> chain = ResolveTokenEndpointClientHandlerChain();
-
-        chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
-    }
-
-    /// <summary>
-    /// #899: the same for the code exchange, which carries the login code in its form, and for the
-    /// userinfo and metadata calls.
+    /// #899: a followed redirect would carry the caller key, the visitor's address and the login code in
+    /// the code exchange's form to wherever the auth API pointed. The same holds for the userinfo and
+    /// metadata calls.
     /// </summary>
     [Fact]
     public void AddFrontendAuthentication_OpenIdConnectBackchannel_DoesNotFollowRedirects()
@@ -125,6 +114,36 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         List<HttpMessageHandler> chain = HttpMessageHandlerChain.From(options.BackchannelHttpHandler);
 
         chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// #922: a back-channel handler that other code set before this registration is kept, and the standard
+    /// transport inside it follows no redirect and keeps no cookie either.
+    /// </summary>
+    [Fact]
+    public void AddFrontendAuthentication_OpenIdConnectBackchannelSetElsewhere_SwitchesOffTheRedirectsAndCookiesOfTheTransportInsideIt()
+    {
+        SocketsHttpHandler transport = new();
+        PassThroughHandler handlerSetElsewhere = new() { InnerHandler = transport };
+
+        OpenIdConnectOptions options = ResolveConfiguredOidcOptions(handlerSetElsewhere);
+
+        HttpMessageHandlerChain.From(options.BackchannelHttpHandler).ShouldContain(handlerSetElsewhere);
+        transport.AllowAutoRedirect.ShouldBeFalse();
+        transport.UseCookies.ShouldBeFalse();
+    }
+
+    /// <summary>#922: the same for the older standard transport, set as the back-channel handler itself.</summary>
+    [Fact]
+    public void AddFrontendAuthentication_OpenIdConnectBackchannelSetElsewhere_SwitchesOffTheRedirectsAndCookiesOfAnHttpClientHandler()
+    {
+        HttpClientHandler transport = new();
+
+        OpenIdConnectOptions options = ResolveConfiguredOidcOptions(transport);
+
+        HttpMessageHandlerChain.From(options.BackchannelHttpHandler)[^1].ShouldBeSameAs(transport);
+        transport.AllowAutoRedirect.ShouldBeFalse();
+        transport.UseCookies.ShouldBeFalse();
     }
 
     /// <summary>#923: the owner's limit, not the 100-second default.</summary>
@@ -171,15 +190,6 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         signInServer.Requests.ShouldBe(1);
     }
 
-    /// <summary>#924: one handler serves every visitor's refresh.</summary>
-    [Fact]
-    public void AddFrontendAuthentication_TokenEndpointClient_KeepsNoCookies()
-    {
-        List<HttpMessageHandler> chain = ResolveTokenEndpointClientHandlerChain();
-
-        chain[^1].ShouldBeOfType<SocketsHttpHandler>().UseCookies.ShouldBeFalse();
-    }
-
     /// <summary>
     /// #964: the sign-out's revoke follows a link from the discovery document, so the origin check has to
     /// run before the caller key is added (#830).
@@ -193,7 +203,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
             .ShouldBeOfType<SameOriginDelegatingHandler>();
     }
 
-    /// <summary>#924: the same for every visitor's code exchange and userinfo call.</summary>
+    /// <summary>#924: one handler serves every visitor's code exchange and userinfo call.</summary>
     [Fact]
     public void AddFrontendAuthentication_OpenIdConnectBackchannel_KeepsNoCookies()
     {
@@ -337,9 +347,9 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         return new TicketReceivedContext(new DefaultHttpContext(), scheme, options, ticket);
     }
 
-    private static OpenIdConnectOptions ResolveConfiguredOidcOptions()
+    private static OpenIdConnectOptions ResolveConfiguredOidcOptions(HttpMessageHandler? backchannelHandlerSetFirst = null)
     {
-        ServiceCollection services = CreateFrontendAuthenticationServices();
+        ServiceCollection services = CreateFrontendAuthenticationServices(backchannelHandlerSetFirst);
         using ServiceProvider provider = services.BuildServiceProvider();
 
         return provider
@@ -369,9 +379,16 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
             .Get(CookieAuthenticationDefaults.AuthenticationScheme);
     }
 
-    private static ServiceCollection CreateFrontendAuthenticationServices()
+    private static ServiceCollection CreateFrontendAuthenticationServices(HttpMessageHandler? backchannelHandlerSetFirst = null)
     {
         ServiceCollection services = new();
+        if (backchannelHandlerSetFirst is not null)
+        {
+            services.Configure<OpenIdConnectOptions>(
+                OpenIdConnectDefaults.AuthenticationScheme,
+                options => options.BackchannelHttpHandler = backchannelHandlerSetFirst);
+        }
+
         services.AddLogging();
         services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
         services.AddSingleton<IOptions<AuthSystemSettings>>(Microsoft.Extensions.Options.Options.Create(new AuthSystemSettings
@@ -387,6 +404,9 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
 
         return services;
     }
+
+    /// <summary>Stands for a handler that other code put in front of its own transport.</summary>
+    private sealed class PassThroughHandler : DelegatingHandler;
 
     /// <summary>A sign-in server that answers every request with 503 and counts them.</summary>
     private sealed class UnavailableSignInServer : HttpMessageHandler

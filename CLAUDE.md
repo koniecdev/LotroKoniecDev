@@ -597,12 +597,14 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   revoke follows the discovery document's `revocation_endpoint` (#964). No frontend client to either API
   follows a redirect, so no bearer token, refresh token or caller key leaves for another host. These
   guards decide where our secrets go, which ADR-0067 decision 4 keeps; they never judge what our own
-  server answered. The two typed clients (#830) and the token client (#899) use
-  `CreatePrimaryHandler` as their primary handler. The OIDC back-channel (#899) uses it too, unless
-  other code sets a back-channel handler first: that handler is wrapped as it is and keeps its own
-  redirect and cookie settings (only tests do this). `CreatePrimaryHandler` also keeps no cookies
-  (#924): one handler serves every visitor, so a kept cookie would go out with other visitors'
-  calls.
+  server answered. Every client `IHttpClientFactory` builds in the frontend starts on
+  `CreatePrimaryHandler`, so a new client needs no setting of its own (`AddHttpClientDefaults`,
+  #922). A client given its own `SocketsHttpHandler` or `HttpClientHandler` keeps it, with redirects
+  and cookies switched off. The OIDC back-channel (#899) starts on `CreatePrimaryHandler` too. A
+  back-channel handler that other code set first is kept, and the standard transport at its end gets
+  the same switch. A test's stand-in server is left as it is. `CreatePrimaryHandler` also keeps no
+  cookies (#924): one handler serves every visitor, so a kept cookie would go out with other
+  visitors' calls.
   `scripts/check-client-hypermedia.sh` (with a `.ps1`
   twin) flags an API path in any string literal under `src/Frontend/` **and** `src/Patcher/` and
   gates it in **both** `pr-verify` and `ci`, alongside the SSR guard, right after its self-test

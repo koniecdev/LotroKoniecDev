@@ -17,12 +17,8 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 namespace LotroKoniecDev.TranslationSystem.API.Features.GameVersions;
 
 /// <summary>
-/// Deletes a game version that was registered by hand by mistake (#209). A
-/// <see cref="Primitives.Aggregates.GameVersionAggregate.Enums.GameVersionStatus.Processed"/> version
-/// is kept: an import ran against it, and deleting it would leave the rows that point at it with
-/// nothing (422). An unprocessed or superseded version that no translation points at can be deleted,
-/// which frees a version number a wrong registration took (#624).
-/// It needs the admin policy, and an unknown id gives a 404.
+/// Deletes a game version registered by mistake (#209), which frees its number (#624). The status rule
+/// lives in <see cref="GameVersion.EnsureCanBeDeleted"/>.
 /// </summary>
 internal sealed class DeleteGameVersion : IEndpoint
 {
@@ -80,9 +76,8 @@ internal sealed class DeleteGameVersion : IEndpoint
                 return deletableResult;
             }
 
-            // A safety net across aggregates. By the rules of the lifecycle, no import ever ran against
-            // an Unprocessed or Superseded version, so nothing should point at it. Still, a version
-            // something points at must never be deleted, or those translations would point at nothing.
+            // Safety net across aggregates: the lifecycle says nothing points at a deletable version,
+            // but deleting one that is referenced would leave translations pointing at nothing.
             if (await _translationRepository.AnyReferencesGameVersionAsync(command.Id, cancellationToken))
             {
                 return Result.Failure(DomainErrors.GameVersionEntity.CannotDeleteReferencedVersion(command.Id));

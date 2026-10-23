@@ -27,10 +27,8 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
             method: HttpMethods.Get,
             values: BuildRouteValues(paginationResponse.Page, paginationResponse.PageSize, additionalRouteValues)));
 
-        // A first or last link that points at the page you are already on does nothing, but the pager
-        // still draws it as a working button (#545). Unlike previous and next these jump to a fixed
-        // page, so they stay useful when the page number is out of range, such as ?page=99 of 3. That is
-        // the only way back for a caller who went too far.
+        // Not on the page you are on, or the pager draws a dead button (#545). They stay when the page is
+        // out of range (?page=99 of 3): the only way back for a caller who went too far.
         if (paginationResponse.Page != 1)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(

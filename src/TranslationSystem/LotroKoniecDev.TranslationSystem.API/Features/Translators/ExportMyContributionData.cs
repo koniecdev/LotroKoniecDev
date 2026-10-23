@@ -14,17 +14,10 @@ using Microsoft.EntityFrameworkCore;
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translators;
 
 /// <summary>
-/// The TMS half of the GDPR Art. 15 data export (LEGAL-07, ADR-0032): the caller's translator profile
-/// and the credit for every translation row they submitted or approved, as ids and counts per status,
-/// never the texts.
-/// It is strictly about the caller. The identity comes from their own token and no role is needed,
-/// because access to your own data must not depend on being a translator today.
-/// Soft-removed rows are included, because the credit is the caller's personal data whether or not the
-/// row still ships in the game.
-/// The frontend's download route puts this response into the exported file next to the auth half.
-/// This half asks for no password on purpose, while the auth half does. ADR-0052 holds the reasons.
-/// The composed Art. 15 file is gated one layer up: the frontend fetches this endpoint only after the
-/// auth server has accepted the password (#690).
+/// The TMS half of the GDPR Art. 15 export (ADR-0032). No role is needed: access to your own data must
+/// not depend on being a translator today. Soft-removed rows are included, because the credit is
+/// personal data whether or not the row still ships. Unlike the auth half it asks for no password
+/// (ADR-0052); the frontend fetches it only after the auth server accepted the password (#690).
 /// </summary>
 internal sealed partial class ExportMyContributionData : IEndpoint
 {
@@ -58,10 +51,8 @@ internal sealed partial class ExportMyContributionData : IEndpoint
             TranslatorReadModel? translator = await _readDbContext.Translators
                 .FirstOrDefaultAsync(t => t.IdentityId == query.IdentityId, cancellationToken);
 
-            // The provisioning middleware (ADR-0004 amendment) normally creates the profile before this
-            // handler runs, so we only get here when that best-effort step was skipped, for example for
-            // a token whose claims cannot produce a DisplayName. With no profile there are no credited
-            // rows either, because credit is stored as a TranslatorId.
+            // Only when best-effort provisioning was skipped (claims with no usable name). Credit is
+            // stored as a TranslatorId, so with no profile there is no credit either.
             if (translator is null)
             {
                 return Result.Success(new TranslatorDataExportResponse(null, EmptySummary));
@@ -135,10 +126,7 @@ internal sealed partial class ExportMyContributionData : IEndpoint
             })
             .WithName(nameof(ExportMyContributionData))
             .WithTags("Translators")
-            // A login and nothing more, on purpose. Because every logged-in caller may use this
-            // endpoint, the discovery document offers its rel to every logged-in caller, and the
-            // frontend's DiscoveryCache treats that as proof the token reached the API. Tightening this
-            // policy signs every logged-in user out. See Rels.ContributionDataExport.
+            // Tightening this policy signs every logged-in user out: see Rels.ContributionDataExport.
             .RequireAuthorization(AuthorizationPolicies.RequireAuthenticatedUser)
             .Produces<TranslatorDataExportResponse>(StatusCodes.Status200OK);
     }

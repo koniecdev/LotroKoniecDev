@@ -3,17 +3,13 @@ using System.Text;
 namespace LotroKoniecDev.TranslationSystem.API.Parsing;
 
 /// <summary>
-/// The content escape of the <c>||</c> translation file (ADR-0039): <c>\</c> becomes <c>\\</c>, CR
-/// becomes <c>\r</c> and LF becomes <c>\n</c>. A row with real newlines then stays on one line, and
-/// because the escape character is escaped too, no two different texts can produce the same output.
-/// <see cref="TranslationFileSerializer"/> escapes on write and
-/// <see cref="TranslationExportParser"/> unescapes on read, so the database always holds the raw text:
-/// exactly what the DAT contains and exactly what the translator typed.
+/// The content escape of the <c>||</c> file (ADR-0039): <c>\</c> to <c>\\</c>, CR to <c>\r</c>, LF to
+/// <c>\n</c>. Escaping the escape character too keeps it injective. Only the file holds the escaped
+/// form; the database holds the raw text.
 /// </summary>
 /// <remarks>
-/// The patcher has an identical copy in its own <c>Parsers</c> namespace, because the two bounded
-/// contexts share the file and never the code (CLAUDE.md). The parity test suites keep the copies the
-/// same.
+/// The patcher has a copy in its own <c>Parsers</c> namespace: the contexts share the file, never the
+/// code. Change both in the same commit; the parity tests keep them equal.
 /// </remarks>
 internal static class TranslationLineEscaper
 {
@@ -21,9 +17,6 @@ internal static class TranslationLineEscaper
     private const char CarriageReturnMarker = 'r';
     private const char LineFeedMarker = 'n';
 
-    /// <summary>
-    /// Turns raw content into the single-line form the file stores.
-    /// </summary>
     public static string Escape(string content)
     {
         ArgumentNullException.ThrowIfNull(content);
@@ -58,9 +51,8 @@ internal static class TranslationLineEscaper
     }
 
     /// <summary>
-    /// Turns the file form back into raw content. A sequence no writer of ours can produce, such as
-    /// <c>\t</c> or a single backslash at the end, is kept as it is instead of being rejected. Only a
-    /// file written before ADR-0039 can hold one.
+    /// A sequence no writer of ours produces, such as <c>\t</c> or a trailing backslash, is kept as it
+    /// is: only a file written before ADR-0039 can hold one.
     /// </summary>
     public static string Unescape(string content)
     {

@@ -12,9 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 
 /// <summary>
-/// One approved row as the projection reads it: the Polish that ships, plus the English it was
-/// approved against, which is only there to be hashed into the row's <c>source_digest</c>
-/// (ADR-0047).
+/// <see cref="SourceText"/> is there only to be hashed into the row's <c>source_digest</c> (ADR-0047).
 /// </summary>
 internal sealed record ArtifactSourceRow(
     int FileId,
@@ -25,14 +23,9 @@ internal sealed record ArtifactSourceRow(
     string? ArgsId);
 
 /// <summary>
-/// Writes the rows that are approved right now into the ready-made translation file. Spec 0001 asks
-/// for a rebuild after version processing, after an approve, and after an upsert that touches an
-/// approved row, so the download endpoint always serves a stored file and never builds one per
-/// request. The background worker calls it (PERF-04, ADR-0021).
-/// Only one rebuild runs at a time: a gate for the whole process lets them through one by one, and
-/// each one sees a consistent set of approved rows. That gate, like the worker's queue, assumes a
-/// single API instance.
-/// It is a singleton, so it opens its own scope to resolve the scoped EF services.
+/// Builds the translation file from the rows approved right now (spec 0001). One rebuild runs at a time,
+/// so each sees a consistent set of approved rows; that gate, like the worker's queue, assumes a single
+/// API instance (ADR-0021).
 /// </summary>
 internal sealed class PrecomputedTranslationFileProjector : IPrecomputedTranslationFileProjector
 {
@@ -58,14 +51,8 @@ internal sealed class PrecomputedTranslationFileProjector : IPrecomputedTranslat
             ITranslationFileSerializer serializer = scope.ServiceProvider.GetRequiredService<ITranslationFileSerializer>();
             TimeProvider timeProvider = scope.ServiceProvider.GetRequiredService<TimeProvider>();
 
-            // The distributed file carries the Polish text and the source's argument columns. Only
-            // approved rows that are not removed are included; NeedsReview is the retranslation
-            // backlog.
-            // The RemovedInVersion check is not redundant with the status: an import can soft-remove an
-            // approved row, and the row keeps its Approved status.
-            // The rows are streamed and not collected first. The English source is needed only long
-            // enough to hash it into the row's source_digest (ADR-0047), so it never sits in memory
-            // next to the Polish it belongs to.
+            // The RemovedInVersion check is needed: a soft-removed row keeps its Approved status. The
+            // source rows are streamed, so each English text is dropped once hashed (ADR-0047).
             List<ArtifactRow> rows = [];
 
             IAsyncEnumerable<ArtifactSourceRow> sourceRows = readDbContext.Translations
@@ -93,13 +80,11 @@ internal sealed class PrecomputedTranslationFileProjector : IPrecomputedTranslat
             }
 
             string content = serializer.Serialize(rows);
-            // The hex SHA-256 of the UTF-8 body is a contract between the two contexts: it goes out as
-            // the ETag, and the patcher refuses a download whose hash differs (AUDIT-SEC-01, #391).
+            // A contract with the patcher: it goes out as the ETag, and the patcher refuses a download
+            // whose hash differs (AUDIT-SEC-01).
             string contentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
             DateTimeOffset now = timeProvider.GetUtcNow();
 
-            // One UPDATE refreshes the existing row (PERF-04) without ever loading the previous
-            // multi-MB content. Only the first build for a language inserts a row.
             bool refreshed = await fileStore.TryRefreshAsync(language, content, contentHash, now, cancellationToken);
             if (!refreshed)
             {

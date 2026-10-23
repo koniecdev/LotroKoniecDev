@@ -25,10 +25,8 @@ internal sealed class TranslationAggregateLinkFactory : ITranslationAggregateLin
     {
         List<LinkDto> links = [];
 
-        // Anyone may browse (#309), but every link here, self included, points at an endpoint that
-        // needs a login, so a caller who is not a translator gets none. The link factory already checks
-        // each target endpoint's policy (#608). These role checks stay because they also carry the state
-        // rules below and save work that would be thrown away.
+        // ILinkFactory already checks each target's policy (#608). This role check only saves work that
+        // would be thrown away.
         if (!callerIsTranslator)
         {
             return links;
@@ -40,22 +38,19 @@ internal sealed class TranslationAggregateLinkFactory : ITranslationAggregateLin
             method: HttpMethods.Get,
             values: new { id = id.Value }));
 
-        // A soft-removed row is out of translation work and out of the distributed file (spec 0001). It
-        // can be neither edited nor approved, so it gets only self.
+        // A soft-removed row can be neither edited nor approved (spec 0001).
         if (isRemoved)
         {
             return links;
         }
 
-        // An upsert names the row by (FileId, GossipId) in the request body, so this link points at the
-        // collection PUT and not at an item URL.
+        // An upsert names the row in the body, so this is the collection PUT, not an item URL.
         links.AddIfPresent(await _linkFactory.CreateAsync(
             endpoint: nameof(UpsertTranslation),
             rel: Rels.Upsert,
             method: HttpMethods.Put));
 
-        // Only a reviewer can approve, and only while Polish is waiting for review. It makes no sense on
-        // an untranslated row, where there is nothing to approve, nor on one that is already approved.
+        // Only while Polish is waiting for review.
         if (callerIsAdmin && status is TranslationStatus.Draft or TranslationStatus.NeedsReview)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(
@@ -72,8 +67,6 @@ internal sealed class TranslationAggregateLinkFactory : ITranslationAggregateLin
     {
         List<LinkDto> links = [];
 
-        // Only a reviewer may bulk-approve (#322). A translator or an anonymous caller never sees this
-        // action, exactly as with the per-row approve.
         if (callerIsAdmin)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(

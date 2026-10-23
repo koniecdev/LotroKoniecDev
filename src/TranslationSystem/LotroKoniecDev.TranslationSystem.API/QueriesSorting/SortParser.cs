@@ -1,10 +1,8 @@
 namespace LotroKoniecDev.TranslationSystem.API.QueriesSorting;
 
 /// <summary>
-/// Reads a <c>?sort=</c> value such as <c>status:desc,fileId:asc</c> into an ordered list of
-/// <see cref="SortItem"/>s. The keys are separated by commas and each may end in <c>:asc</c> or
-/// <c>:desc</c>, with ascending as the default. Empty parts and parts with no key are skipped, so a
-/// malformed value simply means "no sort" instead of an error.
+/// Reads <c>status:desc,fileId:asc</c>; ascending is the default. Empty parts are skipped, so a
+/// malformed value means "no sort", not an error.
 /// </summary>
 internal static class SortParser
 {

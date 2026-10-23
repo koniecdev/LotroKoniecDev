@@ -5,19 +5,10 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate
 namespace LotroKoniecDev.TranslationSystem.API.Middleware;
 
 /// <summary>
-/// Creates the TMS-side <c>Translator</c> for an authenticated caller on their first authenticated
-/// request (ADR-0004, amended 2026-06-24), so a user who just registered and logged in already has a
-/// profile before any write.
-/// It runs only after the request passed authentication and authorization, because it is wired after
-/// <c>UseAuthorization</c>, so a 401 or 403 stops earlier and an anonymous request skips it. The
-/// provisioner is safe to call twice and only writes when the claims changed, so a normal request is
-/// just a read.
-///
-/// It only tries its best. A <see cref="Result"/> failure, for example a token with no display-name
-/// claim, is logged and skipped, so read endpoints never depend on provisioning working. The write
-/// handlers do their own provisioning and report the error there.
-/// A real infrastructure fault is not swallowed: it goes through the normal exception pipeline like any
-/// other request.
+/// Creates the caller's <c>Translator</c> on the first authenticated request (ADR-0004, amended
+/// 2026-06-24). Best effort: a <see cref="Result"/> failure is logged and skipped, so read endpoints
+/// never depend on it, and the write handlers provision again and report the error. An infrastructure
+/// fault is not swallowed.
 /// </summary>
 internal sealed partial class TranslatorProvisioningMiddleware
 {

@@ -4,9 +4,8 @@ using LotroKoniecDev.TranslationSystem.API.Services.RateLimiting;
 namespace LotroKoniecDev.TranslationSystem.API.Middleware;
 
 /// <summary>
-/// Names two addresses: the client the rate limiter resolves, which for a frontend call is the visitor,
-/// and the connection's own address. The second one stays because a leaked frontend key could choose
-/// the first (ADR-0054, amended by #854).
+/// Logs both the client the rate limiter resolves and the connection's own address, because a leaked
+/// frontend key could choose the first (ADR-0054, amended by #854).
 /// </summary>
 internal sealed partial class AuthorizationLoggingMiddleware
 {
@@ -28,10 +27,8 @@ internal sealed partial class AuthorizationLoggingMiddleware
     {
         await _next(context);
 
-        // Only a refused call to a real endpoint gets a warning. The fallback policy also answers 401 for a
-        // path that matches no endpoint, and for a method the route does not map (routing's 405 endpoint
-        // is not a RouteEndpoint). Scanners send those without end and no rate limit applies to them. The
-        // request log still records those calls.
+        // The fallback policy also answers 401 for unknown paths and unmapped methods, which scanners
+        // send without end and no rate limit covers. The request log still records them.
         if (context.GetEndpoint() is not RouteEndpoint)
         {
             return;

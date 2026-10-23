@@ -16,29 +16,18 @@ using Microsoft.Extensions.Caching.Hybrid;
 namespace LotroKoniecDev.TranslationSystem.API.Auth.Provisioning;
 
 /// <summary>
-/// Creates the translator profile when it is first needed, and it is safe to call twice (ADR-0004).
-/// It gets or creates a row keyed by the authenticated identity, and refreshes the display name and
-/// e-mail from the current claims each time.
-/// Calling it twice is safe thanks to the unique index on <c>Translators.IdentityId</c> plus a check
-/// that, when two requests create the same profile at once and one hits the unique constraint, reads
-/// the committed row again.
-///
-/// This runs on every authenticated request (ADR-0004, amended 2026-06-24), so the result, the
-/// <see cref="TranslatorId"/> plus a fingerprint of the claims, is kept in an in-memory
-/// <see cref="HybridCache"/> for a short time (PERF-07). A request whose claims have not changed is
-/// answered from memory and never touches the <c>Translators</c> table. When the fingerprint differs,
-/// because the account was renamed or its e-mail changed, the cached value is ignored, the profile is
-/// refreshed from the live row and the entry is written again. A failure is never cached.
+/// Gets or creates the caller's profile (ADR-0004). A second call is safe thanks to the unique index on
+/// <c>Translators.IdentityId</c> plus a re-read of the committed row when two requests race.
+/// It runs on every authenticated request (ADR-0004, amended 2026-06-24), so the id and a fingerprint
+/// of the claims are cached in memory (PERF-07): unchanged claims never touch the table, changed claims
+/// refresh the profile and rewrite the entry. A failure is never cached.
 /// </summary>
 internal sealed class TranslatorProvisioner : ITranslatorProvisioner
 {
     private const string CacheKeyPrefix = "translator-provisioning:";
 
     /// <summary>
-    /// A short lifetime, keyed by identity. Inside that window an authenticated request whose claims
-    /// have not changed is answered from memory and skips the <c>Translators</c> query.
-    /// The value is written out here as well, even though the DI default is the same, so the lifetime
-    /// is visible where it is used.
+    /// The same as the DI default, written out so the lifetime is visible where it is used.
     /// </summary>
     private static readonly HybridCacheEntryOptions ShortTtlEntryOptions = new()
     {
@@ -76,11 +65,7 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
 
         IdentityId identityId = maybeIdentity.Value;
 
-        // The display name comes from the 'name' claim, or from the 'email' claim when that is
-        // missing. An authenticated token always carries at least one of them, and if neither is there
-        // the value object returns a validation error.
-        // It is resolved and checked before the cache is used, so a token we cannot provision never
-        // leaves an entry behind.
+        // Checked before the cache is used, so a token we cannot provision never leaves an entry.
         Result<DisplayName> displayNameResult = DisplayName.Create(
             _currentUserAccessor.Username ?? _currentUserAccessor.Email ?? string.Empty);
         if (displayNameResult.IsFailure)
@@ -105,14 +90,10 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
 
             if (string.Equals(cached.ClaimsFingerprint, claimsFingerprint, StringComparison.Ordinal))
             {
-                // The normal case: the cached entry already matches the current claims, so the
-                // Translators table is not queried while the entry is alive.
                 return Result.Success(TranslatorId.FromValue(cached.TranslatorId));
             }
 
-            // The claims changed since the entry was written, because the account was renamed or its
-            // e-mail changed. Ignore the old value, refresh the profile from the live row and write the
-            // entry again, so later requests take the fast path.
+            // The claims changed since the entry was written: refresh from the live row and rewrite it.
             Result<TranslatorId> refreshed = await ResolveAsync(identityId, displayName, email, cancellationToken);
             if (refreshed.IsFailure)
             {
@@ -129,18 +110,14 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
         }
         catch (TranslatorProvisioningFailedException exception)
         {
-            // A failure must never be cached. The factory rethrows it as this exception, so HybridCache
-            // drops the entry and the next request tries the live row again.
+            // The factory throws so HybridCache drops the entry instead of caching a failure.
             return Result.Failure<TranslatorId>(exception.Error);
         }
     }
 
     /// <summary>
-    /// What runs on a cache miss: it resolves the translator against the database and turns the result
-    /// into the pair we cache, the <see cref="TranslatorId"/> plus the fingerprint. On failure it throws
-    /// <see cref="TranslatorProvisioningFailedException"/>, so <see cref="HybridCache"/> drops the entry
-    /// instead of caching a failure. A <see cref="DbUpdateException"/> from the write path passes
-    /// through unchanged.
+    /// Throws <see cref="TranslatorProvisioningFailedException"/> on failure, so the cache drops the
+    /// entry. A <see cref="DbUpdateException"/> from the write passes through unchanged.
     /// </summary>
     private async ValueTask<CachedProvisioning> ResolveAndCacheAsync(
         IdentityId identityId,
@@ -159,15 +136,9 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
     }
 
     /// <summary>
-    /// The real database lookup. It returns the existing translator's id, refreshing the profile only
-    /// when the claims really changed, or creates a new row and reads the committed row again when two
-    /// requests create it at once.
-    /// The whole get-or-create runs in its own scope and never in the calling request's (#435, like
-    /// #354). HybridCache runs one factory for every caller waiting on the same key, and the request
-    /// that started it can be cancelled, which disposes its scope, while the others are still waiting.
-    /// A fresh scope keeps the shared lookup alive for them instead of failing on a disposed context.
-    /// Owning the unit of work here also means nothing this method tracks or saves ends up in a
-    /// caller's pending changes.
+    /// Its own scope (#435): HybridCache shares one factory run with every caller of the key, and the
+    /// request that started it may be cancelled and dispose its scope while others wait. Owning the unit
+    /// of work also keeps this save out of a caller's pending changes.
     /// </summary>
     private async ValueTask<Result<TranslatorId>> ResolveAsync(
         IdentityId identityId,
@@ -187,8 +158,7 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
         {
             Translator translator = existing.Value;
 
-            // We write only when the account was really renamed or its e-mail changed, never on a
-            // plain repeat visit. This is the real check behind the fingerprint used on the fast path.
+            // The real check behind the fingerprint: a plain repeat visit never writes.
             bool claimsChanged = !translator.DisplayName.Equals(displayName)
                                  || !Equals(translator.Email, email);
             if (claimsChanged)
@@ -215,10 +185,8 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
         }
         catch (DbUpdateException)
         {
-            // Another request inserted the row between our read and our save. Drop our rejected insert
-            // from change tracking first, or the retry below would send the row the unique index has
-            // already refused, then read the committed row and refresh it. The unit of work belongs to
-            // this scope, so the rejected insert can never fire again on a caller's save.
+            // Another request inserted the row first. Detach our rejected insert, or the save below would
+            // send it again, then refresh the committed row.
             translatorRepository.Detach(createResult.Value);
 
             Maybe<Translator> raced = await translatorRepository.GetByIdentityIdAsync(identityId, cancellationToken);
@@ -234,8 +202,8 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
     }
 
     /// <summary>
-    /// Reads the optional e-mail from the <c>email</c> claim. A malformed claim gives no e-mail instead
-    /// of failing the whole write, because the address is not needed to credit someone's work.
+    /// A malformed claim gives no e-mail instead of failing the write: the address is not needed to
+    /// credit someone's work.
     /// </summary>
     private Email? ResolveEmail()
     {
@@ -251,12 +219,8 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
     }
 
     /// <summary>
-    /// Hashes exactly the claims the profile is built from, the display name and the e-mail, into one
-    /// fingerprint. When either changes the fingerprint changes, so the cached entry is ignored and the
-    /// profile is refreshed. A matching fingerprint means the profile cannot have changed, so the
-    /// database query can be skipped.
-    /// Roles are left out: they never change the <c>Translator</c> row, so including them would only
-    /// cause cache misses for nothing. The separator between the fields keeps ("ab", "c") apart from
+    /// Covers exactly the claims the profile is built from. Roles are left out: they never change the
+    /// row, so they would only cause needless misses. The separator keeps ("ab", "c") apart from
     /// ("a", "bc").
     /// </summary>
     private static string ComputeClaimsFingerprint(DisplayName displayName, Email? email)
@@ -268,15 +232,13 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
 }
 
 /// <summary>
-/// What we cache for a provisioned translator: its id plus a fingerprint of the claims it was built
-/// from. It stays small and JSON-serializable for <see cref="HybridCache"/>.
+/// Kept small and JSON-serializable for <see cref="HybridCache"/>.
 /// </summary>
 internal sealed record CachedProvisioning(Guid TranslatorId, string ClaimsFingerprint);
 
 /// <summary>
-/// Carries a resolution <see cref="Error"/> out of the <see cref="HybridCache"/> factory, so a failure
-/// is not stored as a success. <c>HybridCache</c> drops the entry when the factory throws, and the next
-/// request tries the live lookup again.
+/// Carries an <see cref="Error"/> out of the <see cref="HybridCache"/> factory, which drops the entry
+/// when the factory throws, so a failure is never stored.
 /// </summary>
 internal sealed class TranslatorProvisioningFailedException : Exception
 {

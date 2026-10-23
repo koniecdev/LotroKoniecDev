@@ -14,34 +14,28 @@ using RabbitMQ.Client.Events;
 namespace LotroKoniecDev.TranslationSystem.API.Messaging;
 
 /// <summary>
-/// Erases the translator profile of every account the AuthSystem erases (ADR-0065). It consumes
-/// <see cref="AccountEventsTopology.ErasedQueue"/> and hands each <see cref="AccountErased"/> to
-/// <see cref="EraseTranslatorProfile"/>.
-/// It mirrors the AuthSystem's <c>EmailDispatchConsumer</c>: the broker pushes, we acknowledge by hand
-/// and only after the work is saved, and a broker that is down never stops the API from starting.
+/// Erases the translator profile of every account the AuthSystem erases (ADR-0065). It mirrors the
+/// AuthSystem's <c>EmailDispatchConsumer</c>: a manual ack only after the work is saved, and a broker
+/// that is down never stops the API from starting.
 /// </summary>
 /// <remarks>
-/// It needs no inbox. Erasing a profile twice gives the same profile as erasing it once, so a
-/// redelivered or republished message does no harm.
-/// A message is settled one of four ways:
+/// No inbox: erasing a profile twice gives the same result as once. A message is settled one of four
+/// ways:
 /// <list type="bullet">
 /// <item>Erased: <c>basic.ack</c>.</item>
-/// <item>One we can never handle (an unknown type, an unreadable payload, a command the handler
-/// refuses): <c>basic.reject</c> without requeue, so it goes straight to the dead-letter queue, as in
-/// the AuthSystem (ADR-0036).</item>
-/// <item>The database is unavailable: <c>basic.nack</c> after a growing pause. Giving up on it would
-/// leave the person's name in the TMS for good, and nothing would ever send the message again. Since
-/// RabbitMQ 4.3 a nack does not count against <see cref="AccountEventsTopology.ErasedDeliveryLimit"/>,
-/// so the message waits out an outage of any length.</item>
-/// <item>Any other exception, such as a bug: <c>basic.reject</c> with requeue, which counts, so a
-/// message that keeps failing for good ends in the dead-letter queue at the limit instead of looping.</item>
+/// <item>Never handleable (unknown type, unreadable payload, refused command): <c>basic.reject</c>
+/// without requeue, straight to the dead-letter queue (ADR-0036).</item>
+/// <item>Database unavailable: <c>basic.nack</c> after a growing pause, because giving up would leave
+/// the person's name in the TMS for good. Since RabbitMQ 4.3 a nack does not count against
+/// <see cref="AccountEventsTopology.ErasedDeliveryLimit"/>, so the message outlasts any outage.</item>
+/// <item>Any other exception: <c>basic.reject</c> with requeue, which counts, so a message that always
+/// fails ends in the dead-letter queue instead of looping.</item>
 /// </list>
 /// </remarks>
 internal sealed partial class AccountErasedConsumer : BackgroundService
 {
     /// <summary>
-    /// The growing wait between the first connection attempts. It is internal so the unit tests can check
-    /// which pause follows each failed attempt.
+    /// Internal so the unit tests can check which pause follows each failed attempt.
     /// </summary>
     internal static readonly TimeSpan[] ConnectBackoffs =
     [
@@ -51,10 +45,9 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     ];
 
     /// <summary>
-    /// The pause before a message goes back on the queue after the database was unavailable, chosen by
-    /// how many attempts in a row have failed. The last entry repeats for as long as the outage lasts.
-    /// Every entry stays well under the broker's 30-minute consumer timeout, because the pause holds the
-    /// delivery unacknowledged. It is internal so the unit tests can check that rule.
+    /// Indexed by failed attempts in a row; the last entry repeats for as long as the outage lasts. Every
+    /// entry must stay well under the broker's 30-minute consumer timeout, because the pause holds the
+    /// delivery unacknowledged. Internal so the unit tests can check that rule.
     /// </summary>
     internal static readonly TimeSpan[] RetryBackoffs =
     [
@@ -66,9 +59,8 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     ];
 
     /// <summary>
-    /// How often the consumer checks that it is still attached. Automatic recovery brings back a lost
-    /// connection, but not a channel the broker closed or a subscription it cancelled, for example
-    /// after the queue was deleted to change its arguments. It is internal so the unit tests can check it.
+    /// Automatic recovery brings back a lost connection, but not a channel the broker closed or a
+    /// subscription it cancelled (after the queue was deleted to change its arguments, for example).
     /// </summary>
     internal static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(30);
 
@@ -90,8 +82,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     private int _failedAttemptsInARow;
 
     /// <summary>
-    /// Reads the payload, or returns <c>null</c> when it can never be handled. It is internal so the
-    /// unit tests can check every unreadable shape.
+    /// <c>null</c> when the payload can never be handled.
     /// </summary>
     internal static AccountErased? TryDeserialize(ReadOnlySpan<byte> body)
     {
@@ -107,11 +98,9 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Says whether a failure came from the database or the way to it, which a person or time fixes and
-    /// a retry then gets through. That is any database error, not only the ones Npgsql calls transient:
-    /// the erasure reads one profile by its id and writes fixed values, so a rotated password, a lost
-    /// grant or a missing table is the environment, never the message. Anything else is taken to fail
-    /// the same way every time. It is internal so the unit tests can check the line between the two.
+    /// Any database error counts, not only the transient ones: the erasure reads one profile by id and
+    /// writes fixed values, so a rotated password, a lost grant or a missing table is the environment,
+    /// never the message. Anything else is taken to fail the same way every time.
     /// </summary>
     internal static bool IsDatabaseUnavailable(Exception exception)
     {
@@ -130,8 +119,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     }
 
     /// <summary>
-    /// The broker client the container uses. It is internal so the brokered integration host connects
-    /// exactly the way production does.
+    /// Internal so the brokered integration host connects the way production does.
     /// </summary>
     internal static ConnectionFactory BuildConnectionFactory(RabbitMqSettings settings) =>
         new()
@@ -155,8 +143,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
                 AsyncEventingBasicConsumer consumer = await AttachConsumerWithRetryAsync(stoppingToken);
                 LogStarted(_logger, AccountEventsTopology.ErasedQueue);
 
-                // The work happens in OnDeliveredAsync, on the client library's own loop. This only
-                // watches that the subscription is still there, and attaches again when it is not.
+                // The work happens in OnDeliveredAsync on the client library's loop; this only watches.
                 await WaitWhileAttachedAsync(consumer, stoppingToken);
 
                 LogDetached(_logger, AccountEventsTopology.ErasedQueue);
@@ -165,7 +152,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
         }
         catch (Exception) when (stoppingToken.IsCancellationRequested)
         {
-            // The app is shutting down, which is not an error, whatever the attach in flight threw.
+            // Shutting down is not an error, whatever the attach in flight threw.
         }
         finally
         {
@@ -174,10 +161,9 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Handles one delivery. Every path ends in one ack, nack or reject, except a shutdown or a channel
-    /// that refuses even the reject: then the broker puts the delivery back when the channel closes. No
-    /// exception may leave this handler, because the client library swallows it and the delivery would
-    /// stay stuck until the channel dies. It is internal so the unit tests can drive each path.
+    /// No exception may leave this handler: the client library swallows it and the delivery would stay
+    /// stuck until the channel dies. On shutdown, or when even the reject fails, the broker puts the
+    /// delivery back when the channel closes.
     /// </summary>
     internal async Task OnDeliveredAsync(
         IChannel channel,
@@ -229,8 +215,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // Shutting down in the middle of a message. Neither ack nor reject: closing the channel puts
-            // the delivery back on the queue, and the next start handles it.
+            // Neither ack nor reject: closing the channel puts the delivery back for the next start.
         }
         catch (Exception ex)
         {
@@ -256,10 +241,8 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Lets a test hand in its own broker client and shorten the pauses and the watch, so it can run the
-    /// slow paths in seconds. Every pause and every look runs on <paramref name="timeProvider"/>, so a
-    /// test can also move a fake clock through them (#1223). The container only sees the public
-    /// constructor.
+    /// For tests: their own broker client and shorter pauses. Every pause runs on
+    /// <paramref name="timeProvider"/>, so a test can also move a fake clock through them (#1223).
     /// </summary>
     internal AccountErasedConsumer(
         IConnectionFactory connectionFactory,
@@ -286,11 +269,9 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Connects, declares the topology and registers the consumer as one attempt. Any exception
-    /// leaving <see cref="ExecuteAsync"/> would stop the whole host, and a broker problem must never
-    /// take the translation API down, so every failure is retried here after a pause, a timeout the
-    /// client reports as a cancellation included. A failed attempt disposes what it opened first, so no
-    /// half-attached connection is left behind.
+    /// An exception leaving <see cref="ExecuteAsync"/> would stop the whole host, and a broker problem
+    /// must never take the API down, so every failure is retried here, a client timeout reported as a
+    /// cancellation included. A failed attempt disposes what it opened.
     /// </summary>
     private async Task<AsyncEventingBasicConsumer> AttachConsumerWithRetryAsync(CancellationToken stoppingToken)
     {
@@ -334,8 +315,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Returns once the consumer has been detached for two looks in a row. The first look gives
-    /// automatic recovery its chance after a lost connection.
+    /// Returns after two detached looks in a row: the first gives automatic recovery its chance.
     /// </summary>
     private async Task WaitWhileAttachedAsync(AsyncEventingBasicConsumer consumer, CancellationToken stoppingToken)
     {
@@ -362,7 +342,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Pauses, then returns the message with a nack, which the delivery limit does not count.
+    /// A nack, which the delivery limit does not count.
     /// </summary>
     private async Task ReturnForLaterAsync(
         IChannel channel,
@@ -384,10 +364,9 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Tries to put the delivery back after an exception that is not a database outage. A reject, so a
-    /// message that keeps failing for good ends in the dead-letter queue at the delivery limit instead
-    /// of looping. If even the reject fails, the channel is most likely dead, and the broker puts the
-    /// unacknowledged delivery back when it closes.
+    /// A reject, which the delivery limit counts, so a message that always fails ends in the dead-letter
+    /// queue. If even the reject fails, the channel is most likely dead and the broker puts the delivery
+    /// back when it closes.
     /// </summary>
     private async Task TryRequeueAsync(IChannel channel, ulong deliveryTag, CancellationToken stoppingToken)
     {

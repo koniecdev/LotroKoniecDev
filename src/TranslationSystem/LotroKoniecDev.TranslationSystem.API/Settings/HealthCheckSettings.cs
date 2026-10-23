@@ -1,9 +1,8 @@
 namespace LotroKoniecDev.TranslationSystem.API.Settings;
 
 /// <summary>
-/// The per-environment key that opens the full /health (ADR-0058, #853). The box <c>.env</c> carries it
-/// as <c>HEALTH_CHECK_KEY</c>, and compose hands the same value to both APIs. The daily health ping
-/// sends it.
+/// Opens the full /health (ADR-0058). Compose hands the box's <c>HEALTH_CHECK_KEY</c> to both APIs; the
+/// daily health ping sends it.
 /// </summary>
 internal sealed class HealthCheckSettings
 {

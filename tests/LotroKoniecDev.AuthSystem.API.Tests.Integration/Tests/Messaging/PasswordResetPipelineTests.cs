@@ -17,13 +17,9 @@ using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Messaging;
 
 /// <summary>
-/// The password-reset parts of the pipeline with a real broker (MSG-03, ADR-0038). Forgot-password
-/// commits an outbox row that carries only an id, the real relay publishes it to a real broker, and the
-/// real consumer picks <c>PasswordResetRequestProcessor</c> by the AMQP <c>type</c> property, creates
-/// the token at delivery and hands the message to the spy sender.
-/// These tests follow <see cref="EmailConfirmationPipelineTests"/> where the machinery is the same, and
-/// add what is specific here: the token must never appear in an outbox row or in a parked message, and
-/// the delivered token must really reset the password.
+/// The password-reset parts of the pipeline with a real broker (ADR-0038). The tests follow
+/// <see cref="EmailConfirmationPipelineTests"/> where the machinery is the same, and add: the token is made
+/// at delivery, never appears in an outbox row or a parked message, and really resets the password.
 /// </summary>
 public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSystemApiFactory>, IAsyncLifetime
 {
@@ -56,9 +52,8 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         CleanerService cleaner = scope.ServiceProvider.GetRequiredService<CleanerService>();
         await cleaner.CleanAsync();
 
-        // The host's consumer declares the topology on startup, but the first test may reach this
-        // point before that attach finished. Declaring it here again is safe (proven in
-        // DeadLetterTopologyTests) and guarantees the purges below have queues to purge.
+        // The consumer declares the topology on startup, but the first test may get here first. Declaring
+        // it again is safe (DeadLetterTopologyTests).
         await using IConnection connection = await _factory.Broker.ConnectAsync(CancellationToken.None);
         await using IChannel channel = await connection.CreateChannelAsync();
         await RabbitMqTopologyDeclaration.DeclareAsync(channel, CancellationToken.None);
@@ -85,8 +80,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         string resetToken = _passwordResetEmailSpy.ResetEmailsTo(request.Email).ShouldHaveSingleItem().ResetToken;
         resetToken.ShouldNotBeNullOrWhiteSpace();
 
-        // The delivered token really resets the password, which proves that creating it at delivery time
-        // produced a link the user can use.
+        // The delivered token really resets the password, so a token made at delivery works.
         HttpResponseMessage resetResponse = await _apiClient.Http.PostAsJsonAsync(
             new Uri("auth/reset-password", UriKind.Relative),
             new ResetPasswordRequest(request.Email, resetToken, "NewPass99!"));
@@ -115,8 +109,8 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
     [Fact]
     public async Task Consumer_ShouldAckWithoutSecondEmail_WhenTheSameMessageIdIsDeliveredAgain()
     {
-        // Arrange: a fully delivered reset request, then its exact wire message published again
-        // (the relay's crash window: published but not yet marked processed → re-published later)
+        // Arrange: a fully delivered reset request, then its exact wire message published again (the
+        // relay's crash window: published but not yet marked processed, so published again later)
         (RegisterRequest request, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             _apiClient, _faker, _confirmationEmailSpy);
         await _apiClient.Http.PostAsJsonAsync(
@@ -199,9 +193,8 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
     }
 
     /// <summary>
-    /// Polls the queue until a delivery arrives or the time runs out. Routing and dead-lettering happen
-    /// asynchronously inside the broker. The read acknowledges the message, which is fine: every caller
-    /// either checks the delivery or expects null.
+    /// Routing and dead-lettering are asynchronous in the broker, so this polls. The read acknowledges the
+    /// message, which every caller is fine with.
     /// </summary>
     private async Task<BasicGetResult?> GetWithinTimeoutAsync(string queue, TimeSpan timeout)
     {

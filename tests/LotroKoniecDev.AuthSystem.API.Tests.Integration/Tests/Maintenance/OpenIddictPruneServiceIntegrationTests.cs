@@ -6,10 +6,8 @@ using LotroKoniecDev.AuthSystem.API.Services.Maintenance;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Maintenance;
 
 /// <summary>
-/// Prune behavior against the real OpenIddict Entity Framework stores and PostgreSQL: rows past the
-/// 14-day retention that are expired or revoked disappear, while recent or still-valid rows survive.
-/// The rows aged 13 and 15 days sit on either side of the 14-day limit, so no fake clock is needed: the
-/// descriptors carry their creation dates.
+/// The prune against the real OpenIddict stores and PostgreSQL. Rows aged 13 and 15 days sit on either side
+/// of the 14-day limit, and the descriptors carry their creation dates, so no fake clock is needed.
 /// </summary>
 [Collection("AuthApi")]
 public sealed class OpenIddictPruneServiceIntegrationTests

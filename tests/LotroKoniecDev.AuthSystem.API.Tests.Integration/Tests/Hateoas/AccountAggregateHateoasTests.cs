@@ -14,11 +14,8 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Hateoas;
 
 /// <summary>
-/// Checks that the account's links follow its current state and not the state it had when the access
-/// token was issued.
-/// In particular, <c>resend-email-confirmation</c> may only appear while the address is still
-/// unconfirmed. Once it is confirmed, offering that action would point clients at something that leads
-/// nowhere.
+/// The account's links follow its current state, not its state when the token was issued:
+/// <c>resend-email-confirmation</c> appears only while the address is unconfirmed.
 /// </summary>
 public sealed class AccountAggregateHateoasTests : EndpointsTestBase
 {
@@ -55,10 +52,8 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
     [Fact]
     public async Task ExportAccountData_ShouldIncludeResendEmailConfirmationLink_WhenEmailIsUnconfirmed()
     {
-        // Arrange - register & confirm (so we can issue a token, because OpenIddict's password
-        // grant rejects unconfirmed accounts via SignInOptions.RequireConfirmedEmail), then
-        // flip EmailConfirmed back to false directly in the DB to simulate a user whose
-        // confirmation was revoked server-side. The JWT stays valid (stateless, not DB-checked),
+        // Arrange - register and confirm, because the password grant refuses an unconfirmed account
+        // (RequireConfirmedEmail), then set EmailConfirmed back to false in the DB. The JWT stays valid,
         // so the handler sees EmailConfirmed=false and must advertise the resend transition.
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
@@ -82,9 +77,8 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
     [Fact]
     public async Task ExportAccountData_ShouldExposeOnlyCancelDeletionTransition_WhenDeletionIsScheduled()
     {
-        // Arrange - schedule GDPR deletion; the self-contained JWT stays valid within
-        // its lifetime, so the aggregate remains readable during the grace window and
-        // must advertise cancel-deletion as the only meaningful transition.
+        // Arrange - schedule the deletion; the JWT stays valid, so the aggregate is still readable and must
+        // offer cancel-deletion as its only transition.
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
@@ -131,8 +125,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
     [Fact]
     public async Task ExportAccountData_AllLinks_ShouldHaveAbsoluteHrefs()
     {
-        // Arrange - every HATEOAS href must be a usable absolute URI; relative URIs
-        // force clients to guess the base address and break cross-origin consumers.
+        // Arrange - a relative href forces clients to guess the base address.
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
@@ -154,9 +147,8 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
     [Fact]
     public async Task ExportAccountData_ShouldOmitLinksProperty_WhenPlainJsonRequested()
     {
-        // Arrange - content-negotiation guarantee: plain JSON response deserializes
-        // into the same contract, but with Links as an empty collection (the 'links'
-        // key itself is suppressed from the wire by HateoasJsonTypeInfoModifiers).
+        // Arrange - plain JSON deserializes into the same contract with empty Links; the 'links' key itself
+        // is dropped from the wire (HateoasJsonTypeInfoModifiers).
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);

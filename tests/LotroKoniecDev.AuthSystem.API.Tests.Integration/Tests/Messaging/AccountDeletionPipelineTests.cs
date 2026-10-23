@@ -19,14 +19,10 @@ using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Messaging;
 
 /// <summary>
-/// The account-deletion parts of the pipeline with a real broker (MSG-04, ADR-0038). Scheduling and
-/// cancelling each commit an outbox row that carries only an id, together with their own change. The
-/// real relay publishes to a real broker, and the real consumer picks the processor by the AMQP
-/// <c>type</c> property.
-/// These tests follow <see cref="PasswordResetPipelineTests"/> where the machinery is the same, and add
-/// what is specific here: the cancel token is created at delivery and must really cancel the deletion,
-/// the token in the cancel response must really finish the recovery, and a message whose reason
-/// disappeared between the commit and the delivery is acknowledged and not sent again.
+/// The account-deletion parts of the pipeline with a real broker (ADR-0038). The tests follow
+/// <see cref="PasswordResetPipelineTests"/> where the machinery is the same, and add: the cancel token made at
+/// delivery must cancel the deletion, the token in the cancel response must finish the recovery, and a
+/// message whose reason disappeared before delivery is acknowledged and not sent.
 /// </summary>
 public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSystemApiFactory>, IAsyncLifetime
 {
@@ -61,9 +57,8 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
         CleanerService cleaner = scope.ServiceProvider.GetRequiredService<CleanerService>();
         await cleaner.CleanAsync();
 
-        // The host's consumer declares the topology on startup, but the first test may reach this
-        // point before that attach finished. Declaring it here again is safe (proven in
-        // DeadLetterTopologyTests) and guarantees the purges below have queues to purge.
+        // The consumer declares the topology on startup, but the first test may get here first. Declaring
+        // it again is safe (DeadLetterTopologyTests).
         await using IConnection connection = await _factory.Broker.ConnectAsync(CancellationToken.None);
         await using IChannel channel = await connection.CreateChannelAsync();
         await RabbitMqTopologyDeclaration.DeclareAsync(channel, CancellationToken.None);
@@ -92,15 +87,13 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
         scheduledEmail.CancelToken.ShouldNotBeNullOrWhiteSpace();
         scheduledEmail.FinalizesAt.ShouldBeGreaterThan(DateTimeOffset.UtcNow);
 
-        // The delivered token really cancels the deletion, which proves that creating it at delivery
-        // time produced a link the owner can use.
+        // The delivered token really cancels the deletion, so a token made at delivery works.
         HttpResponseMessage cancelResponse = await _apiClient.Http.PostAsJsonAsync(
             new Uri("auth/account/cancel-deletion", UriKind.Relative),
             new CancelAccountDeletionRequest(request.Email, scheduledEmail.CancelToken));
         cancelResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // The cancel sends a mail of its own. Waiting for it means no mail from this test can land in the
-        // poison theory's count of mails to any inbox.
+        // Waiting for the cancel's own mail keeps it out of the poison theory's count of mails.
         await _deletionEmailSpy.WaitForCancelledCaptureAsync(request.Email, DeliveryTimeout);
         _deletionEmailSpy.CancelledEmailCountTo(request.Email).ShouldBe(1);
 
@@ -144,8 +137,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
         cancelResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         _deletionEmailSpy.CancelledEmailCountTo(request.Email).ShouldBe(1);
 
-        // The reset token in the response really finishes the recovery: a new password and a working
-        // login.
+        // The reset token in the response really finishes the recovery: a new password and a working login.
         CancelAccountDeletionResponse cancelBody = (await cancelResponse.Content
             .ReadFromJsonAsync<CancelAccountDeletionResponse>(_apiClient.JsonOptions))!;
         cancelBody.PasswordResetToken.ShouldNotBeNullOrWhiteSpace();
@@ -176,7 +168,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
     [Fact]
     public async Task Consumer_ShouldAckWithoutEmailAndWithoutParking_WhenTheScheduleIsGoneAtDelivery()
     {
-        // Arrange: a user who is NOT deletion-scheduled: the deterministic construction of "the
+        // Arrange: a user who is not deletion-scheduled: the deterministic construction of "the
         // cancellation raced the scheduled message and won" (the drift guard's reason to exist)
         (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserWithRequestAsync(
             _apiClient, _faker, _confirmationEmailSpy, TestPassword);
@@ -292,9 +284,8 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
     }
 
     /// <summary>
-    /// Polls the queue until a delivery arrives or the time runs out. Routing and dead-lettering happen
-    /// asynchronously inside the broker. The read acknowledges the message, which is fine: every caller
-    /// either checks the delivery or expects null.
+    /// Routing and dead-lettering are asynchronous in the broker, so this polls. The read acknowledges the
+    /// message, which every caller is fine with.
     /// </summary>
     private async Task<BasicGetResult?> GetWithinTimeoutAsync(string queue, TimeSpan timeout)
     {

@@ -15,16 +15,12 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// The budget of deletion schedules that belongs to the account (#811). Cancelling a deletion returns a
-/// reset token in its response, so schedule, cancel, reset and log in is a loop that needs only the cancel
-/// link in the account's current inbox, and no fresh IP. Every schedule mails the account, and the address
-/// an armed undo would restore as well.
-/// These tests run on the suite's Testing host, where the limiter middleware is off, so the only things
-/// that can refuse a request are the budgets in the handler.
+/// The per-account budget of deletion schedules (#811). A cancel returns a reset token, so schedule, cancel,
+/// reset and log in is a loop that needs only the cancel link and no fresh IP, and every schedule sends
+/// mail. The limiter middleware is off on the Testing host, so only the handler's budgets can refuse.
 /// </summary>
 public sealed class DeletionScheduleBudgetTests : EndpointsTestBase
 {
-    /// <summary>The shipped schedule budget, read from the same constant the registration uses.</summary>
     private const int PermitLimit = AccountBudgets.DeletionSchedulePermitLimit;
 
     private const string Password = "TestPass1!";
@@ -124,8 +120,7 @@ public sealed class DeletionScheduleBudgetTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Schedules the deletion and waits for the cancel link. The link is minted when the mail is
-    /// delivered through the outbox, not in the request, so the spy is cleared first and then awaited.
+    /// The cancel link is made when the outbox delivers the mail, so the spy is cleared first and then awaited.
     /// </summary>
     private async Task<HttpStatusCode> ScheduleAsync(string email, string accessToken, string password)
     {

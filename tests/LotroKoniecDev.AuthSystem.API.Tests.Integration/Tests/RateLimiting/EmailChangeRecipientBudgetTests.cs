@@ -12,16 +12,13 @@ using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// The e-mail change budget that follows the inbox of the new address, whichever account asks (#793,
-/// ADR-0055). The IP policy cannot see it: an attacker who rotates IPs gets a fresh budget every time, and
-/// the inbox they typed in gets every link. The new address has no account yet, so the key is the inbox
-/// of the address after Identity's normalizer (#835, ADR-0057).
-/// They run on the suite's normal Testing host, where the limiter middleware is off, so the only thing
-/// that can refuse a request here is a budget taken in the handler.
+/// The e-mail change budget that follows the new address's inbox, whichever account asks (#793, ADR-0055):
+/// an attacker who rotates IPs would get a fresh IP budget every time. The key is the inbox after
+/// Identity's normalizer (#835, ADR-0057). The limiter middleware is off on the Testing host, so only the
+/// handler's budget can refuse a request here.
 /// </summary>
 public sealed class EmailChangeRecipientBudgetTests : EndpointsTestBase
 {
-    /// <summary>The shipped send budget, read from the same constant the registration uses.</summary>
     private const int RecipientPermitLimit = AccountBudgets.EmailChangeRecipientPermitLimit;
 
     private const string Password = "TestPass1!";
@@ -134,8 +131,7 @@ public sealed class EmailChangeRecipientBudgetTests : EndpointsTestBase
     public async Task RequestEmailChange_ShouldNotSpendTheRecipientBudget_WhenTheChangeIsRefusedEarlier()
     {
         // Arrange: the budget counts links that really go out, so a request refused for a wrong password
-        // spends none. The refusals after the password check are covered where the reserved address is
-        // (EmailChangeRevertReservationTests).
+        // spends none. Later refusals are covered in EmailChangeRevertReservationTests.
         string accessToken = await RegisterAndGetAccessTokenAsync();
         string newEmail = NewAddress();
 
@@ -159,8 +155,7 @@ public sealed class EmailChangeRecipientBudgetTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The budget is one singleton for the whole test collection and is never reset, so every test needs
-    /// an address no other test can produce.
+    /// The budget is a collection-wide singleton that is never reset, so every test needs its own address.
     /// </summary>
     private static string NewAddress() => $"Recipient-{Guid.CreateVersion7()}@Example.com";
 

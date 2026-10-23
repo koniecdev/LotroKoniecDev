@@ -10,14 +10,13 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Messaging;
 
 /// <summary>
 /// Proves on a real broker that the expiry policy <c>scripts/hetzner/deploy.sh</c> sets (ADR-0036 §6,
-/// #1085) removes a parked message from <see cref="RabbitMqTopology.EmailDeadLetterQueue"/> by itself
-/// once it is older than the limit. Nothing consumes the queue, and its declared arguments do not
-/// change. The name, the pattern and the definition are read from the script, so a typo there fails
-/// here under RabbitMQ's own rules. Only the message-ttl is cut from 7 days to seconds, so the test can
-/// watch it work. This class has its own broker, so its policy never expires a message that
-/// <see cref="DeadLetterTopologyTests"/> is waiting to read. <c>scripts/ci/classify-changes.sh</c>
-/// lists the script as code, so a pull request that changes only the script still runs this test. If
-/// the script moves, its new path goes there too (#1163).
+/// #1085) removes a parked message from <see cref="RabbitMqTopology.EmailDeadLetterQueue"/> once it is
+/// older than the limit, with no consumer and no change to the queue's arguments. The name, pattern and
+/// definition are read from the script, so a typo there fails here; only the message-ttl is cut to
+/// seconds. The class has its own broker, so its policy never expires a message that
+/// <see cref="DeadLetterTopologyTests"/> waits for. <c>scripts/ci/classify-changes.sh</c> lists the
+/// script as code, so a script-only change still runs this test; if the script moves, update that path
+/// too (#1163).
 /// </summary>
 public sealed class DeadLetterExpiryTests : IClassFixture<RabbitMqBrokerFixture>, IAsyncLifetime
 {
@@ -127,9 +126,8 @@ public sealed class DeadLetterExpiryTests : IClassFixture<RabbitMqBrokerFixture>
     }
 
     /// <summary>
-    /// Polls the queue until it holds <paramref name="expected"/> messages or the timeout passes, and
-    /// returns the last count it saw. The broker dead-letters and expires messages on its own schedule,
-    /// so one immediate read would race it.
+    /// The broker dead-letters and expires messages on its own schedule, so this polls and returns the last
+    /// count it saw.
     /// </summary>
     private async Task<uint> WaitForMessageCountAsync(string queue, uint expected, TimeSpan timeout)
     {

@@ -20,15 +20,13 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Messaging;
 
 /// <summary>
 /// The only suite where the confirmation-e-mail pipeline runs end to end with nothing faked between the
-/// database and SMTP. Registration commits an outbox row, the real relay publishes it through the real
-/// <see cref="RabbitMqMessagePublisher"/> to a real broker, and the real <c>EmailDispatchConsumer</c>
-/// picks the registered processor, drops duplicates and hands the message to the spy sender.
-/// Everywhere else the broker step is replaced in-process by <see cref="SpyMessagePublisher"/>, so the
-/// consumer's ack and reject decisions never meet a real broker. Here they do.
+/// database and SMTP: the outbox row, the real relay, the real <see cref="RabbitMqMessagePublisher"/>, a
+/// real broker, and the real <c>EmailDispatchConsumer</c> with its processor choice and duplicate check.
+/// Everywhere else <see cref="SpyMessagePublisher"/> replaces the broker step, so only here do the
+/// consumer's ack and reject decisions meet a real broker.
 /// </summary>
 /// <remarks>
-/// The consumer's retry ladder is deliberately not driven here: its first step waits 30 seconds before
-/// the reject, and each piece is already pinned elsewhere. The ladder's rules are in
+/// The retry ladder is not driven here, because its first step waits 30 seconds. Its rules are in
 /// <c>EmailDispatchConsumerTests</c>, what a failed processing writes to the inbox is in
 /// <c>InboxDeduplicationTests</c>, and parking after the delivery limit is in
 /// <c>DeadLetterTopologyTests</c>.
@@ -52,9 +50,8 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         CleanerService cleaner = scope.ServiceProvider.GetRequiredService<CleanerService>();
         await cleaner.CleanAsync();
 
-        // The host's consumer declares the topology on startup, but the first test may reach this
-        // point before that attach finished. Declaring it here again is safe (proven in
-        // DeadLetterTopologyTests) and guarantees the purges below have queues to purge.
+        // The consumer declares the topology on startup, but the first test may get here first. Declaring
+        // it again is safe (DeadLetterTopologyTests).
         await using IConnection connection = await _factory.Broker.ConnectAsync(CancellationToken.None);
         await using IChannel channel = await connection.CreateChannelAsync();
         await RabbitMqTopologyDeclaration.DeclareAsync(channel, CancellationToken.None);
@@ -93,8 +90,8 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     [Fact]
     public async Task Consumer_ShouldAckWithoutSecondEmail_WhenTheSameMessageIdIsDeliveredAgain()
     {
-        // Arrange: a fully delivered registration, then its exact wire message published again
-        // (the relay's crash window: published but not yet marked processed → re-published later)
+        // Arrange: a fully delivered registration, then its exact wire message published again (the
+        // relay's crash window: published but not yet marked processed, so published again later)
         (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             _apiClient, _faker, _confirmationEmailSpy);
         OutboxMessage? outboxRow = await WaitForOutboxRowAsync(
@@ -153,8 +150,8 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     [InlineData("not-a-guid")]
     public async Task Consumer_ShouldParkDeliveryInDeadLetterQueue_WhenTheMessageIdIsUnusable(string? rawMessageId)
     {
-        // Arrange: a real unconfirmed user, so a processed delivery WOULD send an e-mail: the
-        // only thing broken about this message is the id the inbox would deduplicate on
+        // Arrange: a real unconfirmed user, so a processed delivery would send an e-mail: the only
+        // thing broken about this message is the id the inbox would deduplicate on
         (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             _apiClient, _faker, _confirmationEmailSpy);
         _confirmationEmailSpy.Reset();
@@ -237,10 +234,8 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
             new Uri("auth/register", UriKind.Relative), secondRequest);
         registered.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
-        // A signal that was already used would leave the relay waiting out its first retry step of 30
-        // seconds. In production every later commit sends a new signal, so this wait sends one too
-        // instead of paying that step. What this test pins is the recovery; the retry timing belongs to
-        // OutboxRelayTests.
+        // A used signal would leave the relay waiting out its 30-second first retry step. In production every
+        // commit sends a new signal, so this wait sends one too; retry timing belongs to OutboxRelayTests.
         OutboxSignal outboxSignal = _factory.Services.GetRequiredService<OutboxSignal>();
         using CancellationTokenSource recoveryWindow = new(RecoveryTimeout);
         while (_confirmationEmailSpy.ConfirmationEmailsTo(secondRequest.Email).Count == 0
@@ -267,10 +262,9 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         // Arrange: a warm pipeline, with the consumer attached
         await UserFactory.RegisterRandomUserUnconfirmedAsync(_apiClient, _faker, _confirmationEmailSpy);
 
-        // Act: the queue is deleted, the way its arguments are changed on a live box. That cancels the
-        // consumer's subscription, and automatic recovery does not bring it back. A publish is refused
-        // until the queue exists again, so wait for the consumer to declare it and subscribe once more
-        // (#1088). No restart in between.
+        // Act: the queue is deleted, as when its arguments change on a live box. That cancels the
+        // subscription, and automatic recovery does not bring it back (#1088). A publish is refused until
+        // the consumer declares the queue again, so the test waits for that.
         await DeleteQueueAsync(RabbitMqTopology.EmailQueue);
         bool consumerIsBack = await WaitUntilQueueHasConsumerAsync(RabbitMqTopology.EmailQueue, RecoveryTimeout);
         (RegisterRequest request, IdentityId _) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
@@ -289,8 +283,8 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         HttpResponseMessage response = await _apiClient.Http.GetAsync(new Uri("/health", UriKind.Relative));
         string body = await response.Content.ReadAsStringAsync();
 
-        // Assert: overall status still reflects the deliberately dead SMTP port, so only the
-        // rabbitmq entry is this test's subject
+        // Assert: the overall status still reflects the dead SMTP port, so only the rabbitmq entry is
+        // this test's subject
         using JsonDocument report = JsonDocument.Parse(body);
         JsonElement rabbitMqCheck = report.RootElement.GetProperty("checks").EnumerateArray()
             .Single(check => check.GetProperty("name").GetString() == "rabbitmq");
@@ -328,9 +322,8 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     }
 
     /// <summary>
-    /// Polls the queue until a delivery arrives or the time runs out. Routing and dead-lettering happen
-    /// asynchronously inside the broker. The read acknowledges the message, which is fine: every caller
-    /// either checks the delivery or expects null.
+    /// Routing and dead-lettering are asynchronous in the broker, so this polls. The read acknowledges the
+    /// message, which every caller is fine with.
     /// </summary>
     private async Task<BasicGetResult?> GetWithinTimeoutAsync(string queue, TimeSpan timeout)
     {
@@ -364,9 +357,9 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     }
 
     /// <summary>
-    /// Polls until the queue exists again and a consumer is subscribed to it, or the time runs out, and
-    /// says which came first. The subscription comes after the bindings, so a publish from then on is
-    /// routed. A look at a queue that does not exist closes the channel, so every look opens its own.
+    /// Says whether the consumer subscribed before the time ran out. The subscription comes after the
+    /// bindings, so a publish from then on is routed. A look at a missing queue closes the channel, so every
+    /// look opens its own.
     /// </summary>
     private async Task<bool> WaitUntilQueueHasConsumerAsync(string queue, TimeSpan timeout)
     {
@@ -415,8 +408,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     }
 
     /// <summary>
-    /// Polls the outbox until a row matches or the timeout passes, then returns the latest
-    /// snapshot, or null. The assertions on it stay in the test.
+    /// Returns the latest read, or null; the assertions stay in the test.
     /// </summary>
     private async Task<OutboxMessage?> WaitForOutboxRowAsync(Func<OutboxMessage, bool> predicate)
     {

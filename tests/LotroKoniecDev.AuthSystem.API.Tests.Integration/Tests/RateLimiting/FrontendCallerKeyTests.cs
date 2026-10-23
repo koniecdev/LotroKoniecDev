@@ -12,13 +12,11 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// ADR-0054 (#819): every call the frontend makes reaches the auth API from its one container, so the
-/// API meters it on the visitor's address the frontend forwards, but only next to the environment's
-/// key. The limiter is forced on for a derived host, as the other rate-limiting suites do. In Testing
-/// <c>UseForwardedHeaders</c> trusts every peer, so <c>X-Forwarded-For</c> plays the connection address
-/// Caddy resolves: <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses are visitors. Every
-/// test creates its own host, so its buckets are its own. The full matrix of calls short of a proven
-/// visitor is a unit test on the resolver; the rows here prove the wiring.
+/// ADR-0054 (#819): every frontend call reaches the auth API from one container, so the API meters it on
+/// the visitor address the frontend forwards, but only next to the environment's key. In Testing,
+/// <c>X-Forwarded-For</c> plays the address Caddy resolves: <c>10.60.0.x</c> is the frontend container, RFC
+/// 5737 addresses are visitors. Each test makes its own host with the limiter on; the resolver's unit tests
+/// hold the full matrix.
 /// </summary>
 public sealed class FrontendCallerKeyTests : EndpointsTestBase
 {
@@ -167,9 +165,8 @@ public sealed class FrontendCallerKeyTests : EndpointsTestBase
     [Fact]
     public async Task TheEmailChangeMailBudget_ShouldBelongToTheVisitor_NotToTheFrontend()
     {
-        // Arrange: the requests are unauthenticated on purpose, like ChangeEmailRateLimitingTests: the
-        // limiter runs before authentication, so a 401 spends a permit like any other answer. One
-        // visitor spends the whole mail budget through the frontend.
+        // Arrange: the requests are unauthenticated: the limiter runs before authentication, so a 401 spends
+        // a permit. One visitor spends the whole mail budget through the frontend.
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
         Caller spender = Caller.ThroughTheFrontend("203.0.113.40");
@@ -228,11 +225,9 @@ public sealed class FrontendCallerKeyTests : EndpointsTestBase
         int budget,
         bool formBody)
     {
-        // Arrange: the login form is the one place a password can be guessed in production, and the
-        // three endpoints mail an address the caller typed. The frontend calls none of them, so their
-        // policies ignore the key (ADR-0054 §3): a leaked key must not buy a fresh IP bucket per invented
-        // address. Every POST here is refused before it does any
-        // work (no antiforgery token, an empty body), and the limiter counts it all the same.
+        // Arrange: the frontend calls none of these, so their policies ignore the key (ADR-0054 §3): a leaked
+        // key must not buy a fresh bucket per invented address. Every POST is refused before any work, and
+        // the limiter still counts it.
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
         Caller connection = Caller.Direct("203.0.113.50");
@@ -253,10 +248,8 @@ public sealed class FrontendCallerKeyTests : EndpointsTestBase
     [Fact]
     public void Boot_WithAKeyShorterThanTheMinimum_ShouldFailNamingTheKey()
     {
-        // Arrange: the validator refuses a short key in every environment, so a Testing host proves that
-        // the validator is registered and runs at startup. The base class starts the shared host, which
-        // has no key, before every test here, this one too. So the short key is the one reason this boot
-        // can fail (#915).
+        // Arrange: the validator refuses a short key in every environment, so a Testing host proves it runs at
+        // startup. The shared host has no key, so the short key is the one reason this boot can fail (#915).
         using WebApplicationFactory<Program> shortKeyHost = Factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, configBuilder) =>
@@ -373,9 +366,8 @@ public sealed class FrontendCallerKeyTests : EndpointsTestBase
         return request;
     }
 
-    // Spends a whole shared bucket with token requests that fail client authentication: the limiter
-    // runs before OpenIddict answers, so every one of them counts. Not an assertion: a bucket that did
-    // not fill is a broken precondition for the test that called this, so it throws.
+    // The limiter runs before OpenIddict answers, so each failed token request counts. A bucket that did
+    // not fill is a broken precondition, so this throws.
     private static async Task ExhaustSharedBucketAsync(HttpClient client, Caller caller)
     {
         for (int i = 0; i < SharedBucket; i++)

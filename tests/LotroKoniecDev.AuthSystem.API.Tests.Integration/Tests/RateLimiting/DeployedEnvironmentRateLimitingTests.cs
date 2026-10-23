@@ -9,12 +9,9 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// The limiter is off in Development and Testing, and every other test that needs a real 429 turns it on
-/// with the <c>RateLimiting:ForceEnable</c> test switch. These tests boot the host without the switch,
-/// with the settings a deployed host needs to start (#827). They boot it in Production, which every box
-/// runs, and in Staging, the other deployed environment the code knows (ADR-0008 §1). A gate that needed
-/// the switch would leave the boxes with no limit at all. The TMS API has a Staging-only twin of this
-/// test (#823). Every test creates its own host, so its bucket is its own.
+/// Every other test that needs a real 429 turns the limiter on with the <c>RateLimiting:ForceEnable</c>
+/// switch. These boot Production and Staging without it (#827, ADR-0008 §1): a gate that needed the switch
+/// would leave the boxes with no limit. The TMS API has a Staging-only twin (#823).
 /// </summary>
 public sealed class DeployedEnvironmentRateLimitingTests : EndpointsTestBase
 {
@@ -93,12 +90,10 @@ public sealed class DeployedEnvironmentRateLimitingTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The base factory already sets the encryption key, the API client secret and the web client
-    /// addresses. A deployed host also needs a signing key, an issuer that is not localhost, the CORS
-    /// origins, the frontend caller key, the health check key and a keyring folder.
-    /// A null value reads as a missing setting and hides every source added before it. So the test
-    /// switch is missing, as on a box, and no other source can turn it on. The admin settings are
-    /// missing too, so the startup seeder adds no admin without a password to the shared database.
+    /// The base factory sets the encryption key, the client secret and the web client addresses; a deployed
+    /// host also needs the settings below. A null value reads as missing and hides every earlier source, so
+    /// the test switch is off, as on a box, and no admin without a password is seeded into the shared
+    /// database.
     /// </summary>
     private WebApplicationFactory<Program> CreateDeployedHost(string environmentName)
     {

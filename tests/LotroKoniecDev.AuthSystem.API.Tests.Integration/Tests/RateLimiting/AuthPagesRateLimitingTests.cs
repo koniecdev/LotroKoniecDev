@@ -6,12 +6,9 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// The account pages used to sit outside the limiter while their API twins were inside it, so login,
-/// register and password reset were free to hammer (#692). The limit is now the default for the whole
-/// Razor group: only POSTs are counted, each page keeps its own budget, and a page that wants something
-/// else says so with an attribute.
-/// The suite's Testing host keeps the limiter off; these tests turn it on for a derived host, like
-/// <see cref="ChangeEmailRateLimitingTests"/>.
+/// The limiter's default for the whole Razor group (#692): only POSTs are counted, each page keeps its own
+/// budget, and a page that wants something else says so with an attribute. The Testing host keeps the
+/// limiter off; these tests turn it on for a derived host, like <see cref="ChangeEmailRateLimitingTests"/>.
 /// </summary>
 public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
 {
@@ -42,7 +39,7 @@ public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
     public async Task AccountPagePost_ShouldThrottleTheAttemptAfterTheBudget(string page)
     {
         // Arrange: every one of these POSTs costs a PBKDF2 hash. No antiforgery token is sent, so each
-        // one ends in 400 — the limiter runs before antiforgery and counts them all the same.
+        // one ends in 400; the limiter runs before antiforgery and counts them all the same.
         // ResetPassword carries no attribute of its own, so it proves the group default really applies.
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
@@ -188,9 +185,8 @@ public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
     [Fact]
     public async Task ForgotPasswordPage_ShouldKeepTheStrictSendBudget()
     {
-        // Arrange: the page mails whatever address the caller types, so the group default would be far
-        // too generous. It carries forgot-password-limit instead, which the group convention must leave
-        // alone.
+        // Arrange: the page mails whatever address the caller types, so it carries forgot-password-limit,
+        // which the group convention must leave alone.
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
 
@@ -217,7 +213,7 @@ public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
     public async Task ForgotPasswordPage_ShouldNeverThrottleAPageView()
     {
         // Arrange: a send-sized budget spent on page views would leave the user unable to reach the form
-        // at all — the same trap ADR-0046 fixed for the resend page
+        // at all, the same trap ADR-0046 fixed for the resend page
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
 
@@ -296,8 +292,8 @@ public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
     [Fact]
     public async Task ThrottledApiCaller_ShouldNotGetTheBrowserPage()
     {
-        // Arrange: the page exists for humans. A machine client — the Frontend's back-channel, the CLI —
-        // must keep the answer it can parse, or a throttled token request would come back as HTML.
+        // Arrange: the page exists for humans. A machine client, such as the Frontend's back-channel or
+        // the CLI, must keep the answer it can parse, or a throttled token request would come back as HTML.
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
 

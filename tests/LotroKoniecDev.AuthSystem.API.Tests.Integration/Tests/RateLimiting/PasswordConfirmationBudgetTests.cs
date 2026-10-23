@@ -20,16 +20,13 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// The budget of current-password confirmations that belongs to the account (#813, ADR-0053). Every
-/// call to these endpoints arrives from the frontend, so an IP policy is one bucket for every user: it
-/// cannot stop a session thief from guessing, and one user's traffic can refuse another's action.
-/// The first three tests run on the suite's normal Testing host, where the limiter middleware is off, so
-/// the only thing that can refuse a request there is this budget. The last one turns the middleware on
-/// for a derived host, to prove the endpoints are off the shared bucket.
+/// The per-account budget of current-password confirmations (#813, ADR-0053). Every call arrives from the
+/// frontend, so an IP policy would be one bucket for every user: no brake on a session thief, and one user's
+/// traffic refusing another's. The first three tests run with the limiter middleware off; the last turns it
+/// on to prove these endpoints are off the shared bucket.
 /// </summary>
 public sealed class PasswordConfirmationBudgetTests : EndpointsTestBase
 {
-    /// <summary>The shipped confirmation budget, read from the same constant the registration uses.</summary>
     private const int PermitLimit = AccountBudgets.PasswordConfirmationPermitLimit;
 
     /// <summary>Mirrors the auth-endpoint-limit policy: 10 requests per minute per address.</summary>
@@ -88,7 +85,7 @@ public sealed class PasswordConfirmationBudgetTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, Password);
 
-        // Act: spread the budget over the four endpoints — 3 + 3 + 2 + 2 = 10 wrong guesses
+        // Act: spread the budget over the four endpoints: 3 + 3 + 2 + 2 = 10 wrong guesses
         List<HttpStatusCode> guesses = [];
         for (int i = 0; i < 3; i++)
         {
@@ -119,8 +116,7 @@ public sealed class PasswordConfirmationBudgetTests : EndpointsTestBase
     [Fact]
     public async Task PasswordConfirmation_ShouldKeepOneAccountBudgetOutOfAnother_WhateverTheAddress()
     {
-        // Arrange: both users' requests arrive from the same client, which is exactly how the auth API
-        // sees every user behind the frontend
+        // Arrange: both users' requests arrive from one client, as every user behind the frontend does
         (RegisterRequest attacked, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         (RegisterRequest bystander, _) =
@@ -145,9 +141,9 @@ public sealed class PasswordConfirmationBudgetTests : EndpointsTestBase
     [Fact]
     public async Task ChangePassword_ShouldNotBeRefusedByTheSharedIpBucket_WhenAnotherUserSpentIt()
     {
-        // Arrange: the limiter is on for this host, and every request here carries the same address —
-        // the frontend's situation. One user spends the auth-endpoint-limit bucket on account page
-        // views; another user's password change must not pay for it (ADR-0053).
+        // Arrange: the limiter is on for this host, and every request here carries the same address, as
+        // behind the frontend. One user spends the auth-endpoint-limit bucket on account page views;
+        // another user's password change must not pay for it (ADR-0053).
         (RegisterRequest heavyUser, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         (RegisterRequest bystander, _) =

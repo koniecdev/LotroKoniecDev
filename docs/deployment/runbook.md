@@ -1574,108 +1574,124 @@ also run **on demand** (`workflow_dispatch`: enter the three URLs).
 
 ## Observability & monitoring
 
-**What exists today:**
+**What exists:**
 
-- **Structured logs** — every app logs JSON to stdout (Serilog). Read them on the box:
+- **Structured logs**: every app logs JSON to stdout (Serilog). Read them on the box:
   `docker compose -f compose.hetzner.yaml logs -f <service>`.
-- **Health endpoints** — deep `/health` (DB, + SMTP and the broker on auth; only with the health check
-  key, else 404 — ADR-0058), `/health/live`, `/health/ready`
-  (DB-free by ADR-0025, so container probes cannot keep the scale-to-zero Neon compute awake — that
-  ruling outlives Azure, because **Neon still suspends**). The deep answer names each check and its
-  status only; the reason a check failed is in the app's log at Error level.
-- **The daily health ping** — [`.github/workflows/health-ping.yml`](../../.github/workflows/health-ping.yml)
+- **Health endpoints**: deep `/health` (DB, plus SMTP and the broker on auth; only with the health
+  check key, else 404 — ADR-0058), `/health/live`, `/health/ready`. The probes run no DB check
+  (ADR-0025), so container probes cannot keep the scale-to-zero Neon compute awake: **Neon still
+  suspends**. The deep answer names each check and its status only; the reason a check failed is in
+  the app's log at Error level.
+- **The daily health ping**: [`.github/workflows/health-ping.yml`](../../.github/workflows/health-ping.yml)
   probes the prod origins once a day (06:40 UTC) on the **deep** `/health`, so it is the one check
-  that proves the database is reachable. It sends the key from the `PROD_HEALTH_CHECK_KEY` repository
-  secret; a red run with **HTTP 404** means that secret and the prod box's `HEALTH_CHECK_KEY` differ,
-  not that the site is down. A failed run e-mails the last committer of that file.
-  Trigger on demand: `gh workflow run health-ping.yml`.
-- **Post-deploy smoke** — every CD rollout, with automatic rollback on red.
-- **Grafana** — logs, metrics and traces for **both projects** on the stack described below
-  (epic #707), from both boxes once the prod agent has been brought up (#755, the procedure is
-  below) — until then staging only.
+  that proves the database is reachable. It runs on GitHub, so it is also the off-box backstop for
+  this stack's own failure: a dead staging box means no dashboards, no alert evaluation and no alert
+  delivery, alerts about prod included. Keep both. It sends the key from the `PROD_HEALTH_CHECK_KEY`
+  repository secret; a red run with **HTTP 404** means that secret and the prod box's
+  `HEALTH_CHECK_KEY` differ, not that the site is down. A failed run e-mails the last committer of
+  that file. Trigger it on demand: `gh workflow run health-ping.yml`.
+- **Post-deploy smoke**: every CD rollout, with automatic rollback on red.
+- **Grafana**: logs, metrics and traces for **both projects** from both boxes, on the stack described
+  below (epic #707).
 
 ### The observability stack
 
 Grafana, Loki, Prometheus, Tempo and Alloy, deployed from `compose.observability.yaml` as its **own
-compose project** in `/opt/obs` — outside CD, because CD overwrites `compose.hetzner.yaml` and
-recreates every service in it on each rollout, and monitoring must not have its lifetime tied to the
+compose project** in `/opt/obs`. It stays outside CD, because CD overwrites `compose.hetzner.yaml`
+and recreates every service in it on each rollout, and monitoring must not share the lifetime of the
 thing it monitors (ADR-0050 §2).
 
 **Every command against this project carries `-f compose.observability.yaml`.** The file is not one
-of the four names compose looks for on its own, so a bare `docker compose …` in `/opt/obs` does not
-find it: it exits with *"no configuration file provided: not found"* and does nothing. That failure
-is loud and harmless on a `down`, but it is silent about the thing you actually wanted — and the
-same bare command in a chain (`down && up -d`) simply never runs. Do not "simplify" the flag away,
-and do not add a `compose.yaml` symlink either: the project name comes from the `name: obs` key in
-this file, and a second entry point is a second thing to keep in step.
+of the names compose looks for on its own, so a bare `docker compose …` in `/opt/obs` exits with
+*"no configuration file provided: not found"* and does nothing. In a chain (`down && up -d`) the rest
+then never runs. Do not drop the flag, and do not add a `compose.yaml` symlink either: the project
+name comes from the `name: obs` key in this file, and a second entry point is one more thing to keep
+in step.
 
 | | |
 |---|---|
-| Backend box | **`lotro-staging`**, on purpose. A backend co-hosted with the workload it observes dies in the same outage and takes the evidence with it; on staging, a *prod* outage leaves the dashboards up and prod's last minutes readable (ADR-0050 §1) |
+| Backend box | **`lotro-staging`**, on purpose. A backend on the same box as the workload it observes dies in the same outage and takes the evidence with it; on staging, a *prod* outage leaves the dashboards up and prod's last minutes readable (ADR-0050 §1) |
 | Agent | Alloy, on every box. Tails the Docker socket, accepts OTLP, scrapes the host and containers |
-| Retention | Loki 14 d · Prometheus 15 d **and** 4 GB (whichever first, size enforced by the store) · Tempo 14 d |
-| Memory | hard `mem_limit` on every component, **1856 MiB** of ceilings against ~810 MiB measured (ADR-0051 + its #782 amendment: Tempo 384 MiB, Grafana 512 MiB — the original numbers were measured with nobody querying, and Tempo was OOM-killed by one person browsing traces) |
+| Retention | Loki 14 d · Prometheus 15 d **and** 4 GB (whichever comes first, size enforced by the store) · Tempo 14 d |
+| Memory | a hard `mem_limit` on every component, **1856 MiB** of ceilings against ~810 MiB measured (ADR-0051 and its #782 amendment: Tempo 384 MiB and Grafana 512 MiB, because a measurement with nobody querying got Tempo OOM-killed by one person browsing traces) |
 | Reaching it | **no public hostname.** `ssh -L 3000:127.0.0.1:3000 lotro-staging` → `http://localhost:3000`. Password: `ssh lotro-staging 'grep GF_SECURITY_ADMIN_PASSWORD /opt/obs/.env'` |
-| The other box | pushes over **`obs.lotro-translator.pl`** — a Caddy vhost on the backend box with exactly three ingest paths (the Loki push, the Prometheus remote-write, the OTLP trace gRPC method), each admitted only from the prod box's public `/32` **and** with one basic-auth credential; everything else answers 404, and Grafana is deliberately not behind it (ADR-0050 §4, #755). Agent side: `alloy/ship.agent.alloy` (TLS + the credential) versus `alloy/ship.backend.alloy` (the containers next door), picked by `COMPOSE_PROFILES` |
+| The other box | pushes over **`obs.lotro-translator.pl`**: a Caddy vhost on the backend box with three ingest paths (the Loki push, the Prometheus remote-write, the OTLP trace gRPC method), each admitted only from the prod box's public `/32` **and** with one basic-auth credential. Everything else answers 404, and Grafana is not behind it (ADR-0050 §4, #755). Agent side: `alloy/ship.agent.alloy` (TLS + the credential) versus `alloy/ship.backend.alloy` (the containers next door), picked by `COMPOSE_PROFILES` |
 | Dashboards & alerts | provisioned as code: ours from `.docker/observability/`, TheKittySaver's from its own repo into `/opt/obs/grafana/dashboards/tks/` |
 
-**Nothing is published to the internet by the observability project itself.** Grafana binds to loopback. Alloy's OTLP receiver binds the
-two docker **bridge gateways** (`10.60.0.1` ours, `10.61.0.1` the guest stack's) and never `0.0.0.0`
-— a port published on `0.0.0.0` bypasses `ufw`, because Docker inserts its DNAT rules ahead of the
-ufw chain; since #808 the `DOCKER-USER` leg of `bootstrap.sh` drops it from the public interface,
-and binding the gateways stays the rule anyway (the chain is a second wall, not the first). Loki,
-Prometheus and Tempo publish nothing.
-No observability container joins `default` or `tks`: the agent reads the Docker socket, containerd
-and `/proc`, so it never needs a route to an app container and does not have one (ADR-0050 §3).
+**Deploying a change** to the configs, dashboards or alert rules (staging box shown; the prod box
+takes the same `rsync` + `scp`):
 
-**Alerts (#713)** — the four ADR-0034 deleted, restored, plus a disk backstop. Three are
-project-scoped (crash-loop, 5xx rate, error-log spike; TheKittySaver ships its own mirror set) and
-eight are fleet-scoped, because box saturation belongs to neither project. This repo ships eleven
-of them; TheKittySaver's rules live in its own repo:
+```bash
+rsync -az .docker/observability/ lotro-staging:/opt/obs/ && scp compose.observability.yaml lotro-staging:/opt/obs/
+ssh lotro-staging 'cd /opt/obs && docker compose -f compose.observability.yaml up -d && docker compose -f compose.observability.yaml ps'
+```
+
+This carries our half only. TheKittySaver's dashboard and alert rules live in its own repo and land
+in the same tree, so run its two lines from a TheKittySaver checkout in the same sitting, or the box
+keeps whatever version it had (`docs/observability/README.md` there):
+
+```bash
+rsync -az docs/observability/dashboards/ lotro-staging:/opt/obs/grafana/dashboards/tks/
+rsync -az docs/observability/alerting/  lotro-staging:/opt/obs/grafana/provisioning/alerting/
+```
+
+Run `docker restart obs-grafana` if the stack was not recreated, so Grafana reads the new provisioning.
+
+**Nothing is published to the internet by the observability project itself.** Grafana binds to
+loopback. Alloy's OTLP receiver binds the two docker **bridge gateways** (`10.60.0.1` ours,
+`10.61.0.1` the guest stack's), never `0.0.0.0`: a port published on `0.0.0.0` bypasses ufw, because
+Docker inserts its DNAT rules ahead of the ufw chain. The `DOCKER-USER` leg of `bootstrap.sh` drops
+such a port on the public interface (#808), but binding the gateways stays the rule: the chain is a
+second wall, not the first. Loki, Prometheus and Tempo publish nothing. No observability container
+joins `default` or `tks`: the agent reads the Docker socket, containerd and `/proc`, so it never needs
+a route to an app container and does not have one (ADR-0050 §3).
+
+**Alerts (#713).** Three are project-scoped (crash loop, 5xx rate, error-log spike; TheKittySaver
+ships its own set) and eight are fleet-scoped, because box saturation belongs to neither project.
+This repo ships eleven; TheKittySaver's rules live in its own repo. All of them deliver to **one**
+contact point, `owner-email`, over the Brevo relay the apps already use. There is no second channel.
 
 | Folder | Rules |
 |---|---|
-| LotroKoniecDev | crash-loop · 5xx above 5% · error-level log spike |
+| LotroKoniecDev | crash loop · 5xx above 5% · error-level log spike |
 | Fleet | memory > 85% · swapping hard or waiting for memory · swap > 70% full · CPU > 85% · disk < 20% · disk < 10% · a box has gone silent · a container above 85% of its own `mem_limit` |
 | TheKittySaver | its own set (that repo's #511 and later additions) |
 
 **What the two swap rules measure (#1084).** How full swap is says little on its own. Linux moves
 memory that nothing has used for a while into swap and leaves it there until something reads it
-again, so on a calm box swap fills slowly over weeks and almost never empties. Staging went from
-199 MiB to 523 MiB of its 2 GiB between 2026-09-23 and 2026-10-08 with almost no swapping, and the
-old rule ("more than a quarter of swap in use") then mailed every 6 hours about a healthy box.
+again, so on a calm box swap fills slowly over weeks and almost never empties. A rule on swap use
+alone mailed every 6 hours about a healthy staging box.
 
 - **Swapping hard or waiting for memory** (`fleet-swap-in-use`, warning) fires when either holds
-  for 5 minutes: on average more than 350 pages a second (about 1.4 MiB/s) moved in and out of swap
+  for 5 minutes: more than 350 pages a second (about 1.4 MiB/s) moved in and out of swap on average
   over the last 30 minutes (`node_vmstat_pswpin` + `node_vmstat_pswpout`), or at least one program
-  was waiting for memory during more than 10% of the last 5 minutes
-  (`node_pressure_memory_waiting_seconds_total`, the kernel's "some" memory pressure).
-  The window is 30 minutes because real squeezes come as bursts of 5 to 15 minutes: the night of
-  2026-10-02 was five of them, so a long `for:` on a 5-minute rate never fires. Replayed against
-  both boxes' history from 2026-09-25 to 2026-10-10, it fires twice on that night (20:54 and
-  23:44 UTC; peaks 660 and 799 pages/s) and nothing else. A normal CI-job burst on 2026-10-09
-  peaked at 202 pages/s, and calm days stay under 15. The 10% stall line did not fire on
-  its own in that window. It is there for memory waits that do not show up as swap traffic.
+  waiting for memory during more than 10% of the last 5 minutes
+  (`node_pressure_memory_waiting_seconds_total`, the kernel's "some" memory pressure). The window is
+  30 minutes because real squeezes come as bursts of 5 to 15 minutes, so a long `for:` on a 5-minute
+  rate never fires. Replayed against both boxes from 2026-09-25 to 2026-10-10, it fired only on the
+  night of 2026-10-02 (peaks of 660 and 799 pages/s); a normal CI-job burst peaked at 202 pages/s,
+  and calm days stay under 15. The 10% stall line is there for memory waits that do not show up as
+  swap traffic.
 - **Swap nearly full** (`fleet-swap-nearly-full`, warning) is the late guard: more than 70% for
-  15 minutes. That leaves about 600 MiB of swap, and one ordinary CI job pushed 650 MiB into swap
-  in five minutes on 2026-10-09. Above the line, the next such burst can fill swap, and then the
-  kernel kills a container. It fired on nothing in the same window, because no burst kept swap
-  above 70% for even five minutes.
+  15 minutes. That leaves about 600 MiB of swap, and one ordinary CI job pushed 650 MiB into swap in
+  five minutes on 2026-10-09. Above the line, the next such burst can fill swap, and then the kernel
+  kills a container.
 
 To find what holds the swap, list `VmSwap` per process (`grep VmSwap /proc/*/status`) and map a pid
-to its container with `/proc/<pid>/cgroup`. A host service outside Docker, such as a CI runner,
-does not show up in the container memory panels. If the processes together hold much less than the
-swap in use, the rest is shared memory, most often files in `/tmp`.
+to its container with `/proc/<pid>/cgroup`. A host service outside Docker, such as a CI runner, does
+not show up in the container memory panels. If the processes together hold much less than the swap in
+use, the rest is shared memory, most often files in `/tmp`.
 
 **`/tmp` is memory on these boxes.** On Ubuntu 26.04 it is a tmpfs (1.9 GiB), so a file left there
 counts as memory and can end up in swap. `systemd-tmpfiles` deletes old files only after 10 days
-(`Q /tmp 1777 root root 10d`). On 2026-10-08 staging held 168 MiB of stale files there. Check
+(`Q /tmp 1777 root root 10d`); on 2026-10-08 staging held 168 MiB of stale files there. Check
 `du -sh /tmp` before you blame the apps.
 
-To check a line against history, query the staging Prometheus over read-only ssh. It holds both
-boxes, with labels `box="lotro-staging"` and `box="lotro-prod"`, for 15 days. URL-encode the query
-on your machine first: a raw `+` arrives as a space, and a `"` breaks the ssh quoting. Prometheus
-returns at most 11,000 points per series, so 7 days fit at `step=60` and 15 days need `step=120`:
+To check a threshold against history, query the staging Prometheus over read-only ssh. It holds both
+boxes, with labels `box="lotro-staging"` and `box="lotro-prod"`, for 15 days. URL-encode the query on
+your machine first: a raw `+` arrives as a space, and a `"` breaks the ssh quoting. Prometheus returns
+at most 11,000 points per series, so 7 days fit at `step=60` and 15 days need `step=120`:
 
 ```bash
 q='max by (box) (rate(node_vmstat_pswpin[30m]) + rate(node_vmstat_pswpout[30m]))'
@@ -1684,60 +1700,51 @@ end=$(date +%s); start=$((end - 7 * 86400))
 ssh lotro-staging "docker exec obs-prometheus wget -qO- 'http://localhost:9090/api/v1/query_range?query=$enc&start=$start&end=$end&step=60'"
 ```
 
-All of them deliver to **one** contact point, `owner-email`, over the Brevo relay the apps already
-use. There is deliberately no second channel.
-
-**The daily health ping stays.** It is not superseded — it is the *off-box* backstop, and it is the
-answer to this stack's own failure mode: a dead staging box means no dashboards, no alert evaluation
-and no alert delivery, including alerts about prod. The health ping runs on GitHub, probes the prod
-origins on the deep `/health`, and is the one check that proves the database is reachable. Keep both.
-
 **Turning telemetry on for a box** is an `.env` edit and a restart, never an image rebuild:
 
 ```bash
 # /opt/lotro/.env
 OTEL_EXPORTER_OTLP_ENDPOINT=http://10.60.0.1:4317
-OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 OTEL_LOGS_EXPORTER=                  # keep EMPTY
 OTEL_DEPLOYMENT_ENVIRONMENT=staging  # or production
 docker compose -f compose.hetzner.yaml up -d
 ```
 
-`OTEL_LOGS_EXPORTER` stays empty because **logs have exactly one path**: Alloy tailing stdout, which
-is the strictly larger set (it catches a crash before the logging pipeline is up, and it covers Caddy,
-RabbitMQ and the migrator, which speak no OTLP). Alloy drops OTLP log records outright, so a box that
-sets it by mistake still cannot produce duplicates (ADR-0051).
+The protocol is fixed to `grpc` in `compose.hetzner.yaml`, so the box `.env` does not set it.
 
-`OTEL_DEPLOYMENT_ENVIRONMENT` is the **only** thing separating the two environments in Grafana —
-both boxes run `ASPNETCORE_ENVIRONMENT=Production`. Set it wrong and every metric and trace that box
-emits is filed under the other environment.
+`OTEL_LOGS_EXPORTER` stays empty because **logs have one path only**: Alloy tailing stdout, which is
+the larger set (it catches a crash before the logging pipeline is up, and it covers Caddy, RabbitMQ
+and the migrator, which speak no OTLP). Alloy drops OTLP log records, so a box that sets it by mistake
+still cannot produce duplicates (ADR-0051).
+
+`OTEL_DEPLOYMENT_ENVIRONMENT` is the **only** thing that separates the two environments in Grafana,
+because both boxes run `ASPNETCORE_ENVIRONMENT=Production`. Set it wrong and every metric and trace
+that box emits is filed under the other environment.
 
 ### Bringing up the prod agent (the agent-only role)
 
-The route and the role are in the repo since #755 (the sister ticket koniecdev/TheKittySaver#599
-covers the TKS half). **This ran on 2026-09-09 and prod has been shipping since** — what follows is
-the reference: how it was done, and what to repeat when the prod box is rebuilt or the credential
-is rotated. Every step is idempotent, none of them touches a running app container, and only step 4
-interrupts anything (telemetry, for about a minute).
+The route and the role came with #755 (the TKS half is koniecdev/TheKittySaver#599), and prod has
+shipped telemetry since 2026-09-09. These are the steps to repeat when the prod box is rebuilt or the
+credential is rotated. Every step is idempotent, none touches a running app container, and only
+step 4 interrupts anything (telemetry, for about a minute).
 
-1. **DNS** — registrar panel → `A obs.lotro-translator.pl → 91.98.74.228` (the **staging** box:
-   that is where the backend runs), TTL 300. ACME needs it resolving before the vhost's first
-   request, and `remote_ip` needs the prod box's egress to still be `167.233.159.221`
+1. **DNS**: registrar panel → `A obs.lotro-translator.pl → 91.98.74.228` (the **staging** box,
+   where the backend runs), TTL 300. ACME needs it to resolve before the vhost's first request, and
+   `remote_ip` needs the prod box's egress to still be `167.233.159.221`
    (`ssh lotro-prod curl -4s https://ifconfig.me`). **An `A` record and no `AAAA`**: the gate is an
-   IPv4 `/32`, and an `AAAA` would let the agent's resolver prefer IPv6, whose source address Caddy
-   sees as a bridge gateway — every push would then be a 404 for a reason the runbook's own
-   diagnosis below would not name. No vhost on this fleet has an `AAAA` today.
+   IPv4 `/32`, and with an `AAAA` the agent's resolver may prefer IPv6, whose source address Caddy
+   sees as a bridge gateway, so every push would get a 404 for a reason the diagnosis below does not
+   name. No vhost on this fleet has an `AAAA` today.
 
-   **Do this step FIRST, and do not let anything look the name up before it exists.** A failed
-   lookup is cached as hard as a successful one: the zone's negative TTL is
-   `min(SOA TTL, SOA minimum)` — three hours here — and it is Hetzner's recursive resolvers
-   (`185.12.64.1/2` and their v6 twins, which is all four the boxes use) that hold it, so
-   `resolvectl flush-caches` on the box does nothing. That is what happened on 2026-09-09: the
+   **Do this step FIRST, and do not let anything look the name up before it exists.** A failed lookup
+   is cached as hard as a successful one: the zone's negative TTL is `min(SOA TTL, SOA minimum)`,
+   three hours here. Hetzner's recursive resolvers (`185.12.64.1/2` and their v6 twins, which are all
+   the boxes use) hold it, so `resolvectl flush-caches` on the box does nothing. On 2026-09-09 the
    record went in after the agent had already tried, and the prod box could not resolve it for
    another 35 minutes while every public resolver already could. `dig @185.12.64.1 obs.<domain>`
    shows the remaining time as the TTL on the SOA in the authority section. Waiting it out is the
-   only clean fix — the agent retries on its own — and it is why this step is first.
-2. **Mint the push credential.** One password, two forms, and the two never travel together:
+   only clean fix (the agent retries on its own).
+2. **Mint the push credential.** One password in two forms, and the two never travel together:
    ```bash
    openssl rand -base64 24                                  # the password → prod /opt/obs/.env (step 5)
    docker run --rm -it caddy:2-alpine caddy hash-password   # prompts for it; the hash → staging /opt/lotro/.env
@@ -1751,16 +1758,16 @@ interrupts anything (telemetry, for about a minute).
                                           # compose expands the salt after the third $ to nothing,
                                           # and caddy validate accepts the result — see the probe below
    ```
-   Then a rollout to staging — any merge, or re-apply the current tag by hand:
+   Then a rollout to staging: any merge, or re-apply the current tag by hand:
    `sudo -u deploy env IMAGE_TAG=$(sed -n 's/^IMAGE_TAG=//p' /opt/lotro/.env) bash /opt/lotro/deploy.sh`.
    It creates `lotro-staging_obs`, attaches Caddy, validates and reloads the Caddyfile, and ACME
    issues the certificate. Check from anywhere: `curl -sI https://obs.lotro-translator.pl/` → `404`
    with `x-robots-tag: noindex, nofollow`, and `curl -sI https://obs.lotro-translator.pl/loki/api/v1/push`
    → **also 404**: from a source the vhost does not admit, the push paths do not exist.
 
-   Then prove the credential actually landed, **from the prod box** (the only source the vhost
-   admits), before any agent exists there. This is the check that catches a hash mangled by the
-   wrong quoting, which nothing in the rollout catches:
+   Then prove the credential landed, **from the prod box** (the only source the vhost admits), before
+   any agent exists there. This is the check that catches a hash broken by the wrong quoting, which
+   nothing in the rollout catches:
 
    ```bash
    # -u with no password makes curl prompt for it: it never reaches argv or shell history.
@@ -1769,14 +1776,14 @@ interrupts anything (telemetry, for about a minute).
      https://obs.lotro-translator.pl/loki/api/v1/push'
    ```
 
-   **422** = route and credential both good (that is Loki rejecting an empty push, which means it
-   received it). **401** = the credential does not match — most likely the hash was corrupted by
-   quoting. **404** = this source address is not the one `OBS_ALLOWED_PUSH_IP` admits.
+   **422** = route and credential both good (Loki rejecting an empty push means it received it).
+   **401** = the credential does not match, most likely because quoting corrupted the hash. **404** =
+   this source address is not the one `OBS_ALLOWED_PUSH_IP` admits.
 
    That probe needs the route, so it needs step 1's DNS and the certificate ACME issues from it.
-   **When the record is not there yet** — and step 1 is the one step you may be waiting on somebody
-   else for — the credential can still be proven on its own, against the hash the running Caddy
-   actually holds, by the same bcrypt verifier, on loopback:
+   **When the record is not there yet** (step 1 is the one you may be waiting on someone else for),
+   the credential can still be proven on its own: against the hash the running Caddy actually holds,
+   with the same bcrypt check, on loopback:
 
    ```bash
    # On the prod box, with the plaintext in a 600 file there and the DEPLOYED hash read back out
@@ -1795,92 +1802,73 @@ interrupts anything (telemetry, for about a minute).
      docker rm -f obs-cred-probe >/dev/null; rm -rf "$d"'
    ```
 
-   **200** = the pair matches. **401** = it does not, and the hash is the usual reason. Worth the
-   twenty lines: it takes the quoting trap off the critical path, so when the route does come up the
-   only thing left that can be wrong is the route. The netrc file keeps the password off argv, where
-   `ps` and the shell history would both see it; publishing on `127.0.0.1` keeps the throwaway Caddy
-   off the box's public interface, where a bare `-p 8899:8899` would get past ufw (Docker's DNAT
-   rules sit ahead of the ufw chain) and be held back only by the `DOCKER-USER` leg (#808).
+   **200** = the pair matches. **401** = it does not, and the hash is the usual reason. It takes the
+   quoting trap off the critical path, so when the route comes up, only the route can still be
+   wrong. The netrc file keeps the password off argv, where `ps` and the shell history would both see
+   it. Publishing on `127.0.0.1` keeps the throwaway Caddy off the box's public interface, where a
+   bare `-p 8899:8899` would get past ufw (Docker's DNAT rules sit ahead of the ufw chain) and be held
+   back only by the `DOCKER-USER` leg (#808).
 
-4. **Staging box, re-plumb `/opt/obs` onto the new network** — about a minute without telemetry;
-   the volumes, and the history in them, survive a `down` without `-v`. **Check the network exists
-   before taking the stack down**: it is created by step 3's rollout, and a `down` followed by an
-   `up -d` that cannot find it leaves the whole backend — and all alerting, for both environments —
+4. **Staging box, `/opt/obs` on the `lotro-staging_obs` network**: about a minute without
+   telemetry; the volumes, and the history in them, survive a `down` without `-v`. **Check that the
+   network exists before you take the stack down**: step 3's rollout creates it, and a `down` followed
+   by an `up -d` that cannot find it leaves the whole backend, and all alerting for both environments,
    off until someone notices.
    ```bash
    rsync -az .docker/observability/ lotro-staging:/opt/obs/ && scp compose.observability.yaml lotro-staging:/opt/obs/
    ssh lotro-staging 'docker network inspect lotro-staging_obs >/dev/null'   # step 3 landed? if not, STOP
    ssh lotro-staging 'cd /opt/obs && grep -q "^OBS_NETWORK=" .env || printf "OBS_NETWORK=lotro-staging_obs\n" >> .env'
    ssh lotro-staging 'cd /opt/obs && docker compose -f compose.observability.yaml down && docker compose -f compose.observability.yaml up -d && docker compose -f compose.observability.yaml ps'
-   ssh lotro-staging 'docker network rm obs_obs'      # only once the stack is back up
    ```
-   **This rsync carries our half only.** TheKittySaver's dashboard and alert rules live in its own
-   repo and land in the same tree — run its two lines from a TheKittySaver checkout in the same
-   sitting, or the box keeps whatever version of them it had (`docs/observability/README.md`
-   there):
+   The network check is a separate command on purpose: on one `&&` chain, a failure anywhere after
+   the `down` would leave the backend stopped and the rest not run. Run TheKittySaver's two `rsync`
+   lines from [Deploying a change](#the-observability-stack) in the same sitting.
+5. **Prod box, `/opt/obs`**: the first time, **as root**, `install -d -o deploy -g deploy /opt/obs`
+   (`bootstrap.sh` does not create this directory). Then, **as `deploy`**, the same `rsync` + `scp`
+   as above pointed at `lotro-prod` (never write into a `deploy`-owned stack as root: see
+   [Gotchas](#gotchas)), and a `/opt/obs/.env` in the agent-only form of
+   `.env.observability.example`: `COMPOSE_PROFILES=` empty, `OBS_BOX=lotro-prod`,
+   `OBS_ENVIRONMENT=production`, `OBS_NETWORK=lotro-prod_obs`, `OBS_ALLOY_OOM_SCORE_ADJ=300`,
+   `OBS_BACKEND_HOST=obs.lotro-translator.pl`, `OBS_PUSH_USER=prod-agent`,
+   `OBS_PUSH_PASSWORD=<step 2>`, both `OBS_OTLP_BIND_*` gateways, `chmod 600`. Keep the `GF_*` and
+   `OBS_ALERT_EMAIL` placeholders the template has for this role: compose interpolates every service
+   before it applies profiles, so their guards are checked even though Grafana never starts here.
+   The network exists once a prod rollout has run with the current `compose.hetzner.yaml`:
+   `docker network ls | grep lotro-prod_obs`. Then `docker compose -f compose.observability.yaml up -d`
+   (never `--profile` anything; the env file is the only switch) and `docker logs -f obs-alloy`. A
+   wrong credential shows up within seconds as a 401 on every push, a source address the vhost does
+   not admit as a 404; a correct pair is silent.
 
-   ```bash
-   rsync -az docs/observability/dashboards/ lotro-staging:/opt/obs/grafana/dashboards/tks/
-   rsync -az docs/observability/alerting/  lotro-staging:/opt/obs/grafana/provisioning/alerting/
-   ```
-
-   The network check and the `docker network rm` are separate commands on purpose: on one `&&`
-   chain, a failure anywhere after the `down` would leave the backend stopped and the rest unrun.
-   `docker network rm obs_obs` is not optional —
-   the old project-owned network stays behind otherwise, and it is what `compose down` used to
-   remove. The rsync also lands the new alert rule (*Fleet — a box has gone silent*);
-   `docker restart obs-grafana` if the stack was not recreated.
-5. **Prod box, `/opt/obs`** — the first time, **as root**:
-   `install -d -o deploy -g deploy /opt/obs` (`bootstrap.sh` predates the directory), then the same
-   `rsync` + `scp` as above **as `deploy`** (the `/opt/lotro` root-ownership gotcha applies here
-   too), pointed at
-   `lotro-prod`, and a `/opt/obs/.env` in the agent-only form of `.env.observability.example`
-   (`COMPOSE_PROFILES=` empty, `OBS_BOX=lotro-prod`, `OBS_ENVIRONMENT=production`,
-   `OBS_NETWORK=lotro-prod_obs`, `OBS_BACKEND_HOST=obs.lotro-translator.pl`,
-   `OBS_PUSH_USER=prod-agent`, `OBS_PUSH_PASSWORD=<step 2>`, both `OBS_OTLP_BIND_*` gateways),
-   `chmod 600` — including the `GF_*` and `OBS_ALERT_EMAIL` placeholders the template carries for
-   this role (compose interpolates every service before it applies profiles, so their guards are
-   evaluated even though Grafana never starts here). The network exists once the prod rollout
-   carrying #755 has been **approved** (`deploy-prod` waits on the `production` environment):
-   `docker network ls | grep lotro-prod_obs`. Then
-   `docker compose -f compose.observability.yaml up -d` — never
-   `--profile` anything, the env file is the only switch — and `docker logs -f obs-alloy`: a wrong
-   credential shows up within seconds as a 401 on every push, a source address the vhost does not
-   admit as a 404; a correct pair is silent.
-
-   **If the agent was ever up while the name did not resolve, restart it once it does** —
+   **If the agent was ever up while the name did not resolve, restart it once it does**:
    `docker restart obs-alloy`. The three writers do not recover equally. `prometheus.remote_write`
-   re-resolves and catches up on its own; `otelcol.exporter.otlp` does not — its gRPC client keeps
-   the empty address list it built at startup and every trace after that dies with
-   `Unavailable desc = no children to pick from`, which reads like the backend is down rather than
-   like a stale resolver. Observed on 2026-09-09: metrics were already arriving in Grafana while
-   traces had been dropping for four minutes. One restart fixes all three, and it costs nothing.
-6. **Prod box, the apps** — `/opt/lotro/.env`: the same `OTEL_*` lines as staging with
+   resolves the name again and catches up on its own; `otelcol.exporter.otlp` does not: its gRPC
+   client keeps the empty address list it built at startup, and every trace after that dies with
+   `Unavailable desc = no children to pick from`, which reads like a dead backend rather than a stale
+   resolver (seen on 2026-09-09: metrics arrived while traces had been dropping for four minutes).
+   One restart fixes all three and costs nothing.
+6. **Prod box, the apps**: in `/opt/lotro/.env` the same `OTEL_*` lines as staging with
    `OTEL_DEPLOYMENT_ENVIRONMENT=production`, then `docker compose -f compose.hetzner.yaml up -d`.
-   TheKittySaver's half is the same four-line edit in `/opt/tks/.env` (its runbook, #599).
-7. **Prove it in Grafana** (tunnel): Explore → Loki `{box="lotro-prod"}` lists every prod
-   container; the LotroKoniecDev dashboard's environment picker offers `production` with data behind
-   it; a trace from a prod request opens from its log line. Then **prove the absence rule**:
-   `ssh lotro-prod docker stop obs-alloy`, wait ~20 minutes for *Fleet — a box has gone silent*
-   to fire and the e-mail to arrive, `docker start obs-alloy`, and watch it resolve.
+   TheKittySaver's half is the same edit in `/opt/tks/.env` (its runbook, #599).
+7. **Prove it in Grafana** (tunnel): Explore → Loki `{box="lotro-prod"}` lists the prod containers;
+   the LotroKoniecDev dashboard's environment picker offers `production` with data behind it; a trace
+   from a prod request opens from its log line. Then **prove the absence rule**:
+   `ssh lotro-prod docker stop obs-alloy`, wait ~20 minutes for *Fleet — a box has gone silent* to
+   fire and the e-mail to arrive, `docker start obs-alloy`, and watch it resolve. Measured on
+   2026-09-09: the rule went `pending` 15 minutes after the last sample and `firing` 5 minutes later,
+   both e-mails arrived within 90 seconds, and the agent coming back cleared the rule in under two
+   minutes.
 
    **`{box="lotro-prod"}` lists the containers that WRITE, which is not all of them.** Caddy and
-   RabbitMQ produce zero stdout lines in a quiet half-hour — Caddy has no `log` directive, so it
-   says nothing about a request it served, and RabbitMQ is silent after boot — and `obs-alloy` is
-   dropped on purpose (shipping its own log through itself is a feedback loop that only shows up
-   once something is already wrong). So the expected list is the five **application** containers,
-   and it is the same list on the staging box: check against that one before believing discovery is
-   broken. Nothing filters discovery — `discovery.docker` takes every container on the socket.
-
-   Timings, measured on 2026-09-09 so the wait is not a guess: the last sample was at 01:00, the
-   rules went `pending` at 01:15 (the 15-minute window) and `firing` at 01:20 (the 5-minute `for`),
-   both e-mails arrived within 90 seconds of that, and the agent coming back cleared both rules in
-   under two minutes.
-8. Delete the first bullet under "Not done yet", and close #755 with that evidence.
+   RabbitMQ write nothing to stdout in a quiet half-hour (Caddy has no `log` directive, and RabbitMQ
+   is silent after boot), and `obs-alloy` drops its own log on purpose (shipping it through itself is
+   a feedback loop). So the expected list is the five **application** containers, the same as on the
+   staging box: check against that before you believe discovery is broken. Nothing filters discovery:
+   `discovery.docker` takes every container on the socket.
 
 ### Not done yet
 
-- **A dead staging box means no alerting at all**, for either environment. See the health ping above.
+- **A dead staging box means no alerting at all**, for either environment. The daily health ping
+  (above) is the only backstop.
 
 ## Disaster recovery
 

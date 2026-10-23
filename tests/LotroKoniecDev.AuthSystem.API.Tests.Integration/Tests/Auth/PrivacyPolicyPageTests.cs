@@ -4,7 +4,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
 /// The privacy policy is legal text, so the owner sets its wording. These lines carry the owner's ruling
-/// on #1073, and the claims below were false before it.
+/// on #1073.
 /// </summary>
 public sealed class PrivacyPolicyPageTests : EndpointsTestBase
 {

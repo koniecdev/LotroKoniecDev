@@ -90,8 +90,8 @@ public sealed class BreachedPasswordValidatorTests
     }
 
     /// <summary>
-    /// The failure policy of ADR-0066: an unknown answer lets the password through instead of blocking
-    /// registration, password change and reset while the service is down.
+    /// ADR-0066: an unknown answer lets the password through, so registration, change and reset keep working
+    /// while the service is down.
     /// </summary>
     [Fact]
     public async Task ValidateAsync_WhenTheServiceIsUnavailable_SucceedsSoTheFormStillWorks()
@@ -109,8 +109,8 @@ public sealed class BreachedPasswordValidatorTests
     }
 
     /// <summary>
-    /// The built-in validator refuses these with an error that names the rule, so this one stays out of
-    /// the way instead of adding the vaguer breach message on top.
+    /// The built-in validator names the broken rule, so this one stays out of the way instead of adding the
+    /// vaguer breach message.
     /// </summary>
     [Theory]
     [InlineData("abc")]

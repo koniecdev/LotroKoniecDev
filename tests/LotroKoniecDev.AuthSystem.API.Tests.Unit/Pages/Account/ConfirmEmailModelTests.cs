@@ -11,9 +11,8 @@ using NSubstitute;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Pages.Account;
 
 /// <summary>
-/// Identity writes its errors in English, and the page must never print that text (#1076). Identity
-/// refuses a good link only in a race, such as a second click on the link while the first one saves, so
-/// the store gives that answer here.
+/// Identity writes its errors in English, and the page must never print that text (#1076). Identity refuses
+/// a good link only in a race, such as a second click while the first saves, so the store gives that answer.
 /// </summary>
 public sealed class ConfirmEmailModelTests
 {

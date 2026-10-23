@@ -3,9 +3,6 @@ using LotroKoniecDev.AuthSystem.Infrastructure.Emails;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 
-/// <summary>
-/// The AuthSystem e-mail startup guard (M6-05), mainly its check of the SMTP host.
-/// </summary>
 public sealed class EmailOptionsValidatorTests
 {
     private readonly EmailOptionsValidator _validator = new();

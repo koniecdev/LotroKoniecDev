@@ -7,9 +7,8 @@ using LotroKoniecDev.AuthSystem.Infrastructure.PwnedPasswords;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.PwnedPasswords;
 
 /// <summary>
-/// Sends a check through the client exactly as the auth API registers it, real handler included, to a
-/// listener on this machine, and reads what arrives. A stub handler cannot show this: the trace headers
-/// are added inside the real one. It starts no host and no container.
+/// Sends a check through the client as the auth API registers it, real handler included, to a local
+/// listener. A stub handler cannot show this, because the real one adds the trace headers.
 /// </summary>
 public sealed class RangeApiRequestTests
 {
@@ -63,8 +62,7 @@ public sealed class RangeApiRequestTests
     }
 
     /// <summary>
-    /// A plain TCP listener that takes one request and answers it with one range line. It needs no
-    /// administrator rights on any operating system, unlike <c>HttpListener</c> on Windows.
+    /// A plain TCP listener needs no administrator rights on any OS, unlike <c>HttpListener</c> on Windows.
     /// </summary>
     private sealed class LoopbackRangeApi : IDisposable
     {

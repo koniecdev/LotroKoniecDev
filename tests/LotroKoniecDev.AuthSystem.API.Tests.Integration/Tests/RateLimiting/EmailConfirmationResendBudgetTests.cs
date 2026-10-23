@@ -8,16 +8,13 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// The resend budget that follows the inbox the mail would reach, not the caller asking for it (#793,
-/// #835, ADR-0055, ADR-0057). The resend form is anonymous and takes any address, so the IP policy alone
-/// lets an attacker who rotates IPs flood one inbox. The resend skips the outbox and calls the sender directly,
-/// so the sender spy counts exactly what went out.
-/// They run on the suite's normal Testing host, where the limiter middleware is off, so the only thing
-/// that can refuse a request here is this budget.
+/// The resend budget that follows the inbox the mail would reach (#793, #835, ADR-0055, ADR-0057): the form
+/// is anonymous, so the IP policy alone lets an attacker who rotates IPs flood an inbox. The resend calls the
+/// sender directly, so the spy counts exactly what went out, and the limiter middleware is off here, so only
+/// this budget can refuse.
 /// </summary>
 public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBase
 {
-    /// <summary>The shipped send budget, read from the same constant the registration uses.</summary>
     private const int PermitLimit = AccountBudgets.EmailConfirmationResendPermitLimit;
 
     private const string SuccessMarker = "data-testid=\"resend-confirmation-success\"";

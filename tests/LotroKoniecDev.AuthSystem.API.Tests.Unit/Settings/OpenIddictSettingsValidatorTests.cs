@@ -5,9 +5,6 @@ using NSubstitute;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 
-/// <summary>
-/// The AuthSystem OpenIddict startup guard (M6-05).
-/// </summary>
 public sealed class OpenIddictSettingsValidatorTests
 {
     private const string Production = "Production";
@@ -255,9 +252,9 @@ public sealed class OpenIddictSettingsValidatorTests
     }
 
     /// <summary>
-    /// #1025: a client renews a token a minute before it runs out, so a token that lives a minute or less
-    /// makes it renew the sign-in on every page, and zero or less hands out tokens that are already dead.
-    /// That breaks every environment alike, so Development and Testing are checked too.
+    /// #1025: a client renews a token a minute before it runs out, so a token of a minute or less renews on
+    /// every page, and zero or less is dead on arrival. That breaks every environment, so Development and
+    /// Testing are checked too.
     /// </summary>
     [Theory]
     [InlineData(Production, 1)]
@@ -354,8 +351,8 @@ public sealed class OpenIddictSettingsValidatorTests
 
     /// <summary>
     /// #1131: a '/', '?', '#' or second '@' in the password stops the address from parsing, and so does a
-    /// port over 65535. A typo in the scheme makes it an address of the wrong kind. All of them reach the
-    /// message that used to print the value.
+    /// port over 65535. A typo in the scheme makes it the wrong kind of address. The error message for
+    /// each of them must not print the value.
     /// </summary>
     [Theory]
     [InlineData(Production, "https://deploy:hun/ter2@lotro-translator.pl/callback", "hun/ter2")]

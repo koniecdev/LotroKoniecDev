@@ -4,9 +4,8 @@ using Microsoft.AspNetCore.Http;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Middleware;
 
 /// <summary>
-/// Who gets an error page and who keeps the machine-readable answer, and the frame every error page
-/// shares. A wrong call either shows a person raw JSON, or hands the frontend's back-channel HTML it
-/// cannot parse.
+/// Who gets an error page and who keeps the machine-readable answer: a wrong call shows a person raw JSON,
+/// or hands the frontend's back-channel HTML it cannot parse.
 /// </summary>
 public sealed class BrowserErrorPageTests
 {

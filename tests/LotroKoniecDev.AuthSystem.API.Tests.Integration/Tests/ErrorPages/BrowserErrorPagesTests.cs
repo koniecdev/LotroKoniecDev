@@ -66,8 +66,8 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The case from the ticket: the login form stays open while its cookie goes away, for example because
-    /// the user cleared cookies. The token in the form is fine, and the cookie it belongs to is missing.
+    /// The case of #879: the login form stays open while its cookie goes away, for example because the
+    /// user cleared cookies. The token in the form is fine, and the cookie it belongs to is missing.
     /// </summary>
     [Fact]
     public async Task LoginPost_ShouldShowABrowserTheFormExpiredPage_WhenTheFormsCookieIsGone()
@@ -197,14 +197,11 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Sign-in and sign-out links that OpenIddict refuses itself, without sending the error back to the
-    /// client (#912). Each one carries a <c>state</c>, which no answer may repeat. The second value is the
-    /// parameter OpenIddict names as the reason.
+    /// Links OpenIddict refuses itself, without sending the error to the client (#912). Each carries a
+    /// <c>state</c>, which no answer may repeat. The second value is the parameter OpenIddict names. The row
+    /// without PKCE has a valid client and callback: OpenIddict answers the client only when the whole
+    /// request passed its checks.
     /// </summary>
-    /// <remarks>
-    /// The row without PKCE has a valid client and callback. It is answered here too, because OpenIddict
-    /// sends an error back to the client only when the whole request passed its checks.
-    /// </remarks>
     public static TheoryData<string, string> BrokenSignInAndSignOutLinks => new()
     {
         { AuthorizeLink(clientId: "no-such-client", ValidCallback), "client_id" },
@@ -279,8 +276,8 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The last two go to the fallback writer, because they name neither JSON nor HTML. OpenIddict's own
-    /// plain text gave the reason to every caller, so they must keep it too.
+    /// The last two go to the fallback writer, because they name neither JSON nor HTML. They keep the
+    /// reason, as OpenIddict's own plain-text answer did for every caller.
     /// </summary>
     [Theory]
     [InlineData("application/json")]

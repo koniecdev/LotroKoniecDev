@@ -50,13 +50,12 @@ public sealed class TokenEndpointTests : EndpointsTestBase
     public async Task PasswordGrant_ShouldMintAnAccessTokenThatExpiresInFiveMinutes()
     {
         // Arrange
-        // This number is a security contract, not a tuning knob. The TMS validates JWTs on its own, so
-        // a token that RevokeAllAsync already killed in the database keeps working until it expires.
-        // That makes this value the delay on every revocation in the system (#686, ADR-0049).
+        // A security contract, not a tuning knob: the TMS validates JWTs itself, so a revoked token keeps
+        // working until it expires, and this value is the delay on every revocation (#686, ADR-0049).
         const int expectedLifetimeSeconds = 300;
 
         // expires_in counts down from the moment the server stamped the token, so it can land a
-        // second short. The range is still nowhere near the hour this used to be.
+        // second short.
         const int shortestAcceptableLifetimeSeconds = 290;
 
         const string password = "TestPass1!";
@@ -285,7 +284,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
     [Fact]
     public async Task RefreshTokenGrant_ShouldReturnUpdatedRoles_WhenRolesChangedInDatabase()
     {
-        // Arrange: Register user and get initial tokens
+        // Arrange
         const string password = "TestPass1!";
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
@@ -308,13 +307,12 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         string initialAccessToken = loginJson.RootElement.GetProperty("access_token").GetString()!;
         string refreshToken = loginJson.RootElement.GetProperty("refresh_token").GetString()!;
 
-        // Verify initial token has only "Translator" role via introspection
         using JsonDocument initialIntrospection = await IntrospectTokenAsync(initialAccessToken);
         initialIntrospection.RootElement.GetProperty("active").GetBoolean().ShouldBeTrue();
         string initialRole = initialIntrospection.RootElement.GetProperty("role").GetString()!;
         initialRole.ShouldBe("Translator");
 
-        // Act: Add "Admin" role to the user in the database
+        // Act: the user gains the Admin role, then refreshes
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         UserManager<ApplicationUser> userManager =
             scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
@@ -325,7 +323,6 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         IdentityResult addRoleResult = await userManager.AddToRoleAsync(user, "Admin");
         addRoleResult.Succeeded.ShouldBeTrue();
 
-        // Use refresh token to get new tokens
         using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "refresh_token",
@@ -336,7 +333,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         HttpResponseMessage refreshResponse = await ApiClient.Http.PostAsync(
             new Uri("connect/token", UriKind.Relative), refreshRequest);
 
-        // Assert: New access token should contain both roles
+        // Assert
         refreshResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         string refreshContent = await refreshResponse.Content.ReadAsStringAsync();
@@ -413,7 +410,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
     [Fact]
     public async Task RefreshTokenGrant_ShouldFail_WhenRefreshTokenIsRevoked()
     {
-        // Arrange: Register user and get tokens
+        // Arrange
         const string password = "TestPass1!";
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
@@ -435,7 +432,6 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         using JsonDocument loginJson = JsonDocument.Parse(loginContent);
         string refreshToken = loginJson.RootElement.GetProperty("refresh_token").GetString()!;
 
-        // Revoke the refresh token via the revocation endpoint
         using FormUrlEncodedContent revokeRequest = new(new Dictionary<string, string>
         {
             ["token"] = refreshToken,
@@ -446,7 +442,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
             new Uri("connect/revoke", UriKind.Relative), revokeRequest);
         revokeResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // Act: Try to use the revoked refresh token
+        // Act
         using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "refresh_token",
@@ -457,7 +453,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         HttpResponseMessage response = await ApiClient.Http.PostAsync(
             new Uri("connect/token", UriKind.Relative), refreshRequest);
 
-        // Assert: Revoked refresh token should be rejected
+        // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 

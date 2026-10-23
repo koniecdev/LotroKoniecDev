@@ -12,10 +12,9 @@ using LotroKoniecDev.Tests.Shared;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.BackgroundServices;
 
 /// <summary>
-/// When the GDPR erasure runs (#948): once at startup, then once per configured interval. A failed run
-/// is logged and never stops the next one, and stopping the app ends the job. The integration host
-/// does not run this job, so these tests are the only guard on its timing. The erasure itself is
-/// tested in <c>AccountDeletionFinalizerTests</c>.
+/// When the GDPR erasure runs (#948): at startup, then once per configured interval. A failed run never stops
+/// the next, and stopping the app ends the job. The integration host does not run this job, so these tests
+/// are the only guard on its timing.
 /// </summary>
 public sealed class AccountDeletionFinalizerHostedServiceTests
 {
@@ -71,10 +70,9 @@ public sealed class AccountDeletionFinalizerHostedServiceTests
     }
 
     /// <summary>
-    /// Run 1 is the startup run, which happens before the timer exists. Run 2 is the first run on the
-    /// timer. A cancellation the app did not ask for, such as a cancelled database command, is a failure
-    /// like any other: if it got out of a run on the timer, the loop would end it as a shutdown, with no
-    /// log line.
+    /// Run 1 is the startup run, before the timer exists; run 2 is the first on the timer. A cancellation the
+    /// app did not ask for is a failure too: escaping a timer run, it would end the loop like a shutdown, with
+    /// no log line.
     /// </summary>
     [Theory]
     [InlineData(1, false)]
@@ -131,8 +129,7 @@ public sealed class AccountDeletionFinalizerHostedServiceTests
     }
 
     /// <summary>
-    /// A deploy can stop the app in the middle of a run. That run is cancelled, which is not a failure,
-    /// so nothing is logged as one.
+    /// A deploy can stop the app mid-run, and that cancellation is not a failure.
     /// </summary>
     [Fact]
     public async Task StopAsync_ShouldEndTheJobWithoutLoggingAFailure_WhenTheAppStopsDuringTheStartupRun()

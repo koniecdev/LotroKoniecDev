@@ -28,9 +28,8 @@ public sealed class HealthEndpointsTests
         HttpResponseMessage response = await client.GetAsync("/health");
         string body = await response.Content.ReadAsStringAsync();
 
-        // Assert: Testing points SMTP and the broker at dead ports, so the full report is
-        // Unhealthy (503) by design; what this test pins is that the db + smtp + broker checks
-        // stay reachable on demand here.
+        // Assert: Testing points SMTP and the broker at dead ports, so the report is Unhealthy (503); what
+        // matters is that the three checks run on demand.
         response.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
         body.ShouldContain("authdb");
         body.ShouldContain("smtp");
@@ -60,8 +59,8 @@ public sealed class HealthEndpointsTests
         HttpResponseMessage response = await client.GetAsync("/health/ready");
         string body = await response.Content.ReadAsStringAsync();
 
-        // Assert: ACA probes this path every few seconds; it must never touch Postgres (ADR-0025)
-        // nor the broker (a broker outage must not pull auth out of the ingress rotation).
+        // Assert: the deploy polls this path; it must never touch Postgres (ADR-0025) nor the broker, so
+        // a broker outage cannot fail auth's readiness.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         body.ShouldContain("\"status\": \"Healthy\"");
         body.ShouldNotContain("authdb");
@@ -147,9 +146,8 @@ public sealed class HealthEndpointsTests
     [Fact]
     public void Boot_WithAKeyShorterThanTheMinimum_ShouldFailNamingTheKey()
     {
-        // Arrange: the validator refuses a short key in every environment, so a Testing host proves that
-        // the validator is registered and runs at startup. Without that, a deployed host with no key would
-        // boot with the full /health open.
+        // Arrange: the validator refuses a short key in every environment, so a Testing host proves it runs
+        // at startup; otherwise a deployed host with no key would boot with /health open.
         using WebApplicationFactory<Program> shortKeyHost = _factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, configBuilder) =>

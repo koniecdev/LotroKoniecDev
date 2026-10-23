@@ -93,7 +93,7 @@ public sealed class PwnedPasswordCheckerTests : IDisposable
     [Fact]
     public async Task CheckAsync_WhenTheAnswerNamesACharsetDotNetDoesNotKnow_StillReadsIt()
     {
-        // Arrange: #1036 — decoding by the named charset would throw instead of answering
+        // Arrange: decoding by the named charset would throw instead of answering (#1036)
         using StubRangeApiHandler rangeApi = StubRangeApiHandler.Answering(
             $"{HashSuffix}:3", "text/plain; charset=x-no-such-charset");
         PwnedPasswordChecker checker = CreateChecker(rangeApi);
@@ -106,8 +106,7 @@ public sealed class PwnedPasswordCheckerTests : IDisposable
     }
 
     /// <summary>
-    /// The acceptance criterion of #694: only the five-character prefix leaves the process. Neither the
-    /// password nor the rest of its hash may appear anywhere in what is sent.
+    /// #694: neither the password nor the rest of its hash may appear anywhere in what is sent.
     /// </summary>
     [Fact]
     public async Task CheckAsync_ForAnyPassword_SendsOnlyTheFiveCharacterHashPrefixAndAsksForPadding()

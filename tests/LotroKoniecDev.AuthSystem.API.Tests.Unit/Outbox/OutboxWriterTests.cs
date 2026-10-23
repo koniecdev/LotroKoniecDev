@@ -3,10 +3,8 @@ using LotroKoniecDev.AuthSystem.API.Outbox;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Outbox;
 
 /// <summary>
-/// Pins the check <see cref="OutboxWriter"/> does when a row is written: a contract nobody added to
-/// <see cref="OutboxMessageRouting"/> must fail the writer's own request as soon as it is enqueued.
-/// It uses its own exception type, which no writer catches, so this crash can never be turned into a
-/// false business outcome.
+/// A contract nobody added to <see cref="OutboxMessageRouting"/> fails the writer's own request at enqueue,
+/// with an exception type no writer catches, so the crash never turns into a false business outcome.
 /// </summary>
 public sealed class OutboxWriterTests
 {
@@ -15,8 +13,8 @@ public sealed class OutboxWriterTests
     [Fact]
     public void Enqueue_TypeWithoutRoutingKey_ThrowsBeforeTouchingTheUnitOfWork()
     {
-        // Arrange: the guard must fire before any dependency is used, so the writer is built
-        // with a null context on purpose: reaching the database would NRE instead of throwing
+        // Arrange: the guard must fire before any dependency is used, so the writer gets a null context.
+        // Reaching the database would throw a NullReferenceException instead
         OutboxWriter sut = new(db: null!, TimeProvider.System);
 
         // Act

@@ -11,10 +11,9 @@ using LotroKoniecDev.Tests.Shared;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.Maintenance;
 
 /// <summary>
-/// When the token prune runs (#948): once a minute after startup, then once a day. A failed pass is
-/// logged and never stops the next one, and stopping the app ends the job. The integration host does
-/// not run this job. The integration suite tests one pass: its threshold, order and failure handling
-/// in the class of the same name, and what it deletes in <c>OpenIddictPruneServiceIntegrationTests</c>.
+/// When the token prune runs (#948): a minute after startup, then once a day. A failed pass never stops the
+/// next, and stopping the app ends the job. The integration host does not run it; the integration suite
+/// tests what one pass does.
 /// </summary>
 public sealed class OpenIddictPruneServiceTests
 {
@@ -74,8 +73,7 @@ public sealed class OpenIddictPruneServiceTests
     }
 
     /// <summary>
-    /// Pass 1 is the one after the startup delay, which happens before the daily timer exists. Pass 2 is
-    /// the first one on the daily timer.
+    /// Pass 1 runs after the startup delay, before the daily timer exists; pass 2 is the first on the timer.
     /// </summary>
     [Theory]
     [InlineData(1)]

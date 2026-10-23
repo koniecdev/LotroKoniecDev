@@ -9,9 +9,9 @@ using LotroKoniecDev.SharedKernel.Constants;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// The API checks a new password with FluentValidation first. The reset page and the admin seed reach
-/// only Identity's password validators. Both must accept and refuse the same passwords, or one path takes
-/// a password the other refuses (#1046). A rule added to only one of them fails here.
+/// The API checks a new password with FluentValidation; the reset page and the admin seed reach only
+/// Identity's validators. Both must agree on every password (#1046), so a rule added to one side only fails
+/// here.
 /// </summary>
 [Collection("AuthApi")]
 public sealed class PasswordRulesParityTests

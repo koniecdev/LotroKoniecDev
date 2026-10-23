@@ -4,13 +4,11 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.RateLimiting;
 
 /// <summary>
 /// The budget that belongs to the account, not to the caller. The IP policies cannot stop an attacker who
-/// rotates addresses, and behind the frontend they see one address for everybody; this is what makes a
-/// brake per account (#692 for password-reset mail, #813 for password confirmations, #811 for deletion
-/// schedules).
+/// rotates addresses, and behind the frontend they see one address for everybody (#692 for password-reset
+/// mail, #813 for password confirmations, #811 for deletion schedules).
 /// </summary>
 public sealed class PerAccountFixedWindowThrottleTests
 {
-    /// <summary>The shipped confirmation budget: 10 per 15 minutes per account.</summary>
     private const int PermitLimit = AccountBudgets.PasswordConfirmationPermitLimit;
 
     [Fact]
@@ -72,8 +70,8 @@ public sealed class PerAccountFixedWindowThrottleTests
     [Fact]
     public async Task TryAcquire_ShouldGiveTheBudgetBackWhenTheWindowPasses()
     {
-        // Arrange: a wrong unit here — hours instead of minutes — would cut every user off for good, and
-        // no test of the limit alone would notice
+        // Arrange: a wrong unit here (hours instead of minutes) would cut every user off for good, and no
+        // test of the limit alone would notice
         TimeSpan window = TimeSpan.FromMilliseconds(200);
         using PerAccountFixedWindowThrottle throttle = new(permitLimit: 1, window);
         Guid userId = Guid.CreateVersion7();
@@ -81,8 +79,8 @@ public sealed class PerAccountFixedWindowThrottleTests
         throttle.TryAcquire(userId).ShouldBeTrue();
         throttle.TryAcquire(userId).ShouldBeFalse();
 
-        // Act: poll rather than sleep a fixed amount — the limiter replenishes on its own timer, and a
-        // loaded machine must not be the reason this fails
+        // Act: poll instead of sleeping a fixed time. The limiter replenishes on its own timer, and a
+        // loaded machine must not make this fail
         bool replenished = false;
         DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
         while (DateTime.UtcNow < deadline && !replenished)

@@ -15,10 +15,8 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// Exercises the signal-driven relay end-to-end against the real host: registration commits an
-/// outbox row and nudges the signal, the hosted relay publishes to the (spy) broker and marks the
-/// row processed. No fixed poll interval exists to lean on (ADR-0035), so every test waits on the
-/// observable database state, never on time.
+/// The signal-driven relay against the real host. There is no poll interval to lean on (ADR-0035), so every
+/// test waits on database state, never on time.
 /// </summary>
 public sealed class OutboxRelayTests : EndpointsTestBase
 {
@@ -104,8 +102,8 @@ public sealed class OutboxRelayTests : EndpointsTestBase
     public async Task Registration_ShouldCommitNoOutboxRow_WhenRegistrationFails()
     {
         // Arrange: a taken username makes the second registration fail inside the same transaction
-        // that would have written its outbox row. A taken address is no failure since #860: it answers
-        // like a free one and queues a notice to the owner.
+        // that would have written its outbox row. A taken address is no failure (#860): it answers like
+        // a free one and queues a notice to the owner.
         (RegisterRequest existingRequest, _) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy);
 
@@ -230,8 +228,7 @@ public sealed class OutboxRelayTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Polls the database until a row matches or <see cref="RelayReactionTimeout"/> elapses, then
-    /// returns what it last read, or null. The assertions on it stay in the test.
+    /// Returns the latest read, or null; the assertions stay in the test.
     /// </summary>
     private async Task<OutboxMessage?> WaitForOutboxRowAsync(Func<OutboxMessage, bool> predicate)
     {

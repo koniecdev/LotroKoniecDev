@@ -36,7 +36,6 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
 
-        // Confirm the email
         ConfirmEmailRequest confirmRequest = new(
             registerRequest.Email, AccountConfirmationEmailSpy.LastConfirmationTokenSentTo(registerRequest.Email)!);
         await ApiClient.Http.PostAsJsonAsync(
@@ -127,7 +126,6 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
-        // Try to confirm again
         ConfirmEmailRequest confirmRequest = new(registerRequest.Email, "any-token");
 
         // Act
@@ -148,7 +146,7 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
         string email = registerRequest.Email;
         string token = AccountConfirmationEmailSpy.LastConfirmationTokenSentTo(email)!;
 
-        // The first confirmation should succeed.
+        // The first confirmation spends the token.
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/confirm-email", UriKind.Relative),
             new ConfirmEmailRequest(email, token));

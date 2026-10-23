@@ -7,15 +7,9 @@ using LotroKoniecDev.Hateoas.ContentNegotiation;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.ForwardedHeaders;
 
 /// <summary>
-/// Proves the AuthSystem reads the reverse proxy's <c>X-Forwarded-*</c> headers (Program.cs
-/// <c>UseForwardedHeaders</c>, ADR-0008, M6-02). Behind an ingress that terminates TLS, the request
-/// scheme reads <c>https</c>, so every absolute URL built from the scheme is https. That is the riskiest
-/// part of this ticket.
-/// What we look at is the public discovery document's links, which <c>LinkGenerator</c> builds from
-/// <c>HttpContext.Request.Scheme</c>, exactly the value the forwarded headers change.
-/// The <c>iss</c> value in OpenIddict tokens and discovery is deliberately not covered here: it comes
-/// from <c>OpenIddictSettings.Issuer</c>, does not depend on the request scheme, and so cannot be
-/// affected by these headers.
+/// The AuthSystem reads the proxy's <c>X-Forwarded-*</c> headers (ADR-0008), so behind a TLS-terminating
+/// ingress every absolute URL is https. The tests read the discovery links, built from the request scheme.
+/// The <c>iss</c> value comes from <c>OpenIddictSettings.Issuer</c>, not the scheme, so it is not covered.
 /// </summary>
 public sealed class ForwardedHeadersTests : EndpointsTestBase
 {

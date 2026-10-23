@@ -5,14 +5,9 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// The resend limiter exists to stop e-mail flooding, so its budget belongs to sending and not to
-/// looking at the form. <c>[EnableRateLimiting]</c> sits on the PageModel, and a Razor Page is one
-/// endpoint for both GET and POST, so without a limit that knows the verb, three page views use up a
-/// 15-minute window and the user cannot even reach the form.
-/// ADR-0046 made that page the one-click fix we advertise for a blocked login, which is why the
-/// difference matters.
-/// The suite's Testing host keeps the limiter off; these tests turn it on for a derived host, like
-/// <see cref="ConnectRateLimitingTests"/>.
+/// The resend limiter's budget belongs to sending, not to viewing the form: a Razor Page is one endpoint for
+/// GET and POST, so a verb-blind limit would let three page views lock the user out of the form that
+/// ADR-0046 sends blocked logins to. These tests turn the limiter on for a derived host.
 /// </summary>
 public sealed class ResendConfirmationRateLimitingTests : EndpointsTestBase
 {

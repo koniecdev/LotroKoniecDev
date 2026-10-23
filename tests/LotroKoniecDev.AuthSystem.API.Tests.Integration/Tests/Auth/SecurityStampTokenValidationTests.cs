@@ -260,8 +260,7 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
     }
 
     /// <summary>
-    /// Tokens are signed and sealed with each host's own keys, so they come from the host that will check
-    /// them.
+    /// Tokens are signed and sealed with each host's own keys, so they come from the host that checks them.
     /// </summary>
     private WebApplicationFactory<Program> CreateHostThatNeverRevokes() =>
         Factory.WithWebHostBuilder(builder =>
@@ -337,8 +336,7 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
     }
 
     /// <summary>
-    /// Link tokens are sealed with data protection, and nothing makes two test hosts share a key ring, so
-    /// the token comes from the host that will check it.
+    /// Nothing makes two test hosts share a key ring, so the token comes from the host that will check it.
     /// </summary>
     private static async Task<string> CreateCancelTokenAsync(IServiceProvider services, string email)
     {

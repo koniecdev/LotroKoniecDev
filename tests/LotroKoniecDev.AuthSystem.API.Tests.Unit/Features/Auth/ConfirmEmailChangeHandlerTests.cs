@@ -173,8 +173,8 @@ public sealed class ConfirmEmailChangeHandlerTests
     }
 
     /// <summary>
-    /// The handler only ever calls <c>ChangeTracker.Clear()</c> and adds the outbox row to this, which
-    /// needs no connection, so the suite stays pure.
+    /// The handler and its outbox writer only track rows here and clear the change tracker, which needs
+    /// no connection, so the suite stays pure.
     /// </summary>
     private static AuthDbContext CreateDetachedDbContext() =>
         new(new DbContextOptionsBuilder<AuthDbContext>()

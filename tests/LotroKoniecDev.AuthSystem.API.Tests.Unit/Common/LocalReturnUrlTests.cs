@@ -3,9 +3,8 @@ using LotroKoniecDev.AuthSystem.API.Common;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Common;
 
 /// <summary>
-/// The auth pages put <c>returnUrl</c> into their own links and redirect to it after a successful
-/// sign-in, so anything this check lets through becomes an open redirect on the auth origin, which is
-/// the most valuable phishing target we have.
+/// Anything this check lets through becomes an open redirect on the auth origin, the most valuable phishing
+/// target we have.
 /// </summary>
 public sealed class LocalReturnUrlTests
 {
@@ -36,9 +35,8 @@ public sealed class LocalReturnUrlTests
     }
 
     /// <summary>
-    /// A quote or an angle bracket inside a path is still a path, so the check keeps the value. It is not
-    /// an HTML escaper: the pages that print it HTML-encode it themselves (#681). Pinned here so nobody
-    /// reads this check as the escaping step and drops the encoding somewhere else.
+    /// The check is not an HTML escaper: the pages encode the value themselves (#681). Pinned so nobody takes
+    /// the check for the escaping step and drops the encoding.
     /// </summary>
     [Theory]
     [InlineData("""/x" onfocus="alert(1)""")]
@@ -49,10 +47,8 @@ public sealed class LocalReturnUrlTests
     }
 
     /// <summary>
-    /// Browsers drop ASCII tab and newline before they parse a URL, so <c>/&lt;tab&gt;/evil.example</c>
-    /// reads as <c>//evil.example</c> and must never end up in a link on the page. It arrives as
-    /// <c>%09</c> in the query string, and model binding has already decoded it by the time the check
-    /// sees it.
+    /// Browsers drop tab and newline before they parse a URL, so <c>/&lt;tab&gt;/evil.example</c> reads as
+    /// <c>//evil.example</c>. It arrives as <c>%09</c>, already decoded by model binding.
     /// </summary>
     [Theory]
     [InlineData("/\t/evil.example")]

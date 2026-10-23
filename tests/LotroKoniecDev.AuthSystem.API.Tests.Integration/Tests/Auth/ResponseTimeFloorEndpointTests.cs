@@ -14,11 +14,9 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
 /// Every answer that hides whether an address has an account leaves no sooner than its floor, on every
-/// branch a caller can reach without the password or the mailed token (ADR-0059). The rest of the suite
-/// runs with a floor that never waits, so these tests are the only ones that would see a member stop
-/// waiting.
-/// Each test sends its branches at the same time, so a member costs one floor, not one per branch. The
-/// branches are arranged one after another, because the registration helpers share one mail spy.
+/// branch reachable without the password or the mailed token (ADR-0059). The rest of the suite runs with a
+/// floor that never waits. Each test sends its branches at once, so it costs one floor; they are arranged
+/// one after another, because the registration helpers share one mail spy.
 /// </summary>
 public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
 {
@@ -221,8 +219,8 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The resend page calls the same handler, so the endpoint covers both. The unconfirmed branch is the
-    /// one that sends a mail; here the sender is a spy that returns at once.
+    /// The resend page calls the same handler, so the endpoint covers both. The unconfirmed branch sends a
+    /// mail, but the spy sender returns at once, so only the floor can make that answer wait.
     /// </summary>
     [Fact]
     public async Task ResendConfirmationEndpoint_ShouldWaitForTheLongerFloor_OnEveryBranch()

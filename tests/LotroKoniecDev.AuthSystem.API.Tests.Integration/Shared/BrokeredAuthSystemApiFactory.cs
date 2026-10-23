@@ -12,18 +12,11 @@ using RabbitMQ.Client;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// The twin of <see cref="AuthSystemApiFactory"/> that uses a real broker. The base host replaces the
-/// publisher with a spy and removes the consumer, because that suite has no broker, and this factory
-/// undoes exactly that against a real broker container: the real
-/// <see cref="RabbitMqMessagePublisher"/> comes back, the real <see cref="EmailDispatchConsumer"/> is
-/// added again, and the RabbitMq settings point at the container.
-/// SMTP is still a spy, so tests can see the e-mails without sending any. This is the only host where
-/// the whole pipeline, outbox to relay to broker to consumer, exists in one process.
-/// The consumer runs faster than in production but in the same order. It checks its subscription every
-/// second instead of every 30 seconds, and waits 200 ms instead of up to a minute before it connects
-/// again, so a test can watch it attach again in seconds. Its automatic recovery retries every 100 ms
-/// instead of every 5 seconds, so after a dropped connection recovery still comes first, before the
-/// second look, as it does in production.
+/// The twin of <see cref="AuthSystemApiFactory"/> with a real broker: the real
+/// <see cref="RabbitMqMessagePublisher"/> and <see cref="EmailDispatchConsumer"/> come back, and SMTP stays a
+/// spy. It is the only host where the whole pipeline runs in one process. The consumer's timings are shorter
+/// but keep production's order: a look every second, a reconnect after 200 ms and recovery every 100 ms, so
+/// recovery still comes before the second look.
 /// </summary>
 public sealed class BrokeredAuthSystemApiFactory : AuthSystemApiFactory
 {
@@ -34,8 +27,7 @@ public sealed class BrokeredAuthSystemApiFactory : AuthSystemApiFactory
     public RabbitMqBrokerFixture Broker { get; } = new();
 
     /// <summary>
-    /// The broker container's address and credentials, available once <see cref="InitializeAsync"/>
-    /// has started it. Tests use them to open their own channels next to the host's clients.
+    /// Available once <see cref="InitializeAsync"/> started the broker. Tests open their own channels with it.
     /// </summary>
     public RabbitMqOptions BrokerOptions
     {

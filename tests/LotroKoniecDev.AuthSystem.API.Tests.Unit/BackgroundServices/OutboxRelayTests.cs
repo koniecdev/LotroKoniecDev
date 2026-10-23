@@ -17,12 +17,9 @@ using LotroKoniecDev.Tests.Shared;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.BackgroundServices;
 
 /// <summary>
-/// How long the outbox relay waits for a signal before it looks again (#1185, ADR-0035): six hours after
-/// a clean pass, which is the safety sweep, and a growing wait after a failed pass that ends at the same
-/// six hours. A signal ends any wait at once. The integration suite's class of the same name runs the
-/// relay against a real database and tests what a pass publishes.
-/// A unit test has no database, so a pass is seen where it asks for the database context. Each test
-/// decides there whether the pass fails or finds a database with no pending rows.
+/// How long the relay waits for a signal (#1185, ADR-0035): six hours after a clean pass, and a growing wait
+/// after a failed one that stops at six hours. A signal ends any wait. Where a pass asks for the database
+/// context, each test decides whether it fails or finds no pending rows.
 /// </summary>
 public sealed class OutboxRelayTests : IDisposable
 {
@@ -66,8 +63,7 @@ public sealed class OutboxRelayTests : IDisposable
     }
 
     /// <summary>
-    /// The sixth wait proves the ceiling: once the backoff reaches the safety-sweep interval, a row that
-    /// always fails is tried at the sweep pace and no faster.
+    /// The sixth wait proves the ceiling: a row that always fails is tried at the sweep pace and no faster.
     /// </summary>
     [Fact]
     public async Task ExecuteAsync_ShouldWaitLongerAfterEachFailedPass_UpToTheSafetySweepInterval()
@@ -95,8 +91,7 @@ public sealed class OutboxRelayTests : IDisposable
     }
 
     /// <summary>
-    /// After two failed passes the third is clean, so the relay is back on the six-hour sweep. The fourth
-    /// pass fails again, and the backoff starts over from its first step.
+    /// The third pass is clean, so the fourth pass's failure starts the backoff over from its first step.
     /// </summary>
     [Fact]
     public async Task ExecuteAsync_ShouldStartTheBackoffOver_WhenACleanPassComesBetweenFailures()
@@ -122,8 +117,7 @@ public sealed class OutboxRelayTests : IDisposable
     }
 
     /// <summary>
-    /// A signal is what drives the relay (ADR-0035), so it ends the safety sweep's wait and a backoff
-    /// wait alike, with no time passing on the clock.
+    /// A signal drives the relay (ADR-0035), so it ends the sweep's wait and a backoff wait alike.
     /// </summary>
     [Theory]
     [InlineData(false)]
@@ -170,9 +164,8 @@ public sealed class OutboxRelayTests : IDisposable
     }
 
     /// <summary>
-    /// Lets each wait run out in turn and returns how many waits had ended a millisecond before each
-    /// one was due. A wait that is too long stops the next pass from coming, and
-    /// <see cref="RunRecorder.WaitForNextRunAsync"/> then fails the test.
+    /// Returns how many waits had ended a millisecond before each was due. A wait that is too long stops the
+    /// next pass, and <see cref="RunRecorder.WaitForNextRunAsync"/> fails the test.
     /// </summary>
     private async Task<IReadOnlyList<int>> WaitThroughAsync(IEnumerable<TimeSpan> waits)
     {

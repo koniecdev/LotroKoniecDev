@@ -134,7 +134,6 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
 
         AccountConfirmationEmailSpy.Reset();
 
-        // Resend confirmation email
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/resend-email-confirmation", UriKind.Relative),
             new ResendEmailConfirmationRequest(request.Email));
@@ -170,21 +169,19 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
     [Fact]
     public async Task ResendEmailConfirmation_AfterUsed_ShouldNotAllowOldTokenConfirmation()
     {
-        // Arrange: register and capture the original token from registration
+        // Arrange
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
         string originalToken = AccountConfirmationEmailSpy.LastConfirmationTokenSentTo(request.Email)!;
         AccountConfirmationEmailSpy.Reset();
 
-        // Resend to get a new token
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/resend-email-confirmation", UriKind.Relative),
             new ResendEmailConfirmationRequest(request.Email));
 
         string newToken = AccountConfirmationEmailSpy.LastConfirmationTokenSentTo(request.Email)!;
 
-        // Confirm with the new token
         HttpResponseMessage confirmResponse = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/confirm-email", UriKind.Relative),
             new ConfirmEmailRequest(request.Email, newToken));
@@ -202,9 +199,8 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
     [Fact]
     public async Task ResendEmailConfirmation_ShouldSendDirectlyAndWriteNoOutboxRow_WhenBrokerIsDown()
     {
-        // Arrange: resend is the deliberate escape hatch of ADR-0038 decision 4: it must keep
-        // delivering precisely when the pipeline is the thing that is broken, so the spy broker
-        // refuses every publish for the duration of the act.
+        // Arrange: resend is the escape hatch of ADR-0038 decision 4: it must deliver when the pipeline is
+        // what is broken, so the spy broker refuses every publish.
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
@@ -222,10 +218,8 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
                 new Uri("auth/resend-email-confirmation", UriKind.Relative),
                 new ResendEmailConfirmationRequest(request.Email));
 
-            // Assert: the e-mail was captured before the response returned (in-request, direct
-            // path) and the outbox grew by nothing: with zero new rows and a refusing broker, the
-            // pipeline cannot be what delivered it. A refactor routing resend through the outbox
-            // flips both assertions.
+            // Assert: the mail came inside the request and the outbox gained no row, so with a refusing broker
+            // the pipeline cannot have delivered it.
             response.StatusCode.ShouldBe(HttpStatusCode.OK);
             AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldHaveSingleItem();
             (await CountOutboxRowsAsync()).ShouldBe(outboxRowsBeforeResend);

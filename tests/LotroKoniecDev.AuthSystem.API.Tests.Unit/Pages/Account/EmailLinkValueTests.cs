@@ -5,9 +5,9 @@ using Shouldly;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Pages.Account;
 
 /// <summary>
-/// The shape check the two e-mail-change pages run before they print a link's value or act on it. It
-/// keeps arbitrary text off a branded page that carries a password-clearing button, and it is what
-/// stops a malformed address reaching code that assumes one.
+/// The shape check the e-mail-change pages run before they print or use a link's value. It keeps arbitrary
+/// text off a branded page with a password-clearing button, and malformed addresses out of code that
+/// assumes one.
 /// </summary>
 public sealed class EmailLinkValueTests
 {
@@ -51,7 +51,7 @@ public sealed class EmailLinkValueTests
     [Fact]
     public void LooksLikeAnAddress_OneCharacterOverTheCeiling_Refuses()
     {
-        // The length check runs before the regex on purpose, so an over-long value never reaches it.
+        // The length check runs before the regex, so an over-long value never reaches it.
         string local = new('a', EmailConstants.MaxLength - "@shire.me".Length + 1);
         string value = $"{local}@shire.me";
 

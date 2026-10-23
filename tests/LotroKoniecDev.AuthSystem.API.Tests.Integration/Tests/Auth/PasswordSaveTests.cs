@@ -12,10 +12,10 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// A password change or reset saves the account once (#874). Identity gives the account a new security
-/// stamp inside that one save. A second save only added one more write that could fail after the new
-/// password was already in place: the caller got an error, and the other devices stayed signed in. So each
-/// test arms a failure for a second save of the account, and it must never fire.
+/// A password change or reset saves the account once (#874), and Identity gives the account a new security
+/// stamp inside that save. A second save would be one more write that could fail after the new password
+/// was in place, leaving the caller with an error and the other devices signed in. So each test arms a
+/// failure for a second save of the account, and it must never fire.
 /// </summary>
 public sealed partial class PasswordSaveTests : EndpointsTestBase
 {
@@ -88,8 +88,7 @@ public sealed partial class PasswordSaveTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Counts the saves of one account and fails the second one. Other accounts are left alone, so a
-    /// background job that saves some other account cannot move the count.
+    /// Other accounts are left alone, so a background save of another account cannot move the count.
     /// </summary>
     private SaveCounter FailASecondSaveOf(Guid userId)
     {

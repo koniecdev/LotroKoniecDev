@@ -5,9 +5,8 @@ using Shouldly;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.Accounts;
 
 /// <summary>
-/// The one clock behind the undo of ADR-0048. The address reservation of #684 and the erasure hold of
-/// #685 both read it, so "live" has to mean the same thing to a boolean check and to the cutoff a
-/// query compares a column against.
+/// The one clock behind the ADR-0048 undo. The reservation (#684) and the erasure hold (#685) both read it,
+/// so "live" must mean the same to a boolean check and to a query's cutoff.
 /// </summary>
 public sealed class EmailChangeRevertWindowTests
 {

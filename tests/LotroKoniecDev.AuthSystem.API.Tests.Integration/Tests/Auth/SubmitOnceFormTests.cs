@@ -4,10 +4,9 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// A form behind a one-time link must be sent only once. Otherwise a double click shows the answer to the
-/// second click, "link dead", although the first click did the work (#871). The browser side lives in
-/// <c>submit-once.js</c>, and the Frontend E2E suite proves the double click itself. These tests hold the
-/// wiring: each page marks its form and loads that file from its own origin.
+/// A form behind a one-time link must be sent only once, or a double click shows "link dead" although the
+/// first click did the work (#871). <c>submit-once.js</c> does it in the browser and the Frontend E2E suite
+/// proves the double click; these tests hold the wiring.
 /// </summary>
 public sealed partial class SubmitOnceFormTests : EndpointsTestBase
 {
@@ -37,9 +36,9 @@ public sealed partial class SubmitOnceFormTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// A marked form that the browser brings back from its cache after it was sent asks for a fresh GET, so
-    /// the server can answer for the used link (#941, ADR-0063). Every page behind a one-time link leaves a
-    /// used-link cookie and carries the mark. The login form leaves none, so a fresh GET would show it again.
+    /// A marked form restored from the browser cache asks for a fresh GET, so the server can answer for the
+    /// used link (#941, ADR-0063). The login form leaves no used-link cookie, so a fresh GET would show it
+    /// again.
     /// </summary>
     [Theory]
     [InlineData("/Account/ConfirmEmailChange?userId=00000000-0000-0000-0000-000000000001&email=c%40d.pl&token=z", true)]

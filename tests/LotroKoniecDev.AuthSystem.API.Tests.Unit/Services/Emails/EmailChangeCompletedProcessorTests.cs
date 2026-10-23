@@ -23,7 +23,7 @@ public sealed class EmailChangeCompletedProcessorTests
     public EmailChangeCompletedProcessorTests()
     {
         // Without this the substitute answers null on both sides of every address comparison, and
-        // string.Equals(null, null) is true — so the arming check would silently pass in every test.
+        // string.Equals(null, null) is true, so the arming check would pass in every test.
         _userManager.NormalizeEmail(Arg.Any<string?>())
             .Returns(callInfo => callInfo.Arg<string?>()?.ToUpperInvariant());
     }
@@ -94,8 +94,8 @@ public sealed class EmailChangeCompletedProcessorTests
     [Fact]
     public async Task ProcessAsync_RevertOfferFails_AsksForARetryAndDoesNotSendTheOtherNotice()
     {
-        // The revert offer goes first on purpose. It is the one message that can still undo a takeover,
-        // so if only one of the two ever gets through it has to be that one.
+        // The revert offer goes first. It is the one message that can still undo a takeover, so if only
+        // one of the two ever gets through it has to be that one.
         ApplicationUser user = CreateUser();
         _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
         Error smtpError = new("Email.SendFailed", "SMTP relay refused the message.");

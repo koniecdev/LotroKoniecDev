@@ -5,12 +5,11 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// Keeps every mail of the e-mail change flow together with the inbox it went to, so tests can follow
-/// the links a real user would receive. Half of ADR-0048 is about the old mailbox getting told, so a test
-/// checks which inbox got which mail, not only the token. A test reads only the inboxes of its own
-/// change: the mails travel through the outbox after the request has ended, so a mail from an earlier
-/// test can still arrive after <see cref="Reset"/>, and a spy that kept only the last mail of each kind
-/// handed it to the next test as its own (#950).
+/// Keeps every mail of the e-mail change flow with the inbox it went to, so tests can follow the links a
+/// real user would receive. Half of ADR-0048 is about telling the old mailbox, so a test checks which
+/// inbox got which mail, not only the token. A test reads only the inboxes of its own change: the mails
+/// travel through the outbox after the request has ended, so a mail from an earlier test can still arrive
+/// after <see cref="Reset"/> (#950).
 /// </summary>
 #pragma warning disable CA1515
 public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
@@ -90,9 +89,8 @@ public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
         _addressTakenNoticeRecipients.Count(address => address == recipient);
 
     /// <summary>
-    /// Waits until a verification link reaches the new address, and throws when the time runs out. Any
-    /// mail since the last <see cref="Reset"/> counts, so a test that asks twice for one address resets in
-    /// between.
+    /// Throws when the time runs out. Any mail since the last <see cref="Reset"/> counts, so a test that
+    /// asks twice for one address resets in between.
     /// </summary>
     public Task WaitForVerificationCaptureAsync(string newEmail, TimeSpan? timeout = null) =>
         MailWait.UntilAsync(
@@ -111,8 +109,7 @@ public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
             timeout);
 
     /// <summary>
-    /// Waits for the notice to the owner of a new address that already has an account, sent instead of
-    /// the link (#860).
+    /// Sent instead of the link when the new address already has an account (#860).
     /// </summary>
     public Task WaitForAddressTakenNoticeCaptureAsync(string ownerEmail, TimeSpan? timeout = null) =>
         MailWait.UntilAsync(
@@ -121,9 +118,8 @@ public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
             timeout);
 
     /// <summary>
-    /// Waits for the notice sent to the new address. Every confirmed change sends it, after the undo link
-    /// when the change arms one. A helper that completes a change waits for the mails of that change, so
-    /// none of them is still on its way when the test goes on.
+    /// Every confirmed change sends this notice, after the undo link when it arms one. Waiting for it means no
+    /// mail of the change is still on its way.
     /// </summary>
     public Task WaitForChangedNoticeCaptureAsync(string newEmail, TimeSpan? timeout = null) =>
         MailWait.UntilAsync(
@@ -132,9 +128,8 @@ public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
             timeout);
 
     /// <summary>
-    /// Waits for both mails of a change that arms an undo link: the offer to the previous address and the
-    /// notice to the new one. A refused confirm sends neither, so a caller checks that the account moved
-    /// before it waits, and fails at once instead of after the wait runs out.
+    /// A refused confirm sends neither mail, so a caller checks that the account moved first and fails at
+    /// once instead of after the wait.
     /// </summary>
     public Task WaitForRevertOfferAndNoticeCaptureAsync(
         string previousEmail, string newEmail, TimeSpan? timeout = null) =>

@@ -74,8 +74,7 @@ public sealed class TooManyRequestsPageTests
     [Fact]
     public void BuildHtml_ShouldPutTheRequestsNonceOnItsStyleBlock()
     {
-        // Act: the page is written after the security headers were planned, so its only inline style
-        // has to carry the nonce the CSP admits (#693)
+        // Act: the page's only inline style must carry the nonce the CSP admits (#693)
         string html = TooManyRequestsPage.BuildHtml(TimeSpan.FromMinutes(3), "r4nd0m-n0nce_value");
 
         // Assert

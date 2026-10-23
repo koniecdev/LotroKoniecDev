@@ -5,10 +5,8 @@ using Microsoft.Extensions.Options;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Settings;
 
 /// <summary>
-/// Reads the finalizer's poll interval the way the running app gets it: from the shipped
-/// appsettings.json, through configuration binding. The factory does not pin it, so a value that
-/// quietly binds to something else, or a change back to hourly polling, fails here and not on the
-/// Neon bill (#780).
+/// Reads the poll interval from the shipped appsettings.json through binding, as the app does. A value that
+/// binds to something else, or a return to hourly polling, fails here and not on the Neon bill (#780).
 /// </summary>
 [Collection("AuthApi")]
 public sealed class GdprSettingsBindingTests

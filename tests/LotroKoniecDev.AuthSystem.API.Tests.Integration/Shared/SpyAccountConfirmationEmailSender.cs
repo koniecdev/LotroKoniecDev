@@ -6,11 +6,10 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// Keeps every sign-up mail together with the inbox it went to, and a test reads only the inbox of its
-/// own account. Most of these mails travel through the outbox after the request has ended, so a mail
-/// from an earlier test can still arrive after <see cref="Reset"/>. When the spy kept only the last mail
-/// and one count for all inboxes, such a late mail could pass for the test's own (#950). A resend is the
-/// exception: it sends inside the request, to the address as it was typed.
+/// Keeps every sign-up mail with the inbox it went to, and a test reads only its own account's inbox.
+/// Most of these mails travel through the outbox after the request has ended, so a mail from an earlier
+/// test can still arrive after <see cref="Reset"/> and must not pass for the test's own (#950). A resend
+/// is the exception: it sends inside the request, to the address as it was typed.
 /// </summary>
 #pragma warning disable CA1515
 public sealed class SpyAccountConfirmationEmailSender : IAccountConfirmationEmailSender
@@ -56,9 +55,8 @@ public sealed class SpyAccountConfirmationEmailSender : IAccountConfirmationEmai
         _registrationAttemptedRecipients.Count(address => address == recipient);
 
     /// <summary>
-    /// Waits until a confirmation mail reaches this inbox, and throws when the time runs out. Any mail
-    /// since the last <see cref="Reset"/> counts, so a test that expects a second mail to one inbox
-    /// resets in between.
+    /// Throws when the time runs out. Any mail since the last <see cref="Reset"/> counts, so a test that
+    /// expects a second mail to one inbox resets in between.
     /// </summary>
     public Task WaitForCaptureAsync(string recipient, TimeSpan? timeout = null) =>
         MailWait.UntilAsync(
@@ -67,8 +65,7 @@ public sealed class SpyAccountConfirmationEmailSender : IAccountConfirmationEmai
             timeout);
 
     /// <summary>
-    /// Waits until the notice to the owner of a taken address reaches this inbox, and throws when the
-    /// time runs out. Like the confirmation, it travels the outbox pipeline (#860).
+    /// The notice to the owner of a taken address; it travels the outbox pipeline too (#860).
     /// </summary>
     public Task WaitForRegistrationAttemptedCaptureAsync(string recipient, TimeSpan? timeout = null) =>
         MailWait.UntilAsync(

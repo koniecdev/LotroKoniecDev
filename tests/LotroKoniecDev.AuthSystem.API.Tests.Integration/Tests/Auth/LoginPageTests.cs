@@ -10,27 +10,23 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 public sealed partial class LoginPageTests : EndpointsTestBase
 {
-    /// <summary>
-    /// Where a sign-in without a usable continuation has to land: the frontend's own login route,
-    /// derived from the web client origin this host is configured with.
-    /// </summary>
+    /// <summary>Where a sign-in with no usable continuation lands.</summary>
     private const string ExpectedFrontendLoginUrl = AuthSystemApiFactory.TestFrontendAppRoot + "/auth/login";
 
     public LoginPageTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
     /// <summary>
-    /// ADR-0046: this case only happens after the password was checked, so it names the real problem
-    /// instead of saying the credentials are wrong, and it carries the address to the resend page, which
-    /// is the only thing that unblocks the account.
+    /// ADR-0046: this case happens only after the password was checked, so it names the real problem and
+    /// carries the address to the resend page, the only thing that unblocks the account.
     /// </summary>
     [Fact]
     public async Task LoginPage_ShouldNameTheUnconfirmedAccount_WhenThePasswordIsCorrect()
     {
-        // Arrange: a registered account whose e-mail was never confirmed, with a valid password
+        // Arrange
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
-        // Act: the correct credentials, but the account is still unconfirmed
+        // Act
         HttpResponseMessage response = await PostToLoginPageAsync(new Dictionary<string, string>
         {
             ["Email"] = request.Email,
@@ -46,10 +42,8 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The other half of the rule below: a caller who does not know the password is not offered the
-    /// resend link either, so the link cannot reveal what the message no longer does. The page always
-    /// has a plain <c>/Account/ResendConfirmation</c> in its footer; only the version carrying an
-    /// address says anything about an account.
+    /// A caller without the password is not offered the resend link either. The footer always has a plain
+    /// <c>/Account/ResendConfirmation</c>; only the link with an address says anything about an account.
     /// </summary>
     [Fact]
     public async Task LoginPage_ShouldNotOfferTheResendLink_WhenTheUnconfirmedAccountsPasswordIsWrong()
@@ -92,12 +86,8 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The rule that stops anyone finding out which accounts exist, as ADR-0046 states it: every case
-    /// reachable without a correct password answers the same way, including an unconfirmed account tried
-    /// with the wrong password. So nothing about an address can be learned without already knowing its
-    /// password.
-    /// The two cases that only happen after a correct password, a scheduled deletion and an unconfirmed
-    /// address, name their reason on purpose and are pinned separately.
+    /// ADR-0046: nothing about an address can be learned without its password. The two cases that need the
+    /// right password, a scheduled deletion and an unconfirmed address, are pinned separately.
     /// </summary>
     [Fact]
     public async Task LoginPage_ShouldReturnIdenticalMessage_ForEveryFailureReachableWithoutThePassword()
@@ -133,7 +123,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
         string lockedOutMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
         {
             ["Email"] = lockedOut.Email,
-            ["Password"] = lockedOut.Password // correct password — the lockout branch must still win
+            ["Password"] = lockedOut.Password // the right password: the lockout branch must still win
         });
         string passwordlessMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
         {
@@ -150,11 +140,10 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The failures above all show the same text, so the time they take is the only thing left that
-    /// could tell them apart. Each one must verify exactly one password hash: the dummy one where there
-    /// is no real hash to check. The no-password row is the seeded admin before its first reset
-    /// (ADR-0056). The deletion rows take the branch that runs before the lockout check, because a
-    /// scheduled deletion also locks the account.
+    /// With identical texts, time is the only thing left that could tell the failures apart, so each one
+    /// verifies exactly one hash, the dummy one where there is none. The no-password row is the seeded admin
+    /// before its first reset (ADR-0056). The deletion rows take the branch before the lockout check,
+    /// because a scheduled deletion also locks the account.
     /// </summary>
     [Theory]
     [InlineData("unknown address")]
@@ -208,11 +197,8 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Every target outside this site is replaced by the configured frontend instead of being put into
-    /// the <c>Location</c> header. The <c>%09</c> case has its own row: a check that only looks at the
-    /// first characters calls it local, and passing it to <c>LocalRedirect</c> fails that method's own
-    /// check. So without the control-character test a successful login ends in an unhandled 500 instead
-    /// of a redirect.
+    /// Every target outside this site is replaced by the frontend. In the <c>%09</c> row, a check that looks
+    /// only at the first characters calls the target local, and <c>LocalRedirect</c> would then answer 500.
     /// </summary>
     [Theory]
     [InlineData("/\t/evil.example")]
@@ -265,10 +251,9 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The reset-password and confirm-email pages send the user to a plain <c>/Account/Login</c>, so a
-    /// successful sign-in has nowhere to continue. This host's root serves the discovery JSON, which is
-    /// a dead end for a browser, so the fallback has to go to the frontend's login route, where the
-    /// cookie we just issued completes the OIDC challenge without the user noticing.
+    /// The reset-password and confirm-email pages send the user to a plain <c>/Account/Login</c>. This host's
+    /// root is a dead end for a browser, so the fallback is the frontend's login route, where the new cookie
+    /// completes the OIDC challenge without the user noticing.
     /// </summary>
     [Fact]
     public async Task LoginPage_ShouldRedirectToTheFrontend_WhenThereIsNoReturnUrl()
@@ -314,9 +299,8 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The evidence for #681. A quote followed by an event handler is still a path that starts with one
-    /// <c>/</c>, so the local-target check keeps the value and the page prints it. What makes it harmless
-    /// is the encoding of the attribute, not the check, so the proof has to read the rendered body.
+    /// #681: the check keeps this local path, and the attribute encoding is what makes it harmless, so the
+    /// proof reads the rendered body.
     /// </summary>
     [Theory]
     [InlineData("""/x" onfocus="alert(1)""", "/x&quot; onfocus=&quot;alert(1)")]
@@ -336,9 +320,8 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Dropping the tag-helper route value also dropped the generated action attribute, and the form tag
-    /// helper decides on the antiforgery token from exactly that: it only leaves the token out when the
-    /// markup sets an action itself. Without the token every login POST would answer 400.
+    /// The form tag helper leaves the antiforgery token out only when the markup sets an action itself
+    /// (#681). Without the token every login POST would answer 400.
     /// </summary>
     [Fact]
     public async Task LoginPage_ShouldStillEmitTheAntiforgeryToken_WhenTheFormCarriesNoAction()
@@ -372,9 +355,8 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Since #681 the form no longer puts the continuation into its action, so the hidden field is the
-    /// only part of the page that carries it. The POST goes to the bare page path, so a regression that
-    /// drops the field cannot hide behind the query string a browser would send as well.
+    /// Only the hidden field carries the continuation (#681). The POST goes to the bare page path, so a
+    /// regression that drops the field cannot hide behind the query string.
     /// </summary>
     [Fact]
     public async Task LoginPage_ShouldResumeTheContinuation_WhenOnlyTheRenderedFormCarriesIt()
@@ -409,9 +391,8 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The shape a browser really posts: the action-less form goes back to the address the page was loaded
-    /// from, so the query string arrives together with the hidden field. Model binding reads the form
-    /// before the query, and both carry the same target, so the continuation survives either way.
+    /// As a browser posts: the action-less form goes back to the page's address, so the query string
+    /// arrives with the hidden field. Model binding reads the form first.
     /// </summary>
     [Fact]
     public async Task LoginPage_ShouldResumeTheContinuation_WhenTheQueryAndTheFormBothCarryIt()
@@ -503,10 +484,8 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Posts the credentials to the login page, with an optional OIDC continuation in the query string.
-    /// Both steps use one client that does not follow redirects. It has to be the same client so its
-    /// cookie container carries the antiforgery cookie from the GET into the POST, and it must not
-    /// follow redirects so the target stays visible in the <c>Location</c> header.
+    /// One client for the GET and the POST, so the antiforgery cookie carries over, and it does not follow
+    /// redirects, so the target stays in the <c>Location</c> header.
     /// </summary>
     private async Task<HttpResponseMessage> PostToLoginPageAsync(
         Dictionary<string, string> formFields,
@@ -551,9 +530,8 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Posts the given fields on the same client that rendered the page, so the antiforgery cookie and the
-    /// token in the body belong together. <paramref name="postUrl"/> defaults to the bare page path, which
-    /// is where a test sends the form when the hidden field alone has to carry the target.
+    /// <paramref name="postUrl"/> defaults to the bare page path, where a test sends the form when the
+    /// hidden field alone has to carry the target.
     /// </summary>
     private static async Task<HttpResponseMessage> PostLoginFormAsync(
         HttpClient browser,

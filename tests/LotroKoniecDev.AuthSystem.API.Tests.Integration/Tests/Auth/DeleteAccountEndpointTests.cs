@@ -241,9 +241,8 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
             HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
             await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
 
-            // Assert: the undo step is gone (ADR-0038 decision 5). The request only commits the outbox
-            // row together with the schedule, so an SMTP failure neither fails the request nor cancels
-            // the schedule. Sending again, or replaying from the dead-letter queue, deals with it.
+            // Assert: the outbox row is committed with the schedule (ADR-0038 decision 5), so an SMTP failure
+            // neither fails the request nor cancels the schedule; a resend or a DLQ replay deals with it.
             response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
             ApplicationUser user = await GetUserAsync(identityId.Value);
@@ -262,10 +261,8 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
     [Fact]
     public async Task DeleteAccount_ShouldAlsoMailTheAddressAnArmedUndoWouldRestore_WhenSchedulingInsideThatWindow()
     {
-        // #685. An attacker who moved the account to their own address would otherwise be the only
-        // person holding the cancel link, and the erasure would land after the owner's undo had
-        // expired. The link is the same one, carrying the CURRENT address, because that is what
-        // CancelAccountDeletion looks the account up with.
+        // #685: otherwise an attacker who moved the account would hold the only cancel link. The link
+        // carries the current address, because CancelAccountDeletion finds the account by it.
         (RegisterRequest registerRequest, IdentityId identityId) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
         string previousEmail = NewPreviousAddress();

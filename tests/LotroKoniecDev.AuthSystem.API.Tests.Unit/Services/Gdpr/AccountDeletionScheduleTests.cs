@@ -8,9 +8,9 @@ using Shouldly;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.Gdpr;
 
 /// <summary>
-/// The rule that decides when an account is erased for good (#685). It is written twice — once as the
-/// date every promise quotes, once as the query the finalizer runs — so the last test here checks the
-/// two readings against each other rather than trusting that they were kept in step by hand.
+/// The rule that decides when an account is erased for good (#685). It is written twice, as the date
+/// every promise quotes and as the query the finalizer runs, so the last tests check the two readings
+/// against each other.
 /// </summary>
 public sealed class AccountDeletionScheduleTests
 {
@@ -65,8 +65,8 @@ public sealed class AccountDeletionScheduleTests
     [Fact]
     public void FinalizesAt_IsTheGracePeriod_WhenNoUndoIsArmed()
     {
-        // Also the pre-#684 row: it carries a target but no timestamp, so it reads as nothing armed,
-        // which is the behavior it shipped under. There is no honest value to backfill it with.
+        // This also covers a row from before #684: a target with no timestamp reads as nothing armed.
+        // There is no honest value to backfill it with.
         IAccountDeletionSchedule sut = CreateSut();
 
         sut.FinalizesAt(ScheduledAt, revertArmedAt: null).ShouldBe(ScheduledAt + Grace);
@@ -75,10 +75,9 @@ public sealed class AccountDeletionScheduleTests
     [Fact]
     public void FinalizesAt_IsHeldUntilTheUndoExpires_WhenTheUndoOutlivesTheGracePeriod()
     {
-        // The case the ticket is about, made reachable: a grace period shorter than the undo window.
-        // With the shipped defaults the two are equal and an undo is always armed before a deletion is
-        // scheduled, so this hold never fires — it exists so a shortened Gdpr:DeletionGracePeriod
-        // cannot let the finalizer erase an account somebody still holds a working undo link for.
+        // The case #685 is about: a grace period shorter than the undo window, which the shipped defaults
+        // never have. The hold keeps a shortened Gdpr:DeletionGracePeriod from erasing an account while an
+        // undo link still works.
         IAccountDeletionSchedule sut = CreateSut(grace: TimeSpan.FromDays(7));
         DateTimeOffset armedAt = ScheduledAt - TimeSpan.FromDays(2);
 
@@ -119,10 +118,8 @@ public sealed class AccountDeletionScheduleTests
     public void IsDueBy_HoldsTheRowUntilTheUndoItselfHasExpired_ToTheSecond(
         int secondsPastTheUndoExpiry, bool expectedDue)
     {
-        // The comparison this exercises is the one that decides whether data survives, and the grid
-        // below cannot reach it: it is day-granular, and every cell where the armed clause sits on its
-        // boundary is already answered by the grace clause. Grace is deliberately short here so the
-        // armed term is the only thing left deciding, which is what makes a <= / < slip fail.
+        // The day-granular grid below cannot reach this boundary, because the grace term answers every cell
+        // there. A short grace leaves the armed term deciding, so a <= / < slip fails.
         IAccountDeletionSchedule sut = CreateSut(grace: TimeSpan.FromDays(7));
         DateTimeOffset armedAt = ScheduledAt - TimeSpan.FromDays(2);
         ApplicationUser user = CreateUser(ScheduledAt, armedAt);
@@ -138,8 +135,8 @@ public sealed class AccountDeletionScheduleTests
     [Fact]
     public void IsDueBy_NeverPicksUpAnAccount_WhoseUndoIsStillLive()
     {
-        // The acceptance criterion of #685, stated as a test: no path erases an account while a live
-        // undo link for it exists, because following that link cancels the deletion.
+        // #685: no path erases an account while a live undo link for it exists, because following that
+        // link cancels the deletion.
         IAccountDeletionSchedule sut = CreateSut(grace: TimeSpan.FromDays(7));
         DateTimeOffset armedAt = ScheduledAt - TimeSpan.FromDays(2);
         ApplicationUser user = CreateUser(ScheduledAt, armedAt);
@@ -171,10 +168,8 @@ public sealed class AccountDeletionScheduleTests
     public void IsDueBy_AndFinalizesAt_AgreeOnEveryCombinationOfTheTwoClocks(
         int scheduledDaysAgo, int? armedDaysBeforeSchedule)
     {
-        // The whole point of one service owning both forms. The query is what erases data and the
-        // scalar is what every promise quotes; a disagreement between them is either an account
-        // erased early or a deletion date nobody keeps. Grace is short here so both terms get to
-        // decide some of the cells - at the shipped 14/14 the grace term would answer them all.
+        // The query erases data and the scalar is what every promise quotes, so a disagreement erases early
+        // or breaks a promised date. A short grace lets both terms decide some cells.
         IAccountDeletionSchedule sut = CreateSut(grace: TimeSpan.FromDays(7));
         DateTimeOffset moment = ScheduledAt + TimeSpan.FromDays(10);
         DateTimeOffset scheduledAt = moment - TimeSpan.FromDays(scheduledDaysAgo);

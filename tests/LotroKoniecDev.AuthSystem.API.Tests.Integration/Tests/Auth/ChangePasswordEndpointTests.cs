@@ -108,7 +108,7 @@ public sealed class ChangePasswordEndpointTests : EndpointsTestBase
         HttpResponseMessage changeResponse = await ApiClient.Http.SendAsync(changeReq);
         changeResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // Act: try to use the refresh token that was issued BEFORE the change
+        // Act: try to use the refresh token that was issued before the change
         using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "refresh_token",

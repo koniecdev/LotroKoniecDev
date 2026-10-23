@@ -13,9 +13,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
 /// The second layer under the time floor (ADR-0059 §5): when a branch runs past the floor, the branches
-/// must still cost the same CPU, so each one verifies exactly one password hash. Resend, reset and
-/// confirm used to skip the dummy hash on some branches of a real account. Login's branches are pinned
-/// in <c>LoginPageTests</c>.
+/// must still cost the same CPU, so each one verifies exactly one password hash. Login's branches are
+/// pinned in <c>LoginPageTests</c>.
 /// </summary>
 public sealed partial class AccountLookupHashParityTests : EndpointsTestBase
 {

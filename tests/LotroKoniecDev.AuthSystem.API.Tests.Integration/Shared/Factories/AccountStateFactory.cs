@@ -6,9 +6,8 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 
 /// <summary>
-/// Puts a registered account into the state a branch needs. The account states live in the shared
-/// database, so any host's services will do for them. The budgets live in each host's memory, so the
-/// budget methods need the services of the host that will answer.
+/// Account states live in the shared database, so any host's services do. Budgets live in each host's
+/// memory, so the budget methods need the services of the host that will answer.
 /// </summary>
 internal static class AccountStateFactory
 {
@@ -69,9 +68,8 @@ internal static class AccountStateFactory
     }
 
     /// <summary>
-    /// Moves a scheduled deletion <paramref name="age"/> into the past and leaves the security stamp
-    /// alone, so the cancel token already mailed still verifies. That is the state of a cancel e-mail
-    /// that went out late (#947).
+    /// Leaves the stamp alone, so the mailed cancel token still verifies: a cancel mail that went out late
+    /// (#947).
     /// </summary>
     public static async Task BackdateDeletionScheduleAsync(IServiceProvider services, string email, TimeSpan age)
     {

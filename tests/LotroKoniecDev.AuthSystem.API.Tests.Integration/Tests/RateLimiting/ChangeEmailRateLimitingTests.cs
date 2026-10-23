@@ -6,10 +6,9 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// The e-mail change endpoint sends mail to an address the caller types in, so it can be pointed at a
-/// stranger's inbox. Its budget is the same as forgot-password's, and the key is the client IP.
-/// The suite's Testing host keeps the limiter off; these tests turn it on for a derived host, like
-/// <see cref="ResendConfirmationRateLimitingTests"/>.
+/// The e-mail change endpoint mails an address the caller types, so it can be aimed at a stranger's inbox.
+/// Its budget matches forgot-password's and is keyed by the client IP. These tests turn the limiter on for a
+/// derived host.
 /// </summary>
 public sealed class ChangeEmailRateLimitingTests : EndpointsTestBase
 {
@@ -25,10 +24,8 @@ public sealed class ChangeEmailRateLimitingTests : EndpointsTestBase
     [Fact]
     public async Task ChangeEmail_ShouldThrottleTheFourthAttemptWithinTheHour()
     {
-        // The requests are unauthenticated on purpose. UseRateLimiter runs before UseAuthentication,
-        // so the limiter never sees a principal — which is both why the key is the IP and why an
-        // anonymous caller shares the same bucket. Asserting it here keeps that property visible
-        // instead of leaving it to the pipeline order to imply.
+        // The requests are unauthenticated: UseRateLimiter runs before UseAuthentication, so the limiter
+        // never sees a principal, which is why the key is the IP.
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
 

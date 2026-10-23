@@ -30,9 +30,9 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// The sign-in server's cookie carries only a session key, and the session lives in the auth database
-/// (ADR-0062, #1013). Every device is its own client that keeps no cookies, so each request carries
-/// exactly the cookie the test hands it. A stolen copy is the same cookie sent by someone else.
+/// The sign-in cookie carries only a session key, and the session lives in the auth database (ADR-0062,
+/// #1013). Every device is its own client with no cookie jar, so each request carries exactly the cookie
+/// the test hands it.
 /// </summary>
 public sealed partial class SignInSessionTests : EndpointsTestBase
 {
@@ -111,8 +111,8 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
     [Fact]
     public async Task Authorize_ShouldSendACookieWrittenBeforeTheSessionStoreToTheLoginForm()
     {
-        // Arrange: the cookie as this server wrote it before ADR-0062, the whole principal inside and no
-        // session key. Everything in it is still true, so its shape is the only thing wrong with it.
+        // Arrange: the cookie as written before ADR-0062, with the whole principal and no session key. Its
+        // content is still true, so only its shape is wrong.
         (string email, _) = await RegisterUserAsync();
         string oldCookie = await WriteCookieWithoutASessionKeyAsync(email);
 
@@ -166,9 +166,8 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// A browser can hold a cookie that names no live session. On the day of the deploy every remembered
-    /// browser holds one from before the session store: the authorize step sends it to the login form,
-    /// but the cookie stays and rides along with the login POST.
+    /// On the deploy day every remembered browser holds a cookie from before the session store. The
+    /// authorize step sends it to the login form, but the cookie rides along with the login POST.
     /// </summary>
     [Theory]
     [InlineData(BrowserCookieKind.WrittenBeforeTheSessionStore)]
@@ -247,8 +246,8 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
         // Act
         string authCookie = await SignInAsync(email, rememberMe: true);
 
-        // Assert: no name, e-mail, user id or security stamp travels in the cookie any more. The claim type
-        // is pinned too: our cookie handler reads the key under it to end the browser's old session.
+        // Assert: no name, e-mail, user id or security stamp travels in the cookie. The claim type is
+        // pinned too: our cookie handler reads the key under it to end the browser's old session.
         AuthenticationTicket? cookieTicket = AuthCookieOptions.TicketDataFormat.Unprotect(CookieValueOf(authCookie));
         SignInSession session = (await SessionsOfAsync(userId)).ShouldHaveSingleItem();
         cookieTicket.ShouldNotBeNull();
@@ -423,9 +422,8 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Signs in through the login form, like a browser on a device of its own, and returns the sign-in
-    /// server's cookie as <c>name=value</c>. <paramref name="browserCookie"/> is a sign-in cookie the
-    /// browser already holds.
+    /// Signs in like a browser on its own device and returns the sign-in cookie as <c>name=value</c>.
+    /// <paramref name="browserCookie"/> is a sign-in cookie the browser already holds.
     /// </summary>
     private async Task<string> SignInAsync(
         string email,
@@ -469,8 +467,7 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Finishes the website's sign-in with the cookie and returns the ID token the website later sends
-    /// as its sign-out hint.
+    /// Returns the ID token the website later sends as its sign-out hint.
     /// </summary>
     private async Task<string> SignInToTheWebsiteAsync(string authCookie)
     {
@@ -627,8 +624,7 @@ public sealed partial class SignInSessionTests : EndpointsTestBase
         });
 
     /// <summary>
-    /// This host with the sign-in cookie on a clock the test moves. Each host protects cookies with its
-    /// own keys, so a test signs in and authorizes through the same host.
+    /// Each host protects cookies with its own keys, so a test signs in and authorizes through the same host.
     /// </summary>
     private WebApplicationFactory<Program> CreateHostWithCookieClock(Func<DateTimeOffset> utcNow)
     {

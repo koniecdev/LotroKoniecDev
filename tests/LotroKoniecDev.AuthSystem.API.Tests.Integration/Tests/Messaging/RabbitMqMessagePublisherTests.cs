@@ -10,10 +10,8 @@ using RabbitMQ.Client.Exceptions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Messaging;
 
 /// <summary>
-/// Runs the real <see cref="RabbitMqMessagePublisher"/> against a real broker. This is the only suite
-/// where its late connect, its topology declaration, the publisher confirmations, the mandatory returns
-/// and the channel rebuild really happen. Everywhere else the factory uses
-/// <c>SpyMessagePublisher</c>, and <c>DeadLetterTopologyTests</c> works with raw channels.
+/// The real <see cref="RabbitMqMessagePublisher"/> against a real broker: the only suite where its late
+/// connect, topology declaration, confirmations, mandatory returns and channel rebuild really happen.
 /// </summary>
 public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBrokerFixture>, IAsyncLifetime
 {
@@ -68,9 +66,8 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
     [Fact]
     public async Task PublishAsync_ShouldSurfaceTheReturn_WhenNoQueueIsBoundToTheRoutingKey()
     {
-        // Act: "billing.invoice" matches no binding, because the queue binds email.#. The publisher
-        // sends the message as mandatory and tracks the confirmation, so the basic.return has to fail
-        // this very call instead of the message quietly disappearing.
+        // Act: "billing.invoice" matches no binding (the queue binds email.#). The message is mandatory and
+        // confirmed, so the basic.return must fail this call instead of the message disappearing.
         Task publish = _publisher.PublishAsync(
             RabbitMqTopology.EmailsExchange, "billing.invoice", MessageType, Payload, Guid.CreateVersion7(), CancellationToken.None);
 
@@ -120,8 +117,8 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
     }
 
     /// <summary>
-    /// Reads one delivery off the e-mail queue over a fresh connection (the publisher under test
-    /// owns its own), polling because routing inside the broker is asynchronous.
+    /// Reads over a fresh connection (the publisher owns its own) and polls, because routing in the broker is
+    /// asynchronous.
     /// </summary>
     private async Task<BasicGetResult?> GetFromEmailQueueAsync()
     {

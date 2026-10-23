@@ -7,10 +7,8 @@ using Testcontainers.RabbitMq;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// One real RabbitMQ container per test class. The rest of the suite runs without a broker, behind
-/// <see cref="SpyMessagePublisher"/>, on purpose. But dead-letter routing, the retry counting of a
-/// quorum queue and the delivery limit are things the broker does, so only a real broker can show that
-/// the topology we declare really has them.
+/// One real RabbitMQ container per test class. Dead-letter routing, quorum retry counting and the delivery
+/// limit are broker behaviour, so only a real broker shows that our topology has them.
 /// </summary>
 public sealed class RabbitMqBrokerFixture : IAsyncLifetime
 {
@@ -38,8 +36,7 @@ public sealed class RabbitMqBrokerFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// The container's coordinates as the very settings shape production binds from
-    /// configuration, so a test can construct the real publisher against this broker.
+    /// In the settings shape production binds, so a test can build the real publisher against this broker.
     /// </summary>
     public RabbitMqOptions BuildOptions()
     {

@@ -29,9 +29,8 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Where the login page's "account not confirmed" link leads (ADR-0046). The <c>+</c> case matters:
-    /// a link built without escaping would arrive here with a space instead, and the address in the form
-    /// would not be the account's.
+    /// The <c>+</c> case matters: a link built without escaping would arrive with a space, and the address in
+    /// the form would not be the account's (ADR-0046).
     /// </summary>
     [Fact]
     public async Task ResendConfirmationPage_ShouldPrefillTheAddress_WhenItArrivesInTheQuery()

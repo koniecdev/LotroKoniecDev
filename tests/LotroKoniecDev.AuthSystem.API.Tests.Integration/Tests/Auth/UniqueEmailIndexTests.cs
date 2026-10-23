@@ -20,14 +20,13 @@ public sealed class UniqueEmailIndexTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
         string caseVariantEmail = request.Email.ToUpperInvariant();
-        caseVariantEmail.ShouldNotBe(request.Email); // raw-column uniqueness must NOT be what trips below
+        caseVariantEmail.ShouldNotBe(request.Email); // raw-column uniqueness must not be what trips below
 
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext dbContext = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
 
-        // A direct insert skips every check the app does, which is exactly the race RegisterUser
-        // describes. Only the unique EmailIndex on NormalizedEmail stops this pair from locking two
-        // accounts out of login for good (ADR-0022).
+        // A direct insert skips every app check, the race RegisterUser describes. Only the unique index on
+        // NormalizedEmail keeps this pair from locking both accounts out of login (ADR-0022).
         string username = "dup" + Faker.Random.AlphaNumeric(12);
         ApplicationUser duplicate = new()
         {

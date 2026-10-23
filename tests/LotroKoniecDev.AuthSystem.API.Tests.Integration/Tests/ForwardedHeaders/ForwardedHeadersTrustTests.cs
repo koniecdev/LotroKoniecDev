@@ -15,15 +15,10 @@ using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.ForwardedHeaders;
 
 /// <summary>
-/// Proves who the forwarded headers are trusted from (#399). When
-/// <c>ForwardedHeaders:KnownNetworks</c> is set, <c>X-Forwarded-*</c> is only read from peers inside
-/// those networks, a faked header from anywhere else is ignored, and a malformed network stops the boot
-/// instead of quietly trusting more.
-/// We look at the same thing as <see cref="ForwardedHeadersTests"/>: the public discovery document's
-/// links, which are built from the scheme.
-/// The peer address is set by a middleware that runs first, an <see cref="IStartupFilter"/>, because an
-/// in-memory TestServer connection has no RemoteIpAddress, and the middleware skips the trust check
-/// completely for a connection without one.
+/// Proves who forwarded headers are trusted from (#399): with <c>ForwardedHeaders:KnownNetworks</c> set,
+/// only peers inside those networks, and a malformed network stops the boot. The tests read the scheme from
+/// the discovery links. An <see cref="IStartupFilter"/> sets the peer address, because a TestServer
+/// connection has none and the middleware skips the check without one.
 /// </summary>
 [Collection("AuthApi")]
 public sealed class ForwardedHeadersTrustTests
@@ -54,7 +49,7 @@ public sealed class ForwardedHeadersTrustTests
         // Act
         DiscoveryResponse response = await SendDiscoveryAsync(factory, request);
 
-        // Assert: the spoofed proto must NOT flip the scheme.
+        // Assert: the spoofed proto must not flip the scheme.
         response.Links.ShouldNotBeEmpty();
         foreach (LinkDto link in response.Links)
         {
@@ -87,7 +82,7 @@ public sealed class ForwardedHeadersTrustTests
     [Fact]
     public async Task Discovery_ForwardedProtoFromCaddysPinnedIp_BuildsHttpsLinks()
     {
-        // Arrange: the boundary the boxes actually run since #506: a single /32, and the peer IS it.
+        // Arrange: the boundary the boxes run since #506: a single /32, and the peer is that address.
         using WebApplicationFactory<Program> factory =
             FactoryWithKnownNetworks(CaddyOnlyCidr, peerAddress: "10.60.0.100");
         using HttpRequestMessage request = HateoasRequest();
@@ -108,8 +103,8 @@ public sealed class ForwardedHeadersTrustTests
     [Fact]
     public async Task Discovery_SpoofedForwardedProtoFromNeighbourInCaddysSubnet_KeepsHttpLinks()
     {
-        // Arrange: 10.60.0.101 shares Caddy's /24 but is outside its /32. This is the whole point of
-        // #506: a co-tenant container on the box would have been BELIEVED under the old /24 trust.
+        // Arrange: 10.60.0.101 shares Caddy's /24 but is outside its /32 (#506): under a /24 trust, a
+        // co-tenant container on the box would be believed.
         using WebApplicationFactory<Program> factory =
             FactoryWithKnownNetworks(CaddyOnlyCidr, peerAddress: "10.60.0.101");
         using HttpRequestMessage request = HateoasRequest();
@@ -118,7 +113,7 @@ public sealed class ForwardedHeadersTrustTests
         // Act
         DiscoveryResponse response = await SendDiscoveryAsync(factory, request);
 
-        // Assert: same subnet is NOT enough; only Caddy's exact address is trusted.
+        // Assert: the same subnet is not enough; only Caddy's exact address is trusted.
         response.Links.ShouldNotBeEmpty();
         foreach (LinkDto link in response.Links)
         {
@@ -188,7 +183,7 @@ public sealed class ForwardedHeadersTrustTests
     }
 
     /// <summary>
-    /// Stamps a fake peer address as the FIRST middleware in the pipeline, so the forwarded-headers
+    /// Stamps a fake peer address as the first middleware in the pipeline, so the forwarded-headers
     /// middleware (also pipeline-first, from Program.cs) sees a connection it can trust-check.
     /// </summary>
     private sealed class FakeRemoteIpStartupFilter : IStartupFilter

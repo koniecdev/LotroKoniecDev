@@ -10,9 +10,9 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// The logo on every account page linked to production, so a tester on staging who clicked it went on
-/// testing production without noticing (#1074). The pages come from <see cref="AccountPages"/>, so a new
-/// page is checked the day it is added.
+/// The logo on every account page must lead to this environment's website, never to production: a tester
+/// on staging who followed it would go on testing production without noticing (#1074). The pages come
+/// from <see cref="AccountPages"/>, so a new page is checked the day it is added.
 /// </summary>
 public sealed partial class AccountPageBrandLinkTests : EndpointsTestBase
 {

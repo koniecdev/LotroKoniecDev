@@ -19,9 +19,8 @@ internal static class UserFactory
         AcceptedTermsOfService: true);
 
     /// <summary>
-    /// An address no other test uses. The mail budgets key on the inbox and outlive the database reset
-    /// between tests (ADR-0057), and a mail from an earlier test can still reach the mail spies after
-    /// their reset (#950). Two tests that drew the same address would share both.
+    /// Mail budgets key on the inbox and outlive the database reset (ADR-0057), and a late mail can reach the
+    /// spies after their reset (#950), so two tests must never share an address.
     /// </summary>
     public static string GenerateUniqueEmail(Faker faker) =>
         faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
@@ -99,9 +98,8 @@ internal static class UserFactory
     }
 
     /// <summary>
-    /// Registration answers 202 with no body, whether or not the address already had an account (#860), so
-    /// the new account's id comes from the confirmation mail. That mail travels the outbox pipeline
-    /// (commit -> relay -> delivery), so the helper waits for it.
+    /// Registration answers 202 with no body (#860), so the new account's id comes from the confirmation mail,
+    /// which travels the outbox.
     /// </summary>
     private static async Task<IdentityId> WaitForNewAccountIdAsync(
         SpyAccountConfirmationEmailSender accountConfirmationEmailSpy,

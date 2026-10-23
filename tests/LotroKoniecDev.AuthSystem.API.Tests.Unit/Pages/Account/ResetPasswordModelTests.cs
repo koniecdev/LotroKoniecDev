@@ -17,9 +17,8 @@ using NSubstitute;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Pages.Account;
 
 /// <summary>
-/// Identity writes its errors in English, and the page must never print that text (#1076). The
-/// integration suite covers the rules the real policy refuses. A refusal from the save comes only in a
-/// race, so the store gives it here.
+/// Identity writes its errors in English, and the page must never print that text (#1076). A refusal from
+/// the save comes only in a race, so the store gives it here.
 /// </summary>
 public sealed class ResetPasswordModelTests
 {

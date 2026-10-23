@@ -3,12 +3,10 @@ using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.RateLimiting;
 
 /// <summary>
-/// The budget that belongs to the inbox a mail goes to (#793, #835, ADR-0055, ADR-0057). Whoever asks, and
-/// from whatever IP, the inbox gets no more than the budget.
+/// The budget of the inbox a mail goes to, whoever asks and from whatever IP (#793, #835, ADR-0055, ADR-0057).
 /// </summary>
 public sealed class PerMailboxFixedWindowThrottleTests
 {
-    /// <summary>The shipped e-mail change budget: 3 per 15 minutes per inbox.</summary>
     private const int PermitLimit = AccountBudgets.EmailChangeRecipientPermitLimit;
 
     private static readonly MailboxKey Mailbox = MailboxKey.FromNormalizedEmail("VICTIM@EXAMPLE.COM");

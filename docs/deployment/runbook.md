@@ -1872,118 +1872,110 @@ step 4 interrupts anything (telemetry, for about a minute).
 
 ## Disaster recovery
 
-Each box is **fully disposable** — nothing on it is the source of truth for anything:
+Each box is **fully disposable**: nothing on it is the source of truth for anything.
 
 | What | Lives | Recovery |
 |---|---|---|
 | Databases | Neon (prod + staging, PITR + MIGR-04 snapshots) | nothing to do |
 | Images | GHCR (built by `cd.yml`) | nothing to do |
-| Config | this repo (`compose.hetzner.yaml`, Caddyfile, `deploy.sh`) | scp again |
-| Secrets | `/opt/lotro/.env` per box — owner's backup + every value re-mintable ([Secrets](#secrets)) | restore or re-mint |
-| TLS certs | Caddy volume; Let's Encrypt re-issues | automatic on first bring-up |
+| Config | this repo (`compose.hetzner.yaml`, Caddyfile, `deploy.sh`, `compose.observability.yaml` + `.docker/observability/`) | copy again |
+| Secrets | `/opt/lotro/.env` and `/opt/obs/.env` per box: the owner's backup, and every value can be minted again ([Secrets](#secrets)) | restore or re-mint |
+| TLS certs | Caddy volume; Let's Encrypt issues them again | automatic on first bring-up |
 | DP keyrings | `auth-keys` / `frontend-keys` volumes | losing them logs everyone out; nothing to restore |
-| Telemetry history | the `obs_*` volumes on **lotro-staging** only | **nothing to restore, on purpose** — telemetry is not a source of truth. A rebuilt box gets the dashboards, datasources and alert rules back from this repo; the history is gone and that is accepted (ADR-0050) |
+| Telemetry history | the `obs_*` volumes on **lotro-staging** only | **nothing to restore, on purpose**: telemetry is not a source of truth. A rebuilt box gets the dashboards, datasources and alert rules back from this repo; the history is gone, and that is accepted (ADR-0050) |
 
-Recovery = **new VPS → `bootstrap.sh` → scp stack files → restore/re-mint the box's `.env` →
-`IMAGE_TAG=<the tag the box ran> bash /opt/lotro/deploy.sh` as `deploy` → re-point DNS A records →
-re-pin `HETZNER_SSH_KNOWN_HOSTS`**. Use `deploy.sh`, not a plain `up -d`: the broker volume is new,
-and `deploy.sh` is what sets its policy for parked e-mail (ADR-0036 §6). Hetzner backups (prod box)
-are a shortcut for the same outcome, not a dependency. Neither stack file is named `compose.yaml`, so
-the `-f` is not optional in any hand-run compose command either —
-`docker compose ps` in `/opt/lotro` happens to work (it finds the project by the
-`COMPOSE_PROJECT_NAME` in `.env` and never reads a file), which makes it easy to believe the bare
-form works for `up` too. It does not.
+Recovery = **new VPS → `bootstrap.sh` → copy the stack files → restore or re-mint the box's `.env` →
+`IMAGE_TAG=<the tag the box ran> bash /opt/lotro/deploy.sh` as `deploy` → re-point the DNS A records →
+re-pin `HETZNER_SSH_KNOWN_HOSTS` → bring `/opt/obs` back** ([Deploying a change](#the-observability-stack);
+on the prod box, steps 5–6 of [the prod agent](#bringing-up-the-prod-agent-the-agent-only-role)). Use
+`deploy.sh`, not a plain `up -d`: the broker volume is new, and `deploy.sh` is what sets its policy for
+parked e-mail (ADR-0036 §6). Hetzner backups (prod box) are a shortcut to the same result, not a
+dependency.
+
+Neither stack file is named `compose.yaml`, so the `-f` is not optional in any hand-run compose
+command. `docker compose ps` in `/opt/lotro` happens to work (it finds the project by the
+`COMPOSE_PROJECT_NAME` in `.env` and never reads a file), which makes it easy to believe the bare form
+works for `up` too. It does not.
 
 ## Gotchas
 
-- **`/opt/lotro` belongs to `deploy` — never write into it as `root`.** CD ssh's in as `deploy` and
-  **overwrites** `compose.hetzner.yaml`, `.docker/hetzner/Caddyfile` and `deploy.sh` on every rollout.
-  A file that a hand-run `scp` left **root-owned** is not writable by `deploy` (the directory being
-  deploy-owned does not help — `scp` truncates the existing file, it does not unlink it), so the next
-  CD run dies in *"Sync the stack files to the box"* and the rollout never starts. This is not
-  theoretical: it failed the #507 production rollout on 2026-07-13. If you must stage files by hand,
-  `scp` as `deploy` — or `chown -R deploy:deploy /opt/lotro` afterwards. Run `deploy.sh` itself
-  **as `deploy`** too (`sudo -u deploy env IMAGE_TAG=… bash /opt/lotro/deploy.sh`), so a hand run
-  does exactly what CD does. A root run no longer locks CD out: the last step rewrites `.env` and
-  gives the new file the owner of the old one (#1206). Any other user who does not own `.env`
-  (`deploy` aside) is refused before anything runs. A root run does not repair an `.env` that is
-  already root-owned; the `chown` below does. `deploy.sh` now refuses an `.env` or compose file it
-  cannot read, and a `/opt/lotro` it cannot write to (#806): it exits 2 before it pulls anything and
-  prints the owner, the mode and the fix
-  (for `.env`: `chown deploy:deploy /opt/lotro/.env && chmod 600 /opt/lotro/.env`).
-  (`/opt/tks` has no CD and is root-owned — that one is fine to touch as root.)
-- **The bootstrap Docker leg adopts the box's engine, it does not install one.** The live pair runs
-  **Ubuntu's** `docker.io` + `containerd` + `docker-compose-v2`, not Docker's `docker-ce` stack — and
-  the two CONFLICT. An unguarded `apt-get install docker-ce containerd.io` on such a box is an engine
-  **swap**: apt removes the running engine, dockerd restarts, and every container on the host goes
-  with it — *both* stacks, `/opt/lotro` **and** `/opt/tks`. `bootstrap.sh` therefore probes for
-  `docker` + `docker compose` and installs `docker-ce` only when the box has no engine at all (fixed
-  2026-07-13, #502). Do not "simplify" that guard away; the engine's vendor is irrelevant to us, its
-  presence is not.
+- **`/opt/lotro` belongs to `deploy`: never write into it as `root`.** CD connects as `deploy` and
+  **overwrites** `compose.hetzner.yaml`, `.docker/hetzner/Caddyfile` and `deploy.sh` on every
+  rollout. A file that a hand-run `scp` left **root-owned** is not writable by `deploy` (a
+  deploy-owned directory does not help: `scp` truncates the existing file, it does not unlink it), so
+  the next CD run dies in *"Sync the stack files to the box"* and the rollout never starts. That failed
+  the #507 production rollout on 2026-07-13. If you must stage files by hand, `scp` as `deploy`, or
+  run `chown -R deploy:deploy /opt/lotro` afterwards. Run `deploy.sh` itself **as `deploy`** too
+  (`sudo -u deploy env IMAGE_TAG=… bash /opt/lotro/deploy.sh`), so a hand run does what CD does.
+  - A root run does not lock CD out: the last step rewrites `.env` and gives the new file the owner of
+    the old one (#1206). Any other user who does not own `.env` (`deploy` aside) is refused before
+    anything runs.
+  - A root run does not repair an `.env` that is already root-owned. `deploy.sh` refuses an `.env` or
+    compose file it cannot read, and a `/opt/lotro` it cannot write to (#806): it exits 2 before it
+    pulls anything and prints the owner, the mode and the fix (for `.env`:
+    `chown deploy:deploy /opt/lotro/.env && chmod 600 /opt/lotro/.env`).
+  - `bootstrap.sh` gives `/opt/tks` to `deploy` as well.
+- **The bootstrap Docker leg adopts the box's engine; it does not install one.** The live pair runs
+  **Ubuntu's** `docker.io` + `containerd` + `docker-compose-v2`, not Docker's `docker-ce` stack, and
+  the two CONFLICT. An unguarded `apt-get install docker-ce containerd.io` on such a box swaps the
+  engine: apt removes the running engine, dockerd restarts, and every container on the host goes with
+  it, *both* stacks (`/opt/lotro` **and** `/opt/tks`). So `bootstrap.sh` checks for `docker` +
+  `docker compose` and installs `docker-ce` only when the box has no engine at all (#502). Do not
+  "simplify" that guard away: the engine's vendor does not matter to us, its presence does.
 - **Two segregated networks per box; Caddy is the only shared component (#506).** Our stack lives
   alone on `${project}_default` (`10.60.0.0/24`); the guest TheKittySaver stack lives alone on
-  `${project}_tks` (`10.61.0.0/24`, which our `compose.hetzner.yaml` defines and TKS joins as
-  `external` — its twin ticket koniecdev/TheKittySaver#295). Caddy sits on both at pinned static IPs
-  (`10.60.0.100` / `10.61.0.100`) and is the ONLY container that crosses. This fences off the
-  cross-stack pivot and the header-spoof that one shared network allowed (see the ADR-0034
-  amendment). **Coordinated bring-up:** deploying this topology change **re-creates the lotro stack**,
-  so the TKS containers keep running but lose the Caddy-side aliases on the old network — the TKS
-  stack must be re-pointed to `${project}_tks` and re-upped (`down` + `up -d` in `/opt/tks`) **right
-  after** the lotro deploy on each box (**staging first, then prod**; brief TKS downtime is fine
-  pre-launch).
-- **Compose service KEYS must still be globally unique per network.** Compose registers the service
-  key itself as a Docker DNS alias on top of `container_name`. Before #506 both stacks shared one
-  network, so a guest whose compose also said `frontend:`/`auth-api:` collided with ours and Caddy's
-  `reverse_proxy frontend:8080` round-robined into the WRONG stack (2026-07-12 prod incident:
-  lotro-translator.pl served uratujkota.pl). Segmentation removes that cross-stack collision, but the
-  `tks-` prefix on every TKS service key stays the rule — Caddy resolves `reverse_proxy tks-frontend:8080`
-  on the `tks` network, and the public-hostname aliases must remain unique there. Detection:
-  `docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$v.Aliases}}{{end}}' <ctr>` — no
+  `${project}_tks` (`10.61.0.0/24`), which our `compose.hetzner.yaml` defines and TKS joins as
+  `external` (koniecdev/TheKittySaver#295). Caddy sits on both at pinned static IPs (`10.60.0.100` /
+  `10.61.0.100`) and is the only container that crosses. This fences off the cross-stack pivot and the
+  header spoofing that one shared network allowed (ADR-0034 amendment). Because TKS joins a network
+  our stack creates, our stack must deploy first on a new box; the
+  [cutover section](#one-time-cutting-a-live-box-over-to-the-two-segregated-networks-506) shows how
+  TKS points `LOTRO_NETWORK` at it.
+- **Compose service KEYS must still be unique per network.** Compose registers the service key itself
+  as a Docker DNS alias on top of `container_name`. When both stacks shared one network, a guest
+  service also named `frontend:` collided with ours, and Caddy's `reverse_proxy frontend:8080`
+  round-robined into the WRONG stack (2026-07-12 prod incident: lotro-translator.pl served
+  uratujkota.pl). Separate networks remove that collision, but the `tks-` prefix on every TKS service
+  key stays the rule: Caddy resolves `reverse_proxy tks-frontend:8080` on the `tks` network, and the
+  public-hostname aliases must stay unique there. Detection:
+  `docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$v.Aliases}}{{end}}' <ctr>`: no
   alias may appear on two containers of the same network.
 - **Docker bypasses ufw for published ports** (it programs iptables directly). Our stacks publish only
-  Caddy's 80/443 — which ufw allows anyway. Since #808 the `DOCKER-USER` leg of `bootstrap.sh` drops
-  every other published port arriving on the public interface, so a port published on `0.0.0.0`
-  answers on the box and on the bridges but **not from the internet**: a service that genuinely needs
-  a new public port needs that leg changed, not just a `ports:` line. The staging box needs the rule
-  most — TheKittySaver's CI runner starts Testcontainers there, which publish Postgres, MinIO and
-  Ryuk (it deletes containers on a plain TCP command) on `0.0.0.0` at random ports. On a box that
-  predates the leg: `scp scripts/hetzner/bootstrap.sh root@<ip>:/root/ && ssh root@<ip>
-  'BOOTSTRAP_SOURCE_ONLY=1 bash -c ". /root/bootstrap.sh; ensure_docker_user_firewall"'`, then read
-  it back with `iptables -S DOCKER-USER` (four rules: replies, 80, 443, drop) and the same for
-  `ip6tables`. Re-running the leg also repairs a chain someone edited by hand — every pass re-applies
-  it. Applied to `lotro-staging` on 2026-10-02 (a throwaway container on `0.0.0.0:47123`
-  answered from outside before, timed out after; both sites kept answering on 80/443); `lotro-prod`
-  publishes only Caddy and gets it with its next bootstrap pass. Never publish another service's port
-  "just to debug"; exec into the network instead
+  Caddy's 80/443, which ufw allows anyway. The `DOCKER-USER` leg of `bootstrap.sh` drops every other
+  published port that arrives on the public interface (#808), so a port published on `0.0.0.0`
+  answers on the box and on the bridges but **not from the internet**. A service that really needs a
+  new public port needs that leg changed, not just a `ports:` line. The staging box needs the rule
+  most: TheKittySaver's CI runner starts Testcontainers there, which publish Postgres, MinIO and Ryuk
+  (it deletes containers on a plain TCP command) on `0.0.0.0` at random ports. On a box that predates
+  the leg: `scp scripts/hetzner/bootstrap.sh root@<ip>:/root/ && ssh root@<ip>
+  'BOOTSTRAP_SOURCE_ONLY=1 bash -c ". /root/bootstrap.sh; ensure_docker_user_firewall"'`, then read it
+  back with `iptables -S DOCKER-USER` (four rules: replies, 80, 443, drop) and the same for
+  `ip6tables`. Re-running the leg also repairs a chain someone edited by hand, because every pass
+  re-applies it. Never publish another service's port "just to debug"; exec into the network instead
   (`docker compose exec caddy wget -qO- http://tms-api:8080/health/live`; the full `/health` also
   needs the `X-LOTRO-Health-Key` header, ADR-0058).
 - **sshd config precedence:** sshd honours the *first* occurrence of a keyword, and
   `/etc/ssh/sshd_config.d/` is included at the top in lexical order. Bootstrap's hardening lives in
-  `00-hardening.conf` precisely so it wins over cloud-init's `50-cloud-init.conf` — don't rename it to
-  a higher number.
-- **ACME fails until DNS propagates** — that's retry-resolved, not an error to fix. Start DNS before
-  bring-up; Caddy keeps retrying on its own.
+  `00-hardening.conf` so it wins over cloud-init's `50-cloud-init.conf`: don't rename it to a higher
+  number.
+- **ACME fails until DNS propagates.** Caddy keeps retrying on its own, so it is not an error to fix.
+  Set up DNS before the bring-up.
 - **First cold hit after Neon scale-to-zero** wakes the database in a few seconds. Measured on Hetzner
   from 2026-09-26 to 2026-10-11: the auth database in 0.7 s typically and 4.7 s at worst, the
-  translation database in 7.7 s at worst. The old "~31 s" came from the Azure days, where it was the
-  whole container cold start. The auth API caps each connection open at 20 s in code. The website's
-  login renewal and its OIDC back-channel give up after 30 s per call, and its account client after
-  10 s per attempt (#923). EF's own retries can still keep the auth API working past 30 s (#1121).
-- **4 GB box + ~9 containers → swap is mandatory, and `bootstrap.sh` provisions it** (OBS-01 / #708).
-  Hetzner images ship with none, and a box with no swap does not slow down under a memory spike — the
+  translation database in 7.7 s at worst. The auth API caps each connection open at 20 s in code. The
+  website's login renewal and its OIDC back-channel give up after 30 s per call, and its account
+  client after 10 s per attempt (#923). EF's own retries can still keep the auth API working past
+  30 s (#1121).
+- **4 GB box + ~9 containers → swap is mandatory, and `bootstrap.sh` provisions it** (#708).
+  Hetzner images ship with none, and a box with no swap does not slow down under a memory spike: the
   kernel OOM-kills a container and picks the victim by score, not by importance. The bootstrap's first
   leg lays down a **2 GiB `/swapfile`**, persists it in `/etc/fstab` and sets **`vm.swappiness = 10`**
-  (`/etc/sysctl.d/99-swappiness.conf`) — an emergency buffer, not a working tier. Safe on a running
-  box: no restart, and every step is guarded, so a re-run changes nothing.
+  (`/etc/sysctl.d/99-swappiness.conf`): an emergency buffer, not a working tier. It is safe on a
+  running box: no restart, and every step is guarded, so a re-run changes nothing.
+  `scripts/tests/hetzner-bootstrap-swap.tests.sh` drives the real `ensure_swap` against a throwaway
+  root with stubbed swap tools, in `pr-verify` and `ci`.
 
-  This bullet used to say the opposite — "deliberately NOT in `bootstrap.sh`: swapfile creation +
-  `/etc/fstab` edits can't be faithfully proven in the container idempotency harness". There was no
-  such harness, and the manual step that replaced it was never executed on either box. It is proven
-  the same way `deploy.sh` is: `scripts/tests/hetzner-bootstrap-swap.tests.sh` stubs `swapon`/`mkswap`/
-  `fallocate`/`dd`/`sysctl` and drives the real `ensure_swap` against a throwaway root, asserting the
-  no-op shape from every state a box can be in. It runs in the `guards` job of both `pr-verify` and `ci`.
-
-  To apply the leg alone to a box that is already bootstrapped — no full re-bootstrap, no restart:
+  To apply the leg alone to a box that is already bootstrapped (no full re-bootstrap, no restart):
 
   ```bash
   scp scripts/hetzner/bootstrap.sh root@<ip>:/root/
@@ -1992,57 +1984,59 @@ form works for `up` too. It does not.
 
   `BOOTSTRAP_SOURCE_ONLY=1` is the script's source seam: it defines the helpers and stops before the
   script touches anything, so you run one function instead of the whole bootstrap. `bash -c` because
-  the script needs bash — `. file` alone would run it in whatever login shell root has.
+  the script needs bash: `. file` alone would run it in whatever login shell root has.
 
-  Verify without a reboot. `swapon -a` re-reads `/etc/fstab`, which is exactly what boot does, and
-  `findmnt --verify` catches the fstab damage that otherwise only shows up at the next boot:
+  Verify without a reboot. `swapon -a` reads `/etc/fstab` again, which is what boot does, and
+  `findmnt --verify` catches fstab damage that otherwise only shows up at the next boot:
 
   ```bash
   ssh root@<ip> 'swapon --show; findmnt --verify --fstab; swapoff /swapfile && swapon -a && swapon --show; cat /proc/sys/vm/swappiness'
   ```
 
-  Only run that `swapoff` right after creation, while nothing is paged out (`swapon --show` USED = 0B)
-  — on a box that is actually using swap it forces every page back into RAM at once.
-- **Container log rotation is unbounded by default** (json-file driver, small VPS disk). Cap it at the
+  Only run that `swapoff` right after creation, while nothing is paged out (`swapon --show` USED = 0B):
+  on a box that is actually using swap, it forces every page back into RAM at once.
+- **Container log rotation is unbounded by default** (json-file driver, small VPS disk).
+  `compose.observability.yaml` caps it per service; `compose.hetzner.yaml` does not yet. Cap it at the
   compose level (`logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }` per
-  service) — NOT via `/etc/docker/daemon.json` on the live boxes, since a daemon-config change
-  restarts dockerd and bounces every running container.
+  service), NOT via `/etc/docker/daemon.json` on the live boxes: a daemon-config change restarts
+  dockerd and bounces every running container.
 - `.github/workflows/*` pushes need the koniecdev token.
 - **auth-api calls Have I Been Pwned when a password is set** (registration, password change, reset;
   ADR-0066). It needs outbound HTTPS to `api.pwnedpasswords.com`. When that call fails, the password is
-  accepted unchecked and auth-api logs warning `3300`, `3301`, `3302` or `3303`. A run of those warnings means
-  the breach check is off in practice: look at the box's outbound network first. Information `2740`
-  means the check works: it refused a password found in a breach.
+  accepted unchecked and auth-api logs warning `3300`, `3301`, `3302` or `3303`. A run of those
+  warnings means the breach check is off in practice: look at the box's outbound network first.
+  Information `2740` means the check works: it refused a password found in a breach.
 
 ## History — the Azure era
 
-From M6 (2026-06) until **2026-07-12** the stack ran on **Azure Container Apps** (Terraform-provisioned,
-Key Vault secrets, Log Analytics + Application Insights, scale-to-zero with a scheduled warm window).
-The Azure for Students subscription was disabled that day — credits exhausted, renewal refused — and
-both prods went dark. [ADR-0034](../adr/0034-hetzner-vps-instead-of-azure-container-apps.md) records
-the decision to move; [`hetzner-migration-plan.md`](hetzner-migration-plan.md) is the executed
-playbook; epic #486 tracked it. The ACA-specific workflow legs were removed from the repo by #492.
-The Terraform root and the Key Vault seeders were taken out of the build but **kept as a read-only
-tombstone** in [`azure-graveyard/`](azure-graveyard/README.md) — the ADRs of the Azure era argue
-about those files line-by-line, so they stay readable. Nothing in there is runnable: the
-subscription is disabled and the Terraform state died with it.
+From M6 (2026-06) until **2026-07-12** the stack ran on **Azure Container Apps** (Terraform, Key
+Vault secrets, Log Analytics + Application Insights, scale-to-zero with a scheduled warm window). The
+Azure for Students subscription was disabled that day (credits used up, renewal refused) and both
+prods went dark. [ADR-0034](../adr/0034-hetzner-vps-instead-of-azure-container-apps.md) records the
+move; [`hetzner-migration-plan.md`](hetzner-migration-plan.md) is the executed playbook; epic #486
+tracked it. The Terraform root and the Key Vault seeders are kept as a read-only record in
+[`azure-graveyard/`](azure-graveyard/README.md), because the ADRs of that era discuss those files
+line by line. Nothing in there can run: the subscription is disabled and the Terraform state died with
+it.
 
-**Recorded so nobody retries it:** with the subscription disabled, Key Vault serves secret *metadata*
-but refuses every *value* read (`az keyvault secret list` works and returns the 8 names;
+**Recorded so nobody tries again:** with the subscription disabled, Key Vault serves secret
+*metadata* but refuses every *value* read (`az keyvault secret list` works and returns the 8 names;
 `az keyvault secret show` → **Forbidden — the subscription associated with this vault has been
-disabled**). **No secret value was recoverable.** Every secret on the Hetzner boxes was re-minted from
-scratch (see [Secrets](#secrets)) — which is also why the auth DBs needed the
+disabled**). **No secret value could be recovered.** Every secret on the Hetzner boxes was minted from
+scratch (see [Secrets](#secrets)), which is also why the auth DBs needed the
 [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing).
 
-Two ADR rulings died with the platform and are marked obsolete-by-platform: ADR-0027 (scheduled warm
-window — the boxes are always on) and ADR-0029 (single-active-revision sweep — there are no
-revisions). ADR-0025 (DB-free readiness probes) **still binds**: Neon still scales to zero.
+Two ADR rulings died with the platform and are marked obsolete by platform: ADR-0027 (the scheduled
+warm window; the boxes are always on) and ADR-0029 (the single-active-revision sweep; there are no
+revisions). ADR-0025 (DB-free readiness probes) **still applies**: Neon still scales to zero.
 
 ## See also
 
 - [`compose.hetzner.yaml`](../../compose.hetzner.yaml) — the deployed stack; the authoritative list of
-  what each container consumes.
+  what each container reads.
 - [`.env.hetzner.example`](../../.env.hetzner.example) — the box env template (every key, placeholder values).
+- [`compose.observability.yaml`](../../compose.observability.yaml) / [`.env.observability.example`](../../.env.observability.example)
+  — the hand-deployed observability project and its env template.
 - [`.env.example`](../../.env.example) / [`.env.prod.example`](../../.env.prod.example) — the dev-compose
   and production-parity env templates.
 - [`compose.yaml`](../../compose.yaml) / [`compose.prod.yaml`](../../compose.prod.yaml) — the dev and
@@ -2051,5 +2045,5 @@ revisions). ADR-0025 (DB-free readiness probes) **still binds**: Neon still scal
   rollout script CD runs).
 - [ADR-0034](../adr/0034-hetzner-vps-instead-of-azure-container-apps.md) — the Hetzner decision.
 - [ADR-0008](../adr/0008-cloud-agnostic-deployment-and-environment-strategy.md) — the provider-neutral
-  container contract this runbook operationalizes.
+  container contract this runbook puts into practice.
 - [ADR-0023](../adr/0023-forward-only-n-1-backward-compatible-migrations.md) / [ADR-0024](../adr/0024-n1-backward-compat-ci-proof.md) — forward-only, N-1 compatible migrations.

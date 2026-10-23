@@ -1,32 +1,30 @@
 # Deployment runbook
 
-> Operator manual for running LotroKoniecDev in a real environment. The platform is a **Hetzner VPS
-> running `docker compose` behind Caddy** ([ADR-0034](../adr/0034-hetzner-vps-instead-of-azure-container-apps.md));
+> Operator manual for running LotroKoniecDev in a real environment. Two **Hetzner VPS** boxes run
+> `docker compose` behind Caddy ([ADR-0034](../adr/0034-hetzner-vps-instead-of-azure-container-apps.md));
 > the database is **Neon** (ADR-0014), images live in **GHCR**, and CD deploys **over ssh**.
 >
-> **Scope:** the full configuration surface and operation of the four service images across
-> environments — the topology, the environment-variable matrix, secrets and their rotation, the
-> consistency rules that bite, bring-up, continuous deployment, database migrations, the smoke test,
-> and disaster recovery.
+> **Scope:** the topology, the environment-variable matrix, secrets and their rotation, the
+> consistency rules that bite, bring-up, continuous deployment, database migrations, the message
+> broker, the smoke test, observability and disaster recovery.
 >
-> The app contract itself is **provider-neutral** (ADR-0008): every app is a 12-factor OCI image
-> behind a TLS ingress, so nothing below is Hetzner-specific except the box sections. The stack ran
-> on Terraform-provisioned **Azure Container Apps** until 2026-07-12 — see
-> [History — the Azure era](#history--the-azure-era).
+> The app contract is **provider-neutral** (ADR-0008): every app is an OCI image behind a TLS
+> ingress, so only the box sections are Hetzner-specific. Until 2026-07-12 the stack ran on Azure
+> Container Apps — see [History — the Azure era](#history--the-azure-era).
 
 ## Contents
 
 - [Topology](#topology) — the fleet, the boxes, the filesystem layout
 - [Services & the container contract](#services--the-container-contract) — incl. [who the kernel kills first](#memory-pressure-who-the-kernel-kills-first) when a box runs out of memory
-- [Environment variable matrix](#environment-variable-matrix) — the single source of truth, per service × environment
+- [Environment variable matrix](#environment-variable-matrix) — every setting, per service × environment
 - [Secrets](#secrets) — where they live, how to generate them, how to rotate them
 - [Consistency rules that bite](#consistency-rules-that-bite) — issuer / redirect / authority / CORS
 - [Bringing the stack up](#bringing-the-stack-up) — dev, prod-parity, (re)provisioning a box, and the one-time network cutover
-- [Continuous deployment (CD over ssh)](#continuous-deployment-cd-over-ssh) — build-once → auto staging → gated prod promotion
+- [Continuous deployment (CD over ssh)](#continuous-deployment-cd-over-ssh) — build once → automatic staging → gated prod promotion
 - [Database migrations](#database-migrations) — strategy, running them, and recovering from a bad migration (Neon PITR + the MIGR-04 auto-snapshot)
-- [Message broker (RabbitMQ)](#message-broker-rabbitmq) — the in-stack broker, the dead-letter parking lot, replay & rotation traps
-- [Post-deploy smoke test](#post-deploy-smoke-test) — one command verifies a deployed environment end-to-end
-- [Observability & monitoring](#observability--monitoring) — what exists today, and the gap the migration left
+- [Message broker (RabbitMQ)](#message-broker-rabbitmq) — the in-stack broker, the dead-letter parking lots, replay and rotation traps
+- [Post-deploy smoke test](#post-deploy-smoke-test) — one command checks a deployed environment end to end
+- [Observability & monitoring](#observability--monitoring) — the Grafana stack, its alerts, and the prod agent
 - [Disaster recovery](#disaster-recovery)
 - [Gotchas](#gotchas)
 - [History — the Azure era](#history--the-azure-era)
@@ -41,30 +39,30 @@ staging.
 | Fact | Value |
 |---|---|
 | Fleet | `lotro-prod` **167.233.159.221** (both prods) · `lotro-staging` **91.98.74.228** (both stagings) — ssh aliases of the same names in the owner's `~/.ssh/config` |
-| Provider / model | Hetzner Cloud **CX23** × 2 (2 vCPU, 4 GB RAM, amd64) — tight for 4 app containers + Caddy per box; watch memory before adding services. ADR-0034 §1 argued for one CX32; the fleet is two CX23 (location constraints at purchase, owner decision 2026-07-12) |
+| Provider / model | Hetzner Cloud **CX23** × 2 (2 vCPU, 4 GB RAM, amd64). Tight for two app stacks plus Caddy: watch memory before adding services. ADR-0034 §1 argued for one CX32; it was not available at checkout, so the fleet is two CX23 (its 2026-07-12 amendment) |
 | Location | Nuremberg (nbg1), Germany |
 | OS | Ubuntu 26.04 LTS (resolute); `bootstrap.sh` is verified on 24.04 and 26.04 |
 | Backups | Hetzner backups on **lotro-prod only** (~20% surcharge); staging is disposable |
-| Memory | 4 GB RAM + a **2 GiB `/swapfile`** at `vm.swappiness = 10`, laid down by `bootstrap.sh` and persisted in `/etc/fstab` (OBS-01 / #708). The Hetzner image ships no swap at all, which turns any spike into an OOM-kill instead of a slowdown |
+| Memory | 4 GB RAM + a **2 GiB `/swapfile`** at `vm.swappiness = 10`, laid down by `bootstrap.sh` and persisted in `/etc/fstab` (#708). The Hetzner image ships no swap, which turns any spike into an OOM kill instead of a slowdown |
 | Users | `root` (key-only) · `deploy` (docker group, key-only, locked password — CD and day-2 ops run as this user) |
-| Firewall | ufw: deny incoming except **22/80/443**, allow outgoing · **`DOCKER-USER`**: from the public interface only **80/443** reach a container, everything else published is dropped — ufw cannot filter a published port (Docker's DNAT runs first), this chain can (#808). Rules script `/usr/local/sbin/docker-user-firewall`, re-applied by `docker-user-firewall.service` whenever Docker starts, both laid down by `bootstrap.sh` |
+| Firewall | ufw: deny incoming except **22/80/443**, allow outgoing · **`DOCKER-USER`**: from the public interface only **80/443** reach a container, everything else published is dropped. ufw cannot filter a published port (Docker's DNAT runs first), this chain can (#808). Rules script `/usr/local/sbin/docker-user-firewall`, re-applied by `docker-user-firewall.service` whenever Docker starts, both laid down by `bootstrap.sh` |
 | Intrusion / patching | fail2ban (sshd jail, systemd backend) · unattended-upgrades |
-| Container runtime | Docker Engine + compose plugin (the box's own — bootstrap **adopts**, never swaps: see [Gotchas](#gotchas)) |
+| Container runtime | Docker Engine + compose plugin (the box's own — bootstrap **adopts** it, never swaps it: see [Gotchas](#gotchas)) |
 | Registry | `deploy` is `docker login`-ed to **ghcr.io** with a **read-only** (`read:packages`) PAT |
 | DB | none on the box — **Neon** is the database for prod AND staging (ADR-0034 §2) |
 | Ingress | **Caddy**, one vhost per app, automatic Let's Encrypt certificates |
-| Networks | **Two segregated Docker networks per box** (#506): `${project}_default` (`10.60.0.0/24`, our stack) and `${project}_tks` (`10.61.0.0/24`, the guest TheKittySaver stack). **Caddy is the only container on both** (static IPs `10.60.0.100` / `10.61.0.100`); nothing else crosses. The apps trust `X-Forwarded-*` from Caddy's `10.60.0.100/32` only — keep that /32 in lockstep with Caddy's `ipv4_address`. A third, `${project}_obs`, carries the hand-deployed observability project (ADR-0050 §2): Caddy is on it too, unpinned, only so the ingest vhost can reach the backend containers (#755). |
+| Networks | **Two segregated Docker networks per box** (#506): `${project}_default` (`10.60.0.0/24`, our stack) and `${project}_tks` (`10.61.0.0/24`, the guest TheKittySaver stack). **Caddy is the only container on both** (static IPs `10.60.0.100` / `10.61.0.100`). The apps trust `X-Forwarded-*` from Caddy's `10.60.0.100/32` only, so keep that /32 in step with Caddy's `ipv4_address`. A third network, `${project}_obs`, carries the hand-deployed observability project (ADR-0050 §2): Caddy is on it too, with no pinned address, only so the ingest vhost can reach the backend containers (#755) |
 
-Images are `linux/amd64` only (no multi-arch buildx) — the box is amd64 on purpose; never "fix" a
-pull error by enabling emulation.
+Images are `linux/amd64` only (no multi-arch buildx), because the boxes are amd64. Never "fix" a pull
+error by enabling emulation.
 
 ### Filesystem layout
 
 | Path | Contents | Owner |
 |---|---|---|
 | `/opt/lotro` | LotroKoniecDev stack: `compose.hetzner.yaml`, `.docker/hetzner/Caddyfile`, `.env` (`chmod 600`, never committed — template: `.env.hetzner.example`), `deploy.sh`, `.previous/` (the last-good config snapshot) | `deploy` |
-| `/opt/tks` | TheKittySaver stack (its own epic; joins the same Caddy via parametrized vhosts) | `deploy` |
-| `/opt/actions-runner` · `/home/ci-runner` | **Staging box only — a guest.** TheKittySaver's self-hosted GitHub Actions runner (koniecdev/TheKittySaver#831, its ADR-0047): user `ci-runner` (in `docker` — its integration suite uses Testcontainers), unit `tks-ci-runner.service`, the .NET SDK and NuGet cache under its home — 4.8 GB measured after its first job on 2026-10-02 (runner + checkout 1.3 GB, SDK 0.7 GB, NuGet 2.8 GB), ≈ 7–9 GB once a full Release build tree sits in `_work` (TheKittySaver's runbook estimate). One job at a time; registered to the **private** TKS repo only — never register a runner on these boxes to this public repo. Uninstall, after deleting the runner on the TKS side: TheKittySaver `docs/deployment/runbook.md` → "CI runner on the staging box" → Uninstall | `ci-runner` (TKS) |
+| `/opt/tks` | TheKittySaver stack (its own epic; joins the same Caddy through its own vhosts) | `deploy` |
+| `/opt/actions-runner` · `/home/ci-runner` | **Staging box only — a guest.** TheKittySaver's self-hosted GitHub Actions runner (koniecdev/TheKittySaver#831, its ADR-0047): user `ci-runner` (in `docker` — its integration suite uses Testcontainers), unit `tks-ci-runner.service`, the .NET SDK and NuGet cache under its home. Disk: 4.8 GB after its first job (2026-10-02), about 7–9 GB once a full Release build tree sits in `_work`. One job at a time; registered to the **private** TKS repo only — never register a runner on these boxes to this public repo. To uninstall, delete the runner on the TKS side first, then follow TheKittySaver `docs/deployment/runbook.md` → "CI runner on the staging box" → Uninstall | `ci-runner` (TKS) |
 | `/opt/obs` | The observability stack: `compose.observability.yaml`, the Alloy/Loki/Prometheus/Tempo configs, Grafana provisioning, `.env` (`chmod 600` — template: `.env.observability.example`). Its **own** compose project, deployed by hand, never by CD (ADR-0050 §2) | `deploy` |
 
 ## Services & the container contract
@@ -74,69 +72,63 @@ TLS-terminating ingress:
 
 | Service | Image (`ghcr.io/koniecdev/…`) | Listens | Health | Persists |
 |---|---|---|---|---|
-| **auth-api** | `lotrokoniecdev-auth-api` | `:8080` (HTTP) | `/health` (deep: DB + SMTP + broker; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | Data Protection keyring → `/keys` |
-| **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (deep: DB; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | translation artifacts (read-only mount); a throwaway copy of the served translation file in the container's `/tmp/lotro-translation-files` (about 82 MB at full size, written again when missing — ADR-0064) |
-| **frontend** | `lotrokoniecdev-frontend` | `:8080` (HTTP) | — | Data Protection keyring → `/keys` |
+| **auth-api** | `lotrokoniecdev-auth-api` | `:8080` (HTTP) | `/health` (deep: DB + SMTP + broker; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probes — run no checks, ADR-0025) | Data Protection keyring → `/keys` |
+| **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (deep: DB; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probes — run no checks, ADR-0025) | nothing on the box: the translation file is stored in the database. A throwaway copy of it sits in the container's `/tmp/lotro-translation-files` (about 82 MB at full size, written again when missing — ADR-0064) |
+| **frontend** | `lotrokoniecdev-frontend` | `:8080` (HTTP) | `/health/live`, `/health/ready` (no deep check) | Data Protection keyring → `/keys` |
 | **migrator** | `lotrokoniecdev-migrator` | one-shot (exits 0) | exit code | — |
-| _ingress_ | **Caddy** (the boxes take its tag and digest from one place, the `x-caddy-image` anchor in `compose.hetzner.yaml`; `compose.prod.yaml`, the laptop parity stack, mirrors it; the anchor's comment says why and how Dependabot moves both; 2.11.6 crashes, #988) | `:80`, `:443` | — | ACME certs + config volumes |
-| _broker_ | **RabbitMQ** (`rabbitmq:4.3.4-management-alpine` — pinned, see the compose comment) | `:5672` in-stack (AMQP; auth-api, and tms-api for the account events of ADR-0065) | `rabbitmq-diagnostics ping` (container healthcheck) + the `rabbitmq` leg of auth's deep `/health` | broker state (users, quorum queues, parked dead letters) → `rabbitmq-data` volume |
+| _ingress_ | **Caddy**, pinned by tag and digest in the `x-caddy-image` anchor of `compose.hetzner.yaml` (`compose.prod.yaml` mirrors it; the anchor's comment says how Dependabot moves both; never 2.11.6, it crashes — #988) | `:80`, `:443` | — | ACME certs + config volumes |
+| _broker_ | **RabbitMQ** (`rabbitmq:4.3.4-management-alpine`, pinned — see the compose comment) | `:5672` in-stack (AMQP; auth-api, and tms-api for the account events of ADR-0065) | `rabbitmq-diagnostics ping` (container healthcheck) + the `rabbitmq` check of auth's deep `/health` | broker state (users, quorum queues, parked dead letters) → `rabbitmq-data` volume |
 
-Container contract (ADR-0008 §2): each app serves **plain HTTP on `:8080`** and expects a
-TLS-terminating ingress in front; runs **non-root**; logs **structured JSON to stdout**; takes **all
-runtime configuration from environment variables**. Only Caddy publishes internet-facing ports; the
-apps use `expose:` and are reachable **only** through the proxy (the broker's management UI is the
-one loopback exception — `127.0.0.1:15672`, reachable exclusively over an ssh tunnel, see
-[Message broker](#message-broker-rabbitmq)). The migrator runs to completion *before* the
-APIs serve traffic, so there is never half-migrated serving.
+Container contract (ADR-0008 §2): each app serves **plain HTTP on `:8080`** behind a TLS-terminating
+ingress, runs **non-root**, logs **structured JSON to stdout**, and takes **all runtime
+configuration from environment variables**. Only Caddy publishes internet-facing ports. The apps use
+`expose:` and are reachable **only** through the proxy. The one loopback exception is the broker's
+management UI on `127.0.0.1:15672`, reached over an ssh tunnel (see
+[Message broker](#message-broker-rabbitmq)). The migrator runs to completion *before* the apps are
+recreated, so nothing ever serves on a half-migrated schema.
 
 ### Memory pressure: who the kernel kills first
 
-When a **box** runs out of memory the kernel picks its victim by size and nothing else, and on these
-boxes size barely speaks: the entire RSS spread across a box is worth about **45 points** of
-`oom_score`, while one unit of `oom_score_adj` is worth **0.66** of a point. Until #786 every
-container ran at the default `0`, so the ranking was decided by which process happened to be fattest
-— which on the staging box put `obs-alloy` at the very top: the container that carries every signal
-that box produces, for both application stacks on it, ranked above a staging frontend nobody was
-using.
+When a **box** runs out of memory, the kernel picks its victim by `oom_score`. On these boxes the
+whole RSS of a box is worth about **45 points** of it, while one unit of `oom_score_adj` is worth
+**0.66** of a point, so the adjustment decides the order. Left at the default `0`, the fattest
+container dies first: on the staging box that was `obs-alloy`, which carries every signal of both
+stacks on that box (#786).
 
-**The two boxes are ordered in opposite directions, and that is deliberate.** The observability
-backend lives on the *staging* box because a backend co-hosted with the workload it observes dies in
-the same outage (ADR-0050 §1) — so on that box the observability stack is the production-critical
-workload and the applications serve one developer and one tester. On the prod box the applications
-are the product and the only observability component is the agent, whose death costs telemetry
-rather than the service.
+**The two boxes are ordered in opposite directions on purpose.** The observability backend lives
+on the *staging* box, so that a prod outage does not take the evidence with it (ADR-0050 §1). On that
+box the observability stack is the production-critical workload, and the applications serve one
+developer and one tester. On the prod box the applications are the product, and the only
+observability component is the agent, whose death costs telemetry, not the service.
 
 | Container | staging | prod | Why |
 |---|---|---|---|
 | `auth-api`, `tms-api`, `frontend`, `rabbitmq` | **+500** | **0** | `${OOM_SCORE_ADJ_APP}` in `/opt/lotro/.env`. First to go on staging; on prod they sit on the host daemons' own line |
 | `tks-adoption-api`, `tks-frontend` | **+500** | **0** | `${OOM_SCORE_ADJ_APP}` in `/opt/tks/.env` — same knob, same values, koniecdev/TheKittySaver#757 |
 | `migrator`, `tks-migrator` | 0 | 0 | literal, on both boxes. The deploy gate is not a workload to sacrifice: the app knob would make a rollout the staging box's first victim for nothing |
-| `caddy`, `caddy-validate` | −100 | −100 | literal. The only ingress on either box, and on staging it also serves the obs ingest vhost prod pushes through (ADR-0050 §4). −100 rather than deeper because it restarts in seconds and the prod agent retries connection errors and 5xx, so the worst case is a bounded ingest gap |
+| `caddy`, `caddy-validate` | −100 | −100 | literal. The only ingress on either box, and on staging it also serves the obs ingest vhost prod pushes through (ADR-0050 §4). −100 and not deeper, because it restarts in seconds and the prod agent retries connection errors and 5xx, so the worst case is a short ingest gap |
 | `loki`, `prometheus`, `tempo`, `grafana` | −200 | *(staging only)* | literal — the `backend` profile pins them to one box, so their role never changes |
-| `preflight` | −200 | −200 | literal. It carries no profile, so unlike the four above it runs in **both** roles; it is a one-shot that exits in milliseconds |
+| `preflight` | −200 | −200 | literal. It has no profile, so unlike the four above it runs in **both** roles; it is a one-shot that exits in milliseconds |
 | TheKittySaver CI build tree (`dotnet build`/`test`, Stryker, the test containers' clients) | **+1000** | *(staging only)* | set per job step by the runner from `PIPELINE_JOB_OOMSCOREADJ=1000` in `tks-ci-runner.service` (koniecdev/TheKittySaver#831). The first victim on the box, on purpose: a killed build is a red CI run, nothing else |
-| TheKittySaver CI runner (`Runner.Listener` / `Runner.Worker`) | **+500** | *(staging only)* | `OOMScoreAdjust=500` on the unit — the staging apps' line, so after the build the kernel picks between the runner and the apps by size (read back 2026-10-02 mid-build: build tree 1366–1452, runner worker ~1009, `obs-*` 500–556) and never reaches the observability stack first |
-| `obs-alloy` | **−300** | **+300** | `${OBS_ALLOY_OOM_SCORE_ADJ}` in `/opt/obs/.env`. The only value in that project that inverts, because `alloy` carries no profile and runs on both boxes from one definition |
+| TheKittySaver CI runner (`Runner.Listener` / `Runner.Worker`) | **+500** | *(staging only)* | `OOMScoreAdjust=500` on the unit — the staging apps' line, so after the build the kernel picks between the runner and the apps by size, and never reaches the observability stack first (read back mid-build on 2026-10-02: build tree 1366–1452, runner worker ~1009, `obs-*` 500–556) |
+| `obs-alloy` | **−300** | **+300** | `${OBS_ALLOY_OOM_SCORE_ADJ}` in `/opt/obs/.env`. The only value in that project that inverts, because `alloy` has no profile and runs on both boxes from one definition |
 
-**What the agent does not carry.** Prod does **not** ship through the staging box's agent. The prod
-agent pushes through the ingest vhost on Caddy straight into `loki` / `prometheus` / `tempo`
-(ADR-0050 §4), so on the staging box the agent carries only that box's own signals — which is why
-Caddy, not the agent, is the container prod's telemetry actually depends on there. The agent still
-takes the deepest protection on that box: it is the single OTLP receiver and log tailer for **both**
-application stacks on it, the only source of the host and container metrics the fleet rules read
-(including the rule watching this stack's own memory), and the fattest container in the project, so
-it is exactly what an unguided kernel would pick first.
+**The agent.** Prod's telemetry does not go through the staging agent. The prod agent pushes
+through the ingest vhost on Caddy straight into `loki` / `prometheus` / `tempo` (ADR-0050 §4), so on
+the staging box Caddy, not the agent, is what prod's telemetry depends on. The staging agent still
+gets the deepest protection on its box: it is the only OTLP receiver and log tailer for both
+application stacks there, the only source of the host and container metrics the fleet rules read,
+and the fattest container in its project, so an unguided kernel would pick it first.
 
-**Why the agent needs a knob and not a literal.** Its role inverts between the boxes, and the host's
-own daemons (`fail2ban`, `unattended-upgrades`, `networkd-dispatcher`, …) sit at `0` on both, forming
-a fixed line at ~672 that the agent has to be *below* on staging and *above* on prod. A negative
-literal would also be self-defeating on prod: with `mem_limit: 512m`, an agent at −200 tops out at an
-`oom_score` of about 590 however much memory it holds, so the kernel would take the box apart daemon
-by daemon before reaching the container the policy names. `preflight` refuses to start the stack if
-the value's sign does not match the box's role — the template ships the backend value live, and a
-wrong sign is silent everywhere else.
+**Why the agent has a knob and not a literal.** The host's own daemons (`fail2ban`,
+`unattended-upgrades`, `networkd-dispatcher`, …) sit at `0` on both boxes, which puts them at about
+672. The agent must be *below* that line on staging and *above* it on prod. A negative literal would
+also fail on prod: with `mem_limit: 512m`, an agent at −200 tops out at an `oom_score` of about 590,
+so the kernel would kill the host daemons one by one before it reached the agent. `preflight` refuses
+to start the stack when the value's sign does not match the box's role, because a wrong sign is
+silent everywhere else.
 
-**Read it back from the kernel, never from the compose file** — `oom_score` is what decides, and it
+**Read it back from the kernel, never from the compose file.** `oom_score` is what decides, and it
 moves with RSS:
 
 ```bash
@@ -147,7 +139,7 @@ done | sort -t= -k3 -rn
 ```
 
 Read back after the first rollout, 2026-09-10. Scores move by a few points as RSS moves, so treat
-these as bands, not constants — the ordering is what the policy fixes:
+them as bands; the order is what the policy fixes:
 
 | `lotro-staging` — first victim at the top | score | | `lotro-prod` | score |
 |---|---|---|---|---|
@@ -156,29 +148,25 @@ these as bands, not constants — the ordering is what the policy fixes:
 | `obs-grafana`, `obs-prometheus`, `obs-tempo`, `obs-loki` | 550–566 | | `lotro-prod-caddy` | ~606 |
 | **`obs-alloy`** | **~511** | | | |
 
-On staging the six application containers are the six top processes on the whole box. On prod the
-agent is the top process on the box, above even the host's own lingering `user@.service` at 734 —
-which is the point of the positive value there, and what a negative one could not have achieved.
+On staging the six application containers are the six top processes on the box. On prod the agent
+is the top process, above even the host's own `user@.service` at 734, which only a positive value
+can achieve.
 
-**A service added to either compose file gets its `oom_score_adj` in the same commit.** Nothing in CI
-can see a missing one — `scripts/ci/classify-changes.sh` treats compose files as inert — so the
-default `0` would be silent — and on the prod box it lands the new container in the **product** tier,
-better protected than the agent the policy wants killed first.
+**A service added to either compose file gets its `oom_score_adj` in the same commit.** CI cannot see
+a missing one (`scripts/ci/classify-changes.sh` treats compose files as inert), and on the prod box
+the default `0` puts the new container in the **product** tier, better protected than the agent.
 
-Both halves need a rollout to take effect, and they are **two different deploys**: `/opt/lotro` is a
-CD artifact (it lands with the next `deploy.sh`), `/opt/obs` is hand-deployed (ADR-0050 §2). Changing
-the value forces a container **recreate** on `up -d`, so the observability half costs a short
-telemetry gap.
+A change takes **two different deploys**: `/opt/lotro` is a CD artifact (it lands with the next
+`deploy.sh`), and `/opt/obs` is deployed by hand (ADR-0050 §2). A changed value recreates the
+container on `up -d`, so the observability half costs a short telemetry gap.
 
-**Do not restore symmetry between the boxes because it looks tidier.** The asymmetry is the whole
-decision; a "consistent" ordering means one of the two boxes is ordered backwards.
+**Do not restore symmetry between the boxes because it looks tidier.** A "consistent" order means
+one of the two boxes is ordered backwards.
 
 **What this does not cover.** `oom_score_adj` decides only the **box-level** OOM. A container that
-hits its own `mem_limit` is killed by the *cgroup* OOM killer, where the adjustment plays no part and
-the ranking is irrelevant — that is the failure mode #782 hit, and the one the fleet rule watches at
-85% of the ceiling. Neither box has ever had a box-level OOM (prod: none in the 60 days since it was
-built; staging: one, and it was a cgroup kill), so this is cheap insurance, not a fix for something
-observed.
+hits its own `mem_limit` is killed by the cgroup OOM killer, where the adjustment plays no part. That
+is what #782 hit, and the fleet rule watches it at 85% of each ceiling. When the policy was set
+(2026-09), neither box had had a box-level OOM, so it is cheap insurance, not a fix for something seen.
 
 ## Environment variable matrix
 

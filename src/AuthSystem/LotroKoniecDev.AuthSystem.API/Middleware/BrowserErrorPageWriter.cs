@@ -45,15 +45,13 @@ internal sealed class BrowserErrorPageWriter : IProblemDetailsWriter
     /// </summary>
     private static string BuildHtml(HttpContext httpContext)
     {
-        string? nonce = CspNonce.Get(httpContext);
-
         return httpContext.Response.StatusCode switch
         {
-            >= StatusCodes.Status500InternalServerError => ServerErrorPage.BuildHtml(nonce),
-            StatusCodes.Status404NotFound => ClientErrorPage.BuildNotFoundHtml(nonce),
-            StatusCodes.Status429TooManyRequests => TooManyRequestsPage.BuildHtml(TimeSpan.Zero, nonce),
-            _ when AntiforgeryFailureFilter.HasFailed(httpContext) => ClientErrorPage.BuildFormExpiredHtml(nonce),
-            _ => ClientErrorPage.BuildHtml(nonce)
+            >= StatusCodes.Status500InternalServerError => ServerErrorPage.BuildHtml(),
+            StatusCodes.Status404NotFound => ClientErrorPage.BuildNotFoundHtml(),
+            StatusCodes.Status429TooManyRequests => TooManyRequestsPage.BuildHtml(TimeSpan.Zero),
+            _ when AntiforgeryFailureFilter.HasFailed(httpContext) => ClientErrorPage.BuildFormExpiredHtml(),
+            _ => ClientErrorPage.BuildHtml()
         };
     }
 }

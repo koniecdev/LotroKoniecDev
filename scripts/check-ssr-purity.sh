@@ -7,9 +7,9 @@
 # runs in both workflows; the trade-off is that the file name now says less than it checks.
 #
 # The auth pages (src/AuthSystem, *.cshtml) got a CSP of their own in #693, so they are checked
-# for what it blocks: an inline <script>, a <style> without the per-request nonce, an inline
-# event handler and a style= attribute. The Static-SSR rules do not apply there, because those
-# pages are Razor Pages, not Blazor.
+# for what it blocks: an inline <script>, an inline <style> (#833), an inline event handler and a
+# style= attribute. The Static-SSR rules do not apply there, because those pages are Razor Pages,
+# not Blazor.
 #
 # The Frontend is Static SSR on purpose: no WebAssembly download, no SignalR circuit,
 # no per-user server state. A single stray @rendermode, @onclick or StateHasChanged
@@ -140,12 +140,11 @@ check_auth_pages '<[sS][cC][rR][iI][pP][tT][^>]*>' \
 # A tag helper can rewrite a Unicode space inside a tag into an ASCII one: the form tag helper turns
 # onsubmit<U+2003>= into a real onsubmit=. So every auth rule reads [^!-~] as a space too (#1162).
 check_auth_pages '<[sS][tT][yY][lL][eE]([^!-~]|>)' \
-    "<style> without the CSP nonce in an auth page. The auth CSP admits an inline style only by the response's nonce, so the browser drops it (#693). Write <style nonce=\"@CspNonce.Get(HttpContext)\">." \
-    '<[sS][tT][yY][lL][eE][^>]*[nN][oO][nN][cC][eE]=[^>]*>'
+    "Inline <style> in an auth page. The auth CSP sends style-src 'self', so the browser drops it and only the console says so (#833). Put the rules in wwwroot/account.css; an override for one page goes under that page's body class."
 check_auth_pages '<[a-zA-Z][^>]*[^!-~][oO][nN][a-zA-Z]+[^!-~]*=' \
     "Inline event handler (onclick=, onsubmit=, …) in an auth page. The auth CSP sends script-src 'self', which blocks it (#693). Attach the handler from a file under wwwroot, like login.js."
 check_auth_pages '<[a-zA-Z][^>]*[^!-~][sS][tT][yY][lL][eE][^!-~]*=' \
-    "Inline style= attribute in an auth page. The auth CSP admits inline styles only by nonce, and a nonce does not cover attributes (#693). Use a class in the page's <style> block."
+    "Inline style= attribute in an auth page. The auth CSP sends style-src 'self', which blocks it (#833). Use a class in wwwroot/account.css."
 
 if [ "$fail" -ne 0 ]; then
     echo "──────────────────────────────────────────────────────────────────────"

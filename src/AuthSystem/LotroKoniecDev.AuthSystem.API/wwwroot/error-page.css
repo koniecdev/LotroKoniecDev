@@ -1,0 +1,37 @@
+/*
+ * The frame of the error pages BrowserErrorPage writes. It has a file of its own: the account pages'
+ * base rules (link colours, font smoothing, line height) would change these pages.
+ */
+:root {
+    --bg: oklch(0.16 0.011 80);
+    --surface: oklch(0.23 0.014 80);
+    --border: oklch(0.34 0.016 80);
+    --text: oklch(0.96 0.008 85);
+    --text-mute: oklch(0.80 0.012 85);
+    --accent: oklch(0.78 0.11 84);
+    --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+}
+main {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    max-width: 34rem;
+    padding: 32px;
+}
+h1 { font-size: 1.35rem; margin: 0 0 12px; }
+p { color: var(--text-mute); margin: 0 0 12px; }
+a { color: var(--accent); }

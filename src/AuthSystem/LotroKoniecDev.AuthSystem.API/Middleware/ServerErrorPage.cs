@@ -7,10 +7,9 @@ namespace LotroKoniecDev.AuthSystem.API.Middleware;
 /// </summary>
 internal static class ServerErrorPage
 {
-    internal static string BuildHtml(string? nonce) =>
+    internal static string BuildHtml() =>
         BrowserErrorPage.BuildHtml(
             "Coś poszło nie tak",
-            nonce,
             "Wystąpił błąd po naszej stronie. Spróbuj ponownie za chwilę.",
             BrowserErrorPage.BackToLoginLink);
 }

@@ -18,24 +18,16 @@ namespace LotroKoniecDev.AuthSystem.API.Middleware;
 internal sealed class SecurityHeadersMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly IReadOnlyList<string> _frontendOrigins;
-
-    public SecurityHeadersMiddleware(RequestDelegate next, IOptions<OpenIddictSettings> openIddictSettings)
-    {
-        _next = next;
-        _frontendOrigins = FrontendOrigins(openIddictSettings.Value.WebClient);
-    }
+    private readonly IReadOnlyDictionary<string, string> _headers;
 
     public Task InvokeAsync(HttpContext context)
     {
-        // Issued before the page renders, because the page reads it. The headers wait for OnStarting:
-        // the exception handler clears the response before it runs again, and headers set now would be lost.
-        string nonce = CspNonce.Issue(context);
-
+        // The headers wait for OnStarting: the exception handler clears the response before it runs
+        // again, and headers set now would be lost.
         context.Response.OnStarting(() =>
         {
             IHeaderDictionary responseHeaders = context.Response.Headers;
-            foreach (KeyValuePair<string, string> header in BuildHeaders(nonce, _frontendOrigins))
+            foreach (KeyValuePair<string, string> header in _headers)
             {
                 responseHeaders[header.Key] = header.Value;
             }
@@ -46,26 +38,23 @@ internal sealed class SecurityHeadersMiddleware
         return _next(context);
     }
 
-    internal static IReadOnlyDictionary<string, string> BuildHeaders(
-        string nonce,
-        IReadOnlyList<string> frontendOrigins) =>
+    internal static IReadOnlyDictionary<string, string> BuildHeaders(IReadOnlyList<string> frontendOrigins) =>
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            [HeaderNames.ContentSecurityPolicy] = BuildContentSecurityPolicy(nonce, frontendOrigins),
+            [HeaderNames.ContentSecurityPolicy] = BuildContentSecurityPolicy(frontendOrigins),
             [HeaderNames.XContentTypeOptions] = "nosniff",
             ["Referrer-Policy"] = "no-referrer",
             [HeaderNames.XFrameOptions] = "DENY"
         };
 
     /// <summary>
-    /// Builds the CSP. <c>script-src</c> is <c>'self'</c> with no nonce: the one script the pages need
-    /// is a file (<c>login.js</c>), and a new inline script must be moved to a file too (#670).
-    /// Each page keeps its styles in an inline <c>&lt;style&gt;</c> block, so <c>style-src</c> admits
-    /// the per-request nonce and never <c>'unsafe-inline'</c>.
+    /// Builds the CSP. <c>script-src</c> and <c>style-src</c> are <c>'self'</c>: the pages load their
+    /// scripts and styles from files under <c>wwwroot</c>, so an inline script or style is blocked, and a
+    /// new one belongs in a file too (#670, #833).
     /// <c>form-action</c> lists the frontend origins. A sign-in POST ends in a redirect to the
     /// frontend's callback, and Chrome checks every redirect of a form submission against it.
     /// </summary>
-    internal static string BuildContentSecurityPolicy(string nonce, IReadOnlyList<string> frontendOrigins) =>
+    internal static string BuildContentSecurityPolicy(IReadOnlyList<string> frontendOrigins) =>
         string.Join("; ",
         [
             "default-src 'self'",
@@ -73,7 +62,7 @@ internal sealed class SecurityHeadersMiddleware
             "object-src 'none'",
             "frame-ancestors 'none'",
             "script-src 'self'",
-            $"style-src 'self' 'nonce-{nonce}'",
+            "style-src 'self'",
             "font-src 'self'",
             string.Join(' ', ["form-action", "'self'", .. frontendOrigins])
         ]);
@@ -96,6 +85,12 @@ internal sealed class SecurityHeadersMiddleware
             .Select(Origin)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    public SecurityHeadersMiddleware(RequestDelegate next, IOptions<OpenIddictSettings> openIddictSettings)
+    {
+        _next = next;
+        _headers = BuildHeaders(FrontendOrigins(openIddictSettings.Value.WebClient));
+    }
 
     private static string Origin(Uri uri)
     {

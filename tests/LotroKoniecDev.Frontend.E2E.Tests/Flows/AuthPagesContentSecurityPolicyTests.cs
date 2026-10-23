@@ -5,10 +5,10 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// The auth origin sends a strict CSP (#693): inline styles only with the response's nonce, and no
-/// inline script at all. A page that breaks it still returns 200 and still loads, just unstyled or
-/// without its script, so only a real browser can tell (#670). This opens every account page in one
-/// and checks that nothing was blocked.
+/// The auth origin sends a strict CSP (#693): styles and scripts only from files on the origin, and no
+/// inline style or script at all (#833). A page that breaks it still returns 200 and still loads, just
+/// unstyled or without its script, so only a real browser can tell (#670). This opens every account page
+/// in one and checks that nothing was blocked.
 /// It needs no account and nothing seeded. The two link pages are also opened with a link that parses,
 /// so the state that renders the form is checked too.
 /// </summary>
@@ -49,11 +49,18 @@ public sealed class AuthPagesContentSecurityPolicyTests : E2ETestBase
             response.ShouldNotBeNull();
             response.Headers.ShouldContainKey("content-security-policy");
 
-            // A style block the CSP refused gets no stylesheet at all, so this also catches a violation
-            // the listener missed.
-            bool everyStyleApplied = await Page.EvaluateAsync<bool>(
-                "() => [...document.querySelectorAll('style')].every(style => style.sheet !== null)");
-            if (!everyStyleApplied)
+            // A stylesheet the browser refused, or one that did not load, has no sheet at all, so this also
+            // catches a violation the listener missed.
+            bool sharedStylesheetApplied = await Page.EvaluateAsync<bool>(
+                """
+                () => {
+                    const links = [...document.querySelectorAll('link[rel=stylesheet]')];
+                    return links.some(link => link.getAttribute('href') === '/account.css')
+                        && links.every(link => link.sheet !== null)
+                        && document.querySelectorAll('style').length === 0;
+                }
+                """);
+            if (!sharedStylesheetApplied)
             {
                 unstyledPages.Add(page);
             }
@@ -74,7 +81,7 @@ public sealed class AuthPagesContentSecurityPolicyTests : E2ETestBase
         // Arrange
         await Page.GotoAsync(Fixture.AuthBaseUrl + "/Account/Login");
 
-        // Act: a style block without the response's nonce, which style-src refuses
+        // Act: an inline style block, which style-src 'self' refuses
         bool injectedStyleApplied = await Page.EvaluateAsync<bool>(
             """
             () => {

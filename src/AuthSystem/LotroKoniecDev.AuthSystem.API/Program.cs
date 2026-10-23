@@ -614,8 +614,9 @@ try
     // simply never given one (#692).
     app.MapRazorPages().RequireRateLimitingByDefault(authPageRateLimitPolicy);
 
-    // Serves the web fonts the account pages use, which we host ourselves (LEGAL-06). It sets its own
-    // Cache-Control with ETag revalidation, so GlobalNoCacheMiddleware leaves these responses alone.
+    // Serves the files the account and error pages load from wwwroot: their stylesheets (#833), their
+    // scripts and the web fonts we host ourselves (LEGAL-06). It sets its own Cache-Control with ETag
+    // revalidation, so GlobalNoCacheMiddleware leaves these responses alone.
     app.MapStaticAssets();
 
     // The seed checks for existing rows before it inserts, so running it twice is safe. Some

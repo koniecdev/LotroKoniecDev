@@ -31,9 +31,11 @@
                      honours If-None-Match with a 304 (the CLI/player relies on this; spec 0001).
       6. Auth pages  the auth origin sends its security headers on a page with a form (Login) and on
                      one without (ConfirmEmail): X-Frame-Options DENY with frame-ancestors 'none',
-                     nosniff, a private Referrer-Policy. Its CSP must also admit the page's own inline
-                     content: every <style> carries the header's nonce and no inline <script> is
-                     served. As in leg 2, a blocked style or script shows up only in the console (#693).
+                     nosniff, a private Referrer-Policy. The page must also carry nothing inline that
+                     its CSP blocks: no <style> (the styles live in /account.css, #833) and no inline
+                     <script>. As in leg 2, a blocked style or script shows up only in the console (#693).
+                     style-src must admit 'self', and /account.css and /error-page.css must answer
+                     200 text/css, or the pages load unstyled.
       7. Discovery   every link in the TMS and auth discovery roots sits on the configured origin. The
                      clients refuse a link to any other origin and follow no redirect (#611, #830), so an API
                      that builds its links from the wrong address (http, an internal host, another
@@ -392,24 +394,19 @@ function Test-AuthPage {
         }
     }
 
-    # The account pages keep their styles inline, so every <style> must carry the nonce style-src names.
+    # The account pages take their styles from /account.css (#833), so any inline <style> is a
+    # regression, whatever style-src says, and a style-src without 'self' blocks the file itself.
+    # No style-src and no default-src at all restricts nothing.
     $styleSrc = Get-CspDirective $csp 'style-src'
-    $nonceMatch = [regex]::Match($styleSrc, "'nonce-([A-Za-z0-9+/_=-]+)'")
     $styleTags = @([regex]::Matches($Html, '(?i)<style[^>]*>'))
     if ($styleSrc -match 'unsafe-inline') {
         Add-Fail "auth $Page style-src allows 'unsafe-inline' (#693)"
-    } elseif ($nonceMatch.Success) {
-        $expected = 'nonce="' + $nonceMatch.Groups[1].Value + '"'
-        $unnonced = @($styleTags | Where-Object { -not $_.Value.Contains($expected) }).Count
-        if ($unnonced -eq 0) {
-            Add-Pass "auth $Page puts the header's nonce on every inline <style>"
-        } else {
-            Add-Fail "auth $Page serves $unnonced <style> element(s) without the header's nonce, which style-src blocks (#693)"
-        }
+    } elseif ($styleSrc -and $styleSrc -notmatch "(?i)'self'") {
+        Add-Fail "auth $Page $styleSrc does not admit 'self', so /account.css is blocked (#833)"
     } elseif ($styleTags.Count -eq 0) {
-        Add-Pass "auth $Page serves no inline <style> (nothing for style-src to block)"
+        Add-Pass "auth $Page serves no inline <style> (#833)"
     } else {
-        Add-Fail "auth $Page serves $($styleTags.Count) inline <style> element(s), which its own style-src blocks (#693)"
+        Add-Fail "auth $Page serves $($styleTags.Count) inline <style> element(s); the styles belong in /account.css (#833)"
     }
 }
 
@@ -425,6 +422,22 @@ foreach ($authPage in @('/Account/Login', '/Account/ConfirmEmail')) {
     } catch { $authHtml = '' }
     if ($null -eq $authHtml) { $authHtml = '' }
     Test-AuthPage -Page $authPage -Response $authResponse -Html $authHtml
+}
+# A page whose stylesheet is missing still answers 200 and loads unstyled, so the files are fetched too
+# (#833): /account.css for the account pages, /error-page.css for the 4xx, 429 and 5xx pages.
+foreach ($stylesheet in @('/account.css', '/error-page.css')) {
+    $cssCode = '000'
+    $cssType = ''
+    try {
+        $cssResponse = Invoke-Smoke -Url "$AuthUrl$stylesheet"
+        $cssCode = [string][int]$cssResponse.StatusCode
+        $cssType = Get-HeaderValues $cssResponse 'Content-Type'
+    } catch { $cssCode = '000' }
+    if ($cssCode -eq '200' -and $cssType -match '(?i)^text/css') {
+        Add-Pass "auth $stylesheet -> 200 $cssType"
+    } else {
+        Add-Fail "auth $stylesheet -> $cssCode '$cssType' (expected 200 text/css): the pages that use it would load unstyled (#833)"
+    }
 }
 Write-Host ""
 

@@ -216,24 +216,23 @@ run_suite() {
     run_case 1 "the import-map component with U+2003 after its name fails" App.razor $'<ImportMap\342\200\203/>'
 
     # --- the auth pages: the same CSP rules, over *.cshtml (#693) ---
-    run_auth_case 0 "an auth page with a nonced style and an external script passes" \
-        Login.cshtml '<style nonce="@CspNonce.Get(HttpContext)">p{}</style><script src="/login.js"></script>'
+    run_auth_case 0 "an auth page with a stylesheet link and an external script passes" \
+        Login.cshtml '<link rel="stylesheet" href="/account.css" /><script src="/login.js"></script>'
     run_auth_case 1 "an inline script in an auth page fails" \
         Login.cshtml '<script>(function () {})();</script>'
     expect_in_output "#693"
-    run_auth_case 1 "a style without the nonce in an auth page fails" \
+    run_auth_case 1 "an inline style in an auth page fails" \
         Login.cshtml '<style>p{}</style>'
-    expect_in_output "without the CSP nonce"
-    run_auth_case 1 "a style without the nonce on a line that is not valid UTF-8 still fails" \
+    expect_in_output "Inline <style> in an auth page"
+    run_auth_case 1 "an inline style on a line that is not valid UTF-8 still fails" \
         Login.cshtml $'<style>p{} /* zmian\352 */</style>'
-    run_auth_case 1 "a style without the nonce after U+2003 fails" \
+    run_auth_case 1 "an inline style after U+2003 fails" \
         Login.cshtml $'<style\342\200\203media="screen">p{}</style>'
-    run_auth_case 0 "a nonced style after U+2003 passes" \
-        Login.cshtml $'<style\342\200\203nonce="@CspNonce.Get(HttpContext)">p{}</style>'
-    run_auth_case 1 "an UPPERCASE style without the nonce fails" \
+    run_auth_case 1 "an UPPERCASE inline style fails" \
         Login.cshtml '<STYLE media="screen">p{}</STYLE>'
-    run_auth_case 1 "a nonced style does not hide an unnonced one on the same line" \
-        Login.cshtml '<style nonce="@n">a{}</style><style>b{}</style>'
+    # style-src is 'self' since #833, so a nonce no longer lets a style block through.
+    run_auth_case 1 "a style with a nonce fails too" \
+        Login.cshtml '<style nonce="@n">a{}</style>'
     run_auth_case 0 "a stylesheet link is not an inline style" \
         Login.cshtml '<link rel="stylesheet" href="/fonts.css" />'
     run_auth_case 0 "the Static-SSR rules do not apply to Razor Pages" \

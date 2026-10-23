@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -19,6 +20,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.SecurityHeaders;
 public sealed partial class SecurityHeadersTests : EndpointsTestBase
 {
     private const int ForgotPasswordPermitLimit = 3;
+    private const string AccountStylesheetLink = "<link rel=\"stylesheet\" href=\"/account.css\" />";
 
     public SecurityHeadersTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
@@ -59,21 +61,20 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
 
     /// <summary>
     /// The #670 lesson: a CSP that blocks the page's own markup still returns 200, and only the browser
-    /// console says so. The pages keep their styles inline, so every block needs this response's nonce.
+    /// console says so. style-src is 'self', so the styles have to come from the shared file (#833).
     /// </summary>
     [Theory]
     [MemberData(nameof(AccountPages.All), MemberType = typeof(AccountPages))]
-    public async Task AccountPage_ShouldPutTheResponsesNonceOnEveryInlineStyle(string page)
+    public async Task AccountPage_ShouldLoadItsStylesFromTheSharedStylesheet(string page)
     {
         // Act
         using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
 
         // Assert
-        string nonce = StyleNonce(SingleHeader(response, "Content-Security-Policy")).ShouldNotBeNull();
+        SingleHeader(response, "Content-Security-Policy").ShouldNotBeNull().Split("; ").ShouldContain("style-src 'self'");
         string html = await response.Content.ReadAsStringAsync();
-        List<string> styleTags = StyleTagRegex().Matches(html).Select(match => match.Value).ToList();
-        styleTags.ShouldNotBeEmpty();
-        styleTags.ShouldAllBe(styleTag => styleTag.Contains($"nonce=\"{nonce}\"", StringComparison.Ordinal));
+        html.ShouldContain(AccountStylesheetLink);
+        StyleTagRegex().IsMatch(html).ShouldBeFalse();
     }
 
     [Theory]
@@ -97,7 +98,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
         // Act
         using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
 
-        // Assert: a nonce covers a style block, never a style attribute
+        // Assert: style-src 'self' blocks a style attribute as well
         string html = await response.Content.ReadAsStringAsync();
         StyleAttributeRegex().IsMatch(html).ShouldBeFalse();
     }
@@ -137,17 +138,40 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
         HeaderValues(response, "X-Frame-Options").ShouldBe(["DENY"]);
     }
 
-    [Fact]
-    public async Task EachResponse_ShouldGetItsOwnNonce()
+    [Theory]
+    [InlineData("/account.css", ".auth-panel")]
+    [InlineData("/error-page.css", "main {")]
+    public async Task Stylesheet_ShouldBeServedFromThisOrigin(string path, string expectedRule)
     {
         // Act
-        using HttpResponseMessage first = await ApiClient.Http.GetAsync(new Uri("/Account/Login", UriKind.Relative));
-        using HttpResponseMessage second = await ApiClient.Http.GetAsync(new Uri("/Account/Login", UriKind.Relative));
+        using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(path, UriKind.Relative));
 
         // Assert
-        string firstNonce = StyleNonce(SingleHeader(first, "Content-Security-Policy")).ShouldNotBeNull();
-        string secondNonce = StyleNonce(SingleHeader(second, "Content-Security-Policy")).ShouldNotBeNull();
-        firstNonce.ShouldNotBe(secondNonce);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/css");
+        string body = await response.Content.ReadAsStringAsync();
+        body.ShouldContain(expectedRule);
+    }
+
+    /// <summary>
+    /// The point of #833: the pages used to send their styles again on every visit, because a page is
+    /// never cached. The shared file is checked with its ETag and not downloaded again.
+    /// </summary>
+    [Fact]
+    public async Task AccountStylesheet_ShouldAnswerARepeatVisitWithNotModified()
+    {
+        // Arrange
+        using HttpResponseMessage first = await ApiClient.Http.GetAsync(new Uri("/account.css", UriKind.Relative));
+        EntityTagHeaderValue etag = first.Headers.ETag.ShouldNotBeNull();
+        using HttpRequestMessage repeat = new(HttpMethod.Get, new Uri("/account.css", UriKind.Relative));
+        repeat.Headers.IfNoneMatch.Add(etag);
+
+        // Act
+        using HttpResponseMessage response = await ApiClient.Http.SendAsync(repeat);
+
+        // Assert
+        (first.Headers.CacheControl?.NoStore).ShouldNotBe(true);
+        response.StatusCode.ShouldBe(HttpStatusCode.NotModified);
     }
 
     /// <summary>
@@ -190,6 +214,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
     [InlineData("/health/live", HttpStatusCode.OK)]
     [InlineData("/", HttpStatusCode.OK)]
     [InlineData("/login.js", HttpStatusCode.OK)]
+    [InlineData("/account.css", HttpStatusCode.OK)]
     [InlineData("/does-not-exist", HttpStatusCode.NotFound)]
     public async Task NonPageResponse_ShouldCarryTheSecurityHeadersToo(string path, HttpStatusCode expectedStatus)
     {
@@ -204,9 +229,9 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ThrottledPage_ShouldCarryTheNonceItsStyleNeeds()
+    public async Task ThrottledPage_ShouldLoadItsStylesFromAFile()
     {
-        // Arrange: the 429 page is written by the limiter, outside Razor, so it gets the nonce by hand
+        // Arrange: the limiter writes the 429 page outside Razor, under the same CSP as every page
         using WebApplicationFactory<Program> limitedHost = Factory.WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, configBuilder) =>
                 configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
@@ -234,9 +259,10 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
         // Assert
         lastResponse.ShouldNotBeNull();
         lastResponse.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
-        string nonce = StyleNonce(SingleHeader(lastResponse, "Content-Security-Policy")).ShouldNotBeNull();
+        SingleHeader(lastResponse, "Content-Security-Policy").ShouldNotBeNull().Split("; ").ShouldContain("style-src 'self'");
         string html = await lastResponse.Content.ReadAsStringAsync();
-        html.ShouldContain($"<style nonce=\"{nonce}\">");
+        html.ShouldContain("<link rel=\"stylesheet\" href=\"/error-page.css\" />");
+        StyleTagRegex().IsMatch(html).ShouldBeFalse();
         SingleHeader(lastResponse, "X-Frame-Options").ShouldBe("DENY");
         lastResponse.Dispose();
     }
@@ -252,20 +278,6 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
     {
         return HeaderValues(response, name) is [string value] ? value : null;
     }
-
-    private static string? StyleNonce(string? contentSecurityPolicy)
-    {
-        if (contentSecurityPolicy is null)
-        {
-            return null;
-        }
-
-        Match match = StyleNonceRegex().Match(contentSecurityPolicy);
-        return match.Success ? match.Groups["nonce"].Value : null;
-    }
-
-    [GeneratedRegex(@"style-src [^;]*'nonce-(?<nonce>[A-Za-z0-9_-]+)'")]
-    private static partial Regex StyleNonceRegex();
 
     [GeneratedRegex("<style[^>]*>", RegexOptions.IgnoreCase)]
     private static partial Regex StyleTagRegex();

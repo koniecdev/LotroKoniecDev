@@ -37,9 +37,9 @@ try
 
     WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-    // In every environment (#572), so a broken graph that only appears under production config fails at
-    // startup, before CD moves traffic, not as a 500. A forgotten handler registration is still caught
-    // only by the endpoint integration tests.
+    // DI validation in every environment (#572), so a broken graph that only appears under production
+    // config fails at startup, before CD moves traffic, not as a 500. A forgotten handler registration
+    // is still caught only by the endpoint integration tests.
     builder.Host.UseDefaultServiceProvider(static (_, options) =>
     {
         options.ValidateScopes = true;

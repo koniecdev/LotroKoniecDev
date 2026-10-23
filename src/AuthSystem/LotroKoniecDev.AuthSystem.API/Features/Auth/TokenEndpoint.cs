@@ -24,7 +24,7 @@ internal sealed partial class TokenEndpoint : IEndpoint
     private const string AccountDeletionScheduledCode = "account_deletion_scheduled";
 
     /// <summary>
-    /// So the not-found path takes as long as a wrong password and the timing reveals nothing.
+    /// Makes the not-found path take as long as a wrong password, so the timing reveals nothing.
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");

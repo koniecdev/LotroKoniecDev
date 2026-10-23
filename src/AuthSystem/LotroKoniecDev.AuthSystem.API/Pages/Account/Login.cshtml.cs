@@ -160,7 +160,7 @@ internal sealed partial class LoginModel : PageModel
 
         await _userManager.ResetAccessFailedCountAsync(user);
 
-        // So SecurityStampCookieValidator can drop this session when the stamp changes; otherwise a valid
+        // Lets SecurityStampCookieValidator drop this session when the stamp changes; otherwise a valid
         // cookie could keep issuing tokens after a password reset (SEC-03).
         string securityStamp = await _userManager.GetSecurityStampAsync(user);
 

@@ -23,7 +23,7 @@ internal sealed partial class ResetPasswordModel : PageModel
     private const string GeneralRefusalMessage = "Spróbuj jeszcze raz. Jeśli błąd się powtórzy, napisz do nas.";
 
     /// <summary>
-    /// So every path verifies exactly one hash.
+    /// Lets every path verify exactly one hash.
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");

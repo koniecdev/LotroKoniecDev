@@ -15,7 +15,7 @@ namespace LotroKoniecDev.AuthSystem.API.BackgroundServices;
 internal sealed partial class OutboxRelay : BackgroundService
 {
     /// <summary>
-    /// So a backlog after an outage is handled in pieces. The query reads the partial index
+    /// A backlog after an outage is handled in pieces. The query reads the partial index
     /// <c>IX_OutboxMessages_Unprocessed</c> from the top.
     /// </summary>
     private const int BatchSize = 100;

@@ -19,7 +19,7 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 internal sealed partial class ForgotPasswordModel : PageModel
 {
     /// <summary>
-    /// So every path verifies exactly one hash.
+    /// Lets every path verify exactly one hash.
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");

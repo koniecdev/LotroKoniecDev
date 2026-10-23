@@ -59,7 +59,7 @@ internal static class OpenIddictExtensions
                     AuthConstants.Scopes.Api,
                     AuthConstants.Scopes.Service);
 
-                // So standard JWT Bearer validation can read them. They are still signed.
+                // Not encrypted, so standard JWT Bearer validation can read them. They are still signed.
                 options.DisableAccessTokenEncryption();
 
                 // Every other environment takes its keys from configuration in ConfigureOpenIddictServerSettings.

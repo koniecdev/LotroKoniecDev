@@ -407,7 +407,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         {
             DateTimeOffset? lockedUntil = DateTimeOffset.MaxValue;
 
-            // So a write that read the account before the lock fails instead of putting the old lockout back.
+            // A new stamp makes a write that read the account before the lock fail, instead of undoing the lock.
             string concurrencyStamp = Guid.NewGuid().ToString();
 
             int lockedCount = await _dbContext.Users

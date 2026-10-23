@@ -13,7 +13,7 @@ internal sealed partial class UserSessionRevoker : IUserSessionRevoker
     private const string TokensStep = "tokens";
 
     /// <summary>
-    /// So a stuck database cannot hold the request forever. Per step, so one step never eats the other's.
+    /// Keeps a stuck database from holding the request forever. Per step, so one never eats the other's time.
     /// </summary>
     internal static readonly TimeSpan TimeLimit = TimeSpan.FromSeconds(30);
 

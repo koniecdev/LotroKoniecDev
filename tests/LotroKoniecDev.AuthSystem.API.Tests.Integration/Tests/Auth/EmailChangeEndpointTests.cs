@@ -28,7 +28,7 @@ public sealed class EmailChangeEndpointTests : EndpointsTestBase
     {
         RegisterRequest registerRequest = await RegisterAsync();
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, Password);
-        string newEmail = Faker.Internet.Email();
+        string newEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         HttpResponseMessage response = await RequestChangeAsync(accessToken, newEmail, Password);
 
@@ -43,8 +43,6 @@ public sealed class EmailChangeEndpointTests : EndpointsTestBase
         row.ShouldNotBeNull();
         row.Payload.ShouldContain(registerRequest.Email);
         (await CountOutboxRowsAsync(nameof(EmailChangeRequested))).ShouldBe(1);
-
-        // Wait for the delivery, so its link cannot land in the next test's spy (#950).
         (await OutboxAssertions.WaitForInboxRowsAsync(Factory, row.Id)).ShouldBe(1);
     }
 
@@ -53,15 +51,14 @@ public sealed class EmailChangeEndpointTests : EndpointsTestBase
     {
         RegisterRequest registerRequest = await RegisterAsync();
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, Password);
-        string newEmail = Faker.Internet.Email();
+        string newEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         await RequestChangeAsync(accessToken, newEmail, Password);
-        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
-        await EmailChangeEmailSpy.WaitForChangeRequestedWarningCaptureAsync();
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync(newEmail);
+        await EmailChangeEmailSpy.WaitForChangeRequestedWarningCaptureAsync(registerRequest.Email);
 
-        EmailChangeEmailSpy.LastVerificationRecipient.ShouldBe(newEmail);
-        EmailChangeEmailSpy.LastWarningRecipient.ShouldBe(registerRequest.Email);
-        EmailChangeEmailSpy.LastWarningTargetAddress.ShouldBe(newEmail);
+        EmailChangeEmailSpy.VerificationsTo(newEmail).ShouldHaveSingleItem();
+        EmailChangeEmailSpy.WarningsTo(registerRequest.Email).ShouldHaveSingleItem().TargetAddress.ShouldBe(newEmail);
     }
 
     [Fact]
@@ -69,9 +66,10 @@ public sealed class EmailChangeEndpointTests : EndpointsTestBase
     {
         RegisterRequest registerRequest = await RegisterAsync();
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, Password);
+        string newEmail = UserFactory.GenerateUniqueEmail(Faker);
 
-        await RequestChangeAsync(accessToken, Faker.Internet.Email(), Password);
-        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
+        await RequestChangeAsync(accessToken, newEmail, Password);
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync(newEmail);
 
         ApplicationUser user = await LoadUserAsync(registerRequest.Email);
         user.Email.ShouldBe(registerRequest.Email);
@@ -105,21 +103,23 @@ public sealed class EmailChangeEndpointTests : EndpointsTestBase
         RegisterRequest registerRequest = await RegisterAsync();
         RegisterRequest otherUser = await RegisterAsync();
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, Password);
-        EmailChangeEmailSpy.Reset();
+        string freeEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         using HttpResponseMessage takenResponse = await RequestChangeAsync(accessToken, otherUser.Email, Password);
-        using HttpResponseMessage freeResponse = await RequestChangeAsync(accessToken, Faker.Internet.Email(), Password);
+        using HttpResponseMessage freeResponse = await RequestChangeAsync(accessToken, freeEmail, Password);
 
         takenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         takenResponse.StatusCode.ShouldBe(freeResponse.StatusCode);
         (await takenResponse.Content.ReadAsStringAsync()).ShouldBe(await freeResponse.Content.ReadAsStringAsync());
 
-        await EmailChangeEmailSpy.WaitForAddressTakenNoticeCaptureAsync();
-        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
-        EmailChangeEmailSpy.LastAddressTakenNoticeRecipient.ShouldBe(otherUser.Email);
-        EmailChangeEmailSpy.AddressTakenNoticeCallCount.ShouldBe(1);
-        EmailChangeEmailSpy.VerificationCallCount.ShouldBe(1);
-        EmailChangeEmailSpy.WarningCallCount.ShouldBe(2);
+        // Each request sends its warning first and its last mail at the end, so after both waits no mail of
+        // either request is still on its way.
+        await EmailChangeEmailSpy.WaitForAddressTakenNoticeCaptureAsync(otherUser.Email);
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync(freeEmail);
+        EmailChangeEmailSpy.AddressTakenNoticeCountTo(otherUser.Email).ShouldBe(1);
+        EmailChangeEmailSpy.VerificationsTo(otherUser.Email).ShouldBeEmpty();
+        EmailChangeEmailSpy.VerificationsTo(freeEmail).ShouldHaveSingleItem();
+        EmailChangeEmailSpy.WarningsTo(registerRequest.Email).Count.ShouldBe(2);
     }
 
     [Fact]

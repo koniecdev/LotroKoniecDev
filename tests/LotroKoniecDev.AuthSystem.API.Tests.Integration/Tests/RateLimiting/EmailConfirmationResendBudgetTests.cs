@@ -47,7 +47,7 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
         using HttpResponseMessage refused = await PostToResendConfirmationPageAsync(request.Email);
 
         // Assert: the budget bounds what was sent, and the refused request shows the same panel as the rest
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(PermitLimit);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).Count.ShouldBe(PermitLimit);
         refused.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await refused.Content.ReadAsStringAsync()).ShouldContain(SuccessMarker);
     }
@@ -74,7 +74,7 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
         }
 
         // Assert: the endpoint refuses with the same 200 every other branch gives
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(PermitLimit);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).Count.ShouldBe(PermitLimit);
         statusCodes.ShouldAllBe(statusCode => statusCode == HttpStatusCode.OK);
     }
 
@@ -103,8 +103,10 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
             response.StatusCode.ShouldBe(HttpStatusCode.OK);
         }
 
-        // Assert
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(PermitLimit);
+        // Assert: resend mails the address as it was typed, so the sends are spread over the spellings
+        spellings.Distinct(StringComparer.Ordinal)
+            .Sum(spelling => AccountConfirmationEmailSpy.ConfirmationEmailsTo(spelling).Count)
+            .ShouldBe(PermitLimit);
     }
 
     [Fact]
@@ -129,8 +131,7 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
 
         // Assert
         other.StatusCode.ShouldBe(HttpStatusCode.OK);
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(1);
-        AccountConfirmationEmailSpy.LastEmail.ShouldBe(otherUser.Email);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(otherUser.Email).ShouldHaveSingleItem();
     }
 
     [Fact]
@@ -139,7 +140,6 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
         // Arrange: the budget counts sends, so requests for an address with no account must spend nothing.
         // Otherwise a stranger could empty the budget before the owner has even registered.
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
-        AccountConfirmationEmailSpy.Reset();
 
         for (int i = 0; i < PermitLimit + 1; i++)
         {
@@ -147,12 +147,12 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
             early.StatusCode.ShouldBe(HttpStatusCode.OK);
         }
 
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
 
         using HttpResponseMessage registered = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/register", UriKind.Relative), request);
         registered.StatusCode.ShouldBe(HttpStatusCode.Accepted);
-        await AccountConfirmationEmailSpy.WaitForCaptureAsync();
+        await AccountConfirmationEmailSpy.WaitForCaptureAsync(request.Email);
         AccountConfirmationEmailSpy.Reset();
 
         // Act
@@ -163,7 +163,7 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
         }
 
         // Assert: the whole budget is still there for the real account
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(PermitLimit);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).Count.ShouldBe(PermitLimit);
     }
 
     private async Task<HttpResponseMessage> PostToResendConfirmationPageAsync(string email)

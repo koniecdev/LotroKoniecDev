@@ -70,12 +70,11 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         // Act: registration is the only user-facing trigger of the whole pipeline
         (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             _apiClient, _faker, _confirmationEmailSpy);
-        await _confirmationEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
 
-        // Assert: the e-mail went out once, to the registered address, with a usable token
-        _confirmationEmailSpy.LastEmail.ShouldBe(request.Email);
-        _confirmationEmailSpy.LastConfirmationToken.ShouldNotBeNullOrWhiteSpace();
-        _confirmationEmailSpy.CallCount.ShouldBe(1);
+        // Assert: the e-mail went out once, to the registered address, with a usable token. The helper
+        // waited for it.
+        _confirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldHaveSingleItem()
+            .ConfirmationToken.ShouldNotBeNullOrWhiteSpace();
 
         // The outbox row was published and marked on the first attempt
         OutboxMessage? outboxRow = await WaitForOutboxRowAsync(
@@ -96,14 +95,13 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     {
         // Arrange: a fully delivered registration, then its exact wire message published again
         // (the relay's crash window: published but not yet marked processed → re-published later)
-        (RegisterRequest _, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
+        (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             _apiClient, _faker, _confirmationEmailSpy);
-        await _confirmationEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
         OutboxMessage? outboxRow = await WaitForOutboxRowAsync(
             row => row.Payload.Contains(identityId.Value.ToString(), StringComparison.OrdinalIgnoreCase)
                    && row.ProcessedOn != null);
         outboxRow.ShouldNotBeNull();
-        int sendsAfterFirstDelivery = _confirmationEmailSpy.CallCount;
+        int sendsAfterFirstDelivery = _confirmationEmailSpy.ConfirmationEmailsTo(request.Email).Count;
 
         // Act: same payload, same type, same message id, over the real wire
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
@@ -118,7 +116,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         // Assert: the duplicate is consumed (queue drains), acked (no parking) and suppressed
         await WaitUntilQueueEmptyAsync(RabbitMqTopology.EmailQueue, DeliveryTimeout);
         await Task.Delay(TimeSpan.FromSeconds(1));
-        _confirmationEmailSpy.CallCount.ShouldBe(sendsAfterFirstDelivery);
+        _confirmationEmailSpy.ConfirmationEmailsTo(request.Email).Count.ShouldBe(sendsAfterFirstDelivery);
         (await CountInboxRowsAsync(outboxRow.Id)).ShouldBe(1);
         (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, EmptyQueueGrace)).ShouldBeNull();
     }
@@ -146,7 +144,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
             (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, DeliveryTimeout)).ShouldNotBeNull();
         Encoding.UTF8.GetString(dead.Body.ToArray()).ShouldBe(poisonPayload);
         FirstDeathReason(dead.BasicProperties).ShouldBe("rejected");
-        _confirmationEmailSpy.CallCount.ShouldBe(0);
+        _confirmationEmailSpy.ConfirmationEmailCountToAnyInbox.ShouldBe(0);
         (await CountInboxRowsAsync(messageId)).ShouldBe(0);
     }
 
@@ -157,9 +155,8 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     {
         // Arrange: a real unconfirmed user, so a processed delivery WOULD send an e-mail: the
         // only thing broken about this message is the id the inbox would deduplicate on
-        (RegisterRequest _, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
+        (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             _apiClient, _faker, _confirmationEmailSpy);
-        await _confirmationEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
         _confirmationEmailSpy.Reset();
         string validPayload = JsonSerializer.Serialize(new EmailConfirmationRequested(identityId.Value));
 
@@ -171,7 +168,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
             (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, DeliveryTimeout)).ShouldNotBeNull();
         Encoding.UTF8.GetString(dead.Body.ToArray()).ShouldBe(validPayload);
         FirstDeathReason(dead.BasicProperties).ShouldBe("rejected");
-        _confirmationEmailSpy.CallCount.ShouldBe(0);
+        _confirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
     }
 
     [Theory]
@@ -183,9 +180,8 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         // Arrange: a real unconfirmed user and a perfectly readable payload: the only thing
         // broken about this delivery is the type property the registry selects processors by
         // (ADR-0038), so a redelivery could never fix it
-        (RegisterRequest _, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
+        (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             _apiClient, _faker, _confirmationEmailSpy);
-        await _confirmationEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
         _confirmationEmailSpy.Reset();
         Guid messageId = Guid.CreateVersion7();
         string validPayload = JsonSerializer.Serialize(new EmailConfirmationRequested(identityId.Value));
@@ -198,7 +194,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
             (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, DeliveryTimeout)).ShouldNotBeNull();
         Encoding.UTF8.GetString(dead.Body.ToArray()).ShouldBe(validPayload);
         FirstDeathReason(dead.BasicProperties).ShouldBe("rejected");
-        _confirmationEmailSpy.CallCount.ShouldBe(0);
+        _confirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
         (await CountInboxRowsAsync(messageId)).ShouldBe(0);
     }
 
@@ -221,7 +217,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         // Assert: the inbox record doubles as the "consumer finished" signal
         int inboxRows = await WaitForInboxRowsAsync(messageId, DeliveryTimeout);
         inboxRows.ShouldBe(1);
-        _confirmationEmailSpy.CallCount.ShouldBe(0);
+        _confirmationEmailSpy.ConfirmationEmailCountToAnyInbox.ShouldBe(0);
         (await GetWithinTimeoutAsync(RabbitMqTopology.EmailQueue, EmptyQueueGrace)).ShouldBeNull();
         (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, EmptyQueueGrace)).ShouldBeNull();
     }
@@ -232,12 +228,14 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         // Arrange: a warm pipeline (consumer attached, publisher connected), then the broker
         // kills every client connection: the deploy/restart scenario both sides must survive
         await UserFactory.RegisterRandomUserUnconfirmedAsync(_apiClient, _faker, _confirmationEmailSpy);
-        await _confirmationEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
         await _factory.Broker.CloseAllConnectionsAsync();
 
-        // Act: a registration right after the cut; its own nudge may race the dead connection
-        (RegisterRequest secondRequest, IdentityId secondIdentityId) =
-            await UserFactory.RegisterRandomUserUnconfirmedAsync(_apiClient, _faker, _confirmationEmailSpy);
+        // Act: a registration right after the cut; its own nudge may race the dead connection. It is
+        // posted here and not through UserFactory, whose wait for the mail would not send the nudges below.
+        RegisterRequest secondRequest = UserFactory.GenerateRandomRegisterRequest(_faker);
+        using HttpResponseMessage registered = await _apiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), secondRequest);
+        registered.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
         // A signal that was already used would leave the relay waiting out its first retry step of 30
         // seconds. In production every later commit sends a new signal, so this wait sends one too
@@ -245,18 +243,18 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         // OutboxRelayTests.
         OutboxSignal outboxSignal = _factory.Services.GetRequiredService<OutboxSignal>();
         using CancellationTokenSource recoveryWindow = new(RecoveryTimeout);
-        while (_confirmationEmailSpy.LastEmail is null && !recoveryWindow.IsCancellationRequested)
+        while (_confirmationEmailSpy.ConfirmationEmailsTo(secondRequest.Email).Count == 0
+               && !recoveryWindow.IsCancellationRequested)
         {
             outboxSignal.Notify();
             await Task.Delay(500);
         }
 
         // Assert: the second e-mail arrived through rebuilt connections, exactly once
-        _confirmationEmailSpy.LastEmail.ShouldBe(secondRequest.Email);
-        _confirmationEmailSpy.CallCount.ShouldBe(1);
+        Guid secondUserId = _confirmationEmailSpy.ConfirmationEmailsTo(secondRequest.Email).ShouldHaveSingleItem().UserId;
 
         OutboxMessage? recoveredRow = await WaitForOutboxRowAsync(
-            row => row.Payload.Contains(secondIdentityId.Value.ToString(), StringComparison.OrdinalIgnoreCase)
+            row => row.Payload.Contains(secondUserId.ToString(), StringComparison.OrdinalIgnoreCase)
                    && row.ProcessedOn != null);
         recoveredRow.ShouldNotBeNull();
         (await GetWithinTimeoutAsync(RabbitMqTopology.EmailQueue, EmptyQueueGrace)).ShouldBeNull();
@@ -268,7 +266,6 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     {
         // Arrange: a warm pipeline, with the consumer attached
         await UserFactory.RegisterRandomUserUnconfirmedAsync(_apiClient, _faker, _confirmationEmailSpy);
-        await _confirmationEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
 
         // Act: the queue is deleted, the way its arguments are changed on a live box. That cancels the
         // consumer's subscription, and automatic recovery does not bring it back. A publish is refused
@@ -278,12 +275,10 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         bool consumerIsBack = await WaitUntilQueueHasConsumerAsync(RabbitMqTopology.EmailQueue, RecoveryTimeout);
         (RegisterRequest request, IdentityId _) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             _apiClient, _faker, _confirmationEmailSpy);
-        await _confirmationEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
 
-        // Assert
+        // Assert: the helper waited for the mail
         consumerIsBack.ShouldBeTrue();
-        _confirmationEmailSpy.LastEmail.ShouldBe(request.Email);
-        _confirmationEmailSpy.CallCount.ShouldBe(1);
+        _confirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldHaveSingleItem();
     }
 
     [Fact]

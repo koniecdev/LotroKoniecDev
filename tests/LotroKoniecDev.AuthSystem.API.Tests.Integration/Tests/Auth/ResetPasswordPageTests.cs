@@ -504,9 +504,9 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
             new ForgotPasswordRequest(email));
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        await PasswordResetEmailSpy.WaitForCaptureAsync();
+        await PasswordResetEmailSpy.WaitForCaptureAsync(email);
 
-        return PasswordResetEmailSpy.LastResetToken!;
+        return PasswordResetEmailSpy.LastResetTokenSentTo(email)!;
     }
 
     public enum ResetRefusal

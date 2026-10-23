@@ -80,13 +80,15 @@ public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
         ScheduledEmailsTo(recipient).LastOrDefault()?.CancelToken;
 
     /// <summary>
-    /// Waits until a deletion-scheduled mail reaches this inbox or the time runs out. The request only
-    /// commits an outbox row (commit -> relay -> delivery -> this spy), so the mail has to be waited for.
-    /// Any mail since the last <see cref="Reset"/> counts, so a test that schedules twice for one inbox
-    /// resets in between. It returns either way, and the assertions stay in the test.
+    /// Waits until a deletion-scheduled mail reaches this inbox, and throws when the time runs out. Any
+    /// mail since the last <see cref="Reset"/> counts, so a test that schedules twice for one inbox resets
+    /// in between.
     /// </summary>
     public Task WaitForScheduledCaptureAsync(string recipient, TimeSpan? timeout = null) =>
-        WaitForAsync(() => _scheduledEmails.Any(mail => mail.Recipient == recipient), timeout);
+        MailWait.UntilAsync(
+            () => _scheduledEmails.Any(mail => mail.Recipient == recipient),
+            $"A deletion-scheduled mail to {recipient}",
+            timeout);
 
     /// <summary>
     /// Waits until a notice reaches the address an armed undo would restore. A test that expects the
@@ -94,14 +96,20 @@ public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
     /// A test that expects no notice waits for the delivery's inbox row instead.
     /// </summary>
     public Task WaitForPreviousAddressNoticeAsync(string recipient, TimeSpan? timeout = null) =>
-        WaitForAsync(() => _previousAddressNotices.Any(notice => notice.Recipient == recipient), timeout);
+        MailWait.UntilAsync(
+            () => _previousAddressNotices.Any(notice => notice.Recipient == recipient),
+            $"A deletion notice to the previous address {recipient}",
+            timeout);
 
     /// <summary>
-    /// Waits until a deletion-cancelled mail reaches this inbox or the time runs out. That notice travels
-    /// the same pipeline as the scheduled mail.
+    /// Waits until a deletion-cancelled mail reaches this inbox, and throws when the time runs out. That
+    /// notice travels the same pipeline as the scheduled mail.
     /// </summary>
     public Task WaitForCancelledCaptureAsync(string recipient, TimeSpan? timeout = null) =>
-        WaitForAsync(() => _cancelledEmailRecipients.Contains(recipient), timeout);
+        MailWait.UntilAsync(
+            () => _cancelledEmailRecipients.Contains(recipient),
+            $"A deletion-cancelled mail to {recipient}",
+            timeout);
 
     public void Reset()
     {
@@ -109,16 +117,6 @@ public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
         _previousAddressNotices.Clear();
         _cancelledEmailRecipients.Clear();
         ShouldFailScheduledEmail = false;
-    }
-
-    private static async Task WaitForAsync(Func<bool> arrived, TimeSpan? timeout)
-    {
-        using CancellationTokenSource waitWindow = new(timeout ?? TimeSpan.FromSeconds(15));
-
-        while (!arrived() && !waitWindow.IsCancellationRequested)
-        {
-            await Task.Delay(50);
-        }
     }
 
     public sealed record ScheduledEmail(string Recipient, string CancelToken, DateTimeOffset FinalizesAt);

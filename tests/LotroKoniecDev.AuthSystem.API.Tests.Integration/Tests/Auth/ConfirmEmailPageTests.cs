@@ -47,7 +47,7 @@ public sealed class ConfirmEmailPageTests : EndpointsTestBase
         // Arrange: registration confirms the account with the mailed token
         (RegisterRequest confirmed, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
-        string mailedToken = AccountConfirmationEmailSpy.LastConfirmationToken!;
+        string mailedToken = AccountConfirmationEmailSpy.LastConfirmationTokenSentTo(confirmed.Email)!;
 
         // Act
         HttpResponseMessage response = await GetConfirmEmailPageAsync(confirmed.Email, mailedToken);
@@ -70,7 +70,7 @@ public sealed class ConfirmEmailPageTests : EndpointsTestBase
         // Arrange
         (RegisterRequest unconfirmed, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
-        string mailedToken = AccountConfirmationEmailSpy.LastConfirmationToken!;
+        string mailedToken = AccountConfirmationEmailSpy.LastConfirmationTokenSentTo(unconfirmed.Email)!;
         await StoreANameTheRulesRefuseAsync(unconfirmed.Email);
 
         // Act

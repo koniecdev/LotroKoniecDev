@@ -20,8 +20,6 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
-        AccountConfirmationEmailSpy.Reset();
-
         ResendEmailConfirmationRequest resendRequest = new(request.Email);
 
         // Act
@@ -90,17 +88,14 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
             new Uri("auth/resend-email-confirmation", UriKind.Relative), resendRequest);
 
         // Assert
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(1);
-        AccountConfirmationEmailSpy.LastEmail.ShouldBe(request.Email);
-        AccountConfirmationEmailSpy.LastConfirmationToken.ShouldNotBeNullOrEmpty();
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldHaveSingleItem()
+            .ConfirmationToken.ShouldNotBeNullOrEmpty();
     }
 
     [Fact]
     public async Task ResendEmailConfirmation_ShouldNotSendEmail_WhenUserDoesNotExist()
     {
         // Arrange
-        AccountConfirmationEmailSpy.Reset();
-
         ResendEmailConfirmationRequest resendRequest = new("nobody@example.com");
 
         // Act
@@ -108,7 +103,7 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
             new Uri("auth/resend-email-confirmation", UriKind.Relative), resendRequest);
 
         // Assert
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(resendRequest.Email).ShouldBeEmpty();
     }
 
     [Fact]
@@ -127,7 +122,7 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
             new Uri("auth/resend-email-confirmation", UriKind.Relative), resendRequest);
 
         // Assert
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
     }
 
     [Fact]
@@ -145,7 +140,8 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
             new ResendEmailConfirmationRequest(request.Email));
 
         // Act: use the new token to confirm
-        ConfirmEmailRequest confirmRequest = new(AccountConfirmationEmailSpy.LastEmail!, AccountConfirmationEmailSpy.LastConfirmationToken!);
+        ConfirmEmailRequest confirmRequest = new(
+            request.Email, AccountConfirmationEmailSpy.LastConfirmationTokenSentTo(request.Email)!);
 
         HttpResponseMessage confirmResponse = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/confirm-email", UriKind.Relative), confirmRequest);
@@ -178,7 +174,7 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
-        string originalToken = AccountConfirmationEmailSpy.LastConfirmationToken!;
+        string originalToken = AccountConfirmationEmailSpy.LastConfirmationTokenSentTo(request.Email)!;
         AccountConfirmationEmailSpy.Reset();
 
         // Resend to get a new token
@@ -186,7 +182,7 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
             new Uri("auth/resend-email-confirmation", UriKind.Relative),
             new ResendEmailConfirmationRequest(request.Email));
 
-        string newToken = AccountConfirmationEmailSpy.LastConfirmationToken!;
+        string newToken = AccountConfirmationEmailSpy.LastConfirmationTokenSentTo(request.Email)!;
 
         // Confirm with the new token
         HttpResponseMessage confirmResponse = await ApiClient.Http.PostAsJsonAsync(
@@ -231,8 +227,7 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
             // pipeline cannot be what delivered it. A refactor routing resend through the outbox
             // flips both assertions.
             response.StatusCode.ShouldBe(HttpStatusCode.OK);
-            AccountConfirmationEmailSpy.CallCount.ShouldBe(1);
-            AccountConfirmationEmailSpy.LastEmail.ShouldBe(request.Email);
+            AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldHaveSingleItem();
             (await CountOutboxRowsAsync()).ShouldBe(outboxRowsBeforeResend);
         }
         finally

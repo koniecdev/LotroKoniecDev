@@ -115,7 +115,7 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
         // Arrange
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, CurrentPassword);
-        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
+        string newEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         RevocationWatch watch = new();
         await using WebApplicationFactory<Program> host = CreateHostThatAbortsBeforeRevoking(watch);

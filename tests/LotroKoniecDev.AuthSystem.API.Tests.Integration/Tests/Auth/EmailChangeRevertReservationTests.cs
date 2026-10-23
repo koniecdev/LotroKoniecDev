@@ -52,7 +52,7 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         // The whole attack, end to end: the address moves, somebody tries to occupy the one it came
         // from, and the owner's undo still works.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
         (await RegisterOnAsync(user.Email)).StatusCode.ShouldBe(HttpStatusCode.Accepted);
         (await CountAccountsOnAsync(user.Email)).ShouldBe(0);
@@ -76,7 +76,7 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     public async Task RevertPage_Post_ShouldReleaseTheReservation()
     {
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
         await PostToPageAsync(
             "/Account/RevertEmailChange",
@@ -172,11 +172,10 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     [Fact]
     public async Task RequestEmailChange_ShouldSendNoLink_WhenTheAddressIsAnotherAccountsRevertTarget()
     {
-        (RegisterRequest owner, _, _) = await CompleteChangeAsync();
+        (RegisterRequest owner, string ownerNewEmail, _) = await CompleteChangeAsync();
         (RegisterRequest other, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         string accessToken = await GetAccessTokenAsync(other.Email, Password);
-        EmailChangeEmailSpy.Reset();
 
         HttpResponseMessage response = await RequestChangeAsync(accessToken, owner.Email);
 
@@ -185,9 +184,10 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await WaitForChangeRequestsDeliveredAsync(owner.Email)).ShouldBe(1);
 
-        EmailChangeEmailSpy.LastWarningRecipient.ShouldBe(other.Email);
-        EmailChangeEmailSpy.VerificationCallCount.ShouldBe(0);
-        EmailChangeEmailSpy.AddressTakenNoticeCallCount.ShouldBe(0);
+        EmailChangeEmailSpy.WarningsTo(other.Email).ShouldHaveSingleItem().TargetAddress.ShouldBe(owner.Email);
+        EmailChangeEmailSpy.VerificationsTo(owner.Email).ShouldBeEmpty();
+        EmailChangeEmailSpy.AddressTakenNoticeCountTo(owner.Email).ShouldBe(0);
+        EmailChangeEmailSpy.AddressTakenNoticeCountTo(ownerNewEmail).ShouldBe(0);
     }
 
     [Fact]
@@ -201,9 +201,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         HttpResponseMessage response = await RequestChangeAsync(accessToken, user.Email);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        // Wait for the delivery, so its link cannot land in the next test's spy (#950).
         (await WaitForChangeRequestsDeliveredAsync(user.Email)).ShouldBe(1);
+        EmailChangeEmailSpy.VerificationsTo(user.Email).ShouldHaveSingleItem();
     }
 
     /// <summary>
@@ -216,7 +215,7 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     public async Task RequestEmailChange_ShouldSpendTheBudgetOfAReservedAddress_AndLeaveTheUndoLinkWorking()
     {
         (RegisterRequest owner, string newEmail, Guid ownerId) = await CompleteChangeAsync();
-        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(owner.Email)!;
         (RegisterRequest stranger, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         string strangerToken = await GetAccessTokenAsync(stranger.Email, Password);
@@ -311,7 +310,7 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         // asserts below fail against it and pass against a fresh window.
         await BackdateArmingAsync(userId, TimeSpan.FromDays(20));
 
-        string thirdEmail = Faker.Internet.Email();
+        string thirdEmail = UserFactory.GenerateUniqueEmail(Faker);
         await ChangeAndConfirmAsync(userId, user.Email, thirdEmail);
 
         ApplicationUser reArmed = await LoadUserByIdAsync(userId);
@@ -332,15 +331,16 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         DateTimeOffset? armedAtAfterFirstChange = (await LoadUserByIdAsync(userId)).EmailChangeRevertArmedAt;
         armedAtAfterFirstChange.ShouldNotBeNull();
 
-        await ChangeAndConfirmAsync(userId, firstNewEmail, Faker.Internet.Email());
+        await ChangeAndConfirmAsync(userId, firstNewEmail, UserFactory.GenerateUniqueEmail(Faker));
 
         (await LoadUserByIdAsync(userId)).EmailChangeRevertArmedAt.ShouldBe(armedAtAfterFirstChange);
     }
 
     /// <summary>
     /// Moves an account from one address to another the ordinary way: request, then confirm. The spy
-    /// is reset first, or the wait below returns the previous change's token straight away and the
-    /// confirm quietly does nothing — the page answers 200 either way.
+    /// is reset first, for a chain that moves to the same address twice (A to B to A to B). Without the
+    /// reset, the waits below would return on the first move's mails to that address, and the confirm
+    /// would use the first move's link.
     /// </summary>
     private async Task ChangeAndConfirmAsync(Guid userId, string currentEmail, string targetEmail)
     {
@@ -348,12 +348,12 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         EmailChangeEmailSpy.Reset();
 
         (await RequestChangeAsync(accessToken, targetEmail)).StatusCode.ShouldBe(HttpStatusCode.OK);
-        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync(targetEmail);
 
-        await ConfirmAsync(userId, targetEmail, EmailChangeEmailSpy.LastVerificationToken!);
+        await ConfirmAsync(userId, targetEmail, EmailChangeEmailSpy.LastVerificationTokenSentTo(targetEmail)!);
 
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(targetEmail);
-        await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync();
+        await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync(targetEmail);
     }
 
     private static string MixCase(string email) =>
@@ -366,14 +366,18 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
 
         string accessToken = await GetAccessTokenAsync(user.Email, Password);
-        string newEmail = Faker.Internet.Email();
+        string newEmail = UserFactory.GenerateUniqueEmail(Faker);
 
         (await RequestChangeAsync(accessToken, newEmail)).StatusCode.ShouldBe(HttpStatusCode.OK);
-        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync(newEmail);
 
         Guid userId = await UserIdOfAsync(user.Email);
-        await ConfirmAsync(userId, newEmail, EmailChangeEmailSpy.LastVerificationToken!);
-        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync();
+        await ConfirmAsync(userId, newEmail, EmailChangeEmailSpy.LastVerificationTokenSentTo(newEmail)!);
+
+        // The confirm page answers 200 when it refuses too. Every test here relies on the account having
+        // left its first address, so the reservation it checks really exists (#950).
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
+        await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync(user.Email, newEmail);
 
         return (user, newEmail, userId);
     }
@@ -473,8 +477,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
 
     /// <summary>
     /// Waits until every e-mail change request to <paramref name="newEmail"/> has been delivered, and
-    /// returns how many there were. A delivery is recorded only after all of its mails, so none of them
-    /// can land in the next test's spy (#950).
+    /// returns how many there were. A delivery is recorded only after all of its mails, so a test that
+    /// checks for a missing mail can check right after it.
     /// </summary>
     private async Task<int> WaitForChangeRequestsDeliveredAsync(string newEmail)
     {

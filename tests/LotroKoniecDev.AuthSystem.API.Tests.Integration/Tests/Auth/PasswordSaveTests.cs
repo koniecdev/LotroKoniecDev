@@ -114,9 +114,9 @@ public sealed partial class PasswordSaveTests : EndpointsTestBase
             new ForgotPasswordRequest(email));
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        await PasswordResetEmailSpy.WaitForCaptureAsync();
+        await PasswordResetEmailSpy.WaitForCaptureAsync(email);
 
-        return PasswordResetEmailSpy.LastResetToken!;
+        return PasswordResetEmailSpy.LastResetTokenSentTo(email)!;
     }
 
     private async Task<HttpResponseMessage> PostToResetPasswordPageAsync(Dictionary<string, string> formFields)

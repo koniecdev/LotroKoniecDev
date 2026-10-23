@@ -13,9 +13,11 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
     public async Task ConfirmEmail_ShouldReturnOk_WhenTokenIsValid()
     {
         // Arrange
-        await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
-        ConfirmEmailRequest confirmRequest = new(AccountConfirmationEmailSpy.LastEmail!, AccountConfirmationEmailSpy.LastConfirmationToken!);
+        ConfirmEmailRequest confirmRequest = new(
+            registerRequest.Email, AccountConfirmationEmailSpy.LastConfirmationTokenSentTo(registerRequest.Email)!);
 
         // Act
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
@@ -35,7 +37,8 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
 
         // Confirm the email
-        ConfirmEmailRequest confirmRequest = new(AccountConfirmationEmailSpy.LastEmail!, AccountConfirmationEmailSpy.LastConfirmationToken!);
+        ConfirmEmailRequest confirmRequest = new(
+            registerRequest.Email, AccountConfirmationEmailSpy.LastConfirmationTokenSentTo(registerRequest.Email)!);
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/confirm-email", UriKind.Relative), confirmRequest);
 
@@ -139,11 +142,11 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
     public async Task ConfirmEmail_ShouldReturnBadRequest_WhenTokenIsUsedTwice()
     {
         // Arrange
-        (RegisterRequest _, _) =
+        (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
-        string email = AccountConfirmationEmailSpy.LastEmail!;
-        string token = AccountConfirmationEmailSpy.LastConfirmationToken!;
+        string email = registerRequest.Email;
+        string token = AccountConfirmationEmailSpy.LastConfirmationTokenSentTo(email)!;
 
         // The first confirmation should succeed.
         await ApiClient.Http.PostAsJsonAsync(
@@ -205,8 +208,6 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
     public async Task Register_ShouldSendConfirmationEmail_WhenUserIsCreated()
     {
         // Arrange
-        AccountConfirmationEmailSpy.Reset();
-
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
 
         // Act
@@ -215,9 +216,8 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
-        await AccountConfirmationEmailSpy.WaitForCaptureAsync();
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(1);
-        AccountConfirmationEmailSpy.LastEmail.ShouldBe(request.Email);
-        AccountConfirmationEmailSpy.LastConfirmationToken.ShouldNotBeNullOrEmpty();
+        await AccountConfirmationEmailSpy.WaitForCaptureAsync(request.Email);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldHaveSingleItem()
+            .ConfirmationToken.ShouldNotBeNullOrEmpty();
     }
 }

@@ -1,4 +1,6 @@
 using System.Text.RegularExpressions;
+using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
@@ -29,7 +31,6 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
     public async Task RegisterPage_ShouldCreateUserAndShowSuccess_WhenDataIsValid()
     {
         // Arrange
-        AccountConfirmationEmailSpy.Reset();
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
 
         // Act
@@ -40,8 +41,8 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
 
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Sprawdź skrzynkę e-mail");
-        await AccountConfirmationEmailSpy.WaitForCaptureAsync();
-        AccountConfirmationEmailSpy.LastEmail.ShouldBe(request.Email);
+        await AccountConfirmationEmailSpy.WaitForCaptureAsync(request.Email);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldHaveSingleItem();
     }
 
     /// <summary>
@@ -54,6 +55,8 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         // Arrange
         (RegisterRequest existing, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+
+        // Drops the confirmation mail of the account above, which the helper waited for.
         AccountConfirmationEmailSpy.Reset();
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker) with { Email = existing.Email };
 
@@ -67,16 +70,14 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         html.ShouldContain("Sprawdź skrzynkę e-mail");
         html.ShouldContain("data-testid=\"register-success\"");
         html.ShouldNotContain("już istnieje");
-        await AccountConfirmationEmailSpy.WaitForRegistrationAttemptedCaptureAsync();
-        AccountConfirmationEmailSpy.LastRegistrationAttemptedRecipient.ShouldBe(existing.Email);
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(0);
+        await AccountConfirmationEmailSpy.WaitForRegistrationAttemptedCaptureAsync(existing.Email);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(existing.Email).ShouldBeEmpty();
     }
 
     [Fact]
     public async Task RegisterPage_ShouldShowError_WhenPasswordsDoNotMatch()
     {
         // Arrange
-        AccountConfirmationEmailSpy.Reset();
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
 
         // Act
@@ -88,14 +89,16 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
 
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Hasła nie są identyczne");
-        AccountConfirmationEmailSpy.LastEmail.ShouldBeNull();
+        // The request writes the row of its mail in its own transaction, so no row means no mail will
+        // come. The spy check right after it can only catch a mail sent inside the request.
+        (await OutboxAssertions.CountOutboxRowsAsync(Factory, nameof(EmailConfirmationRequested))).ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
     }
 
     [Fact]
     public async Task RegisterPage_ShouldSayThePasswordLeakedAndCreateNoAccount_WhenItAppearsInDataBreaches()
     {
         // Arrange
-        AccountConfirmationEmailSpy.Reset();
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
         Factory.PwnedPasswords.MarkBreached(request.Password);
 
@@ -114,7 +117,6 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
     public async Task RegisterPage_ShouldShowError_WhenPrivacyPolicyNotAccepted()
     {
         // Arrange
-        AccountConfirmationEmailSpy.Reset();
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
 
         // Act
@@ -126,14 +128,14 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
 
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Musisz zaakceptować politykę prywatności");
-        AccountConfirmationEmailSpy.LastEmail.ShouldBeNull();
+        (await OutboxAssertions.CountOutboxRowsAsync(Factory, nameof(EmailConfirmationRequested))).ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
     }
 
     [Fact]
     public async Task RegisterPage_ShouldShowError_WhenTermsOfServiceNotAccepted()
     {
         // Arrange
-        AccountConfirmationEmailSpy.Reset();
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
 
         // Act
@@ -145,7 +147,8 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
 
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Musisz zaakceptować regulamin serwisu");
-        AccountConfirmationEmailSpy.LastEmail.ShouldBeNull();
+        (await OutboxAssertions.CountOutboxRowsAsync(Factory, nameof(EmailConfirmationRequested))).ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
     }
 
     [Fact]
@@ -205,7 +208,6 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
     public async Task RegisterPage_ShouldShowCharsetError_WhenUsernameHasIllegalCharacters(string username)
     {
         // Arrange
-        AccountConfirmationEmailSpy.Reset();
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
         Dictionary<string, string> form = BuildForm(request, request.Password);
         form["Username"] = username;
@@ -219,7 +221,8 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Nazwa użytkownika może zawierać tylko litery i cyfry, bez spacji.");
         html.ShouldNotContain("hasło spełnia wymagania");
-        AccountConfirmationEmailSpy.LastEmail.ShouldBeNull();
+        (await OutboxAssertions.CountOutboxRowsAsync(Factory, nameof(EmailConfirmationRequested))).ShouldBe(0);
+        AccountConfirmationEmailSpy.ConfirmationEmailsTo(request.Email).ShouldBeEmpty();
     }
 
     /// <summary>
@@ -271,7 +274,6 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
     {
         // Arrange
         const string continuation = "/connect/authorize?client_id=lotrokoniecdev-test&response_type=code";
-        AccountConfirmationEmailSpy.Reset();
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
 
         HttpResponseMessage pageResponse = await GetRegisterPageAsync(continuation);

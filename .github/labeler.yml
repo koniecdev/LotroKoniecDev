@@ -1,0 +1,11 @@
+# Read by .github/workflows/labeler.yml. The rule for each label is in docs/labels.md (#1250).
+needs-windows-check:
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/Patcher/LotroKoniecDev.Cli/**
+          - src/Patcher/LotroKoniecDev.Infrastructure/**
+          - src/Player/LotroKoniecDev.DesktopApp/**
+          - tests/LotroKoniecDev.Tests.Infrastructure/**
+          - tests/LotroKoniecDev.Tests.E2E/**
+          - tests/Shared/WindowsOnlyTestRun.targets
+          - '*.bat'

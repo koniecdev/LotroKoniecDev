@@ -1,0 +1,31 @@
+name: Label pull requests
+
+# Why this exists (#1250): CI runs on Linux, so it never runs the patcher's Windows-only code.
+# This workflow adds `needs-windows-check` to a pull request that changes that code, and
+# /merge-train skips the pull request until someone tries it on Windows and removes the label
+# (docs/labels.md). The folders are in .github/labeler.yml.
+#
+# It runs only when a pull request opens or reopens. A push does not run it. Otherwise the train's
+# own rebase would put the label back after someone removed it.
+#
+# pull_request_target gives a pull request from a fork a token that can add a label. That is safe
+# only because nothing here checks out or runs the pull request's code: the action reads the
+# changed file names and the config on main through the API. Never add a checkout step.
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions: {}
+
+jobs:
+  label:
+    name: Label
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Add labels from the changed paths
+        uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0

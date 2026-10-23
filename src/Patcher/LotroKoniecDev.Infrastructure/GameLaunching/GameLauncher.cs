@@ -29,10 +29,10 @@ public sealed class GameLauncher : IGameLauncher
 
         try
         {
-            // The DAT folder can come from a source we do not trust, such as a drive scan or user
-            // input, so the executable has to prove who published it before it runs, possibly with
-            // admin rights (AUDIT-SEC-02). We keep the read handle open from the check until the
-            // start, which blocks writes and renames, so nobody can swap the bytes in between.
+            // The DAT folder can come from a drive scan or user input, so the executable must prove
+            // who published it before it runs, possibly with admin rights (#392). The open read
+            // handle blocks writes and renames from the check until the start, so nobody can swap
+            // the bytes in between.
             using FileStream launcherGuard = new(
                 launcherPath, FileMode.Open, FileAccess.Read, FileShare.Read);
 

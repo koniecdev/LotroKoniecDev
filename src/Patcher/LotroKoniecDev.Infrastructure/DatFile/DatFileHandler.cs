@@ -17,10 +17,9 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
     private bool _disposed;
 
     /// <param name="access">
-    /// How to open the file. <see cref="DatFileAccess.Read"/> opens it without asking for write
-    /// permission, which was checked against the live Program Files DAT without elevation (#629).
+    /// <see cref="DatFileAccess.Read"/> asks for no write permission, so it opens the Program Files
+    /// DAT without elevation (#629).
     /// </param>
-    /// <returns>The handle of the open file, or a failure explaining why it could not be opened.</returns>
     public Result<int> Open(string datFilePath, DatFileAccess access)
     {
         ThrowIfDisposed();

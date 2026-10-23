@@ -58,10 +58,9 @@ public sealed class TranslationFileCache : ITranslationFileCache
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // A missing or unreadable file here just means "nothing cached". The sync then does a full
-            // download, or resolves the endpoint from discovery only. We catch the same errors the
-            // writers do: a file written by an elevated run raises UnauthorizedAccessException for a
-            // normal one, and that must not stop the launch.
+            // An unreadable file means "nothing cached": the sync does a full download, or resolves
+            // the endpoint from discovery only. A file written by an elevated run raises
+            // UnauthorizedAccessException for a normal one, and that must not stop the launch.
             return null;
         }
     }

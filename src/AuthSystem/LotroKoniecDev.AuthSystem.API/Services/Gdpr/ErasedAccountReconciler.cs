@@ -146,7 +146,6 @@ internal sealed class ErasedAccountReconciler : IErasedAccountReconciler
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
-        _outboxWriter.NotifyEnqueuedCommitted();
 
         return unannounced.Count;
     }

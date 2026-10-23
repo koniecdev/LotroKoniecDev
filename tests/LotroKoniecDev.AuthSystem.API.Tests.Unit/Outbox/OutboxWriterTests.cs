@@ -17,8 +17,7 @@ public sealed class OutboxWriterTests
     {
         // Arrange: the guard must fire before any dependency is used, so the writer is built
         // with a null context on purpose: reaching the database would NRE instead of throwing
-        using OutboxSignal outboxSignal = new();
-        OutboxWriter sut = new(db: null!, outboxSignal, TimeProvider.System);
+        OutboxWriter sut = new(db: null!, TimeProvider.System);
 
         // Act
         Action enqueue = () => sut.Enqueue(new ContractNobodyRouted(Guid.CreateVersion7()));

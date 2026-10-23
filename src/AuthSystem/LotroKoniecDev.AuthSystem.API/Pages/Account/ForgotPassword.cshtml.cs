@@ -96,8 +96,6 @@ internal sealed partial class ForgotPasswordModel : PageModel
             _outboxWriter.Enqueue(new PasswordResetRequested(user.Id));
             await _db.SaveChangesAsync(HttpContext.RequestAborted);
 
-            _outboxWriter.NotifyEnqueuedCommitted();
-
             LogPasswordResetRequestQueued(_logger, user.Id);
         }
         else if (user is not null)

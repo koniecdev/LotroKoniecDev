@@ -184,7 +184,7 @@ four-writer inventory doesn't earn (YAGNI). Revisit only if a forgotten notify a
 >   nothing to send. `NotifyEnqueuedCommitted` and its ten call sites go. The pair sees every outbox
 >   row added through EF Core, whoever adds it. A raw-SQL insert would wait for the sweep, and none
 >   exists.
-> - Until #781 lands, every writer keeps its explicit call.
+> - Until #781 lands, every writer keeps its explicit call. *(#781 landed: no writer calls it.)*
 > - No test polices a hand-kept call that a mechanism can remove. A guard on a convention is priced
 >   against the mechanism it stands in for (`CLAUDE.md` → "Right-size the design").
 > - #781 builds the pair. #951 is triaged again against this note: its wake-up half goes away with
@@ -299,8 +299,8 @@ Recorded here, implemented by MSG-02..05 — this ADR changes no code.
 - Touched types: `EmailConfirmationConsumer`, `RabbitMqMessagePublisher`, `RabbitMqTopology`,
   `OutboxMessageRouting`, `EmailConfirmationDeliveryProcessor`, the three e-mail senders behind
   the processors, the four feature slices above.
-- Every migrated writer follows ADR-0035 §2: `OutboxSignal.Notify()` after its commit. *(Until #781
-  moves the call into the interceptor pair, §6 amendment.)*
+- Every migrated writer follows ADR-0035 §2: `OutboxSignal.Notify()` after its commit. *(#781 moved
+  the call into the interceptor pair, `Outbox/OutboxWakeUpInterceptor.cs`, §6 amendment.)*
 
 ## References
 

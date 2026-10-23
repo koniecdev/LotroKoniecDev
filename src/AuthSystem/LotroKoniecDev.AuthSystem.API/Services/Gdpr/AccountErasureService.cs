@@ -141,8 +141,6 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             }
         }
 
-        _outboxWriter.NotifyEnqueuedCommitted();
-
         LogAuthDataAnonymized(_logger, user.Id);
 
         // Best-effort cleanup: revoke the tokens and remove roles, claims and logins. The account is

@@ -8,7 +8,8 @@ namespace LotroKoniecDev.AuthSystem.API.BackgroundServices;
 
 /// <summary>
 /// Publishes committed outbox rows to the broker. It works on a signal instead of a timer (ADR-0035):
-/// writers wake <see cref="OutboxSignal"/> right after their commit, so the database is queried only
+/// every commit that carries a new outbox row wakes <see cref="OutboxSignal"/>
+/// (<see cref="OutboxWakeUpInterceptor"/>), so the database is queried only
 /// moments after the work appeared, while it is still awake. On top of that there is one catch-up
 /// sweep at startup and a slow safety sweep.
 /// A timer would keep a database that scales to zero awake all day for a queue that is almost always

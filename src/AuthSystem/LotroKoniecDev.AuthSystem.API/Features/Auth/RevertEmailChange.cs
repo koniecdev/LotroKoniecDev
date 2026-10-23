@@ -235,11 +235,6 @@ internal sealed partial class RevertEmailChange
                 return Result.Failure<RevertedEmailChange>(AuthErrors.EmailChangeFailed(errors));
             }
 
-            if (cancelledADeletion)
-            {
-                _outboxWriter.NotifyEnqueuedCommitted();
-            }
-
             await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
 
             // Created after the save, from the stored stamp. A token made before it would be

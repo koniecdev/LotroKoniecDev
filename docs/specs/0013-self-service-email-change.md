@@ -78,7 +78,7 @@ outlier and explicitly **not** the pattern here.
   password, refuses while a deletion is scheduled, refuses the caller's own current address,
   refuses an address another account holds, and enqueues one outbox row. It **does not mutate the
   user**, so — like `ForgotPassword.cs:90-91` and unlike `DeleteAccount` — it injects
-  `AuthDbContext` and calls `SaveChangesAsync` itself before `NotifyEnqueuedCommitted()`.
+  `AuthDbContext` and calls `SaveChangesAsync` itself (since #781 that save also wakes the relay).
   `OutboxWriter.Enqueue` only `Add`s; a handler that forgets the save sends nothing.
 - **`Features/Auth/ConfirmEmailChange.cs`** and **`Features/Auth/RevertEmailChange.cs`** — the two
   page legs as `ICommandHandler` slices, so the PageModels stay thin (CLAUDE.md: "handlers are

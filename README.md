@@ -68,8 +68,8 @@ The web application at the heart of the project — where the human translation 
 ### What a translator can do
 
 - **Import** a version-bound game export (`exported.txt`). The import runs a **diff** against the
-  existing catalog and reports exactly what changed: *added / English-changed / invalidated /
-  removed / unchanged*.
+  existing catalog and reports what changed: *added / English-changed / invalidated / removed /
+  unchanged*, plus the rows that were our own Polish coming back from a patched game file.
 - **Browse, search and filter** the whole catalog — by English or Polish text, and by status
   (*untranslated · draft · approved · needs review*) — with pagination.
 - **Translate** in a **side-by-side editor**: read-only English on the left, the Polish translation
@@ -78,7 +78,7 @@ The web application at the heart of the project — where the human translation 
 - **Review & approve** (single rows or a bulk selection): approving a translation publishes it into
   the distributed file; changed English re-opens a row for review.
 - **Track game versions**: the catalog is bound to a LOTRO version; admins register versions
-  manually *(automatic detection from the official forum is on the roadmap)*.
+  manually *(automatic detection from the official forum is deferred until after MVP)*.
 - **Export / download** the approved `polish.txt` in one click — the same artifact the Patcher CLI
   pulls automatically (served with `ETag`/`304` caching).
 - See a **progress dashboard**, behind **authentication with roles** (translator / admin); a public
@@ -95,19 +95,19 @@ The web application at the heart of the project — where the human translation 
 | **Authentication** | self-hosted **OpenIddict** authorization server (OAuth2 / OIDC, authorization-code + PKCE, refresh tokens, JWKS); the API is a JWT-bearer resource server; translators are provisioned lazily on first authenticated request |
 | **Frontend** | **Blazor static SSR** (no WebAssembly, no SignalR circuit) as an **OIDC relying party** with silent token refresh; a **HATEOAS**-driven UI where the server's link relations decide which actions a user sees |
 | **Bounded contexts** | TMS and Patcher integrate **only** through the versioned `\|\|` translation-file contract — round-trip-tested against golden fixtures on both sides, so the format can never drift unnoticed |
-| **Observability & ops** | Serilog + OpenTelemetry; **Docker Compose** behind a **Caddy** reverse proxy (automatic Let's Encrypt TLS); **GitHub Actions** CI/CD that ships signed, provenance-attested images to a **Hetzner VPS** over ssh, with a gated **staging → production** promotion. The stack ran on **Terraform**-provisioned **Azure Container Apps** until 2026-07 ([ADR-0034](docs/adr/0034-hetzner-vps-instead-of-azure-container-apps.md) records why it moved) |
+| **Observability & ops** | Serilog + OpenTelemetry; **Docker Compose** behind a **Caddy** reverse proxy (automatic Let's Encrypt TLS); **GitHub Actions** CI/CD that ships signed, provenance-attested images to a **Hetzner VPS** over ssh, with a gated **staging → production** promotion ([ADR-0034](docs/adr/0034-hetzner-vps-instead-of-azure-container-apps.md)) |
 | **Quality gates** | zero-warning builds (`TreatWarningsAsErrors`), ADR-driven decisions, spec-first features, secret scanning (pre-commit gitleaks + CI + GitGuardian), and a layered test suite (unit · integration on real PostgreSQL · Playwright browser E2E) |
 
 ### Repository layout
 
 ```
 src/
-  TranslationSystem/   TMS — Primitives · Domain · ReadModels · Persistence · Contracts · API
+  TranslationSystem/   TMS — Primitives · Domain · ReadModels · Projections · Persistence · Contracts · API
   AuthSystem/          self-hosted OpenIddict + ASP.NET Identity authorization server
   Frontend/            Blazor static-SSR translator portal (OIDC relying party)
   SharedKernel/        Result/Maybe monads, building blocks, in-house messaging abstraction
   Patcher/             game-side CLI — Cli · Application · Domain · Infrastructure · Primitives
-  Utilities/           small shared helpers
+  Utilities/           small shared helpers: HATEOAS links, logging, options
 tests/                 Unit · Integration (real PostgreSQL) · E2E (CLI + Playwright browser)
 docs/                  API · domain · invariants · ADRs · specs · deployment runbook · knowledge base
 ```
@@ -118,7 +118,7 @@ The dev loop is **infrastructure in Docker + the three apps on the host** (fast 
 rebuilds):
 
 ```bash
-scripts/up.sh                     # boots Postgres + migrator + Mailpit + Aspire dashboard
+scripts/up.sh                     # boots Postgres + RabbitMQ + migrator + Mailpit + Aspire dashboard
                                   #   (Windows: scripts/up.ps1)
 dotnet dev-certs https --trust    # one-time, so the host serves trusted HTTPS
 
@@ -133,6 +133,9 @@ dotnet build LotroKoniecDev.slnx   # zero-warning build gate
 dotnet test                        # everything runnable on this OS; exits 0 when it all passes
 ```
 
+The TMS and auth integration suites and both `*.E2E.Tests` suites need a running Docker daemon;
+`tests/CLAUDE.md` lists every suite and what it needs.
+
 Full operator procedure (environment-variable matrix, secret generation, bring-up sequence, DB
 migrations) lives in [`docs/deployment/runbook.md`](docs/deployment/runbook.md). A separate
 production-parity stack runs via `scripts/up-prod.sh` (`compose.prod.yaml`).
@@ -144,11 +147,13 @@ Generated **from the code** (the code is the source of truth):
 - [`docs/API.md`](docs/API.md) — full HTTP API reference: every `/api/v1/...` endpoint, authorization
   policies, request/response shapes, status codes + `ProblemDetails`, and the translation-file
   distribution endpoint (`ETag`/`304`).
-- [`docs/DOMAIN.md`](docs/DOMAIN.md) — a tour of the domain model: aggregates (`Translation`,
+- [`docs/tms-handbook.md`](docs/tms-handbook.md) — the whole system in one document, from the
+  domain to deployment.
+- [`docs/DOMAIN.md`](docs/DOMAIN.md) *(in Polish)* — a tour of the domain model: aggregates (`Translation`,
   `GameVersion`, `Translator`), value objects, the update/invalidation lifecycle, and the CQRS split.
-- [`docs/INVARIANTS.md`](docs/INVARIANTS.md) — catalogue of enforced business rules, each tagged
+- [`docs/INVARIANTS.md`](docs/INVARIANTS.md) *(in Polish)* — catalogue of enforced business rules, each tagged
   *domain* / *application* with a `file:line` anchor.
-- [`docs/auth-tutorial.md`](docs/auth-tutorial.md) — authentication end-to-end (OpenIddict server,
+- [`docs/auth-tutorial.md`](docs/auth-tutorial.md) *(in Polish)* — authentication end-to-end (OpenIddict server,
   JWT-bearer resource server, JWKS, lazy translator provisioning, roles & policies).
 - [`docs/adr/`](docs/adr) — architecture decision records · [`docs/specs/`](docs/specs) — feature
   specs · [`docs/knowledge-base/`](docs/knowledge-base) — empirical findings about the DAT format and
@@ -238,7 +243,8 @@ This project is developed with AI assistance, and that setup is checked in rathe
 you cloned the repo and wondered what those files are, they split cleanly in two:
 
 - **For anyone working on the code** — [`CLAUDE.md`](CLAUDE.md) (conventions, layer rules, house
-  style), `.claude/commands/` (`/spec`, `/feature`, `/ticket`, `/adr`, `/qa-ticket`) and
+  style), `.claude/commands/` (`/spec`, `/feature`, `/ticket`, `/adr`, `/qa-ticket` and a few
+  more) and
   `.claude/agents/dat-format-expert.md`, which writes down the DAT binary format and the
   `datexport.dll` call surface. The first and the last are worth reading as plain documentation
   even if you never run an AI tool.

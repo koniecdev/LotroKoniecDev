@@ -1,9 +1,7 @@
 namespace LotroKoniecDev.AuthSystem.API.Middleware;
 
 /// <summary>
-/// The page a browser gets when a request fails in a way nobody planned for, for example when the
-/// database is down during sign-in (#867). Without it the browser shows the problem-details JSON that
-/// API clients get. <see cref="BrowserErrorPageWriter"/> chooses it for every 5xx answer.
+/// For every 5xx answer, such as a database outage during sign-in (#867).
 /// </summary>
 internal static class ServerErrorPage
 {

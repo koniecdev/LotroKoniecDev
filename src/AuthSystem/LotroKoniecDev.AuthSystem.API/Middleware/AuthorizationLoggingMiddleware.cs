@@ -4,9 +4,8 @@ using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 namespace LotroKoniecDev.AuthSystem.API.Middleware;
 
 /// <summary>
-/// Names two addresses: the visitor the frontend forwarded with the right key, or else the connection's
-/// address, and then the connection's own address. The second one stays because a leaked frontend key
-/// could choose the first (ADR-0054, amended by #854).
+/// Names two addresses: the resolved client (the forwarded visitor or the connection) and the connection
+/// itself, because a leaked frontend key could choose the first (ADR-0054, #854).
 /// </summary>
 internal sealed partial class AuthorizationLoggingMiddleware
 {
@@ -28,9 +27,8 @@ internal sealed partial class AuthorizationLoggingMiddleware
     {
         await _next(context);
 
-        // Only a refused call to a real endpoint gets a warning. A call that matches no route, or only
-        // routing's 405 endpoint, is not a RouteEndpoint and carries no rate limit, so scanners could
-        // add warnings without end. The request log still records them.
+        // Only a real endpoint: one with no route, or routing's 405, carries no rate limit, so scanners
+        // could add warnings without end. The request log still records them.
         if (context.GetEndpoint() is not RouteEndpoint)
         {
             return;

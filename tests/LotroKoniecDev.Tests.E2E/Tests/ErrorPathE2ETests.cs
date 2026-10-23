@@ -141,8 +141,8 @@ public sealed class ErrorPathE2ETests
         CliResult result = await _fixture.RunCliAsync(
             $"patch \"{_fixture.TranslationsPolishPath}\"");
 
-        //Assert: DatPathResolver either finds the DAT or names a path; an empty "not found: " means
-        // it was bypassed.
+        //Assert: DatPathResolver either finds the DAT or prints its own error; an empty "not found: "
+        // means it was bypassed.
         result.Stdout.Contains("not found: \r\n").ShouldBeFalse(
             "Empty path in error indicates DatPathResolver was bypassed");
         result.Stdout.Contains("not found: \n").ShouldBeFalse(

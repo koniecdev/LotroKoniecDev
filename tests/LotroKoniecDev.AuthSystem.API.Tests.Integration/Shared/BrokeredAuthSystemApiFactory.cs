@@ -83,6 +83,7 @@ public sealed class BrokeredAuthSystemApiFactory : AuthSystemApiFactory
                 return new EmailDispatchConsumer(
                     connectionFactory,
                     serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+                    serviceProvider.GetRequiredService<TimeProvider>(),
                     serviceProvider.GetRequiredService<ILogger<EmailDispatchConsumer>>(),
                     ShortConnectBackoffs,
                     ShortWatchInterval);

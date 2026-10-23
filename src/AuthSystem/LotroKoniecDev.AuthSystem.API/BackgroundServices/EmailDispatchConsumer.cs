@@ -49,9 +49,9 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
     /// The growing wait between the first connection attempts. The top of the ladder stays low: the
     /// broker is a container on the same machine and an outage lasts about as long as a deploy. Unlike
     /// the outbox relay, this retry costs no database time, because it only tries a local TCP connect
-    /// again.
+    /// again. It is internal so the unit tests can check which pause follows each failed attempt.
     /// </summary>
-    private static readonly TimeSpan[] ConnectBackoffs =
+    internal static readonly TimeSpan[] ConnectBackoffs =
     [
         TimeSpan.FromSeconds(5),
         TimeSpan.FromSeconds(15),
@@ -84,12 +84,14 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
     ];
 
     /// <summary>
-    /// How often the consumer checks that it is still attached.
+    /// How often the consumer checks that it is still attached. It is internal so the unit tests can
+    /// check it.
     /// </summary>
-    private static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(30);
 
     private readonly IConnectionFactory _connectionFactory;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<EmailDispatchConsumer> _logger;
     private readonly TimeSpan[] _connectBackoffs;
     private readonly TimeSpan _watchInterval;
@@ -133,120 +135,13 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
         }
     }
 
-    public EmailDispatchConsumer(
-        IOptions<RabbitMqOptions> options,
-        IServiceScopeFactory scopeFactory,
-        ILogger<EmailDispatchConsumer> logger)
-        : this(
-            RabbitMqConnectionFactoryBuilder.Build(options.Value, ClientProvidedName),
-            scopeFactory,
-            logger,
-            ConnectBackoffs,
-            WatchInterval)
-    {
-    }
-
-    /// <summary>
-    /// Lets a test hand in its own broker client and shorten the pauses and the watch, so it can run the
-    /// slow paths in seconds. The container only sees the public constructor.
-    /// </summary>
-    internal EmailDispatchConsumer(
-        IConnectionFactory connectionFactory,
-        IServiceScopeFactory scopeFactory,
-        ILogger<EmailDispatchConsumer> logger,
-        TimeSpan[] connectBackoffs,
-        TimeSpan watchInterval)
-    {
-        ArgumentOutOfRangeException.ThrowIfZero(connectBackoffs.Length);
-        ArgumentOutOfRangeException.ThrowIfLessThan(connectBackoffs.Min(), TimeSpan.Zero);
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(watchInterval, TimeSpan.Zero);
-
-        _connectionFactory = connectionFactory;
-        _scopeFactory = scopeFactory;
-        _logger = logger;
-        _connectBackoffs = connectBackoffs;
-        _watchInterval = watchInterval;
-    }
-
-    /// <summary>
-    /// Connects, declares the topology and registers the consumer, all as one attempt that either
-    /// fully succeeds or fully fails.
-    /// The whole attach sits inside the retry loop on purpose. Any exception leaving
-    /// <see cref="ExecuteAsync"/> while the host is not stopping would stop the entire host
-    /// (<see cref="BackgroundServiceExceptionBehavior.StopHost"/>). A failure between the connect and
-    /// the consume registration, such as a topology mismatch or a channel closed in between, must only
-    /// make e-mail delivery worse and must never take login down with it.
-    /// So every failure is retried here, a timeout the client reports as a cancellation included. Only
-    /// the host's own stop token ends the loop (#1088).
-    /// A failed attempt disposes whatever it managed to open before it waits, so retrying cannot leave
-    /// half-attached connections behind, which automatic recovery would otherwise keep alive forever.
-    /// </summary>
-    private async Task<AsyncEventingBasicConsumer> AttachConsumerWithRetryAsync(CancellationToken stoppingToken)
-    {
-        int failedAttempts = 0;
-
-        while (true)
-        {
-            try
-            {
-                _connection = await _connectionFactory.CreateConnectionAsync(stoppingToken);
-                IChannel channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
-                _channel = channel;
-                await RabbitMqTopologyDeclaration.DeclareAsync(channel, stoppingToken);
-
-                // Prefetch 1: the broker sends the next message only after the previous one was
-                // acknowledged, so a backlog never floods this process and e-mails go out one by one.
-                await channel.BasicQosAsync(
-                    prefetchSize: 0,
-                    prefetchCount: 1,
-                    global: false,
-                    cancellationToken: stoppingToken);
-
-                AsyncEventingBasicConsumer consumer = new(channel);
-                consumer.ReceivedAsync += (_, delivery) => OnDeliveredAsync(channel, delivery, stoppingToken);
-
-                await channel.BasicConsumeAsync(
-                    queue: RabbitMqTopology.EmailQueue,
-                    autoAck: false,
-                    consumer: consumer,
-                    cancellationToken: stoppingToken);
-
-                return consumer;
-            }
-            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
-            {
-                await CloseAsync();
-                failedAttempts++;
-                TimeSpan wait = _connectBackoffs[Math.Min(failedAttempts - 1, _connectBackoffs.Length - 1)];
-                LogConnectFailed(_logger, ex, wait.TotalSeconds);
-                await Task.Delay(wait, stoppingToken);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Returns once the consumer has been detached for two looks in a row. The first look gives
-    /// automatic recovery its chance after a lost connection.
-    /// </summary>
-    private async Task WaitWhileAttachedAsync(AsyncEventingBasicConsumer consumer, CancellationToken stoppingToken)
-    {
-        int detachedLooks = 0;
-
-        while (detachedLooks < 2)
-        {
-            await Task.Delay(_watchInterval, stoppingToken);
-
-            bool attached = _channel is { IsOpen: true } && consumer.IsRunning;
-            detachedLooks = attached ? 0 : detachedLooks + 1;
-        }
-    }
-
     /// <summary>
     /// Handles one delivery from start to finish. Every path has to end in exactly one ack or reject.
     /// An exception leaving this handler is swallowed by the client library, and the delivery then
-    /// stays unacknowledged and stuck until the channel dies.
+    /// stays unacknowledged and stuck until the channel dies. It is internal so the unit tests can drive
+    /// each path.
     /// </summary>
-    private async Task OnDeliveredAsync(
+    internal async Task OnDeliveredAsync(
         IChannel channel,
         BasicDeliverEventArgs delivery,
         CancellationToken stoppingToken)
@@ -336,7 +231,10 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
                 ackDecision.Error,
                 redeliveries + 1,
                 RabbitMqTopology.EmailDeliveryLimit);
-            await Task.Delay(RedeliveryBackoffs[Math.Min(redeliveries, RedeliveryBackoffs.Length - 1)], stoppingToken);
+            await Task.Delay(
+                RedeliveryBackoffs[Math.Min(redeliveries, RedeliveryBackoffs.Length - 1)],
+                _timeProvider,
+                stoppingToken);
             await channel.BasicRejectAsync(delivery.DeliveryTag, requeue: true, cancellationToken: stoppingToken);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -349,6 +247,120 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
         {
             LogUnexpectedError(_logger, ex, delivery.BasicProperties.MessageId);
             await TryRequeueAsync(channel, delivery.DeliveryTag, stoppingToken);
+        }
+    }
+
+    public EmailDispatchConsumer(
+        IOptions<RabbitMqOptions> options,
+        IServiceScopeFactory scopeFactory,
+        TimeProvider timeProvider,
+        ILogger<EmailDispatchConsumer> logger)
+        : this(
+            RabbitMqConnectionFactoryBuilder.Build(options.Value, ClientProvidedName),
+            scopeFactory,
+            timeProvider,
+            logger,
+            ConnectBackoffs,
+            WatchInterval)
+    {
+    }
+
+    /// <summary>
+    /// Lets a test hand in its own broker client and shorten the pauses and the watch, so it can run the
+    /// slow paths in seconds. Every pause and every look runs on <paramref name="timeProvider"/>, so a
+    /// test can also move a fake clock through them (#1223). The container only sees the public
+    /// constructor.
+    /// </summary>
+    internal EmailDispatchConsumer(
+        IConnectionFactory connectionFactory,
+        IServiceScopeFactory scopeFactory,
+        TimeProvider timeProvider,
+        ILogger<EmailDispatchConsumer> logger,
+        TimeSpan[] connectBackoffs,
+        TimeSpan watchInterval)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(connectBackoffs.Length);
+        ArgumentOutOfRangeException.ThrowIfLessThan(connectBackoffs.Min(), TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(watchInterval, TimeSpan.Zero);
+
+        _connectionFactory = connectionFactory;
+        _scopeFactory = scopeFactory;
+        _timeProvider = timeProvider;
+        _logger = logger;
+        _connectBackoffs = connectBackoffs;
+        _watchInterval = watchInterval;
+    }
+
+    /// <summary>
+    /// Connects, declares the topology and registers the consumer, all as one attempt that either
+    /// fully succeeds or fully fails.
+    /// The whole attach sits inside the retry loop on purpose. Any exception leaving
+    /// <see cref="ExecuteAsync"/> while the host is not stopping would stop the entire host
+    /// (<see cref="BackgroundServiceExceptionBehavior.StopHost"/>). A failure between the connect and
+    /// the consume registration, such as a topology mismatch or a channel closed in between, must only
+    /// make e-mail delivery worse and must never take login down with it.
+    /// So every failure is retried here, a timeout the client reports as a cancellation included. Only
+    /// the host's own stop token ends the loop (#1088).
+    /// A failed attempt disposes whatever it managed to open before it waits, so retrying cannot leave
+    /// half-attached connections behind, which automatic recovery would otherwise keep alive forever.
+    /// </summary>
+    private async Task<AsyncEventingBasicConsumer> AttachConsumerWithRetryAsync(CancellationToken stoppingToken)
+    {
+        int failedAttempts = 0;
+
+        while (true)
+        {
+            try
+            {
+                _connection = await _connectionFactory.CreateConnectionAsync(stoppingToken);
+                IChannel channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
+                _channel = channel;
+                await RabbitMqTopologyDeclaration.DeclareAsync(channel, stoppingToken);
+
+                // Prefetch 1: the broker sends the next message only after the previous one was
+                // acknowledged, so a backlog never floods this process and e-mails go out one by one.
+                await channel.BasicQosAsync(
+                    prefetchSize: 0,
+                    prefetchCount: 1,
+                    global: false,
+                    cancellationToken: stoppingToken);
+
+                AsyncEventingBasicConsumer consumer = new(channel);
+                consumer.ReceivedAsync += (_, delivery) => OnDeliveredAsync(channel, delivery, stoppingToken);
+
+                await channel.BasicConsumeAsync(
+                    queue: RabbitMqTopology.EmailQueue,
+                    autoAck: false,
+                    consumer: consumer,
+                    cancellationToken: stoppingToken);
+
+                return consumer;
+            }
+            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
+            {
+                await CloseAsync();
+                failedAttempts++;
+                TimeSpan wait = _connectBackoffs[Math.Min(failedAttempts - 1, _connectBackoffs.Length - 1)];
+                LogConnectFailed(_logger, ex, wait.TotalSeconds);
+                await Task.Delay(wait, _timeProvider, stoppingToken);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns once the consumer has been detached for two looks in a row. The first look gives
+    /// automatic recovery its chance after a lost connection.
+    /// </summary>
+    private async Task WaitWhileAttachedAsync(AsyncEventingBasicConsumer consumer, CancellationToken stoppingToken)
+    {
+        int detachedLooks = 0;
+
+        while (detachedLooks < 2)
+        {
+            await Task.Delay(_watchInterval, _timeProvider, stoppingToken);
+
+            bool attached = _channel is { IsOpen: true } && consumer.IsRunning;
+            detachedLooks = attached ? 0 : detachedLooks + 1;
         }
     }
 
@@ -366,7 +378,7 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
     {
         try
         {
-            await Task.Delay(RedeliveryBackoffs[0], stoppingToken);
+            await Task.Delay(RedeliveryBackoffs[0], _timeProvider, stoppingToken);
             await channel.BasicRejectAsync(deliveryTag, requeue: true, cancellationToken: stoppingToken);
         }
         catch (OperationCanceledException)

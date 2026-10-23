@@ -21,7 +21,7 @@ Full project inventory (15 projects):
 | `LotroKoniecDev.SharedKernel.Tests.Unit` | SharedKernel unit (monads, BuildingBlocks, Ensure, strongly-typed IDs) | nothing (pure); Stryker target |
 | `LotroKoniecDev.Logging.Tests.Unit` | `Utilities/Logging` redaction unit | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` | TMS domain unit | nothing (pure); Stryker target |
-| `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handler/auth/endpoint unit (fake read-DbContext, stub accessor/provisioner) | nothing (pure) |
+| `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handler/auth/endpoint unit (fake read-DbContext, stub accessor/provisioner), and the account event consumer's pauses on a fake clock (#1223) | nothing (pure) |
 | `LotroKoniecDev.Frontend.Tests.Unit` | Blazor SSR component + infrastructure unit (bUnit-style) | nothing (pure) |
 | `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api unit: startup settings checks, handlers, middleware, pages, services, outbox and inbox, seed retry policy, and when the timed jobs run (#948) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
@@ -66,8 +66,10 @@ per-project `stryker-config.json` after reviewing the baseline report.
 - **Microsoft.Extensions.TimeProvider.Testing** — `FakeTimeProvider`, for code that waits on a
   `TimeProvider` timer (`Task.Delay(…, timeProvider, …)`); a substitute cannot fire those timers.
   Used by `AuthSystem.API.Tests.Unit` for the response-time floor (ADR-0059) and for when the
-  three timed jobs run (#948: `Shared/TimerWatchingTimeProvider` says when a job has started its
-  timer and counts how often a timer went off), and by
+  three timed jobs run (#948: `tests/Shared/TimerWatchingTimeProvider` says when a job has started its
+  timer and counts how often a timer went off), and by both API unit suites for the pauses of the
+  broker consumers (#1223: the e-mail consumer and the account event consumer, through the same
+  linked helper), and by
   `AuthSystem.API.Tests.Integration` as OpenIddict's stopped clock, so the stored token dates can be
   compared exactly (#1014), and by `Frontend.Tests.Unit` for the time limit of the sign-out's own
   revoke (#964), and by both Frontend suites for the access token's refresh time (#1025)

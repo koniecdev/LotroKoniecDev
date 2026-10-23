@@ -39,7 +39,11 @@ namespace LotroKoniecDev.TranslationSystem.API.Messaging;
 /// </remarks>
 internal sealed partial class AccountErasedConsumer : BackgroundService
 {
-    private static readonly TimeSpan[] ConnectBackoffs =
+    /// <summary>
+    /// The growing wait between the first connection attempts. It is internal so the unit tests can check
+    /// which pause follows each failed attempt.
+    /// </summary>
+    internal static readonly TimeSpan[] ConnectBackoffs =
     [
         TimeSpan.FromSeconds(5),
         TimeSpan.FromSeconds(15),
@@ -64,12 +68,13 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     /// <summary>
     /// How often the consumer checks that it is still attached. Automatic recovery brings back a lost
     /// connection, but not a channel the broker closed or a subscription it cancelled, for example
-    /// after the queue was deleted to change its arguments.
+    /// after the queue was deleted to change its arguments. It is internal so the unit tests can check it.
     /// </summary>
-    private static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(30);
 
     private readonly IConnectionFactory _connectionFactory;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<AccountErasedConsumer> _logger;
     private readonly TimeSpan[] _connectBackoffs;
     private readonly TimeSpan[] _retryBackoffs;
@@ -237,10 +242,12 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     public AccountErasedConsumer(
         IOptions<RabbitMqSettings> options,
         IServiceScopeFactory scopeFactory,
+        TimeProvider timeProvider,
         ILogger<AccountErasedConsumer> logger)
         : this(
             BuildConnectionFactory(options.Value),
             scopeFactory,
+            timeProvider,
             logger,
             ConnectBackoffs,
             RetryBackoffs,
@@ -250,11 +257,14 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
 
     /// <summary>
     /// Lets a test hand in its own broker client and shorten the pauses and the watch, so it can run the
-    /// slow paths in seconds. The container only sees the public constructor.
+    /// slow paths in seconds. Every pause and every look runs on <paramref name="timeProvider"/>, so a
+    /// test can also move a fake clock through them (#1223). The container only sees the public
+    /// constructor.
     /// </summary>
     internal AccountErasedConsumer(
         IConnectionFactory connectionFactory,
         IServiceScopeFactory scopeFactory,
+        TimeProvider timeProvider,
         ILogger<AccountErasedConsumer> logger,
         TimeSpan[] connectBackoffs,
         TimeSpan[] retryBackoffs,
@@ -268,6 +278,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
 
         _connectionFactory = connectionFactory;
         _scopeFactory = scopeFactory;
+        _timeProvider = timeProvider;
         _logger = logger;
         _connectBackoffs = connectBackoffs;
         _retryBackoffs = retryBackoffs;
@@ -317,7 +328,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
                 failedAttempts++;
                 TimeSpan wait = _connectBackoffs[Math.Min(failedAttempts - 1, _connectBackoffs.Length - 1)];
                 LogConnectFailed(_logger, ex, wait.TotalSeconds);
-                await Task.Delay(wait, stoppingToken);
+                await Task.Delay(wait, _timeProvider, stoppingToken);
             }
         }
     }
@@ -332,7 +343,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
 
         while (detachedLooks < 2)
         {
-            await Task.Delay(_watchInterval, stoppingToken);
+            await Task.Delay(_watchInterval, _timeProvider, stoppingToken);
 
             bool attached = _channel is { IsOpen: true } && consumer.IsRunning;
             detachedLooks = attached ? 0 : detachedLooks + 1;
@@ -368,7 +379,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
         LogLevel level = rung == _retryBackoffs.Length - 1 ? LogLevel.Error : LogLevel.Warning;
         LogDatabaseUnavailable(_logger, level, failure, message.IdentityUserId, messageId, _failedAttemptsInARow, _retryBackoffs[rung].TotalMinutes);
 
-        await Task.Delay(_retryBackoffs[rung], stoppingToken);
+        await Task.Delay(_retryBackoffs[rung], _timeProvider, stoppingToken);
         await channel.BasicNackAsync(deliveryTag, multiple: false, requeue: true, cancellationToken: stoppingToken);
     }
 
@@ -382,7 +393,7 @@ internal sealed partial class AccountErasedConsumer : BackgroundService
     {
         try
         {
-            await Task.Delay(_retryBackoffs[0], stoppingToken);
+            await Task.Delay(_retryBackoffs[0], _timeProvider, stoppingToken);
             await channel.BasicRejectAsync(deliveryTag, requeue: true, cancellationToken: stoppingToken);
         }
         catch (OperationCanceledException)

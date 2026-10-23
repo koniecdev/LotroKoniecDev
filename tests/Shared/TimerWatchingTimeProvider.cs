@@ -1,13 +1,14 @@
 using System.Threading.Channels;
 using Microsoft.Extensions.Time.Testing;
 
-namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
+namespace LotroKoniecDev.Tests.Shared;
 
 /// <summary>
 /// A fake clock that tells the test when the code under test starts a timer, and how often its timers
 /// have gone off (#948). A background job starts its timer on its own thread, so a test that moves the
 /// clock before the timer exists moves it for nothing. It counts every timer on the clock, so it
-/// expects the job's only timers to be its schedule.
+/// expects the job's only timers to be its schedule. Linked into the auth API and TMS API unit suites
+/// (#1223).
 /// </summary>
 internal sealed class TimerWatchingTimeProvider : FakeTimeProvider
 {

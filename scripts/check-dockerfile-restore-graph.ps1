@@ -35,6 +35,30 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
+# The patterns are written as in the .sh twin, so the two stay easy to compare. There, [[:space:]]
+# means the six ASCII spaces (the C locale), and [^!-~] means any character that is not visible
+# ASCII. Docker splits an instruction on ASCII spaces only. .NET has no [:space:] class, and its \s
+# also takes a Unicode space, so each pattern turns [:space:] into the ASCII spaces. Only [:space:]
+# is turned: write any other class in .NET syntax. Where Docker trims Unicode spaces too, the
+# patterns use \s, which matches the same characters as Go's unicode.IsSpace.
+$asciiSpace = ' \t\n\v\f\r'
+
+# A COPY or ADD keyword in any case (Docker lowers it), then one flag word, such as `--link` or
+# `--chown="app user"`, at a time.
+$copyKeywordPattern = '^\s*([Cc][Oo][Pp][Yy]|[Aa][Dd][Dd])[[:space:]]+' -replace '\[:space:\]', $asciiSpace
+$copyFlagPattern = '^--([^[:space:]"'']|"[^"]*"|''[^'']*'')*[[:space:]]+' -replace '\[:space:\]', $asciiSpace
+$copyJsonPairPattern = '^\[[[:space:]]*"(?<source>[^"]*)"[[:space:]]*,[[:space:]]*"(?<destination>[^"]*)"[[:space:]]*\]$' -replace '\[:space:\]', $asciiSpace
+$asciiSpaceRunPattern = '[[:space:]]+' -replace '\[:space:\]', $asciiSpace
+# `dotnet restore` as the shell runs it: any spaces or tabs between the two words, and quotes around
+# either word. Or an exec-form RUN ["dotnet", "restore", ...] list.
+$restorePattern = 'dotnet["'']?([[:space:]]+["'']?|[[:space:]]*,[[:space:]]*")restore' -replace '\[:space:\]', $asciiSpace
+# When an escape directive at the top of the file sets a backtick, Docker joins the lines that end in
+# a backtick instead of a backslash. Used with -match, which ignores case, like grep -i in the .sh twin.
+$escapeBacktickPattern = '^[^!-~]*#[^!-~]*escape[[:space:]]*=[[:space:]]*`' -replace '\[:space:\]', $asciiSpace
+# Docker reads the lines after `RUN <<EOF` up to `EOF` as the content of the instruction, with or
+# without ONBUILD in front.
+$heredocPattern = '^[^!-~]*([Oo][Nn][Bb][Uu][Ii][Ll][Dd][[:space:]]+)?([Rr][Uu][Nn]|[Cc][Oo][Pp][Yy]|[Aa][Dd][Dd])[[:space:]].*<<-?[^[:space:]<]' -replace '\[:space:\]', $asciiSpace
+
 function Get-NormalizedPath {
     # Collapse "a/b/../c" to "a/c" without touching the filesystem — the referenced project may
     # legitimately not exist (that is what we are hunting).
@@ -102,15 +126,17 @@ function Get-RestoreClosure {
 }
 
 function Join-Continuation {
-    # Strip comments, then join `RUN a && \` / `    b` pairs into one command — the order Docker
-    # itself uses. Comments must go first or the guard fails OPEN: a commented-out
-    # `# dotnet restore Foo.csproj` would inject a phantom restore root, satisfying the "this
-    # Dockerfile restores something" check for a Dockerfile that restores nothing. The COPY
-    # extraction already ignores comments (it anchors on ^COPY), so the two must agree.
-    #
-    # The continuation join is a no-op on today's Dockerfiles, kept because a restore root wrapped
-    # onto a bare continuation line would otherwise drop out of the closure and the guard would
-    # pass vacuously.
+    # Returns the Dockerfile one instruction per line. It follows the rules of Docker's own parser that
+    # decide where an instruction starts and ends (BuildKit, frontend/dockerfile/parser/parser.go).
+    # The COPY list and the restore roots are both read from this output, so they cannot disagree on
+    # what a comment or a continuation is. The caller has already split the lines on LF and dropped
+    # each CR at a line end.
+    #   - A line whose first character after any spaces is `#` is a comment. Comments go first: a
+    #     commented-out `# dotnet restore Foo.csproj` must not add a restore root to a Dockerfile
+    #     that restores nothing.
+    #   - A `\` at the end of a line, with any spaces or tabs after it, joins the next line on. A `\\`
+    #     there does not, as in Docker.
+    #   - Inside such a join, a line of only spaces is skipped and the join goes on.
     # AllowEmptyString: a Mandatory string[] otherwise rejects the blank lines every Dockerfile has.
     param(
         [Parameter(Mandatory)]
@@ -121,14 +147,76 @@ function Join-Continuation {
 
     $joined = @()
     $buffer = ''
+    $joining = $false
     foreach ($line in $Lines) {
         if ($line -match '^\s*#') { continue }
-        if ($line -match '\\$') { $buffer += $line -replace '\\$', ''; continue }
+        if ($joining -and $line -match '^\s*$') { continue }
+        if ($line -match '(^|[^\\])\\[ \t]*$') { $buffer += $line -replace '\\[ \t]*$', ''; $joining = $true; continue }
         $joined += ($buffer + $line)
         $buffer = ''
+        $joining = $false
     }
-    if ($buffer -ne '') { $joined += $buffer }
+    if ($joining) { $joined += $buffer }
     return $joined
+}
+
+function Get-CopiedProject {
+    # Returns each .csproj that a COPY or ADD puts at its own path, the path the restore reads,
+    # normalised. A COPY is read the way Docker reads it: flag words, then a JSON list or the shell
+    # form, without the quotes around a word. Docker splits the shell form on ASCII spaces only.
+    #   - A COPY with --from= copies from another stage or image, not from this repo: left out.
+    #   - A COPY with --parents puts the source's folders under the destination: left out.
+    #   - A COPY with more than one source puts every file straight into the destination folder: left
+    #     out.
+    #   - The destination must be the source's own folder with a trailing `/` (or `.` for the root),
+    #     or the source's full path. `src/Lib` without the `/` writes a file of that name when the
+    #     folder does not exist yet. An absolute destination is left out: the guard does not track
+    #     WORKDIR.
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [AllowEmptyCollection()]
+        [string[]] $Instructions
+    )
+
+    foreach ($line in $Instructions) {
+        if ($line -cnotmatch $copyKeywordPattern) { continue }
+        $rest = $line.Substring($Matches[0].Length)
+        $elsewhere = $false
+        while ($rest -cmatch $copyFlagPattern) {
+            if ($rest.StartsWith('--from=', [System.StringComparison]::Ordinal) -or
+                $rest.StartsWith('--parents', [System.StringComparison]::Ordinal)) { $elsewhere = $true }
+            $rest = $rest.Substring($Matches[0].Length)
+        }
+        if ($elsewhere) { continue }
+
+        # Trim drops the same characters as Go's unicode.IsSpace, which Docker trims here.
+        $rest = $rest.Trim()
+        if ($rest.StartsWith('[', [System.StringComparison]::Ordinal)) {
+            if ($rest -cnotmatch $copyJsonPairPattern) { continue }
+            $source = $Matches['source']
+            $destination = $Matches['destination']
+        }
+        else {
+            $words = @($rest -csplit $asciiSpaceRunPattern)
+            if ($words.Count -ne 2) { continue }
+            $source = $words[0] -creplace '^"(.*)"$|^''(.*)''$', '$1$2'
+            $destination = $words[1] -creplace '^"(.*)"$|^''(.*)''$', '$1$2'
+        }
+        # An empty destination is no path at all, and Get-NormalizedPath refuses an empty string.
+        if (-not $source.EndsWith('.csproj', [System.StringComparison]::Ordinal) -or $destination -eq '') { continue }
+
+        $source = Get-NormalizedPath $source
+        $folder = if ($source.Contains('/')) { $source.Substring(0, $source.LastIndexOf('/')) } else { '' }
+        if ($destination.StartsWith('/', [System.StringComparison]::Ordinal)) { continue }
+        if ($destination.EndsWith('/', [System.StringComparison]::Ordinal) -or $destination -ceq '.') {
+            if ((Get-NormalizedPath $destination) -cne $folder) { continue }
+        }
+        elseif ((Get-NormalizedPath $destination) -cne $source) {
+            continue
+        }
+        $source
+    }
 }
 
 function Find-Dockerfile {
@@ -175,25 +263,43 @@ $checked = 0
 foreach ($dockerfile in $dockerfiles) {
     $relative = $dockerfile.FullName.Substring($repoRoot.Length + 1) -replace '\\', '/'
     try {
-        $lines = Get-Content -LiteralPath $dockerfile.FullName -ErrorAction Stop
+        # -Raw, because Get-Content would also end a line at a lone CR, and Docker ends one only at LF.
+        # [string] turns the $null of an empty file into ''.
+        [string] $text = Get-Content -LiteralPath $dockerfile.FullName -Raw -ErrorAction Stop
     }
     catch {
         Write-Host "Docker restore-graph guard: could not read ${relative}: $($_.Exception.Message)"
         exit 2
     }
+    # As in the .sh twin: NUL characters go, and so does the CR of a CRLF line end.
+    $lines = @((($text -replace "`0", '') -split "`n") -replace '\r+$', '')
+    $instructions = @(Join-Continuation $lines)
 
-    $copied = @()
-    foreach ($line in $lines) {
-        if ($line -match '^\s*COPY \["([^"]+\.csproj)"') { $copied += Get-NormalizedPath $Matches[1] }
+    # Docker takes the directive only at the top of the file. The guard refuses it on any comment
+    # line: a false alarm costs less than a restore root that Join-Continuation would hide.
+    if ($lines -match $escapeBacktickPattern) {
+        Write-Host "Docker restore-graph guard: $relative sets a backtick as its escape character, and this guard joins lines only on a backslash."
+        exit 2
     }
+
+    $copied = @(Get-CopiedProject $instructions)
     if ($copied.Count -eq 0) { continue }
 
+    # Docker reads a heredoc body as text, but the guard would read a COPY line in it as an instruction.
+    if ($instructions -cmatch $heredocPattern) {
+        Write-Host "Docker restore-graph guard: $relative uses a heredoc (<<), and this guard cannot tell its lines from instructions."
+        exit 2
+    }
+
+    # -cnotmatch: the shell runs `dotnet`, never `DOTNET`, and the .sh twin's grep keeps the case too.
     $roots = @()
-    foreach ($line in (Join-Continuation $lines)) {
-        if ($line -notmatch 'dotnet restore') { continue }
+    foreach ($line in $instructions) {
+        if ($line -cnotmatch $restorePattern) { continue }
         foreach ($m in [regex]::Matches($line, '[A-Za-z0-9_./-]+\.csproj')) { $roots += $m.Value }
     }
-    $roots = $roots | Sort-Object -Unique
+    # -CaseSensitive, as the .sh twin's `sort -u` compares bytes: two roots that differ only in case
+    # are two paths on the Linux image build.
+    $roots = $roots | Sort-Object -Unique -CaseSensitive
 
     if ($roots.Count -eq 0) {
         $script:fail = $true

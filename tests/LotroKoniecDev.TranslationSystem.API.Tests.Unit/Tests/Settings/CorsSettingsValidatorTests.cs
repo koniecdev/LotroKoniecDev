@@ -28,9 +28,7 @@ public sealed class CorsSettingsValidatorTests
     [Fact]
     public void Validate_DevelopmentWithMalformedOrigin_Succeeds()
     {
-        // Development never reads the list, because it uses the open AllowAnyOrigin policy, so even a
-        // malformed value must not stop the boot. The check is skipped always, not only when the list is
-        // empty.
+        // Development never reads the list, so even a malformed value must not stop the boot.
         CorsSettingsValidator validator = CreateValidator(Development);
         CorsSettings settings = new() { AllowedOrigins = ["not-a-url"] };
 
@@ -92,8 +90,7 @@ public sealed class CorsSettingsValidatorTests
     public void Validate_ProductionWithMalformedOrigin_FailsNamingTheEntry(string? origin)
     {
         CorsSettingsValidator validator = CreateValidator(Production);
-        // origin! is deliberate: configuration binding can put a null element into the array, and the
-        // validator has to reject it, so the test passes one.
+        // Binding can put a null element into the array, so the test passes one.
         CorsSettings settings = new() { AllowedOrigins = [origin!] };
 
         ValidateOptionsResult result = validator.Validate(name: null, settings);

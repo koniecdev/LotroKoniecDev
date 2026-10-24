@@ -15,9 +15,9 @@ using RabbitMQ.Client.Exceptions;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Messaging;
 
 /// <summary>
-/// The TMS end of ADR-0065 against a real broker: an <see cref="AccountErased"/> published the way the
-/// AuthSystem's relay publishes it erases the profile, and a message the consumer can never handle is
-/// parked in the dead-letter queue instead of looping or vanishing.
+/// The TMS end of ADR-0065 against a real broker: an <see cref="AccountErased"/> published like the
+/// AuthSystem's relay does erases the profile, and a message that can never be handled is parked, not
+/// looped or lost.
 /// </summary>
 public sealed class AccountErasedConsumerTests : IClassFixture<BrokeredTranslationSystemApiFactory>, IAsyncLifetime
 {
@@ -44,8 +44,8 @@ public sealed class AccountErasedConsumerTests : IClassFixture<BrokeredTranslati
         _channel = await _connection.CreateChannelAsync(
             new CreateChannelOptions(publisherConfirmationsEnabled: true, publisherConfirmationTrackingEnabled: true));
 
-        // The AuthSystem declares the exchange; the TMS only checks it exists. The queue is then bound
-        // before the first publish, even if the consumer has not attached yet.
+        // Stands in for the AuthSystem, which declares the exchange. The queue is bound before the first
+        // publish, even if the consumer has not attached yet.
         await Channel.ExchangeDeclareAsync(AccountEvents.Exchange, ExchangeType.Topic, durable: true, autoDelete: false);
         await AccountEventsTopology.DeclareAsync(Channel, CancellationToken.None);
     }
@@ -83,8 +83,8 @@ public sealed class AccountErasedConsumerTests : IClassFixture<BrokeredTranslati
     [Fact]
     public async Task AccountErased_WhileTheDatabaseFailsLongerThanTheDeliveryLimit_ShouldBeRetriedUntilItErasesTheProfile()
     {
-        // Arrange: more failures in a row than the broker allows rejects. A database outage must never
-        // park an erasure, or the person's name would stay in the TMS for good (ADR-0065 §4).
+        // Arrange: more failures in a row than the delivery limit. An outage must never park an erasure
+        // (ADR-0065 §4).
         Guid identity = Guid.NewGuid();
         TranslatorId translatorId = await SeedTranslatorAsync(identity);
         Guid messageId = Guid.NewGuid();
@@ -104,7 +104,7 @@ public sealed class AccountErasedConsumerTests : IClassFixture<BrokeredTranslati
     [Fact]
     public async Task AccountErased_ThatFailsTheSameWayEveryTime_ShouldBeParkedAtTheDeliveryLimit()
     {
-        // Arrange: a bug, not an outage. It must end in the parking queue for a person, not loop.
+        // Arrange: a bug, not an outage.
         Guid identity = Guid.NewGuid();
         await SeedTranslatorAsync(identity);
         Guid messageId = Guid.NewGuid();
@@ -120,8 +120,8 @@ public sealed class AccountErasedConsumerTests : IClassFixture<BrokeredTranslati
     [Fact]
     public async Task Consumer_AfterTheBrokerCancelledItsSubscription_ShouldAttachAgain()
     {
-        // Arrange: deleting the queue, the documented way to change its arguments, cancels the
-        // subscription. Automatic recovery does not bring that back.
+        // Arrange: deleting the queue, the way to change its arguments, cancels the subscription, which
+        // automatic recovery does not bring back.
         await Channel.QueueDeleteAsync(AccountEventsTopology.ErasedQueue);
         Guid identity = Guid.NewGuid();
         TranslatorId translatorId = await SeedTranslatorAsync(identity);

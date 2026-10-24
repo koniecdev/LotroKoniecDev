@@ -95,8 +95,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         summary.Added.ShouldBe(0);
         summary.Unchanged.ShouldBe(2);
         (await CountTranslationsAsync()).ShouldBe(2);
-        // A row that did not change is left completely alone, so its timestamp must not move on a
-        // re-import.
+        // An unchanged row is left alone, so its timestamp must not move.
         (await GetTranslationAsync(1))!.UpdatedAt.ShouldBe(firstSeenAt);
     }
 
@@ -138,9 +137,8 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_ReAddedRemovedRowWithIdenticalSource_ShouldRestoreApprovedStatusAndDistributeItAgain()
     {
-        // Arrange: approve Polish for row 1, remove it in the next version, then a third version
-        // re-adds the identical English source (spec 0001: re-adding a removed pair with an
-        // unchanged source restores the previous status, including Approved).
+        // Arrange: approve row 1, remove it in version two, re-add the identical English in version
+        // three. The previous status comes back, Approved included (spec 0001).
         GameVersionId firstVersion = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
         await client.PostAsync(ImportRoute(firstVersion), ExportContent(Line(1, "Alpha"), Line(2, "Beta")));
@@ -151,8 +149,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         await client.PostAsync($"{ImportRoute(secondVersion)}?allowMassRemoval=true", ExportContent(Line(2, "Beta")));
         (await GetTranslationAsync(1))!.IsRemoved.ShouldBeTrue();
 
-        // Wait for the removal's debounced rebuild to drop the row from the artifact, so the final
-        // poll strictly witnesses re-entry instead of a stale pre-removal artifact.
+        // Wait until the row has left the artifact, so the final poll proves re-entry, not a stale file.
         await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
             _factory.CreateClient(),
             "/api/v1/translation-files/pl",
@@ -165,8 +162,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
             ImportRoute(thirdVersion), ExportContent(Line(1, "Alpha"), Line(2, "Beta")));
         ImportSummary? summary = await response.Content.ReadFromJsonAsync<ImportSummary>();
 
-        // Assert: the restore leg is the only outcome: every counter stays put and the row is
-        // reported through the warning, with its Approved status and Polish intact.
+        // Assert: only the restore happens, reported as a warning, with status and Polish intact.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         summary.ShouldNotBeNull();
         summary.Added.ShouldBe(0);
@@ -181,8 +177,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         restored.Status.ShouldBe(TranslationStatus.Approved);
         restored.TranslatedText.ShouldBe("Alfa");
 
-        // The still-Approved row re-enters the distributed file once the debounced background
-        // rebuild scheduled by the import converges (PERF-04).
+        // Back in the file once the debounced rebuild converges (PERF-04).
         (HttpResponseMessage download, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
             _factory.CreateClient(),
             "/api/v1/translation-files/pl",
@@ -194,8 +189,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_ReAddedRemovedRowWithChangedSource_ShouldClearRemovalAndInvalidate()
     {
-        // Arrange: same removal setup, but the third version re-adds row 1 with a reworded source
-        // (spec 0001: a changed-source re-add lands as NeedsReview with PreviousSourceText set).
+        // Arrange: as above, but version three re-adds row 1 reworded (spec 0001).
         GameVersionId firstVersion = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
         await client.PostAsync(ImportRoute(firstVersion), ExportContent(Line(1, "Alpha"), Line(2, "Beta")));
@@ -213,9 +207,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
             ImportRoute(thirdVersion), ExportContent(Line(1, "Alpha reworded"), Line(2, "Beta")));
         ImportSummary? summary = await response.Content.ReadFromJsonAsync<ImportSummary>();
 
-        // Assert: the changed-source re-add routes through the source-change leg (counted, never
-        // warned as a restore): removal cleared, the Polish invalidated for review against the kept
-        // previous English.
+        // Assert: a source change, not a restore: removal cleared and the Polish invalidated.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         summary.ShouldNotBeNull();
         summary.Added.ShouldBe(0);
@@ -236,12 +228,9 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_ExportFromPatchedDat_ShouldTreatEchoesAsUnchangedAndInvalidateOnlyTheRealEnglishChange()
     {
-        // Arrange: the U49 shape (spec 0012 / #563): a translated, approved corpus, then an export
-        // taken from the admin's OWN patched DAT. Resident rows 1-2 come back carrying our Polish as
-        // their "source" (echo; row 2 is placeholder-bearing, so its args columns ride along and pin
-        // the projection's echo triple), row 3 was collateral-reverted to its identical English,
-        // row 4's English really changed (its chunk was replaced, so it reads English too), row 5 is
-        // untranslated and untouched.
+        // Arrange: the U49 shape (spec 0012): an export from the admin's own patched DAT. Rows 1-2
+        // echo our Polish (row 2 with args, pinning the echo triple), row 3 was reverted to its
+        // English, row 4's English really changed, row 5 is untranslated.
         const string placeholderPolish = "Witaj <--DO_NOT_TOUCH!--> przyjacielu";
         GameVersionId firstVersion = await SeedVersionAsync("48.8");
         using HttpClient client = AdminClient();
@@ -259,9 +248,8 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
             await ApprovePolishAsync(gossipId);
         }
 
-        // Pin the pre-import artifact to all four approved rows (an idempotent re-upload schedules a
-        // rebuild; the approvals above went straight to the DB and did not), so the final poll
-        // strictly witnesses the invalidated row LEAVING the file rather than an intermediate build.
+        // The approvals above went straight to the database, so a re-upload schedules the rebuild that
+        // puts all four rows in the file. The final poll then proves row 4 leaving it.
         await client.PostAsync(ImportRoute(firstVersion), Baseline());
         await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
             _factory.CreateClient(),
@@ -282,8 +270,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
                 Line(5, "Epsilon")));
         ImportSummary? summary = await response.Content.ReadFromJsonAsync<ImportSummary>();
 
-        // Assert: only the real English change is invalidated; the echoes are visible in the
-        // summary and byte-for-byte untouched (source, Polish, status, timestamp).
+        // Assert: only the real change is invalidated; the echoes are counted and left untouched.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         summary.ShouldNotBeNull();
         summary.Added.ShouldBe(0);
@@ -318,8 +305,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         invalidated.Source.Text.ShouldBe("Delta reworded");
         invalidated.TranslatedText.ShouldBe("Delty");
 
-        // The distributed file keeps every echoed (still Approved) row and drops only the invalidated
-        // one, once the import's debounced background rebuild converges (PERF-04).
+        // The file keeps every echoed row and drops only the invalidated one (PERF-04).
         (HttpResponseMessage download, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
             _factory.CreateClient(),
             "/api/v1/translation-files/pl",
@@ -348,15 +334,14 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
         (await GetTranslationAsync(2))!.IsRemoved.ShouldBeFalse();
         (await GetTranslationAsync(3))!.IsRemoved.ShouldBeFalse();
-        // A rejected import is all-or-nothing: the version must not flip to processed.
+        // All or nothing: the version must not become processed.
         (await GetVersionStatusAsync(secondVersion)).ShouldBe(GameVersionStatus.Unprocessed);
     }
 
     [Fact]
     public async Task Import_WhileOlderVersionUnprocessed_ShouldSupersedeItInTheSameTransaction()
     {
-        // Arrange: the admin skips the older still-unprocessed version and uploads only the newer one
-        // (spec 0001, stacked versions). Detected-at is set explicitly so "older" is unambiguous.
+        // Arrange: the admin skips the older version (spec 0001). Explicit times make "older" clear.
         GameVersionId olderVersion = await SeedVersionAsync("48.0", new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero));
         GameVersionId newerVersion = await SeedVersionAsync("48.1", new DateTimeOffset(2026, 6, 8, 0, 0, 0, TimeSpan.Zero));
         using HttpClient client = AdminClient();
@@ -366,8 +351,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
             ImportRoute(newerVersion), ExportContent(Line(1, "Alpha"), Line(2, "Beta")));
         ImportSummary? summary = await response.Content.ReadFromJsonAsync<ImportSummary>();
 
-        // Assert: the newer version processed, the older one superseded in the same commit, and the
-        // admin is told what was skipped.
+        // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         summary.ShouldNotBeNull();
         (await GetVersionStatusAsync(newerVersion)).ShouldBe(GameVersionStatus.Processed);
@@ -378,9 +362,8 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_AgainstASupersededVersion_ShouldReturn422AndPersistNothing()
     {
-        // Arrange: process the newer version, which supersedes the older one, then try an out-of-date
-        // import against that older version. The upload matches the catalog exactly, so the
-        // mass-removal guard cannot fire first and the supersede check is what rejects it.
+        // Arrange: the upload matches the catalog exactly, so the supersede check, not the mass-removal
+        // guard, rejects it.
         GameVersionId olderVersion = await SeedVersionAsync("48.0", new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero));
         GameVersionId newerVersion = await SeedVersionAsync("48.1", new DateTimeOffset(2026, 6, 8, 0, 0, 0, TimeSpan.Zero));
         using HttpClient client = AdminClient();
@@ -390,8 +373,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         HttpResponseMessage response = await client.PostAsync(
             ImportRoute(olderVersion), ExportContent(Line(1, "Alpha"), Line(2, "Beta")));
 
-        // Assert: rejected with the supersede error and nothing changed: the older version stays
-        // superseded, the newer stays processed, and the catalog is untouched.
+        // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
         (await ReadErrorCodeAsync(response)).ShouldBe("GameVersionEntity.SupersededCannotBeProcessed");
         (await GetVersionStatusAsync(olderVersion)).ShouldBe(GameVersionStatus.Superseded);
@@ -402,8 +384,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_WhileANewerVersionIsUnprocessed_ShouldLeaveTheNewerVersionUnprocessed()
     {
-        // Arrange: three stacked unprocessed versions; the admin uploads only the middle one. Only
-        // versions detected before it are superseded; a version detected after it stays pending.
+        // Arrange: three stacked versions; the admin uploads only the middle one.
         GameVersionId olderVersion = await SeedVersionAsync("48.0", new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero));
         GameVersionId targetVersion = await SeedVersionAsync("48.1", new DateTimeOffset(2026, 6, 8, 0, 0, 0, TimeSpan.Zero));
         GameVersionId newerVersion = await SeedVersionAsync("48.2", new DateTimeOffset(2026, 6, 15, 0, 0, 0, TimeSpan.Zero));
@@ -486,8 +467,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [InlineData("# only a comment, no rows")]
     public async Task Import_EmptyOrCommentsOnlyFile_ShouldReturn422EmptyUpload(string fileContent)
     {
-        // Arrange: an upload with no translatable rows must be rejected rather than marking the
-        // version processed with no content.
+        // Arrange
         GameVersionId versionId = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
 
@@ -504,7 +484,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_DuplicateFragmentKeyInUpload_ShouldReturn422()
     {
-        // Arrange: two rows for the same (FileId, GossipId) make the upload ambiguous.
+        // Arrange
         GameVersionId versionId = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
 
@@ -521,8 +501,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_DuplicateFragmentKeysFarApart_ShouldReturn422ThroughTheStreamingPath()
     {
-        // Arrange: the duplicate of row 1 sits thousands of lines later, so the streaming Pass 1
-        // must catch it from the accumulated key map, not line adjacency (spec 0006).
+        // Arrange: the duplicate sits thousands of lines later, so only the key map can catch it.
         GameVersionId versionId = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
 
@@ -547,8 +526,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_ChangesSpanningMultipleApplyChunks_ShouldApplyEveryChunk()
     {
-        // Arrange: a chunk size of 2 forces the 5 reworded rows through 3 apply chunks and the
-        // 3 removed rows through 2 (spec 0006 chunked apply), all inside the one transaction.
+        // Arrange: chunk size 2 puts 5 reworded rows into 3 chunks and 3 removals into 2 (spec 0006).
         using WebApplicationFactory<Program> factory = WithApplyChunkSize(2);
         GameVersionId firstVersion = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient(factory);
@@ -558,14 +536,13 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
 
         GameVersionId secondVersion = await SeedVersionAsync("48.1");
 
-        // Act: rows 1-5 reworded, rows 6-8 removed (37% removal needs the override).
+        // Act: rows 1-5 reworded, rows 6-8 removed (37% needs the override).
         HttpResponseMessage response = await client.PostAsync(
             $"{ImportRoute(secondVersion)}?allowMassRemoval=true",
             ExportContent(Line(1, "A2"), Line(2, "B2"), Line(3, "C2"), Line(4, "D2"), Line(5, "E2")));
         ImportSummary? summary = await response.Content.ReadFromJsonAsync<ImportSummary>();
 
-        // Assert: every chunk landed: all five sources updated, all three removals applied, and
-        // the version still flips to processed after the chunked saves cleared the change tracker.
+        // Assert: the version is still processed after the chunked saves cleared the tracker.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         summary.ShouldNotBeNull();
         summary.SourceChanged.ShouldBe(5);
@@ -582,8 +559,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_WithOctetStreamFilePart_ShouldStillSucceed()
     {
-        // Arrange: the endpoint does not gate on the file part's declared MIME type; the `||` parser
-        // is the sole gate, so a valid body served as application/octet-stream is still imported.
+        // Arrange: the parser is the only gate, not the declared MIME type.
         GameVersionId versionId = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
 
@@ -602,12 +578,8 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_BodyExceedingConfiguredUploadLimit_ShouldReturn413()
     {
-        // Arrange: a host whose upload ceiling is tiny, so a small payload deterministically trips the
-        // limit. Production lifts the ceiling to ImportUploadLimits.MaxUploadBytes (256 MB) so the
-        // ~80 MB exported.txt posts in one request (#208); here we only prove the ceiling is enforced.
-        // The single Import:MaxUploadBytes key drives both the request-body cap (RequestSizeLimitAttribute)
-        // and the multipart form-length cap (FormOptions), so this asserts the configured ceiling is
-        // enforced without isolating which cap fires; both map to the same 413 (see BadHttpRequestExceptionHandler).
+        // Arrange: a tiny ceiling (#208). Import:MaxUploadBytes drives both the body cap and the
+        // multipart cap, and both map to 413, so this does not care which one fires.
         const long uploadLimit = 64 * 1024;
         using WebApplicationFactory<Program> factory = WithUploadLimit(uploadLimit);
         GameVersionId versionId = await SeedVersionAsync("48.0");
@@ -619,7 +591,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         // Act
         HttpResponseMessage response = await client.PostAsync(ImportRoute(versionId), TextContent(oversized));
 
-        // Assert: rejected at the transport layer before any row is written.
+        // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.RequestEntityTooLarge);
         (await CountTranslationsAsync()).ShouldBe(0);
         (await GetVersionStatusAsync(versionId)).ShouldBe(GameVersionStatus.Unprocessed);
@@ -628,8 +600,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_BodyWithinConfiguredUploadLimit_ShouldStillSucceed()
     {
-        // Arrange: the same tiny ceiling, but a payload comfortably under it must still import: the
-        // limit is a ceiling, not a blanket rejection.
+        // Arrange: the same tiny ceiling, with a payload under it.
         const long uploadLimit = 64 * 1024;
         using WebApplicationFactory<Program> factory = WithUploadLimit(uploadLimit);
         GameVersionId versionId = await SeedVersionAsync("48.0");
@@ -646,15 +617,8 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_LargeBaseline_ShouldBulkInsertEveryRowWithinTheBudget()
     {
-        // Arrange: a baseline the size of the whole catalog, where every row is new. Writing row by row
-        // with EF took about 3 minutes for 700k rows (#214), and the COPY path (ADR-0011) has to load
-        // hundreds of thousands of rows in seconds.
-        // Spec 0004's original limit of 10 seconds was set before Translations gained the three
-        // GameVersion pointer indexes and their foreign keys (#439). Each copied row now updates those
-        // indexes and checks the keys, which pushed CI runners to around 10 seconds, measured at 10.3 to
-        // 11.7 on the N-1 gate. 20 seconds gives room again and still clearly separates the bulk path
-        // from a return to row-by-row writes, which by #214's measurement would take about 50 seconds at
-        // this row count.
+        // Arrange: every row new. The budget is 20 s: the pointer indexes and foreign keys (#439) put CI
+        // at 10.3 to 11.7 s, while row-by-row EF writes would take about 50 s here (#214, ADR-0011).
         const int rowCount = 200_000;
         GameVersionId versionId = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
@@ -678,10 +642,8 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_BulkCopyThenFailureBeforeCommit_ShouldRollBackTheCopiedRows()
     {
-        // Arrange: the COPY runs on the write context's connection inside the import transaction, so
-        // a failure anywhere in that transaction must discard the COPY'd rows too (spec 0001 all-or-
-        // nothing). This pins the connection-enlistment the ADR-0011 atomicity design relies on:
-        // COPY the rows successfully, then throw before the commit.
+        // Arrange: pins that the COPY joins the transaction (ADR-0011): copy, then throw before the
+        // commit.
         GameVersionId versionId = await SeedVersionAsync("48.0");
         using IServiceScope scope = _factory.Services.CreateScope();
         IBulkTranslationInserter inserter = scope.ServiceProvider.GetRequiredService<IBulkTranslationInserter>();
@@ -698,7 +660,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
                 throw induced;
             }));
 
-        // Assert: the transaction rolled back, so not one COPY'd row survived.
+        // Assert
         thrown.ShouldBeSameAs(induced);
         (await CountTranslationsAsync()).ShouldBe(0);
     }
@@ -706,9 +668,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_BaselineRowWithArguments_ShouldCopyArgsColumnsVerbatim()
     {
-        // Arrange: a real exported.txt row carries the argument columns; the COPY writer's non-null
-        // args branch must round-trip them. Every other baseline fixture uses NULL args, so this pins
-        // the non-null path and the COPY mapping of the args/source/version columns for an added row.
+        // Arrange: every other baseline uses NULL args, so this pins the COPY writer's non-null path.
         GameVersionId versionId = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
         string rowWithArgs = $"{FileId}||7||Greet <--DO_NOT_TOUCH!--> friend||2-1||1-1||1";
@@ -730,12 +690,9 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task ExecuteInTransaction_WhenFirstCommitFailsTransiently_ShouldRetryAndPersistTheWholeUnit()
     {
-        // Arrange: the write context enables retry-on-failure. An interceptor makes the FIRST commit
-        // fail with a transient serialization error, so the execution strategy re-runs the whole unit.
-        // This pins the accept-deferral in ExecuteInTransactionAsync: without it, the retry would
-        // re-COPY the added row but silently drop the tracked version-processed flag (the changes were
-        // accepted on the first, failed attempt), leaving the version Unprocessed. The context is built
-        // by hand so the interceptor attaches via AddInterceptors, mirroring the production retry config.
+        // Arrange: the first commit fails transiently, so the strategy re-runs the unit. Without the
+        // deferred accept in ExecuteInTransactionAsync the retry would drop the tracked version flag.
+        // The context is built by hand to attach the interceptor, with the production retry settings.
         GameVersionId versionId = await SeedVersionAsync("48.0");
 
         string connectionString;
@@ -756,7 +713,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         await using ApplicationWriteDbContext dbContext = new(options);
         BulkTranslationInserter inserter = new(dbContext);
 
-        // A tracked mutation (mark the version processed) plus a COPY, enlisted as one unit.
+        // A tracked change plus a COPY, as one unit.
         GameVersion version = await dbContext.GameVersions.SingleAsync(row => row.Id == versionId);
         version.MarkAsProcessed();
         List<Translation> rows = [NewUntranslated(20, "Twenty", versionId)];
@@ -764,16 +721,13 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         // Act
         await dbContext.ExecuteInTransactionAsync(transactionToken => inserter.InsertAsync(AsStream(rows), transactionToken));
 
-        // Assert: the transient commit fired and the strategy retried (self-check), and both halves
-        // of the unit are durable: the COPY'd row AND the tracked version flip survived the retry.
+        // Assert: the retry happened, and both halves survived it.
         interceptor.CommitAttempts.ShouldBeGreaterThanOrEqualTo(2);
         (await CountTranslationsAsync()).ShouldBe(1);
         (await GetVersionStatusAsync(versionId)).ShouldBe(GameVersionStatus.Processed);
     }
 
-    // Fails the first commit with a temporary serialization error (SQLSTATE 40001), which the Npgsql
-    // retrying execution strategy retries, and lets every later commit through. That reproduces a
-    // temporary fault arriving exactly at commit time.
+    // Fails the first commit with SQLSTATE 40001, which the Npgsql strategy retries.
     private sealed class FailFirstCommitInterceptor : DbTransactionInterceptor
     {
         private int _commitAttempts;
@@ -807,8 +761,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         return TextContent(builder.ToString());
     }
 
-    // The pointer has to reference a GameVersion row that exists, because the version pointer columns
-    // carry foreign keys (#355), and in production copied rows always come from a real version anyway.
+    // The version pointers carry foreign keys (#355), so the version must exist.
     private static Translation NewUntranslated(int gossipId, string text, GameVersionId versionId)
         => Translation.CreateUntranslated(
             FragmentKey.Create(FileId, gossipId).Value,
@@ -816,8 +769,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
             versionId,
             DateTimeOffset.UtcNow).Value;
 
-    // The inserter takes a stream (spec 0006); re-enumerating this iterator restarts it, matching
-    // the retrying execution strategy's re-run semantics.
+    // Re-enumerating restarts it, as the retrying strategy needs.
     private static async IAsyncEnumerable<Translation> AsStream(IReadOnlyList<Translation> translations)
     {
         await Task.Yield();
@@ -853,9 +805,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_SevenColumnExportWithMatchingDigests_ShouldImportExactlyLikeSixColumns()
     {
-        // Arrange: the CLI's export carries the source_digest column since ADR-0047 §2; the TMS
-        // verifies it and otherwise treats the line as it always did. Row 2 is uploaded six-column
-        // in the same file to prove both widths coexist (older exports, hand-made files).
+        // Arrange: row 2 is six-column in the same file, to prove both widths coexist (ADR-0047 §2).
         GameVersionId versionId = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
 
@@ -876,10 +826,8 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_SevenColumnExportWithAWrongDigest_ShouldReturn422AndPersistNothing()
     {
-        // Arrange: a digest that does not match its own row means the wrong file was uploaded, or the
-        // two contexts compute the digest differently (ADR-0047 §2). It fails loudly at import time, for
-        // the whole upload, like any line that cannot be parsed (ADR-0042), and never as `source moved`
-        // on a player's machine.
+        // Arrange: a wrong file or a digest drift fails the whole upload here (ADR-0047 §2), never as
+        // `source moved` on a player's machine.
         GameVersionId versionId = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
 
@@ -900,16 +848,14 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
 
     private static string Line(int gossipId, string text) => $"{FileId}||{gossipId}||{text}||NULL||NULL||1";
 
-    // A seven-column export line as the CLI writes it since ADR-0047: the last field is the digest of
-    // the row's own source triple, so the import can verify it against its own SourceHash.
+    // As the CLI writes it (ADR-0047): the digest of the row's own triple.
     private static string DigestedLine(int gossipId, string text)
         => $"{Line(gossipId, text)}||{SourceHash.Compute(text, null, null).ToWireDigest()}";
 
     private static string WronglyDigestedLine(int gossipId, string text)
         => $"{Line(gossipId, text)}||{SourceHash.Compute(text + " (not this)", null, null).ToWireDigest()}";
 
-    // The exporter emits identity args from the fragment's argument count (args_order == args_id),
-    // for the pristine English and for a patched fragment alike (spec 0012 echo triple).
+    // The exporter emits identity args from the argument count, patched or not (spec 0012).
     private static string LineWithArgs(int gossipId, string text, string args) => $"{FileId}||{gossipId}||{text}||{args}||{args}||1";
 
     private static MultipartFormDataContent ExportContent(params string[] lines) => TextContent(string.Join('\n', lines));
@@ -949,7 +895,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
 
-        // The submitter is a local TranslatorId (ADR-0004); ensure its FK target exists.
+        // The submitter's foreign key target must exist (ADR-0004).
         Translator submitter = await dbContext.Translators.FirstOrDefaultAsync()
             ?? AddSubmitter(dbContext);
 

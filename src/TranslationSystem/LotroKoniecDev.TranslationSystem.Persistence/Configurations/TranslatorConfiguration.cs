@@ -14,15 +14,11 @@ internal sealed class TranslatorConfiguration : IEntityTypeConfiguration<Transla
         builder.Property(translator => translator.Id)
             .ValueGeneratedNever();
 
-        // The Auth user id is the key that makes creating a profile on first use safe to repeat
-        // (ADR-0004). The unique index keeps it at one row per identity even when two requests create
-        // the profile at the same time.
+        // One row per identity even when two requests create the profile at once (ADR-0004).
         builder.Property(translator => translator.IdentityId);
         builder.HasIndex(translator => translator.IdentityId)
             .IsUnique();
 
-        // Plain value objects that need no index, so ComplexProperty is the right mapping. Email is
-        // optional, so its complex property is nullable.
         builder.ComplexProperty(translator => translator.DisplayName, complexBuilder =>
         {
             complexBuilder.Property(displayName => displayName.Value)

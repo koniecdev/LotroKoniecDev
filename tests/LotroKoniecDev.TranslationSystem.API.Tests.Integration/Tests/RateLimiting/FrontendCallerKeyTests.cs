@@ -9,16 +9,12 @@ using Microsoft.Extensions.Options;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// ADR-0054 (#823): every call the frontend makes reaches the TMS API from its one container, so the
-/// API meters it on the visitor's address the frontend forwards, but only next to the environment's
-/// key. The limiter is forced on for a derived host, as on the auth API. Two tests boot a deployed host
-/// instead: one proves the environment alone still turns the limiter on there, and one proves that the
-/// same host refuses to start without the key. Both run in Production, because every box runs it. Both
-/// also run in Staging, which stands for any other name outside Development and Testing (#1187).
-/// In Testing <c>UseForwardedHeaders</c> trusts every peer, so <c>X-Forwarded-For</c> plays the
-/// connection address Caddy resolves: <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses
-/// are visitors. Every test creates its own host, so its buckets are its own. The full matrix of calls
-/// short of a proven visitor is a unit test on the resolver; the rows here prove the wiring.
+/// Pins the wiring of ADR-0054: a frontend call is metered on the forwarded visitor only next to the
+/// key. The full matrix is the resolver's unit test. Two tests boot a deployed host (Production, plus
+/// Staging for any other name, #1187): the environment alone turns the limiter on, and the host refuses
+/// to start without the key. In Testing <c>X-Forwarded-For</c> plays the address Caddy resolves:
+/// <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses are visitors. Each test has its own
+/// host, so its own buckets.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class FrontendCallerKeyTests : IAsyncLifetime
@@ -26,7 +22,7 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
     // Built rather than written out, so no secret scanner mistakes test data for a key.
     private static readonly string FrontendKey = new('k', 40);
 
-    /// <summary>Mirrors the fixed-by-ip policy every TMS endpoint sits on: 100 requests per minute per client.</summary>
+    /// <summary>Must match the fixed-by-ip policy in Program.cs.</summary>
     private const int Bucket = 100;
 
     private const string FrontendAddress = "10.60.0.7";
@@ -53,8 +49,7 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
     [Fact]
     public async Task TwoTranslatorsBehindTheFrontend_ShouldEachGetTheirOwnBucket()
     {
-        // Arrange: both translators browse through the same frontend container, and one of them spends
-        // a whole bucket on page loads, the way #823 describes.
+        // Arrange: one of two translators behind the frontend spends a whole bucket (#823).
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
         string heavyToken = TranslationSystemApiFactory.CreateAccessToken(AuthConstants.Roles.Translator);
@@ -81,12 +76,12 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
     [Fact]
     public async Task ProvenVisitorCalls_ShouldNotSpendTheFrontendContainersOwnBucket()
     {
-        // Arrange: a visitor spends a whole bucket through the frontend
+        // Arrange
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
         await ExhaustBucketAsync(client, Caller.ThroughTheFrontend("203.0.113.20"));
 
-        // Act: a call from the container itself, with neither header
+        // Act: the container's own call, with neither header
         using HttpResponseMessage containersOwnCall = await GetAsync(client, DiscoveryPath, Caller.Direct(FrontendAddress));
 
         // Assert
@@ -96,7 +91,7 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
     [Fact]
     public async Task AVisitor_ShouldHaveOneBucket_WhicheverWayTheCallArrives()
     {
-        // Arrange: the visitor spends the bucket directly, the way the CLI calls the API
+        // Arrange: spent directly, the way the CLI calls
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
         await ExhaustBucketAsync(client, Caller.Direct("203.0.113.30"));
@@ -107,7 +102,7 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
         using HttpResponseMessage anotherVisitor = await GetAsync(
             client, DiscoveryPath, Caller.ThroughTheFrontend("203.0.113.31"));
 
-        // Assert: one visitor, one bucket; the container's key does not buy a second one
+        // Assert: the container's key does not buy a second bucket
         throughTheFrontend.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
         anotherVisitor.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
@@ -145,8 +140,7 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
     [InlineData("Staging")]
     public async Task DeployedEnvironment_ShouldEnforceTheLimitWithoutTheTestSwitch(string environmentName)
     {
-        // Arrange: a deployed host, where only the environment turns the limiter on. A gate that
-        // needed RateLimiting:ForceEnable would leave staging and prod with no TMS limit at all.
+        // Arrange: a gate that needed RateLimiting:ForceEnable would leave the boxes with no limit.
         using WebApplicationFactory<Program> deployedHost = CreateDeployedHost(environmentName, FrontendKey);
         using HttpClient client = deployedHost.CreateClient();
         Caller caller = Caller.Direct("203.0.113.60");
@@ -169,8 +163,8 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
     [InlineData("Staging")]
     public void Boot_InADeployedEnvironmentWithoutTheKey_ShouldFailNamingTheKey(string environmentName)
     {
-        // Arrange: the deployed host of the test above, without the key. That test boots it with the key
-        // in the same environment, so the missing key is the one reason this boot can fail (#915).
+        // Arrange: the test above boots this host with the key, so the key is the one reason this boot
+        // can fail (#915).
         using WebApplicationFactory<Program> deployedHost = CreateDeployedHost(environmentName, frontendKey: null);
 
         // Act
@@ -188,8 +182,8 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// One Add per value, so two values arrive as a repeated header rather than one comma-joined value.
-    /// X-Forwarded-Proto is what Caddy sends. It keeps a deployed host's HTTPS redirect out of the way.
+    /// One Add per value, so two values arrive as a repeated header. X-Forwarded-Proto, as Caddy sends
+    /// it, keeps a deployed host's HTTPS redirect out of the way.
     /// </summary>
     private static async Task<HttpResponseMessage> GetAsync(
         HttpClient client,
@@ -220,8 +214,7 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// Spends a whole bucket on the anonymous discovery root. Not an assertion: a bucket that did not
-    /// fill is a broken precondition for the test that called this, so it throws.
+    /// Throws, not asserts: a bucket that did not fill is a broken precondition.
     /// </summary>
     private static async Task ExhaustBucketAsync(HttpClient client, Caller caller)
     {
@@ -254,9 +247,8 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// Sets everything a deployed host needs to start except the frontend key. So the key the caller
-    /// passes is the one thing that can stop the boot. The test switch stays out: on this host only the
-    /// environment may turn the limiter on.
+    /// Everything a deployed host needs except the key, so the key is the one thing that can stop the
+    /// boot. No test switch: only the environment may turn the limiter on.
     /// </summary>
     private WebApplicationFactory<Program> CreateDeployedHost(string environmentName, string? frontendKey)
     {

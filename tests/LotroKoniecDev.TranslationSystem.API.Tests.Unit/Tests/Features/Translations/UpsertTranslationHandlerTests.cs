@@ -30,9 +30,8 @@ public sealed class UpsertTranslationHandlerTests
     private static readonly GameVersionId VersionId = GameVersionId.Create();
     private static readonly TranslatorId CurrentTranslator = TranslatorId.Create();
 
-    // ITranslationRepository / IUnitOfWork are genuine public boundaries (stubbed); the read context
-    // is a pure in-memory double serving the response read-back, and the provisioner + rebuild
-    // scheduler are internal interfaces NSubstitute can't proxy, so each gets a hand-written double.
+    // The provisioner and the rebuild scheduler are internal, which NSubstitute cannot proxy, so each
+    // gets a hand-written double.
     private readonly ITranslationRepository _translationRepository = Substitute.For<ITranslationRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
     private readonly List<TranslationReadModel> _readModels = [];
@@ -73,8 +72,8 @@ public sealed class UpsertTranslationHandlerTests
         => _translationRepository.GetByFragmentKeyAsync(Arg.Any<FragmentKey>(), Arg.Any<CancellationToken>())
             .Returns(Maybe<Translation>.From(translation));
 
-    // The handler re-reads the committed row through the read model for the response, so the seeded
-    // read model mirrors what the write just persisted (status Draft, the stamped submitter).
+    // Mirrors what the write just persisted, because the handler reads the response back through the
+    // read model.
     private void GivenReadBack(Translation translation, string translatedText)
         => _readModels.Add(new TranslationReadModel(
             translation.Id,
@@ -113,8 +112,7 @@ public sealed class UpsertTranslationHandlerTests
     [Fact]
     public async Task Handle_WhenTranslatedTextLongerThanTheDatAllows_ShouldReturnValidationError()
     {
-        // Arrange: the patcher cannot write this row into the DAT at all, so it must be refused
-        // here rather than accepted, approved and published into the artifact (#598).
+        // Arrange: the patcher could never write this row (#598).
         GivenStoredRow(Untranslated());
         string tooLong = new('ż', DatFormatConstants.MaxTranslatedTextLength + 1);
 
@@ -130,7 +128,7 @@ public sealed class UpsertTranslationHandlerTests
     [Fact]
     public async Task Handle_WhenTranslatedTextExactlyAtTheDatLimit_ShouldPersist()
     {
-        // Arrange: the boundary itself is legal; the cap must not cost a translator the last character.
+        // Arrange: the boundary itself is legal.
         Translation row = Untranslated();
         GivenStoredRow(row);
         string atLimit = new('ż', DatFormatConstants.MaxTranslatedTextLength);
@@ -147,8 +145,7 @@ public sealed class UpsertTranslationHandlerTests
     [Fact]
     public async Task Handle_WhenProvisioningFails_ShouldReturnFailureAndNotPersist()
     {
-        // Arrange: a token without a parseable subject must never be attributed; the provisioner
-        // surfaces that, and the handler must not stamp or persist.
+        // Arrange: a token without a usable subject must never be attributed.
         Translation row = Untranslated();
         GivenStoredRow(row);
         _provisioner = new StubTranslatorProvisioner(Result.Failure<TranslatorId>(new Error(
@@ -215,10 +212,8 @@ public sealed class UpsertTranslationHandlerTests
         result.Value.Submitter.ShouldNotBeNull();
         result.Value.Submitter.Id.ShouldBe(CurrentTranslator);
         result.Value.Submitter.DisplayName.ShouldBe(SubmitterName);
-        // The aggregate itself was stamped with the provisioned translator id.
         row.SubmittedById.ShouldBe(CurrentTranslator);
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
-        // Editing a non-Approved row does not change the distributed set, so no artifact rebuild.
         _rebuildScheduler.ScheduleCount.ShouldBe(0);
     }
 
@@ -244,9 +239,8 @@ public sealed class UpsertTranslationHandlerTests
     [Fact]
     public async Task Handle_OnApprovedRow_ShouldScheduleTheRebuildAfterTheCommit()
     {
-        // Arrange: ADR-0021 §1: the dirty signal must follow SaveChanges; signalled before the
-        // commit, a zero-debounce rebuild could publish a snapshot missing its own trigger and park
-        // the artifact stale. Ordering is invisible in the return value, hence the call log.
+        // Arrange: signalled before the commit, a zero-debounce rebuild could miss its own trigger and
+        // leave the artifact stale (ADR-0021 §1). The return value cannot show order, hence the call log.
         Translation approved = Untranslated();
         approved.ProvideTranslation("Stary polski", CurrentTranslator, Now);
         approved.Approve(CurrentTranslator, Now);
@@ -264,7 +258,7 @@ public sealed class UpsertTranslationHandlerTests
     [Fact]
     public async Task Handle_OnNeedsReviewRow_ShouldMoveToDraftAndKeepPreviousSource()
     {
-        // Arrange: an invalidated row keeps its superseded English until approve (the re-translation path).
+        // Arrange
         Translation needsReview = Untranslated(source: "Old English");
         needsReview.ProvideTranslation("Stary polski", CurrentTranslator, Now);
         needsReview.ApplySourceChange(TranslationSource.Create("New English", null, null).Value, VersionId, Now);

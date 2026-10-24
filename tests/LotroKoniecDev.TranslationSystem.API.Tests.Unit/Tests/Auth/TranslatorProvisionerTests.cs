@@ -19,8 +19,8 @@ public sealed class TranslatorProvisionerTests
     private static readonly DateTimeOffset Now = new(2026, 6, 14, 0, 0, 0, TimeSpan.Zero);
     private static readonly IdentityId Identity = IdentityId.Create();
 
-    // ITranslatorRepository / IUnitOfWork are genuine public boundaries (stubbed); the current-user
-    // accessor is an internal interface NSubstitute can't proxy, so it gets a hand-written double.
+    // The current-user accessor is internal, which NSubstitute cannot proxy, so it gets a hand-written
+    // double.
     private readonly ITranslatorRepository _translatorRepository = Substitute.For<ITranslatorRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
 
@@ -62,7 +62,7 @@ public sealed class TranslatorProvisionerTests
     [Fact]
     public async Task ProvisionCurrentAsync_WhenNeitherNameNorEmailClaim_ShouldFailValidationAndNotPersist()
     {
-        // Arrange: an authenticated token carrying no display-name material; the VO must reject it.
+        // Arrange
         TranslatorProvisioner provisioner = CreateProvisioner(Accessor(username: null, email: null));
         _translatorRepository.GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>())
             .Returns(Maybe<Translator>.None);
@@ -80,7 +80,7 @@ public sealed class TranslatorProvisionerTests
     [Fact]
     public async Task ProvisionCurrentAsync_WhenNoEmailClaim_ShouldFallBackToEmaillessProfile()
     {
-        // Arrange: only the email claim is missing; the name claim still yields a valid display name.
+        // Arrange
         TranslatorProvisioner provisioner = CreateProvisioner(Accessor(email: null));
         _translatorRepository.GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>())
             .Returns(Maybe<Translator>.None);
@@ -102,8 +102,7 @@ public sealed class TranslatorProvisionerTests
     [Fact]
     public async Task ProvisionCurrentAsync_WhenEmailClaimMalformed_ShouldDiscardItAndProvisionEmaillessProfile()
     {
-        // Arrange: a present-but-invalid email claim is non-essential to attribution: it is discarded
-        // (the write still proceeds), rather than failing the whole provisioning.
+        // Arrange: the e-mail is not needed for attribution, so a bad one must not fail the write.
         TranslatorProvisioner provisioner = CreateProvisioner(Accessor(email: "not-an-email"));
         _translatorRepository.GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>())
             .Returns(Maybe<Translator>.None);
@@ -124,7 +123,7 @@ public sealed class TranslatorProvisionerTests
     [Fact]
     public async Task ProvisionCurrentAsync_WhenAlreadyProvisioned_ShouldRefreshAndReturnExistingIdWithoutInsert()
     {
-        // Arrange: a renamed account: the existing row converges on the latest claims, no new row.
+        // Arrange: a renamed account.
         Translator existing = Existing("Strider");
         TranslatorId existingId = existing.Id;
         _translatorRepository.GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>())
@@ -145,9 +144,8 @@ public sealed class TranslatorProvisionerTests
     [Fact]
     public async Task ProvisionCurrentAsync_WhenAlreadyProvisionedAndClaimsUnchanged_ShouldReturnExistingIdWithoutWriting()
     {
-        // Arrange: the row already carries exactly the current claims. Provisioning now runs on every
-        // authenticated request (ADR-0004 amendment), so an unchanged re-touch must be a pure read: no
-        // refresh write on the hot path.
+        // Arrange: provisioning runs on every authenticated request (ADR-0004 amendment), so unchanged
+        // claims must cost no write.
         Translator existing = Translator.Create(
             Identity,
             DisplayName.Create("Aragorn").Value,
@@ -193,8 +191,7 @@ public sealed class TranslatorProvisionerTests
     [Fact]
     public async Task ProvisionCurrentAsync_WhenConcurrentFirstWriteRaces_ShouldReReadCommittedRowAndSucceed()
     {
-        // Arrange: another request inserted the row between our read and save: the unique index
-        // rejects the duplicate (DbUpdateException), and we must re-read the committed row, not fail.
+        // Arrange: another request inserted the row between our read and save.
         Translator raced = Existing("Strider");
         TranslatorId racedId = raced.Id;
         Translator? rejectedInsert = null;
@@ -209,8 +206,7 @@ public sealed class TranslatorProvisionerTests
         // Act
         Result<TranslatorId> result = await provisioner.ProvisionCurrentAsync(CancellationToken.None);
 
-        // Assert: the committed row's id is returned and it converged on the current claims; the
-        // rejected insert is dropped from tracking so it cannot re-fire on the shared unit of work.
+        // Assert: the rejected insert is detached, so it cannot fire again on the next save.
         result.IsSuccess.ShouldBeTrue();
         result.Value.ShouldBe(racedId);
         raced.DisplayName.Value.ShouldBe("Aragorn");
@@ -222,8 +218,7 @@ public sealed class TranslatorProvisionerTests
     [Fact]
     public async Task ProvisionCurrentAsync_WhenSaveFailsAndRowStillMissing_ShouldRethrow()
     {
-        // Arrange: a DbUpdateException that is NOT a duplicate-row race (e.g. a real DB error): with
-        // no committed row to re-read, the exception must propagate, never be swallowed.
+        // Arrange: a real database error, not a race: there is no committed row to re-read.
         _translatorRepository.GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>())
             .Returns(Maybe<Translator>.None, Maybe<Translator>.None);
         _unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>())
@@ -238,9 +233,7 @@ public sealed class TranslatorProvisionerTests
     [Fact]
     public async Task ProvisionCurrentAsync_WhenCalledTwiceWithUnchangedClaims_ShouldQueryTranslatorsOnlyOnce()
     {
-        // Arrange: the row already carries the current claims. The first call warms the cache; the
-        // second must resolve from L1 memory without touching the Translators table (PERF-07 steady
-        // state), the behaviour the acceptance criterion pins.
+        // Arrange: the first call warms the cache; the second must not touch the table (PERF-07).
         Translator existing = Translator.Create(
             Identity,
             DisplayName.Create("Aragorn").Value,
@@ -254,9 +247,7 @@ public sealed class TranslatorProvisionerTests
         Result<TranslatorId> first = await provisioner.ProvisionCurrentAsync(CancellationToken.None);
         Result<TranslatorId> second = await provisioner.ProvisionCurrentAsync(CancellationToken.None);
 
-        // Assert: both resolve the same id and the second call skipped the DB entirely: the Translators
-        // lookup ran exactly once across the two authenticated requests. Nothing observable in the
-        // returned id distinguishes a cache hit from a re-query, so the call count is the only proof.
+        // Assert: the id cannot tell a cache hit from a re-query, so the call count is the only proof.
         first.IsSuccess.ShouldBeTrue();
         second.IsSuccess.ShouldBeTrue();
         second.Value.ShouldBe(first.Value);
@@ -270,10 +261,8 @@ public sealed class TranslatorProvisionerTests
     public async Task ProvisionCurrentAsync_WhenAClaimChangesBetweenRequests_ShouldBypassCacheAndRefreshProfile(
         string firstName, string firstEmail, string secondName, string secondEmail)
     {
-        // Arrange: one identity, one process-wide cache, two requests. The existing row starts on the
-        // first request's exact claims (so that request only warms the cache), then a later request
-        // changes the display name, the email, or both. Two provisioners sharing a cache model two
-        // scoped requests over the singleton HybridCache; the existing row is returned on every lookup.
+        // Arrange: two provisioners sharing one cache model two requests. The first only warms the
+        // cache; the second changes the name, the e-mail or both.
         Translator existing = Translator.Create(
             Identity,
             DisplayName.Create(firstName).Value,
@@ -287,14 +276,11 @@ public sealed class TranslatorProvisionerTests
         TranslatorProvisioner secondRequest =
             CreateProvisioner(Accessor(username: secondName, email: secondEmail), sharedCache);
 
-        // Act: the first request warms the cache with the first fingerprint; the second presents a
-        // changed fingerprint, so the cached value is bypassed and the profile refreshed.
+        // Act
         await firstRequest.ProvisionCurrentAsync(CancellationToken.None);
         Result<TranslatorId> afterChange = await secondRequest.ProvisionCurrentAsync(CancellationToken.None);
 
-        // Assert: the profile now matches the latest claims, as before. If the old cache entry had been
-        // used, the refresh would never have run, so the updated profile is itself the proof that the
-        // changed fingerprint skipped the cache, whether the name, the e-mail or both changed.
+        // Assert: had the old entry been used, the refresh would never have run.
         afterChange.IsSuccess.ShouldBeTrue();
         existing.DisplayName.Value.ShouldBe(secondName);
         existing.Email.ShouldNotBeNull();
@@ -304,21 +290,19 @@ public sealed class TranslatorProvisionerTests
     [Fact]
     public async Task ProvisionCurrentAsync_WhenFirstResolutionThrows_ShouldNotCacheAndRetryOnNextCall()
     {
-        // Arrange: the first call fails with a non-race DB fault (no committed row to fall back on),
-        // so it throws and must cache nothing; the second call with identical claims must resolve live.
+        // Arrange: the first call fails with a real database fault.
         _translatorRepository.GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>())
             .Returns(Maybe<Translator>.None);
         _unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>())
             .Returns(_ => throw new DbUpdateException("transient failure"), _ => Task.FromResult(1));
         TranslatorProvisioner provisioner = CreateProvisioner(Accessor());
 
-        // Act: the first call bubbles the fault; the second succeeds against the live row.
+        // Act
         await Should.ThrowAsync<DbUpdateException>(
             async () => await provisioner.ProvisionCurrentAsync(CancellationToken.None));
         Result<TranslatorId> second = await provisioner.ProvisionCurrentAsync(CancellationToken.None);
 
-        // Assert: the failure was never cached: the second call re-ran the full resolution (a fresh
-        // insert attempt), proving no cached entry short-circuited it.
+        // Assert: a second insert attempt proves no cached entry short-circuited the call.
         second.IsSuccess.ShouldBeTrue();
         _translatorRepository.Received(2).Insert(Arg.Any<Translator>());
     }
@@ -326,9 +310,8 @@ public sealed class TranslatorProvisionerTests
     [Fact]
     public async Task ProvisionCurrentAsync_WhenConcurrentRequestsRaceOnAColdCache_ShouldShareOneResolution()
     {
-        // Arrange: two scoped requests of the same identity hit a cold shared cache concurrently:
-        // HybridCache's stampede protection must funnel both through ONE authoritative resolution.
-        // The repository blocks inside the factory until the gate opens, pinning the overlap.
+        // Arrange: the repository blocks inside the factory until the gate opens, so the two requests
+        // overlap for sure.
         Translator existing = Translator.Create(
             Identity,
             DisplayName.Create("Aragorn").Value,
@@ -347,8 +330,7 @@ public sealed class TranslatorProvisionerTests
         TranslatorProvisioner firstRequest = CreateProvisioner(Accessor(), sharedCache);
         TranslatorProvisioner secondRequest = CreateProvisioner(Accessor(), sharedCache);
 
-        // Act: the first request enters the factory and blocks; the second arrives while it is in
-        // flight; then the gate releases the shared resolution for both.
+        // Act
         Task<Result<TranslatorId>> first = firstRequest.ProvisionCurrentAsync(CancellationToken.None).AsTask();
         await resolutionStarted.Task;
         Task<Result<TranslatorId>> second = secondRequest.ProvisionCurrentAsync(CancellationToken.None).AsTask();
@@ -356,9 +338,8 @@ public sealed class TranslatorProvisionerTests
         Result<TranslatorId> firstResult = await first;
         Result<TranslatorId> secondResult = await second;
 
-        // Assert: both callers resolve the same id off a single Translators lookup; nothing in the
-        // returned ids distinguishes a shared factory from two racing ones, so the call count is the
-        // only proof the resolution was deduplicated.
+        // Assert: the ids cannot tell one shared factory from two racing ones, so the call count is the
+        // only proof.
         firstResult.IsSuccess.ShouldBeTrue();
         secondResult.IsSuccess.ShouldBeTrue();
         firstResult.Value.ShouldBe(existing.Id);
@@ -369,9 +350,7 @@ public sealed class TranslatorProvisionerTests
     [Fact]
     public async Task ProvisionCurrentAsync_WhenInitiatingRequestAbortsWhileAnotherIsJoined_ShouldResolveTheSurvivor()
     {
-        // Arrange: the #435 scenario: the request that started the shared factory aborts while a
-        // second request of the same identity is joined to it. The resolution must not depend on
-        // anything the aborted request owned, so the survivor still gets the id, never a fault.
+        // Arrange: #435. The resolution must not depend on anything the aborted request owned.
         Translator existing = Translator.Create(
             Identity,
             DisplayName.Create("Aragorn").Value,
@@ -391,9 +370,7 @@ public sealed class TranslatorProvisionerTests
         TranslatorProvisioner secondRequest = CreateProvisioner(Accessor(), sharedCache);
         using CancellationTokenSource initiatingRequestAborted = new();
 
-        // Act: the initiating request enters the factory and blocks, the survivor joins the
-        // in-flight resolution, then the initiator aborts BEFORE the gate opens: its own call
-        // surfaces the cancellation while the shared factory keeps running for the survivor.
+        // Act: the initiator aborts before the gate opens, while the survivor is joined.
         Task<Result<TranslatorId>> initiating =
             firstRequest.ProvisionCurrentAsync(initiatingRequestAborted.Token).AsTask();
         await resolutionStarted.Task;
@@ -403,8 +380,7 @@ public sealed class TranslatorProvisionerTests
         resolutionGate.SetResult();
         Result<TranslatorId> survivorResult = await survivor;
 
-        // Assert: the survivor resolves off the single shared lookup the aborted initiator started:
-        // the call count proves it consumed that factory's result rather than re-running its own.
+        // Assert: one lookup, so the survivor used the shared factory's result.
         survivorResult.IsSuccess.ShouldBeTrue();
         survivorResult.Value.ShouldBe(existing.Id);
         await _translatorRepository.Received(1).GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>());

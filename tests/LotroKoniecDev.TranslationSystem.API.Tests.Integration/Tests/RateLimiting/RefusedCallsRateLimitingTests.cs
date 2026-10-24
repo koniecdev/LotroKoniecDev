@@ -9,15 +9,14 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// #829: calls the API refuses with 401 or 403 count against fixed-by-ip, and a call over the limit
-/// creates no Translator profile. The limiter is forced on for a derived host, and every test creates
-/// its own host, so its buckets are its own. In Testing <c>UseForwardedHeaders</c> trusts every peer,
-/// so <c>X-Forwarded-For</c> names the caller.
+/// Pins that 401s and 403s count against fixed-by-ip, and that a call over the limit creates no profile
+/// (#829). Each test has its own host, so its own buckets. In Testing <c>X-Forwarded-For</c> names the
+/// caller.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class RefusedCallsRateLimitingTests : IAsyncLifetime
 {
-    /// <summary>Mirrors the fixed-by-ip policy every TMS endpoint sits on: 100 requests per minute per client.</summary>
+    /// <summary>Must match the fixed-by-ip policy in Program.cs.</summary>
     private const int Bucket = 100;
 
     private const string ForwardedForHeader = "X-Forwarded-For";
@@ -75,8 +74,8 @@ public sealed class RefusedCallsRateLimitingTests : IAsyncLifetime
     [Fact]
     public async Task GetGameVersions_WhenANewTranslatorIsOverTheLimit_ShouldNotCreateATranslatorProfile()
     {
-        // Arrange: a first translator under the limit gets a profile, which proves provisioning works on
-        // this host. The second caller's bucket is full, and that translator has never called the API.
+        // Arrange: a first translator's profile proves provisioning works here. The second caller's
+        // bucket is full.
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
         await ProvisionControlTranslatorAsync(client, "203.0.113.72");
@@ -87,7 +86,7 @@ public sealed class RefusedCallsRateLimitingTests : IAsyncLifetime
         // Act
         using HttpResponseMessage overTheLimit = await GetAsync(client, GameVersionsPath, callerAddress, newTranslatorToken);
 
-        // Assert: the limiter stopped the call before the provisioning could write a second profile
+        // Assert
         overTheLimit.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
         (await CountTranslatorsAsync()).ShouldBe(1);
     }
@@ -119,8 +118,7 @@ public sealed class RefusedCallsRateLimitingTests : IAsyncLifetime
         return await client.SendAsync(request);
     }
 
-    // Spends a whole bucket on calls the API refuses. Not an assertion: a call that got through would
-    // prove nothing about refused calls, so it throws.
+    // Throws, not asserts: a call that got through would prove nothing about refused calls.
     private static async Task SpendBucketOnRefusedCallsAsync(
         HttpClient client,
         string callerAddress,
@@ -138,8 +136,7 @@ public sealed class RefusedCallsRateLimitingTests : IAsyncLifetime
         }
     }
 
-    // Spends a whole bucket on the anonymous discovery root. Not an assertion: a bucket that did not
-    // fill is a broken precondition for the test that called this, so it throws.
+    // Throws, not asserts: a bucket that did not fill is a broken precondition.
     private static async Task ExhaustBucketAsync(HttpClient client, string callerAddress)
     {
         for (int i = 0; i < Bucket; i++)
@@ -155,8 +152,7 @@ public sealed class RefusedCallsRateLimitingTests : IAsyncLifetime
         }
     }
 
-    // Not an assertion either: without a profile here, a count of one after the over-limit call would
-    // not prove the limiter stopped anything.
+    // Without this profile, a count of one afterwards would prove nothing.
     private async Task ProvisionControlTranslatorAsync(HttpClient client, string callerAddress)
     {
         string controlToken = TranslationSystemApiFactory.CreateAccessToken(AuthConstants.Roles.Translator);

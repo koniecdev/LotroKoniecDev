@@ -8,8 +8,7 @@ public sealed class PrecomputedTranslationFileReadModelConfiguration : IEntityTy
 {
     public void Configure(EntityTypeBuilder<PrecomputedTranslationFileReadModel> builder)
     {
-        // The table keeps the name the original aggregate had (ADR-0007). Only the class was renamed,
-        // so no migration is needed.
+        // The table keeps its old name; only the class was renamed (ADR-0007).
         builder.ToTable("TranslationArtifacts");
 
         builder.Property(precomputedTranslationFile => precomputedTranslationFile.Id)

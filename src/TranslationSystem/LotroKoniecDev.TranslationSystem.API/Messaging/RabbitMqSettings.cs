@@ -1,9 +1,8 @@
 namespace LotroKoniecDev.TranslationSystem.API.Messaging;
 
 /// <summary>
-/// The broker the AuthSystem already uses. The TMS only consumes from it, the account events of
-/// ADR-0065, so it reads the same <c>RabbitMq</c> section the AuthSystem reads and compose hands both
-/// services the same <c>RABBITMQ_PASSWORD</c>.
+/// The AuthSystem's broker: the same <c>RabbitMq</c> section, and compose hands both services the same
+/// <c>RABBITMQ_PASSWORD</c> (ADR-0065).
 /// </summary>
 internal sealed class RabbitMqSettings
 {

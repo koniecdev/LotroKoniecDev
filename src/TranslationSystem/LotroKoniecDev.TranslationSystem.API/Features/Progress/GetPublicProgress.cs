@@ -12,24 +12,15 @@ using Microsoft.Extensions.Caching.Hybrid;
 namespace LotroKoniecDev.TranslationSystem.API.Features.Progress;
 
 /// <summary>
-/// The progress numbers on the public landing page (#309). It groups the active catalog exactly like
-/// the translator dashboard's <see cref="Translations.GetTranslationStats"/> does, one count per
-/// <see cref="TranslationStatus"/> summed in memory, and adds the newest
-/// <see cref="GameVersionStatus.Processed"/> game version.
-/// It is a separate, openly anonymous endpoint rather than the dashboard endpoint opened up, so the
-/// public contract can stay fixed while the dashboard changes, and nothing but totals is exposed.
-///
-/// The result is cached in a short-lived <see cref="HybridCache"/> entry (AUDIT-EF-04, #354). This is
-/// the most public and least protected endpoint, and recomputing rough counters for every anonymous
-/// visitor only costs compute. While the entry is alive, every request shares one computation.
-/// The HTTP <c>no-store</c> header stays; only the work on the server is shared.
+/// The public landing-page numbers (#309): the grouping of <see cref="Translations.GetTranslationStats"/>
+/// plus the newest processed game version. A separate anonymous endpoint, not the dashboard one opened
+/// up, so the public contract stays fixed and only totals are exposed. Cached because it is the least
+/// protected endpoint (AUDIT-EF-04, #354); the HTTP <c>no-store</c> header still applies.
 /// </summary>
 internal sealed class GetPublicProgress : IEndpoint
 {
     /// <summary>
-    /// The one cache entry for the whole process. The endpoint is anonymous, so every visitor sees the
-    /// same counters. It is internal so the integration tests can clear it together with their
-    /// TRUNCATE.
+    /// One entry for every visitor. Internal so the integration tests can clear it with their TRUNCATE.
     /// </summary>
     internal const string CounterCacheKey = "public-progress";
 
@@ -38,9 +29,8 @@ internal sealed class GetPublicProgress : IEndpoint
     internal sealed class Handler : IQueryHandler<Query, Result<PublicProgressResponse>>
     {
         /// <summary>
-        /// Slightly old counters are fine here, the same idea as the delay in ADR-0021. With 30 seconds
-        /// the grouped scan runs at most twice a minute, however much traffic the landing page or bots
-        /// bring.
+        /// Slightly old counters are fine (as in ADR-0021): the scan runs at most twice a minute,
+        /// whatever traffic the landing page or bots bring.
         /// </summary>
         private static readonly HybridCacheEntryOptions CounterTtlEntryOptions = new()
         {
@@ -70,10 +60,8 @@ internal sealed class GetPublicProgress : IEndpoint
         }
 
         /// <summary>
-        /// This runs in its own scope and never in the calling request's. HybridCache runs one factory
-        /// for every caller waiting on the same key, and the request that started it can be cancelled,
-        /// which disposes its read context, while the others are still waiting. A fresh scope keeps the
-        /// shared work alive for them instead of failing on a disposed context.
+        /// Its own scope: HybridCache shares one factory run with every caller of the key, and the
+        /// request that started it may be cancelled and dispose its read context while others wait.
         /// </summary>
         private async ValueTask<PublicProgressResponse> ComputeSnapshotAsync(CancellationToken cancellationToken)
         {
@@ -90,15 +78,13 @@ internal sealed class GetPublicProgress : IEndpoint
             int total = countByStatus.Values.Sum();
             int approved = countByStatus.GetValueOrDefault(TranslationStatus.Approved);
 
-            // "Translated" means the rows that hold Polish. A row only reaches Draft, Approved or
-            // NeedsReview once there is Polish, the same grouping the dashboard stats use.
+            // The same three statuses as the dashboard stats.
             int translated =
                 countByStatus.GetValueOrDefault(TranslationStatus.Draft)
                 + approved
                 + countByStatus.GetValueOrDefault(TranslationStatus.NeedsReview);
 
-            // The catalog matches the newest processed version. A version that was only detected
-            // (Unprocessed) or skipped (Superseded) says nothing about what is distributed.
+            // An unprocessed or superseded version says nothing about what is distributed.
             string? currentGameVersion = await readDbContext.GameVersions
                 .Where(gameVersion => gameVersion.Status == GameVersionStatus.Processed)
                 .OrderByDescending(gameVersion => gameVersion.DetectedAt)

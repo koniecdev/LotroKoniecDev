@@ -10,7 +10,6 @@ public sealed record PrecomputedTranslationFileReadModel(
     string ContentHash,
     DateTimeOffset GeneratedAt) : IReadOnlyEntity<PrecomputedTranslationFileId>
 {
-    // The row is created when the file is first built, so the generation time is the creation time.
-    // It stays unmapped so the table does not carry the same value twice, as in GameVersionReadModel.
+    // The row is created when the file is first built, so the two times are the same.
     public DateTimeOffset CreatedAt => GeneratedAt;
 }

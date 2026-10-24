@@ -25,9 +25,8 @@ public sealed class BulkApproveTranslationsHandlerTests
     private static readonly TranslatorId Submitter = TranslatorId.Create();
     private static readonly TranslatorId Approver = TranslatorId.Create();
 
-    // ITranslationRepository / IUnitOfWork are genuine public boundaries (stubbed); the provisioner +
-    // rebuild scheduler are internal interfaces NSubstitute can't proxy, so each gets a hand-written
-    // double.
+    // The provisioner and the rebuild scheduler are internal, which NSubstitute cannot proxy, so each
+    // gets a hand-written double.
     private readonly ITranslationRepository _translationRepository = Substitute.For<ITranslationRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
     private readonly List<string> _callOrder = [];
@@ -104,7 +103,7 @@ public sealed class BulkApproveTranslationsHandlerTests
     [Fact]
     public async Task Handle_WhenMoreThanOneHundredIds_ShouldReturnValidationError()
     {
-        // Arrange: the cap mirrors the list's max page size; a selection can never span more.
+        // Arrange: the cap is the list's largest page size.
         TranslationId[] ids = [.. Enumerable.Range(0, BulkApproveTranslations.MaxIds + 1).Select(_ => TranslationId.Create())];
 
         // Act
@@ -133,8 +132,7 @@ public sealed class BulkApproveTranslationsHandlerTests
     [Fact]
     public async Task Handle_WhenProvisioningFails_ShouldReturnFailureAndNotPersist()
     {
-        // Arrange: a token without a parseable subject must never be attributed to an empty approver;
-        // the batch fails whole and nothing is approved or persisted.
+        // Arrange: a token without a usable subject must never be credited, so the whole batch fails.
         Translation row = Draft(1);
         GivenStoredRows(row);
         _provisioner = new StubTranslatorProvisioner(Result.Failure<TranslatorId>(new Error(
@@ -156,7 +154,7 @@ public sealed class BulkApproveTranslationsHandlerTests
     public async Task Handle_WithMixedBatch_ShouldApproveOnlyApprovableRowsSkipTheRestPersistOnceAndRebuildOnce()
     {
         // Arrange: a Draft and a NeedsReview row are approvable; an Untranslated row, a removed Draft
-        // and an unknown id (no row returned) are not. Best-effort: approve the two, skip the three.
+        // and an unknown id are not.
         Translation draft = Draft(1, "Witaj");
         Translation needsReview = NeedsReview(2, "Stary");
         Translation untranslated = Untranslated(3);
@@ -179,7 +177,6 @@ public sealed class BulkApproveTranslationsHandlerTests
         needsReview.PreviousSourceText.ShouldBeNull();
         untranslated.Status.ShouldBe(TranslationStatus.Untranslated);
         removed.Status.ShouldBe(TranslationStatus.Draft);
-        // One commit and one debounced rebuild for the whole batch, regardless of how many rows changed.
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
         _rebuildScheduler.ScheduleCount.ShouldBe(1);
     }
@@ -187,8 +184,7 @@ public sealed class BulkApproveTranslationsHandlerTests
     [Fact]
     public async Task Handle_WhenNoRowIsApprovable_ShouldReturnZeroApprovedAndNeitherPersistNorRebuild()
     {
-        // Arrange: an already-Approved row keeps its original approver (it is skipped, not re-stamped),
-        // and an untranslated row has no Polish to publish; nothing enters the distributed set.
+        // Arrange: an approved row keeps its approver, and an untranslated row has nothing to publish.
         Translation approved = Draft(1, "Zatwierdzony");
         approved.Approve(Submitter, Now);
         Translation untranslated = Untranslated(2);
@@ -211,7 +207,7 @@ public sealed class BulkApproveTranslationsHandlerTests
     [Fact]
     public async Task Handle_WithDuplicateIds_ShouldCountDistinctOnce()
     {
-        // Arrange: a client that repeats an id must not double-count it (Approved + Skipped == Requested).
+        // Arrange
         Translation draft = Draft(1, "Witaj");
         GivenStoredRows(draft);
 
@@ -229,8 +225,8 @@ public sealed class BulkApproveTranslationsHandlerTests
     [Fact]
     public async Task Handle_OnSuccess_ShouldScheduleTheRebuildAfterTheCommit()
     {
-        // Arrange: ADR-0021 §1: the dirty signal must follow SaveChanges, so a zero-debounce rebuild can
-        // never publish a snapshot missing its own trigger. Ordering is invisible in the return value.
+        // Arrange: the signal must follow the save, or a zero-debounce rebuild could miss its own
+        // trigger (ADR-0021 §1). The return value cannot show order, hence the call log.
         Translation draft = Draft(1, "Witaj");
         GivenStoredRows(draft);
 

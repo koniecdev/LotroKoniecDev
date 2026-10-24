@@ -4,11 +4,9 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 namespace LotroKoniecDev.TranslationSystem.API.Health;
 
 /// <summary>
-/// Writes each check's name, status and duration, and nothing else (ADR-0058, #853). A failed check's
-/// description and exception can hold a connection error with a host, a port or a user name: the Npgsql
-/// check copies the exception message into its description, and so does the health check service when a
-/// check throws. The daily health ping prints this body into a public job log. The full detail is in
-/// the application log, where the health check service writes every failed check at Error level.
+/// Name, status and duration only (ADR-0058): a failed check's description can hold a host, a port or a
+/// user name, and the daily health ping prints this body into a public job log. The full detail is in
+/// the application log.
 /// </summary>
 internal static class HealthCheckResponseWriter
 {

@@ -4,10 +4,8 @@ using LotroKoniecDev.TranslationSystem.API.Parsing;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
 
 /// <summary>
-/// The TMS' copy of the content escape used in the <c>||</c> file (ADR-0039, #596). The patcher has an
-/// identical copy in its own assembly with its own test suite, because the two contexts share the file
-/// and never the code, and <see cref="ParserContractParityTests"/> checks that the two copies agree byte
-/// for byte.
+/// The TMS copy of the content escape (ADR-0039). The patcher's copy has its own suite, and
+/// <see cref="ParserContractParityTests"/> checks the two agree byte for byte.
 /// </summary>
 public sealed class TranslationLineEscaperTests
 {
@@ -47,11 +45,9 @@ public sealed class TranslationLineEscaperTests
     [InlineData(@"path\\to", @"path\to")]
     public void Unescape_OnAFileWrittenBeforeTheEscapeChange_ShouldDivergeFromTheOldReader(string legacy, string expected)
     {
-        // ACCEPTED DIVERGENCE, pinned so a future change to it is deliberate. A pre-ADR-0039 writer
-        // never escaped the backslash, so a doubled backslash meant two characters; the old reader
-        // answered "\" + LF for the first case and left the second untouched. The new reader collapses
-        // the pair, which is the only reading a conforming writer can have meant. Re-export before
-        // re-importing a legacy file (ADR-0039, "The migration cost").
+        // An accepted divergence, pinned so a change to it is deliberate. A writer from before ADR-0039 did
+        // not escape the backslash, so in its files a doubled backslash meant two characters; this reader
+        // turns them into one. Re-export a legacy file first (ADR-0039, "The migration cost").
         TranslationLineEscaper.Unescape(legacy).ShouldBe(expected);
     }
 
@@ -85,7 +81,7 @@ public sealed class TranslationLineEscaperTests
         // Act
         string escaped = TranslationLineEscaper.Escape(raw);
 
-        // Assert: the whole point of the escape: one row is one line.
+        // Assert: one row is one line.
         escaped.ShouldNotContain("\r");
         escaped.ShouldNotContain("\n");
     }

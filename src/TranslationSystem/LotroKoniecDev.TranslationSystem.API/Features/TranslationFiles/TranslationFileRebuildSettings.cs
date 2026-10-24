@@ -1,21 +1,17 @@
 namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 
 /// <summary>
-/// The setting for the background artifact rebuild (PERF-04, ADR-0021). The worker waits this long
-/// after the first signal before it rebuilds, so several approves within a few seconds cause one
-/// rebuild over the whole catalog instead of one per approve.
-/// It is also the longest the artifact can lag behind a committed write, plus the rebuild itself. It is
-/// short in Testing so integration tests finish quickly, and zero is allowed and turns the wait off.
+/// The debounce window turns several approves within a few seconds into one rebuild (PERF-04,
+/// ADR-0021). It is also how far the artifact can lag a commit, plus the rebuild itself. Zero turns the
+/// wait off.
 /// </summary>
 internal sealed class TranslationFileRebuildSettings
 {
     public const string ConfigurationSection = "TranslationFileRebuild";
 
     /// <summary>
-    /// The largest value allowed, checked at startup. The wait is also how far behind the artifact can
-    /// fall, so anything beyond a few minutes breaks the distribution loop. A very large value, above
-    /// about 49 days, would also overflow <see cref="Task.Delay(TimeSpan)"/> in the worker and stop the
-    /// host.
+    /// Checked at startup: more than a few minutes of lag breaks the distribution loop, and above about
+    /// 49 days <see cref="Task.Delay(TimeSpan)"/> would overflow and stop the host.
     /// </summary>
     public static readonly TimeSpan MaxDebounceWindow = TimeSpan.FromMinutes(5);
 

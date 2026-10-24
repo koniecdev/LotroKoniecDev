@@ -13,12 +13,10 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.ErrorContract;
 
 /// <summary>
-/// Pins the API's error contract at the HTTP level; the other suites only check the status code.
-/// Domain failures are served as <c>application/problem+json</c> carrying a typed <c>errorCode</c>, a
-/// status-family <c>title</c> and the <c>status</c> (ErrorExtensions.ToProblemDetails: 400 Validation,
-/// 404 NotFound, 422 DataConflict). Auth rejections (401/403) are also served as
-/// <c>application/problem+json</c> but carry no domain <c>errorCode</c> extension; 409 has no path
-/// (no optimistic-concurrency token is configured).
+/// Pins the error contract at the HTTP level; other suites check only the status code. Domain failures
+/// are <c>application/problem+json</c> with a typed <c>errorCode</c> (400, 404, 422); 401 and 403 share
+/// the media type but carry no <c>errorCode</c>. The 409 of a concurrency conflict is covered by
+/// <c>ConcurrencyEndpointsTests</c>.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class ProblemDetailsContractTests : IAsyncLifetime
@@ -59,8 +57,7 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
         // Arrange
         using HttpClient client = AdminClient();
 
-        // Act: "banana" passes the NotEmpty/MaxLength validator, so the failure surfaces from the
-        // LotroNotationVersion value object's dotted-numeric format check.
+        // Act: "banana" passes the validator, so the value object's format check refuses it.
         HttpResponseMessage response = await client.PostAsJsonAsync("/api/v1/game-versions", new RegisterGameVersionRequest("banana"));
         JsonElement problem = await ReadProblemDetailsAsync(response);
 
@@ -94,8 +91,7 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
     [InlineData("fr-FR")]
     public async Task UpsertTranslation_WithEmptyTextOnAServerInAnotherLanguage_ShouldAnswerInEnglish(string serverCulture)
     {
-        // Arrange: on a server whose OS language is not English, every request runs in that culture
-        // (#1092).
+        // Arrange: on such a server every request runs in that culture (#1092).
         await using WebApplicationFactory<Program> host =
             HostWithRequestCulture(CultureInfo.GetCultureInfo(serverCulture));
         using HttpClient client = ClientForRole(host, AuthConstants.Roles.Translator);
@@ -147,7 +143,7 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
     [Fact]
     public async Task RegisterGameVersion_WhenAlreadyTaken_ShouldReturn422DataConflictProblem()
     {
-        // Arrange: register the version, then re-register an equivalent notation.
+        // Arrange
         using HttpClient client = AdminClient();
         (await client.PostAsJsonAsync("/api/v1/game-versions", new RegisterGameVersionRequest("48.0")))
             .StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -167,15 +163,14 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
     [Fact]
     public async Task ProtectedEndpoint_WithoutToken_ShouldReturn401AsProblemDetailsWithoutErrorCode()
     {
-        // Arrange: /api/v1/game-versions: the translations list itself is publicly readable (#309).
+        // Arrange: game versions, because the translations list is public (#309).
         using HttpClient client = _factory.CreateClient();
 
         // Act
         HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");
         JsonElement problem = await ReadProblemDetailsAsync(response);
 
-        // Assert: authentication failures share the problem+json surface, but the domain errorCode
-        // extension is added only by ErrorExtensions.ToProblemDetails for Result failures, never here.
+        // Assert: only Result failures get an errorCode.
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(ProblemJson);
         problem.GetProperty("status").GetInt32().ShouldBe(401);
@@ -231,8 +226,7 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// Runs every request in the given culture, as a server whose OS has that language does. Without
-    /// it, the test server takes the culture of the machine that runs the tests.
+    /// Without it the test server takes the culture of the machine running the tests.
     /// </summary>
     private sealed class RequestCultureStartupFilter : IStartupFilter
     {

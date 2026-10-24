@@ -8,15 +8,13 @@ internal sealed class PrecomputedTranslationFileConfiguration : IEntityTypeConfi
 {
     public void Configure(EntityTypeBuilder<PrecomputedTranslationFile> builder)
     {
-        // The table keeps the name the original aggregate had (ADR-0007). Only the class was renamed,
-        // so no migration is needed.
+        // The table keeps its old name; only the class was renamed (ADR-0007).
         builder.ToTable("TranslationArtifacts");
 
         builder.Property(precomputedTranslationFile => precomputedTranslationFile.Id)
             .ValueGeneratedNever();
 
-        // Get-only properties. EF Core skips them unless they are mapped here. The type is immutable:
-        // a refresh is a single update through the store (PERF-04).
+        // Get-only properties. EF Core skips them unless they are mapped here.
         builder.Property(precomputedTranslationFile => precomputedTranslationFile.Language)
             .HasMaxLength(PrecomputedTranslationFile.LanguageMaxLength);
 

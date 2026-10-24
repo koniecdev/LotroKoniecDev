@@ -13,12 +13,9 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregat
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.CoreLoop;
 
 /// <summary>
-/// Proves the M2 definition of done end to end, through the public HTTP endpoints only, with no
-/// database seeding for the translation lifecycle. So the separate slices, registering a version,
-/// importing and diffing, listing and getting, upserting, approving and downloading, really do add up
-/// to the admin and translator loop, and the downloaded file parses with the patcher's own parser,
-/// which guards the <c>||</c> contract between the two contexts.
-/// The per-endpoint and per-field cases live in the other suites; this one owns the whole flow.
+/// The M2 definition of done end to end, through the public endpoints only and with no database seeding:
+/// the slices add up to the admin and translator loop, and the downloaded file parses with the patcher's
+/// own parser. Per-endpoint cases live in the other suites.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class CoreLoopTests : IAsyncLifetime
@@ -69,9 +66,7 @@ public sealed class CoreLoopTests : IAsyncLifetime
         HttpResponseMessage approve = await admin.PostAsync(ApproveRoute(edited.Id.Value), null);
         approve.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        // Download the distributed file without logging in: the approved row is in it and the
-        // untranslated one is not. The file is rebuilt in the background after a short delay (PERF-04),
-        // so poll until the approve's rebuild has finished.
+        // Download without logging in. The rebuild runs in the background (PERF-04), so poll.
         (HttpResponseMessage download, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
             _factory.CreateClient(),
             FileRoute,
@@ -82,7 +77,7 @@ public sealed class CoreLoopTests : IAsyncLifetime
         file.ShouldContain($"{FileId}||1||Polski jeden||NULL||NULL||1");
         file.ShouldNotContain($"{FileId}||2||");
 
-        // The file round-trips through the patcher's own parser (the || contract drift guard).
+        // The file round-trips through the patcher's own parser.
         string tempFile = Path.Combine(Path.GetTempPath(), $"polish_{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(tempFile, file);
         try
@@ -113,8 +108,7 @@ public sealed class CoreLoopTests : IAsyncLifetime
         using HttpClient admin = AdminClient();
         using HttpClient translator = TranslatorClient();
 
-        // Baseline: import, translate + approve row 1, so it is in the distributed file (the approve's
-        // background rebuild is polled to convergence, PERF-04).
+        // Baseline: import, then translate and approve row 1.
         Guid firstVersion = await RegisterVersionAsync(admin, "48.0");
         await ImportAsync(admin, firstVersion, Line(1, "English one"), Line(2, "English two"));
         TranslationDetailResponse edited = await UpsertAsync(translator, gossipId: 1, polish: "Polski jeden");
@@ -128,22 +122,21 @@ public sealed class CoreLoopTests : IAsyncLifetime
         firstDownload.Headers.ETag.ShouldNotBeNull();
         EntityTagHeaderValue firstEtag = firstDownload.Headers.ETag!;
 
-        // A game update reword's row 1's English source on the next version's import.
+        // A game update rewords row 1's English.
         Guid secondVersion = await RegisterVersionAsync(admin, "48.1");
         ImportSummary update = await ImportAsync(admin, secondVersion, Line(1, "English one reworded"), Line(2, "English two"));
         update.SourceChanged.ShouldBe(1);
         update.Invalidated.ShouldBe(1);
         update.Unchanged.ShouldBe(1);
 
-        // Row 1 is now NeedsReview with its superseded English kept for side-by-side review.
+        // Row 1 is now NeedsReview with its old English kept.
         TranslationDetailResponse? row1 = await (await translator.GetAsync($"{TranslationsRoute}/{edited.Id.Value}"))
             .Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
         row1.ShouldNotBeNull();
         row1.Status.ShouldBe(TranslationStatus.NeedsReview);
         row1.PreviousSourceText.ShouldBe("English one");
 
-        // The invalidated row drops out of the regenerated distributed file (new ETag) once the
-        // import's background rebuild converges.
+        // The invalidated row leaves the file once the rebuild converges.
         (HttpResponseMessage secondDownload, string secondFile) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
             _factory.CreateClient(),
             FileRoute,
@@ -155,10 +148,7 @@ public sealed class CoreLoopTests : IAsyncLifetime
     [Fact]
     public async Task CoreLoop_ContentCarryingNewlinesAndBackslashes_SurvivesImportApproveDownloadAndPatcherParse()
     {
-        // #596 / ADR-0039 end to end. Two hazards in one flow: a Polish translation typed with real
-        // newlines in the editor's textarea (it used to split the row into two malformed lines and
-        // vanish from the file), and a literal backslash in front of 'n' (it used to unfold into a
-        // control character on the patcher's side).
+        // ADR-0039 end to end (#596): real newlines from the editor, and a literal backslash before 'n'.
         const string multiLinePolish = "Polski jeden\nDruga linia";
         const string backslashPolish = @"Sciezka C:\notes";
         const string escapedMultiLinePolish = @"Polski jeden\nDruga linia";
@@ -167,11 +157,11 @@ public sealed class CoreLoopTests : IAsyncLifetime
         using HttpClient admin = AdminClient();
         using HttpClient translator = TranslatorClient();
 
-        // The English baseline itself arrives escaped from the patcher's exporter.
+        // The English baseline arrives escaped from the patcher's exporter.
         Guid versionId = await RegisterVersionAsync(admin, "48.0");
         await ImportAsync(admin, versionId, Line(1, @"English one\nsecond line"), Line(2, "English two"));
 
-        // The import unfolds the escape, so the catalog holds the raw source the DAT contains.
+        // The catalog holds the raw source.
         TranslationDetailResponse first = await UpsertAsync(translator, gossipId: 1, polish: multiLinePolish);
         first.SourceText.ShouldBe("English one\nsecond line");
 
@@ -179,7 +169,7 @@ public sealed class CoreLoopTests : IAsyncLifetime
         (await admin.PostAsync(ApproveRoute(first.Id.Value), null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await admin.PostAsync(ApproveRoute(second.Id.Value), null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        // Both rows reach the distributed file, each folded onto exactly one line.
+        // Each row is one line in the file.
         (_, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
             _factory.CreateClient(),
             FileRoute,
@@ -188,7 +178,7 @@ public sealed class CoreLoopTests : IAsyncLifetime
         file.ShouldContain($"{FileId}||1||{escapedMultiLinePolish}||NULL||NULL||1");
         file.ShouldContain($"{FileId}||2||{escapedBackslashPolish}||NULL||NULL||1");
 
-        // And the patcher recovers the raw text it is about to write into the DAT.
+        // The patcher recovers the raw text.
         string tempFile = Path.Combine(Path.GetTempPath(), $"polish_{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(tempFile, file);
         try

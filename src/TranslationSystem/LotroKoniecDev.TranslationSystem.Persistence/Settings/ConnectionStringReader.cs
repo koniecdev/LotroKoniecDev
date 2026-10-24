@@ -4,9 +4,9 @@ using Npgsql;
 namespace LotroKoniecDev.TranslationSystem.Persistence.Settings;
 
 /// <summary>
-/// Reads a connection string and keeps Npgsql's own error out of the boot log (#1157, ADR-0067 decision 4).
-/// That error names the part Npgsql could not use. When a password has a <c>;</c> and no quotes, that part
-/// is a piece of the password, and a value typed after the wrong key appears in full in the inner error.
+/// Keeps Npgsql's own parse error out of the boot log (#1157, ADR-0067 decision 4): it names the part it
+/// could not use, which can be a piece of an unquoted password with a <c>;</c>, or a value typed after
+/// the wrong key.
 /// </summary>
 internal static class ConnectionStringReader
 {
@@ -33,8 +33,8 @@ internal static class ConnectionStringReader
             builder = new NpgsqlConnectionStringBuilder(connectionString);
             return true;
         }
-        // Npgsql 10 throws an ArgumentException for most bad strings, but a bare KeyNotFoundException for an
-        // unknown key with an empty value. The parse has no side effects, so every failure means unreadable.
+        // Npgsql 10 also throws a bare KeyNotFoundException for an unknown key with an empty value. The
+        // parse has no side effects, so every failure means unreadable.
         catch (Exception)
         {
             builder = null;

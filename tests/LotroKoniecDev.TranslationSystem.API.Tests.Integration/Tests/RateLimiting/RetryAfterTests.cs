@@ -4,15 +4,13 @@ using Microsoft.Extensions.Configuration;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// #855: a 429 from fixed-by-ip says how long to wait, so a client such as the CLI does not have to
-/// guess. The value is the whole window, the longest wait, not the time left in it (#892). The limiter is
-/// forced on for a derived host, and every test creates its own host, so its buckets are its own. In
-/// Testing <c>UseForwardedHeaders</c> trusts every peer, so <c>X-Forwarded-For</c> names the caller.
+/// Pins that a 429 says how long to wait: the whole window, not the time left (#855, #892). Each test has
+/// its own host, so its own buckets. In Testing <c>X-Forwarded-For</c> names the caller.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class RetryAfterTests
 {
-    /// <summary>Mirrors the fixed-by-ip policy every TMS endpoint sits on: 100 requests per minute per client.</summary>
+    /// <summary>Must match the fixed-by-ip policy in Program.cs.</summary>
     private const int Bucket = 100;
 
     private const string ForwardedForHeader = "X-Forwarded-For";
@@ -66,8 +64,7 @@ public sealed class RetryAfterTests
         {
             using HttpResponseMessage response = await GetAsync(client, path, callerAddress);
 
-            // Not an assertion: a call refused inside the bucket means the next call is not the first one
-            // over the limit, so the test would prove nothing.
+            // Throws, not asserts: a refusal inside the bucket would make the test prove nothing.
             if (response.StatusCode != underTheLimit)
             {
                 throw new InvalidOperationException(

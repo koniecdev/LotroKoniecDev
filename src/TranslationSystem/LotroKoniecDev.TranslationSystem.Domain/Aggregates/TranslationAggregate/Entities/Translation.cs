@@ -12,9 +12,8 @@ using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 
 /// <summary>
-/// One text-fragment row of the translation domain (spec 0001). There is a single mutable row per
-/// <see cref="FragmentKey"/>. It holds the English source, the optional Polish text and the version
-/// pointers, so rows are not duplicated on every patch.
+/// One mutable row per <see cref="FragmentKey"/>, with version pointers, so rows are not duplicated on
+/// every patch (spec 0001).
 /// </summary>
 public sealed class Translation : AggregateRoot<TranslationId>
 {
@@ -33,10 +32,6 @@ public sealed class Translation : AggregateRoot<TranslationId>
 
     public bool IsRemoved => RemovedInVersion is not null;
 
-    /// <summary>
-    /// A row that was just added, in the baseline import or in a diff: English source only, no Polish
-    /// yet. Stamps <see cref="IntroducedInVersion"/>.
-    /// </summary>
     public static Result<Translation> CreateUntranslated(
         FragmentKey fragmentKey,
         TranslationSource source,
@@ -54,23 +49,18 @@ public sealed class Translation : AggregateRoot<TranslationId>
     }
 
     /// <summary>
-    /// The English changed (spec 0001). The stored source is overwritten and
-    /// <see cref="LastSourceChangeInVersion"/> is stamped. If Polish work exists it is parked as
-    /// <see cref="TranslationStatus.NeedsReview"/>, and the English it was written against is kept in
-    /// <see cref="PreviousSourceText"/> so the translator can compare the two.
-    /// A soft removal is cleared here as well: a pair that comes back with a different source lands
-    /// here. If the English changes again while the row is still
-    /// <see cref="TranslationStatus.NeedsReview"/>, <see cref="PreviousSourceText"/> stays as it is,
-    /// so the translator still sees the English their Polish belongs to. It is refreshed only when the
-    /// row is drafted again (<see cref="ProvideTranslation"/>).
+    /// The English changed (spec 0001). Draft or approved Polish is parked as
+    /// <see cref="TranslationStatus.NeedsReview"/>, and the English it was written for is kept in
+    /// <see cref="PreviousSourceText"/> so the translator can compare. It also clears a soft removal: a
+    /// pair that comes back with a different source lands here.
     /// </summary>
     public void ApplySourceChange(TranslationSource newSource, GameVersionId changedInVersion, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(newSource);
         Ensure.NotEmpty(changedInVersion);
 
-        // Keep the old English only when the current Polish was still valid (Draft or Approved).
-        // Coming back from NeedsReview would overwrite it with a source the translator never saw.
+        // From NeedsReview, keep PreviousSourceText: overwriting it would show a source the Polish
+        // was never written for.
         if (Status is TranslationStatus.Draft or TranslationStatus.Approved)
         {
             PreviousSourceText = Source.Text;
@@ -84,8 +74,8 @@ public sealed class Translation : AggregateRoot<TranslationId>
     }
 
     /// <summary>
-    /// Soft removal (spec 0001): the row drops out of translation work and out of the distributed
-    /// file, but it is never deleted. <see cref="Restore"/> undoes it when SSG adds the pair back.
+    /// Soft removal (spec 0001): the row leaves translation work and the distributed file but is never
+    /// deleted, so <see cref="Restore"/> can undo it when SSG adds the pair back.
     /// </summary>
     public void MarkRemoved(GameVersionId removedInVersion, DateTimeOffset now)
     {
@@ -96,9 +86,8 @@ public sealed class Translation : AggregateRoot<TranslationId>
     }
 
     /// <summary>
-    /// The pair came back with the same source (spec 0001), so the soft removal is cleared and the
-    /// previous status stays, <see cref="TranslationStatus.Approved"/> included. The old Polish is
-    /// still valid.
+    /// The pair came back with the same source (spec 0001), so the old Polish is still valid and the
+    /// status stays, <see cref="TranslationStatus.Approved"/> included.
     /// </summary>
     public void Restore(DateTimeOffset now)
     {
@@ -107,15 +96,10 @@ public sealed class Translation : AggregateRoot<TranslationId>
     }
 
     /// <summary>
-    /// Stores the Polish draft for this row and stamps the translator who sent it (spec 0001, #100).
-    /// Any status (Untranslated, Draft, Approved or NeedsReview) becomes
-    /// <see cref="TranslationStatus.Draft"/>: editing an approved row takes it out of the distributed
-    /// set until someone approves it again. <see cref="PreviousSourceText"/> is left alone, so a
-    /// translator reworking an invalidated row still sees the old English until approve clears it.
-    /// The text is stored as it is, with its <c>&lt;--DO_NOT_TOUCH!--&gt;</c> placeholders.
-    /// Text the DAT cannot hold is refused (#598). Like the blank-text guard next to it, this is a
-    /// programmer-error check, not a message for the translator. Turning it into one is the job of
-    /// <c>UpsertTranslation.Validator</c>.
+    /// Any status becomes <see cref="TranslationStatus.Draft"/>, so editing an approved row takes it out
+    /// of the distributed set until it is approved again (spec 0001). <see cref="PreviousSourceText"/>
+    /// stays until approve clears it. The length and blank guards are programmer-error checks;
+    /// <c>UpsertTranslation.Validator</c> gives the translator the message (#598).
     /// </summary>
     public void ProvideTranslation(string translatedText, TranslatorId submittedBy, DateTimeOffset now)
     {
@@ -131,11 +115,8 @@ public sealed class Translation : AggregateRoot<TranslationId>
     }
 
     /// <summary>
-    /// Approves the Polish for distribution (spec 0001, #101). The row must have Polish text and must
-    /// not be removed. The status becomes <see cref="TranslationStatus.Approved"/>, the reviewer is
-    /// stamped and <see cref="PreviousSourceText"/> is cleared: once a
-    /// <see cref="TranslationStatus.NeedsReview"/> row is translated again and approved, the old
-    /// English is no longer needed and the row is distributed again.
+    /// Approves the Polish for distribution (spec 0001). <see cref="PreviousSourceText"/> is cleared:
+    /// once reworked Polish is approved, the old English is no longer needed.
     /// </summary>
     public Result Approve(TranslatorId approvedBy, DateTimeOffset now)
     {

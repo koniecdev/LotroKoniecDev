@@ -5,16 +5,11 @@ using LotroKoniecDev.TranslationSystem.Primitives.Projections;
 namespace LotroKoniecDev.TranslationSystem.Projections;
 
 /// <summary>
-/// The ready-made translation file for one language (spec 0001): the serialized <c>||</c> content and
-/// its content hash, which is the HTTP <c>ETag</c>. It is stored ready to serve, so the distribution
-/// endpoint never builds it per request.
-/// The app maintains it: it is refreshed after every write that changes the distributed set (see
-/// <c>IPrecomputedTranslationFileProjector</c>) and it is never a source of truth. It is a plain
-/// <see cref="Entity{TId}"/> and not an <see cref="AggregateRoot{TId}"/> on purpose, because it holds
-/// no business rule and is only ever upserted by its natural key, one row per language.
-/// The type is immutable. It exists to insert the first row for a language; every later refresh is a
-/// single update through <see cref="IPrecomputedTranslationFileStore"/>, which never loads the
-/// previous multi-MB content (PERF-04). See ADR-0007.
+/// The ready-to-serve translation file for one language (spec 0001, ADR-0007), so the distribution
+/// endpoint never builds it per request. <see cref="ContentHash"/> is the HTTP <c>ETag</c>. It is
+/// derived data, never a source of truth, and holds no business rule, so it is an
+/// <see cref="Entity{TId}"/>, not an aggregate root. This type only inserts a language's first row;
+/// later refreshes go through <see cref="IPrecomputedTranslationFileStore.TryRefreshAsync"/>.
 /// </summary>
 public sealed class PrecomputedTranslationFile : Entity<PrecomputedTranslationFileId>
 {

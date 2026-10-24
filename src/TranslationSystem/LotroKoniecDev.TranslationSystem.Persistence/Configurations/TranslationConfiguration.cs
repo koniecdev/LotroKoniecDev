@@ -17,27 +17,19 @@ internal sealed class TranslationConfiguration : IEntityTypeConfiguration<Transl
 
     public void Configure(EntityTypeBuilder<Translation> builder)
     {
-        // The last line of defence behind UpsertTranslation.Validator and the ProvideTranslation
-        // guard: above this length the patcher cannot write the row into the DAT at all (#598,
-        // ADR-0043).
-        // It is a CHECK and not the varchar(n) that HasMaxLength would emit. Turning text into
-        // varchar rewrites the ~780k-row table and rebuilds its trigram index under ACCESS EXCLUSIVE,
-        // which is exactly the deploy-time outage ADR-0023 exists to avoid.
-        // PostgreSQL's length() counts code points while the DAT counts UTF-16 code units, so this
-        // catches the clear violations and the exact measure stays in C#. SourceText needs no limit:
-        // it comes out of the DAT and is always short enough.
+        // Last line of defence behind UpsertTranslation.Validator and the ProvideTranslation guard
+        // (ADR-0043). A CHECK, not varchar(n): changing the type rewrites the ~780k-row table and its
+        // trigram index under ACCESS EXCLUSIVE, the deploy outage ADR-0023 avoids. length() counts
+        // code points and the DAT counts UTF-16 code units, so the exact check stays in C#.
+        // SourceText comes from the DAT, so it needs no limit.
         builder.ToTable("Translations", table => table.HasCheckConstraint(
             TranslatedTextLengthConstraint,
             $"\"{nameof(Translation.TranslatedText)}\" IS NULL "
             + $"OR length(\"{nameof(Translation.TranslatedText)}\") <= {DatFormatConstants.MaxTranslatedTextLength}"));
 
-        // PostgreSQL's xmin system column gives us a free concurrency token (AUDIT-EF-01). It is a
-        // shadow property, so the domain class carries no version field.
-        // An approve or upsert built on an old copy of a row that an import has since changed now
-        // fails the version check instead of quietly undoing the invalidation, and
-        // DbUpdateConcurrencyExceptionHandler turns that into a 409.
-        // Every row already has an xmin, so the migration adds no column. HasColumnType is needed
-        // here because "xid" is a PostgreSQL system type that no convention maps.
+        // xmin as a free concurrency token (AUDIT-EF-01): an approve or upsert built on a row an
+        // import has since changed fails with a 409 (DbUpdateConcurrencyExceptionHandler) instead of
+        // undoing the invalidation. HasColumnType is needed because no convention maps "xid".
         builder.Property<uint>(ConcurrencyTokenColumn)
             .HasColumnName(ConcurrencyTokenColumn)
             .HasColumnType(ConcurrencyTokenType)
@@ -47,8 +39,7 @@ internal sealed class TranslationConfiguration : IEntityTypeConfiguration<Transl
         builder.Property(translation => translation.Id)
             .ValueGeneratedNever();
 
-        // (FileId, GossipId) is the natural identity and needs a unique index, so the value object is
-        // mapped with OwnsOne. ComplexProperty cannot be indexed in EF Core 10.
+        // OwnsOne, not ComplexProperty, because the natural identity needs a unique index.
         builder.OwnsOne(translation => translation.FragmentKey, ownedBuilder =>
         {
             ownedBuilder.Property(key => key.FileId)
@@ -61,8 +52,7 @@ internal sealed class TranslationConfiguration : IEntityTypeConfiguration<Transl
                 .IsUnique();
         });
 
-        // SourceText carries the trigram search index below, so the value object is mapped with
-        // OwnsOne. ComplexProperty cannot be indexed in EF Core 10.
+        // OwnsOne, not ComplexProperty, because SourceText carries the trigram index below.
         builder.OwnsOne(translation => translation.Source, ownedBuilder =>
         {
             ownedBuilder.Property(source => source.Text)
@@ -74,15 +64,13 @@ internal sealed class TranslationConfiguration : IEntityTypeConfiguration<Transl
             ownedBuilder.Property(source => source.ArgsId)
                 .HasColumnName(nameof(TranslationSource.ArgsId));
 
-            // A trigram GIN index serves the ILIKE '%term%' search over the English source in
-            // ListTranslations.
+            // Serves the ILIKE '%term%' search in ListTranslations.
             ownedBuilder.HasIndex(source => source.Text)
                 .HasMethod("gin")
                 .HasOperators("gin_trgm_ops");
         });
 
-        // A trigram GIN index serves the ILIKE '%term%' search over the Polish text in
-        // ListTranslations.
+        // Serves the ILIKE '%term%' search in ListTranslations.
         builder.HasIndex(translation => translation.TranslatedText)
             .HasMethod("gin")
             .HasOperators("gin_trgm_ops");
@@ -91,16 +79,13 @@ internal sealed class TranslationConfiguration : IEntityTypeConfiguration<Transl
             .HasConversion<string>()
             .HasMaxLength(EnumConsts.MaxLength);
 
-        // A partial index over the rows that are not removed. The status-filtered list, the stats
-        // GROUP BY and the artifact projector's Approved scan all filter on RemovedInVersion IS NULL
-        // first.
+        // The status-filtered list, the stats GROUP BY and the artifact projector's Approved scan all
+        // filter on RemovedInVersion IS NULL first.
         builder.HasIndex(translation => translation.Status)
             .HasFilter($"\"{nameof(Translation.RemovedInVersion)}\" IS NULL");
 
-        // Submitter and approver are local foreign keys to Translators (ADR-0004), not the raw Auth
-        // IdentityId. The write aggregate holds only the id, because DDD does not navigate from one
-        // aggregate root to another. Restrict stops deleting a translator from taking their work with
-        // it.
+        // Local keys to Translators, not the raw Auth IdentityId (ADR-0004). Restrict stops deleting a
+        // translator from taking their work with it.
         builder.Property(translation => translation.SubmittedById)
             .HasColumnName(nameof(Translation.SubmittedById));
 
@@ -117,13 +102,10 @@ internal sealed class TranslationConfiguration : IEntityTypeConfiguration<Transl
             .HasForeignKey(translation => translation.ApprovedById)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // The version pointers are id-only references to GameVersions (AUDIT-EF-05), like the
-        // Translator keys above. Convention gives each key the index the DeleteGameVersion guard
-        // scans, since AnyReferencesGameVersionAsync ORs all three columns.
-        // Restrict is the database backstop for the gap between that check and the delete: an import
-        // that stamps the version in between makes the delete fail instead of leaving rows pointing
-        // at a version that is gone. On PostgreSQL 18 that failure has SQLSTATE 23001 (restrict_violation),
-        // not the 23503 of a NO ACTION key, so code that catches it must check 23001 (#1002).
+        // Id-only references (AUDIT-EF-05). Convention indexes each key, which the DeleteGameVersion
+        // guard needs because AnyReferencesGameVersionAsync ORs all three. Restrict covers the gap
+        // between that check and the delete. On PostgreSQL 18 the failure is SQLSTATE 23001
+        // (restrict_violation), not 23503, so code that catches it must check 23001 (#1002).
         builder.Property(translation => translation.IntroducedInVersion)
             .HasColumnName(nameof(Translation.IntroducedInVersion));
 

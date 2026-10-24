@@ -19,12 +19,8 @@ using Microsoft.Extensions.Hosting;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.TranslationFiles;
 
 /// <summary>
-/// The catch-up ADR-0047 needs at deploy time. Otherwise the artifact is only rebuilt on the next
-/// approve or import, so an updated CLI would download a six-column file and patch nothing until
-/// someone happened to write.
-/// It runs against a real PostgreSQL, because the whole design depends on reading only the first part of
-/// the multi-MB column, and only a real database can say whether that query translates to SQL. The
-/// service deliberately turns a failure there into a log line.
+/// The deploy-time catch-up of ADR-0047, against real PostgreSQL: only a real database proves that the
+/// prefix query translates to SQL, and the service would hide that failure in a log line.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class TranslationFileFormatUpgradeServiceTests : IAsyncLifetime
@@ -67,8 +63,7 @@ public sealed class TranslationFileFormatUpgradeServiceTests : IAsyncLifetime
     [Fact]
     public async Task UpgradeAsync_WithAnArtifactPredatingTheColumn_ShouldRegenerateItWithTheDigest()
     {
-        // Arrange: exactly the state a deploy lands in: rows already Approved, and a stored
-        // artifact written by the previous release in the six-column format.
+        // Arrange: the state a deploy lands in: approved rows and a six-column artifact.
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa", english: "Alpha source");
         await StoreArtifactAsync($"{FileId}||1||Alfa||NULL||NULL||1\r\n");
 
@@ -83,8 +78,8 @@ public sealed class TranslationFileFormatUpgradeServiceTests : IAsyncLifetime
     [Fact]
     public async Task UpgradeAsync_WithAnArtifactThatAlreadyCarriesTheColumn_ShouldLeaveItUntouched()
     {
-        // Arrange: a current artifact whose Content deliberately does NOT match the Approved set.
-        // If the upgrade fired it would rewrite the row, so an unchanged body proves it did not.
+        // Arrange: a current artifact that does not match the approved set, so an unchanged body proves
+        // the upgrade did not fire.
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa", english: "Alpha source");
         string current = $"{FileId}||1||Cos calkiem innego||NULL||NULL||1||a37cc1683216cd32\r\n";
         await StoreArtifactAsync(current);
@@ -100,8 +95,7 @@ public sealed class TranslationFileFormatUpgradeServiceTests : IAsyncLifetime
     [Fact]
     public async Task UpgradeAsync_WithNoArtifactStoredYet_ShouldDoNothing()
     {
-        // Arrange: a fresh deployment. There is nothing to upgrade, and building one here would
-        // race the ordinary rebuild path for no benefit.
+        // Arrange: a fresh deployment; building here would race the ordinary rebuild.
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa", english: "Alpha source");
 
         // Act

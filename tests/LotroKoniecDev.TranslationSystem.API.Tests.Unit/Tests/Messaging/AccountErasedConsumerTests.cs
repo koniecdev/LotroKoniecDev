@@ -20,17 +20,11 @@ using LotroKoniecDev.TranslationSystem.API.Messaging;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Messaging;
 
 /// <summary>
-/// Pins what the consumer promises only in prose: no pause outlives the broker's consumer timeout, the
-/// pauses only grow, a payload it can never handle is refused instead of erasing a profile at random,
-/// and a channel that fails under it never leaves a delivery stuck. It also pins that the consumer stays
-/// attached (ADR-0065 §4), as the e-mail consumer's tests do (#1088): a failed attach, a cancellation the
-/// client reports on its own included, a channel the broker closed or a subscription it cancelled makes
-/// it attach again without leaving the old connection behind, one closed look is left to automatic
-/// recovery, and only the host's stop ends it.
-/// On a fake clock it pins which pause follows which failure (#1223): the pause after each database
-/// outage in a row, the last pause for every outage after it, the start over after a success, the
-/// Error level once the pauses stop growing, the first pause after any other error, a quiet stop during
-/// a pause, the pause between connection attempts and the watch interval.
+/// Pins how the consumer settles each delivery, that no pause outlives the broker's consumer timeout,
+/// and that it stays attached (ADR-0065 §4): after a failed attach, a closed channel or a cancelled
+/// subscription it attaches again without leaving the old connection behind, and only the host's stop
+/// ends it. The pauses run on a fake clock, so each test can check exactly which pause follows which
+/// failure (#1223).
 /// </summary>
 public sealed class AccountErasedConsumerTests
 {
@@ -40,9 +34,6 @@ public sealed class AccountErasedConsumerTests
     private static readonly TimeSpan WaitLimit = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan OneMillisecond = TimeSpan.FromMilliseconds(1);
 
-    /// <summary>
-    /// The pause after each database outage in a row, up to the last one and then the last one again.
-    /// </summary>
     private static readonly TimeSpan[] PausesUpToTheLastAndOnceMore =
     [
         TimeSpan.FromSeconds(30),
@@ -58,9 +49,8 @@ public sealed class AccountErasedConsumerTests
     [Fact]
     public void RetryBackoffs_EveryPause_StaysUnderTheBrokerConsumerTimeout()
     {
-        // RabbitMQ closes the channel when an ack takes longer than consumer_timeout, 30 minutes by
-        // default, and compose does not change it. A lost channel counts against the delivery limit,
-        // which a database outage must never reach.
+        // RabbitMQ closes the channel when an ack takes longer than consumer_timeout (30 minutes by
+        // default; compose keeps it). A lost channel counts against the delivery limit.
         TimeSpan consumerTimeout = TimeSpan.FromMinutes(30);
 
         AccountErasedConsumer.RetryBackoffs.ShouldAllBe(pause => pause < consumerTimeout);
@@ -126,8 +116,7 @@ public sealed class AccountErasedConsumerTests
     [Fact]
     public async Task OnDeliveredAsync_WhenTheAckAndTheRejectBothFail_ShouldNotThrow()
     {
-        // Arrange: a dead channel. An exception leaving the handler would be swallowed by the client
-        // library; the broker puts the unacknowledged delivery back when the channel closes.
+        // Arrange: a dead channel. The broker puts the delivery back when the channel closes.
         IChannel channel = Substitute.For<IChannel>();
         channel.BasicAckAsync(DeliveryTag, false, Arg.Any<CancellationToken>())
             .Returns(ValueTask.FromException(new InvalidOperationException("channel closed")));
@@ -247,10 +236,6 @@ public sealed class AccountErasedConsumerTests
         await channel.Received(1).BasicRejectAsync(DeliveryTag, true, Arg.Any<CancellationToken>());
     }
 
-    /// <summary>
-    /// A stop in the middle of a pause settles nothing: the broker puts the unacknowledged delivery back
-    /// when the channel closes, and the next start handles it.
-    /// </summary>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -280,10 +265,6 @@ public sealed class AccountErasedConsumerTests
         channel.ReceivedCalls().ShouldBeEmpty();
     }
 
-    /// <summary>
-    /// A stop that comes during the pause is not a failure, so it must not add an unexpected error to
-    /// the log. The line written before the pause stays.
-    /// </summary>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -316,8 +297,7 @@ public sealed class AccountErasedConsumerTests
     }
 
     /// <summary>
-    /// The sixth outage in a row proves the ceiling: once the pauses reach the last one, an outage of any
-    /// length is retried at that pace and no faster.
+    /// The sixth outage in a row proves the ceiling: after the last pause the pace stays the same.
     /// </summary>
     [Fact]
     public async Task OnDeliveredAsync_WhileTheDatabaseStaysUnavailable_ShouldWaitLongerBeforeEachNackUpToTheLastPause()
@@ -336,10 +316,6 @@ public sealed class AccountErasedConsumerTests
         wakeUpsJustBeforeEachPauseEnds.ShouldBe([0, 1, 2, 3, 4, 5]);
     }
 
-    /// <summary>
-    /// Two outages in a row, then an erasure that works, then an outage again: the third pause is the
-    /// first one again, not the third one.
-    /// </summary>
     [Fact]
     public async Task OnDeliveredAsync_AfterAnErasureSucceeds_ShouldStartThePausesOverFromTheFirst()
     {
@@ -361,8 +337,7 @@ public sealed class AccountErasedConsumerTests
     }
 
     /// <summary>
-    /// The level tells an operator when to look: a Warning while the pauses still grow, and an Error
-    /// from the last pause on, because by then the outage is long enough for a person.
+    /// The level tells an operator when to look: by the last pause the outage is long enough for a person.
     /// </summary>
     [Fact]
     public async Task OnDeliveredAsync_WhileTheDatabaseStaysUnavailable_ShouldLogAnErrorOnlyFromTheLastPauseOn()
@@ -385,8 +360,7 @@ public sealed class AccountErasedConsumerTests
     }
 
     /// <summary>
-    /// Two outages in a row, then a bug. A bug tells nothing about the database, so its pause stays at
-    /// the first one whatever came before.
+    /// A bug tells nothing about the database, so earlier outages do not lengthen its pause.
     /// </summary>
     [Fact]
     public async Task OnDeliveredAsync_AfterAnErrorThatIsNotAnOutage_ShouldRequeueOnlyOnceTheFirstPauseRanOut()
@@ -551,8 +525,7 @@ public sealed class AccountErasedConsumerTests
     [Fact]
     public async Task ExecuteAsync_WhenTheAttachFailsMoreTimesThanThereArePauses_ShouldKeepRetrying()
     {
-        // Arrange: four failed connects against two pauses. The last pause repeats for as long as the
-        // broker is down, so the consumer must never run past the end of the list.
+        // Arrange: four failed connects against two pauses, so the consumer must not run past the list.
         BrokerStub broker = new(true);
         Exception failure = new BrokerUnreachableException(new IOException("Connection refused"));
         IConnectionFactory connectionFactory = Substitute.For<IConnectionFactory>();
@@ -581,10 +554,6 @@ public sealed class AccountErasedConsumerTests
         attached.ShouldBeTrue();
     }
 
-    /// <summary>
-    /// The pause between connection attempts grows, and the last pause repeats for as long as the broker
-    /// stays down.
-    /// </summary>
     [Fact]
     public async Task ExecuteAsync_WhileTheBrokerStaysDown_ShouldWaitLongerBeforeEachAttemptUpToTheLastPause()
     {
@@ -620,8 +589,7 @@ public sealed class AccountErasedConsumerTests
     }
 
     /// <summary>
-    /// The consumer looks every 30 seconds. One closed look is left to automatic recovery, and the second
-    /// closed look in a row makes it attach again.
+    /// One closed look is left to automatic recovery; the second in a row attaches again.
     /// </summary>
     [Fact]
     public async Task ExecuteAsync_WhenTheChannelStaysClosed_ShouldAttachAgainOnlyAfterTwoWatchIntervals()
@@ -635,8 +603,8 @@ public sealed class AccountErasedConsumerTests
             .Returns(Task.FromResult(closedChannel.Connection), Task.FromResult(openChannel.Connection));
         using AccountErasedConsumer consumer = CreateConsumerOnTheFakeClock(connectionFactory, AccountErasedConsumer.WatchInterval);
 
-        // Act: the timer for the second look starts only after the first look, and after any attach it
-        // made, so the connection count read there is final.
+        // Act: the second look's timer starts only after the first look and any attach it made, so
+        // the connection count read there is final.
         await consumer.StartAsync(CancellationToken.None);
         await _clock.WaitForNextTimerAsync();
         _clock.Advance(watchInterval - OneMillisecond);
@@ -658,8 +626,8 @@ public sealed class AccountErasedConsumerTests
     [Fact]
     public async Task ExecuteAsync_WhenAnAttachFailsAfterTheConnect_ShouldDisposeThatConnectionBeforeTheNextAttempt()
     {
-        // Arrange: the connection opens, but the channel does not. Left alive, automatic recovery would
-        // keep that half-attached connection open for good.
+        // Arrange: the connection opens, the channel does not. Left alive, automatic recovery would keep
+        // it open for good.
         BrokerStub refusedChannel = BrokerStub.RefusingTheChannel();
         BrokerStub openChannel = new(true);
         bool disposedBeforeTheNextAttempt = false;
@@ -788,8 +756,8 @@ public sealed class AccountErasedConsumerTests
     [InlineData(new[] { false, true, false, true })]
     public async Task ExecuteAsync_WhenTheChannelIsNeverClosedTwoLooksInARow_ShouldNotConnectAgain(bool[] channelOpenOnLooks)
     {
-        // Arrange: a channel that is closed on single looks at most, the way automatic recovery brings
-        // it back after a short loss. The last answer holds for every later look, every 10 ms.
+        // Arrange: closed on single looks at most, as after a short loss automatic recovery fixes. The
+        // last answer holds for every later look, every 10 ms.
         BrokerStub broker = new(channelOpenOnLooks);
         IConnectionFactory connectionFactory = Substitute.For<IConnectionFactory>();
         connectionFactory.CreateConnectionAsync(Arg.Any<CancellationToken>())
@@ -809,8 +777,7 @@ public sealed class AccountErasedConsumerTests
     [Fact]
     public async Task ExecuteAsync_WhenTheChannelIsClosedExactlyTwoLooksInARow_ShouldConnectAgainOnce()
     {
-        // Arrange: the second closed look in a row is the one that attaches again, not the first and not
-        // a third. The channel is open on every look after the second, every 10 ms.
+        // Arrange: open again on every look after the second, every 10 ms.
         BrokerStub broker = new(false, false, true);
         IConnectionFactory connectionFactory = Substitute.For<IConnectionFactory>();
         connectionFactory.CreateConnectionAsync(Arg.Any<CancellationToken>())
@@ -855,8 +822,8 @@ public sealed class AccountErasedConsumerTests
             watchInterval);
 
     /// <summary>
-    /// A consumer built the way the container builds it, on the fake clock, so its pauses after a failed
-    /// erasure are the ones production uses. No delivery path touches the broker connection.
+    /// Built the way the container builds it, so the pauses are the ones production uses. No delivery
+    /// path touches the broker connection.
     /// </summary>
     private AccountErasedConsumer CreateConsumerOnTheFakeClock(IServiceProvider services, ILoggerFactory loggerFactory) =>
         new(
@@ -875,9 +842,6 @@ public sealed class AccountErasedConsumerTests
             .AddScoped<ICommandHandler<EraseTranslatorProfile.Command, Result>>(_ => handler)
             .BuildServiceProvider();
 
-    /// <summary>
-    /// A consumer whose pauses between connection attempts are the real ones, on the fake clock.
-    /// </summary>
     private AccountErasedConsumer CreateConsumerOnTheFakeClock(IConnectionFactory connectionFactory, TimeSpan watchInterval) =>
         new(
             connectionFactory,
@@ -889,9 +853,8 @@ public sealed class AccountErasedConsumerTests
             watchInterval);
 
     /// <summary>
-    /// Hands the consumer one delivery per pause, lets each pause run out, and returns how many pauses
-    /// had ended a millisecond before each one was due. A pause that is too long never lets its delivery
-    /// finish, and the wait for it then fails the test.
+    /// Returns how many pauses had ended a millisecond before each was due. A pause that is too long
+    /// never lets its delivery finish, so the wait fails the test.
     /// </summary>
     private async Task<IReadOnlyList<int>> DeliverThroughPausesAsync(
         AccountErasedConsumer consumer,
@@ -914,9 +877,8 @@ public sealed class AccountErasedConsumerTests
     }
 
     /// <summary>
-    /// Lets each pause or watch interval the consumer starts run out in turn, and returns how many had
-    /// ended a millisecond before each one was due. One that is too long never starts the next one, and
-    /// <see cref="TimerWatchingTimeProvider.WaitForNextTimerAsync"/> then fails the test.
+    /// Returns how many had ended a millisecond before each was due. One that is too long never starts
+    /// the next, so <see cref="TimerWatchingTimeProvider.WaitForNextTimerAsync"/> fails the test.
     /// </summary>
     private async Task<IReadOnlyList<int>> WaitThroughAsync(IEnumerable<TimeSpan> pauses)
     {
@@ -934,9 +896,8 @@ public sealed class AccountErasedConsumerTests
     }
 
     /// <summary>
-    /// Stops the consumer, but never waits longer than <see cref="WaitLimit"/>, so a consumer that
-    /// ignores its stop token never hangs the run. The stop itself returns quietly when the limit runs
-    /// out, so the test that is about stopping checks the outcome on its own.
+    /// Never waits longer than <see cref="WaitLimit"/>, so a consumer that ignores its stop token never
+    /// hangs the run. It returns quietly at the limit; a test about stopping checks the outcome itself.
     /// </summary>
     private static async Task StopWithinLimitAsync(AccountErasedConsumer consumer)
     {
@@ -963,9 +924,6 @@ public sealed class AccountErasedConsumerTests
             body: body);
     }
 
-    /// <summary>
-    /// Answers every erasure the way the test says: success by default, or a refusal or an exception.
-    /// </summary>
     private sealed class StubEraseHandler : ICommandHandler<EraseTranslatorProfile.Command, Result>
     {
         private readonly Func<Result> _answer;
@@ -980,10 +938,8 @@ public sealed class AccountErasedConsumerTests
     }
 
     /// <summary>
-    /// One connection with one channel, standing in for the broker client. The channel confirms a
-    /// subscription the way the broker does, so the consumer counts as running, and the test can wait
-    /// for that moment, cancel the subscription as the broker does, count the consumer's looks and see
-    /// whether the connection was disposed.
+    /// One connection with one channel. The channel confirms a subscription the way the broker does, so
+    /// the consumer counts as running and the test can cancel it, count the looks and see disposal.
     /// </summary>
     private sealed class BrokerStub
     {
@@ -1022,9 +978,6 @@ public sealed class AccountErasedConsumerTests
             return Volatile.Read(ref _looks) >= looks;
         }
 
-        /// <summary>
-        /// A connection that opens, but whose channel the broker refuses.
-        /// </summary>
         public static BrokerStub RefusingTheChannel()
         {
             BrokerStub broker = new(true);
@@ -1034,8 +987,7 @@ public sealed class AccountErasedConsumerTests
         }
 
         /// <summary>
-        /// Takes what the channel answers when the consumer asks whether it is open, one answer per
-        /// look. The last answer holds for every later look.
+        /// One "is open" answer per look; the last answer holds for every later look.
         /// </summary>
         public BrokerStub(params bool[] channelOpenOnLooks)
         {

@@ -47,7 +47,7 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
         GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create("48.0").Value, Now).Value;
         dbContext.GameVersions.Add(gameVersion);
 
-        // Seeded draft rows reference a local TranslatorId submitter (ADR-0004); the FK target must exist.
+        // The submitter's foreign key target must exist (ADR-0004).
         Translator seeder = Translator.Create(
             IdentityId.Create(), DisplayName.Create("Seed Author").Value, email: null, Now).Value;
         dbContext.Translators.Add(seeder);
@@ -62,8 +62,7 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Approve_OnDraftRow_ShouldReturn204StampApproverAndPublish()
     {
-        // Arrange: a draft row is excluded from the distributed file; approving must publish it
-        // and regenerate the artifact (spec 0001).
+        // Arrange
         Guid id = await SeedAsync(gossipId: 1, SeedStatus.Draft, polish: "Witaj");
         using HttpClient client = AdminClient(Guid.NewGuid());
 
@@ -73,14 +72,13 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
         TranslationDetailResponse? body = await (await client.GetAsync($"/api/v1/translations/{id}"))
             .Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
 
-        // The artifact is rebuilt in the background, debounced (PERF-04): the approve responded
-        // already; poll the download until the rebuild converges on the published row.
+        // The rebuild runs in the background (PERF-04), so poll.
         (_, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
             _factory.CreateClient(),
             FileRoute,
             (download, content) => download.IsSuccessStatusCode && content.Contains($"{FileId}||1||Witaj||NULL||NULL||1"));
 
-        // Assert: the approver is the lazily provisioned Translator, carrying the JWT display name.
+        // Assert: the approver is the provisioned Translator with the token's display name.
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         body.ShouldNotBeNull();
         body.Status.ShouldBe(TranslationStatus.Approved);
@@ -92,8 +90,7 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Approve_OnNeedsReviewRow_ShouldClearInvalidationAndReappearInDownload()
     {
-        // Arrange: an invalidated row keeps its old Polish and the superseded English; approving it
-        // republishes the Polish and clears the invalidation (spec 0001).
+        // Arrange
         Guid id = await SeedAsync(gossipId: 2, SeedStatus.NeedsReview, polish: "Stary polski");
         using HttpClient client = AdminClient(Guid.NewGuid());
 
@@ -117,7 +114,7 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Approve_WithoutTranslation_ShouldReturn422()
     {
-        // Arrange: an untranslated row has no Polish to publish.
+        // Arrange
         Guid id = await SeedAsync(gossipId: 3, SeedStatus.Untranslated, polish: null);
         using HttpClient client = AdminClient(Guid.NewGuid());
 
@@ -131,7 +128,7 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Approve_OnRemovedRow_ShouldReturn422()
     {
-        // Arrange: a soft-removed row is excluded from the distributed file.
+        // Arrange
         Guid id = await SeedAsync(gossipId: 4, SeedStatus.DraftThenRemoved, polish: "Gamma");
         using HttpClient client = AdminClient(Guid.NewGuid());
 
@@ -158,7 +155,7 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Approve_AsTranslator_ShouldReturn403()
     {
-        // Arrange: approval is an admin (reviewer) action; the translator role must not approve.
+        // Arrange
         Guid id = await SeedAsync(gossipId: 1, SeedStatus.Draft, polish: "Witaj");
         using HttpClient client = TranslatorClient(Guid.NewGuid());
 

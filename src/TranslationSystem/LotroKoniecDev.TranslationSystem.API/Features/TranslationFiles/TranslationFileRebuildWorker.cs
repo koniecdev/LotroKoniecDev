@@ -3,18 +3,11 @@ using Microsoft.Extensions.Options;
 namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 
 /// <summary>
-/// Runs the artifact rebuilds the write handlers schedule (PERF-04, ADR-0021). After the first signal
-/// it waits one <see cref="TranslationFileRebuildSettings.DebounceWindow"/>, takes everything that
-/// arrived in the meantime, and runs one rebuild per language.
-/// The wait is a fixed window and not one that restarts on every signal, so a steady stream of writes
-/// can never keep the rebuild from happening.
-/// It calls the projector with the host's own cancellation token and never a request token, so a
-/// client that disconnects after a commit can no longer cancel the rebuild.
-/// A failed rebuild is logged and scheduled again, so the artifact catches up, one window at a time.
-/// Two things are accepted for this artifact, because it can always be rebuilt: signals still waiting
-/// when the process shuts down are lost, and the next write schedules a new one; and a second instance
-/// would not see this one's signals. The whole pipeline assumes a single instance by design, like the
-/// projector's gate.
+/// After the first signal it waits one <see cref="TranslationFileRebuildSettings.DebounceWindow"/> and
+/// runs one rebuild per language (PERF-04, ADR-0021). The window is fixed, not restarted per signal, so
+/// a steady stream of writes can never block the rebuild. It uses the host's token, so a disconnecting
+/// client cannot cancel it. The artifact can always be rebuilt, so signals lost at shutdown, and a
+/// single-instance design, are accepted.
 /// </summary>
 internal sealed partial class TranslationFileRebuildWorker : BackgroundService
 {
@@ -70,9 +63,8 @@ internal sealed partial class TranslationFileRebuildWorker : BackgroundService
         catch (Exception exception)
             when (exception is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
         {
-            // Ignored on purpose, because an exception leaving ExecuteAsync stops the whole host.
-            // Scheduling it again lets the artifact catch up. A shutdown cancellation still passes
-            // through.
+            // An exception leaving ExecuteAsync stops the host. Scheduling again lets the artifact catch
+            // up.
             LogRebuildFailed(_logger, exception, language);
             _scheduler.Schedule(language);
         }

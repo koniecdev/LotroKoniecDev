@@ -12,7 +12,6 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Features.GameVer
 
 public sealed class RegisterGameVersionHandlerTests
 {
-    // ITranslationRepository-style genuine boundaries; both are public interfaces NSubstitute proxies.
     private readonly IGameVersionRepository _gameVersionRepository = Substitute.For<IGameVersionRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
 
@@ -80,17 +79,16 @@ public sealed class RegisterGameVersionHandlerTests
     [Fact]
     public async Task Handle_WhenNew_ShouldCreateUnprocessedAndPersist()
     {
-        // Arrange: repository reports the version is new (default substitute returns false).
+        // Arrange: the default substitute reports the version as new.
 
-        // Act: input is trimmed and normalized to canonical ("48.0" → "48").
+        // Act
         Result<GameVersionResponse> result = await CreateHandler().Handle(new RegisterGameVersion.Command(" 48.0 "), CancellationToken.None);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
         result.Value.Version.ShouldBe("48");
         result.Value.Status.ShouldBe(GameVersionStatus.Unprocessed);
-        // The response is built from the in-memory aggregate, so it does not show whether anything was
-        // saved. The SaveChanges call is the proof, as in the other command tests.
+        // The response comes from the in-memory aggregate, so only the save call proves persistence.
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 }

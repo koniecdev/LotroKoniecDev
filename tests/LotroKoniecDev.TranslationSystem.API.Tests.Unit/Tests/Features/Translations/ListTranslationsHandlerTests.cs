@@ -9,9 +9,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Features.Transla
 
 public sealed class ListTranslationsHandlerTests
 {
-    // The read DbContext is the only boundary; on the branches tested here it is never queried,
-    // so a bare substitute suffices. Filter/search/sort behavior is data-dependent and lives in
-    // the integration suite (real PostgreSQL).
+    // Never queried on these branches. Filter, search and sort need real PostgreSQL, so the integration
+    // suite covers them.
     private readonly IApplicationReadDbContext _readDbContext = Substitute.For<IApplicationReadDbContext>();
 
     [Theory]

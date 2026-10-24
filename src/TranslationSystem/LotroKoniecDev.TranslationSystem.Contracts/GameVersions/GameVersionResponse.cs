@@ -5,9 +5,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 namespace LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 
 /// <summary>
-/// One LOTRO game version, detected or registered by hand: the dotted version string, when it was
-/// detected, and its status. Superseded means a newer version was processed first. This is what the
-/// admin update dashboard shows (spec 0001).
+/// <see cref="GameVersionStatus.Superseded"/> means a newer version was processed first (spec 0001).
 /// </summary>
 public sealed record GameVersionResponse(
     GameVersionId Id,

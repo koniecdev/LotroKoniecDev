@@ -200,8 +200,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithMultiKeySort_AppliesStatusDescThenFileIdAsc()
     {
-        // Arrange: the AC's example: Status is stored as its enum name, so "desc" orders
-        // "NeedsReview" before "Draft"; FileId breaks the tie between the two Draft rows.
+        // Arrange: Status is stored as its name, so "desc" puts NeedsReview before Draft.
         await SeedAsync(
             Row(1, "needs", TranslationStatus.NeedsReview, fileId: 300),
             Row(1, "draft-hi", TranslationStatus.Draft, fileId: 200),
@@ -222,8 +221,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithUnknownSortKey_FallsBackToDefaultOrdering()
     {
-        // Arrange: seeded out of FileId order; an unrecognized key degrades to the default
-        // (FileId ascending), the primary leg of today's default ordering.
+        // Arrange: seeded out of FileId order.
         await SeedAsync(Row(1, "b", fileId: 200), Row(1, "a", fileId: 100), Row(1, "c", fileId: 300));
 
         // Act
@@ -236,13 +234,11 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithTiedSortKey_WalksEveryPageWithoutDuplicatesOrGaps()
     {
-        // Arrange: five rows sharing one Status (Untranslated) and one UpdatedAt (a baseline import
-        // stamps every row the same timestamp), seeded out of key order. Sorting only by the tied
-        // Status leaves the tie order to PostgreSQL unless a unique final key pins it, so paging can
-        // repeat a row on one page and drop it from another.
+        // Arrange: five rows with one Status and one UpdatedAt, as after a baseline import. Without a
+        // unique final key, PostgreSQL may repeat or drop a row across pages.
         await SeedAsync(Row(5, "e"), Row(3, "c"), Row(1, "a"), Row(4, "d"), Row(2, "b"));
 
-        // Act: walk every page of the tied sort.
+        // Act
         List<long> walked = [];
         PaginationResponse<TranslationListItemResponse> pageResult;
         int page = 0;
@@ -253,15 +249,14 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         }
         while (pageResult.HasNextPage);
 
-        // Assert: the union of pages is the full set with no repeats, in the unique tiebreaker order.
+        // Assert
         walked.ShouldBe([1L, 2L, 3L, 4L, 5L]);
     }
 
     [Fact]
     public async Task List_WithTiedSortKey_EndsWithTheUniqueTiebreaker()
     {
-        // Arrange: every row shares one UpdatedAt (a baseline import's single timestamp), seeded out
-        // of (FileId, GossipId) order. Sorting by the tied submittedAt alone leaves no defined order.
+        // Arrange: one UpdatedAt for every row, seeded out of key order.
         await SeedAsync(
             Row(1, "x", fileId: 200),
             Row(2, "y", fileId: 100),
@@ -270,7 +265,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         // Act
         PaginationResponse<TranslationListItemResponse> resultPage = await ListAsync("?sort=submittedAt");
 
-        // Assert: the tie resolves to the unique (FileId, GossipId) key, ascending.
+        // Assert
         resultPage.Items.Select(item => (item.FileId, item.GossipId))
             .ShouldBe([(100, 1L), (100, 2L), (200, 1L)]);
     }
@@ -288,7 +283,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithoutToken_ShouldServeReadOnlyRows()
     {
-        // Arrange: the list is publicly browsable (#309): anonymous visitors read the catalog.
+        // Arrange: the list is public (#309).
         await SeedAsync(Row(1, "Frodo Baggins", TranslationStatus.Draft));
 
         // Act
@@ -306,9 +301,8 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithExpiredToken_ShouldServeTheAnonymousReadOnlyView()
     {
-        // Arrange: because the endpoint allows anonymous callers, a rejected token does not give a 401
-        // here. The caller is simply treated as anonymous: they can read the rows but get no action
-        // links. The dead-session check fires on the pages that still need a login.
+        // Arrange: on an anonymous endpoint a rejected token is no 401, just an anonymous caller. The
+        // dead-session check fires on pages that need a login.
         await SeedAsync(Row(1, "Frodo Baggins", TranslationStatus.Draft));
         HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
@@ -328,7 +322,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithoutToken_ShouldSupportSearchAndStatusFilter()
     {
-        // Arrange: the read-only public view keeps the full browsing surface, not a crippled subset.
+        // Arrange: the public view keeps search and filters.
         await SeedAsync(
             Row(1, "Frodo Baggins", TranslationStatus.Draft),
             Row(2, "Samwise Gamgee"));

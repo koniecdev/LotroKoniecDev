@@ -4,9 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Shared;
 
 /// <summary>
-/// Builds a fresh in-memory (L1-only) <see cref="HybridCache"/> per test: the default real
-/// implementation is a purely in-process memory store, so unit tests stay pure (no I/O) while
-/// exercising the genuine cache semantics (entry options, stampede protection, eviction).
+/// The real <see cref="HybridCache"/> with no distributed store is in-process only, so tests stay pure
+/// while exercising the genuine cache behaviour.
 /// </summary>
 internal static class TestHybridCache
 {

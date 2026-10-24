@@ -4,10 +4,9 @@ using LotroKoniecDev.TranslationSystem.API.Parsing;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
 
 /// <summary>
-/// The export half of the inter-context drift guard (mirrors <c>ParserContractParityTests</c> on
-/// the import side): the TMS serializer's output must parse byte-identically through the patcher's
-/// own <see cref="TranslationFileParser"/>. Feeds serialized lines back into the patcher and asserts
-/// the contract fields round-trip.
+/// The export half of the drift guard (<c>ParserContractParityTests</c> covers import): the TMS
+/// serializer's output must parse through the patcher's <see cref="TranslationFileParser"/> with every
+/// contract field intact.
 /// </summary>
 public sealed class TranslationFileSerializerParityTests
 {
@@ -29,8 +28,7 @@ public sealed class TranslationFileSerializerParityTests
         string[] lines = serialized.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
         TranslationFileParser patcher = new();
 
-        // Assert: every serialized line parses, and the contract fields match (no escapes here, so
-        // the patcher's unescape is a no-op and content compares directly).
+        // Assert: no escapes here, so content compares directly.
         lines.Length.ShouldBe(rows.Length);
         for (int i = 0; i < rows.Length; i++)
         {
@@ -39,8 +37,7 @@ public sealed class TranslationFileSerializerParityTests
             ((long)parsed.GossipId).ShouldBe(rows[i].GossipId);
             parsed.Content.ShouldBe(rows[i].Content);
             parsed.IsApproved.ShouldBeTrue();
-            // The seventh column is what makes the file patchable at all (ADR-0047), so it has to
-            // survive the writer and the reader unchanged, including on a row whose content holds "||".
+            // Without it the file patches nothing (ADR-0047), even on a row whose content holds "||".
             parsed.SourceDigest.ShouldBe(rows[i].SourceDigest);
         }
     }
@@ -55,12 +52,11 @@ public sealed class TranslationFileSerializerParityTests
     [InlineData("Zażółć gęślą jaźń")]
     public void SerializedRow_CarryingAnEscapableCharacter_ShouldReachThePatcherIntact(string content)
     {
-        // Arrange: the end-to-end statement of ADR-0039: the TMS stores raw text, escapes it on the
-        // way out, and the patcher unfolds it on the way into the DAT. This is #596's acceptance
-        // criterion expressed across both contexts.
+        // Arrange: ADR-0039 end to end: raw in the TMS, escaped in the file, raw again in the patcher
+        // (#596).
         string serialized = new TranslationFileSerializer().Serialize([new ArtifactRow(1, 2, content, null, null, Digest)]);
 
-        // Act: the escape guarantees exactly one line, so trimming the terminator is safe.
+        // Act
         string[] lines = serialized.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
         LotroKoniecDev.Domain.Models.Translation parsed =
             new TranslationFileParser().ParseLine(lines.ShouldHaveSingleItem()).Value;

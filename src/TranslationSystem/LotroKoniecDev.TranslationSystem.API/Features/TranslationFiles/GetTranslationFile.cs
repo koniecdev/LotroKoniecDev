@@ -11,21 +11,12 @@ using Microsoft.Net.Http.Headers;
 namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 
 /// <summary>
-/// Serves the ready-made translation file for a language (spec 0001). It sends the stored artifact
-/// with its content hash as the <c>ETag</c> and answers 304 to a matching <c>If-None-Match</c>. It is
-/// open to anyone, because the CLI and the players download it.
-/// It never builds the file per request. After each write that matters,
-/// <see cref="IPrecomputedTranslationFileProjector"/> rebuilds it in the background with a short delay
-/// (PERF-04, ADR-0021), so a download can lag a commit by a moment.
-/// The 304 decision needs only the hash (PERF-01, #286). PostgreSQL stores the multi-MB
-/// <c>Content</c> column out of line, so a revalidation that never reads it costs the same whatever
-/// the artifact size. When the client's ETag no longer matches, the body is streamed from a copy on
-/// the API's own disk, written once per content hash (PERF-09, #715, ADR-0064). So a crowd of stale
-/// clients does not load the content from the database once each.
-/// The ETag is also the integrity hash (AUDIT-SEC-01, #391): the patcher computes the hex SHA-256 of
-/// the downloaded UTF-8 body and refuses the file when it differs. So the hash algorithm and the
-/// strong-ETag format are a contract between the two contexts. Change them only together with the
-/// patcher.
+/// Serves the pre-built translation file (spec 0001), open to anyone because the CLI downloads it. The
+/// background rebuild runs after a short delay (PERF-04, ADR-0021), so a download can lag a commit.
+/// The 304 decision reads only the hash, never the out-of-line <c>Content</c> column (PERF-01), and a
+/// full body streams from the disk copy (PERF-09, ADR-0064). The ETag is also the integrity hash the
+/// patcher checks (AUDIT-SEC-01): change the hash algorithm or the strong-ETag format only together
+/// with the patcher.
 /// </summary>
 internal sealed class GetTranslationFile : IEndpoint
 {
@@ -111,8 +102,7 @@ internal sealed class GetTranslationFile : IEndpoint
 
                 EntityTagHeaderValue entityTag = new($"\"{hashResult.Value}\"");
 
-                // If-None-Match is a comma-separated list and may be "*" (RFC 9110 §13.1.2). We answer
-                // 304 when any of the values matches the current strong tag.
+                // If-None-Match is a list and may be "*" (RFC 9110 §13.1.2).
                 bool notModified = httpContext.Request.GetTypedHeaders().IfNoneMatch
                     .Any(candidate => candidate.Equals(EntityTagHeaderValue.Any)
                                       || candidate.Compare(entityTag, useStrongComparison: true));
@@ -131,8 +121,7 @@ internal sealed class GetTranslationFile : IEndpoint
                     return Results.Problem(result.Error.ToProblemDetails());
                 }
 
-                // The ETag names the copy that is actually sent. If a rebuild lands between the hash
-                // lookup and this read, the client gets the newer body with the newer tag.
+                // The tag of the copy actually sent, which is newer if a rebuild landed in between.
                 SetRevalidationHeaders(httpContext, new EntityTagHeaderValue($"\"{result.Value.ETag}\""));
                 return Results.Stream(result.Value.Content, TextPlainUtf8);
             })

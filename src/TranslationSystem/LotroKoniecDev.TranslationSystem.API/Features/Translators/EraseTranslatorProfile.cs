@@ -12,14 +12,9 @@ using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translators;
 
 /// <summary>
-/// Takes the person off the translator profile of an account the AuthSystem has erased (ADR-0065).
-/// It has no HTTP endpoint: only the <c>AccountErased</c> consumer sends it.
+/// No HTTP endpoint: only the <c>AccountErased</c> consumer sends it (ADR-0065). An account with no
+/// profile counts as done, and erasing twice changes nothing, so the consumer needs no inbox.
 /// </summary>
-/// <remarks>
-/// An account that never opened the TMS has no profile, and that counts as done. Erasing a profile
-/// that is already erased changes nothing, so a redelivered message is harmless and the consumer needs
-/// no inbox.
-/// </remarks>
 internal static class EraseTranslatorProfile
 {
     internal sealed record Command(IdentityId IdentityId) : ICommand<Result>;

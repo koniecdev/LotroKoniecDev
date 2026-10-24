@@ -44,22 +44,19 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     private string _connectionString = string.Empty;
 
     /// <summary>
-    /// Records the read context's SQL so tests can pin column-level fetch behavior the HTTP
-    /// response cannot reveal (PERF-01/#286). Shared per factory; tests <see cref="SqlCommandRecorder.Clear"/>
-    /// before the request under observation (the collection runs sequentially, so nothing interleaves).
+    /// Lets tests pin which columns a query reads, which the HTTP response cannot show (PERF-01). Tests
+    /// call <see cref="SqlCommandRecorder.Clear"/> first; the collection runs one test at a time.
     /// </summary>
     public SqlCommandRecorder ReadContextSqlRecorder { get; } = new();
 
     /// <summary>
-    /// The same hook for the write context, so tests can pin how a projection refresh writes: one UPDATE
-    /// in place that never reads the previous multi-MB content again (PERF-04, #289).
+    /// Lets tests pin that a projection refresh is one UPDATE that never reads the old content (PERF-04).
     /// </summary>
     public SqlCommandRecorder WriteContextSqlRecorder { get; } = new();
 
     /// <summary>
-    /// This host's own folder for the disk copies of the translation file (ADR-0064). Each process
-    /// removes the copies it does not need, so two suites sharing one folder, from two worktrees for
-    /// example, would delete each other's files.
+    /// Each process removes copies it does not need, so two suites sharing a folder (two worktrees, say)
+    /// would delete each other's files (ADR-0064).
     /// </summary>
     public string TranslationFileCopiesDirectory { get; } =
         Path.Combine(Path.GetTempPath(), "lotro-translation-files-tests", Guid.NewGuid().ToString("N"));
@@ -75,13 +72,11 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
                 { "ConnectionStrings:TranslationDatabase", _connectionString },
                 { "Auth:Issuer", TestIssuer },
                 { "Auth:Audience", TestAudience },
-                // Short debounce so the background artifact rebuild (PERF-04) converges fast; the
-                // polling assertions stay meaningful while the suite stays quick.
+                // Short, so the background rebuild converges fast (PERF-04).
                 { "TranslationFileRebuild:DebounceWindow", "00:00:00.050" },
                 { "TranslationFileDiskCache:Directory", TranslationFileCopiesDirectory },
-                // This suite has no broker, and the account event consumer is removed below. These values
-                // only have to satisfy RabbitMqSettingsValidator. BrokeredTranslationSystemApiFactory
-                // points them at a real broker.
+                // No broker here, and the consumer is removed below; these values only satisfy the
+                // validator. BrokeredTranslationSystemApiFactory points them at a real broker.
                 { "RabbitMq:Host", "localhost" },
                 { "RabbitMq:Port", "59998" },
                 { "RabbitMq:Username", "rabbitmq" },
@@ -93,18 +88,15 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         {
             RemoveHostedService<AccountErasedConsumer>(services);
 
-            // The AuthSystem is not running in these tests, so tokens are validated against a local
-            // symmetric key instead of keys fetched from the JWKS endpoint.
+            // No AuthSystem here, so tokens are checked against a local symmetric key.
             services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
             {
                 options.ConfigurationManager = null;
                 options.TokenValidationParameters.IssuerSigningKey = TestSigningKey;
             });
 
-            // In EF Core 9 and later, several AddDbContext calls add up, so this adds the recording
-            // interceptors to the two contexts instead of replacing their registrations.
-            // The production contexts are pooled, which makes their options a singleton, so this extra
-            // configuration has to be a singleton as well. The default scoped optionsLifetime fails
+            // Since EF Core 9 AddDbContext calls add up, so this adds the interceptors. The production
+            // contexts are pooled, so their options are singletons; a scoped optionsLifetime would fail
             // ValidateScopes (#572).
             services.AddDbContext<ApplicationReadDbContext>(
                 options => options.AddInterceptors(ReadContextSqlRecorder),
@@ -125,15 +117,9 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     protected override IHost CreateHost(IHostBuilder builder) => HostStartOrder.BuildAndStart(builder);
 
     /// <summary>
-    /// Resets the shared database state between test classes: it waits for the background artifact
-    /// rebuild to finish (PERF-04, ADR-0021) and then truncates the given tables.
-    /// The wait is part of the reset and never something a caller has to remember, because a rebuild
-    /// still running from the previous class would write an artifact row right after the TRUNCATE and
-    /// break assertions such as the "no artifact yet" 404.
-    /// Clearing the counter cache (AUDIT-EF-04, #354) is part of it for the same reason: a cached
-    /// snapshot survives the TRUNCATE and would carry the previous test's counters into the next one.
-    /// The disk copies of the translation file go too, so every test starts with a download that
-    /// writes its copy from the database.
+    /// Waits for the background rebuild first, or a rebuild from the previous class would write an
+    /// artifact right after the TRUNCATE (ADR-0021). It also clears the counter cache, which would
+    /// survive the TRUNCATE (#354), and the disk copies of the translation file.
     /// </summary>
     public async Task ResetDatabaseAsync(string truncateSql)
     {
@@ -190,8 +176,8 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), audiences: audiences);
 
     /// <summary>
-    /// A token that expired one minute ago. It sits inside the five-minute clock skew JwtBearer allows by
-    /// default, so only the zero skew refuses it (#933).
+    /// Expired one minute ago: inside JwtBearer's default five-minute skew, so only the zero skew refuses
+    /// it (#933).
     /// </summary>
     public static string CreateExpiredAccessToken()
         => CreateAccessTokenExpiringAt(DateTime.UtcNow.AddMinutes(-1));
@@ -249,8 +235,8 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     }
 
     /// <summary>
-    /// Removes one hosted service. Strict on purpose: exactly one registration must exist, so a renamed
-    /// or doubled registration fails here instead of leaving a background service running in the suite.
+    /// Exactly one registration must exist, so a renamed or doubled one fails here instead of leaving a
+    /// background service running in the suite.
     /// </summary>
     internal static void RemoveHostedService<THostedService>(IServiceCollection services)
         where THostedService : IHostedService
@@ -272,19 +258,16 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     {
         await _postgresContainer.StartAsync();
 
-        // Same as the auth twin: a PostgreSQL failure names the processes involved instead of
-        // "Detail redacted" (#821).
+        // So a PostgreSQL failure names the processes involved, not "Detail redacted" (#821).
         _connectionString = new NpgsqlConnectionStringBuilder(_postgresContainer.GetConnectionString())
         {
             IncludeErrorDetail = true
         }.ConnectionString;
 
-        // N-1 compat runs (ADR-0024) pre-apply the HEAD schema here; MigrateAsync below then
-        // no-ops and this suite exercises its (older) code against the newer schema.
+        // N-1 runs apply the HEAD schema here, so MigrateAsync below does nothing (ADR-0024).
         await N1CompatSchemaSeam.ApplyIfConfiguredAsync(_postgresContainer, "translation.sql");
 
-        // Accessing Services triggers host startup; the compose migrator owns migrations in
-        // deployed environments, so tests apply them explicitly against the container.
+        // The compose migrator owns migrations when deployed, so tests apply them here.
         using IServiceScope scope = Services.CreateScope();
         ApplicationWriteDbContext writeDbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         await writeDbContext.Database.MigrateAsync();

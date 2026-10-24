@@ -22,11 +22,9 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Hateoas;
 
 /// <summary>
-/// Checks that a translation's links depend both on the caller's role, so only reviewers see
-/// <c>approve</c>, and on the row's state, so actions that lead nowhere are never offered. Those are
-/// approving a row that is untranslated or already approved, and editing a removed row.
-/// It also checks that the pagination links keep the filters that are applied. A plain
-/// <c>application/json</c> request must carry no links at all.
+/// Pins that a translation's links follow the caller's role and the row's state, so no action that
+/// leads nowhere is offered, that pagination links keep the active filters, and that plain
+/// <c>application/json</c> carries no links.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
@@ -72,7 +70,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     [InlineData(TranslationStatus.NeedsReview)]
     public async Task GetTranslation_AsAdmin_WithPendingPolish_ReturnsSelfUpsertApprove(TranslationStatus status)
     {
-        // Arrange: both Draft and NeedsReview carry Polish awaiting review, so a reviewer can approve.
+        // Arrange
         Translation row = await SeedAsync(Row(1, "Aragorn", status));
 
         // Act
@@ -96,7 +94,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task GetTranslation_AsTranslator_DraftRow_ReturnsSelfAndUpsert_ButNotApprove()
     {
-        // Arrange: approve is reviewer-only, so a translator never sees it.
+        // Arrange
         Translation row = await SeedAsync(Row(1, "Aragorn", TranslationStatus.Draft));
 
         // Act
@@ -115,7 +113,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     [InlineData(TranslationStatus.Approved)]
     public async Task GetTranslation_AsAdmin_WithoutPendingPolish_DoesNotAdvertiseApprove(TranslationStatus status)
     {
-        // Arrange: nothing to approve on an untranslated row; re-approving an approved row is a dead end.
+        // Arrange
         Translation row = await SeedAsync(Row(1, "Aragorn", status));
 
         // Act
@@ -131,7 +129,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task GetTranslation_AsAdmin_RemovedRow_ReturnsSelfOnly()
     {
-        // Arrange: a soft-removed row is cut from translation work: no edit/approve transitions.
+        // Arrange
         Translation row = await SeedAsync(Row(1, "Aragorn", TranslationStatus.Draft, removed: true));
 
         // Act
@@ -181,24 +179,20 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         item.Links.ShouldContain(l => l.Rel == Rels.Upsert && l.Method == "PUT");
         item.Links.ShouldContain(l => l.Rel == Rels.Approve && l.Method == "POST");
 
-        // Assert: pagination links on the envelope. One row fits on one page, so every boundary rel
-        // would point at the page we are already on and none is advertised (#545).
+        // Assert: one page, so no boundary rel (#545).
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldNotContain(l => l.Rel == Rels.FirstPage);
         response.Links.ShouldNotContain(l => l.Rel == Rels.LastPage);
 
-        // Assert: the admin-only bulk-approve link on the collection (#322) is what shows the checkbox
-        // toolbar in the frontend.
+        // Assert: this link shows the frontend's checkbox toolbar (#322).
         response.Links.ShouldContain(l => l.Rel == Rels.BulkApprove && l.Method == "POST");
     }
 
     [Fact]
     public async Task ListTranslations_Anonymously_ItemsCarryNoLinks_ButPagerLinksRemain()
     {
-        // Arrange: the public read-only list (#309): items must not advertise transitions an
-        // anonymous visitor cannot take (self targets the translator-only detail GET), while the
-        // envelope keeps its pagination navigation, which is plain browsing. Two rows one per page,
-        // so the pager links this test is about actually exist.
+        // Arrange: the public list (#309). Item self targets the translator-only detail, so items carry
+        // nothing, but the pager stays. Two rows, one per page, so pager links exist.
         Translation row = await SeedAsync(Row(1, "Aragorn", TranslationStatus.Draft), Row(2, "Boromir"));
 
         // Act
@@ -211,10 +205,9 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.NextPage);
         response.Links.ShouldContain(l => l.Rel == Rels.LastPage);
-        // On page 1 the backward jumps lead nowhere, so the pager renders them disabled (#545).
+        // On page 1 the backward jumps lead nowhere (#545).
         response.Links.ShouldNotContain(l => l.Rel == Rels.FirstPage);
         response.Links.ShouldNotContain(l => l.Rel == Rels.PreviousPage);
-        // Only a reviewer may bulk-approve, so the anonymous response must not carry that link.
         response.Links.ShouldNotContain(l => l.Rel == Rels.BulkApprove);
     }
 
@@ -234,7 +227,6 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         item.Links.ShouldContain(l => l.Rel == Rels.Self);
         item.Links.ShouldContain(l => l.Rel == Rels.Upsert);
         item.Links.ShouldNotContain(l => l.Rel == Rels.Approve);
-        // Bulk approve is reviewer-only: a translator's envelope must not advertise it either.
         response.Links.ShouldNotContain(l => l.Rel == Rels.BulkApprove);
     }
 
@@ -269,7 +261,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
             await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
                 AdminClient(), "/api/v1/translations?page=3&pageSize=1");
 
-        // Assert: both forward controls lead nowhere here and the pager renders them disabled (#545).
+        // Assert: the forward jumps lead nowhere (#545).
         response.Page.ShouldBe(3);
         response.Links.ShouldNotContain(l => l.Rel == Rels.LastPage);
         response.Links.ShouldNotContain(l => l.Rel == Rels.NextPage);
@@ -280,8 +272,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task ListTranslations_PastTheLastPage_StillOffersBothAbsoluteJumpsBack()
     {
-        // Arrange: page is clamped at the lower bound only, so an over-range page is reachable and
-        // must not become a dead end: next is genuinely gone, but first/last are absolute jumps.
+        // Arrange: an over-range page is reachable and must not be a dead end.
         await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"));
 
         // Act
@@ -307,7 +298,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
             await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
                 AdminClient(), "/api/v1/translations?search=Frodo");
 
-        // Assert: every page link carries the active filter forward.
+        // Assert
         LinkDto selfLink = response.Links.First(l => l.Rel == Rels.Self);
         selfLink.Href.ShouldContain("search=Frodo", Case.Insensitive);
     }
@@ -315,8 +306,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task ListTranslations_PaginationLinks_PreserveTheFilterOnEveryPageLink()
     {
-        // Arrange: three matching rows, one per page, so page 2 carries the full nav set
-        // (first/last/previous/next). The filter must ride along on every one of them, not just self.
+        // Arrange: three rows, one per page, so page 2 carries every page link.
         await SeedAsync(
             Row(1, "Gandalf the Grey"),
             Row(2, "Gandalf the White"),
@@ -327,7 +317,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
             await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
                 AdminClient(), "/api/v1/translations?search=Gandalf&page=2&pageSize=1");
 
-        // Assert: the filter rides every page link, not only self.
+        // Assert
         response.Page.ShouldBe(2);
         response.Links.First(l => l.Rel == Rels.Self).Href.ShouldContain("search=Gandalf", Case.Insensitive);
         response.Links.First(l => l.Rel == Rels.FirstPage).Href.ShouldContain("search=Gandalf", Case.Insensitive);
@@ -339,8 +329,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task ListTranslations_PaginationLinks_PreserveTheActiveSort()
     {
-        // Arrange: three rows, one per page, so page 2 carries the full nav set; the active sort
-        // must ride along on every page link, exactly as the filters do.
+        // Arrange: three rows, one per page, so page 2 carries every page link.
         await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"));
 
         // Act
@@ -348,7 +337,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
             await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
                 AdminClient(), "/api/v1/translations?sort=gossipId:desc&page=2&pageSize=1");
 
-        // Assert: the active sort rides every page link (the operand colon may be URL-encoded).
+        // Assert: the colon may be URL-encoded, so only the key is matched.
         response.Page.ShouldBe(2);
         response.Links.First(l => l.Rel == Rels.Self).Href.ShouldContain("sort=gossipId", Case.Insensitive);
         response.Links.First(l => l.Rel == Rels.FirstPage).Href.ShouldContain("sort=gossipId", Case.Insensitive);

@@ -8,19 +8,15 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Va
 namespace LotroKoniecDev.TranslationSystem.API.Parsing;
 
 /// <summary>
-/// Reads an uploaded <c>exported.txt</c> in the LOTRO <c>||</c> format
-/// (<c>file_id||gossip_id||content||args_order||args_id||approved||source_digest</c>). It cuts the
-/// fields out by working from both ends of the line (ADR-0042) and unescapes the content (ADR-0039),
-/// so the catalog stores the raw source text and not its file form.
-/// The TMS has its own parser, and golden fixtures plus round-trip tests keep it in step with the
-/// patcher's.
+/// Reads an uploaded <c>exported.txt</c>
+/// (<c>file_id||gossip_id||content||args_order||args_id||approved||source_digest</c>): carves the line
+/// (ADR-0042) and unescapes the content (ADR-0039), so the catalog stores the raw text. Golden fixtures
+/// and round-trip tests keep it in step with the patcher's own parser.
 /// </summary>
 /// <remarks>
-/// The last column, <c>source_digest</c> (ADR-0047), is optional. A six-column upload, an older export
-/// or a hand-made file, imports exactly as before.
-/// When the column is there it is checked against the row itself, so a wrong file, or a difference
-/// between the two contexts' digest code, is rejected per row here (ADR-0042) instead of producing an
-/// artifact every player's patcher would then refuse.
+/// <c>source_digest</c> (ADR-0047) is optional. When present it is checked against the row, so a wrong
+/// file, or digest code that differs between the contexts, fails here instead of producing an artifact
+/// every player's patcher would refuse.
 /// </remarks>
 internal sealed class TranslationExportParser : ITranslationExportParser
 {
@@ -30,10 +26,8 @@ internal sealed class TranslationExportParser : ITranslationExportParser
     private const char ArgsPositionSeparator = '-';
 
     /// <summary>
-    /// The patcher writes <c>exported.txt</c> as UTF-8, so we decode it strictly. An upload in the wrong
-    /// encoding, or a corrupt one, then fails instead of decoding into nonsense that the diff would read
-    /// as a source change and use to invalidate every Polish row. The rejection goes through the same
-    /// truncation guard as any other parse failure.
+    /// The patcher writes UTF-8. Strict decoding makes a wrong or corrupt upload fail instead of
+    /// decoding into nonsense the diff would read as source changes, invalidating every Polish row.
     /// </summary>
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
@@ -110,9 +104,6 @@ internal sealed class TranslationExportParser : ITranslationExportParser
     {
         row = null;
 
-        // Work from both ends, like the patcher does (#29, #106). file_id and gossip_id come first,
-        // args_order, args_id and approved come last, and everything in between is the content, so it
-        // may contain "||" and may end in any number of '|' (ADR-0042).
         if (!TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? carved))
         {
             error = $"Expected at least {SeparatorCount} '{FieldSeparator}' separators outside the content.";
@@ -143,15 +134,12 @@ internal sealed class TranslationExportParser : ITranslationExportParser
             return false;
         }
 
-        // The content is unescaped last (ADR-0039), so the row carries the raw source text the DAT
-        // really holds.
         string content = TranslationLineEscaper.Unescape(carved.Content);
 
         if (carved.SourceDigest is { } sourceDigest && !MatchesSourceDigest(content, carved, sourceDigest))
         {
-            // The row carries a digest that does not match the row (ADR-0047 §2). That means the wrong
-            // file was uploaded, or the two contexts compute the digest differently. It has to fail
-            // loudly here instead of as 800,000 `source moved` warnings on players' machines.
+            // A wrong file or a digest drift between the contexts (ADR-0047 §2): fail here, not as
+            // 800,000 `source moved` warnings on players' machines.
             error = $"The source_digest column '{sourceDigest}' does not match the row's own text and argument columns.";
             return false;
         }
@@ -170,10 +158,8 @@ internal sealed class TranslationExportParser : ITranslationExportParser
     }
 
     /// <summary>
-    /// Computes the row's own <c>SourceHash</c> over the triple exactly as the catalog will store it,
-    /// using <see cref="TranslationSource"/>'s rules, so an absent args column is
-    /// <see langword="null"/> and never the literal text <c>NULL</c>, and compares it with the column in
-    /// the file. Case is ignored: writers emit lower case and readers accept a hand-edited file.
+    /// Hashes the triple through <see cref="TranslationSource"/>, exactly as the catalog will store it.
+    /// Case is ignored, so a hand-edited file still matches.
     /// </summary>
     private static bool MatchesSourceDigest(string content, CarvedTranslationLine carved, string declaredDigest)
     {
@@ -186,12 +172,9 @@ internal sealed class TranslationExportParser : ITranslationExportParser
     }
 
     /// <summary>
-    /// An args column is either absent, meaning <c>NULL</c>, empty or blank, or a list of ASCII decimal
-    /// numbers separated by <c>-</c>. Anything else rejects the row (ADR-0042) instead of being stored as
-    /// it is, where it would be neither <see langword="null"/> nor a usable order and would still take
-    /// part in the import diff (spec 0001).
-    /// Whether those positions fit the fragment is the patcher's decision, not the catalog's: the TMS
-    /// never sees the argument references.
+    /// Absent (<c>NULL</c> or blank) or ASCII numbers separated by <c>-</c>; anything else rejects the row
+    /// (ADR-0042). Whether the positions fit the fragment is the patcher's call: the TMS never sees the
+    /// argument references.
     /// </summary>
     private static bool IsWellFormedArgs(string value)
     {
@@ -201,8 +184,7 @@ internal sealed class TranslationExportParser : ITranslationExportParser
             return true;
         }
 
-        // NumberStyles.None on purpose: no sign, because '-' is the separator, no spaces around the
-        // number, ASCII digits only. A number too large for an int fails here as well.
+        // NumberStyles.None: no sign ('-' is the separator), no spaces, ASCII digits only.
         return value
             .Split(ArgsPositionSeparator)
             .All(position => int.TryParse(position, NumberStyles.None, CultureInfo.InvariantCulture, out _));

@@ -19,12 +19,8 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
 /// <summary>
-/// Approves a translation for distribution (spec 0001, #101). A reviewer sets the row to Approved,
-/// which records who approved it, clears <c>PreviousSourceText</c> and brings the row back into the
-/// distributed set. So a rebuild of the ready-made Polish file is scheduled after the change commits
-/// (PERF-04, ADR-0021), and the response does not wait for it.
-/// It needs the admin (reviewer) policy. A row with no Polish, or one that was soft-removed, cannot be
-/// approved and gives a 422. An unknown id gives a 404.
+/// Approves a translation for distribution (spec 0001). A row with no Polish, or a soft-removed one,
+/// gives a 422.
 /// </summary>
 internal sealed class ApproveTranslation : IEndpoint
 {
@@ -82,8 +78,7 @@ internal sealed class ApproveTranslation : IEndpoint
 
             Translation translation = translationMaybe.Value;
 
-            // Create the reviewer's Translator row if it does not exist yet, and commit it before the
-            // foreign key is written (ADR-0004), so the approver is a TranslatorId that really exists.
+            // Commits the reviewer's Translator row before the foreign key is written (ADR-0004).
             Result<TranslatorId> provisionResult = await _translatorProvisioner.ProvisionCurrentAsync(cancellationToken);
             if (provisionResult.IsFailure)
             {
@@ -98,9 +93,7 @@ internal sealed class ApproveTranslation : IEndpoint
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            // The row is in the distributed set again, so the ready-made Polish file is out of date. We
-            // schedule the rebuild instead of waiting for it (PERF-04): it runs in the background, the
-            // response returns now, and a client that disconnects cannot leave the commit stranded.
+            // Scheduled, not awaited (PERF-04), so a client that disconnects cannot strand it.
             _rebuildScheduler.Schedule(SupportedLanguages.Polish);
 
             return Result.Success();

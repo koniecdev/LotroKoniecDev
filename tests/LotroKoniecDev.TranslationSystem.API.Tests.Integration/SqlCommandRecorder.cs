@@ -5,14 +5,8 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration;
 
 /// <summary>
-/// Records the SQL of every command the intercepted context runs, both reads such as queries and
-/// SaveChanges batches and writes such as <c>ExecuteUpdate</c>. A test can then check things the HTTP
-/// response does not show: that the 304 path for the translation file never reads the multi-MB
-/// <c>Content</c> column (PERF-01, #286), or that a projection refresh updates in place without reading
-/// it again (PERF-04, #289).
-/// The stream of database commands is the only place "this column was not read" is visible, and the
-/// repo's <c>.Received()</c> rule, which allows asserting on side effects the return value does not
-/// show, permits it.
+/// The SQL stream is the only place "this column was not read" shows (PERF-01, PERF-04), a side effect
+/// the <c>.Received()</c> rule allows asserting on.
 /// </summary>
 public sealed class SqlCommandRecorder : DbCommandInterceptor
 {
@@ -21,9 +15,8 @@ public sealed class SqlCommandRecorder : DbCommandInterceptor
     public IReadOnlyList<string> Commands => [.. _commands];
 
     /// <summary>
-    /// Runs just before each command, so a test can act at the moment a given query starts, for
-    /// example cancel a caller's token while the translation file is being loaded (#715). A test that
-    /// sets it clears it when it ends, because the factory is shared by the whole collection.
+    /// Lets a test act as a given query starts (#715). Clear it at the end: the factory is shared by the
+    /// whole collection.
     /// </summary>
     public Action<string>? BeforeCommand { get; set; }
 

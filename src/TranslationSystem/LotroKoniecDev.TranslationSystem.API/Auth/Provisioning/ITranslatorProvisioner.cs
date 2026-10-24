@@ -4,14 +4,9 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate
 namespace LotroKoniecDev.TranslationSystem.API.Auth.Provisioning;
 
 /// <summary>
-/// Creates the TMS-side <c>Translator</c> for the authenticated caller when it is first needed, and it
-/// is safe to call twice (ADR-0004). It returns the existing
-/// <see cref="TranslatorId"/> when a row for the caller's identity is already there, and otherwise
-/// creates one from the current claims.
-/// The provisioning middleware calls it on the caller's first authenticated request (ADR-0004, amended
-/// 2026-06-24), so a user who registered and logged in has a profile before any write. Every write
-/// that stamps a <see cref="TranslatorId"/> calls it again as its first step. Repeat calls add no
-/// duplicate rows and only write when the claims changed.
+/// Gets or creates the caller's <c>Translator</c> from the current claims (ADR-0004). The middleware
+/// calls it on every authenticated request, and every write that stamps a <see cref="TranslatorId"/>
+/// calls it again first. Repeat calls only write when the claims changed.
 /// </summary>
 internal interface ITranslatorProvisioner
 {

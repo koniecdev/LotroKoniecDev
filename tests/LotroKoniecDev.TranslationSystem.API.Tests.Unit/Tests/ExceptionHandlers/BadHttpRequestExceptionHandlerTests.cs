@@ -9,9 +9,8 @@ using NSubstitute;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.ExceptionHandlers;
 
 /// <summary>
-/// Pins how the bad-request handler chooses a status (#208): an upload that is too large is reported as
-/// a 413 however the framework raised it, every other bad request stays a 400, and any other exception
-/// is left to the next handler.
+/// Pins that a too-large upload is a 413 however the framework raised it, and every other bad request
+/// stays a 400 (#208).
 /// </summary>
 public sealed class BadHttpRequestExceptionHandlerTests
 {
@@ -32,8 +31,7 @@ public sealed class BadHttpRequestExceptionHandlerTests
     [Fact]
     public async Task TryHandleAsync_ForMultipartLengthLimitWrappedAsBadRequest_ShouldReturn413()
     {
-        // The multipart form limit throws InvalidDataException, which minimal-API binding turns into a
-        // plain 400. Here it becomes a 413.
+        // Minimal-API binding wraps the multipart limit's InvalidDataException in a 400.
         BadHttpRequestException exception = new(
             "Failed to read parameter \"file\" from the request body as form.",
             StatusCodes.Status400BadRequest,
@@ -50,7 +48,7 @@ public sealed class BadHttpRequestExceptionHandlerTests
     [Fact]
     public async Task TryHandleAsync_ForKestrel413WrappedDuringFormRead_ShouldReturn413()
     {
-        // Kestrel's request-body cap (413) thrown while the form reader pulls the body, wrapped as a 400.
+        // Kestrel's body cap hit during the form read, wrapped as a 400.
         BadHttpRequestException exception = new(
             "Failed to read parameter \"file\" from the request body as form.",
             StatusCodes.Status400BadRequest,
@@ -67,8 +65,7 @@ public sealed class BadHttpRequestExceptionHandlerTests
     [Fact]
     public async Task TryHandleAsync_ForOrdinaryBadRequest_ShouldStay400()
     {
-        // A malformed JSON body really is a 400 and must not be reported as "too large". This is the
-        // guard against a too-broad check for an oversized payload.
+        // Guards against a too-broad "too large" check.
         BadHttpRequestException exception = new(
             "Failed to read parameter \"command\" from the request body as JSON.",
             StatusCodes.Status400BadRequest,
@@ -100,12 +97,9 @@ public sealed class BadHttpRequestExceptionHandlerTests
         IProblemDetailsService problemDetailsService = Substitute.For<IProblemDetailsService>();
         problemDetailsService
             .When(service => service.WriteAsync(Arg.Any<ProblemDetailsContext>()))
-            // NSubstitute 6 annotates CallInfo.Arg<T>() as possibly-null; safe here since the
-            // captured call always matches the stubbed WriteAsync invocation above.
             .Do(call => captured = call.Arg<ProblemDetailsContext>()!.ProblemDetails);
 
-        // Production environment so the handler keeps its clean ProblemDetails rather than enriching it
-        // with the raw exception message / stack trace (which it does only in Development/Testing).
+        // Production, so the ProblemDetails carries no exception detail.
         IHostEnvironment environment = Substitute.For<IHostEnvironment>();
         environment.EnvironmentName.Returns("Production");
 

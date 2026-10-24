@@ -1,12 +1,13 @@
 # Tutorial: Auth w LotroKoniecDev TMS — od zera do rozmowy rekrutacyjnej
 
-> Pełny przewodnik po uwierzytelnianiu i autoryzacji w TMS, napisany **z kodu** (`AuthSystem.API`,
-> `TranslationSystem.API/Auth`, OIDC RP we `Frontend`), nie z teorii. Cel podwójny: (1) zrozumieć
-> system na tyle, by go rozwijać; (2) umieć go opowiedzieć na rozmowie. **Kod jest źródłem prawdy** —
-> przy rozbieżności czytaj plik i popraw ten dokument. Lokalizacje jako `plik:linia`.
+> Przewodnik po uwierzytelnianiu i autoryzacji w TMS, oparty na kodzie (`AuthSystem.API`,
+> `TranslationSystem.API/Auth`, klient OIDC we `Frontend`). Cel: (1) rozumieć system na tyle, by go
+> rozwijać; (2) umieć go opowiedzieć na rozmowie. **Kod jest źródłem prawdy** — przy rozbieżności
+> czytaj plik i popraw ten dokument. Lokalizacja to plik; numerów linii nie podajemy, bo szybko się
+> dezaktualizują.
 >
-> Skróty kontraktów HTTP: [API.md §2 + §7](API.md#2-authentication--authorization-model). Reguły:
-> [INVARIANTS.md §11](INVARIANTS.md#11-authsystem--uwierzytelnianie).
+> Kontrakty HTTP: [API.md §2 + §7](API.md#2-authentication--authorization-model). Reguły:
+> [INVARIANTS.md §11](INVARIANTS.md#11-authsystem--uwierzytelnianie). Kto co sprawdza: ADR-0067.
 
 ## Spis treści
 
@@ -28,38 +29,40 @@
 
 ## 1. Słownik na start
 
-- **Authentication (uwierzytelnianie)** — *kim jesteś*. Logowanie e-mailem + hasłem (ADR-0022;
-  nazwa użytkownika to unikalny handle wyłącznie do wyświetlania).
+- **Authentication (uwierzytelnianie)** — *kim jesteś*. Logowanie e-mailem i hasłem (ADR-0022;
+  nazwa użytkownika służy tylko do wyświetlania).
 - **Authorization (autoryzacja)** — *co możesz*. Role (`Admin`/`Translator`), scope'y (`api`/`service`).
 - **Authorization Server (AS)** — wydaje tokeny. U nas: **`auth-api`** (OpenIddict + ASP.NET Identity).
-- **Resource Server (RS)** — chroni dane, **waliduje** tokeny. U nas: **`tms-api`** (JwtBearer).
-- **Client** — aplikacja proszące o token w imieniu usera. U nas: **Blazor SSR Frontend** (i CLI).
-- **Claim** — fakt o userze w tokenie (`sub`, `name`, `email`, `role`).
+- **Resource Server (RS)** — chroni dane i **waliduje** tokeny. U nas: **`tms-api`** (JwtBearer).
+- **Client** — aplikacja, która prosi o token w imieniu użytkownika. U nas: **Frontend Blazor SSR**
+  (i CLI, które pobiera publiczny plik bez tokena).
+- **Claim** — fakt o użytkowniku w tokenie (`sub`, `name`, `email`, `role`).
 - **Scope** — zakres dostępu, o który prosi klient (`openid`, `email`, `api`, …).
 - **JWKS** — JSON Web Key Set, publiczny klucz, którym RS sprawdza podpis tokena.
 - **PKCE** — Proof Key for Code Exchange, zabezpieczenie auth code flow dla klientów publicznych.
 
 Jedno zdanie: **`auth-api` wydaje podpisane JWT, Frontend zdobywa je przez OIDC (auth code + PKCE),
-a `tms-api` waliduje podpis przez JWKS i autoryzuje po rolach.**
+a `tms-api` sprawdza podpis przez JWKS i autoryzuje po rolach.**
 
 ---
 
 ## 2. JWT — co to jest naprawdę
 
-JWT (JSON Web Token) to trzy base64url-owe części złączone kropkami: `header.payload.signature`.
+JWT (JSON Web Token) to trzy części w base64url złączone kropkami: `header.payload.signature`.
 
 ### 2.1 Header
 Algorytm i id klucza:
 ```json
-{ "alg": "RS256", "typ": "JWT", "kid": "signing-key-current" }
+{ "alg": "RS256", "typ": "at+jwt", "kid": "signing-key-current" }
 ```
-`kid` (`OpenIddictExtensions.cs:159`) wskazuje, którym kluczem RSA podpisano — ważne przy rotacji.
+`kid` (`OpenIddictExtensions.cs`) mówi, którym kluczem RSA podpisano token — to ważne przy rotacji.
+`typ` access tokena to `at+jwt` (RFC 9068).
 
 ### 2.2 Payload
-Claimy. U nas access token niesie m.in. (`TokenEndpoint.cs:229-234`):
+Claimy. Access token niesie m.in. (`TokenEndpoint.cs`, `UserClaimDestinations.cs`):
 ```json
 {
-  "sub": "0190f3a2-....",        // id usera (IdentityId) — jedyna referencja cross-context
+  "sub": "0190f3a2-....",        // id użytkownika (IdentityId) — jedyna referencja między kontekstami
   "name": "Aragorn",             // username → DisplayName w TMS
   "email": "aragorn@example.com",
   "role": ["Translator"],
@@ -69,51 +72,50 @@ Claimy. U nas access token niesie m.in. (`TokenEndpoint.cs:229-234`):
   "exp": 1718800000
 }
 ```
-Kluczowe: `sub` to `IdentityId`, `role` napędza autoryzację w `tms-api`. `aud` wymienia oba API, bo
-strona wysyła ten sam token do `tms-api` i do endpointów konta w `auth-api`, a każde z nich przyjmuje
-tylko token, który je wymienia (#1023). **`MapInboundClaims` jest
-wyłączony** po obu stronach (`ApiDependencyInjection.cs:228`), więc claimy zostają surowymi typami
-OpenIddict (`sub`/`name`/`email`/`role`), a nie mapują się na długie `ClaimTypes.*`.
+Kluczowe: `sub` to `IdentityId`, `role` decyduje o autoryzacji w `tms-api`. `aud` wymienia oba API,
+bo strona wysyła ten sam token do `tms-api` i do endpointów konta w `auth-api`, a każde z nich
+przyjmuje tylko token, który je wymienia (#1023). **`MapInboundClaims` jest wyłączony** w `tms-api`
+i we Frontendzie, więc claimy zostają pod nazwami OpenIddict (`sub`/`name`/`email`/`role`), a nie
+zamieniają się na długie `ClaimTypes.*`.
 
 ### 2.3 Signature
 `RSASHA256(base64(header) + "." + base64(payload), klucz_prywatny)`. Tylko `auth-api` ma klucz
 prywatny; każdy może sprawdzić podpis kluczem publicznym z JWKS.
 
-### 2.4 Czemu to genialne
-RS waliduje token **bez odpytywania bazy AS** — sam podpis + JWKS + `exp` wystarczą. Stateless,
-skalowalne, odporne na podmianę (zmiana payloadu psuje podpis).
+### 2.4 Czemu to dobre
+RS waliduje token **bez pytania bazy AS** — wystarczą podpis, JWKS i `exp`. Bez stanu, łatwo skalować,
+a zmiana payloadu psuje podpis.
 
-### 2.5 Czemu nie genialne
-Access token jest **ważny do `exp`** i nie da się go łatwo odwołać (stateless). Dlatego **krótki
-żywot** (5 min — ADR-0049) + **refresh tokeny referencyjne** (w bazie, rewokowalne — §10.2). U nas dodatkowo
-access token **nie jest szyfrowany** (`DisableAccessTokenEncryption`, `OpenIddictExtensions.cs:67`) —
-podpisany (tamper-proof), ale czytelny — żeby standardowa walidacja JwtBearer działała bez
-deszyfrowania.
+### 2.5 Czemu nie idealne
+Access token jest **ważny do `exp`** i nie da się go łatwo odwołać. Dlatego ma **krótki żywot**
+(5 min — ADR-0049), a **refresh tokeny są referencyjne** (w bazie, można je unieważnić — §10.2). Access
+token **nie jest szyfrowany** (`DisableAccessTokenEncryption`): jest podpisany, ale czytelny, żeby
+standardowa walidacja JwtBearer działała bez deszyfrowania.
 
 ---
 
 ## 3. OAuth 2.0 / OIDC — role i flow'y
 
 ### 3.1 Role
-**Resource Owner** (user) · **Client** (Frontend) · **Authorization Server** (`auth-api`) ·
+**Resource Owner** (użytkownik) · **Client** (Frontend) · **Authorization Server** (`auth-api`) ·
 **Resource Server** (`tms-api`).
 
 ### 3.2 OIDC vs OAuth2
 - **OAuth2** = autoryzacja (dostęp do zasobu). Daje **access token**.
-- **OIDC** = warstwa tożsamości na OAuth2. Dodaje **id token** (kto się zalogował) + endpoint
+- **OIDC** = warstwa tożsamości na OAuth2. Dodaje **id token** (kto się zalogował) i endpoint
   `userinfo`. Scope `openid` włącza OIDC.
 
 ### 3.3 Flow'y, które mamy w projekcie
-Konfiguracja: `OpenIddictExtensions.cs:33-43`.
+Konfiguracja: `OpenIddictExtensions.cs`.
 
 | Flow | Kto | Po co |
 |---|---|---|
-| **Authorization Code + PKCE** | Frontend (`lotrokoniecdev-web`) | interaktywne logowanie usera w przeglądarce |
+| **Authorization Code + PKCE** | Frontend (`lotrokoniecdev-web`) | interaktywne logowanie w przeglądarce |
 | **Refresh Token** | Frontend | ciche odświeżanie access tokena (rolling, referencyjne) |
-| **Client Credentials** | service-to-service (`lotrokoniecdev-api`) | maszyna-do-maszyny, bez usera |
-| **Password (ROPC)** | **tylko testy** (`lotrokoniecdev-test`) | integracyjne/E2E — w innych środowiskach OpenIddict odrzuca |
+| **Client Credentials** | usługa do usługi (`lotrokoniecdev-api`) | maszyna do maszyny, bez użytkownika |
+| **Password (ROPC)** | **tylko testy** (`lotrokoniecdev-test`) | testy integracyjne i E2E — włączony tylko w `Testing` |
 
-`RequireProofKeyForCodeExchange()` (`OpenIddictExtensions.cs:45`) wymusza PKCE dla auth code flow.
+`RequireProofKeyForCodeExchange()` wymusza PKCE w auth code flow.
 
 ---
 
@@ -135,388 +137,403 @@ Konfiguracja: `OpenIddictExtensions.cs:33-43`.
         │                           │   ────────────────────────────────
         │                           │  9. GET /api/v1/translations
         │                           │     Authorization: Bearer <access>  ──▶ walidacja podpisu (JWKS)
-        │                           │                                         + role check
+        │                           │                                         + sprawdzenie roli
 ```
 
 ### 4.1 Co siedzi gdzie
 | Komponent | Projekt | Port (HTTPS dev) | Rola |
 |---|---|---|---|
-| `auth-api` | `AuthSystem.API` | `:5003` | OpenIddict AS + ASP.NET Identity (user store) |
+| `auth-api` | `AuthSystem.API` | `:5003` | OpenIddict AS + ASP.NET Identity (baza użytkowników) |
 | `tms-api` | `TranslationSystem.API` | `:5002` | Resource Server (JwtBearer) |
-| Frontend | `Frontend` | `:7017` | OIDC Relying Party (cookie + OIDC) |
+| Frontend | `Frontend` | `:7017` | klient OIDC (cookie + OIDC) |
 
-Jeden issuer (`auth-api`) obsługuje **przeglądarkę** i **back-channel** Frontendu, więc token `iss`
-zgadza się dla obu (CLAUDE.md / ADR-0006). W stacku kontenerowym (`compose.prod.yaml`) API↔API gada
-po `http://…:8080`; w dev (ADR-0006 zmieniony przez #190 — wszystkie trzy aplikacje na hoście) ten
-back-channel idzie po `https://localhost:5003` (tms-api: fallback `Auth:Authority`→`Auth:Issuer`). W
-tokenie i metadanych OIDC `iss` jest zawsze browser-facing (`https://localhost:5003/`).
+Jeden issuer (`auth-api`) obsługuje **przeglądarkę** i **back-channel** Frontendu i `tms-api`, więc
+`iss` w tokenie zgadza się na każdej nodze. W dev wszystkie trzy aplikacje działają na hoście
+(ADR-0006), a back-channel idzie po `https://localhost:5003` (`tms-api`: fallback
+`Auth:Authority`→`Auth:Issuer`). W stackach kontenerowych (`compose.prod.yaml`, boksy Hetzner)
+`tms-api` i Frontend wołają `auth-api` przez jego publiczny origin za Caddym, a nie po wewnętrznym
+`http://auth-api:8080`, bo OpenIddict w Production odrzuca zwykły HTTP.
 
 ### 4.2 Klienci OAuth zarejestrowani w bazie
-Seedowani na starcie (`DatabaseSeederExtensions.cs:111`), id z `AuthConstants.ClientIds`:
+Seedowani na starcie (`DatabaseSeederExtensions.cs`), id z `AuthConstants.ClientIds`:
 
 | `client_id` | Typ | Grants | Sekret | Uwagi |
 |---|---|---|---|---|
-| `lotrokoniecdev-web` | public | auth code+PKCE, refresh | brak | RP; redirect/post-logout URI z konfiguracji |
-| `lotrokoniecdev-api` | confidential | client credentials | tak (`OpenIddict:ApiClientSecret`) | service-to-service |
+| `lotrokoniecdev-web` | public | auth code+PKCE, refresh | brak | Frontend; redirect i post-logout URI z konfiguracji |
+| `lotrokoniecdev-api` | confidential | client credentials | tak (`OpenIddict:ApiClientSecret`) | usługa do usługi; może wołać introspekcję |
 | `lotrokoniecdev-test` | public | password, refresh | brak | **tylko `Testing`** |
 
 ---
 
 ## 5. OpenIddict — co to i czemu właśnie to
 
-**OpenIddict** to biblioteka do budowy własnego serwera OAuth2/OIDC w ASP.NET Core. Nie hostowany
-zewnętrznie (jak Auth0/Entra), tylko **self-hosted** w `auth-api`. Czemu:
-- Pełna kontrola nad tokenami, claimami, flow'ami — i zero kosztu/limitu zewnętrznego dostawcy.
-- Integruje się z ASP.NET Core Identity (baza userów, hasła, lockout, email confirmation).
-- Na start był kopią sprawdzonego, przetestowanego serwera z wcześniejszego projektu autora.
-  Od tamtej pory rozwija się już tylko tutaj.
+**OpenIddict** to biblioteka do budowy własnego serwera OAuth2/OIDC w ASP.NET Core. Nie jest
+hostowana na zewnątrz (jak Auth0 czy Entra), tylko działa **u nas**, w `auth-api`. Czemu:
+- Pełna kontrola nad tokenami, claimami i flow'ami, bez kosztu i limitów zewnętrznego dostawcy.
+- Współpracuje z ASP.NET Core Identity (baza użytkowników, hasła, lockout, potwierdzanie e-maila).
+- Na start był kopią sprawdzonego serwera z wcześniejszego projektu autora. Od tamtej pory rozwija
+  się już tylko tutaj.
 
-OpenIddict ma trzy części, wszystkie włączone w `OpenIddictExtensions.cs:17-89`:
-- **Core** — EF Core store na aplikacje/tokeny/scope'y (`UseDbContext<AuthDbContext>`).
-- **Server** — endpointy `connect/*`, wydawanie/walidacja tokenów, klucze.
-- **Validation** (`UseLocalServer`) — walidacja tokenów w samym `auth-api` (np. dla `userinfo`).
+OpenIddict ma trzy części, wszystkie włączone w `OpenIddictExtensions.cs`:
+- **Core** — magazyn EF Core na aplikacje, tokeny i scope'y (`UseDbContext<AuthDbContext>`).
+- **Server** — endpointy `connect/*`, wydawanie i walidacja tokenów, klucze.
+- **Validation** (`UseLocalServer`) — walidacja tokenów w samym `auth-api` (`userinfo`, `auth/*`);
+  przyjmuje tylko audience `lotrokoniecdev-auth-api` (`AddAudiences`).
 
 ---
 
 ## 6. AuthSystem — Authorization Server krok po kroku
 
-### 6.1 ASP.NET Core Identity (baza userów)
-`AddIdentityCore<ApplicationUser>` (`PersistenceDependencyInjection.cs:41`). `ApplicationUser`
-rozszerza `IdentityUser<Guid>` o zgody RODO (`ApplicationUser.cs`). Reguły (`:43-54`):
-- hasło: digit + lowercase + uppercase + non-alphanumeric, `RequiredLength = 8`, a maksimum 128
-  dokłada `PasswordMaxLengthValidator` (Identity nie ma takiej opcji; #1046);
+### 6.1 ASP.NET Core Identity (baza użytkowników)
+`AddIdentityCore<ApplicationUser>` (`PersistenceDependencyInjection.cs`). `ApplicationUser` rozszerza
+`IdentityUser<Guid>` o akceptacje regulaminu i polityki prywatności, plan usunięcia konta i dane do
+cofnięcia zmiany e-maila (`ApplicationUser.cs`). Reguły:
+- hasło: cyfra, mała litera, wielka litera i znak specjalny, `RequiredLength = 8`; maksimum 128 dokłada
+  `PasswordMaxLengthValidator` (Identity nie ma takiej opcji; #1046), a `BreachedPasswordValidator`
+  odrzuca hasło znane z wycieków (ADR-0066);
 - `User.RequireUniqueEmail = true`;
 - `SignIn.RequireConfirmedEmail = true` — **bez potwierdzenia maila nie zalogujesz się**;
 - lockout: `MaxFailedAccessAttempts = 5`, `DefaultLockoutTimeSpan = 5 min`.
 
-Tokeny email-confirmation/reset żyją 24 h (`DataProtectionTokenProviderOptions`, `:58`).
+Tokeny potwierdzenia e-maila i resetu hasła żyją 24 h (`DataProtectionTokenProviderOptions`).
 
 ### 6.2 OpenIddict — konfiguracja serwera
-`OpenIddictExtensions.cs:23-84`:
+`OpenIddictExtensions.cs`:
 - endpointy: `connect/token`, `connect/authorize`, `connect/userinfo`, `connect/introspect`,
   `connect/revoke`, `connect/logout`;
 - flow'y: refresh + client credentials + auth code (+ password tylko w `Testing`);
 - `RequireProofKeyForCodeExchange()` — PKCE wymagane;
-- `UseReferenceRefreshTokens()` — refresh tokeny **w bazie** (rewokowalne, rolling — §10.2);
+- `UseReferenceRefreshTokens()` — refresh tokeny **w bazie** (można je unieważnić, rolling — §10.2);
 - `RegisterScopes(openid, email, profile, roles, offline_access, api, service)`;
-- `DisableAccessTokenEncryption()` — access token podpisany, nieszyfrowany (standardowa walidacja JWT).
+- `DisableAccessTokenEncryption()` — access token podpisany, nieszyfrowany.
 
 ### 6.3 Klucze kryptograficzne
-`OpenIddictExtensions.cs:66-72` + `ConfigureOpenIddictServerSettings` (`:97-199`):
-- **Dev/Testing** → `AddEphemeralSigningKey()` + `AddEphemeralEncryptionKey()` — efemeryczne, generowane
-  per start (restart = nowe klucze, stare tokeny tracą ważność — i to jest OK lokalnie).
-- **Produkcja** → z konfiguracji:
-  - **Signing** = RSA (min **2048** bit, walidowane `:152-156`), publiczna połówka idzie w JWKS;
-  - **Encryption** = symetryczny AES (min **256** bit, `:126`) — do auth codes / refresh tokenów,
-    nie wystawiany w JWKS;
-  - **rotacja**: opcjonalny `PreviousRsaPrivateKeyXml` (`:176-197`) — tokeny podpisane starym kluczem
-    zostają ważne w oknie rotacji (`kid` = `signing-key-previous`).
+`OpenIddictExtensions.cs` (`ConfigureOpenIddictServerSettings`):
+- **Development i Testing** → `AddEphemeralSigningKey()` + `AddEphemeralEncryptionKey()` — nowe przy
+  każdym starcie (restart unieważnia stare tokeny, lokalnie to nie problem).
+- **Każde inne środowisko (Staging też)** → klucze z konfiguracji:
+  - **Signing** = RSA (min **2048** bitów, sprawdzane przy starcie), publiczna połówka idzie do JWKS;
+  - **Encryption** = symetryczny AES (min **256** bitów) — dla auth code i refresh tokenów, nie
+    trafia do JWKS;
+  - **rotacja**: opcjonalny `PreviousRsaPrivateKeyXml` — tokeny podpisane starym kluczem są ważne
+    w oknie rotacji (`kid` = `signing-key-previous`).
 
 ### 6.4 Endpointy OpenIddict
 | Endpoint | Plik | Co robi |
 |---|---|---|
 | `connect/authorize` | `AuthorizeEndpoint.cs` | wejście auth code; challenge cookie Identity, buduje `ClaimsIdentity` z `sub`/`email`/`name`/`role`, `SignIn` |
-| `connect/token` | `TokenEndpoint.cs` | wydanie tokenów; rozdziela grant (auth code / refresh / client credentials / password) |
-| `connect/userinfo` | `UserInfoEndpoint.cs` | claimy usera wg przyznanych scope'ów (`email`/`profile`/`roles`) |
-| `connect/logout` | `LogoutEndpoint.cs` | RP-initiated end-session: kończy **sesję tego urządzenia** — rewokuje autoryzację z `id_token_hint` i jej tokeny (§10.3), czyści cookie tej przeglądarki |
-| `connect/revoke` | — middleware OpenIddict | rewokacja pojedynczego tokena; OpenIddict nie ma dla niej passthrough, więc obsługuje ją sam — trasa w `MiddlewareServedEndpoints.cs` niesie wyłącznie metadane rate-limit (#349) |
-| `connect/introspect` | — middleware OpenIddict | introspekcja tokena (RFC 7662) dla confidential clients; jak wyżej — trasa w `MiddlewareServedEndpoints.cs` tylko pod rate-limit (#349); czyta wyłącznie POST (ADR-0061, #900) |
+| `connect/token` | `TokenEndpoint.cs` | wydaje tokeny; rozdziela grant (auth code / refresh / client credentials / password) |
+| `connect/userinfo` | `UserInfoEndpoint.cs` | claimy użytkownika według przyznanych scope'ów (`email`/`profile`/`roles`) |
+| `connect/logout` | `LogoutEndpoint.cs` | RP-initiated end-session: kończy **sesję tego urządzenia** — unieważnia autoryzację z `id_token_hint` i jej tokeny (§10.3), czyści cookie tej przeglądarki |
+| `connect/revoke` | middleware OpenIddict | unieważnienie pojedynczego tokena. OpenIddict obsługuje je sam; trasa w `MiddlewareServedEndpoints.cs` niesie tylko metadane rate-limit (#349) |
+| `connect/introspect` | middleware OpenIddict | introspekcja tokena (RFC 7662) dla klientów confidential; trasa jak wyżej, tylko POST (ADR-0061) |
 
-`TokenEndpoint.cs:239-244` (współdzielony `CreateClaimsIdentityAsync`; refresh grant powiela
-switch inline w `:181-187`) ustawia **destinations** — które claimy lądują w access tokenie, a
-które w id tokenie. `sub`/`email`/`name`/`role` idą do obu.
+`UserClaimDestinations` decyduje, które claimy trafiają do access tokena, a które do id tokena.
+`sub`/`email`/`name`/`role` trafiają do obu.
 
-### 6.5 Register endpoint (custom) — i **brak sagi**
-`POST auth/register` (`RegisterUser.cs`, `AllowAnonymous`, rate-limited):
-1. walidacja (email unikalny/regex ≤250 — **to e-mail jest loginem**, ADR-0022; username: unikalny
-   handle wyłącznie do wyświetlania, `^[a-zA-Z0-9]+$` ≤150 — `UsernameConstants`; hasło 8–128 +
-   złożoność, **obie akceptacje `true`** — privacy i ToS od LEGAL-03; zgody na przetwarzanie danych
-   nie ma od #1073);
-2. `userManager.CreateAsync` → przypisanie roli **`Translator`** (`:191-192`);
-3. wiadomość `EmailConfirmationRequested` trafia do outboxu w tej samej transakcji (`:213-216`), a mail
-   wysyła relay po commicie (ADR-0035) — rejestracja nie dotyka SMTP i nie ma już fallbacku
-   auto-confirm;
-4. zwraca **201** z gołym `IdentityId`.
+### 6.5 Register endpoint (nasz) — i **brak sagi**
+`POST auth/register` (`RegisterUser.cs`, `AllowAnonymous`, `register-limit`):
+1. walidacja: e-mail unikalny, regex, ≤250 — **to e-mail jest loginem** (ADR-0022); username unikalny,
+   tylko litery i cyfry, ≤150 (`UsernameConstants`); hasło 8–128 ze złożonością i spoza wycieków;
+   **obie akceptacje `true`** (polityka prywatności i regulamin). Zgody na przetwarzanie danych nie ma
+   (#1073, ADR-0068);
+2. odpowiedź nie zdradza, czy adres ma konto. Wolny adres: `userManager.CreateAsync`, rola
+   **`Translator`** i wiadomość `EmailConfirmationRequested` w outboxie, w tej samej transakcji. Zajęty
+   adres: konto nie powstaje, a właściciel dostaje powiadomienie (`RegistrationAttemptedOnExistingAccount`).
+   Adres niedawno zwolniony przez zmianę e-maila innego konta: nic się nie dzieje (#684);
+3. maile wysyła relay outboxu po commicie (ADR-0035, ADR-0038), więc rejestracja nie dotyka SMTP;
+4. zwraca **202** bez treści, zawsze po co najmniej 1 s (ADR-0059). Na jedną skrzynkę przypadają
+   3 rejestracje na 15 minut (ADR-0057).
 
-**Kluczowe (`RegisterUser.cs:222-224`):** *brak* cross-contextowej sagi, która przy rejestracji
-tworzyłaby też profil w TMS (świadoma decyzja, ADR-0002 §7). Profil tłumacza w TMS powstaje
-**leniwie** przy pierwszym uwierzytelnionym żądaniu (§7.3, ADR-0004). To świetny temat na
-rozmowę („dlaczego rozdzieliliście rejestrację od profilu domenowego").
+**Kluczowe:** *nie ma* sagi między kontekstami, która przy rejestracji tworzyłaby też profil w TMS
+(ADR-0002 §7). Profil tłumacza w TMS powstaje **leniwie** przy pierwszym uwierzytelnionym żądaniu
+(§7.3, ADR-0004). Dobry temat na rozmowę: „dlaczego rozdzieliliście rejestrację od profilu
+domenowego".
 
 ### 6.6 Skąd się biorą roles i scopes w tokenie
-- **roles**: z `userManager.GetRolesAsync(user)` przy wydawaniu tokena (`TokenEndpoint.cs:178`,
-  `:233`, `AuthorizeEndpoint.cs:105`), wstawiane jako claimy `role`.
-- **scopes**: z requestu klienta (`request.GetScopes()`), ograniczone permissionami klienta seedowanymi
-  w bazie. `SetResources(UserTokenAudiences.All)` ustawia `aud` na `lotrokoniecdev-api` (`tms-api`) i
-  `lotrokoniecdev-auth-api` (`auth-api`). Wymiana kodu i refresh ustawiają tę listę od nowa, a nie
-  biorą jej z kodu czy refresh tokena — powód jest w `UserTokenAudiences` (#1023).
+- **roles**: z `userManager.GetRolesAsync(user)` przy wydawaniu tokena (`TokenEndpoint.cs`,
+  `AuthorizeEndpoint.cs`), wstawiane jako claimy `role`.
+- **scopes**: z żądania klienta (`request.GetScopes()`), ograniczone uprawnieniami klienta w bazie.
+  `SetResources(UserTokenAudiences.All)` ustawia `aud` na `lotrokoniecdev-api` (`tms-api`)
+  i `lotrokoniecdev-auth-api` (`auth-api`). Wymiana kodu i refresh ustawiają tę listę od nowa, zamiast
+  brać ją z kodu albo refresh tokena — powód jest w `UserTokenAudiences` (#1023).
 
-Role seedowane (`DatabaseSeederExtensions.cs:37`): **`Admin`** i **`Translator`**.
+Role seedowane (`DatabaseSeederExtensions.cs`): **`Admin`** i **`Translator`**.
 
 ---
 
 ## 7. TranslationSystem — Resource Server + leniwe prowizjonowanie
 
 ### 7.1 Konfiguracja JwtBearer
-`ApiDependencyInjection.cs:201-247`. Standardowy `AddJwtBearer` (nie OpenIddict validation — prościej):
-- `Authority = EffectiveAuthority` (issuer lub osobne Authority dla Dockera);
+`ApiDependencyInjection.cs`. Standardowy `AddJwtBearer` (nie walidacja OpenIddict — prościej):
+- `Authority = EffectiveAuthority` (`Auth:Authority`, a gdy go brak — `Auth:Issuer`);
 - `Audience = "lotrokoniecdev-api"`;
-- `TokenValidationParameters`: waliduje issuer + audience + lifetime + signing key, bez tolerancji
-  zegara (`ClockSkew = 0`) i tylko dla typu `at+jwt` (#933, ADR-0049);
+- `TokenValidationParameters`: issuer + audience + lifetime + klucz podpisu, bez tolerancji zegara
+  (`ClockSkew = 0`) i tylko typ `at+jwt` (#933, ADR-0049);
 - `NameClaimType = "name"`, `RoleClaimType = "role"`, `MapInboundClaims = false`;
-- **klucze z JWKS**: `ConfigurationManager` ciągnie `{authority}/.well-known/openid-configuration`
-  (`:243`) — `tms-api` nie zna klucza prywatnego, tylko publiczny przez JWKS.
-- `RequireHttpsMetadata` wyłączone w dev/test i dla wewnętrznego `http://` (`:224`).
+- **klucze z JWKS**: `ConfigurationManager` pobiera `{authority}/.well-known/openid-configuration`
+  — `tms-api` zna tylko klucz publiczny;
+- `RequireHttpsMetadata` jest wyłączony w Development i Testing oraz gdy issuer to `http://`.
 
 ### 7.2 Authorization Policies
-`ApiDependencyInjection.cs:258-278`:
+`ApiDependencyInjection.cs` (`AddAuthorizationPolicies`):
 
 | Policy | Reguła |
 |---|---|
-| **fallback** | `RequireAuthenticatedUser()` — domyślnie dla każdego endpointu bez metadanych |
+| **fallback** | `RequireAuthenticatedUser()` — dla każdego endpointu bez własnych metadanych |
 | `RequireAdminRole` | rola `Admin` |
 | `RequireTranslatorRole` | rola `Admin` **lub** `Translator` |
-| `RequireAuthenticatedUser` | uwierzytelniony |
-| `ApiScope` / `RequireServiceScope` | claim `scope` zawiera `api` / `service` (`HasScope`, `:281`) |
+| `RequireAuthenticatedUser` | zalogowany, dowolna rola (eksport danych tłumacza, ADR-0032) |
+| `ApiScope` / `RequireServiceScope` | claim `scope` zawiera `api` / `service` (`HasScope`); dziś żaden endpoint ich nie używa |
 
-Endpointy są **autoryzowane domyślnie** — anonim dostaje 401. Publiczne (download pliku, health) jawnie
-`AllowAnonymous`.
+Endpointy są **autoryzowane domyślnie** — anonim dostaje 401. Publiczne endpointy mają jawne
+`AllowAnonymous`: dokument usług `GET /`, pobranie pliku, `GET /progress`, lista tłumaczeń i health.
 
 ### 7.3 Leniwe, idempotentne prowizjonowanie tłumacza (ADR-0004) — nasza specyfika
 
-`tms-api` potrzebuje **lokalnej** tożsamości tłumacza (`Translator`),
-by renderować „submitted by / approved by <name>" dla *innych* tłumaczy — czego JWT bieżącego usera nie
-rozwiąże. Zamiast sagi przy rejestracji: **get-or-create przy pierwszym uwierzytelnionym żądaniu**.
+`tms-api` potrzebuje **lokalnej** tożsamości tłumacza (`Translator`), żeby pokazać „submitted by /
+approved by <name>" dla *innych* tłumaczy — JWT bieżącego użytkownika tego nie rozwiąże. Zamiast sagi
+przy rejestracji: **get-or-create przy pierwszym uwierzytelnionym żądaniu**.
 
-`TranslatorProvisioner.ProvisionCurrentAsync` (`TranslatorProvisioner.cs:64`):
-1. czyta `IdentityId` z claimu `sub` (`CurrentUserAccessor.cs:31`); brak → `Forbidden`;
-2. buduje `DisplayName` z claimu `name` (fallback `email`) + opcjonalny `Email`;
-3. **get-or-create** po `IdentityId`: istnieje → `RefreshProfile` (zbiega nazwę po przemianowaniu);
-   nie istnieje → `Create` + insert;
+`TranslatorProvisioner.ProvisionCurrentAsync`:
+1. czyta `IdentityId` z claimu `sub` (`CurrentUserAccessor.cs`); brak → `Forbidden`;
+2. buduje `DisplayName` z claimu `name` (a gdy go brak — z `email`) i opcjonalny `Email`;
+3. **get-or-create** po `IdentityId`: wiersz istnieje i claimy się zmieniły → `RefreshProfile`; nie
+   istnieje → `Create` i insert;
 4. **wyścig pierwszego zapisu**: `DbUpdateException` (unikalny indeks `Translators.IdentityId`) ⇒ odpina
-   swój insert, re-czyta zacommitowany wiersz, refreshuje (`:211-226`).
+   swój insert, czyta zapisany wiersz i go odświeża.
 
-Wynik siedzi w `HybridCache` pod krótkim TTL, kluczowany fingerprintem claimów `name`+`email`
-(PERF-07, #437) — steady state nie kosztuje zapytania do bazy; zmiana claimów zmienia fingerprint i
-odświeża wiersz.
+Wynik siedzi w `HybridCache` na 5 minut, z kluczem zależnym od odcisku claimów `name` i `email`
+(PERF-07, #437). W zwykłym ruchu nie kosztuje zapytania do bazy; zmiana claimów zmienia odcisk
+i odświeża wiersz.
 
-Dwa punkty wywołania (ADR-0004 z poprawką 2026-06-24):
+Dwa miejsca wywołania (ADR-0004, aneks 2026-06-24):
 
-- **eager**: `TranslatorProvisioningMiddleware` (za `UseAuthorization`) prowizjonuje każdego
-  uwierzytelnionego callera już przy pierwszym żądaniu — best-effort (porażka `Result` jest logowana
-  i pomijana, odczyty nie zależą od prowizjonowania);
-- **autorytatywnie**: handlery zapisu, które stemplują `TranslatorId` — upsert
-  (`UpsertTranslation.cs:116`), approve (`ApproveTranslation.cs:87`) i bulk approve
-  (`BulkApproveTranslations.cs`) — tu porażka wraca jako błąd do klienta.
+- **od razu**: `TranslatorProvisioningMiddleware` (za `UseAuthorization`) tworzy profil każdemu
+  zalogowanemu przy pierwszym żądaniu. Porażka `Result` jest logowana i pomijana, więc odczyty od niej
+  nie zależą;
+- **na pewno**: handlery zapisu, które stemplują `TranslatorId` — upsert, approve i bulk approve. Tu
+  porażka wraca do klienta jako błąd.
 
-Join read-modelu rozwiązuje cudze nazwy z wierszy `Translator`, bez sięgania do Auth.
+Odczyt cudzych nazw to join read modelu z wierszami `Translator`, bez sięgania do Auth. Po usunięciu
+konta w Auth profil traci nazwę i e-mail (`Translator.Erase`, ADR-0065).
 
 > Łańcuch referencji: `Translation.SubmittedById/ApprovedById → Translator.Id`, a
-> `Translator.IdentityId → user Auth`. Znormalizowany wiersz `Translator` zamiast denormalizowanej
-> nazwy na każdym wierszu — przy zmianie nazwy nic nie dryfuje. Szczegóły: [DOMAIN.md §Translator](DOMAIN.md#3-translator-adr-0004).
+> `Translator.IdentityId → użytkownik Auth`. Jeden wiersz `Translator` zamiast kopii nazwy na każdym
+> wierszu — po zmianie nazwy nic się nie rozjeżdża. Szczegóły: [DOMAIN.md §Translator](DOMAIN.md#3-translator-adr-0004).
 
 ### 7.4 Użycie w endpointach
 ```csharp
 endpointRouteBuilder.MapPost("/api/v1/translations/{id:guid}/approve", /* … */)
-    .RequireAuthorization(AuthorizationPolicies.RequireAdminRole);   // ApproveTranslation.cs:112
+    .RequireAuthorization(AuthorizationPolicies.RequireAdminRole);   // ApproveTranslation.cs
 ```
-`ClaimsPrincipal user` w delegacie + `user.IsInRole(AuthConstants.Roles.Admin)` kształtuje też linki
-HATEOAS (np. `approve` widoczne tylko dla admina) — `ListTranslations.cs:172`.
+Linki HATEOAS pokazują się tylko temu, kto może za nimi pójść: `ILinkFactory` sprawdza politykę
+docelowego endpointu (ADR-0040), a slice dodaje reguły stanu (np. `approve` tylko na `Draft` /
+`NeedsReview`).
 
 ---
 
 ## 8. Frontend (Blazor SSR) — Client
 
+ADR-0067 ustala, kto co sprawdza: Frontend jest klientem i sprawdza tylko to, czego OpenID Connect
+wymaga od klienta (robi to handler OIDC). Access token jest dla niego nieprzezroczysty — sprawdza go
+`tms-api`.
+
 ### 8.1 Schemat: cookies + OIDC
-`AuthenticationDependencyInjectionExtensions.cs:55-83`. Dwa schematy:
-- **Cookie** (`DefaultScheme` + `DefaultChallengeScheme`) — sesja usera po zalogowaniu
-  (`.lotrokoniecdev.auth`, HttpOnly, SameSite Lax, 8 h sliding). Strona, która wymaga logowania, robi
-  challenge cookie, czyli 302 na `/auth/login?ReturnUrl=…` (`LoginPath`), nigdy prosto do `auth-api`
-  (#1153);
+`AuthenticationDependencyInjectionExtensions.cs`. Dwa schematy:
+- **Cookie** (`DefaultScheme` + `DefaultChallengeScheme`) — sesja po zalogowaniu
+  (`.lotrokoniecdev.auth`, HttpOnly, SameSite Lax, 8 h z przesuwaniem). Strona, która wymaga
+  logowania, robi challenge cookie, czyli 302 na `/auth/login?ReturnUrl=…` (`LoginPath`), nigdy prosto
+  do `auth-api` (#1153);
 - **OpenIdConnect** (`DefaultSignOutScheme`) — challenge do `auth-api` robi jawnie `/auth/login`.
 
-Po zalogowaniu user nosi **cookie**, nie token w przeglądarce; tokeny (access/refresh/id) leżą w
-zaszyfrowanej sesji po stronie serwera (`SaveTokens = true`).
+Po zalogowaniu przeglądarka nosi **cookie**, nie token. Tokeny (access/refresh/id) leżą w
+zaszyfrowanym cookie sesji (`SaveTokens = true`).
 
 ### 8.2 Konfiguracja OIDC
-`AuthenticationDependencyInjectionExtensions.cs:114-150`:
+`AuthenticationDependencyInjectionExtensions.cs`:
 - `Authority = settings.Authority` (`auth-api`), `ClientId = settings.ClientId` (`lotrokoniecdev-web`);
-- `ResponseType = code`, `UsePkce = true`, `SaveTokens = true`;
+- `ResponseType = code`, `ResponseMode = query`, `UsePkce = true`, `SaveTokens = true`. `query` jest
+  konieczne: strona `form_post` OpenIddict wysyła się skryptem inline, który blokuje CSP `auth-api`
+  (#693);
 - `GetClaimsFromUserInfoEndpoint = true` — dociąga claimy z `connect/userinfo`;
 - `MapInboundClaims = false`, `NameClaimType = "name"`, `RoleClaimType = "role"`;
-- `CallbackPath` / `SignedOutCallbackPath` z konfiguracji; scope'y z `settings.Scopes`;
-- `OnValidatePrincipal = CookieTokenRefresher.ValidateAsync` — odświeża wygasający access token z
-  refresh tokena na każdym żądaniu poza `POST /auth/logout` i `POST /auth/local-signout` (§8.4);
-- `OnRemoteFailure` / `OnAccessDenied` → dedykowane strony błędów (trace ID zachowany).
+- `CallbackPath` / `SignedOutCallbackPath` i scope'y z konfiguracji;
+- `OnValidatePrincipal` woła `CookieTokenRefresher` — odświeża wygasający access token na każdym
+  żądaniu poza `POST /auth/logout` i `POST /auth/local-signout` (§8.4);
+- `OnRemoteFailure` / `OnAccessDenied` → własne strony błędów (z trace ID).
 
 ### 8.3 Login / logout flow
 `AuthEndpointsExtensions.cs`:
 - **Login**: `GET /auth/login?returnUrl=…` → `Results.Challenge` na schemat OIDC → 302 do
-  `connect/authorize`. `returnUrl` waliduje `LocalReturnUrl.Sanitize` (anti open-redirect). Najpierw
-  `SignInAvailability` wczytuje discovery document przez configuration manager handlera OIDC; gdy
-  `auth-api` nie odpowiada, a frontend nie ma jeszcze kopii tego dokumentu, trasa zwraca 503 i
-  status-code pages pokazują „Logowanie chwilowo niedostępne” (#311). Z kopią w pamięci użytkownik
-  trafia dalej do `auth-api` (#1208). Tędy idzie każda strona wymagająca logowania (#1153), a także nieudany powrót z
-  logowania (`OnRemoteFailure`), gdy `auth-api` jest nieosiągalne.
-- **Logout**: `POST /auth/logout` → `SignOutAsync(cookie)`, potem frontend sam rewokuje swój refresh
-  token w `connect/revoke` (serwer–serwer, `RefreshTokenRevoker`, #964), a na koniec redirect na
-  `connect/logout` z `id_token_hint` + `post_logout_redirect_uri` (RP-initiated end-session).
-  `auth-api` przy logoucie **rewokuje sesję tego urządzenia** (§10.3); sesje na innych urządzeniach
-  żyją dalej.
+  `connect/authorize`. `returnUrl` sprawdza `LocalReturnUrl.Sanitize` (ochrona przed open redirect).
+  Najpierw `SignInAvailability` wczytuje discovery document przez configuration manager handlera OIDC.
+  Gdy `auth-api` nie odpowiada, a Frontend nie ma jeszcze kopii dokumentu, trasa zwraca 503 i strona
+  mówi „Logowanie chwilowo niedostępne" (#311). Z kopią w pamięci użytkownik idzie dalej do
+  `auth-api` (#1208). Tędy przechodzi każda strona wymagająca logowania (#1153) i nieudany powrót
+  z logowania (`OnRemoteFailure`).
+- **Logout**: `POST /auth/logout` → `SignOutAsync(cookie)`, potem Frontend sam unieważnia swój refresh
+  token w `connect/revoke` (serwer–serwer, `RefreshTokenRevoker`, #964), a na koniec przekierowuje na
+  `connect/logout` z `id_token_hint` i `post_logout_redirect_uri`. `auth-api` **kończy sesję tego
+  urządzenia** (§10.3); sesje na innych urządzeniach żyją dalej.
 
 ### 8.4 CookieTokenRefresher
-`Infrastructure/Auth/TokenRefresh/CookieTokenRefresher.cs` na `OnValidatePrincipal`: gdy access token
-bliski wygaśnięcia, wymienia refresh token na nowy w `connect/token` (przez `ITokenEndpointClient`) i
-aktualizuje sesję. Rolling refresh ⇒ stary refresh token unieważniony, nowy zapisany. Nieudany refresh
-jest chwilowy albo ostateczny (ADR-0067 decyzja 3, #1062). **Chwilowy** (429, każdy 5xx, błąd sieci,
-timeout 30 s z #923) nie kończy sesji, dopóki bieżący access token działa: strona niczego nie rewokuje,
-nie pokazuje komunikatu i próbuje znowu przy następnym żądaniu. Okno to reszta życia tokenu, około
-minuty, bez osobnego ustawienia. **Ostateczny** (każda inna odmowa, np. 400 `invalid_grant`, odpowiedź
-2xx, której nie da się przeczytać, albo chwilowy błąd już po wygaśnięciu tokenu) kończy sesję od razu. Z odpowiedzi refreshu strona czyta tylko to, czego potrzebuje: token i
-`expires_in`. Nie sprawdza kształtu ani znaków tokenów i nie waliduje odnowionego ID tokenu.
-Sam access token jest dla frontendu nieprzezroczysty (ADR-0067 decyzja 2, #1058): frontend nie sprawdza
-jego podpisu, kształtu ani `exp`. Dla żywej sesji, której nie trzeba odnawiać, sprawdzenie cookie
-(`OnValidatePrincipal`) w ogóle nie woła `auth-api`.
-Token sprawdza `tms-api` przy każdym wywołaniu. Odmowę widać na dwa sposoby: 401 z endpointu, który
-wymaga logowania, albo dokument usługi (`GET /`, otwarty dla każdego) bez linków dla zalogowanego.
-Każda z nich zostawia znacznik w `DeadSessionRegistry`, a następne żądanie kończy po nim sesję (czysty
-re-login). Tak kończy się też sesja po twardej wymianie klucza podpisu: pierwsza strona, która woła taki
-endpoint (np. „Panel”), pokazuje błąd zamiast danych, a następna kończy sesję z komunikatem o
-wygaśnięciu. Strony publiczne same tego nie wykryją, bo endpoint otwarty dla gości odpowiada na zły
-token jak na gościa; wtedy sesję kończy najpóźniej odnowienie, po najwyżej 5 minutach. Znacznik wisi pod skrótem SHA-256 tokenu dostępu, który niosło
-odrzucone wywołanie, a nie pod id użytkownika, więc kończy się tylko sesja urządzenia z tym tokenem, a
-ten sam użytkownik na innym urządzeniu zostaje zalogowany (#1061). Na `POST /auth/logout` i
-`POST /auth/local-signout` refresher niczego nie sprawdza, żeby wylogowanie rewokowało bieżący, nie
-zużyty refresh token (§10.3, #964, #1027).
-Gdy strona sama kończy sesję (znacznik martwej sesji, ostatecznie nieudany albo nieużyteczny refresh),
-rewokuje też refresh token z cookie przez `RefreshTokenRevoker` (#1027): samo usunięcie cookie
-zostawiłoby go ważnym na serwerze przez godziny. Przy nieużytecznej odpowiedzi refreshu
-rewokuje także nowy token z tej odpowiedzi, bo serwer już wymienił stary na nowy. Oba wywołania mają
-jeden limit 5 s, ten sam co przy wylogowaniu. Wyjątek: przeglądarka zerwała żądanie w trakcie refreshu,
-który kończy sesję (odmowa albo token już wygasł). Wtedy błąd nic nie mówi o tokenie, przeglądarka nie
-dostaje usuniętego cookie i wróci z tym samym tokenem, więc token zostaje ważny.
+`Infrastructure/Auth/TokenRefresh/CookieTokenRefresher.cs`, na `OnValidatePrincipal`. Gdy access token
+zbliża się do końca, wymienia refresh token w `connect/token` (przez `ITokenEndpointClient`) i zapisuje
+nową sesję. Rolling refresh: stary refresh token jest unieważniony, nowy zapisany. Żywa sesja, której
+nie trzeba odnawiać, w ogóle nie woła `auth-api`.
+
+Nieudany refresh jest chwilowy albo ostateczny (ADR-0067 decyzja 3, #1062):
+- **chwilowy** (429, każdy 5xx, błąd sieci, timeout 30 s z #923) nie kończy sesji, dopóki bieżący
+  access token działa. Strona niczego nie unieważnia, nic nie pokazuje i próbuje znowu przy następnym
+  żądaniu. Okno to reszta życia tokena, około minuty;
+- **ostateczny** (każda inna odmowa, np. 400 `invalid_grant`, nieczytelna odpowiedź 2xx, albo chwilowy
+  błąd już po wygaśnięciu tokena) kończy sesję od razu.
+
+Z odpowiedzi refreshu strona czyta tylko token i `expires_in`. Nie sprawdza kształtu ani znaków
+tokenów, nie waliduje odnowionego id tokena, a access tokena nie sprawdza wcale: ani podpisu, ani
+kształtu, ani `exp` (ADR-0067 decyzja 2, #1058).
+
+**Martwa sesja.** Odmowę tokena widać na dwa sposoby: 401 z endpointu, który wymaga logowania, albo
+dokument usług (`GET /`, otwarty dla każdego) bez linków dla zalogowanego. Każda zostawia znacznik
+w `DeadSessionRegistry`, a następne żądanie kończy po nim sesję (czysty re-login). Tak kończy się
+też sesja po twardej wymianie klucza podpisu: pierwsza strona, która woła endpoint wymagający
+logowania (np. „Panel”), pokazuje błąd zamiast danych, a następna kończy sesję z komunikatem
+o wygaśnięciu. Znacznik wisi pod
+skrótem SHA-256 odrzuconego access tokena, nie pod id użytkownika, więc kończy się tylko sesja
+urządzenia z tym tokenem (#1061). Strony publiczne same tego nie wykryją, bo otwarty endpoint traktuje
+zły token jak gościa; wtedy sesję kończy najpóźniej odnowienie, po najwyżej 5 minutach.
+
+**Sprzątanie.** Gdy strona sama kończy sesję (znacznik martwej sesji, ostatecznie nieudany albo
+nieczytelny refresh), unieważnia też refresh token z cookie przez `RefreshTokenRevoker` (#1027), bo
+samo usunięcie cookie zostawiłoby go ważnym na serwerze przez godziny. Przy nieczytelnej odpowiedzi
+unieważnia także nowy token z tej odpowiedzi. Oba wywołania mają wspólny limit 5 s. Wyjątek:
+przeglądarka zerwała żądanie w trakcie takiego refreshu — wtedy nie dostanie usuniętego cookie
+i wróci z tym samym tokenem, więc token zostaje ważny. Na `POST /auth/logout` i
+`POST /auth/local-signout` refresher niczego nie sprawdza, żeby wylogowanie unieważniło bieżący,
+niezużyty refresh token (§10.3, #964, #1027).
 
 ### 8.5 Wywołania do API z tokenem
 `TranslationContentNegotiationAndAuthDelegatingHandler` dokłada `Authorization: Bearer <access>` (z
-sesji) + nagłówek `Accept` HATEOAS do każdego wywołania `tms-api`. Frontend referuje
-`TranslationSystem.Contracts` bezpośrednio (te same DTO).
+sesji) i nagłówek `Accept` HATEOAS do każdego wywołania `tms-api`. `SameOriginDelegatingHandler`
+(pierwszy w łańcuchu) nie puszcza żądania na inny origin niż skonfigurowany, a
+`FrontendCallerDelegatingHandler` dokłada adres odwiedzającego i klucz Frontendu do limitów
+(ADR-0054). Frontend używa `TranslationSystem.Contracts` bezpośrednio (te same DTO).
 
 ---
 
 ## 9. Service-to-service (client credentials)
 
-Gdy `auth-api` musi zawołać `tms-api` bez usera (albo dowolna usługa-do-usługi): grant
-**client_credentials** klienta `lotrokoniecdev-api` (confidential, sekret). `TokenEndpoint.cs:195-217`
-buduje `ClaimsIdentity` z `sub = client_id`, scope'ami z requestu i `aud = lotrokoniecdev-api`. Po
-stronie `tms-api` taki token przechodzi policy `RequireServiceScope` (scope `service`) — gdyby slice
-tego wymagał (dziś żaden nie wymaga, ale infrastruktura jest gotowa).
+Gdy usługa musi zawołać `tms-api` bez użytkownika: grant **client_credentials** klienta
+`lotrokoniecdev-api` (confidential, z sekretem). `TokenEndpoint.HandleClientCredentialsGrant` buduje
+`ClaimsIdentity` z `sub = client_id`, scope'ami z żądania i `aud = lotrokoniecdev-api`. W `tms-api`
+taki token przeszedłby policy `RequireServiceScope` (scope `service`), gdyby slice jej wymagał — dziś
+żaden nie wymaga.
 
 W samym `auth-api` taki token nie wejdzie na żaden endpoint z bearerem (`auth/*` z logowaniem i
-`connect/userinfo`). Walidacja OpenIddict w `auth-api` przyjmuje tylko token z audience
-`lotrokoniecdev-auth-api` (`AddAudiences` w `OpenIddictExtensions.cs`), a token usługi ma tylko
-`lotrokoniecdev-api`, więc dostaje 401 `invalid_token`, zanim ruszy jakakolwiek policy (#1023). Za tym
-stoją jeszcze dwie warstwy, na wypadek gdyby token klienta kiedyś wymienił `auth-api`: domyślna policy
-`UserTokenPolicy` (`sub` musi być GUID-em usera, inaczej 403 — #966) i własne sprawdzenie w
-`connect/userinfo` (`invalid_token` — #955).
+`connect/userinfo`). Walidacja OpenIddict w `auth-api` przyjmuje tylko audience
+`lotrokoniecdev-auth-api`, a token usługi ma tylko `lotrokoniecdev-api`, więc dostaje 401
+`invalid_token`, zanim zadziała jakakolwiek policy (#1023). Gdyby token klienta kiedyś wymienił
+`auth-api`, są jeszcze dwie warstwy: domyślna policy `UserTokenPolicy` (`sub` musi być GUID-em
+użytkownika, inaczej 403 — #966) i własne sprawdzenie w `connect/userinfo` (`invalid_token` — #955).
 
 ---
 
 ## 10. Bezpieczeństwo — co i czemu
 
 ### 10.1 PKCE
-`RequireProofKeyForCodeExchange()` (`OpenIddictExtensions.cs:45`). Klient publiczny (Frontend, bez
-sekretu) generuje `code_verifier`, wysyła `code_challenge = SHA256(verifier)` przy `authorize`, a przy
-wymianie `code → token` dowodzi posiadania `verifier`. Chroni przed przechwyceniem kodu autoryzacyjnego.
+`RequireProofKeyForCodeExchange()`. Klient publiczny (Frontend, bez sekretu) generuje `code_verifier`,
+wysyła `code_challenge = SHA256(verifier)` przy `authorize`, a przy wymianie `code → token` pokazuje
+`verifier`. Przechwycony kod jest wtedy bezużyteczny.
 
 ### 10.2 Rolling reference refresh tokens
-`UseReferenceRefreshTokens()` (`:53`). Refresh tokeny są **referencyjne** (zapisane w bazie, nie
-self-contained) ⇒ **rewokowalne**. Rolling: użycie refresh tokena unieważnia stary i wydaje nowy ⇒
-ogranicza replay. Logout rewokuje te z sesji tego urządzenia (`LogoutEndpoint.cs` → `IUserSessionRevoker`).
-Refresh token żyje **9 h** od ostatniego użycia: każdy nowy token dostaje znów pełne 9 h (sliding). Cookie
-strony, w którym frontend trzyma token, wygasa po 8 h bezczynności, więc dłuższy czas nic nie daje, a
-godzina zapasu pilnuje, żeby token nie umarł przed cookie (#1014).
+`UseReferenceRefreshTokens()`. Refresh tokeny są **referencyjne** (zapisane w bazie, a nie
+samowystarczalne), więc można je **unieważnić**. Rolling: użycie refresh tokena unieważnia stary
+i wydaje nowy, co ogranicza replay. Logout unieważnia tokeny sesji tego urządzenia (`LogoutEndpoint.cs`
+→ `IUserSessionRevoker`). Refresh token żyje **9 h** od ostatniego użycia: każdy nowy token dostaje
+znów pełne 9 h. Cookie strony, w którym Frontend trzyma token, wygasa po 8 h bezczynności, więc
+dłuższy czas nic nie daje, a godzina zapasu pilnuje, żeby token nie umarł przed cookie (#1014).
 
 ### 10.3 Token revocation przy logout
 Logout kończy **tylko sesję tego urządzenia** (decyzja ownera w #931). Każde logowanie przez stronę
-dostaje od OpenIddict własną autoryzację (ad-hoc, bo `AuthorizeEndpoint` żadnej nie tworzy sam), a
-refresh zachowuje jej id: jedno logowanie = jedna autoryzacja. `LogoutEndpoint.cs` bierze jej id z
-`id_token_hint`. Wcześniejsze logowanie na tym samym urządzeniu, którego sesja strony już wygasła
-(cookie strony żyje 8 h, refresh token 9 h od ostatniego użycia), ma własną autoryzację i logout jej
-nie kończy.
-OpenIddict sprawdza podpis hintu oraz to, że wiersz tokena i jego autoryzacji w bazie są wciąż ważne,
-oraz że hint należy do klienta, do którego należy `post_logout_redirect_uri`. Nie sprawdza czasu
-ważności: stary ID token działa, dopóki jego sesja żyje, a hint sesji już zakończonej nic nie robi.
-Potem `IUserSessionRevoker.RevokeSessionAsync(authorizationId)`: najpierw autoryzacja, potem jej tokeny
-jednym bulk update (`RevokeByAuthorizationIdAsync`), w tej samej kolejności co `RevokeAllAsync` przy
-zmianie hasła. Na koniec `SignOutAsync` czyści cookie `auth-api` tej przeglądarki i usuwa z bazy jego
-sesję (ADR-0062): cookie niesie tylko klucz sesji, a sama sesja leży w tabeli `SignInSessions`
-(`SignInSessionTicketStore`), więc skopiowane cookie przestaje działać razem z oryginałem. Każde
-logowanie dostaje nową sesję (`SignInSessionCookieHandler` usuwa najpierw sesję starego cookie tej
-przeglądarki), więc kopia starego cookie nie przejmuje nowego logowania, a wylogowanie czyści cookie
-przeglądarki nawet przy błędzie bazy.
-Cookie Identity nie wskazuje sesji strony: należy do przeglądarki, nie do jednego logowania strony.
-Dlatego logout bez ważnego hintu niczego nie rewokuje, tylko kończy sesję cookie. Frontend zawsze
-wysyła hint, gdy ma sesję (`AuthEndpointsExtensions.LogoutAsync`).
-Redirect na `connect/logout` działa tylko wtedy, gdy przeglądarka tam dotrze (zamknięta karta, zerwana
-sieć, restart `auth-api`). Dlatego frontend przed redirectem sam rewokuje swój refresh token (#964):
-`RefreshTokenRevoker` bierze `revocation_endpoint` z discovery (nigdy własnej ścieżki), wysyła
-`token` + `token_type_hint=refresh_token` + `client_id` (klient publiczny, bez sekretu) przez
-`ITokenEndpointClient` z kontrolą originu i kluczem frontendu (ADR-0054). Ma limit 5 s, nie zależy od
-`RequestAborted` (zamknięta karta to właśnie ten przypadek), a błąd tylko loguje i nie zatrzymuje
-wylogowania. Na żądaniu wylogowania `CookieTokenRefresher` nie odświeża tokena i niczego nie sprawdza
-(znacznik martwej sesji też zostaje, bo nazywa token tej sesji, #1061): odświeżenie zużyłoby bieżący
-refresh token, a zużyty OpenIddict przyjmuje jeszcze przez okno reuse leeway (domyślnie 30 s), więc
-rewokacja trafiłaby w nowy token, a nie w ten z kopii cookie. Kopia cookie strony nie odnowi się już po wygaśnięciu access tokena.
-Autoryzację i resztę tokenów kończy nadal `connect/logout`, gdy przeglądarka tam dotrze.
-Na innych urządzeniach żyją i sesje strony, i cookie `auth-api` — tak ma być. Wszystkie sesje naraz
-kończy zmiana hasła (i reset, zmiana e-maila, usunięcie konta), które zmieniają security stamp.
+dostaje od OpenIddict własną autoryzację (ad hoc, bo `AuthorizeEndpoint` żadnej nie tworzy sam),
+a refresh zachowuje jej id: jedno logowanie = jedna autoryzacja. `LogoutEndpoint.cs` bierze jej id
+z `id_token_hint`. Wcześniejsze logowanie na tym samym urządzeniu, którego sesja strony już wygasła,
+ma własną autoryzację i logout jej nie kończy.
 
-### 10.4 Timing attack mitigation
-`TokenEndpoint.cs:20`, `:87-89`: gdy user nie istnieje, i tak liczony jest **dummy hash**, by czas
-odpowiedzi nie zdradzał „user not found" vs „złe hasło" (anti-enumeration). Forgot/Resend password
-zawsze zwracają sukces (ten sam wzorzec).
+OpenIddict sprawdza podpis hintu, to, że token i jego autoryzacja są wciąż ważne w bazie, i to, że
+hint należy do klienta, do którego należy `post_logout_redirect_uri`. Nie sprawdza czasu ważności:
+stary id token działa, dopóki jego sesja żyje. Potem `IUserSessionRevoker.RevokeSessionAsync`
+unieważnia autoryzację, a następnie jej tokeny jednym bulk update (`RevokeByAuthorizationIdAsync`).
+Na koniec `SignOutAsync` czyści cookie `auth-api` tej przeglądarki i usuwa z bazy jego sesję
+(ADR-0062): cookie niesie tylko klucz sesji, a sama sesja leży w tabeli `SignInSessions`
+(`SignInSessionTicketStore`), więc skopiowane cookie przestaje działać razem z oryginałem. Każde
+logowanie dostaje nową sesję (`SignInSessionCookieHandler` usuwa najpierw sesję starego cookie).
+Cookie Identity należy do przeglądarki, a nie do jednego logowania strony, dlatego logout bez ważnego
+hintu niczego nie unieważnia, tylko kończy sesję cookie. Frontend zawsze wysyła hint, gdy ma sesję.
+
+Przeglądarka może nie dotrzeć do `connect/logout` (zamknięta karta, zerwana sieć, restart
+`auth-api`). Dlatego Frontend przed przekierowaniem sam unieważnia swój refresh token (#964):
+`RefreshTokenRevoker` bierze `revocation_endpoint` z discovery (nigdy własnej ścieżki) i wysyła
+`token` + `token_type_hint=refresh_token` + `client_id` przez `ITokenEndpointClient`. Ma limit 5 s,
+nie zależy od `RequestAborted` (zamknięta karta to właśnie ten przypadek), a błąd tylko loguje. Na
+żądaniu wylogowania refresher nie odświeża tokena: odświeżenie zużyłoby bieżący refresh token, który
+OpenIddict przyjmuje jeszcze przez okno reuse leeway (domyślnie 30 s), więc unieważnienie trafiłoby
+w nowy token, a nie w ten z kopii cookie.
+
+Na innych urządzeniach żyją i sesje strony, i cookie `auth-api` — tak ma być. Wszystkie sesje naraz
+kończy zmiana hasła (a także reset, zmiana e-maila i usunięcie konta), bo zmienia security stamp.
+
+### 10.4 Ochrona przed timing attack
+Gdy użytkownik nie istnieje, `TokenEndpoint.cs` i strona logowania i tak sprawdzają hasło z **dummy
+hashem**, żeby czas odpowiedzi nie zdradzał „nie ma użytkownika" kontra „złe hasło". Anonimowe
+odpowiedzi, które ukrywają istnienie konta, czekają też do minimalnego czasu (`IResponseTimeFloor`,
+ADR-0059: 500 ms, rejestracja 1 s, ponowne wysłanie potwierdzenia 3 s). Forgot password i resend
+confirmation zawsze zwracają sukces.
 
 ### 10.5 HTTPS i metadata
-Produkcja: `RequireHttpsMetadata = true` (`ApiDependencyInjection.cs:224`), JWKS/discovery tylko po
-HTTPS. Dev/test i wewnętrzne `http://…:8080` (compose) wyłączają wymóg.
+W `tms-api` `RequireHttpsMetadata` jest włączony poza Development i Testing, gdy issuer to `https://`, więc JWKS
+i discovery idą tylko po HTTPS.
 
 ### 10.6 Cookie security
-`.lotrokoniecdev.auth`: `HttpOnly` (JS nie czyta), `SameSite=Lax` (anti-CSRF), `SecurePolicy` =
-`Always` poza Development (za proxy TLS terminuje przed appką, więc `SameAsRequest` gubił flagę
-`Secure` — AUDIT-SEC-10/#400; w Development zostaje `SameAsRequest`), `Path=/` (sign-in/out zawsze
-trafiają w to samo cookie). 8 h sliding.
+`.lotrokoniecdev.auth`: `HttpOnly` (JS go nie czyta), `SameSite=Lax` (ochrona przed CSRF),
+`SecurePolicy = Always` poza Development (TLS kończy się na proxy, więc `SameAsRequest` gubił flagę
+`Secure` — AUDIT-SEC-10, #400), `Path=/` (logowanie i wylogowanie zawsze trafiają w to samo cookie).
+8 h z przesuwaniem.
 
 ### 10.7 Akceptacje przy rejestracji (umowa, nie zgoda) i kasowanie konta
-`RegisterUser.cs:52-56`: `acceptedPrivacyPolicy` i (od LEGAL-03) `acceptedTermsOfService` **muszą być
-`true`**, data każdej akceptacji stemplowana na `ApplicationUser`. Zgody na przetwarzanie danych nie ma
-od #1073: konto działa na podstawie umowy, a nie zgody, więc rejestracja o nią nie pyta (ADR-0068).
-`DeleteAccount` **planuje** kasowanie RODO z 14-dniowym oknem anulowania (ADR-0031): konto
-zablokowane na czas okna, sesje i tokeny rewokowane, jednorazowy link anulowania mailem;
-erasure wykonuje finalizer po upływie okna (usuwa też zapisane sesje cookie `auth-api` — ADR-0062),
-a anulowanie wymusza reset hasła.
-`auth/account/data-export` = eksport danych.
+`RegisterUser.cs`: `acceptedPrivacyPolicy` i `acceptedTermsOfService` **muszą być `true`**, a data
+każdej akceptacji trafia na `ApplicationUser`. Zgody na przetwarzanie danych nie ma (#1073): konto
+działa na podstawie umowy, nie zgody (ADR-0068).
+`DeleteAccount` **planuje** kasowanie RODO z 14-dniowym oknem anulowania (ADR-0031): konto zablokowane
+na czas okna, sesje i tokeny unieważnione, jednorazowy link anulowania mailem przez outbox. Usunięcie
+wykonuje finalizer po oknie (usuwa też zapisane sesje cookie `auth-api` — ADR-0062 — i powiadamia TMS
+— ADR-0065), a anulowanie wymusza reset hasła.
+`GET auth/account/data-export` to widok konta dla „Moje konto"; eksport danych RODO to
+`POST auth/account/data-export` za aktualnym hasłem (ADR-0052).
 
-### 10.8 Walidacja kluczy w produkcji
-`ConfigureOpenIddictServerSettings`: RSA min 2048 bit, AES min 256 bit, czytelne wyjątki przy złym
-formacie base64/XML (`OpenIddictExtensions.cs:126`, `:152-156`). `OpenIddictSettingsValidator` egzekwuje
-ustawienia tylko w produkcji.
+### 10.8 Walidacja kluczy i ustawień
+`ConfigureOpenIddictServerSettings`: RSA min 2048 bitów, AES min 256 bitów, czytelne wyjątki przy złym
+formacie base64/XML. `OpenIddictSettingsValidator` sprawdza ustawienia w każdym środowisku poza
+Development i Testing, więc Staging też musi mieć klucze, sekret klienta API i adresy przekierowań.
 
 ---
 
 ## 11. Jak to opowiadać na rozmowie — cheatsheet
 
 ### Wersja 30-sekundowa
-> „Mam self-hosted OAuth2/OIDC oparty o OpenIddict + ASP.NET Identity (`auth-api`). Frontend Blazor SSR
-> to OIDC relying party — loguje usera przez authorization code + PKCE, trzyma tokeny w sesji za cookie.
-> API translacji (`tms-api`) to resource server: waliduje podpisany JWT przez JWKS i autoryzuje po
-> rolach. Profil tłumacza w domenie powstaje **leniwie** przy pierwszym uwierzytelnionym żądaniu, nie
-> sagą przy rejestracji — czysty rozdział bounded contextów."
+> „Mam własny serwer OAuth2/OIDC na OpenIddict + ASP.NET Identity (`auth-api`). Frontend Blazor SSR
+> jest klientem OIDC — loguje użytkownika przez authorization code + PKCE i trzyma tokeny w sesji za
+> cookie. API tłumaczeń (`tms-api`) to resource server: sprawdza podpisany JWT przez JWKS i autoryzuje
+> po rolach. Profil tłumacza w domenie powstaje **leniwie** przy pierwszym uwierzytelnionym żądaniu,
+> a nie sagą przy rejestracji — czysty podział bounded contextów."
 
 ### Wersja 2-minutowa
-Dorzuć: reference rolling refresh tokeny (rewokacja przy logoucie), `MapInboundClaims=false` (surowe
-claimy OpenIddict), efemeryczne klucze w dev / RSA z rotacją w prod, fallback policy = authorized by
-default, role `Admin`/`Translator`, i czemu lazy provisioning (read path renderuje cudze nazwy → join
-read-modelu, write path stempluje FK → first-touch get-or-create idempotentny na unikalnym indeksie).
+Dorzuć: referencyjne rolling refresh tokeny (unieważniane przy logoucie), `MapInboundClaims=false`
+(claimy pod nazwami OpenIddict), klucze jednorazowe w dev / RSA z rotacją w prod, fallback policy =
+autoryzacja domyślnie, role `Admin`/`Translator`, i czemu leniwe prowizjonowanie (odczyt pokazuje cudze
+nazwy → join read modelu; zapis stempluje FK → get-or-create przy pierwszym dotknięciu, idempotentny
+dzięki unikalnemu indeksowi).
 
 ### Skróty, które trzeba znać
 AS / RS / RP · JWT (`header.payload.signature`) · JWKS · `sub`/`aud`/`iss`/`exp` · PKCE · scope vs role
@@ -526,49 +543,48 @@ AS / RS / RP · JWT (`header.payload.signature`) · JWKS · `sub`/`aud`/`iss`/`e
 
 ## 12. Pytania, które dostaniesz na 100%
 
-**Q: Czemu JWT a nie sesja w bazie?** — RS waliduje stateless (podpis + JWKS + exp), bez round-tripu do
-AS. Skalowalne. Koszt: trudna rewokacja access tokena ⇒ krótki żywot + rewokowalne refresh tokeny.
+**Q: Czemu JWT, a nie sesja w bazie?** — RS waliduje bez stanu (podpis + JWKS + exp), bez pytania AS.
+Łatwo skalować. Koszt: trudno unieważnić access token ⇒ krótki żywot i refresh tokeny, które można
+unieważnić.
 
-**Q: Co to PKCE i czemu potrzebne?** — Klient publiczny nie ma sekretu; PKCE (`code_verifier` +
-`code_challenge`) dowodzi, że ten sam klient, który zaczął flow, wymienia kod ⇒ przechwycony kod jest
+**Q: Co to PKCE i czemu potrzebne?** — Klient publiczny nie ma sekretu. PKCE (`code_verifier` +
+`code_challenge`) dowodzi, że kod wymienia ten sam klient, który zaczął flow ⇒ przechwycony kod jest
 bezużyteczny.
 
-**Q: Jak waliduje się token po stronie API?** — `JwtBearer`: ściąga JWKS z
-`{authority}/.well-known/openid-configuration`, sprawdza podpis, `iss`, `aud`, `exp` (bez tolerancji
+**Q: Jak waliduje się token po stronie API?** — `JwtBearer` pobiera JWKS z
+`{authority}/.well-known/openid-configuration` i sprawdza podpis, `iss`, `aud`, `exp` (bez tolerancji
 zegara) i typ `at+jwt` (#933). Klucza prywatnego RS nie zna.
 
-**Q: Co się dzieje przy logoucie?** — Cookie sign-out, rewokacja refresh tokena strony serwer–serwer
-(#964) i RP-initiated end-session do `auth-api`, które **rewokuje autoryzację i reference tokeny sesji
-tego urządzenia** (§10.3). Inne urządzenia zostają zalogowane. Access token (krótki) wygaśnie sam.
+**Q: Co się dzieje przy logoucie?** — Wylogowanie z cookie, unieważnienie refresh tokena strony
+serwer–serwer (#964) i RP-initiated end-session w `auth-api`, który **unieważnia autoryzację i tokeny
+sesji tego urządzenia** (§10.3). Inne urządzenia zostają zalogowane. Krótki access token wygaśnie sam.
 
-**Q: Czemu refresh tokeny są referencyjne?** — Żeby były **rewokowalne** (w bazie) i rolling (replay
-mitigation). Self-contained nie da się unieważnić przed wygaśnięciem.
+**Q: Czemu refresh tokeny są referencyjne?** — Żeby dało się je **unieważnić** (są w bazie) i żeby
+rolling ograniczał replay. Tokena samowystarczalnego nie da się unieważnić przed wygaśnięciem.
 
-**Q: Czemu OpenIddict a nie gotowy IdP?** — Pełna kontrola i zero zależności/kosztu zewnętrznego.
-Na start był to sprawdzony serwer skopiowany z wcześniejszego projektu autora; od tamtej pory
-rozwija się już tylko tutaj.
+**Q: Czemu OpenIddict, a nie gotowy IdP?** — Pełna kontrola i brak zależności oraz kosztu u
+zewnętrznego dostawcy. Na start był to sprawdzony serwer skopiowany z wcześniejszego projektu autora;
+od tamtej pory rozwija się już tylko tutaj.
 
 **Q: Jak działa service-to-service?** — Grant client_credentials klienta `lotrokoniecdev-api`
-(confidential, sekret); token bez usera, `sub = client_id`, autoryzacja po scope `service`.
+(confidential, z sekretem); token bez użytkownika, `sub = client_id`, autoryzacja po scope `service`.
 
-**Q: Co to scopes i czym różnią się od ról?** — Scope = na co klient prosi o pozwolenie (`api`,
-`email`); rola = uprawnienie usera (`Admin`/`Translator`). Scope filtruje *co klient* widzi, rola *co
-user* może.
+**Q: Czym scope różni się od roli?** — Scope = na co klient prosi o pozwolenie (`api`, `email`); rola
+= uprawnienie użytkownika (`Admin`/`Translator`). Scope ogranicza *klienta*, rola *użytkownika*.
 
-**Q: Co jak ktoś zmieni payload JWT?** — Podpis przestaje pasować, `JwtBearer` odrzuca (401). Bez
-klucza prywatnego nie da się przepodpisać.
+**Q: Co jak ktoś zmieni payload JWT?** — Podpis przestaje pasować i `JwtBearer` odrzuca token (401).
+Bez klucza prywatnego nie da się podpisać go na nowo.
 
-**Q: Co to lazy provisioning i czemu zamiast sagi?** — Rejestracja tworzy tylko usera Auth; lokalny
-`Translator` w TMS powstaje przy pierwszym uwierzytelnionym żądaniu (middleware best-effort +
-autorytatywnie w handlerach zapisu; get-or-create idempotentny po `IdentityId`, unikalny indeks
-chroni przed wyścigiem). Zero runtime coupling read-path → Auth; bounded contexty rozdzielone
-(ADR-0004 z poprawką).
+**Q: Co to leniwe prowizjonowanie i czemu zamiast sagi?** — Rejestracja tworzy tylko użytkownika Auth;
+lokalny `Translator` w TMS powstaje przy pierwszym uwierzytelnionym żądaniu (middleware bez gwarancji
++ na pewno w handlerach zapisu; get-or-create idempotentny po `IdentityId`, unikalny indeks chroni przed
+wyścigiem). Odczyt w ogóle nie zależy od Auth; bounded contexty są rozdzielone (ADR-0004 z aneksem).
 
-**Q: Co jak AuthSystem padnie?** — Nowe logowania/refreshe padają, ale już-wydane access tokeny działają
-do `exp` (stateless). `tms-api` cache'uje JWKS, więc walidacja istniejących tokenów przeżywa krótką
-niedostępność `auth-api`. Frontend nie sprawdza access tokenu sam, więc strony zalogowanego usera, które
-nie wołają `auth-api` (wszystko poza „Moje konto”), działają nawet po restarcie frontendu, gdy `auth-api`
-leży (#1058). Działają, dopóki access token jest ważny (do 5 minut): potem odnowienie musi zawołać
+**Q: Co jak AuthSystem padnie?** — Nowe logowania i refreshe nie działają, ale wydane access tokeny
+działają do `exp`. `tms-api` trzyma JWKS w cache, więc walidacja przeżywa krótką przerwę `auth-api`.
+Frontend nie sprawdza access tokena sam, więc strony zalogowanego użytkownika, które nie wołają
+`auth-api` (wszystko poza „Moje konto"), działają nawet po restarcie Frontendu, gdy `auth-api` leży
+(#1058). Działają, dopóki access token jest ważny (do 5 minut): potem odnowienie musi zawołać
 `auth-api`, a gdy ten dalej leży, sesja się kończy.
 
 ---
@@ -577,21 +593,22 @@ leży (#1058). Działają, dopóki access token jest ważny (do 5 minut): potem 
 
 | Temat | Plik |
 |---|---|
-| OpenIddict server config | `AuthSystem.API/Extensions/OpenIddictExtensions.cs` |
+| Konfiguracja serwera OpenIddict | `AuthSystem.API/Extensions/OpenIddictExtensions.cs` |
 | Wydawanie tokenów (granty) | `AuthSystem.API/Features/Auth/TokenEndpoint.cs` |
-| Auth code entry | `AuthSystem.API/Features/Auth/AuthorizeEndpoint.cs` |
-| Logout + rewokacja | `AuthSystem.API/Features/Auth/LogoutEndpoint.cs` |
+| Wejście auth code | `AuthSystem.API/Features/Auth/AuthorizeEndpoint.cs` |
+| Logout + unieważnienie | `AuthSystem.API/Features/Auth/LogoutEndpoint.cs` |
 | Rejestracja (bez sagi) | `AuthSystem.API/Features/Auth/RegisterUser.cs` |
-| Seed klientów/ról/scope'ów | `AuthSystem.API/Extensions/DatabaseSeederExtensions.cs` |
-| Identity (hasło/lockout/email) | `AuthSystem.Persistence/PersistenceDependencyInjection.cs` |
+| Seed klientów, ról i scope'ów | `AuthSystem.API/Extensions/DatabaseSeederExtensions.cs` |
+| Identity (hasło, lockout, e-mail) | `AuthSystem.Persistence/PersistenceDependencyInjection.cs` |
 | JwtBearer + policies (RS) | `TranslationSystem.API/ApiDependencyInjection.cs` |
 | Leniwe prowizjonowanie | `TranslationSystem.API/Auth/Provisioning/TranslatorProvisioner.cs` |
-| Prowizjonowanie eager (middleware) | `TranslationSystem.API/Middleware/TranslatorProvisioningMiddleware.cs` |
+| Prowizjonowanie przy żądaniu (middleware) | `TranslationSystem.API/Middleware/TranslatorProvisioningMiddleware.cs` |
 | Odczyt tożsamości z tokena | `TranslationSystem.API/Auth/CurrentUserAccessing/CurrentUserAccessor.cs` |
-| OIDC RP (cookie + OIDC) | `Frontend/Infrastructure/Auth/AuthenticationDependencyInjectionExtensions.cs` |
-| Login/logout RP | `Frontend/Infrastructure/Auth/AuthEndpointsExtensions.cs` |
-| Refresh tokena na froncie | `Frontend/Infrastructure/Auth/TokenRefresh/CookieTokenRefresher.cs` |
+| Klient OIDC (cookie + OIDC) | `Frontend/Infrastructure/Auth/AuthenticationDependencyInjectionExtensions.cs` |
+| Login/logout po stronie Frontendu | `Frontend/Infrastructure/Auth/AuthEndpointsExtensions.cs` |
+| Refresh tokena we Frontendzie | `Frontend/Infrastructure/Auth/TokenRefresh/CookieTokenRefresher.cs` |
 
 Powiązane: [API.md](API.md) (kontrakty HTTP), [INVARIANTS.md §11](INVARIANTS.md#11-authsystem--uwierzytelnianie)
 (reguły auth), [DOMAIN.md §Translator](DOMAIN.md#3-translator-adr-0004) (model tożsamości tłumacza),
-ADR-0002 §6-7 (auth od dnia 1, brak sagi) + ADR-0004 (agregat `Translator`).
+ADR-0002 §6–7 (auth od pierwszego dnia, brak sagi), ADR-0004 (agregat `Translator`), ADR-0067 (kto co
+sprawdza).

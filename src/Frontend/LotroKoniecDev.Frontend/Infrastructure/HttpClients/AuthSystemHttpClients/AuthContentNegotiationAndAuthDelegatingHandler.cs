@@ -7,14 +7,8 @@ using Microsoft.AspNetCore.Authentication;
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 
 /// <summary>
-/// Asks the auth API for the link-carrying representation, by sending
-/// <see cref="MediaTypes.HateoasJson"/> in <c>Accept</c>, and passes on the logged-in translator's
-/// access token. The token names both APIs (#1023), so the same token that works for TMS calls works for
-/// the account endpoints.
-/// A <c>401</c> on a logged-in call marks the session dead, so the next <c>OnValidatePrincipal</c> signs
-/// it out cleanly. The website does not check the token itself: the API checks every token it receives,
-/// and a 401 is one way its refusal ends the session (ADR-0067 decision 2). The service document without
-/// the signed-in links is the other (<c>DiscoveryCache</c>). The TMS handler works the same way.
+/// The twin of the TMS handler for the auth API: the same access token names both APIs (#1023). A
+/// <c>401</c> on a signed-in call marks the session dead (ADR-0067 decision 2).
 /// </summary>
 internal sealed class AuthContentNegotiationAndAuthDelegatingHandler : DelegatingHandler
 {

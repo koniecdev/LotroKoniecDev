@@ -67,7 +67,6 @@ public sealed class PlaceholderAnalyzerTests
     [InlineData("")]
     public void Compare_WhenTranslationIsStillEmpty_NeverWarnsEvenIfSourceHasMarkers(string? translatedText)
     {
-        // An untranslated row must not show a warning, because there is nothing to compare yet.
         PlaceholderComparison comparison = PlaceholderAnalyzer.Compare(
             $"Source with {Token} marker",
             translatedText);

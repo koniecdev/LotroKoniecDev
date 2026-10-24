@@ -48,9 +48,8 @@
         </div>
     </section>
 
-    @* When the game-versions call fails, the import panel is hidden, because its admin-only `register`
-       rel cannot be read. So the error is shown here, outside that check, to tell an admin what happened
-       instead of showing nothing (#158). *@
+    @* Outside the `_canImport` check: when the list fails, the `register` rel cannot be read and the
+       panel is hidden, so an admin would otherwise see nothing (#158). *@
     @if (_versionsProblem is not null)
     {
         <div class="error-message" role="alert">
@@ -86,8 +85,8 @@
 
                 @if (_importProblem is not null)
                 {
-                    @* A div and not a p: the alert can render a <details> block, and a paragraph
-                       may not contain one. *@
+                    @* A div, not a p: the alert can render a <details> block, which a paragraph may not
+                       contain. *@
                     <div class="status-line status-line-block status-down" role="alert">
                         <span class="dot"></span>
                         <div class="status-line-body">
@@ -117,9 +116,7 @@
                 }
                 else if (_importableVersions is { Count: 0 })
                 {
-                    @* There are versions, but the server offers `import` on none of them, because they are
-                       all superseded. Say so here instead of showing a selector where every option would
-                       be refused on submit (#610). *@
+                    @* Every version is superseded, so the server offers `import` on none of them (#610). *@
                     <div class="empty">
                         <h2>Brak wersji do importu</h2>
                         <p>Żadna z zarejestrowanych wersji gry nie przyjmuje już importu. Zarejestruj nowszą wersję.</p>
@@ -127,10 +124,8 @@
                 }
                 else if (_versions is not null)
                 {
-                    @* In static SSR, EditForm adds the antiforgery token itself. A manual
-                       <AntiforgeryToken/> here would write __RequestVerificationToken twice, and the
-                       middleware reads the two joined by a comma as an invalid token. A plain <form>
-                       post, as in Editor and NavMenu, still needs one. *@
+                    @* EditForm adds the antiforgery token itself. A manual <AntiforgeryToken/> would write
+                       it twice, and the middleware reads the two as an invalid token. *@
                     <EditForm Model="ImportInput" OnValidSubmit="ImportAsync"
                               FormName="@ImportFormName" method="post" enctype="multipart/form-data">
                         <div class="form-row">
@@ -174,9 +169,8 @@
     }
     else if (_summary is not null)
     {
-        @* The import committed in the request that redirected here. If this request cannot load the list,
-           the panel is hidden, but the admin must still see that the import worked, or they send the file
-           again (#933). *@
+        @* The import committed before the redirect. If this request cannot load the list, the admin must
+           still see that it worked, or they send the file again (#933). *@
         <p class="status-line status-ok" role="status">
             <span class="dot"></span>Import zakończony powodzeniem.
         </p>
@@ -241,8 +235,7 @@
     private IReadOnlyList<GameVersionResponse>? _versions;
 
     /// <summary>
-    /// The versions from <c>_versions</c> that the server sent an <c>import</c> rel for. They are the
-    /// selector's options and the only ids <see cref="ImportAsync"/> can find a target for (#610).
+    /// The versions the server sent an <c>import</c> rel for: the selector's options (#610).
     /// </summary>
     private IReadOnlyList<GameVersionResponse> _importableVersions = [];
 
@@ -263,14 +256,11 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // A property initializer is rejected for a [SupplyParameterFromForm] model (BL0008), so seed it
-        // here: on a non-matching render the model stays empty, on a matching post the bound model wins.
+        // A property initializer is rejected for a [SupplyParameterFromForm] model (BL0008).
         ImportInput ??= new ImportFormModel();
 
-        // The redirect after an import names the version it went into, so the selector keeps it and a
-        // second file is not sent to another version by accident (#933). A post of the form is a new
-        // import, which keeps its own choice. The last summary never answers it, not even when this
-        // request cannot load the list and the new import does not run (#1122).
+        // The redirect names the version the import went into, so a second file is not sent to another
+        // version by accident (#933). A post of the form is a new import and keeps its own choice (#1122).
         if (PostedForm.NameOf(HttpContext) != ImportFormName
             && SummaryRedirect.Read(ProtectedSummary) is { } completedImport)
         {
@@ -278,8 +268,7 @@
             ImportInput.GameVersionId = completedImport.GameVersionId;
         }
 
-        // Any translator may see the game-versions list. Whether the import panel appears is decided by
-        // the collection's admin-only `register` rel (#158) and not by a role check here.
+        // The import panel follows the collection's admin-only `register` rel, never a role check (#158).
         await LoadVersionsAsync();
     }
 
@@ -314,10 +303,9 @@
 
         ImportFormModel input = ImportInput ?? new ImportFormModel();
 
-        // On every refusal below, the version list loaded at the start of this request stays on screen.
-        // A refused import changes nothing, because the import is all or nothing, and a second call would
-        // carry this request's token, which a long import may have outlived (#933). An import that timed
-        // out here may still finish on the TMS, so its result shows after a reload.
+        // A refusal keeps the list loaded at the start of this request: the import is all or nothing, and a
+        // second call would carry this request's token, which a long import may have outlived (#933). An
+        // import that timed out may still finish on the TMS; a reload shows it.
         if (input.File is null || input.File.Length == 0)
         {
             _importProblem = ApiProblemCopy.FrontendAuthored("Wybierz plik exported.txt do wgrania.");
@@ -330,9 +318,8 @@
             return;
         }
 
-        // The upload goes to the chosen version's own `import` rel (#610). The API sends it to an admin
-        // for any version that is not superseded, so a missing link means the server refuses this import.
-        // Never build the path from the id.
+        // A missing `import` rel means the server refuses this import. Never build the path from the id
+        // (#610).
         if (ImportTargets.FindImportHref(_versions, input.GameVersionId) is not { } importHref)
         {
             _importProblem = ApiProblemCopy.FrontendAuthored(
@@ -352,9 +339,8 @@
 
         if (result.IsSuccess)
         {
-            // Redirect after post (#933): the import changed the catalog and the version's status, so the
-            // list is loaded again, in a new request that renews the token first. The TMS refuses a token
-            // the moment it expires, and an import takes minutes. A browser reload is then a plain GET too.
+            // Redirect after post (#933): the list loads again in a new request, which renews the token
+            // first. An import takes minutes, and the TMS refuses a token the moment it expires.
             Navigation.NavigateTo(SummaryRedirect.PageUriWith(
                 new ImportSummaryRedirect.CompletedImport(input.GameVersionId, result.Value)));
             return;
@@ -364,10 +350,8 @@
     }
 
     /// <summary>
-    /// The model the import form binds to. Blazor's static SSR form binding only binds an
-    /// <see cref="IFormFile"/> as a property of a <c>[SupplyParameterFromForm]</c> model and never as a
-    /// plain top-level parameter. So the file, the chosen version id and the override flag travel together
-    /// here, with the inputs named <c>ImportInput.&lt;Property&gt;</c>.
+    /// Static SSR binds an <see cref="IFormFile"/> only as a property of a <c>[SupplyParameterFromForm]</c>
+    /// model, so the inputs are named <c>ImportInput.&lt;Property&gt;</c>.
     /// </summary>
     private sealed class ImportFormModel
     {

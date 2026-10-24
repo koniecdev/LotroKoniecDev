@@ -6,11 +6,8 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// LEGAL-06: we host the web fonts ourselves. No browser request may go to
-/// <c>fonts.googleapis.com</c>, <c>fonts.gstatic.com</c> or any other Google host, from either the
-/// frontend or the auth pages, and the Manrope and JetBrains Mono files we ship must really load so the
-/// same fonts keep rendering.
-/// It needs no account and nothing seeded.
+/// LEGAL-06: no request may go to a Google font host from either origin, and the fonts we ship must really
+/// load.
 /// </summary>
 public sealed class SelfHostedFontsTests : E2ETestBase
 {
@@ -38,8 +35,8 @@ public sealed class SelfHostedFontsTests : E2ETestBase
             await Page.GotoAsync(url, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
         }
 
-        // Force both families (Polish sample → the latin-ext subset too); unicode-range faces
-        // only download once text uses them, so an explicit load makes the fetch deterministic.
+        // unicode-range faces download only once text uses them, so load both families explicitly, with
+        // a Polish sample for the latin-ext subset.
         bool bothFamiliesLoaded = await Page.EvaluateAsync<bool>(
             """
             async () => {
@@ -54,7 +51,6 @@ public sealed class SelfHostedFontsTests : E2ETestBase
         requestedUrls.Where(url => url.Contains("googleapis.com") || url.Contains("gstatic.com"))
             .ShouldBeEmpty();
 
-        // Visual parity: the same families render, fetched from our own origins.
         bothFamiliesLoaded.ShouldBeTrue();
         requestedUrls.Count(url => url.Contains("/fonts/manrope-", StringComparison.Ordinal)).ShouldBeGreaterThan(0);
         requestedUrls.Count(url => url.Contains("/fonts/jetbrains-mono-", StringComparison.Ordinal)).ShouldBeGreaterThan(0);

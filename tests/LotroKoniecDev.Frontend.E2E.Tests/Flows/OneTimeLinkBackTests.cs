@@ -5,15 +5,10 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// Regression guard for #941. After a confirmed address or a new password, Back loaded the form the one-time
-/// link opened, with a live button. A second press sent the used link, and the page said it was dead,
-/// although the change had worked. The undo and cancel links had the same gap one step later, on Back from
-/// the password form they lead to. The page that did the work now leaves a cookie in this browser, so the
-/// used link gives its first answer again (ADR-0063).
-/// Each flow goes Back from its success page and checks what the page shows: the success answer, no alert,
-/// and still only one POST. The last tests cover a browser that brings the form back from its cache instead
-/// of loading it again.
-/// Nothing has to be seeded: each flow creates its own account.
+/// #941: Back from a one-time link's success page must give the link's first answer again, not a live form
+/// that reports the used link as dead (ADR-0063). Each flow checks the success answer, no alert and one
+/// POST. The last tests cover a form the browser brings back from its cache. Each flow creates its own
+/// account.
 /// </summary>
 public sealed class OneTimeLinkBackTests : E2ETestBase
 {
@@ -23,9 +18,8 @@ public sealed class OneTimeLinkBackTests : E2ETestBase
     private const string ConfirmNewAddressSubject = "Potwierdź nowy adres e-mail";
 
     /// <summary>
-    /// After the change, the old address gets this notice with the undo link. The new address gets a
-    /// notice with a similar subject but no undo link; the search is by the old address, so only this
-    /// one matches.
+    /// The new address gets a notice with a similar subject but no undo link; the search is by the old
+    /// address, so only this one matches.
     /// </summary>
     private const string RevertOfferSubject = "Adres e-mail Twojego konta został zmieniony";
 
@@ -106,8 +100,7 @@ public sealed class OneTimeLinkBackTests : E2ETestBase
     }
 
     /// <summary>
-    /// The undo link ends on the password form, so that form is its success page. Back from it loads the
-    /// used undo link, which now sends this browser on to the same password form.
+    /// The undo link ends on the password form, so that form is its success page.
     /// </summary>
     [Fact]
     public async Task Back_from_the_password_form_after_undoing_an_email_change_opens_the_same_password_form()
@@ -142,9 +135,6 @@ public sealed class OneTimeLinkBackTests : E2ETestBase
         CspViolations.ShouldBeEmpty();
     }
 
-    /// <summary>
-    /// The cancel link ends on the password form too, and Back from it works the same way.
-    /// </summary>
     [Fact]
     public async Task Back_from_the_password_form_after_cancelling_a_deletion_opens_the_same_password_form()
     {
@@ -173,10 +163,8 @@ public sealed class OneTimeLinkBackTests : E2ETestBase
     }
 
     /// <summary>
-    /// A browser can bring the form back from its cache on Back, without asking the server, and then the
-    /// marker cookie is never read. So a form that was already sent asks for a fresh GET of its own page.
-    /// The test fires the event such a restore fires. The links only have to parse, and the test cancels
-    /// the submit, so the server never sees a POST.
+    /// A form restored from the cache never reads the marker cookie, so a sent form asks for a fresh GET.
+    /// The test fires the restore event and cancels the submit, so the links only have to parse.
     /// </summary>
     [Theory]
     [InlineData("/Account/ConfirmEmailChange?userId=00000000-0000-0000-0000-000000000001&email=c%40d.pl&token=z")]
@@ -208,9 +196,8 @@ public sealed class OneTimeLinkBackTests : E2ETestBase
     }
 
     /// <summary>
-    /// The login form carries no one-time link, so a fresh GET would show it again. It only gets its
-    /// button back (#871). The listener runs inside dispatchEvent, so the button state is final when the
-    /// call returns.
+    /// The login form carries no one-time link, so it only gets its button back (#871). The listener runs
+    /// inside dispatchEvent, so the button state is final when the call returns.
     /// </summary>
     [Fact]
     public async Task A_sent_form_without_the_mark_brought_back_from_the_cache_only_gets_its_button_back()

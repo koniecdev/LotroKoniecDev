@@ -19,9 +19,7 @@ public sealed class TranslationEditorLoaderTests
 {
     private const string BaseUrl = "https://localhost:5002/";
 
-    // These server hrefs look unusual on purpose, on a different host and path than anything this app
-    // would build, so the assertions prove the loader follows the link the server sent and not a route
-    // written into the code (#158).
+    // Unusual hrefs, so the assertions prove the loader follows the server's link (#158).
     private const string UpsertHref = "https://tms.example/hateoas/translations";
     private const string ApproveHref = "https://tms.example/hateoas/translations/abc/approve";
 
@@ -29,8 +27,7 @@ public sealed class TranslationEditorLoaderTests
     private static readonly string ResolvedTranslationsUri =
         BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.Translations);
 
-    // The same JSON options the Frontend's HTTP layer uses (HttpClientApiExtensions), so the stub
-    // body deserializes through the exact same contract the loader relies on.
+    // The same JSON options as HttpClientApiExtensions.
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() }
@@ -104,12 +101,9 @@ public sealed class TranslationEditorLoaderTests
 
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Put);
-        // The request goes to the server's upsert href exactly, not to an /api/v1/translations path
-        // built here.
         handler.LastRequest.RequestUri!.ToString().ShouldBe(UpsertHref);
         handler.LastRequestBody.ShouldNotBeNull();
-        // Deserialize the sent JSON rather than substring-match it: System.Text.Json escapes '<', '>'
-        // and non-ASCII, so the placeholder/diacritics only survive a round-trip, not a raw contains.
+        // System.Text.Json escapes '<', '>' and non-ASCII, so only a round trip can compare the text.
         UpsertTranslationRequest sent =
             JsonSerializer.Deserialize<UpsertTranslationRequest>(handler.LastRequestBody!, ApiJsonOptions)!;
         sent.FileId.ShouldBe(620756992);
@@ -157,8 +151,6 @@ public sealed class TranslationEditorLoaderTests
         result.IsSuccess.ShouldBeTrue();
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Post);
-        // The request goes to the server's approve href exactly, not to an {id}/approve path built
-        // here.
         handler.LastRequest.RequestUri!.ToString().ShouldBe(ApproveHref);
     }
 
@@ -195,9 +187,7 @@ public sealed class TranslationEditorLoaderTests
     [Fact]
     public async Task LoadAsync_WhenTheTranslationsRelIsNotAdvertised_FailsWithoutCallingTheApi()
     {
-        // `translations` is open to anyone today, but the editor route needs a login, and the loader must
-        // not assume the rel is there. A missing rel means we do not call, not that we build a path
-        // (#610).
+        // A missing rel means we do not call, never that we build a path (#610).
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
         TranslationEditorLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
 
@@ -224,9 +214,7 @@ public sealed class TranslationEditorLoaderTests
     [Fact]
     public async Task ResolveCollectionUpsertHrefAsync_WhenTheUpsertRelIsAdvertised_ReturnsThatHref()
     {
-        // The recovery path, a resubmit whose row could not be loaded again, has no row to read the
-        // upsert rel from, so it reads the same rel from the service document and never uses a path
-        // written into the code.
+        // A resubmit whose row could not be loaded reads the upsert rel from the service document.
         TranslationEditorLoader loader = CreateLoader(HttpStatusCode.OK, "{}", out _);
 
         ApiResult<string> result = await loader.ResolveCollectionUpsertHrefAsync();
@@ -238,8 +226,7 @@ public sealed class TranslationEditorLoaderTests
     [Fact]
     public async Task ResolveCollectionUpsertHrefAsync_WhenTheUpsertRelIsNotAdvertised_Fails()
     {
-        // The API only sends `upsert` to a translator. A read-only caller who reaches the recovery path
-        // gets a failure the page can show, not a PUT to a guessed URL.
+        // A read-only caller gets a failure the page can show, not a PUT to a guessed URL.
         TranslationEditorLoader loader = new(
             StubDiscoveryCache.AdvertisingGet(Rels.Translations),
             CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}")));

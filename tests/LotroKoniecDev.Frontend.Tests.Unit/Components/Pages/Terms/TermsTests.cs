@@ -9,10 +9,9 @@ using TermsComponent = LotroKoniecDev.Frontend.Components.Pages.Terms.Terms;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Terms;
 
 /// <summary>
-/// Renders the terms-of-service page (#453). This page is what the erasure design rests on: the
-/// contribution licence section has to mention distribution in polish.txt and that anonymized
-/// contributions are kept after an account is deleted, and the fan-project disclaimer has to name the IP
-/// owners. A change in that wording would quietly break what LEGAL-01 assumes.
+/// The erasure design rests on this page (#453): the licence section must mention distribution in
+/// polish.txt and that anonymized contributions stay after an account is deleted, and the disclaimer must
+/// name the IP owners. A change in that wording would quietly break what LEGAL-01 assumes.
 /// </summary>
 public sealed class TermsTests : BunitContext
 {
@@ -32,8 +31,7 @@ public sealed class TermsTests : BunitContext
     [Fact]
     public void Terms_IsAnonymousByContract()
     {
-        // The registration form links here for the consent checkbox, so a visitor who is not logged in
-        // must never be sent to the login page while reading what they are asked to accept.
+        // The registration form links here for the consent checkbox.
         typeof(TermsComponent).GetCustomAttribute<AllowAnonymousAttribute>().ShouldNotBeNull();
     }
 
@@ -85,9 +83,8 @@ public sealed class TermsTests : BunitContext
     [Fact]
     public void Render_IpSection_StatesTakedownComplianceAndPolishOnlyPublishedFile()
     {
-        // The promise that the published file contains only the community's Polish text and never the
-        // English source matters (spec 0011 E6). Changing it needs an ADR, so a change in this
-        // wording has to fail loudly.
+        // The published file carries only Polish text, never the English source (spec 0011 E6). Changing
+        // that needs an ADR.
         IRenderedComponent<TermsComponent> component = Render<TermsComponent>();
 
         IElement ipSection = component.Find("#wlasnosc-intelektualna");

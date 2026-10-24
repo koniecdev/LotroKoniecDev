@@ -19,9 +19,8 @@ using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Home;
 
 /// <summary>
-/// Renders the landing page (#309) through bUnit over a stubbed TMS client. The progress band is built
-/// from the public counters, the page must survive an API outage with a calm message and never look
-/// broken, and the two call-to-action buttons follow whether the visitor is logged in.
+/// The landing page (#309): the progress band from the public counters, a calm message on an API outage,
+/// and the buttons that follow whether the visitor is signed in.
 /// </summary>
 public sealed class HomeTests : BunitContext
 {
@@ -37,8 +36,7 @@ public sealed class HomeTests : BunitContext
     [Fact]
     public void Home_IsAnonymousByContract()
     {
-        // The landing page is the public face of the project. If it ever required a login, recruiters and
-        // players would be stopped at the door.
+        // The landing page is the public face of the project.
         typeof(HomeComponent).GetCustomAttribute<AllowAnonymousAttribute>().ShouldNotBeNull();
     }
 
@@ -134,10 +132,8 @@ public sealed class HomeTests : BunitContext
             .Returns(result);
 
     /// <summary>
-    /// Puts the page inside a render fragment and finds it with <c>FindComponent</c>. The page's
-    /// <see cref="Microsoft.AspNetCore.Components.Authorization.AuthorizeView"/> resolves
-    /// asynchronously, and the typed <c>Render&lt;Home&gt;</c> does not see that on its first pass.
-    /// <c>NavMenuTests</c> uses the same trick.
+    /// Through a render fragment, because the typed <c>Render&lt;Home&gt;</c> does not see the
+    /// asynchronous <c>AuthorizeView</c> on its first pass.
     /// </summary>
     private IRenderedComponent<HomeComponent> RenderHome()
     {

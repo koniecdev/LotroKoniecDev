@@ -14,9 +14,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.ImportExport;
 
 /// <summary>
-/// Calls the download route's handler directly, with no web host. The TMS endpoint serves
-/// <c>text/plain</c>, and this route has to stream it on as a <c>polish.txt</c> attachment on success,
-/// or return a problem on failure, either the API's own or our 502.
+/// Calls the download route's handler directly, with no web host.
 /// </summary>
 public sealed class ImportExportEndpointsExtensionsTests
 {
@@ -25,8 +23,7 @@ public sealed class ImportExportEndpointsExtensionsTests
     [Fact]
     public async Task DownloadTranslationFileAsync_OnSuccess_StreamsThePolishTxtFileWithTheArtifactBytes()
     {
-        // A stream and not a byte array: the route is public, so a full copy per request would let a
-        // crowd of players fill the frontend's memory (PERF-09, #715).
+        // A stream, not a byte array: a full copy per request on a public route would fill memory (#715).
         const string body = "# polish.txt\n620756992||1001||Witaj w Śródziemiu!||NULL||NULL||1";
         ImportExportLoader loader = CreateLoader(HttpStatusCode.OK, body);
 
@@ -41,9 +38,8 @@ public sealed class ImportExportEndpointsExtensionsTests
     [Fact]
     public async Task DownloadTranslationFileAsync_OnSuccess_SendsTheBytesWithTheirLength()
     {
-        // A body read off the connection cannot seek, so it cannot report its length, and the route
-        // passes the TMS's one on. Without it the browser shows no progress for an 82 MB download. A
-        // seekable stub would hide that, because the result then sets the length by itself.
+        // A body off the connection cannot report its length, so the route passes the TMS's on. A
+        // seekable stub would hide that.
         const string body = "620756992||1001||Witaj w Śródziemiu!||NULL||NULL||1";
         byte[] bytes = Encoding.UTF8.GetBytes(body);
         ImportExportLoader loader = new(
@@ -97,8 +93,8 @@ public sealed class ImportExportEndpointsExtensionsTests
     [Fact]
     public async Task DownloadTranslationFileAsync_WhenUpstreamReturnsAnEnglishProblem_RewritesItInPolish()
     {
-        // The browser shows this body as it is, because this is a download route and not a page. So the
-        // same rule applies: the errorCode decides the Polish text (#548, ADR-0044).
+        // The browser shows a download route's body as it is, so the errorCode decides the Polish text
+        // (ADR-0044).
         ImportExportLoader loader = CreateLoader(
             HttpStatusCode.NotFound,
             """
@@ -116,15 +112,14 @@ public sealed class ImportExportEndpointsExtensionsTests
         problem.ProblemDetails.Status.ShouldBe(404);
         problem.ProblemDetails.Title.ShouldBe(
             "Plik z tłumaczeniami nie został jeszcze zbudowany. Zatwierdź przynajmniej jedno tłumaczenie i spróbuj ponownie.");
-        // The English only restates the Polish, so it is dropped here exactly as it is on a page (#703).
+        // The English only restates the Polish, so it is dropped (#703).
         problem.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.TechnicalDetailExtensionKey);
     }
 
     [Fact]
     public async Task DownloadTranslationFileAsync_WhenTransportFails_FallsBackToABadGatewayProblem()
     {
-        // A transport failure produces a ProblemDetails with a 503 from the HTTP layer, and the route
-        // passes it through. The 502 fallback only fires for the (defensive) null-ProblemDetails case.
+        // The HTTP layer's 503 passes through; the 502 fallback is only for a null problem.
         ImportExportLoader loader = new(
             StubDiscoveryCache.AdvertisingGet(Rels.TranslationFile),
             CreateClient(StubHttpMessageHandler.Throw(new HttpRequestException("connection refused"))));
@@ -138,8 +133,7 @@ public sealed class ImportExportEndpointsExtensionsTests
     [Fact]
     public async Task DownloadTranslationFileAsync_WhenTheProxyAnswersForAStoppedUpstream_ServesThePolishStatusCopy()
     {
-        // The staging outage of #637: tms-api down, so Caddy answers 502 with its own HTML and the
-        // body carries no problem to translate.
+        // #637: tms-api down, so Caddy answers 502 with its own HTML.
         ImportExportLoader loader = CreateLoader(
             HttpStatusCode.BadGateway,
             "<html><head><title>502 Bad Gateway</title></head><body></body></html>");
@@ -152,9 +146,7 @@ public sealed class ImportExportEndpointsExtensionsTests
         problem.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.TechnicalDetailExtensionKey);
     }
 
-    /// <summary>
-    /// Reads like a response body off the network: forward only, with no length of its own.
-    /// </summary>
+    /// <summary>Like a body off the network: forward only, with no length of its own.</summary>
     private sealed class NonSeekableStream : Stream
     {
         private readonly MemoryStream _inner;

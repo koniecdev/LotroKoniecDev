@@ -62,8 +62,7 @@ public sealed class TranslationSystemSettingsValidatorTests
     [InlineData(Production, "   ")]
     public void Validate_DeployedEnvironmentWithNoCallerKey_FailsNamingTheKey(string environmentName, string? callerKey)
     {
-        // A box without the key would quietly send every translator's TMS API calls into this
-        // container's one bucket, so the boot fails instead.
+        // Without the key every translator's calls would share this container's one bucket.
         TranslationSystemSettings settings = new() { BaseUrl = BaseUrl, CallerKey = callerKey };
 
         ValidationResult result = CreateValidator(environmentName).Validate(settings);

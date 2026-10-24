@@ -5,10 +5,8 @@ internal sealed class SessionExpiryNotice : ISessionExpiryNotice
     internal const string CookieName = ".lotrokoniecdev.session-expired";
     private const string CookieValue = "1";
 
-    // Very short on purpose. The cookie only has to survive the redirect after a forced sign-out until
-    // the next render reads it. If the delete that clears it cannot be written, because the SSR response
-    // has already started, the short max-age makes the banner disappear within seconds instead of
-    // following the user from page to page.
+    // It only has to survive the redirect after a forced sign-out. If the delete cannot be written because
+    // the SSR response has started, the banner still disappears within seconds.
     private static readonly TimeSpan CookieLifetime = TimeSpan.FromSeconds(30);
 
     private readonly IHttpContextAccessor _httpContextAccessor;
@@ -51,11 +49,8 @@ internal sealed class SessionExpiryNotice : ISessionExpiryNotice
         return true;
     }
 
-    // Path "/" like the auth and antiforgery cookies, so the read after the redirect finds it on any
-    // path. HttpOnly because no script reads it. Secure follows the request scheme: it is set over HTTPS,
-    // in the dev https profile and in production behind the proxy through the forwarded headers, and left
-    // out on the plain-http dev profile so the cookie still works there. It carries nothing sensitive,
-    // only a one-time "show the banner" flag.
+    // Secure follows the request scheme, so the cookie still works on the plain-http dev profile. It
+    // carries nothing sensitive.
     private static CookieOptions BuildOptions(bool isHttps) => new()
     {
         Path = "/",

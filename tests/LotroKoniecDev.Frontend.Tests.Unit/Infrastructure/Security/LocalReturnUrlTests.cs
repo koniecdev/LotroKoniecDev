@@ -3,9 +3,7 @@ using LotroKoniecDev.Frontend.Infrastructure.Security;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Security;
 
 /// <summary>
-/// Covers the login challenge, the local sign-out and the cookie-consent bounce-back, which are every
-/// route that redirects to a target the caller supplied. It is the twin of the auth server's
-/// <c>LocalReturnUrlTests</c>, and the two must behave identically.
+/// The twin of the auth server's <c>LocalReturnUrlTests</c>; the two must behave the same.
 /// </summary>
 public sealed class LocalReturnUrlTests
 {
@@ -36,9 +34,7 @@ public sealed class LocalReturnUrlTests
     }
 
     /// <summary>
-    /// A quote or an angle bracket inside a path is still a path, so the check keeps the value. It only
-    /// decides whether a target is local, and this copy is only ever redirected to, never printed. Kept in
-    /// step with the twin (#681).
+    /// The check only decides whether a target is local; this value is redirected to, never printed (#681).
     /// </summary>
     [Theory]
     [InlineData("""/x" onfocus="alert(1)""")]
@@ -49,9 +45,8 @@ public sealed class LocalReturnUrlTests
     }
 
     /// <summary>
-    /// Browsers drop ASCII tab and newline before they parse a URL, so
-    /// <c>Location: /&lt;tab&gt;/evil.example</c> is followed as <c>//evil.example</c>. A check that only
-    /// looked at the first characters would call that value local.
+    /// Browsers drop tab and newline, so <c>/&lt;tab&gt;/evil.example</c> is followed as
+    /// <c>//evil.example</c>.
     /// </summary>
     [Theory]
     [InlineData("/\t/evil.example")]

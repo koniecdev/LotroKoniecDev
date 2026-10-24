@@ -4,19 +4,15 @@ using Microsoft.Playwright;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// The base class for every browser flow. Each test gets its own <see cref="IBrowserContext"/>, so
-/// cookies and logins never leak between cases, and a page from the shared in-network browser that
-/// <see cref="PlaywrightStackFixture"/> connected.
-/// The context ignores HTTPS errors, because the stack serves a self-signed certificate. Elements are
-/// always found by role, by label or by <c>data-testid</c>.
+/// Each test gets its own <see cref="IBrowserContext"/>, so cookies never leak between cases. It ignores
+/// HTTPS errors, because the stack's certificate is self-signed.
 /// </summary>
 [Collection(E2ECollection.Name)]
 [Trait("Category", "E2E-Frontend")]
 public abstract class E2ETestBase : IAsyncLifetime
 {
     /// <summary>
-    /// Runs before any page script, in every page of the context. A violation fires as an event on the
-    /// document; the page still loads, so nothing else in a flow would notice it.
+    /// Runs before any page script. A violation only fires an event; the page still loads.
     /// </summary>
     private const string CspViolationListener =
         """
@@ -39,8 +35,7 @@ public abstract class E2ETestBase : IAsyncLifetime
     protected IPage Page { get; private set; } = null!;
 
     /// <summary>
-    /// Every CSP violation a page of this test reported. The auth host runs in Testing, so its real CSP
-    /// is on here, and a blocked style or script is visible only this way (#670, #693).
+    /// The auth host runs in Testing with its real CSP, and a block is visible only this way (#693).
     /// </summary>
     protected IReadOnlyCollection<string> CspViolations => _cspViolations;
 

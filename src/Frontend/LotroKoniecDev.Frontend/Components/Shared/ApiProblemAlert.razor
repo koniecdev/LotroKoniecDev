@@ -2,10 +2,8 @@
 @using LotroKoniecDev.Frontend.Infrastructure.Errors
 @inject ILogger<ApiProblemAlert> Logger
 
-@* The only way a page shows a failed call (ADR-0044): Polish text chosen by the API's errorCode. The
-   API's English is one click away only where it adds information the Polish cannot carry, so for most
-   codes no details block is rendered at all (#703). The caller provides the box (`error-message` or
-   `status-message status-error`) and this fills in its content. *@
+@* The only way a page shows a failed call (ADR-0044). The API's English is shown only where it adds data
+   the Polish cannot carry (#703). The caller provides the box and this fills in its content. *@
 
 <span class="problem-headline @HeadlineClass">@_view.Message</span>
 @if (_view.SecondaryMessage is not null)
@@ -24,21 +22,19 @@
     private ApiProblemView _view = new(ApiProblemCopy.GenericMessage, null, null, null);
     private string? _reportedErrorCode;
 
-    /// <summary>The failure to describe; <c>null</c> renders <see cref="Fallback"/>.</summary>
+    /// <summary><c>null</c> renders <see cref="Fallback"/>.</summary>
     [Parameter]
     public ProblemDetails? Problem { get; set; }
 
     /// <summary>
-    /// The page's own contextual Polish sentence, used when the problem carries nothing usable.
-    /// A mapped error code and the HTTP-status copy both outrank it.
+    /// The page's own Polish sentence. A mapped error code and the status text both outrank it.
     /// </summary>
     [Parameter]
     [EditorRequired]
     public string Fallback { get; set; } = ApiProblemCopy.GenericMessage;
 
     /// <summary>
-    /// The class for the headline element, so the component fits the caller's box as it is. The richer
-    /// <c>error-message</c> box styles its title through <c>.em-body .t</c>.
+    /// The <c>error-message</c> box styles its title through <c>.em-body .t</c>.
     /// </summary>
     [Parameter]
     public string? HeadlineClass { get; set; }
@@ -47,10 +43,7 @@
     {
         _view = ApiProblemCopy.Describe(Problem, Fallback);
 
-        // An API error that shipped before its Polish text existed. The user already sees the fallback
-        // message, so this is the moment to report the gap.
-        // OnParametersSet runs every time a parameter is set, and a parent that renders again after
-        // setting the problem would otherwise log the same gap twice per request.
+        // A parent that renders again would otherwise log the same gap twice per request.
         if (_view.UnmappedErrorCode is { } unmappedErrorCode && unmappedErrorCode != _reportedErrorCode)
         {
             _reportedErrorCode = unmappedErrorCode;

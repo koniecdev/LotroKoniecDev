@@ -3,12 +3,9 @@ using FluentValidation;
 namespace LotroKoniecDev.Frontend.Settings;
 
 /// <summary>
-/// Checks the TMS API settings the Frontend calls with, and stops the boot when they are wrong (ADR-0008
-/// §3, M6-05). Every environment needs the base address. The messages name the full configuration key,
-/// so a missing value fails the boot instead of failing the first API call later.
-/// The caller key is required outside Development and Testing only (ADR-0054 §6, #823): those two run
-/// against a TMS API whose limiter is off, so there is nothing for the key to decide. Anywhere else a
-/// missing key would put every translator's TMS API calls back into this container's one bucket.
+/// Stops the boot on wrong settings (ADR-0008 §3). Development and Testing run with the TMS API's limiter
+/// off, so the caller key is required only outside them (ADR-0054 §6). Anywhere else a missing key would
+/// put every translator's calls into this container's one bucket.
 /// </summary>
 internal sealed class TranslationSystemSettingsValidator : AbstractValidator<TranslationSystemSettings>
 {

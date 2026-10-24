@@ -6,11 +6,8 @@ using Microsoft.Extensions.Hosting;
 namespace LotroKoniecDev.Frontend.Tests.Integration;
 
 /// <summary>
-/// Boots the real Frontend in memory, in Production. Both boxes run Production, the staging box too
-/// (#1187). Outside Development and Testing both caller keys are required, like on a deployed box. The
-/// settings a box gets from its .env are set here, with a keyring folder of its own. The addresses look
-/// like the staging box's. The values only have to pass the startup checks, because nothing calls out
-/// during these tests.
+/// The real Frontend in memory, in Production, as both boxes run it (#1187). The settings a box gets from
+/// its .env are set here; they only have to pass the startup checks.
 /// </summary>
 public class ProductionFrontendFactory : WebApplicationFactory<Program>
 {

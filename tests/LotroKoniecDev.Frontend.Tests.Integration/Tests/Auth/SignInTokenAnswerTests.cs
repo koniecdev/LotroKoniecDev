@@ -18,10 +18,8 @@ using Microsoft.IdentityModel.Tokens;
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// #1026: the first sign-in holds the token answer to the rules the background renewal uses (#974). Each
-/// test runs the real sign-in in memory: the login redirect, then the browser's return to the website, with
-/// a stand-in for the sign-in server's token endpoint. The stand-in advertises no userinfo endpoint, so the
-/// token answer is the only thing that decides the outcome.
+/// #1026: the first sign-in holds the token answer to the renewal's rules. The real sign-in runs in memory
+/// against a stand-in token endpoint with no userinfo endpoint, so the token answer alone decides.
 /// </summary>
 public sealed class SignInTokenAnswerTests : IClassFixture<ProductionFrontendFactory>, IDisposable
 {
@@ -39,8 +37,8 @@ public sealed class SignInTokenAnswerTests : IClassFixture<ProductionFrontendFac
     }
 
     /// <summary>
-    /// The framework's own protocol check already refuses a missing or empty access token, so only the blank
-    /// rows depend on the new rule. All four stay, because together they pin the whole outcome.
+    /// The framework already refuses a missing or empty access token; only the blank rows depend on our
+    /// rule. All four pin the whole outcome.
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -59,8 +57,8 @@ public sealed class SignInTokenAnswerTests : IClassFixture<ProductionFrontendFac
     }
 
     /// <summary>
-    /// The OIDC handler stores no expiry for a lifetime it cannot read as a whole number, so a fraction, a
-    /// word or a number past <see cref="int.MaxValue"/> counts as a missing lifetime.
+    /// The handler stores no expiry for a lifetime that is not a whole number, so a fraction, a word or a
+    /// number past <see cref="int.MaxValue"/> counts as missing.
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -101,9 +99,8 @@ public sealed class SignInTokenAnswerTests : IClassFixture<ProductionFrontendFac
     }
 
     /// <summary>
-    /// The rule refuses only what the renewal refuses, for the values the handler passes on to it. One second
-    /// is the smallest lifetime it keeps, and a number sent as a string is read by the handler like any other.
-    /// A missing or empty refresh token is allowed, because OAuth makes it optional.
+    /// One second is the smallest lifetime kept, and a number sent as a string reads like any other. OAuth
+    /// makes the refresh token optional.
     /// </summary>
     [Theory]
     [InlineData("1", "the-refresh-token")]
@@ -209,8 +206,8 @@ public sealed class SignInTokenAnswerTests : IClassFixture<ProductionFrontendFac
     private sealed record SignInResult(string? Location, bool SessionCookieIssued);
 
     /// <summary>
-    /// Answers the code exchange with the token answer under test. A null token or lifetime leaves that field
-    /// out of the answer. The lifetime is raw JSON, so a test can send a number or a string.
+    /// A null token or lifetime leaves that field out. The lifetime is raw JSON, so a test can send a number
+    /// or a string.
     /// </summary>
     private sealed class FakeTokenEndpoint : HttpMessageHandler
     {

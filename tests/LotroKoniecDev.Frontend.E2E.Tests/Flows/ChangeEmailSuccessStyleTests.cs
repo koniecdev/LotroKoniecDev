@@ -5,29 +5,22 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// Regression guard for #719: the page that ends an e-mail change told the user the change had worked,
-/// but printed it in the error style, so a red box announced a success. That page belongs to the auth
-/// server and is step 2 of 2, behind the link sent to the new mailbox, so the flow here has to walk all
-/// the way to it.
-/// The bug was a missing CSS rule and not a missing class name, so the check reads the colour the
-/// browser really paints. A test that only looked for the word "success" in the markup would have stayed
-/// green through the whole bug.
-/// Nothing has to be seeded: the flow creates the account itself.
+/// #719: the success at the end of an e-mail change must not paint in the error style. The bug was a
+/// missing CSS rule, so the check reads the colour the browser paints, not the markup. The flow creates
+/// its own account and walks to the auth server's page behind the link.
 /// </summary>
 public sealed class ChangeEmailSuccessStyleTests : E2ETestBase
 {
     /// <summary>
-    /// A change request sends two e-mails. The old address gets a warning with no link, and only this
-    /// one, sent to the new address, carries the link that finishes the change.
+    /// The old address gets a warning with no link; only this one carries the link.
     /// </summary>
     private const string ConfirmNewAddressSubject = "Potwierdź nowy adres e-mail";
 
     private const string ConfirmEmailChangeLinkPath = "/Account/ConfirmEmailChange";
 
     /// <summary>
-    /// Gives back the red, green and blue channels of an element's background. The stylesheet writes its
-    /// colours in oklch, and browsers may spell a computed colour back in more than one way, so the value
-    /// goes through a canvas, which turns any CSS colour into plain numbers.
+    /// Through a canvas: the stylesheet writes oklch, and browsers spell a computed colour back in more than
+    /// one way.
     /// </summary>
     private const string ReadBackgroundChannels =
         """

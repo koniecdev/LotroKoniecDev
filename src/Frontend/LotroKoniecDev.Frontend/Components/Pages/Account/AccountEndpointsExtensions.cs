@@ -15,32 +15,24 @@ using Microsoft.AspNetCore.Mvc;
 namespace LotroKoniecDev.Frontend.Components.Pages.Account;
 
 /// <summary>
-/// Maps the GDPR data-export download route (LEGAL-02). A Blazor SSR page cannot return a file, so this
-/// server route builds the export and sends it with a <c>Content-Disposition</c> attachment header.
-/// Since #690 it is a <b>POST</b> that carries the current password, because the export is the one
-/// sensitive action that used to ask for nothing. The password is checked by the auth API, not here, so
-/// a session alone is never enough (ADR-0052). The confirmation form lives on the
-/// <see cref="ExportAccountData"/> page, and a wrong password sends the user back to it with a marker
-/// in the query string, because a redirect cannot carry a problem body.
-/// The route builds the full Art. 15 document (ADR-0032): the auth part plus the TMS contribution part.
-/// A TMS failure only makes the file incomplete (<c>isComplete: false</c>) and does not fail the
-/// download.
+/// The GDPR data-export download route (LEGAL-02). A Blazor SSR page cannot return a file, so a server
+/// route sends it. It is a POST that carries the current password (#690), and the auth API checks it, so
+/// a session alone is never enough (ADR-0052). A refused password sends the user back to
+/// <see cref="ExportAccountData"/> with a query-string marker, because a redirect cannot carry a problem
+/// body. The file is the full Art. 15 document (ADR-0032); a TMS failure only makes it incomplete.
 /// </summary>
 internal static partial class AccountEndpointsExtensions
 {
-    /// <summary>The page that asks for the password. The account page's export button links here.</summary>
+    /// <summary>The account page's export button links here.</summary>
     internal const string ExportPagePath = "/account/export";
 
-    /// <summary>The form target that checks the password and returns the file.</summary>
     internal const string ExportDownloadPath = "/account/export/download";
 
-    /// <summary>The form field the password arrives in.</summary>
     internal const string PasswordFormField = "password";
 
     /// <summary>Tells the export page which sentence to show after a refused download.</summary>
     internal const string ErrorQueryKey = "error";
 
-    /// <summary>The claim naming the caller, so a refusal can be tied to an account.</summary>
     private const string SubjectClaimType = "sub";
 
     internal const string PasswordErrorCode = "password";
@@ -59,8 +51,8 @@ internal static partial class AccountEndpointsExtensions
     {
         public IEndpointRouteBuilder MapAccountEndpoints()
         {
-            // A form parameter is what makes the framework demand the antiforgery token, so the binding
-            // below is part of the protection, not only a convenience.
+            // The handler's form parameter is what makes the framework demand the antiforgery token, so
+            // that binding is part of the protection.
             endpoints.MapPost(ExportDownloadPath, DownloadAccountExportAsync)
                 .RequireAuthorization();
 
@@ -69,15 +61,12 @@ internal static partial class AccountEndpointsExtensions
     }
 
     /// <summary>
-    /// The route's handler, internal so a unit test can call it without a web host. With the right
-    /// password it returns a file with the indented camelCase JSON; with a wrong one it redirects back to
-    /// the confirmation page. Only the auth part can fail the download; when the TMS part fails, the file
-    /// simply has <c>translationData: null</c> and <c>isComplete: false</c>.
+    /// Internal so a unit test can call it without a web host. Only the auth part can fail the download;
+    /// a TMS failure leaves <c>translationData: null</c> and <c>isComplete: false</c>.
     /// </summary>
     /// <remarks>
-    /// The services are marked explicitly. Once one parameter comes from the form, every other one that
-    /// is not obviously a service is read as a JSON body, and the endpoint refuses to build at all — so
-    /// the attributes are what keep the binding unambiguous.
+    /// The services are marked explicitly: once one parameter comes from the form, any other parameter
+    /// that is not obviously a service is read as a JSON body, and the endpoint refuses to build.
     /// </remarks>
     internal static async Task<IResult> DownloadAccountExportAsync(
         [FromForm(Name = PasswordFormField)] string? password,
@@ -115,18 +104,16 @@ internal static partial class AccountEndpointsExtensions
                 ClientIpAddress(httpContext),
                 UserAgent(httpContext));
 
-            // A dead session goes back to the page with no marker. The 401 already marked the session
-            // dead, so that request signs the user out and sends them to log in, and they return to a
-            // clean form — a "session expired" sentence would greet them right after logging in.
+            // No marker here: the 401 already marked the session dead, so that request signs the user out
+            // and they return to a clean form. A "session expired" sentence would greet them after login.
             if (result.IsUnauthorized)
             {
                 return Results.Redirect(ExportPagePath);
             }
 
-            // A mistyped password and a throttle belong on the page the user just used, so they go back
-            // to it with a marker. Everything else keeps answering with the Polish problem body this
-            // route has always returned, trace id included (#548, #703, ADR-0044 §5): those are the
-            // failures somebody has to diagnose.
+            // A wrong password and a throttle go back to the form with a marker. Everything else answers
+            // with the Polish problem body, trace id included, because somebody has to diagnose those
+            // (ADR-0044 §5).
             string? formError = FormErrorFor(result);
             return formError is null
                 ? Results.Problem(ApiProblemCopy.Localize(
@@ -139,12 +126,9 @@ internal static partial class AccountEndpointsExtensions
 
         TranslatorDataExportResponse? translationData = null;
 
-        // The TMS part is found through the 'contribution-data-export' rel (#610). A rel we cannot
-        // resolve is treated exactly like a failed call: we never guess a path, and it never fails the
-        // download (ADR-0032).
-        // A 200 whose body is empty or does not parse counts as a failed call too, and the HTTP layer
-        // decides that (#638, #653). So a success here always carries a value, and anything else leaves
-        // translationData null.
+        // A rel we cannot resolve counts as a failed call: we never guess a path (#610), and it never
+        // fails the download (ADR-0032). An empty or unreadable 200 is a failure too (#638), so a success
+        // here always carries a value.
         ApiResult<string> contributionHref = await discoveryCache.ResolveTranslationSystemHrefAsync(
             Rels.ContributionDataExport,
             cancellationToken);
@@ -168,15 +152,14 @@ internal static partial class AccountEndpointsExtensions
             IsComplete: translationData is not null && result.Value.IsComplete);
 
         byte[] payload = JsonSerializer.SerializeToUtf8Bytes(exportFile, ExportSerializerOptions);
-        // Stamped in Poland time, like every other date the user reads (#736): the file name is what they
-        // sort their downloads by, so it has to match the clock they downloaded it on.
+        // Poland time, like every date the user reads (#736): they sort their downloads by this name.
         string fileName = string.Format(
             CultureInfo.InvariantCulture,
             "lotro-translator-moje-dane-{0:yyyyMMdd-HHmmss}.json",
             DateTimeOffset.UtcNow.ToPolandTime());
 
-        // The auth API's own line only ever names this service as the caller. This one carries the
-        // reader's real address (#690, ADR-0052).
+        // The auth API's own log line only sees this service as the caller; this one has the reader's
+        // real address (ADR-0052).
         LogExportDownloaded(
             logger,
             result.Value.AuthData.UserId,
@@ -189,13 +172,11 @@ internal static partial class AccountEndpointsExtensions
     }
 
     /// <summary>
-    /// The marker to send the user back to the export page with, or <c>null</c> when the failure is not
-    /// theirs to fix. The page shows the matching sentence and a link to a clean form. The password cases
-    /// are matched on the API's own <c>errorCode</c> rather than on the bare status, so a validation rule
-    /// added later does not silently come out as "wrong password". Two refusals are a 429: the account's
-    /// own confirmation budget, which carries a code and a 15-minute window (ADR-0053), and the bare
-    /// per-address bucket the account GET sits on, keyed on this reader's own address (ADR-0054), which
-    /// clears within a minute. The page says a different sentence for each.
+    /// The marker for the export page, or <c>null</c> when the failure is not the user's to fix. Password
+    /// cases match on the <c>errorCode</c>, not the status, so a later validation rule never reads as
+    /// "wrong password". Two refusals are a 429: the account's confirmation budget, with a code and a
+    /// 15-minute window (ADR-0053), and the bare per-address limit (ADR-0054), which clears within a
+    /// minute. The page says a different sentence for each.
     /// </summary>
     private static string? FormErrorFor(ApiResult result) =>
         ErrorCodeOf(result) switch

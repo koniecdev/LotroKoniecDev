@@ -8,9 +8,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 
 /// <summary>
-/// The page that asks for the password before the GDPR export is handed over (#690, ADR-0052). It only
-/// has to post the password to the download route and show why the last attempt was refused; the check
-/// itself happens at the auth API.
+/// The page only posts the password to the download route and shows why the last attempt was refused;
+/// the auth API checks the password (ADR-0052).
 /// </summary>
 public sealed class ExportAccountDataTests : BunitContext
 {
@@ -32,16 +31,14 @@ public sealed class ExportAccountDataTests : BunitContext
         IElement password = component.Find("#export-password");
         password.GetAttribute("type").ShouldBe("password");
         password.GetAttribute("name").ShouldBe("password");
-        // An empty submit never leaves the browser. The server-side refusal is only the safety net.
         password.HasAttribute("required").ShouldBeTrue();
     }
 
     [Fact]
     public void Render_WithoutAnErrorMarker_CarriesAnAntiforgeryToken()
     {
-        // The form target binds a form field, so the framework demands the token. Without it every
-        // download would fail with a 400. bUnit has no real token to render, so the component itself is
-        // what the test can see.
+        // The route demands the token, so without it every download fails with a 400. bUnit can only see
+        // the component, not a real token.
         IRenderedComponent<ExportAccountData> component = Render<ExportAccountData>();
 
         component.FindComponents<AntiforgeryToken>().ShouldHaveSingleItem();
@@ -76,9 +73,8 @@ public sealed class ExportAccountDataTests : BunitContext
     [InlineData("password-throttled")]
     public void Render_WithAnErrorMarker_OffersAWayBackInsteadOfTheForm(string errorCode)
     {
-        // A successful download answers with a file, so the browser stays on the page it posted from.
-        // A form next to the banner would therefore hand the file over under "wrong password". The
-        // refused state has no form at all, only a link back to a clean one.
+        // A download keeps the browser on this page, so a form next to the banner would hand the file
+        // over under "wrong password".
         Navigation().NavigateTo($"/account/export?error={errorCode}");
 
         IRenderedComponent<ExportAccountData> component = Render<ExportAccountData>();
@@ -101,8 +97,7 @@ public sealed class ExportAccountDataTests : BunitContext
     [InlineData("<script>alert(1)</script>")]
     public void Render_WithATamperedErrorMarker_ShowsNoErrorPanel(string errorCode)
     {
-        // The marker is a switch over known codes, never text to print, so a hand-edited URL cannot put
-        // anything of its own on the page.
+        // The marker is a switch over known codes, so a hand-edited URL cannot put its own text here.
         Navigation().NavigateTo($"/account/export?error={Uri.EscapeDataString(errorCode)}");
 
         IRenderedComponent<ExportAccountData> component = Render<ExportAccountData>();

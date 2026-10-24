@@ -3,9 +3,8 @@ using LotroKoniecDev.Frontend.Infrastructure.Security;
 namespace LotroKoniecDev.Frontend.Infrastructure.CookieConsent;
 
 /// <summary>
-/// Maps the route that records cookie consent (LEGAL-04). The banner posts here as a plain HTML form,
-/// with no script and no interactivity, so accepting works even with JavaScript turned off. The
-/// minimal-API form binding checks the antiforgery token.
+/// The banner posts here as a plain HTML form, so accepting works with JavaScript off (LEGAL-04). The
+/// form parameter makes the framework check the antiforgery token.
 /// </summary>
 internal static class CookieConsentEndpointsExtensions
 {
@@ -20,11 +19,7 @@ internal static class CookieConsentEndpointsExtensions
         }
     }
 
-    /// <summary>
-    /// The accept route's handler, internal so a unit test can call it without a web host. It writes the
-    /// consent cookie and redirects back to the page the form came from, refusing a target outside this
-    /// site.
-    /// </summary>
+    /// <summary>Internal so a unit test can call it without a web host.</summary>
     internal static IResult AcceptCookieConsent(HttpContext context, IFormCollection form)
     {
         string returnPath = form["returnPath"].ToString();

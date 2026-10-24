@@ -54,8 +54,7 @@ public sealed class RefreshTokenRevokerTests
     }
 
     /// <summary>
-    /// #1027: a renewal answer the website throws away carries a new refresh token, and the auth server has
-    /// already swapped the stored one for it. Both are still accepted there, so both are revoked.
+    /// #1027: after a thrown-away renewal both the stored and the new refresh token are still accepted.
     /// </summary>
     [Fact]
     public async Task RevokeAsync_WithTwoTokens_RevokesEachOnceAtTheRevocationEndpoint()
@@ -74,8 +73,7 @@ public sealed class RefreshTokenRevokerTests
     }
 
     /// <summary>
-    /// A caller passes every token it holds. A missing or blank one is no token, and a renewal answer may
-    /// repeat the stored token, so each real token is revoked once.
+    /// A renewal answer may repeat the stored token.
     /// </summary>
     [Fact]
     public async Task RevokeAsync_WithMissingBlankAndRepeatedTokens_RevokesEachRealTokenOnce()
@@ -91,8 +89,8 @@ public sealed class RefreshTokenRevokerTests
     }
 
     /// <summary>
-    /// A session with no refresh token has nothing to revoke. Even with the auth server down it must not
-    /// log a failed revoke, or every such session end would look like one.
+    /// Even with the auth server down it must not log a failed revoke, or every such session end would
+    /// look like one.
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -116,8 +114,7 @@ public sealed class RefreshTokenRevokerTests
     }
 
     /// <summary>
-    /// A token client that throws before it returns a task, as a decorator might, must not stop the other
-    /// token's revoke either. The revoke is not visible in the result, hence the check on the substitute.
+    /// As a decorator might. The revoke is not visible in the result, hence the check on the substitute.
     /// </summary>
     [Fact]
     public async Task RevokeAsync_WhenTheClientThrowsBeforeReturningATaskForOneToken_StillRevokesTheOther()
@@ -139,8 +136,7 @@ public sealed class RefreshTokenRevokerTests
     }
 
     /// <summary>
-    /// The token client catches only the failures it expects. One revoke that fails in another way must not
-    /// stop the other token from being revoked.
+    /// The token client catches only the failures it expects.
     /// </summary>
     [Fact]
     public async Task RevokeAsync_WhenOneOfTwoRevokesThrowsAnUnexpectedException_StillRevokesTheOther()
@@ -226,8 +222,7 @@ public sealed class RefreshTokenRevokerTests
     }
 
     /// <summary>
-    /// The token client catches only the failures it expects. Anything else must still not escape,
-    /// because an escape after the cookie sign-out would leave the user signed in.
+    /// An exception escaping after the cookie sign-out would leave the user signed in.
     /// </summary>
     [Fact]
     public async Task RevokeAsync_WhenTheRevokeThrowsAnUnexpectedException_LogsOneWarningAndDoesNotThrow()
@@ -273,8 +268,7 @@ public sealed class RefreshTokenRevokerTests
     }
 
     /// <summary>
-    /// The sign-out waits for the revoke, so a discovery fetch that never answers must not hold it past
-    /// the limit, even if the configuration manager ignores the token.
+    /// The sign-out waits for the revoke, even if the configuration manager ignores the token.
     /// </summary>
     [Fact]
     public async Task RevokeAsync_WhenDiscoveryNeverAnswers_GivesUpExactlyAtTheTimeLimit()
@@ -316,8 +310,7 @@ public sealed class RefreshTokenRevokerTests
     }
 
     /// <summary>
-    /// #1027: two tokens never hold the request longer than one. Both revokes are sent at once and share
-    /// the one time limit, so neither waits for the other.
+    /// #1027: two tokens never hold the request longer than one.
     /// </summary>
     [Fact]
     public async Task RevokeAsync_WhenTheAuthApiNeverAnswersEitherOfTwoRevokes_GivesUpOnBothAtOneTimeLimit()
@@ -337,8 +330,7 @@ public sealed class RefreshTokenRevokerTests
     }
 
     /// <summary>
-    /// The auth API meters connect/revoke per visitor (ADR-0054), so the revoke carries the visitor's
-    /// address and the caller key like every other call to it.
+    /// The auth API meters connect/revoke per visitor (ADR-0054).
     /// </summary>
     [Fact]
     public async Task RevokeAsync_ThroughTheRealRegistration_SendsTheCallerKeyAndTheVisitorsAddress()
@@ -356,8 +348,7 @@ public sealed class RefreshTokenRevokerTests
     }
 
     /// <summary>
-    /// #830: the endpoint is a link from another service, so a link off the auth origin must never carry
-    /// the refresh token or the caller key away.
+    /// #830: the endpoint is a link from another service.
     /// </summary>
     [Theory]
     [InlineData("https://attacker.example/connect/revoke")]
@@ -415,8 +406,7 @@ public sealed class RefreshTokenRevokerTests
     }
 
     /// <summary>
-    /// The frontend's own registration with the socket handler swapped for a recording stub and the
-    /// discovery document swapped for the given one.
+    /// The frontend's own registration, with the transport and the discovery document swapped.
     /// </summary>
     private static ServiceProvider BuildRealRegistration(
         HttpMessageHandler primary,

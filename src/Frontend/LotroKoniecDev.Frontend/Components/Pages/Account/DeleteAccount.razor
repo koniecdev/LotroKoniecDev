@@ -30,10 +30,8 @@
             </p>
         </div>
 
-        @* The session at the auth server is already gone, because the account is locked and its
-           tokens are revoked. So the button uses the local sign-out and lands on the public
-           confirmation page. There is no inline script to submit it automatically, because the CSP
-           allows script-src 'self' only. *@
+        @* The auth server's session is already gone, so the button uses the local sign-out. A button,
+           not an auto-submit: the CSP allows no inline script. *@
         <form method="post" action="@SignOutFormAction()" data-testid="post-delete-signout">
             <AntiforgeryToken/>
             <button type="submit" class="btn btn-primary">Przejdź dalej</button>
@@ -150,14 +148,12 @@
 @code
 {
     /// <summary>
-    /// The confirmation phrase we expect. The SSR form handler compares it character by character and the
-    /// auth API never sees it. It is only an "are you sure" step on the frontend.
+    /// Only an "are you sure" step: the auth API never sees it.
     /// </summary>
     internal const string ConfirmPhrase = "USUWAM";
 
     /// <summary>
-    /// Response-header name from the auth API's <c>DeleteAccount</c> endpoint. The constant lives in
-    /// an internal API type (not shared via Contracts), so the FE mirrors the literal.
+    /// Mirrors the auth API's <c>DeleteAccount</c> header name, which lives in an internal API type.
     /// </summary>
     internal const string DeletionFinalizesAtHeader = "X-Deletion-Finalizes-At";
 
@@ -174,8 +170,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // A property initializer is rejected for a [SupplyParameterFromForm] model (BL0008), so seed it
-        // here instead.
+        // A property initializer is rejected for a [SupplyParameterFromForm] model (BL0008).
         DeleteInput ??= new DeleteFormModel();
 
         _loadResult = await Loader.LoadExportAsync(CancellationToken.None);
@@ -234,10 +229,6 @@
                          ?? ApiProblemCopy.FrontendAuthored("Nie udało się zaplanować usunięcia konta.");
     }
 
-    /// <summary>
-    /// The sign-out form's action: the local-only cookie sign-out with the anonymous confirmation
-    /// page as the return target, carrying the finalization date from the response header.
-    /// </summary>
     private string SignOutFormAction()
     {
         string infoPageUrl = "/account/deletion-scheduled";

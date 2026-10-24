@@ -3,11 +3,8 @@ using System.Net.Http.Headers;
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 
 /// <summary>
-/// Response headers kept from a successful API call, for the few endpoints that return their data in
-/// headers instead of a body, such as a <c>204 No Content</c> with <c>X-Deletion-Finalizes-At</c> when
-/// an account deletion is scheduled. The values are copied out of the
-/// <see cref="HttpResponseMessage"/>, so the send helper can dispose it while callers still work with
-/// the <c>ApiResult</c> type.
+/// For an endpoint that answers in headers instead of a body. The values are copied out, so the send
+/// helper can dispose the response.
 /// </summary>
 internal sealed class ApiResponseHeaders
 {

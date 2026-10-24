@@ -42,8 +42,7 @@ public sealed class DeadSessionRegistryTests
     }
 
     /// <summary>
-    /// #1061: the other token is the same user's phone. Its session must not end because the laptop's token
-    /// was refused.
+    /// #1061: the other token is the same user's phone.
     /// </summary>
     [Fact]
     public async Task ConsumeAsync_ForAnotherSessionsToken_ReturnsFalse()
@@ -72,8 +71,8 @@ public sealed class DeadSessionRegistryTests
     }
 
     /// <summary>
-    /// #1061: a real access token is longer than the 256 characters the frontend's cache allows for a key, and
-    /// the cache skips such a key with only a log line. So the marker only works because the key is a hash.
+    /// A real access token is longer than the cache's 256-character key limit, so the marker works only
+    /// because the key is a hash.
     /// </summary>
     [Fact]
     public async Task ConsumeAsync_AfterMarkDeadWithATokenLongerThanTheCacheKeyLimit_ReturnsTrue()
@@ -87,7 +86,6 @@ public sealed class DeadSessionRegistryTests
         isDead.ShouldBeTrue();
     }
 
-    /// <summary>A blank token names no session, so it is never reported dead.</summary>
     [Theory]
     [InlineData("")]
     [InlineData("   ")]

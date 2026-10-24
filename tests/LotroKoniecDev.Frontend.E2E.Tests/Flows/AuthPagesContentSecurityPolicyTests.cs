@@ -5,12 +5,9 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// The auth origin sends a strict CSP (#693): inline styles only with the response's nonce, and no
-/// inline script at all. A page that breaks it still returns 200 and still loads, just unstyled or
-/// without its script, so only a real browser can tell (#670). This opens every account page in one
-/// and checks that nothing was blocked.
-/// It needs no account and nothing seeded. The two link pages are also opened with a link that parses,
-/// so the state that renders the form is checked too.
+/// The auth origin's strict CSP (#693). A page that breaks it still loads, only unstyled or without its
+/// script, so only a real browser can tell (#670). The two link pages are also opened with a link that
+/// parses, so the form state is checked too.
 /// </summary>
 public sealed class AuthPagesContentSecurityPolicyTests : E2ETestBase
 {
@@ -65,8 +62,7 @@ public sealed class AuthPagesContentSecurityPolicyTests : E2ETestBase
     }
 
     /// <summary>
-    /// The listener behind <see cref="E2ETestBase.CspViolations"/> is what every other CSP check in this
-    /// suite relies on. If it stopped firing, they would all stay green, so this proves it still reports.
+    /// Every other CSP check relies on this listener; if it stopped firing, they would all stay green.
     /// </summary>
     [Fact]
     public async Task Violation_listener_reports_a_style_the_csp_blocks()
@@ -99,7 +95,7 @@ public sealed class AuthPagesContentSecurityPolicyTests : E2ETestBase
     [Fact]
     public async Task Login_page_script_still_toggles_the_password_under_the_csp()
     {
-        // Arrange: the toggle used to be an inline script, which this CSP blocks; it now comes from a file
+        // Arrange: the toggle's script comes from a file, because this CSP blocks inline script
         await Page.GotoAsync(Fixture.AuthBaseUrl + "/Account/Login");
         ILocator password = Page.GetByLabel(FieldLabels.Password, new() { Exact = true });
 

@@ -7,21 +7,14 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
 
 /// <summary>
-/// At sign-out the website revokes its own refresh token, server to server, before it sends the browser
-/// to the auth server's end-session page (#964). The browser may never get there: the tab closes, the
-/// network drops, or the auth server is restarting. Without this call, a copied website cookie could keep
-/// renewing itself.
-/// The cookie check does the same when the website ends a session on its own (#1027), because there the
-/// browser is never sent to the end-session page at all.
-/// The endpoint comes from the auth server's discovery document, never from a path of our own (#610).
-/// It is best effort: a failure is logged and never stops the sign-out.
+/// Revokes the website's refresh token server to server, because the browser may never reach the auth
+/// server's end-session page, and a copied cookie could keep renewing itself (#964, #1027). The endpoint
+/// comes from the discovery document (#610). Best effort: a failure is logged and never stops the
+/// sign-out.
 /// </summary>
 internal sealed partial class RefreshTokenRevoker
 {
-    /// <summary>
-    /// The request that ends the session waits for this call, so a stuck auth server must not hold it for
-    /// long.
-    /// </summary>
+    /// <summary>The request that ends the session waits for this call.</summary>
     internal static readonly TimeSpan TimeLimit = TimeSpan.FromSeconds(5);
 
     private readonly ITokenEndpointClient _tokenEndpointClient;
@@ -42,10 +35,8 @@ internal sealed partial class RefreshTokenRevoker
     }
 
     /// <summary>
-    /// Takes no cancellation token on purpose. A browser that drops the sign-out request, for example by
-    /// closing the tab, is exactly the case this revoke exists for, so the request's abort must not stop it.
-    /// A caller passes every token it holds: a missing, blank or repeated one is skipped. All of them share
-    /// one time limit, so two tokens never hold the request longer than one.
+    /// No cancellation token: a browser that drops the sign-out request is the case this revoke exists for.
+    /// A missing, blank or repeated token is skipped, and all tokens share one time limit.
     /// </summary>
     public async Task RevokeAsync(params IReadOnlyCollection<string?> refreshTokens)
     {
@@ -69,15 +60,15 @@ internal sealed partial class RefreshTokenRevoker
                 return;
             }
 
-            // Side by side, so a slow first revoke does not use up the time of the second one. The lambda is
-            // async, so a client that throws before it returns a task fails only its own revoke.
+            // Side by side, so a slow first revoke does not use up the second one's time. The async lambda
+            // keeps a client that throws before returning a task from failing the other revoke.
             await Task.WhenAll(tokensToRevoke.Select(async token =>
                 await _tokenEndpointClient.RevokeRefreshTokenAsync(revocationEndpoint, token, timeLimit.Token)));
         }
         catch (Exception exception)
         {
-            // Every failure we expect is logged further in. This catches the rest, because an exception
-            // here would undo the sign-out: the error page drops the header that deletes the cookie.
+            // An exception here would undo the sign-out: the error page drops the header that deletes the
+            // cookie.
             LogRevocationFailedUnexpectedly(_logger, exception);
         }
     }

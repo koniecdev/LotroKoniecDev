@@ -20,13 +20,9 @@ using TranslationRels = LotroKoniecDev.TranslationSystem.Contracts.Hateoas.Rels;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 
 /// <summary>
-/// Both halves of the discovery cache, over a real <see cref="HybridCache"/> and substituted clients.
-/// Guests share one entry. A signed-in caller gets one for the account and its roles, because the API
-/// sends each caller only the links that caller may follow (#842). An anonymous set of links is never
-/// cached under a signed-in key, because that would take away, for a whole day, everything that user is
-/// allowed to do. Such a response must mark the session dead and be served without being cached under
-/// either key. A real outage stays a ProblemDetails failure, is never cached, and is never turned into
-/// "session expired".
+/// Over a real <see cref="HybridCache"/> and substituted clients. Pins the cache keys per guest and per
+/// account and roles (#842), the anonymous answer to a signed-in call (marks the session dead, cached
+/// under neither key), and the outage that is never cached.
 /// </summary>
 public sealed class DiscoveryCacheTests
 {
@@ -69,17 +65,15 @@ public sealed class DiscoveryCacheTests
 
         ApiResult<AuthDiscoveryResponse> result = await cache.GetAuthSystemDiscoveryAsync();
 
-        // Degrades to a successful anonymous link set instead of an error box…
         result.IsSuccess.ShouldBeTrue();
         result.Value.Links.ShouldNotContain(link => link.Rel == Rels.ExportAccountData);
-        // The sign-out does not show up in the return value, so the .Received() check is the only proof. It
-        // names the token the call carried, so another device of the same user keeps its session (#1061).
+        // The sign-out is not in the return value, so .Received() is the only proof. It names the token,
+        // not the user (#1061).
         await _deadSessionRegistry.Received(1).MarkDeadAsync(AccessToken, Arg.Any<CancellationToken>());
     }
 
     /// <summary>
-    /// A call that carried no token says nothing about a token. The cookie validation ends a session with no
-    /// usable token on its own (#1026).
+    /// The cookie validation ends a session with no usable token on its own (#1026).
     /// </summary>
     [Fact]
     public async Task GetAuthSystemDiscoveryAsync_WhenAuthenticatedWithoutATokenGetsAnonymousLinks_DoesNotMarkAnySession()
@@ -98,9 +92,8 @@ public sealed class DiscoveryCacheTests
     [Fact]
     public async Task GetAuthSystemDiscoveryAsync_NeverCachesAnonymousLinksUnderTheAuthenticatedKey()
     {
-        // First call: the token never reached the API, so we get the anonymous set. Second call: the API
-        // answers properly. If the first, incomplete set had been cached under the account's key, the second
-        // call would still be missing the export rel, for a whole day.
+        // The first call gets the anonymous set. Had it been cached under the account's key, the second
+        // call would miss the export rel for a day.
         _authClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
                 ApiResult.Success(AnonymousDiscovery()),
@@ -140,19 +133,19 @@ public sealed class DiscoveryCacheTests
         ApiResult<AuthDiscoveryResponse> outage = await cache.GetAuthSystemDiscoveryAsync();
         ApiResult<AuthDiscoveryResponse> recovered = await cache.GetAuthSystemDiscoveryAsync();
 
-        // A genuine outage is a failure (never reclassified as "session expired")…
+        // A real outage is a failure, never "session expired".
         outage.IsFailure.ShouldBeTrue();
         outage.ProblemDetails!.Status.ShouldBe(503);
         await _deadSessionRegistry.DidNotReceive().MarkDeadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
-        // …and is never persisted under the 1-day TTL: the next call retries the live endpoint.
+        // It is never cached: the next call retries the live endpoint.
         recovered.IsSuccess.ShouldBeTrue();
     }
 
     [Fact]
     public async Task GetAuthSystemDiscoveryAsync_WhenAuthenticatedGetsAnonymousLinks_DoesNotCacheThemForGuests()
     {
-        // The degraded set came from a call that carried a bearer, so it is not stored under the
-        // anonymous key either. The guest's call must reach the API, so its queued failure appears.
+        // A set from a call that carried a bearer is not stored under the anonymous key either, so the
+        // guest's call reaches the API.
         _authClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
                 ApiResult.Success(AnonymousDiscovery()),
@@ -193,18 +186,17 @@ public sealed class DiscoveryCacheTests
 
         ApiResult<TranslationDiscoveryResponse> result = await cache.GetTranslationSystemDiscoveryAsync();
 
-        // It serves the anonymous set the API sent, so the public pages still render on the way out.
+        // The public pages still render on the way out.
         result.IsSuccess.ShouldBeTrue();
         result.Value.Links.ShouldNotContain(link => link.Rel == TranslationRels.ContributionDataExport);
         result.Value.Links.ShouldContain(link => link.Rel == TranslationRels.Progress);
-        // The sign-out does not show up in the return value, so the .Received() check is the only proof. It
-        // names the token the call carried, so another device of the same user keeps its session (#1061).
+        // The sign-out is not in the return value, so .Received() is the only proof. It names the token,
+        // not the user (#1061).
         await _deadSessionRegistry.Received(1).MarkDeadAsync(AccessToken, Arg.Any<CancellationToken>());
     }
 
     /// <summary>
-    /// A call that carried no token says nothing about a token. The cookie validation ends a session with no
-    /// usable token on its own (#1026).
+    /// The cookie validation ends a session with no usable token on its own (#1026).
     /// </summary>
     [Fact]
     public async Task GetTranslationSystemDiscoveryAsync_WhenAuthenticatedWithoutATokenGetsAnonymousLinks_DoesNotMarkAnySession()
@@ -223,9 +215,8 @@ public sealed class DiscoveryCacheTests
     [Fact]
     public async Task GetTranslationSystemDiscoveryAsync_NeverCachesAnonymousLinksUnderTheAuthenticatedKey()
     {
-        // First call: the token never reached the API, so we get the anonymous set. Second call: the API
-        // answers properly. If the first, incomplete set had been cached under the account's key, the second
-        // call would still be missing the logged-in entry points, for a whole day.
+        // The first call gets the anonymous set. Had it been cached under the account's key, the second
+        // call would miss the signed-in entry points for a day.
         _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
                 ApiResult.Success(AnonymousTranslationDiscovery()),
@@ -242,8 +233,7 @@ public sealed class DiscoveryCacheTests
     [Fact]
     public async Task GetTranslationSystemDiscoveryAsync_WhenAnonymous_DoesNotRequireTheAuthenticatedRels()
     {
-        // The TMS root is anonymous by design (#608): a guest legitimately gets only the public entry
-        // points, so the guard must not read that as a broken bearer.
+        // The TMS root is open to guests (#608), so their public set is not a broken bearer.
         _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(AnonymousTranslationDiscovery()));
         DiscoveryCache cache = CreateCache(authenticated: false);
@@ -267,19 +257,19 @@ public sealed class DiscoveryCacheTests
         ApiResult<TranslationDiscoveryResponse> outage = await cache.GetTranslationSystemDiscoveryAsync();
         ApiResult<TranslationDiscoveryResponse> recovered = await cache.GetTranslationSystemDiscoveryAsync();
 
-        // A genuine outage is a failure (never reclassified as "session expired")…
+        // A real outage is a failure, never "session expired".
         outage.IsFailure.ShouldBeTrue();
         outage.ProblemDetails!.Status.ShouldBe(503);
         await _deadSessionRegistry.DidNotReceive().MarkDeadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
-        // …and is never persisted under the 1-day TTL: the next call retries the live endpoint.
+        // It is never cached: the next call retries the live endpoint.
         recovered.IsSuccess.ShouldBeTrue();
     }
 
     [Fact]
     public async Task GetTranslationSystemDiscoveryAsync_WhenAuthenticatedGetsAnonymousLinks_DoesNotCacheThemForGuests()
     {
-        // The degraded set came from a call that carried a bearer, so it is not stored under the
-        // anonymous key either. The guest's call must reach the API, so its queued failure appears.
+        // A set from a call that carried a bearer is not stored under the anonymous key either, so the
+        // guest's call reaches the API.
         _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
                 ApiResult.Success(AnonymousTranslationDiscovery()),
@@ -398,8 +388,8 @@ public sealed class DiscoveryCacheTests
     [Fact]
     public async Task GetTranslationSystemDiscoveryAsync_WhenTwoAccountsShareARoleInTheCookie_NeverShareAnAnswer()
     {
-        // The API decides from the roles in the access token, so two cookies with the same role can still
-        // get different answers. The second account must reach the API, so its queued failure appears.
+        // The API decides from the roles in the access token, so two accounts with the same role still
+        // get separate entries.
         _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
                 ApiResult.Success(AdminTranslationDiscovery()),
@@ -418,8 +408,7 @@ public sealed class DiscoveryCacheTests
     [Fact]
     public async Task GetTranslationSystemDiscoveryAsync_WhenTheAccountSignsInAgainWithNewRoles_GetsAFreshAnswer()
     {
-        // The account was a translator, then became an admin and signed in again. The cookie now carries
-        // the new role, so the old translator answer must not be served.
+        // A translator became an admin and signed in again, so the old answer must not be served.
         _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
                 ApiResult.Success(AuthenticatedTranslationDiscovery()),
@@ -466,7 +455,7 @@ public sealed class DiscoveryCacheTests
                 : new ClaimsPrincipal(new ClaimsIdentity()),
             hybridCache ?? CreateHybridCache());
 
-    /// <param name="accessToken">The token the session holds, which the client sends as its bearer. Null leaves it out.</param>
+    /// <param name="accessToken">Null leaves it out.</param>
     private DiscoveryCache CreateCache(ClaimsPrincipal user, HybridCache hybridCache, string? accessToken = AccessToken)
     {
         // HttpContext.GetTokenAsync reads the token from the ticket that IAuthenticationService returns.
@@ -532,9 +521,7 @@ public sealed class DiscoveryCacheTests
         };
 
     /// <summary>
-    /// What the TMS root sends a logged-in caller: the public entry points plus at least
-    /// <c>contribution-data-export</c>, whose endpoint needs nothing but a login. That is the marker the
-    /// check looks for.
+    /// Carries <c>contribution-data-export</c>, the marker the check looks for.
     /// </summary>
     private static TranslationDiscoveryResponse AuthenticatedTranslationDiscovery() =>
         new("LotroKoniecDev.TranslationSystem")
@@ -546,9 +533,6 @@ public sealed class DiscoveryCacheTests
             ]
         };
 
-    /// <summary>
-    /// What the TMS root sends an admin: the translator's set plus the two admin-only entry points.
-    /// </summary>
     private static TranslationDiscoveryResponse AdminTranslationDiscovery() =>
         new("LotroKoniecDev.TranslationSystem")
         {
@@ -561,7 +545,6 @@ public sealed class DiscoveryCacheTests
             ]
         };
 
-    /// <summary>What the TMS root sends a guest: the three public endpoints and nothing else.</summary>
     private static TranslationDiscoveryResponse AnonymousTranslationDiscovery() =>
         new("LotroKoniecDev.TranslationSystem")
         {

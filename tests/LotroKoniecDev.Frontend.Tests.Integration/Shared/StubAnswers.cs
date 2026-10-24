@@ -7,7 +7,6 @@ using LotroKoniecDev.Hateoas.Abstractions;
 
 namespace LotroKoniecDev.Frontend.Tests.Integration.Shared;
 
-/// <summary>What the stubbed APIs answer and what the stubbed browser posts, shared by the suite's tests.</summary>
 public static class StubAnswers
 {
     /// <summary>The options the Frontend reads the API answers with (HttpClientApiExtensions).</summary>

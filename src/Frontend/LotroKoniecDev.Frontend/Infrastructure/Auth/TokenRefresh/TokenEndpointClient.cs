@@ -71,9 +71,9 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
         catch (TaskCanceledException ex)
             when (cancellationToken.IsCancellationRequested && ex.CancellationToken == cancellationToken)
         {
-            // HttpClient puts the caller's token on the exception only when that token was already cancelled
-            // as it handled the failure, so a timeout stays a warning. A token that can never cancel matches an
-            // exception with no token at all, hence the first check.
+            // The browser left. HttpClient puts the caller's token on the exception only when that token was
+            // already cancelled, so a timeout stays a warning. The first check covers a token that can never
+            // cancel, which matches an exception with no token.
             LogRefreshAbandoned(_logger);
             return TokenRefreshResult.TemporaryFailure;
         }
@@ -84,8 +84,7 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
         }
         catch (JsonException ex)
         {
-            // The whole body arrived and cannot be read. Only a broken sign-in server sends that, and a
-            // retry would get the same answer.
+            // The whole body arrived and cannot be read, so a retry would get the same answer.
             LogRefreshError(_logger, ex);
             return TokenRefreshResult.FinalFailure;
         }
@@ -124,15 +123,14 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
     }
 
     /// <summary>
-    /// The owner's list in #1062: a 429 or any 5xx goes away on its own. Every other refusal, a redirect
-    /// and <c>invalid_grant</c> included, is final.
+    /// A 429 or any 5xx goes away on its own (#1062). Every other refusal, a redirect and
+    /// <c>invalid_grant</c> included, is final.
     /// </summary>
     private static bool IsTemporaryRefusal(HttpStatusCode statusCode) =>
         statusCode is HttpStatusCode.TooManyRequests || (int)statusCode is >= 500 and <= 599;
 
     /// <summary>
-    /// Only the two OAuth fields are logged, never the raw body, so nothing else the answer carries can
-    /// reach the log. For a body of any other shape, the warning holds the status code alone (#914).
+    /// Only the two OAuth fields are logged, never the raw body (#914).
     /// </summary>
     private async Task LogRefusalAsync(
         HttpResponseMessage response,
@@ -152,8 +150,7 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
     }
 
     /// <summary>
-    /// The body is only read for the log, and a log line must never turn a refused refresh into an
-    /// exception.
+    /// A log line must never turn a refused refresh into an exception.
     /// </summary>
     private static async Task<TokenErrorResponse?> TryReadErrorAsync(HttpContent content)
     {
@@ -168,10 +165,8 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
     }
 
     /// <summary>
-    /// Reads the JSON from the bytes, not from a decoded string. Decoding throws on a charset .NET does
-    /// not know, such as "utf8" (#914, #943). A body that is not UTF-8 JSON fails with a
-    /// <see cref="JsonException"/>, which both callers handle. It takes no cancellation token:
-    /// <c>PostAsync</c> has already buffered the body, so there is nothing to wait for.
+    /// From the bytes, not a decoded string: decoding throws on a charset .NET does not know, such as
+    /// "utf8" (#943). No cancellation token: <c>PostAsync</c> has already buffered the body.
     /// </summary>
     private static async Task<T?> ReadJsonAsync<T>(HttpContent content)
     {
@@ -181,8 +176,7 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
 
     /// <summary>
     /// The text comes from another service, so it is cut short. RFC 6749 §5.2 allows only printable ASCII
-    /// in these fields, so any other character is replaced: a line break, a bidi mark or half of a cut
-    /// surrogate pair never reaches the log.
+    /// here, so any other character, such as a line break or a bidi mark, is replaced.
     /// </summary>
     private static string? ForLog(string? value)
     {

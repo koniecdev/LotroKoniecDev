@@ -1,10 +1,9 @@
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 
 /// <summary>
-/// Refuses a request to any origin other than the API this client is configured for, before the bearer
-/// token and the caller key are added (#830, ADR-0041). An absolute link from an API replaces the
-/// client's base address, so without it a link to another host would carry both there. It must stay
-/// outside the resilience handler, so a refusal is never retried and never opens the circuit breaker.
+/// Refuses any origin but the configured API before the bearer token and the caller key are added (#830):
+/// an absolute link replaces the client's base address. It stays outside the resilience handler, so a
+/// refusal is never retried and never opens the circuit breaker.
 /// </summary>
 internal sealed partial class SameOriginDelegatingHandler : DelegatingHandler
 {

@@ -3,9 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 
 /// <summary>
-/// A small result type for HTTP calls. On failure it carries the API's <see cref="ProblemDetails"/>, or
-/// one we built for a transport failure, so a page can show a Polish message instead of throwing. It is
-/// the same idea as the <c>Result</c> type the APIs use, applied to the Frontend's HTTP calls.
+/// On failure it carries the API's <see cref="ProblemDetails"/>, or one built for a transport failure, so a
+/// page can show a Polish message instead of throwing.
 /// </summary>
 public class ApiResult
 {

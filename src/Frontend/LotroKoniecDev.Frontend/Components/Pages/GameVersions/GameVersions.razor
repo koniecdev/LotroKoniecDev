@@ -59,8 +59,6 @@
         </div>
     }
 
-    @* Whether to show "register" comes from the collection's admin-only `register` rel (#158) and not
-       from a role check here. *@
     @if (_registerHref is not null)
     {
         <section class="panel">
@@ -133,9 +131,7 @@
                                 </span>
                             </td>
                             <td class="col-actions">
-                                @* The `delete` rel is sent only to an admin, and only for a version no import
-                                   has run against (#158, #624). It carries the URL to call, and the page
-                                   never builds one (#610). *@
+                                @* Sent only to an admin, for a version no import has run against (#624). *@
                                 @if (version.Links.FindLink(Rels.Delete) is { } deleteLink)
                                 {
                                     <form method="post" @formname="@DeleteFormName(version.Id)"
@@ -156,9 +152,8 @@
 @code
 {
     /// <summary>
-    /// Repeats the server's <c>LotroNotationVersion.VersionMaxLength</c> of 11 as a limit on the input.
-    /// The Frontend cannot reference the Domain constant, and the server's validation (the ADR-0003
-    /// grammar and its three-segment cap) still decides. This is only a convenience for the user.
+    /// Repeats the server's <c>LotroNotationVersion.VersionMaxLength</c>, which the Frontend cannot
+    /// reference. Only a convenience: the server's validation still decides.
     /// </summary>
     private const int MaxVersionLength = 11;
 
@@ -174,20 +169,16 @@
     private string? _actionMessage;
 
     /// <summary>
-    /// The collection's <c>register</c> href, as the server sent it. It goes only to admins, so its
-    /// presence both decides whether the form is shown and gives the URL it posts to (#610). Null means
-    /// this caller is not offered it.
+    /// Sent only to admins, so it both shows the form and gives the URL it posts to (#610).
     /// </summary>
     private string? _registerHref;
 
     protected override async Task OnInitializedAsync()
     {
-        // A property initializer is rejected for a [SupplyParameterFromForm] model (BL0008), so seed it
-        // here: on a non-matching render the model stays empty, on a matching post the bound model wins.
+        // A property initializer is rejected for a [SupplyParameterFromForm] model (BL0008).
         RegisterInput ??= new RegisterFormModel();
 
-        // Any translator may see the list. Whether the register form and the per-row delete buttons appear
-        // is decided by the admin-only rels the server sends (#158) and not by a role check here.
+        // The register form and the delete buttons follow the admin-only rels, never a role check (#158).
         await LoadVersionsAsync();
     }
 
@@ -238,7 +229,6 @@
             _actionProblem = result.ProblemDetails;
         }
 
-        // The registration changed the catalog; refresh so the new Unprocessed row appears.
         await LoadVersionsAsync();
     }
 
@@ -257,21 +247,19 @@
             _actionProblem = result.ProblemDetails;
         }
 
-        // The row is gone (or the delete was refused); refresh to reflect the authoritative state.
         await LoadVersionsAsync();
     }
 
     /// <summary>
-    /// A form name per row, so each delete posts to its own row. Blazor's static SSR sends the post to the
-    /// matching <c>@@formname</c> and rebuilds this row's <c>@@onsubmit</c> closure around the freshly
-    /// loaded version id. The editor uses the same pattern for a single row.
+    /// A form name per row: static SSR sends the post to the matching <c>@@formname</c> and rebuilds that
+    /// row's <c>@@onsubmit</c> closure.
     /// </summary>
     private static string DeleteFormName(GameVersionId id) =>
         string.Create(CultureInfo.InvariantCulture, $"{DeleteFormNamePrefix}{id.Value}");
 
     /// <summary>
-    /// The register form or any row's delete form. A failed load leaves no row to read the ids from, so a
-    /// delete form is known by its name alone (#1122).
+    /// A failed load leaves no row to read the ids from, so a delete form is known by its name alone
+    /// (#1122).
     /// </summary>
     private static bool IsOwnForm(string formName) =>
         formName == RegisterFormName

@@ -19,10 +19,8 @@ using Microsoft.IdentityModel.Tokens;
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// #1025: the first sign-in stores the refresh time of the first token. The unit tests raise the OIDC
-/// event by hand, so this test runs the real handler through the login redirect and the callback against
-/// a stubbed sign-in server. It proves the event runs after the handler stored the tokens, and that its
-/// value reaches the cookie the browser gets.
+/// #1025: the unit tests raise the OIDC event by hand, so this runs the real handler against a stubbed
+/// sign-in server. It proves the event runs after the tokens are stored and its value reaches the cookie.
 /// </summary>
 public sealed class FirstSignInRefreshTimeTests : IClassFixture<ProductionFrontendFactory>, IDisposable
 {
@@ -103,8 +101,7 @@ public sealed class FirstSignInRefreshTimeTests : IClassFixture<ProductionFronte
         };
         configuration.SigningKeys.Add(signingKey);
 
-        // Registered after the app's own setup, so these win: the handler reads the stub's endpoints and keys
-        // and the frozen clock, and makes no network call.
+        // Registered after the app's own setup, so these win. No network call is made.
         return _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.AddSingleton(time);
@@ -162,9 +159,6 @@ public sealed class FirstSignInRefreshTimeTests : IClassFixture<ProductionFronte
         return new JsonWebTokenHandler().CreateToken(descriptor);
     }
 
-    /// <summary>
-    /// The token and userinfo endpoints of the sign-in server, as the OIDC handler's back-channel sees them.
-    /// </summary>
     private sealed class StubSignInServer : HttpMessageHandler
     {
         private readonly int _expiresIn;

@@ -22,10 +22,9 @@ using TranslationRels = LotroKoniecDev.TranslationSystem.Contracts.Hateoas.Rels;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 
 /// <summary>
-/// #825: a cold discovery fetch carries the request's bearer and caller headers (ADR-0054), even when the
-/// caller passes a token that can be cancelled, as the account export route does with RequestAborted.
-/// The tests use the real client registrations and a real <see cref="HttpContextAccessor"/>, because a
-/// substituted accessor returns its context on any thread and would hide a call made outside the request.
+/// #825: a cold discovery fetch carries the request's bearer and caller headers, even with a cancellable
+/// token. A real <see cref="HttpContextAccessor"/>, because a substitute returns its context on any thread
+/// and would hide a call made outside the request.
 /// </summary>
 public sealed class DiscoveryCacheRequestContextTests
 {
@@ -39,7 +38,9 @@ public sealed class DiscoveryCacheRequestContextTests
     /// <summary>Built rather than written out, so no secret scanner mistakes test data for a key.</summary>
     private static readonly string AuthCallerKey = new('k', 40);
 
-    /// <summary>Different from <see cref="AuthCallerKey"/>, so a client that read the wrong settings would show it.</summary>
+    /// <summary>
+    /// Differs from <see cref="AuthCallerKey"/>, so a client that read the wrong settings would show it.
+    /// </summary>
     private static readonly string TranslationSystemCallerKey = new('t', 40);
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -81,8 +82,7 @@ public sealed class DiscoveryCacheRequestContextTests
     [Fact]
     public async Task GetAuthSystemDiscoveryAsync_WithACancellableTokenOnAColdCache_KeepsTheUserSignedIn()
     {
-        // The API answers like the real one: the signed-in set only when the bearer arrives. Without it
-        // the cache would read the anonymous set as a dead token and sign a healthy user out.
+        // The signed-in set only when the bearer arrives, like the real API.
         RecordingApi authApi = new(SignedInAuthLinks(), AnonymousAuthLinks());
         await using ServiceProvider provider = BuildProvider(authApi, new RecordingApi("{}", "{}"));
         EnterSignedInRequest();
@@ -94,7 +94,7 @@ public sealed class DiscoveryCacheRequestContextTests
             .GetAuthSystemDiscoveryAsync(requestAborted.Token);
 
         result.Value.Links.ShouldContain(link => link.Rel == AuthRels.ExportAccountData);
-        // The sign-out does not show up in the return value, so this check is the only proof it did not happen.
+        // The sign-out is not in the return value, so this is the only proof it did not happen.
         await _deadSessionRegistry.DidNotReceive().MarkDeadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
@@ -112,16 +112,15 @@ public sealed class DiscoveryCacheRequestContextTests
             .GetTranslationSystemDiscoveryAsync(requestAborted.Token);
 
         result.Value.Links.ShouldContain(link => link.Rel == TranslationRels.ContributionDataExport);
-        // The sign-out does not show up in the return value, so this check is the only proof it did not happen.
+        // The sign-out is not in the return value, so this is the only proof it did not happen.
         await _deadSessionRegistry.DidNotReceive().MarkDeadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task GetAuthSystemDiscoveryAsync_WhenADeadSessionMissesTheCacheAtTheSameTime_KeepsTheHealthyUserSignedIn()
     {
-        // A shared cache factory would hand a caller who arrives during another caller's fetch that
-        // caller's answer, so one dead token would sign a healthy user out too. Each caller must make its
-        // own call: the API holds the first call until the second one arrives.
+        // A shared cache factory would hand the second caller the first one's answer. The API holds the
+        // first call until the second arrives.
         RecordingApi authApi = new(SignedInAuthLinks(), AnonymousAuthLinks(), holdUntilCalls: 2);
         await using ServiceProvider provider = BuildProvider(authApi, new RecordingApi("{}", "{}"));
 
@@ -155,8 +154,8 @@ public sealed class DiscoveryCacheRequestContextTests
         });
 
     /// <summary>
-    /// Sets the request's context the way ASP.NET Core does, through the accessor's async-local slot. It is
-    /// not an async method on purpose: a value set inside an async method would not flow back to the test.
+    /// Not async: a value set in the accessor's async-local slot inside an async method would not flow
+    /// back to the test.
     /// </summary>
     private static void EnterSignedInRequest(string accessToken = AccessToken, string subject = HealthySubject)
     {
@@ -186,9 +185,8 @@ public sealed class DiscoveryCacheRequestContextTests
     }
 
     /// <summary>
-    /// The frontend's own registrations with each socket handler swapped for a recording stub. A later
-    /// ConfigurePrimaryHttpMessageHandler on the same named client wins, so the delegating handlers and
-    /// the resilience pipeline stay exactly as Program.cs wires them.
+    /// A later ConfigurePrimaryHttpMessageHandler wins, so only the transport changes; the handlers and
+    /// the resilience pipeline stay as Program.cs wires them.
     /// </summary>
     private ServiceProvider BuildProvider(RecordingApi authApi, RecordingApi translationApi)
     {
@@ -253,11 +251,9 @@ public sealed class DiscoveryCacheRequestContextTests
     private sealed record RecordedCall(string? Authorization, string? CallerKey, string? ClientAddress);
 
     /// <summary>
-    /// Stands in for an API root that accepts only <see cref="AccessToken"/>: that bearer gets the signed-in
-    /// set, anything else the anonymous one. It copies the headers when the call is sent, because the client
-    /// disposes the request message as soon as the response is read. With <c>holdUntilCalls</c> above one,
-    /// each call waits until that many calls have arrived, and gives up after a few seconds, so a caller
-    /// that never makes its own call fails the test instead of hanging it.
+    /// Accepts only <see cref="AccessToken"/>. Headers are copied at send time, because the client disposes
+    /// the request. With <c>holdUntilCalls</c> above one, each call waits for that many calls and gives up
+    /// after a few seconds, so a missing call fails the test instead of hanging it.
     /// </summary>
     private sealed class RecordingApi : HttpMessageHandler
     {

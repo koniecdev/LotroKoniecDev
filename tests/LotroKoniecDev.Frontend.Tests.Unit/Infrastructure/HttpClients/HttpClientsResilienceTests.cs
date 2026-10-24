@@ -11,11 +11,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 
 /// <summary>
-/// Guards the resilience pipeline's per-request decisions. The timeout one (#208): the exported.txt
-/// upload is a multipart POST that must be granted a far wider budget than an ordinary JSON call, or a
-/// healthy ~80 MB upload is aborted mid-flight by the tight default while the API is still importing.
-/// The retry one (#813): a request that confirms the current password spends one permit of the account's
-/// budget per attempt, so the pipeline must send it exactly once.
+/// The pipeline's per-request decisions: the long timeout for the ~80 MB upload (#208), and a password
+/// confirmation sent only once, because each attempt spends one permit of the account's budget (#813).
 /// </summary>
 public sealed class HttpClientsResilienceTests
 {
@@ -77,8 +74,7 @@ public sealed class HttpClientsResilienceTests
     [MemberData(nameof(PasswordConfirmationRequests))]
     public void MayRetry_ForAPasswordConfirmation_IsFalse(object body)
     {
-        // A retry after the per-attempt timeout would be a second confirmation against the account's
-        // budget, while the auth API still served the first one (ADR-0053).
+        // A retry after a timeout would spend a second permit while the first is still served (ADR-0053).
         using HttpRequestMessage request = new(HttpMethod.Post, "auth/account/delete")
         {
             Content = JsonContent.Create(body, body.GetType())
@@ -141,12 +137,9 @@ public sealed class HttpClientsResilienceTests
     [MemberData(nameof(PostVerbs))]
     public async Task AuthSystemClient_ForAPasswordConfirmation_SendsTheRequestExactlyOnce(string verb)
     {
-        // Through the real registration: the typed client, its request builder and the resilience
-        // pipeline as Program.cs wires them. The builder passes the body's runtime type to
-        // JsonContent.Create, and that is the only thing that lets the pipeline recognise the request;
-        // a seam-level test of MayRetry cannot see that link. All three POST verbs are driven, because
-        // the account pages use all three (delete goes through the headers one). The send count is a
-        // side effect the ApiResult does not show, which is why it is asserted here.
+        // Through the real registration: only the request builder's body type lets the pipeline recognise
+        // the request, which a test of MayRetry cannot see. All three POST verbs, because the account pages
+        // use all three. The send count is not in the ApiResult.
         CountingHttpMessageHandler primary = new(HttpStatusCode.InternalServerError);
         await using ServiceProvider provider = BuildAuthClientProvider(primary);
         IAuthSystemClient client = provider.GetRequiredService<IAuthSystemClient>();
@@ -161,9 +154,7 @@ public sealed class HttpClientsResilienceTests
     [MemberData(nameof(PostVerbs))]
     public async Task AuthSystemClient_ForAPlainJsonBody_RetriesTheServerError(string verb)
     {
-        // The control for the test above: with the same pipeline, a body that is not a password
-        // confirmation is still retried, so the single send there is the marker's doing and not a
-        // pipeline that never retried at all.
+        // The control for the test above: any other body is still retried.
         CountingHttpMessageHandler primary = new(HttpStatusCode.InternalServerError);
         await using ServiceProvider provider = BuildAuthClientProvider(primary);
         IAuthSystemClient client = provider.GetRequiredService<IAuthSystemClient>();
@@ -174,7 +165,6 @@ public sealed class HttpClientsResilienceTests
         primary.SendCount.ShouldBe(1 + MaxRetryAttempts);
     }
 
-    /// <summary>Sends through the named verb and reports whether the result was a failure.</summary>
     private static async Task<bool> PostAsync(IAuthSystemClient client, string verb, object body)
     {
         const string uri = "auth/account/delete";
@@ -191,13 +181,11 @@ public sealed class HttpClientsResilienceTests
         };
     }
 
-    /// <summary>Mirrors the pipeline in HttpClientsDependencyInjectionExtensions: two retries after the first attempt.</summary>
+    /// <summary>Mirrors the pipeline in HttpClientsDependencyInjectionExtensions.</summary>
     private const int MaxRetryAttempts = 2;
 
     /// <summary>
-    /// The frontend's own client registration, with the socket handler swapped for a counting stub. A
-    /// later ConfigurePrimaryHttpMessageHandler on the same named client wins, so the resilience
-    /// pipeline and the delegating handler stay exactly as Program.cs wires them.
+    /// A later ConfigurePrimaryHttpMessageHandler wins, so only the transport changes.
     /// </summary>
     private static ServiceProvider BuildAuthClientProvider(HttpMessageHandler primary)
     {

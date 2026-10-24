@@ -6,14 +6,12 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Errors;
 
 /// <summary>
 /// The one place the Polish text for a failed API call comes from (ADR-0044). The APIs write English:
-/// either a domain message with a machine-readable <c>errorCode</c>, or, for a status the
-/// <c>UseStatusCodePages</c> middleware produces, a bare English phrase with no code at all.
-/// So the default is to translate, and only a <see cref="ProblemDetails"/> the Frontend wrote itself,
-/// through <see cref="FrontendAuthored"/>, is shown as it is.
+/// a domain message with an <c>errorCode</c>, or a bare phrase with no code from
+/// <c>UseStatusCodePages</c>. So everything is translated, and only a <see cref="ProblemDetails"/> the
+/// Frontend wrote itself, through <see cref="FrontendAuthored"/>, is shown as it is.
 /// <para>
-/// The default works that way round on purpose: a problem we do not recognise still comes out in Polish,
-/// so a page nobody thought of cannot show English. Getting the marker wrong only shows a general Polish
-/// sentence instead of a specific one, and never the bug this exists to prevent.
+/// A problem we do not recognise still comes out in Polish, so no page can show English. Getting the
+/// marker wrong only shows a general Polish sentence instead of a specific one.
 /// </para>
 /// </summary>
 internal static partial class ApiProblemCopy
@@ -33,13 +31,11 @@ internal static partial class ApiProblemCopy
     /// </summary>
     internal const string TechnicalDetailExtensionKey = "technicalDetail";
 
-    /// <summary>The tracking id both APIs put on every problem body.</summary>
     internal const string TraceIdExtensionKey = "traceId";
 
     /// <summary>
-    /// The three codes the export download route has to tell apart from every other failure, because it
-    /// redirects on them instead of rendering a problem (#690, #813). Named once, so the route and the
-    /// map below cannot drift.
+    /// The three codes the export download route redirects on instead of rendering a problem (#690, #813).
+    /// Named once, so the route and the map below cannot drift.
     /// </summary>
     internal const string InvalidCurrentPasswordCode = "Auth.InvalidCurrentPassword";
 
@@ -50,31 +46,26 @@ internal static partial class ApiProblemCopy
     internal const string PasswordConfirmationThrottledCode = "Auth.PasswordConfirmationThrottled";
 
     /// <summary>
-    /// The last resort: a failure from an API whose code has no text here and whose status has none
-    /// either. Reaching it means <see cref="PolishByErrorCode"/> is missing an entry, and
-    /// <c>ApiProblemAlert</c> logs the code when that happens.
+    /// The last resort, for a code with no text here and a status with none either. Reaching it means
+    /// <see cref="PolishByErrorCode"/> is missing an entry; <see cref="ReportUnmappedErrorCode"/> logs it.
     /// </summary>
     internal const string GenericMessage = "Operacja nie powiodła się. Spróbuj ponownie za chwilę.";
 
     /// <summary>
-    /// The password rules, spelled out. Both layers that reject a password answer with a mapped code, so
-    /// since #703 hid the English drawer this sentence is the only place a user learns which rule they
-    /// broke. It must list <em>every</em> rule: a rule missing here is a rule the message silently
-    /// contradicts, which is the defect #703 exists to remove.
+    /// The English detail of a password failure is hidden (#703), so this sentence is the only place a
+    /// user learns which rule they broke. It must list every rule. The change-password hint shares it.
     /// <para>
-    /// The wording is shared with the change-password hint, so the Frontend states the rules once. The
-    /// API states the same ones in <c>PasswordConstants</c>, <c>PasswordValidationRules</c> and the Identity
-    /// options; the contexts share no code, so keep those in step by hand.
+    /// The API states the same rules in <c>PasswordConstants</c>, <c>PasswordValidationRules</c> and the
+    /// Identity options. The contexts share no code, so keep them in step by hand.
     /// </para>
     /// </summary>
     internal const string PasswordRules =
         "od 8 do 128 znaków, mała i wielka litera, cyfra oraz znak specjalny.";
 
     /// <summary>
-    /// The Polish text for each API error code. It covers every code <c>TranslationSystem.API</c> and
-    /// <c>AuthSystem.API</c> can produce: the domain error lists, the per-slice validation errors and the
-    /// shared exception handlers. A code that is missing here falls back to
-    /// <see cref="PolishByStatusCode"/> and never to the API's English.
+    /// Covers every code <c>TranslationSystem.API</c> and <c>AuthSystem.API</c> can produce: domain
+    /// errors, per-slice validation errors and the shared exception handlers. A missing code falls back to
+    /// <see cref="PolishByStatusCode"/>, never to the API's English.
     /// </summary>
     private static readonly FrozenDictionary<string, string> PolishByErrorCode =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -163,27 +154,24 @@ internal static partial class ApiProblemCopy
             ["Auth.RegistrationFailed"] =
                 "Nie udało się założyć konta. Sprawdź adres e-mail, nazwę użytkownika oraz wymagania hasła: "
                 + PasswordRules,
-            // Registration lives on the auth server's own Razor Page, which shows the same sentence. The
-            // entry stays because this map covers every code the APIs can produce.
+            // Shown by the auth server's own registration page. Kept because this map covers every code.
             ["Auth.RegistrationMailboxThrottled"] =
                 "Na tę skrzynkę pocztową było ostatnio zbyt wiele prób rejestracji. Odczekaj kwadrans i spróbuj ponownie.",
             ["Auth.UserNotFound"] =
                 "Nie znaleziono konta.",
             [InvalidCurrentPasswordCode] =
                 "Aktualne hasło jest nieprawidłowe.",
-            // The export page carries its own copy of this sentence too, behind its "password-throttled"
-            // marker; the other three account pages read this one.
+            // The export page keeps its own copy behind its "password-throttled" marker, because its route
+            // redirects and a redirect carries no problem body. Change both together.
             [PasswordConfirmationThrottledCode] =
                 "Zbyt wiele prób potwierdzenia hasła. Odczekaj kwadrans i spróbuj ponownie.",
-            // The export page carries its own copy of this sentence, because its route redirects and a
-            // redirect carries no problem body. The entry stays because this map covers every code the
-            // APIs can produce.
+            // The export page keeps its own copy, for the same reason. Kept because this map covers every code.
             [ExportPasswordRequiredCode] =
                 "Podaj obecne hasło, aby pobrać swoje dane.",
             ["Auth.PasswordChangeFailed"] =
                 "Nie udało się zmienić hasła. Nowe hasło musi spełniać wymagania: " + PasswordRules,
-            // The password change reaches it here. Registration and reset show the same sentence on the auth
-            // server's own pages (ADR-0066).
+            // Only the password change reaches it here. Registration and reset show the same sentence on
+            // the auth server's own pages (ADR-0066).
             ["Auth.PasswordFoundInBreaches"] =
                 "To hasło pojawiło się w wyciekach danych, wybierz inne.",
             ["Auth.InvalidPasswordResetToken"] =
@@ -216,9 +204,8 @@ internal static partial class ApiProblemCopy
                 "Nie udało się zmienić adresu e-mail. Spróbuj ponownie później.",
 
             // ── Auth · per-slice request validation ────────────────────────────────────────────
-            // Registration and password reset live on the auth server's own Razor Pages, so these three
-            // entries are unreachable from the Frontend today. They stay for map completeness, and they
-            // name every rule their validator enforces in case those pages ever move here.
+            // Registration and password reset live on the auth server's own pages, so the Frontend cannot
+            // reach these three today. They stay because this map covers every code.
             ["RegisterUser.Validation"] =
                 "Formularz rejestracji zawiera nieprawidłowe dane. Sprawdź adres e-mail, nazwę użytkownika "
                 + "i wymagane zgody, a hasło musi mieć " + PasswordRules,
@@ -255,16 +242,13 @@ internal static partial class ApiProblemCopy
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>
-    /// The mapped codes whose English message says something the Polish text cannot: a line number, a
-    /// row key, a duplicate fragment key, or the removal counters. Only for those is the API wording
-    /// worth showing (ADR-0044 §4, amended by #703). Everywhere else the English only restates the
-    /// Polish headline, which reads like a leak.
+    /// The mapped codes whose English message carries data the Polish text cannot: a line number, a row
+    /// key, a duplicate fragment key, the removal counters. Only for those is the API wording shown
+    /// (ADR-0044 §4, #703); elsewhere it only restates the Polish headline.
     /// <para>
-    /// The list is short on purpose, and it is a trade, not a free win: a few other codes do carry a
-    /// runtime message (the Identity failures behind <c>Auth.*Failed</c>, the rule names behind
-    /// <c>*.Validation</c>). Hiding those is the accepted cost, paid back in Polish copy that says the
-    /// same thing — see <see cref="PasswordRules"/>. Adding a code here is the wrong way to pay it,
-    /// because the drawer is English on a Polish page.
+    /// A few other codes carry a runtime message too (the Identity failures behind <c>Auth.*Failed</c>,
+    /// the rule names behind <c>*.Validation</c>). Hiding those is the accepted cost, paid back in Polish
+    /// copy such as <see cref="PasswordRules"/>. Do not add them here: the drawer is English.
     /// </para>
     /// </summary>
     private static readonly FrozenSet<string> CodesWhoseApiMessageCarriesData =
@@ -277,9 +261,8 @@ internal static partial class ApiProblemCopy
         ], StringComparer.Ordinal);
 
     /// <summary>
-    /// The fallback for an API failure whose code has no text yet: say what the status means, in Polish,
-    /// instead of showing the API's English. It deliberately wins over the call site's own fallback,
-    /// which only says that something went wrong.
+    /// The fallback for a code with no text yet. It wins over the call site's own fallback, which only
+    /// says that something went wrong.
     /// </summary>
     private static readonly FrozenDictionary<int, string> PolishByStatusCode =
         new Dictionary<int, string>
@@ -317,7 +300,7 @@ internal static partial class ApiProblemCopy
 
         if (IsFrontendAuthored(problem))
         {
-            // Already Polish. Both the title and the detail are meant for the user, so we keep both.
+            // Already Polish, and both the title and the detail are meant for the user.
             return FirstNonBlank(problem.Title) is { } polishTitle
                 ? new ApiProblemView(polishTitle, FirstNonBlank(problem.Detail), null, null)
                 : new ApiProblemView(FirstNonBlank(problem.Detail) ?? fallback, null, null, null);
@@ -331,9 +314,8 @@ internal static partial class ApiProblemCopy
             return new ApiProblemView(mapped, null, technicalDetail, null);
         }
 
-        // No code at all is what UseStatusCodePages produces: a bare English phrase such as
-        // "Unauthorized". It is handled exactly like a code we do not know, and it cannot be translated
-        // by hand either, so the text for the status covers both.
+        // No code is what UseStatusCodePages produces ("Unauthorized"). It is handled like an unknown
+        // code: the text for the status covers both.
         string degraded = problem.Status is { } status && PolishByStatusCode.TryGetValue(status, out string? byStatus)
             ? byStatus
             : fallback;
@@ -355,10 +337,9 @@ internal static partial class ApiProblemCopy
         };
 
     /// <summary>
-    /// A failure whose body had nothing to translate: an error body that was missing or unreadable, such
-    /// as the HTML a reverse proxy sends when the service behind it is down. It is left unmarked on
-    /// purpose, so <see cref="Describe"/> falls back through the status texts (ADR-0044 §3). Marking it
-    /// would claim a placeholder is "already Polish" and skip that fallback entirely (#637).
+    /// A failure with a missing or unreadable body, such as the HTML a reverse proxy sends when the
+    /// service behind it is down. It stays unmarked so <see cref="Describe"/> falls back through the
+    /// status texts (ADR-0044 §3, #637).
     /// </summary>
     public static ProblemDetails StatusOnly(int status)
         => new()
@@ -367,8 +348,8 @@ internal static partial class ApiProblemCopy
         };
 
     /// <summary>
-    /// Removes the Frontend-authored marker from a problem read off the wire, so an API response that
-    /// carries that field, which ours never do, cannot pass its English through untranslated.
+    /// For a problem read off the wire, so an API response with that field cannot pass its English
+    /// through untranslated.
     /// </summary>
     public static void StripFrontendAuthoredMarker(ProblemDetails problem)
     {
@@ -382,7 +363,7 @@ internal static partial class ApiProblemCopy
 
     /// <summary>
     /// The same translation for a route that answers with a plain problem body instead of a page, such as
-    /// the file-download endpoints, whose failure the browser shows as it is.
+    /// a file download, whose failure the browser shows as it is.
     /// </summary>
     public static ProblemDetails Localize(
         ILoggerFactory loggerFactory,
@@ -408,8 +389,7 @@ internal static partial class ApiProblemCopy
             localized.Extensions[TechnicalDetailExtensionKey] = technicalDetail;
         }
 
-        // The trace id is the one value that links a support report to the server log. It belongs to the
-        // API and is not ours to create, so we pass it through instead of losing it.
+        // The trace id links a support report to the API's log, so it is passed through.
         if (problem?.Extensions.TryGetValue(TraceIdExtensionKey, out object? traceId) is true)
         {
             localized.Extensions[TraceIdExtensionKey] = traceId;
@@ -419,8 +399,8 @@ internal static partial class ApiProblemCopy
     }
 
     /// <summary>
-    /// Reports an API error code that shipped before its Polish text existed. Both renderers use it, so
-    /// the gap is never silent, whichever page hit it (ADR-0044 §3).
+    /// Logs an API error code that has no Polish text yet. Both renderers call it, so the gap is never
+    /// silent (ADR-0044 §3).
     /// </summary>
     public static void ReportUnmappedErrorCode(ILogger logger, ApiProblemView view, int? status)
     {
@@ -454,9 +434,8 @@ internal static partial class ApiProblemCopy
     }
 
     /// <summary>
-    /// The code and the API's own wording, whichever of the two the problem carries — but only when
-    /// they add something. A problem with neither, which is a status with no body, has nothing worth
-    /// showing either.
+    /// The code and the API's own wording, whichever the problem carries, but only when they add
+    /// something to the Polish copy.
     /// </summary>
     private static string? BuildTechnicalDetail(string? errorCode, ProblemDetails problem)
     {
@@ -475,12 +454,9 @@ internal static partial class ApiProblemCopy
     }
 
     /// <summary>
-    /// True when the Polish headline is already the whole message: the code has copy here, and its
-    /// English carries no data that copy is missing (#703).
-    /// <para>
-    /// An unmapped code is never hidden. The user only sees the generic sentence there, so the code and
-    /// the API's wording are the one thing that makes such a failure reportable.
-    /// </para>
+    /// True when the code has copy here and its English carries no data that copy is missing (#703). An
+    /// unmapped code is never hidden: the user sees only the generic sentence, so the code is what makes
+    /// the failure reportable.
     /// </summary>
     private static bool AddsNothingToThePolishCopy(string errorCode)
         => PolishByErrorCode.ContainsKey(errorCode) && !CodesWhoseApiMessageCarriesData.Contains(errorCode);

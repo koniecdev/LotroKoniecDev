@@ -7,8 +7,7 @@ using Microsoft.Extensions.Primitives;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Forms;
 
 /// <summary>
-/// Reads the posted form's name the way Blazor does, from the one <c>_handler</c> field (#1122). The
-/// pages use it to keep a form they cannot draw on the page while their data fails to load.
+/// Reads the posted form's name the way Blazor does, from the one <c>_handler</c> field (#1122).
 /// </summary>
 public sealed class PostedFormTests
 {

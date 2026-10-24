@@ -73,8 +73,8 @@ public sealed class SameOriginDelegatingHandlerTests
     [Fact]
     public async Task SendAsync_WithARelativeAddress_ThrowsAndSendsNothing()
     {
-        // HttpClient joins a relative address to its base address before the handlers run, so a relative
-        // one here means nobody did. With no origin to check, the request is refused.
+        // HttpClient makes an address absolute before the handlers run, so a relative one here has no
+        // origin to check.
         (HttpMessageInvoker invoker, StubHttpMessageHandler inner) = CreateInvoker();
 
         using HttpRequestMessage request = new(HttpMethod.Get, new Uri("translations", UriKind.Relative));
@@ -117,8 +117,7 @@ public sealed class SameOriginDelegatingHandlerTests
     [Fact]
     public async Task TranslationSystemClient_ThroughTheRealPipeline_SendsTheTokenAndTheKeyToAnAbsoluteLinkOnItsOwnOrigin()
     {
-        // The API's links are absolute (LinkGenerator.GetUriByName), so this is the everyday case. It also
-        // proves the refusal above is not only a signed-out visitor sending nothing.
+        // The API's links are absolute, so this is the everyday case.
         RecordingHttpMessageHandler primary = new();
         await using ServiceProvider provider = BuildProvider(primary);
         ITranslationSystemClient client = provider.GetRequiredService<ITranslationSystemClient>();
@@ -206,8 +205,7 @@ public sealed class SameOriginDelegatingHandlerTests
     }
 
     /// <summary>
-    /// The frontend's own registration with the socket handler swapped for a recording stub, the way
-    /// FrontendCallerDelegatingHandlerTests does it, and a signed-in visitor who holds a token.
+    /// The frontend's own registration with the transport swapped, and a signed-in visitor.
     /// </summary>
     private static ServiceProvider BuildProvider(HttpMessageHandler primary)
     {
@@ -224,7 +222,7 @@ public sealed class SameOriginDelegatingHandlerTests
         return services.BuildServiceProvider();
     }
 
-    /// <summary>The registration exactly as the app wires it, with the real socket handler.</summary>
+    /// <summary>With the real transport.</summary>
     private static ServiceProvider BuildRealProvider()
     {
         ServiceCollection services = new();
@@ -261,8 +259,7 @@ public sealed class SameOriginDelegatingHandlerTests
             [new Claim("sub", "user-1")],
             authenticationType: "Cookies"));
 
-        // GetTokenAsync reads the token from the ticket IAuthenticationService returns, so the token is
-        // supplied there, as in TranslationContentNegotiationAndAuthDelegatingHandlerTests.
+        // GetTokenAsync reads the token from the ticket IAuthenticationService returns.
         AuthenticationProperties properties = new();
         properties.StoreTokens([new AuthenticationToken { Name = AccessTokenName, Value = AccessToken }]);
         AuthenticationTicket ticket = new(principal, properties, authenticationScheme: "Cookies");

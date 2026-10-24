@@ -13,10 +13,9 @@ using Microsoft.Extensions.Options;
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// #1153: a page that needs a login sends the visitor to sign in, and the sign-in redirect is built from the
-/// sign-in server's discovery document. Each host here has just started, so it holds no copy of that
-/// document. While the sign-in server is down, the visitor must end on the "login temporarily unavailable"
-/// page that the login route shows (#311), never on the error page.
+/// #1153: each host has just started, so it holds no copy of the discovery document. While the sign-in
+/// server is down, the visitor must end on the "login temporarily unavailable" page (#311), never on the
+/// error page.
 /// </summary>
 public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFactory>
 {
@@ -32,8 +31,7 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
     private readonly ProductionFrontendFactory _factory;
 
     /// <summary>
-    /// Every page and route that needs a login, and a form post to each page that has a form. A form post
-    /// reaches the login check before the antiforgery check, so it needs no token.
+    /// A form post reaches the login check before the antiforgery check, so it needs no token.
     /// </summary>
     public static TheoryData<string, string> RoutesThatNeedALogin() => new()
     {
@@ -81,9 +79,8 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
     }
 
     /// <summary>
-    /// A refused access token marks the session dead, and the next request ends it (#1058). When that request
-    /// goes to a page that needs a login, the visitor is sent to sign in again, which needs the sign-in server.
-    /// The answer must still delete the cookie, and the page after it must not show the user as signed in.
+    /// #1058: the request that ends a dead session goes to a page that needs a login, which needs the
+    /// sign-in server. The answer must still delete the cookie.
     /// </summary>
     [Theory]
     [InlineData("GET", "/dashboard")]
@@ -115,8 +112,7 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
     }
 
     /// <summary>
-    /// The visitor is sent to the login route, so that route must stay open to everyone. Even a rule that
-    /// makes every page need a login must not send it back to itself.
+    /// Even a rule that makes every page need a login must not send the login route back to itself.
     /// </summary>
     [Fact]
     public async Task Get_APageThatNeedsALoginWhileTheSignInServerIsDownAndEveryPageNeedsALogin_EndsOnTheLoginUnavailablePage()
@@ -140,8 +136,7 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
     }
 
     /// <summary>
-    /// The page asks the visitor to try again in a moment. Once the sign-in server answers again, reloading
-    /// the page starts the sign-in, and the sign-in still comes back to the page the visitor asked for.
+    /// The page asks the visitor to try again; a reload still comes back to the page the visitor asked for.
     /// </summary>
     [Fact]
     public async Task Get_TheLoginUnavailablePageAgainOnceTheSignInServerAnswers_StartsTheSignInForTheSamePage()
@@ -187,10 +182,8 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
     }
 
     /// <summary>
-    /// The website restarted while the visitor was at the sign-in server, so it holds no copy of the document
-    /// when the visitor comes back, and the sign-in server is down by then. The return loads the document
-    /// itself, and that load fails. The sign-in starts on a host whose sign-in server answers. The return
-    /// goes to a second host from the same factory, which shares its keys like the website after a restart.
+    /// The sign-in starts on a host whose sign-in server answers; the return goes to a second host from the
+    /// same factory, which shares its keys like the website after a restart.
     /// </summary>
     [Fact]
     public async Task Get_TheSignInReturnAfterARestartWhileTheSignInServerIsDown_EndsOnTheLoginUnavailablePageForTheSamePage()
@@ -229,8 +222,7 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
     }
 
     /// <summary>
-    /// Anyone can open the return address with no state or a broken one. While the sign-in server is down,
-    /// that failed sign-in has no page to come back to, so the sign-in starts again from the start page.
+    /// A return with no usable state has no page to come back to, so it uses the start page.
     /// </summary>
     [Theory]
     [InlineData("code=the-code")]
@@ -257,8 +249,7 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
     }
 
     /// <summary>
-    /// Only a visitor who is not signed in is sent to the sign-in server. A signed-in user's session needs no
-    /// call to it, so the page still shows (#1058).
+    /// A signed-in user's session needs no call to the sign-in server (#1058).
     /// </summary>
     [Fact]
     public async Task Get_APageThatNeedsALoginForASignedInUserWhileTheSignInServerIsDown_ShowsThePage()
@@ -278,8 +269,7 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
     }
 
     /// <summary>
-    /// The sign-out builds its end-session redirect from the configured address, not from the discovery
-    /// document, and its own refresh-token revoke gives up quietly. So it still ends the session.
+    /// The end-session redirect comes from the configured address, and the revoke gives up quietly.
     /// </summary>
     [Fact]
     public async Task Post_LogoutWhileTheSignInServerIsDown_EndsTheSessionAndRedirectsToTheEndSessionPage()
@@ -335,8 +325,7 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
     }
 
     /// <summary>
-    /// The sign-in server's back channel. While it is down, every call fails before an answer arrives. While
-    /// it is up, it answers its discovery document and nothing else.
+    /// When up, it answers its discovery document and nothing else.
     /// </summary>
     private sealed class StandInSignInServer : HttpMessageHandler
     {

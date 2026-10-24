@@ -1,10 +1,8 @@
 @using LotroKoniecDev.Frontend.Infrastructure.Forms
 
-@* Blazor sends a post only to a form that is on the page after the page has loaded its data. When there
-   is none, it answers 400 with an empty body, and the user sees a blank page (#1122). A page that draws
-   its form only when its data loaded puts this in its load-failure branch. A post sent while that load
-   fails then still finds a form with its name, and the page shows its own load error. The form is
-   empty and hidden, and nothing happens when it is "submitted". *@
+@* Blazor sends a post only to a form that is on the rendered page, and otherwise answers 400 with a blank
+   page (#1122). A page that draws its form only when its data loaded puts this in its load-failure
+   branch, so the post still finds a form and the page shows its own load error. *@
 @if (_formName is not null)
 {
     <form method="post" @formname="@_formName" @onsubmit="IgnoreSubmit" hidden></form>
@@ -17,8 +15,7 @@
     private HttpContext? HttpContext { get; set; }
 
     /// <summary>
-    /// Says whether a posted form name is one of the page's own forms. A post that names any other form
-    /// still gets Blazor's 400, because no page ever had that form.
+    /// A post that names any other form still gets Blazor's 400.
     /// </summary>
     [Parameter]
     [EditorRequired]

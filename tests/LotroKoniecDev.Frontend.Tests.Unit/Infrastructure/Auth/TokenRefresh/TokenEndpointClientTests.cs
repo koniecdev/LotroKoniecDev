@@ -89,9 +89,8 @@ public sealed class TokenEndpointClientTests
     };
 
     /// <summary>
-    /// #943: JSON between services is UTF-8 (RFC 8259 §8.1), so the answer is read as UTF-8 whatever
-    /// charset its header names. A UTF-16 body, or a token with bytes that are not UTF-8, is a final
-    /// failure (ADR-0067 decision 3). It never throws.
+    /// #943: the answer is read as UTF-8 whatever charset its header names (RFC 8259 §8.1), so a UTF-16
+    /// body is a final failure, never an exception (ADR-0067 decision 3).
     /// </summary>
     [Theory]
     [MemberData(nameof(NonUtf8TokenAnswers))]
@@ -106,8 +105,8 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// A proxy can answer 200 with a body that carries no tokens. That is a final failure, never an exception:
-    /// the whole body arrived, so a retry would get the same answer (ADR-0067 decision 3).
+    /// A proxy can answer 200 with no tokens. The whole body arrived, so a retry would get the same answer
+    /// (ADR-0067 decision 3).
     /// </summary>
     [Theory]
     [InlineData("")]
@@ -132,8 +131,7 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// #899: the primary handler follows no redirect, so a redirect reaches this client as it is. It has
-    /// to count as a final failure, the same as any other refusal that is not a 429 or a 5xx.
+    /// #899: the primary handler follows no redirect, so a redirect reaches this client as it is.
     /// </summary>
     [Theory]
     [InlineData(HttpStatusCode.MovedPermanently)]
@@ -154,9 +152,7 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// #923: when the client's time limit runs out on a stuck sign-in server, the refresh is a temporary
-    /// failure (#1062) instead of an exception. The registration's limit is pinned in
-    /// <c>AuthenticationDependencyInjectionExtensionsTests</c>.
+    /// The registration's time limit is pinned in <c>AuthenticationDependencyInjectionExtensionsTests</c>.
     /// </summary>
     [Fact]
     public async Task RefreshAsync_WhenTheAuthApiNeverAnswers_IsATemporaryFailureOnceTheClientTimesOut()
@@ -189,8 +185,7 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// #1141: the browser left during the renewal, for example with a click on another link. The cookie
-    /// check keeps the stored token for the browser's next request, so the failure is temporary.
+    /// #1141: the cookie check keeps the stored token for the browser's next request.
     /// </summary>
     [Fact]
     public async Task RefreshAsync_WhenTheBrowserLeavesDuringTheRenewal_IsATemporaryFailure()
@@ -269,8 +264,7 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// #1062: the owner's list of failures that go away on their own: a busy or restarting sign-in server,
-    /// and the per-address limit that many users behind one address share.
+    /// #1062: a busy or restarting sign-in server, and the per-address limit many users can share.
     /// </summary>
     [Theory]
     [InlineData(HttpStatusCode.TooManyRequests)]
@@ -292,7 +286,7 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// #1062: every other refusal is final, <c>invalid_grant</c> first of all. A 408 is not in the owner's list.
+    /// #1062: every other refusal is final, <c>invalid_grant</c> first of all. A 408 is not on the list.
     /// </summary>
     [Theory]
     [InlineData(HttpStatusCode.BadRequest)]
@@ -322,9 +316,6 @@ public sealed class TokenEndpointClientTests
         new TaskCanceledException("The request was cancelled.")
     };
 
-    /// <summary>
-    /// #1062: a sign-in server that cannot be reached, for example while it restarts during a deploy.
-    /// </summary>
     [Theory]
     [MemberData(nameof(RefreshTransportFailures))]
     public async Task RefreshAsync_WhenTheAuthApiCannotBeReached_IsATemporaryFailure(Exception failure)
@@ -355,8 +346,7 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// #914: the refused refresh ends the session either way, so the warning is the only place in the
-    /// frontend that says why. The auth API's reason has to reach it.
+    /// #914: the warning is the only place in the frontend that says why the session ended.
     /// </summary>
     [Theory]
     [InlineData(HttpStatusCode.BadRequest, "invalid_grant", "The refresh token is no longer valid.")]
@@ -512,9 +502,8 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// RFC 6749 allows only printable ASCII in these fields. A line break could pass for a separate log
-    /// entry, and a bidi mark can make the line read as something else, so nothing outside that range
-    /// reaches the log.
+    /// A line break could pass for a separate log entry, and a bidi mark can make the line read as
+    /// something else. RFC 6749 allows only printable ASCII here.
     /// </summary>
     [Theory]
     [InlineData("Refused.\\r\\nWarning: forged entry")]
@@ -562,9 +551,8 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// Decoding the body as text throws on a charset .NET does not know, such as the common misspelling
-    /// "utf8". The body is only read for the log, so it must never turn a refused refresh into an
-    /// exception. A UTF-8 byte order mark must not hide the reason either.
+    /// Decoding as text throws on a charset .NET does not know ("utf8"). A body read only for the log must
+    /// never turn a refused refresh into an exception.
     /// </summary>
     [Theory]
     [InlineData("utf8", false)]
@@ -614,8 +602,7 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// #964: the sign-out's own revoke, as RFC 7009 describes it for a public client: the token, a hint
-    /// of its kind and the client id, sent to the endpoint the discovery document named.
+    /// #964: RFC 7009 for a public client.
     /// </summary>
     [Fact]
     public async Task RevokeRefreshTokenAsync_Always_SendsTheTokenItsKindAndTheClientIdToTheGivenEndpoint()
@@ -690,9 +677,6 @@ public sealed class TokenEndpointClientTests
         entry.Message.ShouldBe($"Refresh token revocation failed with status {(int)statusCode}.");
     }
 
-    /// <summary>
-    /// #899: the primary handler follows no redirect, so a redirect is a failed revoke like any other.
-    /// </summary>
     [Fact]
     public async Task RevokeRefreshTokenAsync_WhenTheAuthApiAnswersWithARedirect_LogsOneWarningWithTheStatus()
     {

@@ -13,12 +13,9 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 
 /// <summary>
-/// Sets up this app as an OpenID Connect client: a cookie session as the default scheme, the OpenIddict
-/// AuthSystem for login and logout with the authorization-code flow and PKCE, and
-/// <see cref="CookieTokenRefresher"/> on <c>OnValidatePrincipal</c>.
-/// The login and logout UI, the rules for which pages need a login, and the user info in the navbar come
-/// with the M3-02 slice. This file only puts the client infrastructure in place, so that slice just
-/// switches it on.
+/// Sets up this app as an OpenID Connect client: a cookie session as the default scheme, the sign-in
+/// server with the authorization-code flow and PKCE, and <see cref="CookieTokenRefresher"/> on
+/// <c>OnValidatePrincipal</c>.
 /// </summary>
 internal static partial class AuthenticationDependencyInjectionExtensions
 {
@@ -34,14 +31,10 @@ internal static partial class AuthenticationDependencyInjectionExtensions
     private const string LoginWithReturnUrl = LoginPath + "?returnUrl=";
 
     /// <summary>
-    /// The longest the website waits for one answer from the sign-in server, per call: the login renewal and
-    /// each back-channel call (#923). A page that makes several calls in a row can wait for each of them.
-    /// ADR-0067 §3 counts a renewal that runs out of time as a temporary failure: while the access token
-    /// still works, the session is kept and the next request tries again (#1062). Once the token has run
-    /// out, it signs the user out, and the revoke in that sign-out can wait
-    /// <see cref="RefreshTokenRevoker.TimeLimit"/> more. The limit must stay above the sign-in server's 20
-    /// seconds for opening a database connection, and each renewal is sent once, with no retry inside the
-    /// request. The sign-in server's <c>AuthDatabaseConnectionString</c> explains both.
+    /// Per call to the sign-in server: the login renewal and each back-channel call (#923). A renewal that
+    /// times out is a temporary failure while the access token still works (ADR-0067 §3). The limit must
+    /// stay above the sign-in server's 20 seconds for opening a database connection, and each renewal is
+    /// sent once, with no retry. The sign-in server's <c>AuthDatabaseConnectionString</c> explains both.
     /// </summary>
     internal static readonly TimeSpan AuthServerRequestTimeout = TimeSpan.FromSeconds(30);
 
@@ -53,17 +46,15 @@ internal static partial class AuthenticationDependencyInjectionExtensions
             services.AddAuthorization();
             services.AddSingleton<SignInAvailability>();
 
-            // Scoped and not singleton, because ITokenEndpointClient wraps an HttpClient that
-            // IHttpClientFactory provides. Holding a short-lived typed client inside a singleton would
-            // break how the factory recycles connections and picks up DNS changes.
+            // Scoped: they hold a typed HttpClient, which a singleton would keep past the factory's
+            // handler recycling.
             services.AddScoped<CookieTokenRefresher>();
             services.AddScoped<RefreshTokenRevoker>();
             services.TryAddSingleton(TimeProvider.System);
 
-            // The refresh grant, the revoke (at sign-out and when the cookie check ends a session, #1027) and
-            // the OIDC back-channel below carry the visitor's address to the auth API the same way the typed
-            // account client does (ADR-0054). The revoke follows a link from the discovery document, so the
-            // origin check comes first (#830).
+            // The refresh grant, the revoke and the OIDC back-channel below carry the visitor's address to
+            // the auth API (ADR-0054). The revoke follows a link from the discovery document, so the origin
+            // check comes first (#830).
             services.AddHttpContextAccessor();
             services.AddHttpClient<ITokenEndpointClient, TokenEndpointClient>((sp, client) =>
                 {
@@ -78,11 +69,9 @@ internal static partial class AuthenticationDependencyInjectionExtensions
             services.AddAuthentication(options =>
                 {
                     options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-                    // A page that needs a login sends the visitor to the login route (the cookie's
-                    // LoginPath), never straight to the sign-in server. The sign-in redirect needs the
-                    // sign-in server's discovery document, and only the login route checks first that it
-                    // can be loaded, so an outage shows the "login temporarily unavailable" page and not
-                    // the error page (#311, #1153).
+                    // A challenge goes to the login route, never straight to the sign-in server. Only the
+                    // login route checks first that the discovery document loads, so an outage shows the
+                    // "login temporarily unavailable" page and not the error page (#1153).
                     options.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
                     options.DefaultSignOutScheme = OpenIdConnectDefaults.AuthenticationScheme;
                 })
@@ -91,15 +80,13 @@ internal static partial class AuthenticationDependencyInjectionExtensions
                     options.Cookie.Name = ".lotrokoniecdev.auth";
                     options.Cookie.HttpOnly = true;
                     options.Cookie.SameSite = SameSiteMode.Lax;
-                    // SecurePolicy depends on the environment and is set in ConfigureCookieSecurePolicy
-                    // below.
-                    // The path is fixed so the sign-in and sign-out cookies always match. Without it, a
-                    // future code path that signs in under a non-root PathBase would write a cookie that
-                    // /auth/logout, which runs with an empty PathBase, could not delete.
+                    // SecurePolicy is set per environment in ConfigureCookieSecurePolicy.
+                    // A fixed path keeps the sign-in and sign-out cookies matched: a cookie written under
+                    // a non-root PathBase could not be deleted by /auth/logout.
                     options.Cookie.Path = "/";
                     // This cookie carries the refresh token. The auth API's
-                    // OpenIddict:RefreshTokenLifetimeMinutes must stay at least this long plus a margin,
-                    // or a user idle just under 8 hours gets "session expired" (#1014).
+                    // OpenIddict:RefreshTokenLifetimeMinutes must stay longer than this, with a margin
+                    // (#1014).
                     options.ExpireTimeSpan = TimeSpan.FromHours(8);
                     options.SlidingExpiration = true;
                     options.LoginPath = LoginPath;
@@ -127,12 +114,10 @@ internal static partial class AuthenticationDependencyInjectionExtensions
     }
 
     /// <summary>
-    /// AUDIT-SEC-10 (#400): outside Development the session cookie is always <c>Secure</c>.
-    /// <see cref="CookieSecurePolicy.SameAsRequest"/> would tie that flag to <c>Request.Scheme</c>, which
-    /// behind the TLS-terminating proxy comes from <c>X-Forwarded-Proto</c>. One wrong scheme would write
-    /// the cookie without <c>Secure</c> and let the browser send it over plain HTTP.
-    /// Development keeps <see cref="CookieSecurePolicy.SameAsRequest"/>, so a local run over plain HTTP
-    /// still produces a cookie the browser accepts.
+    /// Outside Development the cookie is always <c>Secure</c> (#400).
+    /// <see cref="CookieSecurePolicy.SameAsRequest"/> would trust <c>X-Forwarded-Proto</c> behind the
+    /// proxy, and one wrong scheme would send the cookie over plain HTTP. Development keeps it, so a local
+    /// run over plain HTTP still works.
     /// </summary>
     private static void ConfigureCookieSecurePolicy(
         CookieAuthenticationOptions options,
@@ -156,13 +141,9 @@ internal static partial class AuthenticationDependencyInjectionExtensions
             "http://", StringComparison.OrdinalIgnoreCase);
 
         options.ResponseType = OpenIdConnectResponseType.Code;
-        // Not the handler's form_post default. With form_post the authorize endpoint renders OpenIddict's
-        // plain white page, which flashes before the dark app repaints. With query the whole login return
-        // is a chain of redirects the browser never draws.
-        // Putting the code in the URL is the baseline shape RFC 9700 describes, and PKCE below is what
-        // makes a stolen code useless.
-        // The auth origin's CSP depends on it too (#693). The form_post page submits itself with an
-        // inline script, which that CSP blocks, so form_post would leave sign-in on a blank page.
+        // Not form_post: its page submits itself with an inline script, which the auth origin's CSP
+        // blocks, so sign-in would stop on a blank page (#693). It would also flash a white page. A code in
+        // the URL is the RFC 9700 baseline, and PKCE makes a stolen code useless.
         options.ResponseMode = OpenIdConnectResponseMode.Query;
         options.UsePkce = true;
         options.SaveTokens = true;
@@ -182,26 +163,18 @@ internal static partial class AuthenticationDependencyInjectionExtensions
         options.TokenValidationParameters.NameClaimType = "name";
         options.TokenValidationParameters.RoleClaimType = "role";
 
-        // Without these handlers an OIDC failure, such as the AuthSystem being down, a lost correlation
-        // cookie or a user who refused consent, becomes a 500 and the user lands on the generic /Error
-        // page with nothing useful. Redirecting to our own pages keeps the trace id working, because
-        // UseExceptionHandler and UseStatusCodePages run again with the new path.
+        // Without these an OIDC failure (sign-in server down, lost correlation cookie, refused consent)
+        // becomes a 500.
         options.Events.OnRemoteFailure = OnRemoteFailureAsync;
         options.Events.OnAccessDenied = OnAccessDeniedAsync;
         options.Events.OnTokenResponseReceived = OnTokenResponseReceivedAsync;
 
-        // SaveTokens stores only expires_at, so the first token gets its refresh time here (#1025).
         options.Events.OnTicketReceived = OnTicketReceivedAsync;
 
-        // The code exchange, the userinfo call and the metadata and key fetch go through the handler's
-        // own back-channel client, not through the typed clients, so the visitor's address rides on it
-        // too (ADR-0054). Like the typed clients, it follows no redirect (#899) and keeps no cookies
-        // (#924). The framework builds that client from this handler after every Configure has run. A
-        // back-channel handler configured elsewhere is wrapped, never replaced, but a standard transport
-        // at its end gets redirects and cookies switched off as well (#922). One set after this Configure
-        // replaces the whole chain, because the last Configure wins; only tests do that, to put in a
-        // stand-in server. The library reads these answers by the charset they name, so a name .NET
-        // cannot use is dropped first (#972).
+        // The handler's own back-channel client carries the visitor's address too (ADR-0054), and like the
+        // typed clients it follows no redirect (#899) and keeps no cookies (#924). A handler set earlier is
+        // wrapped, never replaced, with redirects and cookies switched off (#922); one set after this
+        // Configure replaces the chain, which only tests do. An unknown charset name is dropped first (#972).
         HttpMessageHandler innerHandler =
             options.BackchannelHttpHandler ?? HttpClientsDependencyInjectionExtensions.CreatePrimaryHandler();
         HttpClientsDependencyInjectionExtensions.SwitchOffRedirectsAndCookies(innerHandler);
@@ -216,11 +189,10 @@ internal static partial class AuthenticationDependencyInjectionExtensions
     }
 
     /// <summary>
-    /// When the website restarts while the visitor is at the sign-in server, it has no copy of the discovery
-    /// document when the visitor comes back, and while the sign-in server is down that load fails here
-    /// (#1153). A failed sign-in while the sign-in server cannot be reached goes to the login route, which
-    /// shows the "login temporarily unavailable" page, and a reload there starts the sign-in again. Every
-    /// other failed sign-in ends on the error page.
+    /// A failed sign-in while the sign-in server cannot be reached goes to the login route, which shows
+    /// the "login temporarily unavailable" page; a reload there starts the sign-in again. This happens when
+    /// the website restarted while the visitor was away and cannot load the discovery document (#1153).
+    /// Every other failed sign-in ends on the error page.
     /// </summary>
     private static async Task OnRemoteFailureAsync(RemoteFailureContext context)
     {
@@ -241,10 +213,9 @@ internal static partial class AuthenticationDependencyInjectionExtensions
     }
 
     /// <summary>
-    /// The first sign-in holds the token answer to the rules the renewal uses (#1026). The handler would
-    /// store a blank access token, and with no lifetime it stores no expiry, so the renewal would never
-    /// run. A failure here ends on the same page as every other failed sign-in, through
-    /// <see cref="OnRemoteFailureAsync"/>, which also logs the reason.
+    /// The first sign-in holds the token answer to the rules the renewal uses (#1026). Otherwise the
+    /// handler would store a blank access token, or no expiry, and the renewal would never run. A failure
+    /// here goes through <see cref="OnRemoteFailureAsync"/>, which logs the reason.
     /// </summary>
     private static Task OnTokenResponseReceivedAsync(TokenResponseReceivedContext context)
     {
@@ -265,8 +236,7 @@ internal static partial class AuthenticationDependencyInjectionExtensions
             return Task.CompletedTask;
         }
 
-        // The handler skips only an empty refresh token, so it would store a blank one, and the cookie check
-        // ends such a session on the next request. A missing one is allowed, because OAuth makes it optional.
+        // The handler would store a blank refresh token. A missing one is allowed: OAuth makes it optional.
         if (!string.IsNullOrEmpty(answer.RefreshToken) && !TokenRules.IsUsable(answer.RefreshToken))
         {
             context.Fail("The sign-in token answer has a blank refresh_token.");
@@ -276,9 +246,9 @@ internal static partial class AuthenticationDependencyInjectionExtensions
     }
 
     /// <summary>
-    /// The handler raises this event after it has stored the tokens and called the userinfo endpoint. So
-    /// the lifetime measured here is short by the time of that call. That only moves the refresh a little
-    /// closer to the expiry, never past it. The clock is the one the handler used for <c>expires_at</c>.
+    /// <c>SaveTokens</c> stores only <c>expires_at</c>, so the first token gets its refresh time here
+    /// (#1025). This runs after the userinfo call, which only moves the refresh a little earlier. The clock
+    /// is the one the handler used for <c>expires_at</c>.
     /// </summary>
     private static Task OnTicketReceivedAsync(TicketReceivedContext context)
     {

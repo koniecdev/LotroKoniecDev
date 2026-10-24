@@ -11,10 +11,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Errors;
 
 /// <summary>
-/// The lookup that turns an API failure into Polish text (#548, ADR-0044). The rule under test: a
-/// problem from an API is looked up by its <c>errorCode</c> and its English wording never becomes the
-/// message, while a problem the Frontend wrote, which has no code and is already Polish, passes through
-/// unchanged.
+/// ADR-0044: a problem from an API is looked up by its <c>errorCode</c> and its English never becomes the
+/// message; a problem the Frontend wrote passes through unchanged.
 /// </summary>
 public sealed class ApiProblemCopyTests
 {
@@ -34,7 +32,6 @@ public sealed class ApiProblemCopyTests
     [Fact]
     public void Describe_ForAFrontendAuthoredProblem_KeepsBothPolishLines()
     {
-        // The Frontend writes a short Polish title plus a longer Polish detail; both are user-facing.
         ProblemDetails problem = ApiProblemCopy.FrontendAuthored(
             "Hasła nie są zgodne",
             "Nowe hasło i jego powtórzenie muszą być identyczne.");
@@ -79,10 +76,8 @@ public sealed class ApiProblemCopyTests
         int status,
         string expectedMessage)
     {
-        // Both APIs use AddProblemDetails() and UseStatusCodePages(), which write a bare English phrase
-        // and no errorCode. See the committed ProblemDetailsSnapshotTests. Reading "no code" as "the
-        // Frontend wrote this, so it is already Polish" would print "Unauthorized" onto the page, which
-        // is exactly the bug #548 reports.
+        // UseStatusCodePages writes a bare English phrase and no errorCode. Reading "no code" as "already
+        // Polish" would print "Unauthorized" onto the page (#548).
         ProblemDetails problem = new() { Title = apiReasonPhrase, Status = status };
 
         ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);
@@ -95,8 +90,7 @@ public sealed class ApiProblemCopyTests
     [Fact]
     public void Describe_WhenAnApiBodyClaimsToBeFrontendAuthored_StillTranslatesIt()
     {
-        // The marker is ours alone; ParseProblemDetails strips it off anything parsed from the wire,
-        // so a body carrying that member cannot smuggle its English past the lookup.
+        // ParseProblemDetails strips the marker off anything read from the wire.
         ProblemDetails wireProblem = new()
         {
             Title = "Forbidden",
@@ -163,17 +157,14 @@ public sealed class ApiProblemCopyTests
         string errorCode,
         string apiMessage)
     {
-        // The numbers an admin needs, such as line numbers, row keys and removal counts, live only in the
-        // API's own message, so we keep it one click away and never use it as the message itself. These
-        // four codes are the whole reason ADR-0044 §4 exists.
+        // Line numbers, row keys and removal counts live only in the API's message (ADR-0044 §4).
         ProblemDetails problem = ApiProblem(errorCode, 422, "Data Conflict", apiMessage);
 
         ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);
 
         view.Message.ShouldNotContain(apiMessage);
         view.TechnicalDetail.ShouldBe($"{errorCode} — {apiMessage}");
-        // Without this the theory would also pass if the code fell off PolishByErrorCode, because an
-        // unmapped code keeps its detail too. The set is only meaningful for codes that are mapped.
+        // Without this the theory would also pass for an unmapped code, which keeps its detail too.
         view.UnmappedErrorCode.ShouldBeNull();
     }
 
@@ -190,8 +181,7 @@ public sealed class ApiProblemCopyTests
         int status,
         string apiMessage)
     {
-        // #703: the drawer repeated the headline in English and read like a leak. The Polish sentence is
-        // the whole message unless the API's wording carries data it cannot reproduce.
+        // #703: the Polish sentence is the whole message unless the API's wording carries data.
         ProblemDetails problem = ApiProblem(errorCode, status, "Validation Error", apiMessage);
 
         ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);
@@ -307,8 +297,7 @@ public sealed class ApiProblemCopyTests
     [InlineData(401, "Twoja sesja wygasła. Zaloguj się ponownie.")]
     public void Describe_ForAStatusOnlyProblem_ShowsTheStatusCopy(int status, string expectedCopy)
     {
-        // What a stopped upstream produces: the proxy's non-JSON body leaves nothing to translate,
-        // so the status ladder is the whole answer (#637).
+        // A stopped upstream's proxy body leaves nothing to translate (#637).
         ApiProblemView view = ApiProblemCopy.Describe(ApiProblemCopy.StatusOnly(status), PageFallback);
 
         view.Message.ShouldBe(expectedCopy);
@@ -327,8 +316,7 @@ public sealed class ApiProblemCopyTests
     [Fact]
     public void Describe_ForAnEmptyProblemBodyOffTheWire_ConvergesOnTheSameCopyAsTheStatusOnlySynthesis()
     {
-        // "{}" parses, so it takes the other branch of ParseProblemDetails and keeps only the status we
-        // filled in. It must read exactly like the case where the body could not be parsed.
+        // "{}" parses, so it takes the other branch of ParseProblemDetails, and must read the same.
         ProblemDetails parsedFromEmptyObject = new() { Status = 502 };
 
         ApiProblemCopy.Describe(parsedFromEmptyObject, PageFallback).Message
@@ -340,7 +328,7 @@ public sealed class ApiProblemCopyTests
     [InlineData("   ")]
     public void Describe_WhenTheCallSiteFallbackIsBlank_FloorsOnTheGenericMessage(string blankFallback)
     {
-        // Every branch shares the same floor, so no call site can render an empty red box.
+        // No call site can render an empty red box.
         ApiProblemCopy.Describe(null, blankFallback).Message.ShouldBe(ApiProblemCopy.GenericMessage);
         ApiProblemCopy.Describe(ApiProblemCopy.FrontendAuthored("  "), blankFallback).Message
             .ShouldBe(ApiProblemCopy.GenericMessage);
@@ -351,8 +339,7 @@ public sealed class ApiProblemCopyTests
     [Fact]
     public void Describe_WhenTheErrorCodeArrivesAsAJsonElement_StillResolvesTheCopy()
     {
-        // The wire shape: deserializing ProblemDetails puts unknown members into Extensions as
-        // JsonElement, not string. Reading only `is string` would silently miss every real response.
+        // Off the wire, unknown members land in Extensions as JsonElement, not string.
         JsonElement wireErrorCode = JsonSerializer.Deserialize<JsonElement>("\"Auth.UserAlreadyExistsByEmail\"");
         ProblemDetails problem = new()
         {
@@ -371,8 +358,7 @@ public sealed class ApiProblemCopyTests
     [Fact]
     public async Task Describe_OnAProblemParsedFromARealApiResponse_ShowsThePolishCopy()
     {
-        // End to end through the code that really produces the ProblemDetails a page shows: the
-        // body below is exactly what ErrorExtensions.ToProblemDetails writes for a rejected save.
+        // The body ErrorExtensions.ToProblemDetails writes for a rejected save.
         const string apiResponseBody = """
             {
               "type": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400",
@@ -398,8 +384,7 @@ public sealed class ApiProblemCopyTests
     [Fact]
     public void Localize_ForAnUnmappedErrorCode_LogsTheGapAndKeepsTheTraceIdAndType()
     {
-        // The download routes have no collapsible block and no component, so the warning and the
-        // correlation token have to survive here or the gap is silent (ADR-0044 §3).
+        // The download routes have no component, so the gap must be logged here (ADR-0044 §3).
         ProblemDetails problem = ApiProblem("Catalog.SomethingNobodyMappedYet", 403, "Forbidden", "Not your row.");
         problem.Type = "https://tools.ietf.org/html/rfc9110#section-15.5.4";
         problem.Extensions[ApiProblemCopy.TraceIdExtensionKey] = "00-abc-def-01";
@@ -434,8 +419,7 @@ public sealed class ApiProblemCopyTests
     [Fact]
     public void Localize_ForAMappedErrorCode_DropsTheEnglishButKeepsTheTraceId()
     {
-        // The download routes answer with a raw body the browser shows as it is. Once #703 removes the
-        // English from it, the trace id is the only thing left that links a report to the server log.
+        // With the English removed (#703), the trace id is all that links a report to the server log.
         ProblemDetails problem = ApiProblem("TranslationFiles.NotFound", 404, "Not Found", "No translation file yet.");
         problem.Extensions[ApiProblemCopy.TraceIdExtensionKey] = "00-abc-def-01";
         ProblemDetails localized = ApiProblemCopy.Localize(
@@ -448,8 +432,7 @@ public sealed class ApiProblemCopyTests
     [Fact]
     public void Describe_WhenTheCodeDiffersOnlyByCase_TreatsItAsUnmappedRatherThanHidingTheEnglish()
     {
-        // Both lookups are Ordinal, so a mis-cased code is simply a code we do not know. It must keep
-        // its detail: hiding it would leave the user with a generic sentence and nothing to report.
+        // Lookups are Ordinal, so a mis-cased code is unknown and must keep its detail.
         ProblemDetails problem = ApiProblem("import.parsefailed", 422, "Data Conflict", "Line 42 is bad.");
 
         ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);
@@ -478,9 +461,7 @@ public sealed class ApiProblemCopyTests
     [InlineData("Auth.RegistrationFailed", "Passwords must have at least one uppercase ('A'-'Z').")]
     public void Describe_ForACodeThatRejectsAPassword_NamesEveryRuleInPolish(string errorCode, string apiMessage)
     {
-        // #703 hid the English that used to name the broken rule, so the Polish has to name it instead.
-        // Every rule has to be listed, both bounds included: the special character is what the page hint
-        // used to omit, and a pasted 129-character passphrase satisfies every other rule on the list.
+        // The English is hidden (#703), so the Polish must name every rule, both length bounds included.
         ProblemDetails problem = ApiProblem(errorCode, 400, "Validation Error", apiMessage);
 
         ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);
@@ -501,8 +482,7 @@ public sealed class ApiProblemCopyTests
         int status,
         string expectedMessage)
     {
-        // These four shipped with #683 and had no copy, so /account/change-email showed the generic
-        // sentence plus an English drawer. Hiding the drawer (#703) makes covering them mandatory.
+        // With the drawer hidden (#703), these e-mail change codes must have copy.
         ProblemDetails problem = ApiProblem(errorCode, status, "Validation Error", "English.");
 
         ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);

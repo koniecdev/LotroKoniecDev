@@ -4,15 +4,12 @@ using System.Globalization;
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 
 /// <summary>
-/// One set of rules for the tokens the sign-in server sends, used by the first sign-in and by the
-/// background renewal alike. The two paths used to check on their own, and the first sign-in fell behind
-/// (#974, #1026). These rules only ask whether the website can use the answer: a token is there, and a
-/// lifetime the renewal schedule needs. They never check what a token holds (ADR-0067 decision 2). A renewal
-/// answer that fails them ends the session cleanly (decision 3), and a first sign-in that fails them fails.
+/// One set of rules for the first sign-in and the renewal alike (#1026). They only ask whether the website
+/// can use the answer: a token is there, with a lifetime the renewal schedule needs. They never check what
+/// a token holds (ADR-0067 decision 2).
 /// </summary>
 internal static class TokenRules
 {
-    /// <summary>A blank token counts as no token, like an empty one.</summary>
     public static bool IsUsable([NotNullWhen(true)] string? token) => !string.IsNullOrWhiteSpace(token);
 
     /// <summary>
@@ -21,8 +18,7 @@ internal static class TokenRules
     public static bool IsPositiveLifetime([NotNullWhen(true)] int? expiresInSeconds) => expiresInSeconds is > 0;
 
     /// <summary>
-    /// Reads <c>expires_in</c> exactly the way the OIDC handler does before it stores <c>expires_at</c>. A
-    /// value the handler cannot read leaves the session with no expiry, so here it is a missing lifetime.
+    /// Reads <c>expires_in</c> the way the OIDC handler does before it stores <c>expires_at</c>.
     /// </summary>
     public static int? ParseLifetime(string? expiresIn) =>
         int.TryParse(expiresIn, NumberStyles.Integer, CultureInfo.InvariantCulture, out int seconds)

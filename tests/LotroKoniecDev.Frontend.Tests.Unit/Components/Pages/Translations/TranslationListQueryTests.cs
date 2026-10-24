@@ -6,9 +6,7 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Translations;
 public sealed class TranslationListQueryTests
 {
     /// <summary>
-    /// Stands in for the <c>translations</c> href the TMS service document sends (#610). It looks nothing
-    /// like the real route on purpose: this type may only add a query string to whatever the server gave
-    /// it and must never know an API path of its own.
+    /// Looks nothing like the real route: this type must never know an API path of its own (#610).
     /// </summary>
     private const string CollectionHref = "/resolved-by-discovery/translations";
 
@@ -174,9 +172,7 @@ public sealed class TranslationListQueryTests
     [Fact]
     public void ToPageRelativeUriWithApprovalResult_PreservesTheActiveFiltersAndPageAndAppendsTheCounts()
     {
-        // Acceptance criterion 7 (#322): after a bulk approve the redirect must land back on the current
-        // filtered page with the search and status still set, plus the approved and skipped counts. A
-        // reload is then a plain GET that shows the same filtered list with the confirmation message.
+        // #322: the redirect lands back on the same filtered page, plus the counts.
         TranslationListQuery query = TranslationListQuery.From(search: "Bilbo", status: "Draft", page: 3);
 
         string uri = query.ToPageRelativeUriWithApprovalResult(approved: 2, skipped: 1);
@@ -218,9 +214,8 @@ public sealed class TranslationListQueryTests
     [InlineData(1000)]
     public void From_WithUnsupportedPageSize_SnapsBackToTheDefault(int pageSize)
     {
-        // The list falls back to the default for any size that is not on its own list, unlike the API,
-        // which simply clamps to 1 to 100. So the dropdown can always mark one of its real options as
-        // selected (#323).
+        // Unlike the API, which clamps to 1-100, the list falls back to the default, so the dropdown can
+        // always mark a real option (#323).
         TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1, pageSize: pageSize);
 
         query.PageSize.ShouldBe(TranslationListQuery.DefaultPageSize);
@@ -255,8 +250,7 @@ public sealed class TranslationListQueryTests
     [Fact]
     public void ToPageRelativeUriWithApprovalResult_WithNonDefaultPageSize_PreservesIt()
     {
-        // Continuity with the bulk-approve Post-Redirect-Get (#322): approving on a custom page size must
-        // land back on the same-sized page, not silently reset to the default.
+        // #322: approving on a custom page size lands back on the same-sized page.
         TranslationListQuery query = TranslationListQuery.From(search: "Bilbo", status: "Draft", page: 2, pageSize: 25);
 
         string uri = query.ToPageRelativeUriWithApprovalResult(approved: 1, skipped: 0);

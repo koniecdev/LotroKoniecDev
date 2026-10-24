@@ -7,14 +7,9 @@ using Microsoft.AspNetCore.Authentication;
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 
 /// <summary>
-/// Asks the TMS API for the link-carrying representation, by sending
-/// <see cref="MediaTypes.HateoasJson"/> in <c>Accept</c>, and passes on the logged-in translator's
-/// access token. The token is only added once an OIDC session exists; anonymous requests, such as the
-/// public translation list, go through without one.
-/// A <c>401</c> on a logged-in call marks the session dead, so the next <c>OnValidatePrincipal</c> signs
-/// it out cleanly. The website does not check the token itself: the API checks every token it receives,
-/// and a 401 is one way its refusal ends the session (ADR-0067 decision 2). The service document without
-/// the signed-in links is the other (<c>DiscoveryCache</c>).
+/// Asks the TMS for the link-carrying representation and adds the access token when a session exists.
+/// A <c>401</c> on a signed-in call marks the session dead: the API checks every token, and its refusal
+/// ends the session (ADR-0067 decision 2).
 /// </summary>
 internal sealed class TranslationContentNegotiationAndAuthDelegatingHandler : DelegatingHandler
 {
@@ -50,9 +45,7 @@ internal sealed class TranslationContentNegotiationAndAuthDelegatingHandler : De
 
         HttpResponseMessage response = await base.SendAsync(request, cancellationToken);
 
-        // The API refused the token: it expired, its signing key changed, or it is broken. Mark the session
-        // dead, so the next OnValidatePrincipal signs it out cleanly. We cannot call SignOutAsync here,
-        // because the SSR response may already be streaming.
+        // Not SignOutAsync here: the SSR response may already be streaming.
         if (response.StatusCode == HttpStatusCode.Unauthorized && !string.IsNullOrWhiteSpace(accessToken))
         {
             await MarkSessionDeadAsync(httpContext, accessToken, cancellationToken);

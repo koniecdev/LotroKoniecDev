@@ -102,7 +102,7 @@ public sealed class SecurityHeadersMiddlewareTests
 
         await middleware.InvokeAsync(context);
 
-        // Written via OnStarting (not eagerly), so re-executed error/status-code responses are covered too.
+        // Written in OnStarting, so re-executed error pages get the headers too.
         responseFeature.Headers.ContainsKey("Content-Security-Policy").ShouldBeFalse();
 
         await responseFeature.FireOnStartingAsync();

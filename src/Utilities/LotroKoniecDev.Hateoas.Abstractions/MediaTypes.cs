@@ -1,23 +1,14 @@
 namespace LotroKoniecDev.Hateoas.Abstractions;
 
 /// <summary>
-/// The media types LotroKoniecDev APIs negotiate on. Links are opt-in: a client that wants them asks
-/// for <see cref="HateoasJson"/>, and anyone else gets plain <see cref="Json"/> without links.
-/// <para>
-/// Every LotroKoniecDev API shares this convention, so the constant lives here and all services
-/// change together.
-/// </para>
+/// Links are opt-in: a client that wants them sends <see cref="HateoasJson"/> in its Accept header, and
+/// anyone else gets plain <see cref="Json"/> without links. The APIs, the frontend and the patcher CLI
+/// all read this one copy, so the two ends cannot drift. It is the reason the patcher may reference
+/// this assembly at all.
 /// </summary>
 public static class MediaTypes
 {
-    /// <summary>
-    /// Plain JSON. This is the default, and it carries no links.
-    /// </summary>
     public const string Json = "application/json";
 
-    /// <summary>
-    /// Our own JSON type, the one that carries hypermedia links. A client opts in by sending this
-    /// value in the Accept header.
-    /// </summary>
     public const string HateoasJson = "application/vnd.dev-lotrokoniecdev.hateoas.json";
 }

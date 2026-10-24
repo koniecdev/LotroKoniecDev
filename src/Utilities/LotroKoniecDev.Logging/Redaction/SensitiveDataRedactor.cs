@@ -4,18 +4,15 @@ using System.Text.RegularExpressions;
 namespace LotroKoniecDev.Logging.Redaction;
 
 /// <summary>
-/// Removes secrets and personal data from request-log fields before they reach a sink (audit #0001 /
-/// M5). The values of OAuth, OIDC and credential query parameters (<c>code</c>, <c>access_token</c>,
-/// <c>password</c> and friends) are replaced whole, and an e-mail address left in any other value has
-/// its local part masked. So neither a token someone could replay nor personal data is written in
-/// clear text.
-/// No method here throws, because a logging path must never fail. They work on the raw query string
-/// without decoding it, so the separator is found both as a plain <c>@</c> and as the <c>%40</c> that
-/// <c>Uri.EscapeDataString</c> produces (ADR-0046).
-/// An address escaped twice is not covered: <c>%2540</c>, as it would appear inside a
-/// <c>returnUrl</c> that carries a link that itself carries an address, matches neither form and
-/// stays unmasked. No such link exists today, and the fix would be one more alternative here, not a
-/// decode step on a hot path.
+/// Keeps replayable tokens and personal data out of request logs (audit 0001). Credential query values
+/// are replaced whole, and an e-mail in any other value has its local part masked. No method throws,
+/// because a logging path must never fail.
+/// <para>
+/// It works on the raw query string, so it finds the separator both as <c>@</c> and as the <c>%40</c>
+/// that <c>Uri.EscapeDataString</c> writes (ADR-0046 §3). An address escaped twice (<c>%2540</c>, as in
+/// a <c>returnUrl</c> that carries a link with an address) stays unmasked. No such link exists today,
+/// and the fix would be one more alternative in the regex, not a decode step on a hot path.
+/// </para>
 /// </summary>
 public static partial class SensitiveDataRedactor
 {
@@ -24,10 +21,9 @@ public static partial class SensitiveDataRedactor
     private const string PercentEncodedAt = "%40";
 
     /// <summary>
-    /// Query-parameter names whose value is a secret and must never be logged. The name is decoded
-    /// first and matched without case. The list is exact, so any new parameter that carries a
-    /// credential (a new OAuth or OIDC grant, hint or assertion) must be added here. If it is not,
-    /// its value is logged in clear text.
+    /// Matched without case on the decoded name. The list is exact: a new parameter that carries a
+    /// credential (a new OAuth or OIDC grant, hint or assertion) must be added here, or its value is
+    /// logged in clear text.
     /// </summary>
     private static readonly FrozenSet<string> SensitiveQueryKeys = new[]
     {
@@ -45,9 +41,8 @@ public static partial class SensitiveDataRedactor
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Cleans a raw query string, with or without its leading <c>?</c>. Sensitive values become
-    /// <c>***</c> and e-mail addresses in the other values are masked. The result keeps the leading
-    /// <c>?</c>, or is empty when there is no query.
+    /// Takes the query with or without its leading <c>?</c> and keeps that form in the result. Returns
+    /// an empty string when there is no query.
     /// </summary>
     public static string RedactQueryString(string? queryString)
     {

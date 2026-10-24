@@ -4,14 +4,12 @@ using NetArchTest.Rules;
 namespace LotroKoniecDev.Architecture.Tests.Unit.Tests;
 
 /// <summary>
-/// ADR-0001: no mediator anywhere in the repo. The <c>Mediator</c> and <c>MediatR</c> packages are
-/// forbidden. One use case is one record plus one handler implementing our own
-/// <c>ICommandHandler</c> or <c>IQueryHandler</c>.
+/// ADR-0001: no <c>Mediator</c> or <c>MediatR</c> anywhere. A use case is one record plus one handler on
+/// our own <c>ICommandHandler</c> or <c>IQueryHandler</c>.
 /// </summary>
 /// <remarks>
-/// The rule is checked over the IL, so it catches any use of a mediator type. A package that is restored
-/// but never used leaves nothing in the IL and passes, which is harmless on its own: the moment anyone
-/// uses it, this test turns red.
+/// The rule reads the IL, so a package that is restored but never used passes. The first use of it
+/// turns this test red.
 /// </remarks>
 public sealed class NoMediatorTests
 {

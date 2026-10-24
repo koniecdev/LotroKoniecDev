@@ -3,13 +3,13 @@ using LotroKoniecDev.Architecture.Tests.Unit.Shared;
 namespace LotroKoniecDev.Architecture.Tests.Unit.Tests;
 
 /// <summary>
-/// The house rule "seal every type unless there is explicit inheritance", stated mechanically: a class is
-/// sealed unless another production type actually derives from it.
+/// The house rule "seal every type unless there is explicit inheritance": a class is sealed unless
+/// another production type derives from it.
 /// </summary>
 /// <remarks>
 /// Types whose shape a framework decides are out of scope: a generated EF migration, a Razor component,
-/// a view, an <c>_Imports</c> marker and the <c>Program</c> marker from top-level statements cannot
-/// carry the modifier without editing generated code by hand. Everything else has to be sealed.
+/// a view, an <c>_Imports</c> marker and the top-level-statements <c>Program</c> cannot carry the
+/// modifier without editing generated code by hand.
 /// </remarks>
 public sealed class SealedConventionTests
 {
@@ -23,9 +23,8 @@ public sealed class SealedConventionTests
     ];
 
     /// <summary>
-    /// Real violations that existed before this suite, each fixed under its own ticket. #570 only added
-    /// tests. The key is the full type name and the value is the ticket that removes the entry. It has
-    /// been empty since #599.
+    /// Full type name to the ticket that will seal it. An entry needs a ticket to point at; sealing the
+    /// type is the normal fix.
     /// </summary>
     private static readonly Dictionary<string, string> KnownViolations = new(StringComparer.Ordinal);
 

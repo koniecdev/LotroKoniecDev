@@ -12,22 +12,12 @@ public static class DependencyInjection
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Registers the shared HATEOAS pieces:
-        /// <list type="bullet">
-        ///   <item><see cref="ILinkFactory"/>, built on ASP.NET's <c>LinkGenerator</c> and on the
-        ///   target endpoint's own authorization metadata.</item>
-        ///   <item><see cref="IHttpContextAccessor"/>, which the link factory needs for absolute URIs.</item>
-        ///   <item>A fallback <see cref="IProblemDetailsWriter"/> that serves RFC 7807 for the vendor media type.</item>
-        ///   <item>A <see cref="JsonTypeInfo"/> modifier that hides empty <c>links</c> arrays in plain JSON.</item>
-        /// </list>
-        /// <para>
-        /// Link factories for a single aggregate (<c>IAccountAggregateLinkFactory</c>,
-        /// <c>ICatAggregateLinkFactory</c>) stay with each service. They know endpoint names and
-        /// state-dependent rels, which do not belong in a shared library.
-        /// </para>
-        /// <para>
         /// Call this after <c>AddProblemDetails()</c>, so the default writer handles the Accept types it
-        /// supports and this fallback is tried last.
+        /// supports and the fallback writer is tried last.
+        /// <para>
+        /// Link factories for one aggregate (<c>IAccountAggregateLinkFactory</c>,
+        /// <c>ITranslationAggregateLinkFactory</c>) stay with each service: they know endpoint names and
+        /// state-dependent rels, which do not belong in a shared library.
         /// </para>
         /// </summary>
         public IServiceCollection AddHateoasInfrastructure()

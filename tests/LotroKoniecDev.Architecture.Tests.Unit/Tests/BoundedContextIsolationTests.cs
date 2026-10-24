@@ -5,10 +5,9 @@ using NetArchTest.Rules;
 namespace LotroKoniecDev.Architecture.Tests.Unit.Tests;
 
 /// <summary>
-/// The patcher and the TMS are two bounded contexts in one repository. They share a data contract, the
-/// <c>||</c> translation file, and never code. The TMS runs in Linux containers and must never touch the
-/// x86 Windows native interop, and the patcher runs on a gaming machine and must never touch the
-/// database.
+/// The patcher and the TMS share the <c>||</c> translation file, never code. The TMS runs in Linux
+/// containers and must never touch the x86 Windows native interop; the patcher runs on a gaming machine
+/// and must never touch the database.
 /// </summary>
 public sealed class BoundedContextIsolationTests
 {

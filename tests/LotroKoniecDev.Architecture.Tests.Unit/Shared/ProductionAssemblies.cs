@@ -3,15 +3,12 @@ using System.Reflection;
 namespace LotroKoniecDev.Architecture.Tests.Unit.Shared;
 
 /// <summary>
-/// Handles on every cross-platform production assembly, loaded by name out of the test output.
+/// Every cross-platform production assembly, loaded by name out of the test output.
 /// </summary>
 /// <remarks>
-/// The two patcher assemblies that target <c>net10.0-windows</c>, Infrastructure and Cli, are missing on
-/// purpose: a <c>net10.0</c> project cannot reference them, and this suite has to stay green on the
-/// Linux CI runner.
-/// They sit at the top of the patcher's layers, so every rule about them is written as a forbidden
-/// namespace on the assemblies below (see <see cref="Namespaces.PatcherInfrastructure"/>), which needs
-/// no reference at all.
+/// The patcher's Infrastructure and Cli target <c>net10.0-windows</c>, which a <c>net10.0</c> project
+/// cannot reference. They sit at the top of the patcher's layers, so every rule about them is written
+/// as a forbidden namespace on the assemblies below (see <see cref="Namespaces.PatcherInfrastructure"/>).
 /// </remarks>
 internal static class ProductionAssemblies
 {
@@ -60,7 +57,10 @@ internal static class ProductionAssemblies
 
     internal static Assembly Options { get; } = Load(Namespaces.Options);
 
-    /// <summary>All of the assemblies above, which is what the repo-wide rules search.</summary>
+    /// <summary>
+    /// What the repo-wide rules search. A new production project must join it, or it escapes every rule;
+    /// <c>SuiteSelfTests</c> fails until it does.
+    /// </summary>
     internal static IReadOnlyList<Assembly> All { get; } =
     [
         PatcherPrimitives,

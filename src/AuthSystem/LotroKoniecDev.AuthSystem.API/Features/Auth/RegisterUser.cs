@@ -101,10 +101,8 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 return Result.Failure(validationResult.ToValidationError(nameof(RegisterUser)));
             }
 
-            // The password rules and the breach check run before the address is looked up, so a taken
-            // and a free address get the same answer to a weak or leaked password, and both wait for the
-            // same call to the breach service (#860). They run outside the transaction and the floor:
-            // nothing in them depends on the address.
+            // Before the address lookup, so a taken and a free address get the same answer to a weak or
+            // leaked password and wait for the same breach call (#860).
             ApplicationUser candidate = NewAccount(command);
             IdentityResult passwordResult = await ValidatePasswordAsync(candidate, command.Password);
             if (!passwordResult.Succeeded)
@@ -115,18 +113,15 @@ internal sealed partial class RegisterUser : IApiEndpoint
                         string.Join(", ", passwordResult.Errors.Select(e => e.Description))));
             }
 
-            // The one hash of every branch, made before the branches split: a taken or reserved address
-            // pays it too, although no account is created (ADR-0059 §5).
+            // Before the branches split, so a taken or reserved address pays for the hash too (ADR-0059 §5).
             string passwordHash = _userManager.PasswordHasher.HashPassword(candidate, command.Password);
 
-            // The context has EnableRetryOnFailure on, so EF refuses a transaction we start ourselves
-            // unless the whole unit of work runs inside an execution strategy. A retry has to be able
-            // to replay everything from begin to commit, not one statement inside it.
+            // With EnableRetryOnFailure on, EF refuses our own transaction outside an execution strategy,
+            // which replays everything from begin to commit.
             IExecutionStrategy executionStrategy = _db.Database.CreateExecutionStrategy();
             RegistrationAttempt attempt = new();
 
-            // A free address writes an account and a taken one only a notice, so every answer waits for
-            // the floor (ADR-0059).
+            // A free address writes an account and a taken one only a notice (ADR-0059).
             return await _responseTimeFloor.HoldAsync(
                 ResponseTimeFloors.Registration,
                 () => executionStrategy.ExecuteAsync(async () =>
@@ -139,8 +134,7 @@ internal sealed partial class RegisterUser : IApiEndpoint
             RegistrationAttempt attempt,
             CancellationToken cancellationToken)
         {
-            // A retry starts after a rolled-back transaction, but the change tracker still holds the
-            // previous attempt's entities as Added. Replaying without clearing it would insert twice.
+            // After a rollback the change tracker still holds the previous attempt's entities as Added.
             _db.ChangeTracker.Clear();
 
             await using IDbContextTransaction transaction =
@@ -148,16 +142,12 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
             try
             {
-                // A known corner case: if the answer to CommitAsync is lost after the server really
-                // committed, the execution strategy replays, finds its own new username below, and
-                // answers "username taken" for a registration that in fact worked. A taken address
-                // replays into a second notice instead. We accept both. The committed outbox row still
-                // sends the confirmation, so the user can finish the flow, and a watertight fix with
-                // ExecuteInTransaction and a verification query would buy little.
+                // Accepted corner case: if CommitAsync's answer is lost after it landed, the replay answers
+                // "username taken" (or sends a second notice). The committed outbox row still sends the
+                // confirmation, so the user can finish.
 
-                // The username first. It is a public handle, so "taken" tells nothing, but checked after
-                // the address it would: a known taken username paired with any address would answer
-                // "username taken" for a free address and "check your inbox" for a taken one (#860).
+                // The username first: checked after the address, a known taken username would answer
+                // differently for a free and a taken address (#860).
                 ApplicationUser? usernameOwner = await _userManager.FindByNameAsync(command.Username);
                 if (usernameOwner is not null)
                 {
@@ -170,13 +160,9 @@ internal sealed partial class RegisterUser : IApiEndpoint
                     return await NotifyAddressOwnerAsync(addressOwner, command, attempt, transaction, cancellationToken);
                 }
 
-                // An address freed by an e-mail change is not free while its owner still holds a
-                // working undo link (#684). Occupying the row is all it takes to make that link fail
-                // forever, and the row is occupied by whoever types the address in here: CreateAsync
-                // writes it before anything is confirmed, RequireConfirmedEmail only blocks login, and
-                // no job ever removes an unconfirmed registration. It answers like any other address and
-                // mails nobody: the address has no account to tell. It still spends a permit, so a spent
-                // budget answers the same here too.
+                // An address held for an undo link is not free (#684): an unconfirmed account on it would
+                // break that link forever, and nothing removes unconfirmed accounts. It answers like any
+                // other address and mails nobody, but still spends a permit, so the budget reveals nothing.
                 bool reserved = await _revertReservation.IsReservedAsync(
                     command.Email, exceptUserId: null, cancellationToken);
 
@@ -191,8 +177,8 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 ApplicationUser user = NewAccount(command);
                 user.PasswordHash = passwordHash;
 
-                // The overload without a password, because the password is checked and hashed above.
-                // The one with a password would run the validators again, the breach check included.
+                // Without a password: the one with a password would run the validators and the breach
+                // check again.
                 IdentityResult result = await _userManager.CreateAsync(user);
 
                 if (!result.Succeeded)
@@ -202,11 +188,9 @@ internal sealed partial class RegisterUser : IApiEndpoint
                         return Result.Failure(AuthErrors.UserAlreadyExistsByUsername);
                     }
 
-                    // Identity looks the address up once more before it writes, so a registration that
-                    // started at the same moment can take it in between. That answers as a taken address
-                    // does, permit included, without the notice: the address got its account a moment
-                    // ago (#860). It must never reach the general message below, whose text would name
-                    // the taken address.
+                    // Identity looks the address up again before it writes, so a parallel registration
+                    // can take it in between. That answers as a taken address does, without the notice
+                    // (#860), and never reaches the message below, which would name the address.
                     if (result.Errors.Any(e => e.Code is nameof(IdentityErrorDescriber.DuplicateEmail)))
                     {
                         LogConcurrentRegistration(_logger, null, command.Email.MaskEmail());
@@ -225,8 +209,8 @@ internal sealed partial class RegisterUser : IApiEndpoint
                         string.Join(", ", roleIdentityResult.Errors.Select(e => e.Description))));
                 }
 
-                // The last check before the mail is queued, so a registration refused above spends nothing.
-                // Leaving here without a commit rolls the new account back.
+                // Last, so a registration refused above spends nothing. Leaving without a commit rolls
+                // the new account back.
                 if (!TryTakeMailboxPermit(command, attempt))
                 {
                     return Result.Failure(AuthErrors.RegistrationMailboxThrottled);
@@ -235,23 +219,20 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 _outboxWriter.Enqueue(new EmailConfirmationRequested(user.Id));
                 await _db.SaveChangesAsync(cancellationToken);
 
-                // The relay is woken by this commit, not by the save above: it reads committed rows, so a
-                // signal sent inside the transaction could find nothing (ADR-0035, OutboxWakeUpInterceptor).
+                // The commit, not the save, wakes the relay: it reads committed rows (ADR-0035).
                 await transaction.CommitAsync(cancellationToken);
 
-                // No profile is created in the other context here, on purpose: the translator profile is
-                // created on the first authenticated TranslationSystem request, and creating it twice
-                // is safe (ADR-0002 §7).
+                // The translator profile is created on the first authenticated TranslationSystem request
+                // (ADR-0002 §7).
                 LogRegistered(_logger, user.Id);
                 return Result.Success();
             }
-            // Any other save error goes up to the execution strategy, which replays a transient one (#845).
+            // Any other save error goes up to the execution strategy (#845).
             catch (DbUpdateException ex) when (ex.TakenAccountValueError(_db.Model) is { } lostRaceError)
             {
                 LogConcurrentRegistration(_logger, ex, command.Email.MaskEmail());
 
-                // A lost race for the address answers as a taken address does (#860). The username is a
-                // public handle, so its race may still say "taken".
+                // A lost address race answers as a taken address does (#860); a username is public.
                 return lostRaceError == AuthErrors.UserAlreadyExistsByEmail
                     ? AnswerLostAddressRace(command, attempt)
                     : Result.Failure(lostRaceError);
@@ -259,9 +240,8 @@ internal sealed partial class RegisterUser : IApiEndpoint
         }
 
         /// <summary>
-        /// The answer for an address that already has an account: the same as for a free one, and a notice
-        /// to the owner instead of a new account (#860). The notice comes from the same per-inbox budget as
-        /// the confirmation mail, so a spent budget answers the same on both branches (ADR-0057).
+        /// The same answer as for a free address, and a notice to the owner instead of a new account (#860).
+        /// The notice spends the same per-inbox budget as the confirmation mail (ADR-0057).
         /// </summary>
         private async Task<Result> NotifyAddressOwnerAsync(
             ApplicationUser addressOwner,
@@ -285,9 +265,8 @@ internal sealed partial class RegisterUser : IApiEndpoint
         }
 
         /// <summary>
-        /// A registration that lost the race for its address spends a permit like a taken address, so the
-        /// budget does not show that the address was free a moment ago. It sends nothing: the winner's
-        /// confirmation already goes to that inbox.
+        /// Spends a permit like a taken address, so the budget does not show the address was free a moment
+        /// ago. It sends nothing: the winner's confirmation already goes to that inbox.
         /// </summary>
         private Result AnswerLostAddressRace(Command command, RegistrationAttempt attempt) =>
             TryTakeMailboxPermit(command, attempt)
@@ -295,9 +274,7 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 : Result.Failure(AuthErrors.RegistrationMailboxThrottled);
 
         /// <summary>
-        /// One permit per registration, whichever branch it takes. A replay after a transient database
-        /// error must not take a second one (ADR-0057). The key comes from the typed address on every
-        /// branch, so a free and a taken address count in the same budget.
+        /// One permit per registration, whichever branch it takes, and none more on a replay (ADR-0057).
         /// </summary>
         private bool TryTakeMailboxPermit(Command command, RegistrationAttempt attempt)
         {
@@ -317,9 +294,7 @@ internal sealed partial class RegisterUser : IApiEndpoint
         }
 
         /// <summary>
-        /// Every password validator, as <c>UserManager.CreateAsync(user, password)</c> would run them.
-        /// <c>UserManager.ValidatePasswordAsync</c>, which does this, is protected, so the loop is written
-        /// out here.
+        /// Written out because <c>UserManager.ValidatePasswordAsync</c> is protected.
         /// </summary>
         private async Task<IdentityResult> ValidatePasswordAsync(ApplicationUser user, string password)
         {
@@ -370,7 +345,7 @@ internal sealed partial class RegisterUser : IApiEndpoint
         private static partial void LogAddressOwnerNotified(ILogger logger, Guid userId);
 
         /// <summary>
-        /// What one registration keeps across the replays of its transaction.
+        /// Kept across the replays of the transaction.
         /// </summary>
         private sealed class RegistrationAttempt
         {
@@ -394,16 +369,13 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
                 Result commandResult = await handler.Handle(command, cancellationToken);
 
-                // 202 with no body for a new account and for a taken address alike: a new account's id
-                // would be the one thing that tells them apart (#860).
+                // No body: a new account's id would tell a free address from a taken one (#860).
                 return commandResult.IsFailure
                     ? Results.Problem(commandResult.Error.ToProblemDetails())
                     : Results.Accepted();
             })
             .AllowAnonymous()
-            // Its own policy, keyed on the connection's address: the frontend never calls this endpoint,
-            // and a leaked frontend key must not buy a fresh confirmation-mail budget per invented
-            // address (ADR-0054 §3).
+            // Keyed on the connection's address (ADR-0054 §3); Program.cs says why.
             .RequireRateLimiting("register-limit")
             .WithName("RegisterUser")
             .WithTags("Authentication")

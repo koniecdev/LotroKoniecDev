@@ -16,19 +16,14 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// Undoes an e-mail change from the old mailbox (ADR-0048). It exists for one case: somebody who knew
-/// the password moved the account to an address they own, and the real owner still reads the address
-/// it came from.
+/// Undoes an e-mail change from the old mailbox (ADR-0048), for the case where somebody who knew the
+/// password moved the account to an address they own.
 /// </summary>
 /// <remarks>
-/// It also clears the password, because the password is what let the change happen in the first
-/// place, and returns a fresh reset token that sends the visitor into the reset flow.
-/// <see cref="CancelAccountDeletion"/> answers the same problem the same way.
-/// No e-mail goes out afterwards. The person who needs to know is reading the page, and telling the
-/// address the account was just taken from would only warn an attacker.
-/// It also cancels a scheduled deletion. After an address change the cancel link of ADR-0031 was sent
-/// to a mailbox the owner may no longer control, so refusing here would leave the account to be erased
-/// by the very person it was taken from.
+/// It clears the password, which is what let the change happen, and returns a fresh reset token, as
+/// <see cref="CancelAccountDeletion"/> does. No notice of the revert goes to the address the account was
+/// taken to: the owner is reading the page, and a notice would only warn an attacker. It also cancels a
+/// scheduled deletion, whose cancel link went to the attacker's mailbox.
 /// </remarks>
 internal sealed partial class RevertEmailChange
 {
@@ -49,9 +44,7 @@ internal sealed partial class RevertEmailChange
             RuleFor(x => x.UserId)
                 .NotEmpty().WithMessage("User ID is required.");
 
-            // The id arrives from a query string, and Identity converts it to the key type before it
-            // queries. A value that is not a GUID throws inside the store, which would turn a bad link
-            // into a crash on a page somebody opened from their inbox.
+            // The id comes from a link, and a value that is not a GUID throws inside Identity's store.
             RuleFor(x => x.UserId)
                 .Must(userId => Guid.TryParse(userId, out _))
                     .WithMessage("User ID must be a GUID.");
@@ -131,10 +124,8 @@ internal sealed partial class RevertEmailChange
                 return Result.Failure<RevertedEmailChange>(AuthErrors.InvalidEmailChangeToken);
             }
 
-            // Where the account goes is decided by the row, never by the link. The token proves who is
-            // asking; the armed target says where they may put it. That is what makes a second change
-            // useless to an attacker: it cannot arm a target of its own, so there is no link to hand
-            // them and no way for one to move the account somewhere the owner did not start from.
+            // The row decides where the account goes, never the link: the token proves who is asking, the
+            // armed target says where. A second change cannot arm a target, so it gives an attacker nothing.
             string? revertTarget = user.EmailChangeRevertTo;
             if (string.IsNullOrWhiteSpace(revertTarget))
             {
@@ -142,8 +133,7 @@ internal sealed partial class RevertEmailChange
                 return Result.Failure<RevertedEmailChange>(AuthErrors.InvalidEmailChangeToken);
             }
 
-            // Already back where it started, so there is nothing to undo. This is what stops a second
-            // click clearing a password the owner has since reset.
+            // Stops a second click clearing a password the owner has since reset.
             if (string.Equals(
                     _userManager.NormalizeEmail(user.Email),
                     _userManager.NormalizeEmail(revertTarget),
@@ -153,15 +143,13 @@ internal sealed partial class RevertEmailChange
                 return Result.Failure<RevertedEmailChange>(AuthErrors.InvalidEmailChangeToken);
             }
 
-            // Somebody may have registered the freed address in the meantime. Then there is nothing to
-            // go back to, and the password must stay as it is: clearing it would lock the account out
-            // of both addresses at once.
+            // When another account holds the address, the password must stay: clearing it would lock the
+            // account out of both addresses.
             ApplicationUser? previousAddressOwner = await _userManager.FindByEmailAsync(revertTarget);
             if (previousAddressOwner is not null)
             {
-                // The owner is this very account when the account got back there after this request
-                // loaded it, for example through a second submit of the same link. That is not a taken
-                // address, and "your password still works" would be false (#869).
+                // This very account, back there after this request loaded it, for example through a second
+                // submit of the same link (#869).
                 if (previousAddressOwner.Id == user.Id)
                 {
                     RevertedEmailChange? landed = await FindLandedRevertAsync(user.Id, revertTarget);
@@ -182,29 +170,23 @@ internal sealed partial class RevertEmailChange
             user.Email = revertTarget;
             user.EmailConfirmed = true;
 
-            // Whoever moved the address knew the password, so the password goes. Only the reset flow
-            // brings the account back, and it now runs through the mailbox that just proved ownership.
+            // Whoever moved the address knew the password. The reset flow now runs through the mailbox
+            // that just proved ownership.
             user.PasswordHash = null;
 
             user.SecurityStamp = Guid.NewGuid().ToString();
 
-            // Retires every revert link issued so far and disarms the chain, so the next change starts
-            // a fresh one from here. Disarming also releases the address reservation of #684: the
-            // account is back on that address now, so ordinary uniqueness is what guards it again.
+            // Retires every revert link so far and ends the chain. That also releases the reservation
+            // (#684): the account is back on that address, so ordinary uniqueness guards it.
             user.EmailChangeRevertStamp = Guid.NewGuid();
             user.DisarmEmailChangeRevert();
 
-            // A deletion the same person may have scheduled is called off here. Its cancel link went to
-            // the address the account was moved to, so leaving the schedule in place would hand the
-            // erasure to whoever took the account over.
             bool cancelledADeletion = user.DeletionScheduledAt is not null;
             user.DeletionScheduledAt = null;
             user.LockoutEnd = null;
             user.AccessFailedCount = 0;
 
-            // ADR-0031 wants every cancellation announced, and this is one. The notice rides the same
-            // save as the change, so "cancelled but nobody told" cannot happen, and it reaches the
-            // restored address rather than the one it was taken to.
+            // ADR-0031 announces every cancellation. In the same save, and to the restored address.
             if (cancelledADeletion)
             {
                 _outboxWriter.Enqueue(new AccountDeletionCancelled(user.Id));
@@ -221,8 +203,7 @@ internal sealed partial class RevertEmailChange
             {
                 DiscardPendingChanges();
 
-                // Another save of this account got in first. When it was a second submit of this same
-                // link, the undo is already done, and "nothing changed, try again" would be false.
+                // Another save got in first. When it was a second submit of this link, the undo is done.
                 RevertedEmailChange? landed = await FindLandedRevertAsync(user.Id, revertTarget);
                 if (landed is not null)
                 {
@@ -237,8 +218,7 @@ internal sealed partial class RevertEmailChange
 
             await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
 
-            // Created after the save, from the stored stamp. A token made before it would be
-            // invalidated by the very stamp change it travels with.
+            // After the save: a token made before would die with the stamp change it travels with.
             string passwordResetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
 
             LogReverted(
@@ -248,11 +228,8 @@ internal sealed partial class RevertEmailChange
         }
 
         /// <summary>
-        /// A failed update never reaches the store, so this unit of work is still in the change
-        /// tracker with the restored address and a cleared password on it. The context is shared with
-        /// OpenIddict for the rest of the request, so a later save there would commit a revert this
-        /// handler just reported as failed. A save error that escapes as an exception skips this, for the
-        /// reason the confirm leg gives.
+        /// Same reason as <see cref="ConfirmEmailChange"/>: OpenIddict shares this context, so a later save
+        /// would commit a revert reported as failed.
         /// </summary>
         private void DiscardPendingChanges()
         {
@@ -260,9 +237,7 @@ internal sealed partial class RevertEmailChange
         }
 
         /// <summary>
-        /// Same reasoning, and the same known corner case, as the confirm leg: the uniqueness check is a
-        /// plain query, the unique index is the real arbiter, and its duplicate-key error is not one
-        /// <c>UserStore.UpdateAsync</c> handles. Identity's own check can lose the race first (#866).
+        /// Same reasoning and corner case as <see cref="ConfirmEmailChange"/> (#864, #866).
         /// </summary>
         private async Task<Result<IdentityResult>> TryUpdateAsync(ApplicationUser user)
         {
@@ -285,15 +260,13 @@ internal sealed partial class RevertEmailChange
         }
 
         /// <summary>
-        /// Reads the account again, past everything this request holds in memory. An undo that already
-        /// landed leaves it on the address it came from, with the chain disarmed and no password. Only a
+        /// A landed undo leaves the account on its old address, disarmed and with no password. Only a
         /// caller whose token passed gets here, so it gets what the first submit got: a way into the
-        /// password reset. Without it the visitor would be stuck on a password that is gone (#869).
+        /// password reset (#869).
         /// </summary>
         /// <remarks>
-        /// The caller ends the sessions again after a hit. The first submit may still be ending them when
-        /// this one answers, or its revoke may have failed. Either way, whoever took the account could stay
-        /// signed in after the undo.
+        /// The caller ends the sessions again after a hit: the first submit may still be ending them, or
+        /// its revoke may have failed.
         /// </remarks>
         private async Task<RevertedEmailChange?> FindLandedRevertAsync(Guid userId, string revertTarget)
         {

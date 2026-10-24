@@ -5,10 +5,9 @@ using LotroKoniecDev.SharedKernel.IntegrationEvents;
 namespace LotroKoniecDev.AuthSystem.API.Outbox;
 
 /// <summary>
-/// Maps an outbox row's <c>Type</c>, the payload contract name the consumer reads it back by, to the
-/// exchange and routing key it travels under. The two stay separate on purpose: the type says what the
-/// payload is, the route says which bindings receive it. If they were the same thing, renaming a
-/// contract would quietly stop messages reaching a live queue.
+/// Maps an outbox row's <c>Type</c> to its exchange and routing key. They stay separate: the type says
+/// what the payload is, the route which bindings receive it, so renaming a contract cannot silently stop
+/// messages reaching a live queue.
 /// </summary>
 internal static class OutboxMessageRouting
 {

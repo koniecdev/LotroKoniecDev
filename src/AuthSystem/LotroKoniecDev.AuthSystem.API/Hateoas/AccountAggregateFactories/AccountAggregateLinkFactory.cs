@@ -18,22 +18,18 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
     {
         List<LinkDto> links = [];
 
-        // self: a GET of the account data export, which is this resource.
         links.AddIfPresent(await _linkFactory.CreateAsync(
             endpoint: nameof(ExportAccountData),
             rel: Rels.Self,
             method: HttpMethods.Get));
 
-        // Taking a copy of your own data is a right, so the export is offered in both branches and the
-        // endpoint serves it in both (#690). ADR-0052 says how short that window really is.
+        // Taking a copy of your own data is a right, so the export is offered in both branches (ADR-0052).
         links.AddIfPresent(await _linkFactory.CreateAsync(
             endpoint: nameof(DownloadAccountData),
             rel: Rels.DownloadAccountData,
             method: HttpMethods.Post));
 
-        // While a deletion is scheduled the account is locked, and the only thing left to do is cancel
-        // it with the single-use token from the e-mail. The other account actions would lead nowhere,
-        // so they are left out.
+        // A locked account can only cancel the deletion; the other actions would lead nowhere.
         if (isDeletionScheduled)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(
@@ -44,7 +40,6 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
             return links;
         }
 
-        // Actions an active, logged-in account can always take.
         links.AddIfPresent(await _linkFactory.CreateAsync(
             endpoint: nameof(ChangePassword),
             rel: Rels.ChangePassword,
@@ -60,8 +55,6 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
             rel: Rels.DeleteAccount,
             method: HttpMethods.Post));
 
-        // Resending the confirmation e-mail only makes sense while the address is unconfirmed. Once it
-        // is confirmed the link disappears, so no client offers an action that leads nowhere.
         if (!isEmailConfirmed)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(

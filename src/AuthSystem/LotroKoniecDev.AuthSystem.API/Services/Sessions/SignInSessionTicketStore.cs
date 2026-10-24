@@ -57,8 +57,8 @@ internal sealed partial class SignInSessionTicketStore : ITicketStore
         }
         catch (DbUpdateException exception) when (IsPrimaryKeyClash(exception, dbContext))
         {
-            // The id is new for every sign-in, so only this insert can hold it: the insert landed, its
-            // answer was lost, and EF's retry sent it again (the same case as #962).
+            // The id is new for every sign-in, so the insert landed, its answer was lost, and EF's retry
+            // sent it again (#962).
         }
 
         return session.Id.ToString(KeyFormat);
@@ -134,8 +134,8 @@ internal sealed partial class SignInSessionTicketStore : ITicketStore
         RemoveAsync(key, CancellationToken.None);
 
     /// <summary>
-    /// Ignores the request's token on purpose: a sign-out whose browser leaves before the answer must
-    /// still end the session.
+    /// Ignores the request's token: a sign-out whose browser leaves before the answer must still end the
+    /// session.
     /// </summary>
     public async Task RemoveAsync(string key, CancellationToken cancellationToken)
     {
@@ -155,9 +155,8 @@ internal sealed partial class SignInSessionTicketStore : ITicketStore
         _protector.Protect(TicketSerializer.Default.Serialize(ticket));
 
     /// <summary>
-    /// A row that no key can open any more reads as no session, the same answer the cookie handler gives
-    /// a cookie it cannot open: the user signs in again. It is still worth a warning, because the cookie
-    /// that named this row was opened with the same keyring.
+    /// A row no key can open reads as no session, as an unreadable cookie does. Still worth a warning,
+    /// because the cookie that named this row was opened with the same keyring.
     /// </summary>
     private AuthenticationTicket? Unprotect(byte[] protectedTicket, out CryptographicException? failure)
     {

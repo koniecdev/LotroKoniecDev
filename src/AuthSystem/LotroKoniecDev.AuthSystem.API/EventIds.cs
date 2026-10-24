@@ -2,6 +2,7 @@ namespace LotroKoniecDev.AuthSystem.API;
 
 /// <summary>
 /// Event ID ranges: TranslationSystem 1000-1999, AuthSystem 2000-2999, Shared 3000-3999.
+/// A retired number is never reused, so old log lines keep their meaning.
 /// </summary>
 internal static class EventIds
 {
@@ -12,15 +13,13 @@ internal static class EventIds
     public const int ValidationFailure = 2140;
     public const int UnhandledException = 2150;
 
-    // Change Password (2200-2209). 2200 (ChangePasswordSecurityStampFailed) went away with the second
-    // save of the account (#874).
+    // Change Password (2200-2209). 2200 is retired (#874).
     public const int ChangePasswordFailed = 2201;
 
     // Email Confirmation (2210-2219)
     public const int EmailConfirmationFailed = 2210;
 
-    // GDPR Erasure (2220-2239). 2221 (GdprErasureEmergencyLockoutNotNeeded) is no longer used: it also
-    // fired when the run's own save had landed. 2730 and 2732 split it (#962).
+    // GDPR Erasure (2220-2239). 2221 is retired: 2730 and 2732 split it (#962).
     public const int GdprErasureInitiated = 2220;
     public const int GdprDeletionFinalizerUserReadFailed = 2222;
     public const int GdprErasureAnonymizationFailed = 2223;
@@ -31,10 +30,7 @@ internal static class EventIds
     public const int GdprErasureArtifactsCleanupFailed = 2228;
     public const int GdprErasureEmergencyLockout = 2229;
     public const int GdprErasureEmergencyLockoutFailed = 2230;
-    // 2235 (GdprDeletionScheduledEmailFailed), 2236 (GdprDeletionCancelledEmailFailed) and 2237
-    // (GdprDeletionScheduleUnwound) are no longer used. The deletion e-mails moved out of the request
-    // and into the outbox pipeline (ADR-0038), so the handlers no longer see SMTP, and the undo step
-    // those failures triggered is gone (decision 5).
+    // 2235-2237 are retired: the deletion e-mails go through the outbox (ADR-0038).
     public const int GdprDeletionScheduled = 2231;
     public const int GdprDeletionCancelled = 2232;
     public const int GdprDeletionFinalized = 2233;
@@ -42,17 +38,14 @@ internal static class EventIds
     public const int GdprDeletionFinalizerRunFailed = 2238;
     public const int GdprDeletionFinalizerUserFailed = 2239;
 
-    // Data Export (2240-2249). 2241 (ExportDataCompleted) is no longer used. It fired on every account
-    // page view, because the page and the export share one GET, so it could not answer who took the
-    // file. The GET now logs a read under its own number, and the password-gated POST owns the export
-    // lines (#690).
+    // Data Export (2240-2249). 2241 is retired: the GET logs a read (2244) and the password-gated POST
+    // owns the export lines (#690).
     public const int ExportDataDownloaded = 2242;
     public const int ExportDataRefused = 2243;
     public const int AccountDataRead = 2244;
     public const int ExportDataRefusedForUnknownAccount = 2245;
 
-    // Forgot Password (2250-2259). 2251 (ForgotPasswordEmailFailed) is no longer used: sending moved
-    // out of the request and into the outbox pipeline (ADR-0038), so the handler no longer sees SMTP.
+    // Forgot Password (2250-2259). 2251 is retired (ADR-0038).
     public const int ForgotPasswordNonExistent = 2250;
 
     // Logout (2260-2269)
@@ -73,12 +66,10 @@ internal static class EventIds
     public const int ResendConfirmEmailFailed = 2282;
     public const int ResendConfirmThrottled = 2283;
 
-    // Reset Password (2290-2299). 2291 (ResetPasswordSecurityStampFailed) went away with the second
-    // save of the account (#874).
+    // Reset Password (2290-2299). 2291 is retired (#874).
     public const int ResetPasswordFailed = 2290;
 
-    // Token Revocation (2300-2309). 2300 (TokenRevoked) went away with the unused RevokeEndpoint
-    // (#349).
+    // Token Revocation (2300-2309). 2300 is retired (#349).
     public const int UserSessionsRevoked = 2301;
     public const int UserSessionsRevocationFailed = 2302;
     public const int SingleSessionRevoked = 2303;
@@ -141,8 +132,7 @@ internal static class EventIds
     public const int DeletionCancelledRescheduled = 2381;
     public const int DeletionCancelledAddressMissing = 2382;
 
-    // Refused code exchange or refresh (2390-2399). 2390-2394 were the refresh log lines of #944. The code
-    // exchange shares them since #977, so each number still means the same case.
+    // Refused code exchange or refresh (2390-2399). Both grants share each number for the same case (#977).
     public const int TokenGrantRefusedNoSubject = 2390;
     public const int TokenGrantRefusedUserGone = 2391;
     public const int TokenGrantRefusedDeletionScheduled = 2392;
@@ -152,8 +142,8 @@ internal static class EventIds
     public const int TokenGrantRefusedByOpenIddict = 2396;
     public const int TokenGrantRefusalUserLookupFailed = 2397;
 
-    // Change E-mail request / confirm / revert (2500-2519). 2502 and 2507 are no longer used: the request
-    // no longer looks the new address up (#860), and the dispatch logs 2525 and 2526 instead.
+    // Change E-mail request / confirm / revert (2500-2519). 2502 and 2507 are retired: the dispatch logs
+    // 2525 and 2526 instead (#860).
     public const int EmailChangeRequested = 2500;
     public const int EmailChangeSameAddress = 2501;
     public const int EmailChangeTokenInvalid = 2503;
@@ -184,10 +174,8 @@ internal static class EventIds
     public const int UnauthorizedAccessAttempt = 2400;
     public const int ForbiddenAccessAttempt = 2401;
 
-    // Pages (2600-2699). 2610 was PasswordResetTokenGenerated until the page stopped creating tokens
-    // (ADR-0038). It now marks the outbox write that replaced sending inside the request. 2640
-    // (RegisterCompletedViaUi) is no longer used: the page cannot know whether an account was created
-    // (#860), so the registration handler logs 2274 or 2275 instead.
+    // Pages (2600-2699). 2610 changed meaning with ADR-0038: it now marks the outbox write. 2640 is
+    // retired: the registration handler logs 2274 or 2275 instead (#860).
     public const int EmailConfirmedViaUi = 2600;
     public const int PasswordResetRequestQueued = 2610;
     public const int LoginUserNotFound = 2620;
@@ -202,22 +190,18 @@ internal static class EventIds
     public const int EmailChangeConfirmedViaUi = 2660;
     public const int EmailChangeRevertedViaUi = 2661;
 
-    // GDPR Deletion Scheduling internals (2700-2709). 2701-2703 and 2705 are no longer used: the undo
-    // step is gone (ADR-0038 decision 5), and both deletion flows now change the security stamp inside
-    // their single save (decision 2), so there is no separate stamp update that could fail. 2704 is no
-    // longer used either: scheduling a deletion ends sessions through the shared revoker, which logs
-    // 2302 (#872).
+    // GDPR Deletion Scheduling internals (2700-2709). 2701-2705 are retired (ADR-0038; 2704: the
+    // shared revoker logs 2302, #872).
     public const int GdprDeletionSchedulingUpdateFailed = 2700;
     public const int GdprDeletionScheduleThrottled = 2706;
 
-    // Forgot/Reset Password checks during the deletion window (2710-2719). 2710
-    // (ForgotPasswordDeletionScheduled) is no longer used: that check moved to the dispatch processor
-    // (ADR-0038 decision 2), which logs 2362 instead.
+    // Forgot/Reset Password checks during the deletion window (2710-2719). 2710 is retired: the dispatch
+    // processor logs 2362 instead (ADR-0038).
     public const int ResetPasswordDeletionScheduled = 2711;
     public const int PasswordResetRequestThrottled = 2712;
 
-    // Password confirmation on the account endpoints (2720-2729). The export logs its refusal under
-    // 2243, because every export attempt has to stay on that one audit line (#690).
+    // Password confirmation on the account endpoints (2720-2729). The export logs its refusal under 2243,
+    // so every export attempt stays on one audit line (#690).
     public const int PasswordConfirmationThrottled = 2720;
 
     // GDPR Erasure, continued (2730-2739). The 2220-2239 range is full.

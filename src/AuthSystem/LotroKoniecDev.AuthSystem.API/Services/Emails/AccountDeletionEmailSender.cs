@@ -71,9 +71,7 @@ internal sealed class AccountDeletionEmailSender : IAccountDeletionEmailSender
         DateTimeOffset finalizesAt,
         CancellationToken cancellationToken)
     {
-        // The link carries the address the account sits on now, not the one reading this. That is the
-        // value CancelAccountDeletion looks the account up with, so it is the same link the current
-        // address gets — only the wording differs.
+        // The current address, not the reader's: the same link the current address gets.
         string link = _cancelDeletionLinkFactory.Create(currentEmail, cancelToken);
         string deletionTime = finalizesAt.ToPolandDateTimeText();
 

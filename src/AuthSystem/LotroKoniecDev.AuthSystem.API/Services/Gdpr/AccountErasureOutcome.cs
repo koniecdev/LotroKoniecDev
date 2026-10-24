@@ -5,11 +5,9 @@ internal enum AccountErasureOutcome
     Erased,
 
     /// <summary>
-    /// The erasure stopped because the account no longer waits for it: its owner cancelled the deletion,
-    /// or another run erased the account first. No run comes back to it (#962). When the emergency lock
-    /// matched no row and the erasure cannot tell whether its own save landed, it returns this too, after
-    /// a warning that says so. After a failed lock the same doubt ends in a failure instead, because the
-    /// account may still wait (#980).
+    /// The account no longer waits: its owner cancelled, or another run erased it first. No run comes back
+    /// to it (#962). Also returned, after a warning, when the lock matched no row and the run cannot tell
+    /// whether its own save landed. After a failed lock that doubt ends in a failure instead (#980).
     /// </summary>
     NoLongerWaiting
 }

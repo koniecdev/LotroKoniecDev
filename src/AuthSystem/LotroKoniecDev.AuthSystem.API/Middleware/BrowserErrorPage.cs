@@ -4,24 +4,20 @@ using System.Text;
 namespace LotroKoniecDev.AuthSystem.API.Middleware;
 
 /// <summary>
-/// The frame of the pages a browser gets when the auth origin cannot answer normally: the 429 page, the
-/// 5xx page and the 4xx pages. An API client keeps the machine-readable answer, so each page is written
-/// only for a browser.
+/// The frame of the 429, 5xx and 4xx pages a browser gets; an API client keeps the machine-readable
+/// answer.
 /// </summary>
 /// <remarks>
-/// These pages are written here and not as Razor pages. Re-executing into a Razor page would keep the
-/// original POST, and the account pages have no POST handler for it. The markup is self-contained for
-/// the same reason the account pages are: each of them sets <c>Layout = null</c> and carries its own
-/// tokens.
+/// Not Razor pages: re-executing into one would keep the original POST, which the account pages have no
+/// handler for. Self-contained like the account pages, which set <c>Layout = null</c>.
 /// </remarks>
 internal static class BrowserErrorPage
 {
     internal const string BackToLoginLink = "<a href=\"/Account/Login\">Wróć do logowania</a>";
 
     /// <summary>
-    /// A browser names <c>text/html</c> when it opens a page. An API client does not: the frontend asks for
-    /// the HATEOAS JSON type, and <c>curl</c> or <c>fetch</c> send <c>*/*</c>. A caller that names it with
-    /// <c>q=0</c> says it does not accept HTML, so it keeps the JSON.
+    /// A browser names <c>text/html</c>; the frontend asks for the HATEOAS JSON type and <c>curl</c> or
+    /// <c>fetch</c> send <c>*/*</c>. <c>q=0</c> means "no HTML".
     /// </summary>
     internal static bool WantsHtml(HttpRequest request)
     {
@@ -37,9 +33,9 @@ internal static class BrowserErrorPage
     }
 
     /// <summary>
-    /// A raw string literal, so there is no Razor encoder behind it. Nothing a caller can influence may be
-    /// passed in without <c>HtmlEncoder</c>. Today every caller passes fixed Polish text, an <c>int</c>, and
-    /// the CSP nonce, which is server-made base64url (#681, #682, #693).
+    /// A raw string literal with no Razor encoder behind it, so nothing a caller can influence may come in
+    /// without <c>HtmlEncoder</c>. Today callers pass fixed text, an <c>int</c> and the server-made nonce
+    /// (#681, #693).
     /// </summary>
     internal static string BuildHtml(string heading, string? nonce, params IReadOnlyList<string> paragraphs)
     {

@@ -8,22 +8,17 @@ using RabbitMQ.Client.Exceptions;
 namespace LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 
 /// <summary>
-/// Publishes over one long-lived connection and one long-lived channel. Both open on the first
-/// publish and not in the constructor, because the web application must start even while the broker
-/// is still starting, and nothing in the request pipeline needs the broker.
+/// Publishes over one long-lived connection and channel. Both open on the first publish, not in the
+/// constructor, because the web application must start even while the broker is still starting.
 /// </summary>
 internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsyncDisposable
 {
     private const string JsonContentType = "application/json";
 
     /// <summary>
-    /// Confirmations change what
-    /// <see cref="IChannel.BasicPublishAsync{TProperties}(string,string,bool,TProperties,ReadOnlyMemory{byte},CancellationToken)"/>
-    /// means: from "written to the socket" to "the broker has taken the message". Without them the
-    /// call returns before the broker has seen anything, the relay marks the outbox row as processed,
-    /// and a message lost on the way is lost for good.
-    /// Tracking ties the broker's nack or return back to the exact publish, so both arrive as an
-    /// exception on that very call.
+    /// With confirmations, a publish returns only once the broker has taken the message. Without them the
+    /// relay would mark the outbox row processed and a message lost on the way would be lost for good.
+    /// Tracking turns the broker's nack or return into an exception on that same publish call.
     /// </summary>
     private static readonly CreateChannelOptions ChannelOptions = new(
         publisherConfirmationsEnabled: true,
@@ -65,8 +60,6 @@ internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsy
 
         IChannel channel = await GetChannelAsync(cancellationToken);
 
-        // The consumer picks its processor by type (ADR-0038): the type says what the payload is,
-        // while the routing key only decides which bindings receive it.
         BasicProperties properties = new()
         {
             MessageId = messageId.ToString(),
@@ -151,9 +144,8 @@ internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsy
             }
             catch
             {
-                // A failed declaration, usually PRECONDITION_FAILED because the queue arguments
-                // changed, leaves a channel the broker has already closed. Dispose our half instead of
-                // handing it to the next publish.
+                // A failed declaration (usually PRECONDITION_FAILED after a queue argument change)
+                // leaves a channel the broker already closed, so it must not reach the next publish.
                 await CloseChannelAsync();
                 throw;
             }

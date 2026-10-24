@@ -1,9 +1,8 @@
 namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 
 /// <summary>
-/// Brings the outbox in line with every erased account (ADR-0065). The two steps are separate, so one
-/// that keeps failing does not stop the other. Both are safe to run any number of times: a second run
-/// finds nothing left to do.
+/// Two separate steps (ADR-0065), so one that keeps failing does not stop the other. Both are safe to
+/// repeat.
 /// </summary>
 internal interface IErasedAccountReconciler
 {
@@ -14,10 +13,8 @@ internal interface IErasedAccountReconciler
     Task<int> ScrubSentMessagesAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Writes an <c>AccountErased</c> message for each erased account that has none yet, and returns
-    /// how many it wrote. It saves through the shared <c>AuthDbContext</c>, so it refuses to run on a
-    /// context that still tracks changes: a change a failed erasure left behind would be saved with
-    /// its messages.
+    /// Writes an <c>AccountErased</c> message for each erased account that has none, and returns how many.
+    /// It refuses a context that still tracks changes, which a failed erasure may have left behind.
     /// </summary>
     Task<int> AnnounceUnannouncedErasuresAsync(CancellationToken cancellationToken);
 }

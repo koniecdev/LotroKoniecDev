@@ -10,8 +10,7 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 
 /// <summary>
-/// The page the "confirm your new address" link leads to. A GET only shows a confirmation form, so a
-/// mail scanner that opens the link changes no address. The POST applies the change.
+/// A GET only shows a confirmation form, so a mail scanner that opens the link changes no address.
 /// </summary>
 [EnableRateLimiting("auth-endpoint-limit")]
 internal sealed partial class ConfirmEmailChangeModel : PageModel
@@ -43,8 +42,7 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
     public string? ErrorMessage { get; set; }
 
     /// <summary>
-    /// The link passed its token check and only the save failed, so the page shows the form again and
-    /// one more click can finish the change (#869).
+    /// The token passed and only the save failed, so one more click can finish the change (#869).
     /// </summary>
     public bool CanRetry { get; set; }
 
@@ -60,7 +58,7 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
             return;
         }
 
-        // Back from the done view loads this link again. Its button would send the used link (#941).
+        // Back from the done view loads this link again, and its button would send the used link (#941).
         if (UsedLinkCookie.EmailChangeConfirm.WasUsedHere(Request, Token))
         {
             IsCompleted = true;
@@ -68,9 +66,9 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
     }
 
     /// <summary>
-    /// The done view a successful POST redirects to. A reload then repeats only this GET and never sends
-    /// the used link again, which would call it dead (#886). Anybody can open this URL, so it prints no
-    /// address: a hand-made link must not show a stranger's choice of address as the account's new login.
+    /// A successful POST redirects here, so a reload never sends the used link again (#886). Anybody can
+    /// open this URL, so it prints no address: a hand-made link must not show a stranger's address as the
+    /// account's new login.
     /// </summary>
     public void OnGetDone()
     {
@@ -85,8 +83,8 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
             return Page();
         }
 
-        // A form the browser brought back from its cache can still send a link this browser already used.
-        // The link asks for no input, so this answer is the same as the first one (#941).
+        // A form restored from the browser cache can resend a used link. It asks for no input, so the
+        // answer is the same as the first one (#941).
         if (UsedLinkCookie.EmailChangeConfirm.WasUsedHere(Request, Token))
         {
             return RedirectToPage("/Account/ConfirmEmailChange", "Done");
@@ -114,11 +112,9 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
     }
 
     /// <summary>
-    /// Only a dead link is called dead, because the visitor acts on what the page says: a good link
-    /// called dead sends them off for a new one, when one more click would have worked (#869). The
-    /// other answers come only after the token check, so only the holder of a link for this address sees
-    /// them, and that holder controls the inbox the address belongs to. The request form no longer names
-    /// a taken address (#860); this page may, because a stranger never gets this far.
+    /// Only a dead link is called dead: a good link called dead sends the visitor off for a new one (#869).
+    /// The other answers come only after the token check, so only the holder of the new inbox sees them,
+    /// and this page may name a taken address (#860).
     /// </summary>
     private void ShowRefusal(Error error)
     {
@@ -155,9 +151,8 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
     }
 
     /// <summary>
-    /// The link's values are printed on this page and then acted on, so they are checked for shape
-    /// before either happens. It keeps arbitrary text off a branded page that carries a real button,
-    /// and it keeps a non-GUID id out of Identity's key conversion, which would throw.
+    /// The link's values are printed and then acted on, so their shape is checked first: no arbitrary text
+    /// on a branded page with a real button, and no non-GUID id for Identity to throw on.
     /// </summary>
     private bool HasUsableLinkValues() =>
         Guid.TryParse(UserId, out _)

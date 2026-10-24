@@ -7,13 +7,9 @@ using Microsoft.Net.Http.Headers;
 namespace LotroKoniecDev.AuthSystem.API.Middleware;
 
 /// <summary>
-/// Adds the browser security headers to every response of the auth origin (#693), the same set the
-/// frontend sends: a Content-Security-Policy, <c>X-Content-Type-Options: nosniff</c>,
-/// <c>Referrer-Policy: no-referrer</c> and <c>X-Frame-Options: DENY</c> next to the CSP's
-/// <c>frame-ancestors 'none'</c>.
-/// The headers are written in <see cref="HttpResponse.OnStarting(Func{Task})"/>. That way they also
-/// reach error and 429 responses, and <c>DENY</c> replaces the <c>SAMEORIGIN</c> that antiforgery adds
-/// only to pages that happen to render a form.
+/// The same headers the frontend sends, on every auth response (#693). Written in
+/// <see cref="HttpResponse.OnStarting(Func{Task})"/>, so they also reach error and 429 responses, and
+/// <c>DENY</c> replaces the <c>SAMEORIGIN</c> antiforgery adds only to pages with a form.
 /// </summary>
 internal sealed class SecurityHeadersMiddleware
 {
@@ -58,12 +54,10 @@ internal sealed class SecurityHeadersMiddleware
         };
 
     /// <summary>
-    /// Builds the CSP. <c>script-src</c> is <c>'self'</c> with no nonce: the one script the pages need
-    /// is a file (<c>login.js</c>), and a new inline script must be moved to a file too (#670).
-    /// Each page keeps its styles in an inline <c>&lt;style&gt;</c> block, so <c>style-src</c> admits
-    /// the per-request nonce and never <c>'unsafe-inline'</c>.
-    /// <c>form-action</c> lists the frontend origins. A sign-in POST ends in a redirect to the
-    /// frontend's callback, and Chrome checks every redirect of a form submission against it.
+    /// <c>script-src 'self'</c> with no nonce: page script lives in files such as <c>login.js</c> (#670).
+    /// Each page keeps its styles inline, so <c>style-src</c> admits the nonce, never
+    /// <c>'unsafe-inline'</c>. <c>form-action</c> lists the frontend origins, because a sign-in POST ends in
+    /// a redirect to the frontend's callback and Chrome checks every redirect of a form.
     /// </summary>
     internal static string BuildContentSecurityPolicy(string nonce, IReadOnlyList<string> frontendOrigins) =>
         string.Join("; ",
@@ -79,14 +73,11 @@ internal sealed class SecurityHeadersMiddleware
         ]);
 
     /// <summary>
-    /// The origins of the web client's redirect and post-logout URIs: the only places a form on this
-    /// origin may end up. A value that is not an absolute http(s) URL is skipped; the settings
-    /// validator reports it at startup. The origin is built by hand from the scheme, the punycode host
-    /// and the port: <c>GetLeftPart</c> would keep a <c>user@</c> part, and <c>Authority</c> gives a
-    /// non-ASCII host in Unicode, which a header may not carry. Kestrel would then refuse every response.
-    /// OpenIddict checks redirects against the client row in the database, and the seeder writes that
-    /// row only when it is missing. This reads the configuration, so it assumes the two agree. On the
-    /// boxes both come from the same domain setting; if they drift apart, sign-in fails visibly.
+    /// The only places a form on this origin may end up. An invalid value is skipped; the settings
+    /// validator reports it. Built by hand from scheme, punycode host and port: <c>GetLeftPart</c> keeps a
+    /// <c>user@</c> part, and <c>Authority</c> gives a Unicode host, which a header may not carry.
+    /// This reads configuration while OpenIddict checks the seeded client row, so it assumes the two agree;
+    /// if they drift apart, sign-in fails visibly.
     /// </summary>
     internal static IReadOnlyList<string> FrontendOrigins(WebClientSettings webClient) =>
         webClient.RedirectUris

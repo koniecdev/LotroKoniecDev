@@ -14,11 +14,9 @@ internal static class DbUpdateExceptionExtensions
         public string? ViolatedUniqueConstraint => exception.UniqueViolation?.ConstraintName;
 
         /// <summary>
-        /// Registration and both legs of an e-mail change check that a value is free with a plain query,
-        /// so two requests can pass that check at the same moment, and then the unique index decides. The
-        /// loser gets the answer the check would have given it. Any other save error is not a taken value,
-        /// so this returns null and the error goes on up (#845, #864). The three handlers share this one
-        /// copy so they cannot drift apart on what counts as taken.
+        /// Two requests can pass the "is this value free" query at once, and then the unique index
+        /// decides; the loser gets the answer the query would have given it (#845, #864). Any other save
+        /// error returns null and goes on up. Registration and both e-mail change legs share this copy.
         /// </summary>
         public Error? TakenAccountValueError(IModel model)
         {
@@ -32,8 +30,7 @@ internal static class DbUpdateExceptionExtensions
                 .FirstOrDefault(i => string.Equals(
                     i.GetDatabaseName(), violation.ConstraintName, StringComparison.Ordinal));
 
-            // Only a single-column index proves that the one value is taken. An index over more columns
-            // would clash on the combination, not on the address or the name alone.
+            // Only a single-column index proves that the one value is taken.
             return index?.Properties switch
             {
                 [{ Name: nameof(ApplicationUser.Email) or nameof(ApplicationUser.NormalizedEmail) }] =>

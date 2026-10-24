@@ -3,13 +3,9 @@ using System.Threading.RateLimiting;
 namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 
 /// <summary>
-/// A fixed-window budget keyed on the inbox a mail reaches: the shape behind every per-inbox send budget
-/// in this app. Each budget is its own instance, so a handler can never spend the wrong one (ADR-0053 §1).
+/// Each budget is its own instance, so a handler cannot spend the wrong one (ADR-0053 §1). Keyed on a
+/// <see cref="MailboxKey"/>, not a string, so no spelling gets a budget of its own (ADR-0057).
 /// </summary>
-/// <remarks>
-/// The key is a <see cref="MailboxKey"/>, not a string, so every budget goes through the one fold that
-/// type owns and no spelling gets a budget of its own (#835, ADR-0057).
-/// </remarks>
 internal sealed class PerMailboxFixedWindowThrottle
     : IEmailConfirmationResendThrottle, IEmailChangeRecipientThrottle, IRegistrationMailboxThrottle, IDisposable
 {
@@ -34,7 +30,7 @@ internal sealed class PerMailboxFixedWindowThrottle
     {
         ArgumentNullException.ThrowIfNull(mailbox);
 
-        // A fixed window never gives a permit back when the lease is disposed, so this takes exactly one.
+        // A fixed window keeps the permit when the lease is disposed.
         using RateLimitLease lease = _limiter.AttemptAcquire(mailbox);
         return lease.IsAcquired;
     }

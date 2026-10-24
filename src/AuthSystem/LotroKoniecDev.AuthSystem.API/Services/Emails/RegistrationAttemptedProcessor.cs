@@ -8,12 +8,10 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 /// <summary>
-/// What happens when a <see cref="RegistrationAttemptedOnExistingAccount"/> message arrives: load the
-/// account and tell its owner that someone tried to register with its address (#860).
+/// Tells an account's owner that someone tried to register with its address (#860).
 /// </summary>
 /// <remarks>
-/// A message may arrive more than once (ADR-0035), so this has to be safe to run twice. It is: the notice
-/// carries no state and no token, so at worst the owner reads it twice.
+/// Safe to run twice: the notice carries no state or token, so at worst the owner reads it twice.
 /// </remarks>
 internal sealed partial class RegistrationAttemptedProcessor : IEmailMessageProcessor
 {
@@ -44,14 +42,9 @@ internal sealed partial class RegistrationAttemptedProcessor : IEmailMessageProc
         return ProcessAsync((RegistrationAttemptedOnExistingAccount)message, cancellationToken);
     }
 
-    /// <summary>
-    /// Handles one message from start to finish and says whether it may be acknowledged.
-    /// </summary>
     /// <returns>
-    /// This is not a business result. Success means "acknowledge it and drop it from the queue", either
-    /// because the notice went out or because sending again could never change anything: the account is
-    /// gone, erased, has no address, or has moved off the address that was tried. Failure means "worth
-    /// another try", for example when the SMTP relay is down.
+    /// Success also when the account is gone, erased, has no address or has moved off the tried address
+    /// (see <see cref="IEmailMessageProcessor.ProcessAsync"/>).
     /// </returns>
     public async Task<Result> ProcessAsync(
         RegistrationAttemptedOnExistingAccount message,

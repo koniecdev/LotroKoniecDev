@@ -5,13 +5,12 @@ namespace LotroKoniecDev.AuthSystem.Infrastructure.PwnedPasswords;
 internal static class PwnedPasswordsDependencyInjection
 {
     /// <summary>
-    /// The documented host of the range endpoint. It needs no API key and has no rate limit (checked at
-    /// haveibeenpwned.com/API/v3 on 2026-10-07).
+    /// Needs no API key and has no rate limit (haveibeenpwned.com/API/v3, checked 2026-10-07).
     /// </summary>
     internal static readonly Uri BaseAddress = new("https://api.pwnedpasswords.com/");
 
     /// <summary>
-    /// Short on purpose: a person waits on the form, and the endpoint normally answers in well under a
+    /// Short, because a person waits on the form and the endpoint normally answers in well under a
     /// second. After this the password goes through unchecked (ADR-0066).
     /// </summary>
     internal static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(3);
@@ -28,8 +27,7 @@ internal static class PwnedPasswordsDependencyInjection
         {
             services.AddMemoryCache();
 
-            // No resilience handler: a retry would only make the person wait longer for an answer the
-            // policy can do without.
+            // No resilience handler: a retry would only make the person wait longer for an optional answer.
             services.AddHttpClient<IPwnedPasswordChecker, PwnedPasswordChecker>(client =>
                 {
                     client.BaseAddress = BaseAddress;
@@ -39,8 +37,8 @@ internal static class PwnedPasswordsDependencyInjection
                 })
                 .ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler)
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
-                // The factory's own handlers log every request URL at Information, and this URL ends in
-                // the hash prefix. The checker's warnings say everything an operator needs (ADR-0066).
+                // The factory's handlers log every request URL, and this one ends in the hash prefix
+                // (ADR-0066).
                 .RemoveAllLoggers();
 
             return services;
@@ -48,14 +46,10 @@ internal static class PwnedPasswordsDependencyInjection
     }
 
     /// <summary>
-    /// No redirects, so a request cannot be walked off the one host we chose, and no cookies, because one
-    /// handler serves every request and the API needs none. The pooled connection lifetime is what keeps
-    /// DNS fresh now that the handler is never rotated.
-    /// <para>
-    /// No activity propagator either. Without it the handler sends no <c>traceparent</c> and no
-    /// <c>baggage</c>, so the range API gets no id that ties the call to our request, and no span records
-    /// a URL that ends in the hash prefix (ADR-0066).
-    /// </para>
+    /// No redirects, so a request cannot leave the chosen host, and no cookies, because one handler serves
+    /// every request. The pooled connection lifetime keeps DNS fresh, since the handler is never rotated.
+    /// No activity propagator, so no <c>traceparent</c> or <c>baggage</c> ties the call to our request
+    /// and no span records a URL that ends in the hash prefix (ADR-0066).
     /// </summary>
     internal static SocketsHttpHandler CreatePrimaryHandler() => new()
     {

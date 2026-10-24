@@ -18,8 +18,8 @@ internal sealed partial class PwnedPasswordChecker : IPwnedPasswordChecker
     internal const string AddPaddingHeader = "Add-Padding";
 
     /// <summary>
-    /// Long enough that a form posted twice, or the same password typed again after an error, gets its
-    /// answer without a second call. Only a real answer is kept: a failed call is tried again next time.
+    /// Long enough that a form posted twice, or a password typed again after an error, needs no second
+    /// call. Only a real answer is kept: a failed call is tried again next time.
     /// </summary>
     internal static readonly TimeSpan VerdictLifetime = TimeSpan.FromMinutes(5);
 
@@ -65,10 +65,9 @@ internal sealed partial class PwnedPasswordChecker : IPwnedPasswordChecker
     }
 
     /// <summary>
-    /// Reads the answer, one <c>SUFFIX:COUNT</c> line per known hash. A padding line always has a count of
-    /// zero and stands for no real password, so a match there is not a breach. A real answer always holds
-    /// hundreds of lines, so an answer with none, such as a proxy's error page, says nothing about the
-    /// password and must not pass as a clean one.
+    /// One <c>SUFFIX:COUNT</c> line per known hash. A padding line has a count of zero, so a match there
+    /// is not a breach. A real answer holds hundreds of lines, so an answer with none, such as a proxy's
+    /// error page, must not pass as a clean one.
     /// </summary>
     internal static PwnedPasswordVerdict ReadRangeAnswer(string rangeBody, string hashSuffix)
     {
@@ -108,8 +107,7 @@ internal sealed partial class PwnedPasswordChecker : IPwnedPasswordChecker
     }
 
     /// <summary>
-    /// SHA-1 is what the range API is keyed by, so it is the only hash it can answer for. It is never
-    /// stored and never used to verify a password.
+    /// SHA-1 because the range API is keyed by it. It is never stored and never used to verify a password.
     /// </summary>
     internal static string HashForRangeApi(string password) =>
         Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(password)));
@@ -121,8 +119,7 @@ internal sealed partial class PwnedPasswordChecker : IPwnedPasswordChecker
     {
         using HttpRequestMessage request = new(HttpMethod.Get, new Uri(RangePath + hashPrefix, UriKind.Relative));
 
-        // Every answer is padded to a random length, so its size does not tell an observer on the wire
-        // which bucket was asked for.
+        // A padded answer has a random length, so its size does not tell an observer which bucket was asked for.
         request.Headers.Add(AddPaddingHeader, "true");
 
         try
@@ -175,7 +172,7 @@ internal sealed partial class PwnedPasswordChecker : IPwnedPasswordChecker
         candidate.Length is HashSuffixLength && !candidate.ContainsAnyExcept(HexDigits);
 
     /// <summary>
-    /// Its own key type, so no other entry in the shared memory cache can ever collide with a verdict.
+    /// Its own key type, so no other entry in the shared memory cache can collide with a verdict.
     /// </summary>
     private readonly record struct VerdictCacheKey(string Hash);
 }

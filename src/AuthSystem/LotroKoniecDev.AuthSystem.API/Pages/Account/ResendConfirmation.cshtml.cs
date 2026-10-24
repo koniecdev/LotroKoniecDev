@@ -23,9 +23,8 @@ internal sealed class ResendConfirmationModel : PageModel
     public bool IsSubmitted { get; set; }
 
     /// <summary>
-    /// <paramref name="email"/> comes from the login page's "account not confirmed" message
-    /// (ADR-0046). It only fills in the form. The POST handler still hides whether an account exists,
-    /// so an address typed into the query string reveals no more than one typed into the field.
+    /// <paramref name="email"/> comes from the login page's "account not confirmed" message (ADR-0046) and
+    /// only fills in the form; the POST still hides whether an account exists.
     /// </summary>
     public void OnGet(string? email)
     {
@@ -35,10 +34,8 @@ internal sealed class ResendConfirmationModel : PageModel
 
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)
     {
-        // The handler is what hides whether an account exists: every branch verifies one hash and
-        // waits for the same time floor, and only an unconfirmed account with a permit gets a mail
-        // (ADR-0059). It always succeeds for a well-formed address. Only an address that is not well
-        // formed, and so can match no account, comes back as a failure worth showing.
+        // The handler hides whether an account exists (ADR-0059) and succeeds for every well-formed
+        // address, so only a malformed one comes back as a failure.
         Result result = await _handler.Handle(new ResendEmailConfirmation.Command(Email), cancellationToken);
 
         if (result.IsFailure)

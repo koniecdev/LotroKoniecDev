@@ -14,8 +14,8 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Sessions;
 internal sealed partial class SignInSessionCookieHandler : CookieAuthenticationHandler
 {
     /// <summary>
-    /// The claim the framework's handler writes the session key under. It keeps its own constant private,
-    /// so it is repeated here, and <c>SignInSessionTests</c> pins it against a real cookie.
+    /// The framework keeps this constant private, so it is repeated here; <c>SignInSessionTests</c> pins it
+    /// against a real cookie.
     /// </summary>
     internal const string SessionKeyClaimType = "Microsoft.AspNetCore.Authentication.Cookies-SessionId";
 
@@ -28,14 +28,13 @@ internal sealed partial class SignInSessionCookieHandler : CookieAuthenticationH
     }
 
     /// <summary>
-    /// The framework's handler would renew the live session of the browser's current cookie under its old
-    /// key (aspnetcore#22135) and hand the new sign-in to every copy of that cookie. Deleting that session
-    /// first makes it store a new one (ADR-0062).
+    /// The framework would renew the current cookie's session under its old key (aspnetcore#22135) and
+    /// hand the new sign-in to every copy of that cookie. Deleting that session first makes it store a new
+    /// one (ADR-0062).
     /// </summary>
     /// <remarks>
-    /// When something earlier in the request has already read the cookie, the handler keeps the old key
-    /// anyway. That key now names no session, so the new cookie signs nobody in and the user signs in
-    /// again. Nothing does that today.
+    /// If something earlier in the request had already read the cookie, the handler would keep the old
+    /// key, which now names no session, so the user would have to sign in again. Nothing does that today.
     /// </remarks>
     protected override async Task HandleSignInAsync(ClaimsPrincipal user, AuthenticationProperties? properties)
     {
@@ -48,9 +47,8 @@ internal sealed partial class SignInSessionCookieHandler : CookieAuthenticationH
     }
 
     /// <summary>
-    /// The framework's handler clears the cookie only after the stored session is gone, so a database
-    /// error would leave this browser signed in for the next person at a shared computer. The cookie is
-    /// cleared anyway, like the best-effort revoke in <c>LogoutEndpoint</c>.
+    /// The framework clears the cookie only after the stored session is gone, so a database error would
+    /// leave the browser signed in for the next person at a shared computer. Here it is cleared anyway.
     /// </summary>
     protected override async Task HandleSignOutAsync(AuthenticationProperties? properties)
     {
@@ -66,8 +64,8 @@ internal sealed partial class SignInSessionCookieHandler : CookieAuthenticationH
     }
 
     /// <summary>
-    /// Opens the request cookie the way the framework's handler does, TLS token binding included, so the
-    /// two can never disagree about which session the cookie names.
+    /// Opens the cookie the way the framework does, TLS token binding included, so the two always agree on
+    /// which session it names.
     /// </summary>
     private string? ReadRequestSessionKey()
     {

@@ -6,8 +6,8 @@ public enum PwnedPasswordVerdict
     Breached,
 
     /// <summary>
-    /// The service did not answer, answered too slowly or answered with an error, so nothing is known
-    /// about the password. What happens next is the caller's policy, not this adapter's.
+    /// No answer, a slow answer or an error, so nothing is known about the password. What happens next
+    /// is the caller's policy.
     /// </summary>
     Unavailable
 }

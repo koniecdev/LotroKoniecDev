@@ -1,16 +1,12 @@
 namespace LotroKoniecDev.AuthSystem.API.Outbox;
 
 /// <summary>
-/// The wake-up line inside the process between outbox writers and the relay.
-/// <see cref="OutboxWakeUpInterceptor"/> calls <see cref="Notify"/> right after a commit that carries a
-/// new outbox row, and the relay's waiting <see cref="WaitAsync"/> returns instead of sleeping until its
-/// safety sweep.
-/// This signal, and not a fixed interval, is what drives the relay, so the database is queried only
-/// moments after a write, while it is still awake (ADR-0035).
+/// <see cref="OutboxWakeUpInterceptor"/> calls <see cref="Notify"/> after a commit with an outbox row, so
+/// the relay queries the database while it is still awake (ADR-0035).
 /// </summary>
 /// <remarks>
-/// The semaphore holds at most one pending wake-up on purpose. The relay works through the whole
-/// backlog on every pass, so ten commits before it wakes still need only one pass.
+/// At most one pending wake-up: the relay works through the whole backlog on every pass, so ten commits
+/// still need only one pass.
 /// </remarks>
 internal sealed class OutboxSignal : IDisposable
 {
@@ -24,23 +20,20 @@ internal sealed class OutboxSignal : IDisposable
         }
         catch (SemaphoreFullException)
         {
-            // A wake-up is already waiting, and it covers this commit as well.
+            // A wake-up is already waiting, and it covers this commit too.
         }
     }
 
     /// <param name="timeProvider">
-    /// The clock that measures <paramref name="timeout"/>, so a test can move the time instead of waiting
-    /// hours for the safety sweep (#1185).
+    /// Measures <paramref name="timeout"/>, so a test can move the time instead of waiting hours (#1185).
     /// </param>
     /// <returns>
-    /// <c>true</c> when <see cref="Notify"/> woke it, <c>false</c> when <paramref name="timeout"/>
-    /// ran out first. The relay does the same thing either way. The timeout only limits how long a
-    /// forgotten row can wait, one that was committed before a crash took its signal with it.
+    /// <c>true</c> when <see cref="Notify"/> woke it, <c>false</c> on timeout. The relay does the same
+    /// either way; the timeout only limits how long a row whose signal was lost can wait.
     /// </returns>
     public async Task<bool> WaitAsync(TimeSpan timeout, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
-        // A timeout of zero cancels its token at once, and a cancelled wait never takes a pending
-        // wake-up. So the wake-up that is already there is taken first.
+        // A zero timeout cancels at once, and a cancelled wait never takes a pending wake-up, so take it first.
         if (_pendingWakeUp.Wait(TimeSpan.Zero, cancellationToken))
         {
             return true;

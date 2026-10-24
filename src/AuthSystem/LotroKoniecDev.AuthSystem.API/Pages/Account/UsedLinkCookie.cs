@@ -5,11 +5,10 @@ using System.Text;
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 
 /// <summary>
-/// Remembers, in the browser that used it, that a one-time link already did its job. Back from a success
-/// page loads the link's form again, and its button would send the used link, which the server rightly
-/// calls dead (#941). The cookie holds only hashes of the last few used tokens, and it changes only the
-/// answer to the browser that sends it, so no page has to look an account up to tell "done" from "dead"
-/// (ADR-0063).
+/// Remembers, in the browser that used it, that a one-time link already did its job: Back from a success
+/// page loads the link's form again, and its button would send the used link (#941). It holds only hashes
+/// of the last few tokens and changes only the answer to that browser, so no page has to look an account
+/// up to tell "done" from "dead" (ADR-0063).
 /// </summary>
 internal sealed class UsedLinkCookie
 {
@@ -18,7 +17,7 @@ internal sealed class UsedLinkCookie
     public static readonly UsedLinkCookie PasswordReset = new(".lotrokoniecdev.used-link.password-reset");
 
     /// <summary>
-    /// Long enough for the Back button after the success page, and the lifetime the privacy policy gives.
+    /// Long enough for the Back button. The privacy policy states this lifetime, so change both together.
     /// </summary>
     internal static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(30);
 
@@ -65,10 +64,9 @@ internal sealed class UsedLinkCookie
         Base64Url.EncodeToString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 
     /// <summary>
-    /// Path "/" so a link typed in another letter case still finds it. Secure follows the request scheme,
-    /// as the frontend's short-lived cookie does, so the plain-http dev profile keeps working. SameSite Lax,
-    /// not Strict: the link's page was first opened from a mail client, and a browser may treat Back to it
-    /// like that first visit from another site, which gets no Strict cookie.
+    /// Path "/" so a link typed in another letter case still finds it. Secure follows the scheme, so the
+    /// plain-http dev profile works. Lax, not Strict: the page was first opened from a mail client, and a
+    /// browser may treat Back to it as a visit from another site.
     /// </summary>
     internal static CookieOptions BuildOptions(bool isHttps) => new()
     {

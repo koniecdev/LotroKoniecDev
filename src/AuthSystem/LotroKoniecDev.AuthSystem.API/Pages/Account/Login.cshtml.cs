@@ -17,44 +17,35 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 internal sealed partial class LoginModel : PageModel
 {
     /// <summary>
-    /// The one message for every login failure a caller can reach without proving they know the
-    /// password: no such user, locked out, and wrong password. All three say the same thing, so none of
-    /// them reveals whether the address is registered. A scheduled deletion whose login budget is spent
-    /// says it too, even for the right password (#881).
-    /// The cases that only happen after the password was verified, a scheduled deletion or an
-    /// unconfirmed address, name their reason instead. ADR-0046 explains why that is safe.
+    /// One message for every failure a caller can reach without the password (no such user, locked out,
+    /// wrong password, and a spent deletion login budget, #881), so none reveals whether the address is
+    /// registered. Cases reached only after the password was verified name their reason (ADR-0046).
     /// </summary>
     private const string GenericCredentialErrorMessage = "Nieprawidłowy e-mail lub hasło.";
 
     /// <summary>
-    /// Only shown after <c>CheckPasswordAsync</c> succeeded, so it tells a caller who does not know the
-    /// password nothing about the address (ADR-0046). Being vague here did real harm: it sent a user
-    /// whose only problem was an unopened activation e-mail to the password reset, which cannot fix
-    /// their account.
+    /// Shown only after <c>CheckPasswordAsync</c> succeeded, so it reveals nothing to a caller without the
+    /// password (ADR-0046). A vague message would send the user to a password reset, which cannot help.
     /// </summary>
     private const string EmailNotConfirmedErrorMessage =
         "To konto nie zostało jeszcze aktywowane. Sprawdź skrzynkę — wysłaliśmy na Twój adres link aktywacyjny.";
 
     /// <summary>
-    /// Shown once the deletion date has passed and the account only waits for the daily run (ADR-0031).
-    /// By then the cancel window (#947) and any e-mail change undo window (ADR-0048) have ended, so the
-    /// message names no date and no link. The owner chose this exact text (#916).
+    /// Shown once the deletion date has passed and the account waits for the daily run (ADR-0031). The
+    /// cancel and undo windows have ended, so it names no date or link. The owner chose this text (#916).
     /// </summary>
     private const string DeletionUnderwayMessage = "Usuwanie Twojego konta jest w toku i nie można go już anulować.";
 
     /// <summary>
-    /// The frontend's own login route. It turns the auth cookie we just issued into an application
-    /// session through a silent OIDC challenge. It copies the Frontend's
-    /// <c>AuthenticationDependencyInjectionExtensions.LoginPath</c>. The two contexts share no code, so
-    /// renaming it there has to be repeated here, like the register page's <c>/regulamin</c> link.
+    /// The frontend's login route, which turns our auth cookie into an application session through a
+    /// silent OIDC challenge. Keep it in step with the Frontend's
+    /// <c>AuthenticationDependencyInjectionExtensions.LoginPath</c>.
     /// </summary>
     private const string FrontendLoginPath = "/auth/login";
 
     /// <summary>
-    /// A hash computed up front for the failure paths that would otherwise skip password hashing: no
-    /// such user, locked out, an account with no password, and a scheduled deletion whose login budget
-    /// is spent (#881). They then cost as much CPU as the wrong-password path. That is the second layer
-    /// under the time floor (ADR-0059 §5).
+    /// For the failure paths that would otherwise skip hashing, so they cost as much as a wrong password.
+    /// The second layer under the time floor (ADR-0059 §5).
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -95,20 +86,14 @@ internal sealed partial class LoginModel : PageModel
     public bool RememberMe { get; set; }
 
     /// <summary>
-    /// Where to continue after login, taken from the OIDC flow. It is usually the
-    /// <c>/connect/authorize</c> URL the user was sent away from, and the form carries it so a
-    /// successful login goes back there. It is only printed into the page, or used as a redirect
-    /// target, after <see cref="LocalReturnUrl.Sanitize"/> accepts it, which blocks open redirects.
+    /// Usually the <c>/connect/authorize</c> URL the user came from. Printed or used as a redirect only
+    /// after <see cref="LocalReturnUrl.Sanitize"/> accepts it.
     /// </summary>
     public string? ReturnUrl { get; set; }
 
     /// <summary>
-    /// The absolute URL of the frontend's login route. It is only used when a sign-in has nowhere else
-    /// to continue: this host's own root answers with the API discovery JSON, which is a dead end for a
-    /// browser coming from the reset-password or confirm-email pages.
-    /// The target comes from configuration we trust and never from the request. It is null when the web
-    /// client is not configured, for example on a bare test host, and the sign-in then falls back to
-    /// the local root.
+    /// Used when a sign-in has nowhere else to go: this host's root answers with discovery JSON, a dead end
+    /// for a browser. Null when the web client is not configured, and the sign-in falls back to the root.
     /// </summary>
     public string? FrontendLoginUrl =>
         FrontendUrl.For(_openIddictSettings.Value.WebClient, FrontendLoginPath);
@@ -116,10 +101,8 @@ internal sealed partial class LoginModel : PageModel
     public string? ErrorMessage { get; set; }
 
     /// <summary>
-    /// The address the "resend the activation link" button uses. It is set only when the address is
-    /// unconfirmed, so the link never appears unless the password was verified (ADR-0046). It comes
-    /// from the database and not from the posted form: the page has no reason to put arbitrary input
-    /// into a URL.
+    /// Set only for an unconfirmed address after the password was verified (ADR-0046), and taken from the
+    /// database, not the posted form, so no arbitrary input reaches a URL.
     /// </summary>
     public string? ResendConfirmationEmail { get; set; }
 
@@ -138,9 +121,8 @@ internal sealed partial class LoginModel : PageModel
             return Page();
         }
 
-        // The clock starts before the lookup, and every answer that shows the general message waits for
-        // the floor, so its time says nothing about which check failed (ADR-0059). Only an account whose
-        // password was verified skips the wait: the answers it can reach need the password anyway.
+        // Every answer with the general message waits for the floor (ADR-0059). Only a verified password
+        // skips the wait: the answers it can reach need the password anyway.
         ApplicationUser? user = await _responseTimeFloor.HoldAsync(
             ResponseTimeFloors.AccountLookup,
             FindUserWithVerifiedPasswordAsync,
@@ -152,8 +134,7 @@ internal sealed partial class LoginModel : PageModel
             return Page();
         }
 
-        // An account with a scheduled deletion is also locked out, which is why the credential check
-        // looks at the deletion first. The exact message is safe here: the password was verified.
+        // The exact message is safe: the password was verified.
         if (user.DeletionScheduledAt is not null)
         {
             LogDeletionScheduled(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
@@ -170,11 +151,8 @@ internal sealed partial class LoginModel : PageModel
         if (!await _userManager.IsEmailConfirmedAsync(user))
         {
             LogEmailNotConfirmed(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
-            // Identity is set up with RequireConfirmedEmail, but this login path uses
-            // CheckPasswordAsync, which does not run PreSignInCheck. So we check confirmation here.
-            // Where this check sits matters. Saying the address is unconfirmed is only safe because the
-            // password was verified above (ADR-0046). Move it before the password check and this
-            // message, together with the resend link, tells anyone which accounts exist.
+            // CheckPasswordAsync skips RequireConfirmedEmail, so it is checked here. Only after the
+            // password check: before it, this message would tell anyone which accounts exist (ADR-0046).
             ErrorMessage = EmailNotConfirmedErrorMessage;
             ResendConfirmationEmail = user.Email;
             return Page();
@@ -182,10 +160,8 @@ internal sealed partial class LoginModel : PageModel
 
         await _userManager.ResetAccessFailedCountAsync(user);
 
-        // Carry the Identity security stamp, so the auth cookie's OnValidatePrincipal
-        // (SecurityStampCookieValidator) can drop this session as soon as the stamp changes on a
-        // password reset, change or delete. Without it a cookie that is still valid could keep issuing
-        // fresh tokens (SEC-03).
+        // Lets SecurityStampCookieValidator drop this session when the stamp changes; otherwise a valid
+        // cookie could keep issuing tokens after a password reset (SEC-03).
         string securityStamp = await _userManager.GetSecurityStampAsync(user);
 
         List<Claim> claims =
@@ -229,16 +205,12 @@ internal sealed partial class LoginModel : PageModel
     }
 
     /// <summary>
-    /// Returns the account only when the posted password is its password, and null for every failure a
-    /// caller can reach without it: no such user, locked out, wrong password, and a scheduled deletion
-    /// whose login budget is spent. Each of those verifies
-    /// exactly one password hash, the dummy one where there is no real hash to check, and none of them
-    /// sets a message, so the caller shows the same one for all.
+    /// Null for every failure a caller can reach without the password. Each verifies exactly one hash and
+    /// sets no message, so the caller shows the same one for all.
     /// </summary>
     private async Task<ApplicationUser?> FindUserWithVerifiedPasswordAsync()
     {
-        // Trim, like the register page's Email.Trim(). A trailing space from a paste or from autofill
-        // must not turn a valid login into "no such user".
+        // A trailing space from a paste or autofill must not turn a valid login into "no such user".
         ApplicationUser? user = await _userManager.FindByEmailAsync(Email.Trim());
 
         if (user is null)
@@ -248,13 +220,12 @@ internal sealed partial class LoginModel : PageModel
             return null;
         }
 
-        // An account with a scheduled deletion is also locked out, so this case has to come before the
-        // lockout check. Its wrong password does not count: at the limit Identity would replace the lock
-        // that lasts the whole grace period with its own short lockout (#861, ADR-0053 §3). So the
-        // lockout never slows guessing here, and a budget per account does it instead (#881).
+        // Before the lockout check, because a scheduled deletion also locks the account. A wrong password
+        // here does not count: Identity would replace the grace-period lock with its own short one (#861).
+        // A per-account budget slows guessing instead (#881).
         if (user.DeletionScheduledAt is not null)
         {
-            // The permit comes before the password check, so a refusal says nothing about the password.
+            // Before the password check, so a refusal says nothing about the password.
             if (!_deletionScheduledLoginThrottle.TryAcquire(user.Id))
             {
                 VerifyDummyPassword();
@@ -278,7 +249,6 @@ internal sealed partial class LoginModel : PageModel
 
         if (await _userManager.IsLockedOutAsync(user))
         {
-            // Without the dummy hash the early return would skip the hashing.
             VerifyDummyPassword();
             LogAccountLockedOut(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
             return null;

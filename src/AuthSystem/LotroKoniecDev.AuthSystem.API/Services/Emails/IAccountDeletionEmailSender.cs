@@ -12,15 +12,13 @@ internal interface IAccountDeletionEmailSender
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// The same cancel link, sent to the address an armed undo would restore (#685). It exists because
-    /// after an e-mail change the ordinary notice above reaches whoever moved the account, and that
-    /// may be the attacker rather than the owner.
+    /// The same cancel link, sent to the address an armed undo would restore (#685), because after an
+    /// e-mail change the ordinary notice may reach the attacker instead of the owner.
     /// </summary>
-    /// <param name="previousEmail">The armed address, which is who reads this message.</param>
+    /// <param name="previousEmail">The armed address, which reads this message.</param>
     /// <param name="currentEmail">
-    /// The address the account sits on now. It is named in the text so the reader knows where their
-    /// account went, and it is what the link carries: <c>CancelAccountDeletion</c> finds the account
-    /// with it, so a link rewritten to the old address would verify against nothing.
+    /// The account's current address, named in the text and carried by the link, because
+    /// <c>CancelAccountDeletion</c> finds the account with it.
     /// </param>
     Task<Result> SendDeletionScheduledNoticeToPreviousAddressAsync(
         Guid userId,

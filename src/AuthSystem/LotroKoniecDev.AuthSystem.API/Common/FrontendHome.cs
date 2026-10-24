@@ -4,15 +4,14 @@ using LotroKoniecDev.AuthSystem.API.Settings;
 namespace LotroKoniecDev.AuthSystem.API.Common;
 
 /// <summary>
-/// The website's home page, where the logo on every account page leads (#1074). Every page gets it through
-/// <c>Pages/_ViewImports.cshtml</c>, so its logo only needs <c>href="@FrontendHome.Url"</c> and no code in
-/// the page model. A fixed address would send a staging tester or a local developer to production.
+/// Where the logo on every account page leads (#1074), injected through <c>Pages/_ViewImports.cshtml</c>.
+/// A fixed address would send a staging tester or a local developer to production.
 /// </summary>
 internal sealed class FrontendHome
 {
     /// <summary>
     /// Null when the web client is not configured, for example on a bare test host. Razor then leaves the
-    /// <c>href</c> out, and the logo shows without a link.
+    /// <c>href</c> out.
     /// </summary>
     public string? Url { get; }
 

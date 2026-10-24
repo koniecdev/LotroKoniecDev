@@ -4,9 +4,9 @@ using Npgsql;
 namespace LotroKoniecDev.AuthSystem.Persistence.Settings;
 
 /// <summary>
-/// Reads a connection string and keeps Npgsql's own error out of the boot log (#1157, ADR-0067 decision 4).
-/// That error names the part Npgsql could not use. When a password has a <c>;</c> and no quotes, that part
-/// is a piece of the password, and a value typed after the wrong key appears in full in the inner error.
+/// Reads a connection string and keeps Npgsql's own error out of the boot log (#1157). That error names
+/// the part Npgsql could not use: a piece of an unquoted password that contains <c>;</c>, or a whole
+/// value typed after a wrong key.
 /// </summary>
 internal static class ConnectionStringReader
 {

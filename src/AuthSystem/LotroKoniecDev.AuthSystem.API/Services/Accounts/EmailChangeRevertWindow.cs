@@ -18,7 +18,7 @@ internal sealed class EmailChangeRevertWindow : IEmailChangeRevertWindow
     public DateTimeOffset? ExpiresAt(DateTimeOffset? armedAt) =>
         armedAt is { } armed ? armed + _revertTokenOptions.TokenLifespan : null;
 
-    // A null expiry loses this comparison, which is the answer we want: nothing armed is nothing live.
+    // A null expiry loses the comparison: nothing armed is nothing live.
     public bool IsLiveAt(DateTimeOffset? armedAt, DateTimeOffset moment) => ExpiresAt(armedAt) > moment;
 
     public DateTimeOffset LiveSince(DateTimeOffset moment) => moment - _revertTokenOptions.TokenLifespan;

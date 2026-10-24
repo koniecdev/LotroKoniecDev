@@ -9,10 +9,8 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 
 /// <summary>
-/// The page the cancel-deletion link in the e-mail leads to, sent when a GDPR account deletion is
-/// scheduled (ADR-0031). A GET only shows a confirmation form, so a mail scanner that opens the link
-/// cancels nothing. The POST does the cancellation and sends the user straight into the password reset
-/// flow.
+/// A GET only shows a confirmation form, so a mail scanner that opens the cancel link cancels nothing
+/// (ADR-0031). The POST cancels and sends the user straight into the password reset.
 /// </summary>
 [EnableRateLimiting("auth-endpoint-limit")]
 internal sealed partial class CancelDeletionModel : PageModel
@@ -50,7 +48,7 @@ internal sealed partial class CancelDeletionModel : PageModel
             return Page();
         }
 
-        // Back from the password form loads this used link again. Its button would call it dead (#941).
+        // Back from the password form loads this used link again, and its button would call it dead (#941).
         return RedirectToNextStepIfUsedHere() ?? Page();
     }
 
@@ -62,8 +60,8 @@ internal sealed partial class CancelDeletionModel : PageModel
             return Page();
         }
 
-        // A form the browser brought back from its cache can still send a link this browser already used.
-        // The link asks for no input, so this answer is the same as the first one (#941).
+        // A form restored from the browser cache can resend a used link. It asks for no input, so the
+        // answer is the same as the first one (#941).
         if (RedirectToNextStepIfUsedHere() is { } redirect)
         {
             return redirect;

@@ -3,23 +3,19 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace LotroKoniecDev.AuthSystem.API.Extensions;
 
 /// <summary>
-/// Makes a rate-limiting policy the default for a whole group of endpoints, so an endpoint that wants
-/// no limit has to say so.
+/// Makes a rate-limiting policy the default for a group, so an endpoint that wants no limit has to
+/// say so.
 /// </summary>
 internal static class RateLimitingEndpointConventions
 {
     /// <summary>
-    /// Attaches <paramref name="policyName"/> to every endpoint in the group that does not already
-    /// carry a rate-limiting decision of its own.
+    /// Attaches <paramref name="policyName"/> to every endpoint that has no rate-limiting decision of its
+    /// own.
     /// </summary>
     /// <remarks>
-    /// A plain <c>RequireRateLimiting</c> cannot be used on a Razor Pages group, and the reason is easy
-    /// to get backwards. <c>GetMetadata</c> returns the LAST matching item, and a group convention is
-    /// appended after the metadata a PageModel attribute contributes. So on a page the group wins and
-    /// silently replaces the page's own policy. On a minimal-API endpoint it is the other way round,
-    /// because there the endpoint's own call runs after its group's. Same method, opposite outcome.
-    /// Skipping pages that already decided keeps both halves working: a page can ask for a different
-    /// budget with <c>[EnableRateLimiting]</c>, or for none with <c>[DisableRateLimiting]</c>.
+    /// Not a plain <c>RequireRateLimiting</c>: <c>GetMetadata</c> returns the last match, and a group
+    /// convention is appended after a PageModel attribute, so the group would silently replace a page's
+    /// own policy. On a minimal-API endpoint it is the other way round.
     /// </remarks>
     internal static TBuilder RequireRateLimitingByDefault<TBuilder>(this TBuilder builder, string policyName)
         where TBuilder : IEndpointConventionBuilder
@@ -32,8 +28,7 @@ internal static class RateLimitingEndpointConventions
     }
 
     /// <summary>
-    /// The body of the convention, separated so a test can drive it with a plain
-    /// <see cref="EndpointBuilder"/> instead of a hand-written convention builder.
+    /// Separate so a test can drive it with a plain <see cref="EndpointBuilder"/>.
     /// </summary>
     internal static void ApplyDefaultPolicy(EndpointBuilder endpointBuilder, string policyName)
     {

@@ -13,10 +13,9 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
         builder.HasIndex(u => u.UserName).IsUnique();
         builder.HasIndex(u => u.Email).IsUnique();
 
-        // Identity's own mapping makes this index non-unique. RequireUniqueEmail is checked in the
-        // app only, and the login path calls FindByEmailAsync. So a pair that differs only in case,
-        // such as Foo@x.com and foo@x.com, would make that call throw and lock both accounts out
-        // (ADR-0022). The database name has to stay "EmailIndex", or Identity adds a second index.
+        // Identity maps this index as non-unique and checks RequireUniqueEmail in the app only. Two
+        // addresses that differ only in case would make FindByEmailAsync throw on login and lock both
+        // accounts out (ADR-0022). The name has to stay "EmailIndex", or Identity adds a second index.
         builder.HasIndex(u => u.NormalizedEmail)
             .IsUnique()
             .HasDatabaseName("EmailIndex");
@@ -48,10 +47,9 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
 
         builder.Property(u => u.EmailChangeRevertArmedAt);
 
-        // A partial index, like the deletion one below. Registration asks "is this address reserved"
-        // on every attempt, and only the handful of rows with an armed undo can answer yes, so the
-        // check must never become a scan of the whole table (#684). Not unique: once an arming
-        // expires its value stays behind, and a later account may arm the same address.
+        // Partial, because registration checks the reservation on every attempt and only the few rows
+        // with an armed undo can match (#684). Not unique: an expired arming leaves its value behind,
+        // and a later account may arm the same address.
         builder.HasIndex(u => u.NormalizedEmailChangeRevertTo)
             .HasFilter($"\"{nameof(ApplicationUser.NormalizedEmailChangeRevertTo)}\" IS NOT NULL");
 

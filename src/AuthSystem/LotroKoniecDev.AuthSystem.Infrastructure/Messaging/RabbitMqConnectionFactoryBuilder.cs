@@ -3,11 +3,9 @@ using RabbitMQ.Client;
 namespace LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 
 /// <summary>
-/// Builds the one <see cref="ConnectionFactory"/> shape every broker client in this process uses, so
-/// the publisher and the consumer cannot end up recovering differently.
-/// They hold separate connections on purpose, told apart by <paramref name="clientProvidedName"/>.
-/// Under load AMQP slows a publishing connection down at the TCP level, and if both directions shared
-/// one socket that would also stop the consumer.
+/// One factory shape for every broker client here, so the publisher and the consumer recover the same
+/// way. They hold separate connections because under load AMQP throttles a publishing connection at the
+/// TCP level, and a shared socket would stop the consumer too.
 /// </summary>
 public static class RabbitMqConnectionFactoryBuilder
 {

@@ -12,14 +12,10 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// Hands the GDPR Art. 15 export over, behind the current password (#690, ADR-0052). Every other
-/// sensitive account action already asks for it, and this is the one that produces a single tidy file:
-/// a bearer token alone must not be enough to take it away.
-/// The matching GET is the account representation the account page renders, so it stays open to a
-/// logged-in caller. The difference is deliberate and ADR-0052 holds the reasoning.
-/// A query, not a command: nothing on the account changes. The attempt is charged to the account's
-/// confirmation budget (ADR-0053) before the password is checked, and it is written to the audit log
-/// either way.
+/// The GDPR Art. 15 export, behind the current password (ADR-0052): a bearer token alone must not be
+/// enough to take the whole file. The matching GET is what the account page renders, so it needs only a
+/// login. A query, because nothing changes; every attempt spends a confirmation permit (ADR-0053) and is
+/// audit-logged.
 /// </summary>
 internal sealed partial class DownloadAccountData : IApiEndpoint
 {
@@ -51,8 +47,7 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
         public async ValueTask<Result<AccountDataExportResponse>> Handle(
             Query query, CancellationToken cancellationToken)
         {
-            // Every attempt by a logged-in caller is logged against the account the token names. The
-            // permit comes before the account is loaded (ADR-0053), so its refusal line carries the id
+            // The permit comes before the account is loaded (ADR-0053), so its refusal line carries the id
             // and no address.
             if (!Guid.TryParse(query.UserId, out Guid userId))
             {
@@ -79,9 +74,8 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
                 ? UnknownEmail
                 : user.Email.MaskEmail();
 
-            // A query validates inline, because FluentValidation is for commands only (house rule). The
-            // check sits after the permit on purpose, so its audit line can carry the masked address;
-            // the frontend never sends an empty password, so only a direct caller pays for one.
+            // After the permit, so the audit line can carry the masked address. Only a direct caller pays a
+            // permit for an empty password: the frontend never sends one.
             if (string.IsNullOrWhiteSpace(query.Password))
             {
                 LogExportRefused(_logger, user.Id, maskedEmail, "no password was sent", query.IpAddress, query.UserAgent);
@@ -138,9 +132,7 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
 
                 Result<AccountDataExportResponse> queryResult = await handler.Handle(query, cancellationToken);
 
-                // No hypermedia links here. This response is a document the caller downloads, not a
-                // resource they navigate from — the account representation is the GET, and ADR-0032
-                // already drops the links when the frontend writes the file.
+                // No links: this is a document to download, not a resource to navigate from (ADR-0032).
                 return queryResult.IsSuccess
                     ? Results.Ok(queryResult.Value)
                     : Results.Problem(queryResult.Error.ToProblemDetails());

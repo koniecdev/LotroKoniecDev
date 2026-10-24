@@ -17,13 +17,9 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// Cancels a scheduled GDPR account deletion with the single-use token from the cancellation e-mail
-/// (ADR-0031). It needs no login on purpose: the account is locked out for the whole grace period, so
-/// the token in the e-mail is the only proof that the person owns the account.
-/// Cancelling also invalidates the current password, which may be all an attacker has, and returns a
-/// fresh reset token that sends the user into the password reset flow.
-/// The notice e-mail goes through the outbox pipeline (ADR-0038): its row commits together with the
-/// cancellation, so a send that used to be best-effort is now guaranteed.
+/// Needs no login: the account is locked for the grace period, so the e-mailed token is the only proof
+/// of ownership (ADR-0031). Cancelling also invalidates the current password, which may be all an
+/// attacker has, and returns a fresh reset token.
 /// </summary>
 internal sealed partial class CancelAccountDeletion : IApiEndpoint
 {
@@ -54,7 +50,7 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result<CancelledDeletion>>
     {
         /// <summary>
-        /// A hash computed up front, so every path verifies exactly one hash.
+        /// Lets every path verify exactly one hash.
         /// </summary>
         private static readonly string DummyPasswordHash =
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -93,8 +89,7 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
                 return Result.Failure<CancelledDeletion>(validationResult.ToValidationError(nameof(CancelAccountDeletion)));
             }
 
-            // Every answer waits for the floor, like every other page that hides whether an address has
-            // an account (ADR-0059).
+            // ADR-0059: the answer hides whether an address has an account.
             return await _responseTimeFloor.HoldAsync(
                 ResponseTimeFloors.AccountLookup,
                 () => CancelAsync(command));
@@ -105,15 +100,12 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
             string maskedEmail = command.Email.MaskEmail();
             ApplicationUser? user = await _userManager.FindByEmailAsync(command.Email);
 
-            // Every path pays the same PBKDF2 cost. Running the dummy hash only when the user is not
-            // found would make real accounts answer measurably faster, because their path is only a
-            // cheap DataProtector check, and the response time would then tell an attacker which
-            // accounts exist.
+            // On every path: a real account's path is only a cheap token check, so a dummy hash only for
+            // unknown addresses would make real accounts answer faster.
             _ = _userManager.PasswordHasher.VerifyHashedPassword(
                 new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
-            // An unknown e-mail, no scheduled deletion and a bad token all return the same general
-            // error, so nobody can use this endpoint to learn the state of an account.
+            // An unknown e-mail, no scheduled deletion and a bad token answer the same way.
             if (user is null)
             {
                 LogCancelTokenInvalid(_logger, maskedEmail, command.IpAddress, command.UserAgent);
@@ -132,8 +124,7 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
                 return Result.Failure<CancelledDeletion>(AuthErrors.InvalidCancelDeletionToken);
             }
 
-            // A token from a late e-mail is still valid on its own, but the link ends with the window
-            // (#947, ADR-0031). The answer is the same as for any bad link.
+            // A token from a late e-mail is still valid, but the link ends with the window (#947).
             DateTimeOffset scheduledAt = user.DeletionScheduledAt.Value;
             if (!_deletionSchedule.IsCancellableAt(scheduledAt, _timeProvider.GetUtcNow()))
             {
@@ -146,18 +137,14 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
                 return Result.Failure<CancelledDeletion>(AuthErrors.InvalidCancelDeletionToken);
             }
 
-            // Whoever asked for the deletion may hold the current password, so the password is
-            // invalidated with the cancellation. Only the reset flow brings the account back.
+            // Whoever asked for the deletion may hold the password. Only the reset flow brings it back.
             user.DeletionScheduledAt = null;
             user.LockoutEnd = null;
             user.AccessFailedCount = 0;
             user.PasswordHash = null;
 
-            // Changing the security stamp makes the cancel token single-use. Sessions from before the
-            // deletion already ended when scheduling changed the stamp: the auth cookie and every
-            // refresh check it (#848). The change happens inside the same save that commits the outbox
-            // row (ADR-0038 decision 2). This notice carries no token, but the rule keeps every e-mail
-            // writer's stamp final before the relay can see its row.
+            // Makes the cancel token single-use. In the same save as the outbox row, as every e-mail
+            // writer does (ADR-0038 decision 2).
             user.SecurityStamp = Guid.NewGuid().ToString();
 
             _outboxWriter.Enqueue(new AccountDeletionCancelled(user.Id));
@@ -169,8 +156,7 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
                 return Result.Failure<CancelledDeletion>(AuthErrors.CancelDeletionFailed(errors));
             }
 
-            // Created after the commit, from the saved stamp. A token created before the save would be
-            // invalidated by the very stamp change it travels with.
+            // After the save: a token made before would die with the stamp change it travels with.
             string passwordResetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
 
             LogDeletionCancelled(_logger, user.Id, command.IpAddress, command.UserAgent);

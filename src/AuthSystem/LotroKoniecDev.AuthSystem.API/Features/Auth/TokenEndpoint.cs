@@ -24,8 +24,7 @@ internal sealed partial class TokenEndpoint : IEndpoint
     private const string AccountDeletionScheduledCode = "account_deletion_scheduled";
 
     /// <summary>
-    /// A hash computed up front, so the not-found path takes as long as the normal one. Without it,
-    /// response time would tell an attacker "no such user" from "wrong password".
+    /// Makes the not-found path take as long as a wrong password, so the timing reveals nothing.
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -44,8 +43,7 @@ internal sealed partial class TokenEndpoint : IEndpoint
             return await HandleAuthorizationCodeGrantAsync(httpContext, userManager, signInManager, logger);
         }
 
-        // The password flow is only on in the Testing environment, for integration and E2E tests.
-        // OpenIddict refuses a password grant anywhere else.
+        // OpenIddict allows the password grant only in Testing.
         if (request.IsPasswordGrantType())
         {
             return await HandlePasswordGrantAsync(request, userManager, signInManager);
@@ -61,15 +59,13 @@ internal sealed partial class TokenEndpoint : IEndpoint
             return HandleClientCredentialsGrant(request);
         }
 
-        // OpenIddict refuses every grant type that is not enabled before this handler runs. Reaching
-        // this line means a flow was enabled without a branch above.
+        // OpenIddict refuses a grant type that is not enabled, so this means a flow has no branch above.
         throw new InvalidOperationException($"The grant type '{request.GrantType}' is enabled but not handled.");
     }
 
     /// <summary>
-    /// The code carries the stamp read at /connect/authorize, and the account can change in the seconds
-    /// before the code is redeemed. A password reset, a lockout or a scheduled deletion must not hand out
-    /// tokens: the access token would still work for five minutes (#848, ADR-0049).
+    /// The account can change between /connect/authorize and the code exchange, and a password reset,
+    /// lockout or scheduled deletion must not hand out an access token that works for minutes (#848).
     /// </summary>
     private static async Task<IResult> HandleAuthorizationCodeGrantAsync(
         HttpContext httpContext,
@@ -103,23 +99,19 @@ internal sealed partial class TokenEndpoint : IEndpoint
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager)
     {
-        // "username" is a fixed name in the OIDC protocol. What it actually carries is the login
-        // identifier, and here that is the e-mail (ADR-0022).
+        // The protocol's "username" carries the login identifier, which here is the e-mail (ADR-0022).
         ApplicationUser? user = await userManager.FindByEmailAsync(request.Username!);
 
         if (user is null)
         {
-            // Check a dummy password anyway, so the response time does not reveal whether the user
-            // exists.
             _ = userManager.PasswordHasher.VerifyHashedPassword(
                 new ApplicationUser(), DummyPasswordHash, request.Password!);
             return Refuse(InvalidCredentials);
         }
 
-        // An account with a scheduled deletion is also locked out, so this check has to come before
-        // the sign-in check that looks at the lockout. The exact error is only shown after the password
-        // was verified, so this endpoint cannot be used to learn the state of an account. A wrong password
-        // here does not count, for the same reason as on the login page (#861).
+        // Before the lockout check, because a scheduled deletion also locks the account. The exact error
+        // comes only after the password is verified, and a wrong password here does not count, as on the
+        // login page (#861).
         if (user.DeletionScheduledAt is not null)
         {
             bool deletionScheduledPasswordValid = await userManager.CheckPasswordAsync(user, request.Password!);
@@ -186,10 +178,9 @@ internal sealed partial class TokenEndpoint : IEndpoint
     }
 
     /// <summary>
-    /// The account checks that every code exchange and every refresh repeats, because the account can
-    /// change after the token was issued. Null means refused. The caller sends the same answer for every
-    /// case, so a client learns nothing about the account; only the log line here names the case (#944).
-    /// Both grants share this one check, so they cannot drift apart (#977).
+    /// Every code exchange and refresh repeats these checks, because the account can change after the
+    /// token was issued. Null means refused. The client gets the same answer for every case; only the
+    /// log line names it (#944, #977).
     /// </summary>
     private static async Task<ApplicationUser?> FindUserStillAllowedAsync(
         ClaimsPrincipal? principal,
@@ -212,10 +203,8 @@ internal sealed partial class TokenEndpoint : IEndpoint
             return null;
         }
 
-        // Tokens are revoked when a GDPR deletion is scheduled, but that revocation is only best effort.
-        // These checks make sure a locked account, or one waiting for deletion, can never trade a token
-        // for a working access token. A scheduled deletion also locks the account, so it is checked first
-        // to get the more exact log line.
+        // Revocation at deletion scheduling is best effort, so these checks are the real guard. A scheduled
+        // deletion also locks the account, so it is checked first for the more exact log line.
         if (user.DeletionScheduledAt is not null)
         {
             LogRefusedDeletionScheduled(logger, grant.Step, userId);
@@ -228,9 +217,8 @@ internal sealed partial class TokenEndpoint : IEndpoint
             return null;
         }
 
-        // Every flow that ends all sessions changes the stamp, and its token revocation is only best
-        // effort. Without this check a token the revoke missed works again as soon as the account is
-        // unlocked, for example when a scheduled deletion is cancelled (#848).
+        // Revocation is best effort, so a token it missed would work again once the account is unlocked,
+        // for example after a cancelled deletion (#848).
         if (!await SessionSecurityStamp.IsCurrentAsync(principal, user, signInManager))
         {
             LogRefusedStaleSecurityStamp(logger, grant.Step, userId);
@@ -292,9 +280,8 @@ internal sealed partial class TokenEndpoint : IEndpoint
     }
 
     /// <summary>
-    /// OAuth clients read a refusal from the standard "error" and "error_description" fields
-    /// (RFC 6749 §5.2), not from ProblemDetails. With ProblemDetails, the frontend's OpenID Connect
-    /// handler logged a failed sign-in with an empty reason (#903).
+    /// OAuth clients read a refusal from "error" and "error_description" (RFC 6749 §5.2), not from
+    /// ProblemDetails (#903).
     /// </summary>
     private static IResult Refuse(string description) =>
         Results.Forbid(
@@ -315,8 +302,7 @@ internal sealed partial class TokenEndpoint : IEndpoint
     [LoggerMessage(EventId = EventIds.TokenGrantRefusedNoSubject, Level = LogLevel.Warning, Message = "{Step} refused: no user id could be read from the {Token}")]
     private static partial void LogRefusedNoSubject(ILogger logger, string step, string token);
 
-    // Information, not Warning: each case below is the normal result of a change to the account. A token
-    // with no user id, above, should never happen (CLAUDE.md, #977).
+    // Information, not Warning: each case below is the normal result of a change to the account (#977).
     [LoggerMessage(EventId = EventIds.TokenGrantRefusedUserGone, Level = LogLevel.Information, Message = "{Step} refused for user {UserId}: the account no longer exists")]
     private static partial void LogRefusedUserGone(ILogger logger, string step, string userId);
 

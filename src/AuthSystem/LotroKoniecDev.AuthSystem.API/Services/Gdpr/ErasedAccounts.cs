@@ -5,18 +5,14 @@ using LotroKoniecDev.SharedKernel.Constants;
 namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 
 /// <summary>
-/// The one rule for "this account has been erased", for code that acts on erased accounts after the
-/// fact (ADR-0065). An account counts only with what every erasure has written: the <c>anon-</c>
-/// address on the anonymization domain, and no password. The deletion date is not part of it: the
-/// immediate deletion before two-phase deletion (#460) never wrote one.
+/// The one rule for "this account has been erased" (ADR-0065): the <c>anon-</c> address on the
+/// anonymization domain and no password, which every erasure wrote. Not the deletion date: the
+/// immediate deletion before #460 never wrote one.
 /// </summary>
 /// <remarks>
-/// Neither half is proof alone. The registration form accepts any address, so a live account can carry
-/// the marker address, but it keeps its password: no mail reaches that domain, so the account can never
-/// confirm it, and only a confirmed account reaches the two flows that clear a live password (a
-/// cancelled deletion and an undone e-mail change). The one exception is the seeded admin, confirmed
-/// without a mail and seeded without a password (ADR-0056): never give it an address on the marker
-/// domain.
+/// Neither half is proof alone. A live account can register with the marker address, but it can never
+/// confirm it, so it never reaches the flows that clear a password. The exception is the seeded admin,
+/// which has no password (ADR-0056): never give it an address on the marker domain.
 /// </remarks>
 internal static class ErasedAccounts
 {
@@ -27,9 +23,8 @@ internal static class ErasedAccounts
         && account.PasswordHash == null;
 
     /// <summary>
-    /// <see cref="Rule"/> for an account already in memory. It compares ordinally, as the SQL that
-    /// <see cref="Rule"/> becomes compares byte for byte. A compiled <see cref="Rule"/> would compare by
-    /// culture, which ignores characters such as a soft hyphen, so the two could disagree.
+    /// <see cref="Rule"/> for an account in memory, compared ordinally like the SQL. A compiled
+    /// <see cref="Rule"/> would compare by culture, which ignores characters such as a soft hyphen.
     /// </summary>
     public static bool Includes(ApplicationUser account) =>
         account.Email is { } email

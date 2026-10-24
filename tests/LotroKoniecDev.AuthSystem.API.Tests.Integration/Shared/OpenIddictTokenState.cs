@@ -4,9 +4,9 @@ using OpenIddict.Abstractions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// Reads the stored state of a reference token or of a user's authorizations. A refused refresh no
-/// longer proves that a revoke ran, because the security stamp check refuses it too (#848). So a
-/// revocation test reads the row, and so does a lifetime test (#1014).
+/// Reads the stored state of a reference token or of a user's authorizations. A refused refresh does not
+/// prove that a revoke ran, because the security stamp check refuses it too (#848), so revocation and
+/// lifetime tests (#1014) read the row.
 /// </summary>
 internal static class OpenIddictTokenState
 {

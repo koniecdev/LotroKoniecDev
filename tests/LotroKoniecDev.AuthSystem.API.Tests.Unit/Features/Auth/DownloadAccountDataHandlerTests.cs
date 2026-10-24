@@ -12,9 +12,9 @@ using Shouldly;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Features.Auth;
 
 /// <summary>
-/// "Every export attempt is in the audit log" is an acceptance criterion of #690, and a log line does
-/// not show in the return value. So the lines themselves are pinned here: one per outcome, naming the
-/// account and the client, and never the raw address.
+/// #690 wants every export attempt in the audit log, and a log line does not show in the return value. So
+/// the lines themselves are pinned here: one per outcome, naming the account and the client, and never
+/// the raw address.
 /// </summary>
 public sealed class DownloadAccountDataHandlerTests : IDisposable
 {
@@ -85,9 +85,8 @@ public sealed class DownloadAccountDataHandlerTests : IDisposable
     [Fact]
     public async Task Handle_BudgetSpent_LogsTheRefusalWithItsReasonAndTouchesNeitherTheAccountNorThePassword()
     {
-        // The refusal stays on the export's own audit line (#690): one line per attempt, whatever the
-        // outcome. Nothing else runs, which is the point of taking the permit first (ADR-0053): a spent
-        // budget must not buy a database read or a hash comparison, let alone an answer.
+        // The refusal stays on the export's audit line (#690). Taking the permit first means a spent budget
+        // buys no database read and no hash comparison (ADR-0053).
         ApplicationUser user = StubUser(passwordValid: true);
         using PerAccountFixedWindowThrottle spentThrottle = new(permitLimit: 1, AccountBudgets.Window);
         spentThrottle.TryAcquire(user.Id).ShouldBeTrue();

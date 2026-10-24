@@ -21,12 +21,10 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// After the final erasure, the auth database holds nothing that names the person (ADR-0065, #1071):
-/// not their addresses, not their username. The scan reads every text column of the schema, so a table
-/// added later that keeps such data fails here instead of in a privacy complaint.
-/// The relay runs in this suite against the spy publisher. Every save that adds a message wakes it, but a
-/// test that needs a sent message still marks it sent itself, the way the relay does, so it never waits
-/// for the relay.
+/// After the final erasure the auth database holds nothing that names the person (ADR-0065, #1071): not
+/// their addresses, not their username. The scan reads every text column of the schema, so a table added
+/// later that keeps such data fails here. The relay runs against the spy publisher, but a test that needs
+/// a sent message marks it sent itself, as the relay does, so it never waits for the relay.
 /// </summary>
 public sealed class ErasedAccountPersonalDataTests : EndpointsTestBase
 {
@@ -390,9 +388,8 @@ public sealed class ErasedAccountPersonalDataTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The shape an account had after an erasure by an earlier version: the marker address and no
-    /// password, written straight to the row and not through the erasure. A two-phase deletion also
-    /// left a deletion date, and the immediate deletion before #460 left none.
+    /// An erasure by an earlier version: the marker address and no password, written straight to the row. A
+    /// two-phase deletion also left a deletion date; the immediate deletion before #460 left none.
     /// </summary>
     private Task AnonymizeByHandAsync(Guid userId) =>
         AnonymizeByHandAsync(userId, DateTimeOffset.UtcNow.AddDays(-20));

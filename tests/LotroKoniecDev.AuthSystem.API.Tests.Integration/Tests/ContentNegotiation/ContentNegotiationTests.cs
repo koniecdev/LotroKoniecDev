@@ -9,16 +9,9 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.ContentNegotiation;
 
 /// <summary>
-/// Verifies the AuthSystem's HATEOAS content-negotiation contract on the
-/// authenticated GDPR data-export endpoint, the only endpoint that currently
-/// advertises hypermedia links:
-/// <list type="bullet">
-///   <item><c>application/vnd.dev-lotrokoniecdev.hateoas.json</c> → hypermedia links present, Content-Type matches.</item>
-///   <item><c>application/json</c> → no <c>links</c> key at all, Content-Type is plain JSON.</item>
-///   <item><c>*/*</c> and absent Accept → plain JSON (HATEOAS is strictly opt-in).</item>
-///   <item>Quality factors resolve correctly when both media types are listed.</item>
-///   <item><c>Vary: Accept</c> is always set so shared caches keep the two representations apart.</item>
-/// </list>
+/// The HATEOAS content negotiation on the GDPR data export, the only endpoint with hypermedia links. The
+/// vendor type gets links; plain JSON, <c>*/*</c> and no Accept get none, because links are opt-in.
+/// Q-values decide when both are listed, and <c>Vary: Accept</c> keeps shared caches from mixing the two.
 /// </summary>
 public sealed class ContentNegotiationTests : EndpointsTestBase
 {
@@ -81,7 +74,7 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
     [Fact]
     public async Task ExportAccountData_ShouldNotReturnLinksKey_WhenNoAcceptHeaderIsSent()
     {
-        // Arrange - a fresh client that does NOT default to the vendor media type
+        // Arrange - a fresh client that does not default to the vendor media type
         string accessToken = await RegisterConfirmedUserAndGetTokenAsync();
 
         using HttpClient bareClient = Factory.CreateClient();
@@ -104,7 +97,7 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
     [Fact]
     public async Task ExportAccountData_ShouldNotReturnLinksKey_WhenWildcardAcceptIsSent()
     {
-        // Arrange - */* means "I accept anything"; HATEOAS is strictly opt-in, so we fall back to plain JSON.
+        // Arrange - */* accepts anything, and HATEOAS is opt-in, so the answer is plain JSON.
         string accessToken = await RegisterConfirmedUserAndGetTokenAsync();
 
         using HttpRequestMessage request = new(HttpMethod.Get, new Uri(DataExportPath, UriKind.Relative));

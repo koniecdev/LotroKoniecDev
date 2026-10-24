@@ -25,10 +25,9 @@ using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// Cross-endpoint behavior of the 14-day deletion grace window (ADR-0031): the hosted
-/// login page reveals the scheduled state only to the password holder, the password
-/// flows cannot bypass the window, tokens cannot be refreshed, and the emailed cancel
-/// link drives the hosted recovery flow.
+/// Cross-endpoint behaviour of the deletion grace window (ADR-0031): the login page shows the scheduled
+/// state only to the password holder, the password flows and the refresh cannot bypass the window, and the
+/// mailed cancel link drives the recovery.
 /// </summary>
 [Collection("AuthApi")]
 public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
@@ -52,9 +51,8 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         // Act
         HttpResponseMessage response = await PostLoginFormAsync(registerRequest.Email, TestPassword);
 
-        // Assert: the same minute the frontend page prints from the header, not just the day (#890).
-        // The page reads the saved row, and Npgsql cuts the digits below a microsecond when it saves it.
-        // A minute always starts on a whole microsecond, so that cut can never change the minute.
+        // Assert: the same minute the frontend page prints, not just the day (#890). Npgsql cuts the
+        // digits below a microsecond when it saves, which never changes the minute.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain($"zaplanowane do usunięcia dnia {PolandMinuteText(finalizesAt)} czasu polskiego.");
@@ -128,11 +126,8 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));
 
-        // Assert: the response says success, so nobody can find out which accounts exist, but the reset
-        // e-mail must not go out. The request only commits an outbox row (ADR-0038) and the check for a
-        // scheduled deletion happens in the dispatch processor. So wait until the delivery was really
-        // handled, which the inbox row tells us. Asserting right after the POST could let a broken check
-        // pass as green.
+        // Assert: success, so nobody learns which accounts exist, but no reset mail. The processor checks
+        // the schedule (ADR-0038), so the test waits for the inbox row before it checks.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
             Factory, row => row.Type == nameof(PasswordResetRequested));
@@ -144,7 +139,7 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     [Fact]
     public async Task ResetPassword_ShouldRejectPreIssuedToken_DuringGraceWindow()
     {
-        // Arrange: obtain a reset token BEFORE scheduling the deletion
+        // Arrange: obtain a reset token before scheduling the deletion
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
 
@@ -171,17 +166,15 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     [Fact]
     public async Task ChangePassword_ShouldBeBlockedAndPreserveCancelToken_DuringGraceWindow()
     {
-        // Arrange: the ADR-0031 threat: the attacker holds a pre-schedule access token
-        // (self-contained JWTs stay valid for their TTL) plus the current password, and
-        // tries to rotate the security stamp the emailed cancel token is bound to
+        // Arrange: the ADR-0031 threat: the attacker holds a pre-schedule access token and the password,
+        // and tries to rotate the stamp the mailed cancel token is bound to
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
         string preScheduleAccessToken = await GetAccessTokenAsync(registerRequest.Email);
         await ScheduleDeletionAsync(registerRequest.Email);
         string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
 
-        // The cancel token above was created at delivery time, against the stamp set when the deletion
-        // was scheduled (ADR-0038 decision 2). The attack below must not be able to invalidate it.
+        // The cancel token was made at delivery, against the stamp set at scheduling (ADR-0038 decision 2).
 
         ChangePasswordRequest changeRequest = new(TestPassword, "AttackerNewPass1!");
         using HttpRequestMessage request = new(HttpMethod.Post, "auth/change-password");
@@ -205,8 +198,8 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     [Fact]
     public async Task RefreshGrant_ShouldRejectRefreshToken_DuringGraceWindow()
     {
-        // Arrange: a refresh token issued BEFORE scheduling; revocation on schedule is
-        // best-effort, so the refresh-grant gate is the guarantee
+        // Arrange: a refresh token issued before scheduling; revocation on schedule is best-effort, so
+        // the refresh-grant gate is the guarantee
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
 
@@ -298,7 +291,7 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         // Arrange
         (RegisterRequest registerRequest, string cancelToken) = await RegisterAndScheduleDeletionAsync();
 
-        // Act: a GET (e.g. a mail scanner prefetch) must NOT cancel anything
+        // Act: a GET (e.g. a mail scanner prefetch) must not cancel anything
         HttpResponseMessage response = await _noRedirectClient.GetAsync(new Uri(
             $"/Account/CancelDeletion?email={Uri.EscapeDataString(registerRequest.Email)}&token={Uri.EscapeDataString(cancelToken)}",
             UriKind.Relative));
@@ -362,8 +355,8 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     [Fact]
     public async Task CancelDeletionPage_GetTheUsedLinkAgainInTheSameBrowser_ShouldSendItOnToTheSamePasswordForm()
     {
-        // #941: Back from the password form loads the used cancel link again. Its button would call the link
-        // dead, although the deletion was cancelled and the password form was one step away.
+        // #941: Back from the password form loads the used cancel link again, and its button would call
+        // the link dead.
         (RegisterRequest registerRequest, string cancelToken) = await RegisterAndScheduleDeletionAsync();
         HttpResponseMessage cancelled = await PostCancelDeletionPageAsync(_noRedirectClient, registerRequest.Email, cancelToken);
         cancelled.StatusCode.ShouldBe(HttpStatusCode.Redirect);
@@ -378,8 +371,8 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     [Fact]
     public async Task CancelDeletionPage_PostTheUsedLinkAgainInTheSameBrowser_ShouldSendItOnToTheSamePasswordForm()
     {
-        // A form the browser brings back from its cache can send the used link once more. The link asks for
-        // no input, so the second answer is the first one, and the cancel does not run twice.
+        // A form brought back from the browser cache can send the used link once more. The second answer
+        // is the first one, and the cancel does not run twice.
         (RegisterRequest registerRequest, string cancelToken) = await RegisterAndScheduleDeletionAsync();
         HttpResponseMessage cancelled = await PostCancelDeletionPageAsync(_noRedirectClient, registerRequest.Email, cancelToken);
         cancelled.StatusCode.ShouldBe(HttpStatusCode.Redirect);

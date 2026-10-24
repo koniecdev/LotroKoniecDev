@@ -41,10 +41,8 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         JsonSerializerOptions jsonSerializerOptions =
             appFactory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
 
-        // Client that follows redirects (for normal API calls and registration)
         ApiClient = new TestApiClient(appFactory.CreateClient(), jsonSerializerOptions);
 
-        // Client that does NOT follow redirects (for testing auth code flow redirects)
         _noRedirectClient = appFactory.CreateClient(new WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false
@@ -72,8 +70,8 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     }
 
     /// <summary>
-    /// Sign-in starts here, and the browser reaches this endpoint directly, not through an account page.
-    /// When the database is down, the browser still gets the Polish error page and not the JSON (#867).
+    /// The browser reaches this endpoint directly, not through an account page, so it must still get the
+    /// Polish error page (#867).
     /// </summary>
     [Fact]
     public async Task Authorize_ShouldShowABrowserThePolishErrorPage_WhenTheDatabaseFails()
@@ -102,7 +100,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     [Fact]
     public async Task FullAuthorizationCodeFlow_ShouldReturnTokens()
     {
-        // Arrange: Register a user
+        // Arrange
         const string password = "TestPass1!";
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
@@ -126,7 +124,6 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         string loginPageHtml = await loginPageResponse.Content.ReadAsStringAsync();
         loginPageHtml.ShouldContain("Zaloguj się");
 
-        // Extract anti-forgery token and cookies from the login page
         string? antiForgeryToken = ExtractAntiForgeryToken(loginPageHtml);
         IEnumerable<string> setCookieHeaders =
             loginPageResponse.Headers.GetValues("Set-Cookie");
@@ -147,7 +144,6 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         using FormUrlEncodedContent loginContent = new(loginFormData);
 
-        // Build login POST URL with returnUrl
         string loginPostUrl = returnUrl is not null
             ? $"/Account/Login?returnUrl={Uri.EscapeDataString(returnUrl)}"
             : "/Account/Login";
@@ -155,7 +151,6 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         using HttpRequestMessage loginPostRequest = new(HttpMethod.Post, loginPostUrl);
         loginPostRequest.Content = loginContent;
 
-        // Copy cookies from login page response
         foreach (string cookie in setCookieHeaders)
         {
             string cookieName = cookie.Split('=')[0];
@@ -169,7 +164,6 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         loginResponse.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         string postLoginRedirect = loginResponse.Headers.Location!.ToString();
 
-        // Capture the auth cookie
         IEnumerable<string> authCookies = loginResponse.Headers
             .Where(h => h.Key == "Set-Cookie")
             .SelectMany(h => h.Value);
@@ -192,7 +186,6 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         callbackUrl.ShouldContain("https://localhost:5001/callback");
         callbackUrl.ShouldContain("code=");
 
-        // Extract authorization code
         Uri callbackUri = new(callbackUrl);
         NameValueCollection queryParams = HttpUtility.ParseQueryString(callbackUri.Query);
         string authorizationCode = queryParams["code"]!;
@@ -262,7 +255,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     [Fact]
     public async Task LoginPage_ShouldShowError_WhenCredentialsAreInvalid()
     {
-        // Arrange - First get the login page to extract anti-forgery token and cookies
+        // Arrange
         HttpResponseMessage loginPageResponse = await ApiClient.Http.GetAsync(
             new Uri("/Account/Login", UriKind.Relative));
         loginPageResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -286,7 +279,6 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         using HttpRequestMessage request = new(HttpMethod.Post, "/Account/Login");
         request.Content = content;
 
-        // Copy cookies from login page response
         if (loginPageResponse.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies))
         {
             foreach (string cookie in cookies)
@@ -308,8 +300,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     [Fact]
     public async Task Login_ShouldNotAuthenticate_WhenEmailIsNotConfirmed()
     {
-        // Arrange: a registered but UNCONFIRMED user, logging in with the CORRECT credentials.
-        // RequireConfirmedEmail is enabled, so the interactive login must reject this user.
+        // Arrange: an unconfirmed user with the right password; RequireConfirmedEmail must reject it.
         const string password = "TestPass1!";
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
@@ -346,8 +337,8 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         // Act
         HttpResponseMessage response = await _noRedirectClient.SendAsync(request);
 
-        // Assert: login is rejected: the page is re-rendered (200) with the unconfirmed-account
-        // error (ADR-0046), NOT a redirect (302), which is what a successful sign-in would return.
+        // Assert: the page is re-rendered (200) with the unconfirmed-account error (ADR-0046), not the 302
+        // a successful sign-in gives.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         string html = await response.Content.ReadAsStringAsync();
@@ -357,10 +348,9 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     [Fact]
     public async Task AuthorizationCodeExchange_ShouldFail_WhenCodeVerifierIsInvalid()
     {
-        // Arrange: Get a valid authorization code through the full auth flow
+        // Arrange
         (string authorizationCode, _, _, _) = await ObtainAuthorizationCodeAsync();
 
-        // Use a completely different code verifier that doesn't match the original challenge
         string wrongCodeVerifier = "this-is-a-wrong-verifier-that-does-not-match-the-challenge";
 
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
@@ -376,17 +366,16 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         HttpResponseMessage response = await ApiClient.Http.PostAsync(
             new Uri("connect/token", UriKind.Relative), tokenRequest);
 
-        // Assert: Invalid PKCE verifier should be rejected
+        // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
     [Fact]
     public async Task AuthorizationCodeExchange_ShouldFail_WhenAuthorizationCodeIsExpired()
     {
-        // Arrange: Get a valid authorization code
+        // Arrange
         (string authorizationCode, string codeVerifier, _, _) = await ObtainAuthorizationCodeAsync();
 
-        // Expire the authorization code in the database
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext dbContext = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
         await dbContext.Database.ExecuteSqlRawAsync(
@@ -405,7 +394,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         HttpResponseMessage response = await ApiClient.Http.PostAsync(
             new Uri("connect/token", UriKind.Relative), tokenRequest);
 
-        // Assert: Expired authorization code should be rejected
+        // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
@@ -902,7 +891,6 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
             new Uri(loginRedirect, UriKind.RelativeOrAbsolute));
         string loginPageHtml = await loginPageResponse.Content.ReadAsStringAsync();
 
-        // Extract anti-forgery token and cookies from the login page
         string? antiForgeryToken = ExtractAntiForgeryToken(loginPageHtml);
         IEnumerable<string> setCookieHeaders = loginPageResponse.Headers.GetValues("Set-Cookie");
 
@@ -939,7 +927,6 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         HttpResponseMessage loginResponse = await browser.SendAsync(loginPostRequest);
         string postLoginRedirect = loginResponse.Headers.Location!.ToString();
 
-        // Capture the auth cookie
         List<string> authCookies = loginResponse.Headers
             .Where(h => h.Key == "Set-Cookie")
             .SelectMany(h => h.Value)
@@ -1101,8 +1088,8 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     }
 
     /// <summary>
-    /// Issues codes the way the server did before #1023: they name the translation API alone. The code
-    /// exchange is left alone, because that is the code under test.
+    /// Issues codes that name the translation API alone, as before #1023. The code exchange, which is the
+    /// code under test, is left as it is.
     /// </summary>
     private WebApplicationFactory<Program> CreateHostThatIssuesCodesWithoutTheAuthApi() =>
         Factory.WithWebHostBuilder(builder =>

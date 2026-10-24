@@ -4,12 +4,9 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// Makes the next matching commit throw after PostgreSQL has already saved it. That is what a
-/// connection lost during a commit looks like to the app: it cannot tell whether the data landed, so it
-/// tries again (#839). <see cref="DbCommandFailureInjector"/> cannot reach this moment, because a commit
-/// is not a command. It does nothing until a test arms it, and each armed failure fires once. Arming
-/// one more leaves the others armed, like <see cref="DbCommandFailureInjector"/>, and the failure armed
-/// first takes a commit that two of them match.
+/// Makes the next matching commit throw after PostgreSQL saved it, as a connection lost during a commit
+/// looks to the app (#839). A commit is not a command, so <see cref="DbCommandFailureInjector"/> cannot reach
+/// it. Each arm fires once, and the one armed first takes a commit two arms match.
 /// </summary>
 public sealed class DbCommitFailureInjector : DbTransactionInterceptor
 {

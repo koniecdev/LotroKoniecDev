@@ -33,8 +33,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task ConfirmPage_Get_ShouldChangeNothing()
     {
-        // The mail-scanner guard. Corporate mail security opens every link it sees, so a GET that
-        // applied the change would move addresses nobody clicked on.
+        // Mail scanners open every link they see, so a GET that applied the change would move addresses
+        // nobody clicked on.
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
 
@@ -74,10 +74,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task ConfirmPage_Post_ShouldStyleTheDoneMessageAsASuccessNotAsAnError()
     {
-        // #719: the done message carried the success modifier, but this page never defined the rule
-        // for it, so the plain .auth-alert styling won and a completed change was reported in a red
-        // error box. Each auth page ships its own copy of the stylesheet, so the modifier has to be
-        // present in the very document that uses it.
+        // #719: each auth page ships its own copy of the stylesheet, so the success modifier must be
+        // defined in the document that uses it, or a done change shows in a red error box.
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
 
@@ -129,7 +127,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
                 ["Token"] = token
             });
 
-        // The whole dead-link copy, because the page now builds it in code rather than in the markup (#869).
+        // The whole dead-link copy, because the page builds it in code, not in the markup (#869).
         string html = await replay.Content.ReadAsStringAsync();
         html.ShouldContain("Link wygasł lub jest nieprawidłowy");
         html.ShouldContain(
@@ -141,8 +139,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task ConfirmPage_Post_ShouldRedirectToADoneViewThatCarriesNoAccountValue()
     {
-        // #886: the done answer used to be the POST's own page, so a reload sent the used link again and
-        // the page called it dead. Anybody can open the done view, so its URL names no address or token.
+        // #886: the POST redirects to a done view, so a reload does not send the used link again.
+        // Anybody can open the done view, so its URL names no address or token.
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
         using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -165,8 +163,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task ConfirmPage_GetTheRedirectTarget_ShouldShowTheChangeAsDone()
     {
-        // The done view holds no state, so a reload of it gets this same answer. The browser test
-        // (OneTimeLinkReloadTests) is what proves that a reload repeats this GET and not the POST.
+        // The done view holds no state, so a reload gets this same answer. The browser test
+        // OneTimeLinkReloadTests proves that a reload repeats this GET and not the POST.
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
         using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -211,8 +209,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task ConfirmPage_GetTheUsedLinkAgainInTheSameBrowser_ShouldShowTheChangeAsDone()
     {
-        // #941: Back from the done view loads the link again. Its button would send the used link, and the
-        // page would call it dead although the change worked.
+        // #941: Back from the done view loads the link again, and its button would call the used link dead.
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
         await ConfirmAsync(userId, newEmail, token);
@@ -229,8 +226,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task ConfirmPage_PostTheUsedLinkAgainInTheSameBrowser_ShouldRedirectToTheDoneView()
     {
-        // A form the browser brings back from its cache can send the used link once more. The link asks for
-        // no input, so the second answer is the first one.
+        // A form brought back from the browser cache can send the used link once more, so the second
+        // answer is the first one.
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
         using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -267,8 +264,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Only a done confirm may leave the marker. A marker after a refusal would make Back say the address
-    /// was changed when it was not, which is worse than the dead link of #941.
+    /// A marker after a refusal would make Back say the address was changed when it was not (#941).
     /// </summary>
     [Theory]
     [InlineData(ConfirmRefusal.DeadLink)]
@@ -335,9 +331,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Anybody can open the done view, so it prints nothing a link can carry. An address-shaped value
-    /// matters most: printed under "your address was changed", it would show a stranger's choice as the
-    /// account's new login.
+    /// Anybody can open the done view. Printed under "your address was changed", an address from the URL
+    /// would show a stranger's choice as the account's new login.
     /// </summary>
     [Theory]
     [InlineData("/Account/ConfirmEmailChange?handler=Done&email=pomoc-zadzwon-500600700%40lotro-wsparcie.pl")]
@@ -381,9 +376,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task ConfirmPage_Post_ShouldSayTheDeletionIsScheduled_WhenTheAccountAwaitsDeletion()
     {
-        // Scheduling a deletion through the API rotates the security stamp, and that kills this link, so
-        // the dead-link answer is the true one there. Only the deletion date is set here, which reaches the
-        // handler's own guard behind the token check (#869).
+        // Scheduling through the API rotates the stamp and kills this link, so only the deletion date is
+        // set here, to reach the handler's own guard (#869).
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
         await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, user.Email);
@@ -466,8 +460,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task RevertPage_Get_ShouldChangeNothing()
     {
-        // The most important instance of the guard: this link arrives in a mailbox the user actually
-        // reads, so a GET that reverted would undo every legitimate change automatically.
+        // This link arrives in a mailbox the user reads, so a GET that reverted would undo every
+        // legitimate change.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
         string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
@@ -492,9 +486,9 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             RevertUrl(userId, user.Email, newEmail, revertToken),
             RevertForm(userId, user.Email, newEmail, revertToken));
 
-        // The password is gone, so the page has to hand the visitor straight to the reset flow. The
-        // test client follows redirects, so the landing URL is what proves it — accepting a bare 200
-        // would also accept the failure rendering.
+        // The password is gone, so the page must send the visitor on to the reset flow. The test client
+        // follows redirects, so the landing URL proves it: a bare 200 would also accept the failure
+        // rendering.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         response.RequestMessage!.RequestUri!.ToString().ShouldContain("/Account/ResetPassword");
 
@@ -507,8 +501,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task RevertPage_Post_ShouldLeaveTheTakeoverSessionUnableToRenewItself()
     {
-        // The undo exists to end a takeover. The session below is minted after the address already
-        // moved, so it belongs to whoever took the account over, and only the undo can end it.
+        // The session is minted after the address moved, so it belongs to whoever took the account over,
+        // and only the undo can end it.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
         string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
         string takeoverRefreshToken = await GetRefreshTokenAsync(newEmail, Password);
@@ -533,9 +527,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         HttpResponseMessage response = await ApiClient.Http.PostAsync(
             new Uri("connect/token", UriKind.Relative), refreshRequest);
 
-        // The access token they already hold still works until it expires, which is why that lifetime
-        // is five minutes (#686, ADR-0049). What must never survive the undo is the ability to mint a
-        // new one, because that would make the takeover permanent.
+        // The access token they hold works until it expires, which is why it lives five minutes (#686,
+        // ADR-0049). The power to mint a new one must never survive the undo.
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
 
         // The stamp check refuses this refresh on its own (#848), so the row shows that the revoke ran.
@@ -545,9 +538,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task RevertPage_Post_ShouldStillWorkAfterThePasswordWasChanged()
     {
-        // This is ADR-0048's whole reason for a hand-written token provider. Whoever took the account
-        // over changes the password next, which rotates the security stamp — and every other token in
-        // this system dies with that rotation. This one must not.
+        // ADR-0048: whoever took the account over changes the password next, which rotates the stamp.
+        // Every other token dies with that; this one must not.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
         string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
@@ -572,11 +564,9 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task RevertPage_Post_ShouldStillWorkAfterTheAddressWasChangedAgain()
     {
-        // The takeover an earlier draft of this guard let through: whoever holds the password moves the
-        // account A -> B, confirms from B, then immediately B -> C. If the revert insisted the account
-        // still sat on B, the owner's A -> B link would match nothing, and the fresh revert offer for
-        // B -> C would be posted to B, which the attacker owns. The owner has to be able to pull the
-        // account back from wherever it has been dragged.
+        // A takeover chain: A -> B, confirmed, then at once B -> C. A revert that insisted the account
+        // still sat on B would make the owner's A -> B link match nothing, so the link must pull the
+        // account back from wherever it was moved.
         (RegisterRequest user, string firstNewEmail, Guid userId) = await CompleteChangeAsync();
         string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
@@ -604,9 +594,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task ConfirmPage_Post_ShouldArmNoUndoLink_ForASecondChangeInTheSameChain()
     {
-        // Only the change that moved the account away from its starting address may arm an undo. A
-        // second change would otherwise mail a working link to the address the attacker just took
-        // over, and they would use it to reverse the owner's recovery.
+        // Only the change away from the starting address may arm an undo. A second one would mail a
+        // working link to the address the attacker just took over.
         (RegisterRequest user, string firstNewEmail, Guid userId) = await CompleteChangeAsync();
 
         string secondNewEmail = UserFactory.GenerateUniqueEmail(Faker);
@@ -635,10 +624,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task RevertPage_Post_ShouldKeepTheOwnersLinkAlive_WhenTheAttackerRevertsFirst()
     {
-        // The attacker does not have to beat the owner to the inbox, only to the click. They chain
-        // A -> B -> C, then immediately fire whatever undo the chain handed them, so that by the time
-        // the owner opens their own e-mail the account is already the attacker's with a password they
-        // chose. Only the address the chain STARTED from may ever be an undo target.
+        // The attacker only has to beat the owner to the click: they chain A -> B -> C and fire whatever
+        // undo the chain gave them. Only the address the chain started from may be an undo target.
         (RegisterRequest user, string attackerFirstEmail, Guid userId) = await CompleteChangeAsync();
         string ownerRevertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
@@ -653,8 +640,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         await ConfirmAsync(userId, attackerSecondEmail, EmailChangeEmailSpy.LastVerificationTokenSentTo(attackerSecondEmail)!);
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(attackerSecondEmail);
 
-        // Whatever the second change handed the attacker, in either of their inboxes, they fire it at
-        // once - before the owner has even opened their mail.
+        // Whatever undo link the second change handed the attacker, in either inbox, they fire it at
+        // once, before the owner opens their mail.
         (await WaitForDispatchOfChangeToAsync(attackerSecondEmail)).ShouldBe(1);
         string? attackerRevertToken = EmailChangeEmailSpy.RevertOffersTo(attackerFirstEmail)
             .Concat(EmailChangeEmailSpy.RevertOffersTo(attackerSecondEmail))
@@ -686,10 +673,9 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
         string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
-        // The reservation of #684 closes every ordinary way onto that address while the link lives,
-        // so the row is seeded through the store instead. This branch is the backstop for what the
-        // reservation cannot cover: a row armed before it shipped, and the short tail where the
-        // arming has expired but the token has not.
+        // The reservation of #684 blocks every ordinary way onto that address, so the row is seeded through
+        // the store. This branch covers a row armed before the reservation, and an arming that expired
+        // before its token.
         await SeedUserOnAsync(user.Email);
 
         HttpResponseMessage response = await PostToPageAsync(
@@ -711,9 +697,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task RevertPage_PostTheUsedLinkFromAnotherBrowser_ShouldCallItDead()
     {
-        // The token carries no security stamp, so what makes it single-use is that a successful revert
-        // rotates the revert stamp and disarms the chain. Only the browser that used the link holds the
-        // cookie that sends it on to the password form (#941).
+        // A successful revert rotates the revert stamp and disarms the chain, which makes the token
+        // single-use. Only the browser that used it holds the cookie for the password form (#941).
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
         string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
@@ -740,8 +725,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task RevertPage_GetTheUsedLinkAgainInTheSameBrowser_ShouldSendItOnToTheSamePasswordForm()
     {
-        // #941: Back from the password form loads the used undo link again. Its button would call the link
-        // dead, although the undo worked and the password form was one step away.
+        // #941: Back from the password form loads the used undo link again, and its button would call the
+        // link dead.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
         string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
         using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -762,8 +747,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task RevertPage_PostTheUsedLinkAgainInTheSameBrowser_ShouldSendItOnToTheSamePasswordForm()
     {
-        // A form the browser brings back from its cache can send the used link once more. The link asks for
-        // no input, so the second answer is the first one, and the undo does not run twice.
+        // A form brought back from the browser cache can send the used link once more. The second answer
+        // is the first one, and the undo does not run twice.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
         string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
         using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -881,9 +866,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [InlineData("../../etc/passwd")]
     public async Task RevertPage_PostWithAMalformedUserId_ShouldRenderTheErrorState(string userIdInput)
     {
-        // Identity converts the id string to the key type, so a value that is not a Guid throws deep
-        // in the store. A person who followed a link from their inbox has to see the invalid-link
-        // page, never a crash.
+        // Identity converts the id to the key type, so a non-Guid throws deep in the store. A person from
+        // their inbox must see the invalid-link page, never a crash.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
         string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
 
@@ -924,8 +908,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Creates an account directly through the store, which is the only way to occupy an address the
-    /// reservation of #684 holds: every HTTP route onto it now refuses.
+    /// The only way onto an address the reservation of #684 holds: every HTTP route refuses it.
     /// </summary>
     private async Task SeedUserOnAsync(string email)
     {
@@ -976,9 +959,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Waits until every mail of the change to this address is sent, and returns how many inbox rows that
-    /// delivery has (0 when the time runs out). A test that checks for a missing mail needs this, because
-    /// waiting for one of the other mails would rely on the order they are sent in.
+    /// Returns the delivery's inbox row count (0 when the time runs out). A test that checks for a missing
+    /// mail needs this, because waiting for another mail would rely on the send order.
     /// </summary>
     private async Task<int> WaitForDispatchOfChangeToAsync(string newEmail)
     {

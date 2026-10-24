@@ -20,9 +20,9 @@ using OpenIddict.Abstractions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// A browser that drops the request right after the save must not keep the other devices signed in
-/// (#872). The host aborts the request at exactly that moment, between the committed save and the
-/// revoke, which is what a double click, a closed tab or a lost connection does to a real request.
+/// #872: a browser that drops the request right after the save must not keep the other devices signed in.
+/// The host aborts the request between the committed save and the revoke, as a double click, a closed tab
+/// or a lost connection would.
 /// </summary>
 public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTestBase
 {
@@ -168,8 +168,7 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
             }));
 
     /// <summary>
-    /// Tokens are signed and sealed with this host's own keys, so they come from the host that will
-    /// check them.
+    /// Tokens are signed and sealed with this host's keys, so they come from the host that checks them.
     /// </summary>
     private static async Task<(string AccessToken, string RefreshToken)> SignInAsync(HttpClient client, string email)
     {
@@ -195,8 +194,7 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
     }
 
     /// <summary>
-    /// Link tokens are sealed with data protection, and nothing makes two test hosts share a key ring,
-    /// so the token comes from the host that will check it.
+    /// Nothing makes two test hosts share a key ring, so the token comes from the host that will check it.
     /// </summary>
     private static async Task<(Guid UserId, string Token)> CreateTokenAsync(
         IServiceProvider services,
@@ -252,7 +250,7 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
 
     /// <summary>
     /// Aborts the request the moment the handler asks for the revoke, then hands the work to the real
-    /// revoker. That is the point where a dropped browser used to stop it. If the abort does not take, the
+    /// revoker: the point where a dropped browser would stop it (#872). If the abort does not take, the
     /// test would pass for the wrong reason, so the watch fails and the test fails in its Act step.
     /// </summary>
     private sealed class RequestAbortingSessionRevoker : IUserSessionRevoker

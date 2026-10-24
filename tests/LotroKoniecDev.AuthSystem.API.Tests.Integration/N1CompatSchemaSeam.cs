@@ -6,16 +6,13 @@ using Testcontainers.PostgreSql;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration;
 
 /// <summary>
-/// The hook for the N-1 compatibility check (ADR-0024, #340). When
-/// <see cref="SchemaScriptsDirEnvVar"/> is set, which only <c>scripts/n1-compat.sh</c> ever does, the
-/// factory runs a prepared HEAD schema script against its fresh PostgreSQL container before its own
-/// <c>MigrateAsync()</c>. That call then does nothing, because <c>__EFMigrationsHistory</c> is already
-/// filled, and this older suite runs against the newer schema.
-/// When the variable is not set, none of this runs and a normal test run is unchanged.
-/// Every misconfiguration throws: an N-1 check that tested nothing must show up as red, never as green.
-/// There is a twin copy in
-/// <c>tests/LotroKoniecDev.TranslationSystem.API.Tests.Integration/N1CompatSchemaSeam.cs</c>. Keep the
-/// two in sync; that copy also holds the parser unit tests.
+/// The hook for the N-1 compatibility check (ADR-0024). When <see cref="SchemaScriptsDirEnvVar"/> is set
+/// (only <c>scripts/n1-compat.sh</c> sets it), the factory runs a prepared HEAD schema script against its
+/// fresh container before its own <c>MigrateAsync()</c>, which then does nothing, so this older suite runs
+/// against the newer schema. Every misconfiguration throws: an N-1 check that tested nothing must be red,
+/// never green. Keep it in sync with its twin in
+/// <c>tests/LotroKoniecDev.TranslationSystem.API.Tests.Integration/N1CompatSchemaSeam.cs</c>, which also
+/// holds the parser unit tests.
 /// </summary>
 internal static partial class N1CompatSchemaSeam
 {

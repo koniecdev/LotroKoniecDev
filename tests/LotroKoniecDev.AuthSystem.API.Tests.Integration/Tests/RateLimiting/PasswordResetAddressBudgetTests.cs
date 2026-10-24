@@ -14,17 +14,15 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// The send budget that follows the inbox the mail would reach, not the caller asking for it (#692). The
-/// IP policies cannot see it: an attacker who rotates IPs gets a fresh budget every time and the victim
-/// gets every mail. For the confirmed accounts used here the budget is keyed by the account id, so two
-/// spellings of one address cannot split it — these tests drive it the way a caller does, by typing an
-/// address. Unconfirmed accounts share one budget per inbox (#835): see <see cref="MailboxBudgetTests"/>.
-/// They run on the suite's normal Testing host, where the limiter middleware is off, so the only thing
-/// that can refuse a request here is this budget and nothing else can be mistaken for it.
+/// The send budget that follows the inbox the mail would reach, not the caller (#692). The IP policies
+/// cannot see it: an attacker who rotates IPs gets a fresh budget every time, and the victim gets every
+/// mail. For the confirmed accounts used here the budget is keyed by the account id, so two spellings of
+/// one address cannot split it; the tests still drive it by typing an address, as a caller does.
+/// Unconfirmed accounts share one budget per inbox (#835, <see cref="MailboxBudgetTests"/>). The limiter
+/// middleware is off on the Testing host, so only this budget can refuse a request here.
 /// </summary>
 public sealed partial class PasswordResetAddressBudgetTests : EndpointsTestBase
 {
-    /// <summary>The shipped send budget, read from the same constant the registration uses.</summary>
     private const int AddressPermitLimit = AccountBudgets.PasswordResetPermitLimit;
 
     private static readonly Uri ForgotPasswordPage = new("/Account/ForgotPassword", UriKind.Relative);
@@ -107,8 +105,8 @@ public sealed partial class PasswordResetAddressBudgetTests : EndpointsTestBase
     [Fact]
     public async Task ForgotPasswordPage_ShouldNotSpendTheBudgetOnAnAddressNobodyRegistered()
     {
-        // Arrange: the budget counts sends, so an address with no account must never consume one —
-        // otherwise a stranger could burn a victim's budget before the victim ever asks
+        // Arrange: the budget counts sends, so an address with no account must never consume one.
+        // Otherwise a stranger could burn a victim's budget before the victim ever asks
         string unregistered = $"nobody-{Guid.CreateVersion7()}@example.com";
 
         // Act
@@ -126,8 +124,8 @@ public sealed partial class PasswordResetAddressBudgetTests : EndpointsTestBase
     [Fact]
     public async Task ForgotPasswordEndpoint_ShouldStopQueueingAfterTheAddressBudget()
     {
-        // Arrange: the API twin has no caller in the product, but it is public — so without its own
-        // budget it is simply the way around the page's
+        // Arrange: the API twin has no caller in the product, but it is public, so without its own
+        // budget it is the way around the page's
         (RegisterRequest request, IdentityId _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 

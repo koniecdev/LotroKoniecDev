@@ -4,9 +4,7 @@ using LotroKoniecDev.AuthSystem.API.Extensions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Extensions;
 
 /// <summary>
-/// Every date an auth page or e-mail prints goes through here (#736, #812, #890). The cases pin the
-/// summer and winter offsets, both clock changes, evening instants that are already the next day in
-/// Poland, and the seconds that the minute drops.
+/// Every date an auth page or e-mail prints goes through here (#736, #812, #890).
 /// </summary>
 public sealed class DateTimeOffsetExtensionsTests
 {

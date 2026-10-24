@@ -16,10 +16,9 @@ using Shouldly;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Features.Auth;
 
 /// <summary>
-/// Where the deletion schedule permit is taken (#811). It must be the last check before the save, so only
-/// a schedule that would happen spends one (ADR-0055). The budget is a real one-permit throttle, so each
-/// test reads what is left of it instead of how the handler called it. The sessions a schedule ends leave
-/// no trace in the result, so that one side effect is asserted on the revoker (#872).
+/// Where the deletion schedule permit is taken (#811): last before the save, so only a schedule that happens
+/// spends one (ADR-0055). The budget is a real one-permit throttle, so each test reads what is left of it.
+/// The ended sessions leave no trace in the result, so the revoker is asserted (#872).
 /// </summary>
 public sealed class DeleteAccountHandlerTests : IDisposable
 {
@@ -139,9 +138,8 @@ public sealed class DeleteAccountHandlerTests : IDisposable
             _logger);
 
     /// <summary>
-    /// The handler only adds the outbox row to this context. That needs the provider but no connection,
-    /// because the save runs through the substituted <see cref="UserManager{TUser}"/>, so the suite stays
-    /// pure.
+    /// The handler only adds the outbox row here, which needs no connection: the save runs through the
+    /// substituted <see cref="UserManager{TUser}"/>.
     /// </summary>
     private static AuthDbContext CreateDetachedDbContext() =>
         new(new DbContextOptionsBuilder<AuthDbContext>()

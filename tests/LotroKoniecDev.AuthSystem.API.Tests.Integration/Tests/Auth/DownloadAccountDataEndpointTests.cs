@@ -98,9 +98,8 @@ public sealed class DownloadAccountDataEndpointTests : EndpointsTestBase
     [Fact]
     public async Task DownloadAccountData_ShouldStillHandTheExportOver_WhenADeletionIsScheduled()
     {
-        // The account resource advertises the download in the deletion-scheduled branch (ADR-0052), so
-        // the endpoint has to serve it there. The token was issued before the deletion and stays valid
-        // for its lifetime, which is the only window this can be reached in.
+        // The account resource offers the download while a deletion is scheduled (ADR-0052), so the endpoint
+        // serves it there; a token issued before the deletion is the only way in.
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
@@ -135,8 +134,8 @@ public sealed class DownloadAccountDataEndpointTests : EndpointsTestBase
     [Fact]
     public async Task DownloadAccountData_ShouldCarryTheContactDetails_WhichTheRepresentationWithholds()
     {
-        // The whole point of the step-up: the export has to hand over something the account page does
-        // not already show, and the phone number is that something (#690, ADR-0052).
+        // The point of the step-up: the export carries something the account page does not show, the phone
+        // number (#690, ADR-0052).
         (RegisterRequest registerRequest, IdentityId identityId) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
 

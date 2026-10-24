@@ -210,9 +210,8 @@ public sealed partial class AdminSeedingTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The last row has the shape of an admin half-made before #839: the configured username, confirmed,
-    /// no password. A "repair a half-made admin" shortcut would promote exactly that row, so it is pinned
-    /// too (ADR-0056 amendment).
+    /// The last row has the shape of an admin half-made before #839. A "repair a half-made admin" shortcut
+    /// would promote exactly that row (ADR-0056 amendment).
     /// </summary>
     [Theory]
     [InlineData(AdminEmail, TranslatorUsername, true, true)]
@@ -422,9 +421,9 @@ public sealed partial class AdminSeedingTests : EndpointsTestBase
     [Fact]
     public async Task CreateUser_ShouldFailWithInvalidUserName_WhenUsernameViolatesAllowedCharacters()
     {
-        // Identity's AllowedUserNameCharacters (UsernameConstants) is the last-resort layer that
-        // also guards the seeder: a mis-configured AdminUser:Username surfaces THIS error as the
-        // loud startup failure documented in the runbook (ADR-0022).
+        // Identity's AllowedUserNameCharacters (UsernameConstants) is the last-resort layer that also
+        // guards the seeder: a misconfigured AdminUser:Username fails startup loudly with this error,
+        // as the runbook documents (ADR-0022).
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         UserManager<ApplicationUser> userManager =
             scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
@@ -569,8 +568,8 @@ public sealed partial class AdminSeedingTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Moves an account off the admin address the ordinary way: request, then confirm. The confirm arms
-    /// an undo link back to the admin address, so that address stays reserved for the account.
+    /// The confirm arms an undo link back to the admin address, so that address stays reserved for the
+    /// account.
     /// </summary>
     private async Task<(string NewEmail, string RevertToken)> MoveOffAdminEmailAsync(Guid userId, string password)
     {
@@ -594,9 +593,8 @@ public sealed partial class AdminSeedingTests : EndpointsTestBase
                 ["Email"] = newEmail,
                 ["Token"] = confirmToken
             });
-        // The confirm page answers 200 when it refuses too. Without this check a failed move would leave
-        // the account on the admin address, and the seed would stop at 2354 without testing the
-        // reservation at all.
+        // The confirm page answers 200 when it refuses too. A failed move would leave the account on the
+        // admin address, and the seed would stop at 2354 without reaching the reservation.
         (await LoadUserAsync(userId)).Email.ShouldBe(newEmail);
         await EmailChangeEmailSpy.WaitForRevertOfferAndNoticeCaptureAsync(AdminEmail, newEmail);
 
@@ -696,8 +694,7 @@ public sealed partial class AdminSeedingTests : EndpointsTestBase
     private static partial Regex AntiForgeryTokenRegex();
 
     /// <summary>
-    /// The test host's services with one change: the seeder's logger writes to the given factory. The
-    /// seeder takes its logger from the services it is handed, and the host's own log cannot be read
+    /// The seeder takes its logger from the services it is handed, and the host's own log cannot be read
     /// back.
     /// </summary>
     private sealed class ServicesWithLoggerFactory : IServiceProvider

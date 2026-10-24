@@ -142,7 +142,6 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
         using JsonDocument loginJson = JsonDocument.Parse(loginContent);
         string refreshToken = loginJson.RootElement.GetProperty("refresh_token").GetString()!;
 
-        // Reset the password
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));
@@ -154,7 +153,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
                 registerRequest.Email, PasswordResetEmailSpy.LastResetTokenSentTo(registerRequest.Email)!, newPassword));
         resetResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // Act: try to use the refresh token that was issued BEFORE the reset
+        // Act: try to use the refresh token that was issued before the reset
         using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "refresh_token",
@@ -250,7 +249,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
 
         string resetToken = PasswordResetEmailSpy.LastResetTokenSentTo(registerRequest.Email)!;
 
-        // The first reset should succeed.
+        // The first reset spends the token.
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/reset-password", UriKind.Relative),
             new ResetPasswordRequest(registerRequest.Email, resetToken, "NewPass99!"));

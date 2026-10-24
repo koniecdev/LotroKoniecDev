@@ -202,9 +202,8 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
     [Fact]
     public async Task CancelDeletion_ShouldLogALateLinkAsInformation_WhenTheCancelWindowIsOver()
     {
-        // Arrange: the token is valid and only the window is over. That is time passing, not an attack,
-        // so it is not the warning a bad token gets (#977). The token is made on the capturing host, so
-        // the test does not depend on two hosts sharing a key ring.
+        // Arrange: only the window is over, which is time passing, not an attack, so no warning (#977). The
+        // token is made on the capturing host, so no shared key ring is needed.
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         using CapturingLoggerFactory loggerFactory = new();
         await using WebApplicationFactory<Program> host = CreateHost(loggerFactory);

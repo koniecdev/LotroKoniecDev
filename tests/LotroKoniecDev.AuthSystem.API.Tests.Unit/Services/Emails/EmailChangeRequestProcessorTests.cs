@@ -48,9 +48,9 @@ public sealed class EmailChangeRequestProcessorTests
     [Fact]
     public async Task ProcessAsync_AddressAlreadyMovedOn_SendsNothing()
     {
-        // A late or replayed delivery. Without this check the warning would be addressed to
-        // user.Email, which by now is the address the request was aiming at — so the "somebody wants
-        // to move your account" e-mail would land in the mailbox that asked for the move.
+        // A late or replayed delivery. Without this check the warning would go to user.Email, which by now
+        // is the address the request was aiming at, so the "somebody wants to move your account" e-mail
+        // would land in the mailbox that asked for the move.
         ApplicationUser user = CreateUser();
         user.Email = NewEmail;
         _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
@@ -130,8 +130,8 @@ public sealed class EmailChangeRequestProcessorTests
     }
 
     /// <summary>
-    /// The warning goes out before anything else, on every branch (#860). The requester reads that inbox,
-    /// so a warning that came later only when a link went out would tell them the address was free.
+    /// The warning goes first on every branch (#860): one that came only with a link would tell the requester
+    /// the address was free.
     /// </summary>
     [Fact]
     public async Task ProcessAsync_OpenRequest_SendsTheWarningBeforeTheLink()

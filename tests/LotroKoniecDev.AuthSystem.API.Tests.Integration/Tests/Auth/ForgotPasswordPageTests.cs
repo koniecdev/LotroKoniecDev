@@ -10,9 +10,8 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// The SSR twin of the forgot-password API slice goes through the same outbox pipeline
-/// (ADR-0038): posting the form commits an id-only outbox row instead of minting a token
-/// in-request, and the anti-enumeration success panel shows either way.
+/// The SSR twin of the forgot-password slice uses the same outbox pipeline (ADR-0038): the form commits an
+/// id-only row, and the neutral success panel shows either way.
 /// </summary>
 public sealed partial class ForgotPasswordPageTests : EndpointsTestBase
 {

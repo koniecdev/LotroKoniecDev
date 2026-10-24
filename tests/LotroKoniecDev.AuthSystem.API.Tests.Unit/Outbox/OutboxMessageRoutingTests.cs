@@ -103,8 +103,8 @@ public sealed class OutboxMessageRoutingTests
     [Fact]
     public void EveryRoutingKey_MatchesTheQueueBindingPattern()
     {
-        // The queue binds "email.#", so a key that does not start with "email." would publish into a
-        // topic exchange with nothing bound to it — and a topic exchange drops those without a word.
+        // The queue binds "email.#", so a key that does not start with "email." would publish into a topic
+        // exchange with nothing bound to it, which drops the message without a word.
         string[] routingKeys =
         [
             RabbitMqTopology.EmailConfirmationRoutingKey,

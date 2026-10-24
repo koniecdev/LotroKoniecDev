@@ -14,9 +14,9 @@ using LotroKoniecDev.SharedKernel.Authorization;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// This API takes only a token that names it (#1023). A service token names the translation API alone,
-/// so every endpoint here that takes a bearer token answers it with 401, before any policy or handler
-/// runs. Each request carries a body the handler would accept, so only the token can be the reason.
+/// This API takes only a token that names it (#1023), so a service token that names the translation API
+/// alone gets 401 from every bearer endpoint, before any policy or handler. Each request carries a valid
+/// body, so only the token can be the reason.
 /// </summary>
 public sealed class AccessTokenAudienceTests : EndpointsTestBase
 {
@@ -121,9 +121,8 @@ public sealed class AccessTokenAudienceTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Signs a user in the way the server did before #1023: the token names the translation API alone. A
-    /// refresh is left alone, because that is the code under test. Tokens are signed and sealed with each
-    /// host's own keys, so they come from the host that will check them.
+    /// Issues tokens that name the translation API alone, as before #1023. The refresh, which is the code
+    /// under test, is left as it is.
     /// </summary>
     private WebApplicationFactory<Program> CreateHostThatIssuesTokensWithoutTheAuthApi() =>
         Factory.WithWebHostBuilder(builder =>

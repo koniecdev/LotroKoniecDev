@@ -11,16 +11,14 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// The login budget of an account with a scheduled deletion (#881). The deletion locks the account for the
-/// whole grace period, so the login page checks it before the lockout, and Identity's lockout never slows
-/// guessing there. The budget belongs to the account, so a guesser who changes address keeps spending it.
-/// These tests run on the suite's Testing host, where the limiter middleware is off, so the page limit per
-/// address never refuses anything and only the budget can. In Testing <c>UseForwardedHeaders</c> trusts
-/// every peer, so <c>X-Forwarded-For</c> plays the visitor's address.
+/// The login budget of an account with a scheduled deletion (#881). The deletion locks the account, so the
+/// page checks it before the lockout, and Identity's lockout never slows guessing there. The budget belongs
+/// to the account, so changing address does not help a guesser. The limiter middleware is off on the
+/// Testing host, and there <c>UseForwardedHeaders</c> trusts every peer, so <c>X-Forwarded-For</c> plays
+/// the visitor's address.
 /// </summary>
 public sealed partial class DeletionScheduledLoginBudgetTests : EndpointsTestBase
 {
-    /// <summary>The shipped budget, read from the same constant the registration uses.</summary>
     private const int PermitLimit = AccountBudgets.DeletionScheduledLoginPermitLimit;
 
     private const string Password = "TestPass1!";
@@ -127,8 +125,8 @@ public sealed partial class DeletionScheduledLoginBudgetTests : EndpointsTestBas
     public async Task DownloadAccountData_ShouldStillServeTheOwner_WhenAStrangerSpentTheLoginBudget()
     {
         // Arrange: the owner schedules the deletion and keeps the access token they already hold, which works
-        // until it expires. The export is served during the grace period on purpose (ADR-0052), and a
-        // stranger on the login page must not use up its budget.
+        // until it expires. The export is served during the grace period (ADR-0052), and a stranger on the
+        // login page must not use up its budget.
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, Password);

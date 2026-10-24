@@ -3,8 +3,8 @@ using System.Threading.Channels;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 
 /// <summary>
-/// Counts the runs of a background job, as its stubbed dependency sees them, and lets the test wait
-/// for the next one. The job may run on another thread, so the test cannot simply look after the call.
+/// Counts a background job's runs and lets the test wait for the next one, because the job may run on
+/// another thread.
 /// </summary>
 internal sealed class RunRecorder
 {

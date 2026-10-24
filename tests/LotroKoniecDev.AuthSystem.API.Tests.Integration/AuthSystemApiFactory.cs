@@ -33,9 +33,8 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     public const string TestApiClientSecret = "integration-test-secret-32-chars!";
 
     /// <summary>
-    /// The origin of the web client this host is configured with. It is also the frontend origin the
-    /// login page falls back to when a sign-in has nowhere to continue, so tests compare against it
-    /// instead of repeating the string.
+    /// Also the frontend origin the login page falls back to, so tests compare against it instead of
+    /// repeating the string.
     /// </summary>
     public const string TestFrontendAppRoot = "https://localhost:5001";
 
@@ -51,9 +50,8 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     private WebApplicationFactory<Program>? _hostWithoutOutboxRelay;
 
     /// <summary>
-    /// Sits on every <see cref="AuthDbContext"/> this host builds and does nothing until a test arms it.
-    /// Shared per factory; <see cref="Shared.Bases.AsyncLifetimeTestBase"/> disarms it before and after
-    /// each test.
+    /// Sits on every <see cref="AuthDbContext"/> this host builds and does nothing until armed.
+    /// <see cref="Shared.Bases.AsyncLifetimeTestBase"/> disarms it around each test.
     /// </summary>
     public DbCommandFailureInjector DbCommandFailures { get; } = new();
 
@@ -67,11 +65,9 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     public StubPwnedPasswordChecker PwnedPasswords { get; } = new();
 
     /// <summary>
-    /// This host with the production response-time floor in place of <see cref="NoResponseTimeFloor"/>
-    /// (ADR-0059). It is built once and shared, because every request to it waits for the floor anyway.
-    /// It runs no outbox relay: a second relay on this database could take a row that another test waits
-    /// for through the main host's spies. Not thread-safe: its callers share the one sequential "AuthApi"
-    /// collection.
+    /// This host with the production response-time floor (ADR-0059), built once and shared. It runs no outbox
+    /// relay: a second relay on this database could take a row another test waits for. Not thread-safe: its
+    /// callers share the sequential "AuthApi" collection.
     /// </summary>
     public async Task<WebApplicationFactory<Program>> GetResponseTimeFloorHostAsync()
     {
@@ -87,10 +83,9 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 ReplaceSingleton<IResponseTimeFloor>(services, new ResponseTimeFloor(TimeProvider.System));
             }));
 
-        // The first request builds the host, and the first account lookup compiles the EF query and warms
-        // Identity, which together can take longer than a floor. Without this a member that forgot to wait
-        // could still pass its first floor test. The host is kept only once it answered, so a failed
-        // warm-up is not handed to the next test.
+        // The first request builds the host and warms EF and Identity, which can take longer than a
+        // floor, so a member that forgot to wait could pass its first floor test. The host is kept only
+        // once it answered.
         try
         {
             using HttpClient client = host.CreateClient();
@@ -110,10 +105,9 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     }
 
     /// <summary>
-    /// This host with no outbox relay, so a test can take the relay's wake-up itself and see whether a
-    /// save or a commit sent one (#781). It is built once, shares this host's database and its failure
-    /// injectors, and has its own <c>OutboxSignal</c>. Not thread-safe: its callers share the one
-    /// sequential "AuthApi" collection.
+    /// This host with no outbox relay, so a test can take the wake-up itself and see whether a save or a
+    /// commit sent one (#781). It shares the database and the failure injectors, and has its own
+    /// <c>OutboxSignal</c>. Not thread-safe, like the floor host.
     /// </summary>
     public WebApplicationFactory<Program> GetHostWithoutOutboxRelay()
     {
@@ -133,9 +127,8 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             {
                 { "ConnectionStrings:AuthDatabase", _connectionString },
                 { "OpenIddict:Issuer", "https://localhost:5002" },
-                // The token lifetimes are deliberately NOT pinned here. They come from the shipped
-                // appsettings.json, so a test host can never keep running an old window after
-                // production moved to a new one (#686).
+                // The token lifetimes are not pinned here. They come from the shipped appsettings.json,
+                // so a test host never keeps an old window after production moved to a new one (#686).
                 { "OpenIddict:EncryptionKey:Key", "RGV2RW5jcnlwdGlvbktleTMyQnl0ZXNMb25nMTIzNDU=" },
                 { "OpenIddict:SigningKey:Key", "RGV2U2lnbmluZ0tleTMyQnl0ZXNMb25nRW5vdWdoMTI=" },
                 { "OpenIddict:ApiClientSecret", TestApiClientSecret },
@@ -144,19 +137,16 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 { "AdminUser:Username", "seededadmin" },
                 { "AdminUser:Email", "admin@lotro-translator.pl" },
                 { "AdminUser:Password", "AdminTest123!" },
-                // The e-mail settings are no longer in the base appsettings.json (M6-06), so they are
-                // set here to satisfy EmailOptionsValidator at startup. The senders are replaced with
-                // spies below, so these values never send anything.
-                // The port is one nothing listens on, so SmtpHealthCheck is always Unhealthy. The full
-                // /health test must not change its answer when a local mailpit runs on :1025.
+                // The base appsettings.json has no e-mail settings, so these satisfy EmailOptionsValidator
+                // at startup. The senders are spies, so nothing is sent. Nothing listens on the port, so
+                // SmtpHealthCheck is always Unhealthy, even when a local mailpit runs on :1025.
                 { "Email:SenderEmail", "noreply@lotro-translator.pl" },
                 { "Email:Sender", "lotro-translator.pl" },
                 { "Email:Host", "localhost" },
                 { "Email:Port", "59999" },
-                // This suite has no broker. These values only have to satisfy RabbitMqOptionsValidator
-                // at startup. The port is one nothing listens on, the same trick as Email:Port above, so
-                // RabbitMqHealthCheck is always Unhealthy. The full /health test must not change its
-                // answer when the dev compose broker runs on :5672.
+                // This suite has no broker. These values only satisfy RabbitMqOptionsValidator. Nothing
+                // listens on the port, so RabbitMqHealthCheck is always Unhealthy, even when the dev
+                // compose broker runs on :5672.
                 { "RabbitMq:Host", "localhost" },
                 { "RabbitMq:Port", "59998" },
                 { "RabbitMq:Username", "rabbitmq" },
@@ -176,7 +166,6 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             services.AddSingleton<IPasswordHasher<ApplicationUser>>(sp =>
                 sp.GetRequiredService<SpyPasswordHasher>());
 
-            // Replace email sender with spy for capturing reset tokens in tests
             ServiceDescriptor? existingEmailSender = services
                 .FirstOrDefault(d => d.ServiceType == typeof(IPasswordResetEmailSender));
             if (existingEmailSender is not null)
@@ -188,7 +177,6 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             services.AddSingleton<IPasswordResetEmailSender>(sp =>
                 sp.GetRequiredService<SpyPasswordResetEmailSender>());
 
-            // Replace email confirmation sender with spy for capturing confirmation tokens in tests
             ServiceDescriptor? existingConfirmationSender = services
                 .FirstOrDefault(d => d.ServiceType == typeof(IAccountConfirmationEmailSender));
             if (existingConfirmationSender is not null)
@@ -200,7 +188,6 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             services.AddSingleton<IAccountConfirmationEmailSender>(sp =>
                 sp.GetRequiredService<SpyAccountConfirmationEmailSender>());
 
-            // Replace deletion email sender with spy for capturing cancel tokens in tests
             ServiceDescriptor? existingDeletionSender = services
                 .FirstOrDefault(d => d.ServiceType == typeof(IAccountDeletionEmailSender));
             if (existingDeletionSender is not null)
@@ -212,8 +199,6 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             services.AddSingleton<IAccountDeletionEmailSender>(sp =>
                 sp.GetRequiredService<SpyAccountDeletionEmailSender>());
 
-            // Replace the e-mail change sender with a spy, for capturing the confirmation and revert
-            // tokens in tests
             ServiceDescriptor? existingEmailChangeSender = services
                 .FirstOrDefault(d => d.ServiceType == typeof(IEmailChangeEmailSender));
             if (existingEmailChangeSender is not null)
@@ -225,26 +210,21 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             services.AddSingleton<IEmailChangeEmailSender>(sp =>
                 sp.GetRequiredService<SpyEmailChangeEmailSender>());
 
-            // This suite runs without a broker. The consumer would keep retrying the connection and
-            // filling the log with warnings, so it is removed. Its logic has its own unit tests through
-            // EmailConfirmationRequestProcessor.
+            // This suite has no broker, and the consumer would keep retrying and filling the log. Its logic
+            // has unit tests (EmailDispatchConsumerTests).
             RemoveHostedService<EmailDispatchConsumer>(services);
 
-            // No job that runs on the real clock is hosted here. A prune pass and a due deletion each
-            // write several tables in one transaction, and the cleaner's TRUNCATE takes the same tables
-            // in another order: the prune's one-minute start deadlocked it mid-suite (#821). Their tests
-            // call the prune jobs' PruneOnceAsync and IAccountDeletionFinalizer directly, and the unit
-            // suite tests when the three jobs run (#948). The outbox relay stays: it wakes on a signal,
-            // registration tests need it, and each of its statements touches one table.
+            // No job on the real clock is hosted here: a prune pass or a due deletion writes several tables
+            // in one transaction, and the cleaner's TRUNCATE takes them in another order, which deadlocked
+            // mid-suite (#821). Tests call the jobs directly; the unit suite tests their timing (#948). The
+            // outbox relay stays: it wakes on a signal, and each of its statements touches one table.
             RemoveHostedService<OpenIddictPruneService>(services);
             RemoveHostedService<SignInSessionPruneService>(services);
             RemoveHostedService<AccountDeletionFinalizerHostedService>(services);
             services.AddSingleton<OpenIddictPruneService>();
 
-            // The RabbitMQ publisher is replaced with a spy, because this suite has no broker and the
-            // outbox relay tests check what was published. The spy also plays the part of the removed
-            // consumer, so registering a user still ends in a captured confirmation e-mail:
-            // outbox, relay, spy publish, processor, spy sender.
+            // The publisher is a spy, because this suite has no broker. It also plays the removed consumer,
+            // so a registration still ends in a captured confirmation mail.
             ServiceDescriptor? existingMessagePublisher = services
                 .FirstOrDefault(d => d.ServiceType == typeof(IMessagePublisher));
             if (existingMessagePublisher is not null)
@@ -257,7 +237,6 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             services.AddSingleton<IMessagePublisher>(sp =>
                 sp.GetRequiredService<SpyMessagePublisher>());
 
-            // Replace AuthDbContext to use the test connection string directly
             ServiceDescriptor? dbContextDescriptor = services
                 .FirstOrDefault(d => d.ServiceType == typeof(DbContextOptions<AuthDbContext>));
             if (dbContextDescriptor is not null)
@@ -279,10 +258,9 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 options.UseOpenIddict();
             });
 
-            // AddDbContext adds to the production setup instead of replacing it, so AddAuthPersistence
-            // still puts every registered IInterceptor on the context, the outbox wake-up included. The
-            // failure injectors join that list in front: an injected commit failure then reaches the
-            // production interceptors as a failed commit, the way a lost answer would (#781).
+            // AddDbContext adds to the production setup, so every registered IInterceptor, the outbox wake-up
+            // included, stays on the context. The failure injectors go first, so an injected commit failure
+            // reaches the production interceptors as a failed commit (#781).
             services.Insert(0, ServiceDescriptor.Singleton<IInterceptor>(DbCommandFailures));
             services.Insert(1, ServiceDescriptor.Singleton<IInterceptor>(DbCommitFailures));
         });
@@ -296,13 +274,9 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     protected override IHost CreateHost(IHostBuilder builder) => HostStartOrder.BuildAndStart(builder);
 
     /// <summary>
-    /// This suite's stand-in for the step from broker to consumer. What the relay publishes goes
-    /// through the same <see cref="IEmailMessageProcessor"/> the registry selects and the same
-    /// <see cref="EmailDeliveryProcessor"/> the real consumer uses, in a new scope per message, exactly
-    /// as <c>EmailDispatchConsumer.OnDeliveredAsync</c> does.
-    /// That includes choosing the processor by message type and never by routing key (ADR-0038), and
-    /// the duplicate check through the inbox (ADR-0037), so both run against this suite's real
-    /// PostgreSQL.
+    /// This suite's stand-in for the broker-to-consumer hop: the <see cref="IEmailMessageProcessor"/> chosen
+    /// by message type (ADR-0038) and the same <see cref="EmailDeliveryProcessor"/> with its inbox check
+    /// (ADR-0037), in a new scope per message, as <c>EmailDispatchConsumer.OnDeliveredAsync</c> does.
     /// </summary>
     private static async Task DeliverLikeTheConsumerWouldAsync(
         IServiceProvider services,
@@ -332,9 +306,8 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     {
         await _postgresContainer.StartAsync();
 
-        // With the error detail on, a PostgreSQL failure such as a deadlock (40P01) reports which
-        // processes held what, instead of "Detail redacted" (#821). The test database holds no data
-        // worth protecting from a test log.
+        // With error detail on, a PostgreSQL failure such as a deadlock says who held what (#821). Test data
+        // needs no protection.
         _connectionString = new NpgsqlConnectionStringBuilder(_postgresContainer.GetConnectionString())
         {
             IncludeErrorDetail = true
@@ -387,9 +360,9 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     }
 
     /// <summary>
-    /// Takes one hosted service off this host. Strict on purpose: exactly one registration must exist,
-    /// so a production wiring that changes shape fails the whole suite instead of leaving a job on the
-    /// clock or a removed one untested (#821).
+    /// Takes one hosted service off this host. Strict: exactly one registration must exist, so a
+    /// production wiring that changes shape fails the whole suite instead of leaving a job on the clock
+    /// or a removed one untested (#821).
     /// </summary>
     internal static void RemoveHostedService<THostedService>(IServiceCollection services)
         where THostedService : IHostedService

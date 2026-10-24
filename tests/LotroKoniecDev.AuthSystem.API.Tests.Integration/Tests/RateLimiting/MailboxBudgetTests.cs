@@ -22,10 +22,9 @@ using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// Every flow that mails a typed address, driven with <c>+tag</c> and dot spellings of one Gmail inbox
-/// (#835, ADR-0057). Gmail delivers all of them to one inbox, so they must share one budget per flow.
-/// They run on the suite's normal Testing host, where the limiter middleware is off, so the only thing
-/// that can refuse a request here is a budget taken in the handler.
+/// Every flow that mails a typed address, driven with <c>+tag</c> and dot spellings of one Gmail inbox,
+/// which must share one budget per flow (#835, ADR-0057). The limiter middleware is off on the Testing
+/// host, so only a budget taken in the handler can refuse a request here.
 /// </summary>
 public sealed partial class MailboxBudgetTests : EndpointsTestBase
 {
@@ -69,9 +68,8 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// A taken address mails its owner a notice instead of a confirmation, from the same budget (#860). So a
-    /// spent budget answers the same whether the address is free or taken, and only the inbox owner can
-    /// tell which mails arrived.
+    /// A taken address mails its owner a notice from the same budget (#860), so a spent budget answers the
+    /// same either way.
     /// </summary>
     [Fact]
     public async Task Register_ShouldSpendTheSameBudget_WhetherTheAddressIsFreeOrTaken()
@@ -105,9 +103,9 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
     [Fact]
     public async Task Register_ShouldNotSpendTheBudget_WhenTheUsernameIsTaken()
     {
-        // Arrange: a password the rules refuse and Identity's own errors also return before the permit; a
-        // taken name is the one a caller can reach at will. A taken or reserved address is no refusal
-        // since #860: it spends a permit like a free one
+        // Arrange: the password rules and Identity's own errors also return before the permit; a taken name
+        // is the one a caller can reach at will. A taken or reserved address spends a permit like a free
+        // one (#860)
         GmailInbox inbox = GmailInbox.New();
         RegisterRequest first = UserFactory.GenerateRandomRegisterRequest(Faker, Password) with { Email = inbox.Plain };
         using HttpResponseMessage created = await ApiClient.Http.PostAsJsonAsync(RegisterEndpoint, first);
@@ -135,9 +133,9 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
     [Fact]
     public async Task Register_ShouldTakeOnePermit_WhenATransientCommitFailureReplaysTheTransaction()
     {
-        // Arrange: the execution strategy replays the whole registration after a transient error on the
-        // commit. A second permit for the same registration would leave an honest user one short. The
-        // host is our own, so its budgets start empty and the failure touches no other test.
+        // Arrange: the execution strategy replays the registration after a transient commit error, and a
+        // second permit would leave an honest user one short. The host is our own, so its budgets start
+        // empty.
         GmailInbox inbox = GmailInbox.New();
         FailFirstRegistrationCommitInterceptor interceptor = new(inbox.Tagged("1"));
         await using WebApplicationFactory<Program> host = Factory.WithWebHostBuilder(builder =>
@@ -248,9 +246,8 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
     [Fact]
     public async Task ForgotPassword_ShouldKeepTheOwnersBudget_WhenAStrangersAccountAtHerInboxSpendsItsOwn()
     {
-        // Arrange: Anna is confirmed. A stranger registers a +tag spelling of her inbox, which stays
-        // unconfirmed because its link goes to Anna, and floods resets for it. None of those mails can
-        // reset Anna's own password, so they must not use up her budget (ADR-0057).
+        // Arrange: a stranger's +tag account at Anna's inbox stays unconfirmed, because its link goes to
+        // Anna. Its reset mails cannot reset Anna's password, so they must not use up her budget (ADR-0057).
         GmailInbox inbox = GmailInbox.New();
         await RegisterUnconfirmedAsync(inbox.Plain);
         await UserFactory.ConfirmEmailAsync(ApiClient, AccountConfirmationEmailSpy, inbox.Plain);
@@ -426,9 +423,8 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
     private static partial Regex AntiForgeryTokenRegex();
 
     /// <summary>
-    /// Fails the first commit of the registration of one address, with the error code Postgres uses for a
-    /// transient serialization failure, so the execution strategy replays it. Every other commit, the
-    /// host's own background work included, goes through untouched.
+    /// Fails the first commit of one address's registration with Postgres's transient serialization error,
+    /// so the execution strategy replays it. Every other commit passes.
     /// </summary>
     private sealed class FailFirstRegistrationCommitInterceptor : DbTransactionInterceptor
     {
@@ -462,8 +458,7 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Spellings of one Gmail inbox. The budgets are singletons for the whole test collection and are never
-    /// reset, so every test builds its own inbox that no other test can produce.
+    /// The budgets are collection-wide singletons that are never reset, so every test builds its own inbox.
     /// </summary>
     private sealed record GmailInbox(string Name)
     {

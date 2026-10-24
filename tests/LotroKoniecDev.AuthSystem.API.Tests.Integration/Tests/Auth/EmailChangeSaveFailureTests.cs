@@ -22,11 +22,9 @@ using LotroKoniecDev.AuthSystem.Persistence.Identity;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// An e-mail change whose save fails while it is confirmed or undone. Only a taken address may come back
-/// as a taken address: a duplicate on an e-mail index (#864), or Identity's own check inside the save
-/// finding the address taken (#866). A save that lost to another write on the same account offers the
-/// form again, because the link still works (#869). Any other error is an outage: a 500, and nothing
-/// changes. A browser gets the Polish error page for it, not the problem-details JSON (#867).
+/// An e-mail change whose save fails while it is confirmed or undone. Only a taken address may come back as
+/// taken (#864, #866). A save that lost to another write on the same account offers the form again (#869).
+/// Any other error is a 500 with nothing changed, and a browser gets the Polish error page (#867).
 /// </summary>
 public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
 {
@@ -95,7 +93,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// A browser also accepts <c>*/*</c>, so it used to get the problem-details JSON an API client gets
+    /// A browser also accepts <c>*/*</c>, so it must not get the problem-details JSON an API client gets
     /// (#867).
     /// </summary>
     [Fact]
@@ -144,8 +142,8 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Testing is one of the environments whose JSON carries the exception's message and type, so the page
-    /// is checked here. EF wraps the database error, and the wrapper's type and message are what would leak.
+    /// Testing is an environment whose JSON carries the exception's message and type. EF wraps the database
+    /// error, and the wrapper is what would leak.
     /// </summary>
     [Fact]
     public async Task ConfirmPage_Post_ShouldNotNameTheExceptionOnTheErrorPage_WhenTheSaveFailsForAnotherReason()
@@ -244,8 +242,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// A competitor who writes the address in other letter case clashes only on the case-blind index of
-    /// ADR-0022, so both spellings are raced.
+    /// Another letter case clashes only on the case-blind index of ADR-0022, so both spellings are raced.
     /// </summary>
     [Theory]
     [InlineData(Spelling.Exact)]
@@ -395,9 +392,8 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// A failed login saves the account too, so it can land between the moment the page loads the account
-    /// and the moment it saves it. The save is then refused as out of date, but the link is still good, so
-    /// the page must not call it dead (#869).
+    /// A failed login also saves the account, so it can land between the page's load and its save. The
+    /// save is then refused as out of date, but the link is still good (#869).
     /// </summary>
     [Fact]
     public async Task ConfirmPage_Post_ShouldOfferTheFormAgainAndKeepTheOldAddress_WhenAnotherSaveOfTheAccountLandsFirst()
@@ -440,8 +436,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The retry state means nothing changed yet. A used-link marker here would make Back say the address
-    /// was changed, so only a done confirm may leave one (#941).
+    /// Only a done confirm may leave the used-link marker, and here nothing changed yet (#941).
     /// </summary>
     [Fact]
     public async Task ConfirmPage_Post_ShouldLeaveNoUsedLinkMarker_WhenAnotherSaveOfTheAccountLandsFirst()
@@ -590,10 +585,8 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// A double click sends the same link twice, and the browser shows the answer to the second submit.
-    /// The first one lands while the second is still on its way, either before the second looks the
-    /// address up or before it saves. The second must then say the change is done, never that the address
-    /// is taken or that nothing changed (#869).
+    /// A double click: the first submit lands before the second looks the address up or before it saves.
+    /// The second must say the change is done, never that the address is taken or nothing changed (#869).
     /// </summary>
     [Theory]
     [InlineData(RaceMoment.BeforeTheHandlersOwnCheck)]
@@ -647,8 +640,8 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The same double click on the undo link. The first submit cleared the password, so the second one
-    /// has to reach the password reset too, or the visitor is left on a password that is gone (#869).
+    /// The first submit of the double click cleared the password, so the second must reach the password
+    /// reset too (#869).
     /// </summary>
     [Theory]
     [InlineData(RaceMoment.BeforeTheHandlersOwnCheck)]
@@ -726,8 +719,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             }));
 
     /// <summary>
-    /// Both tokens are sealed with data protection, and nothing makes two test hosts share a key ring, so
-    /// the token comes from the host that will check it.
+    /// Nothing makes two test hosts share a key ring, so the token comes from the host that will check it.
     /// </summary>
     private static async Task<string> CreateTokenAsync(
         IServiceProvider services, Guid userId, string provider, string purpose)
@@ -762,8 +754,8 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Goes through the suite's main host, whose contexts do not carry the interceptor, the same way the
-    /// login page records a wrong password: one more save of the account that moves its concurrency stamp.
+    /// Goes through the main host, whose contexts lack the interceptor: one more save that moves the
+    /// concurrency stamp, as a wrong password does.
     /// </summary>
     private async Task RecordAFailedLoginAsync(Guid userId)
     {
@@ -778,7 +770,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// A pending change whose confirm save will fail with an error that is not about the address.
+    /// The confirm save will fail with an error that is not about the address.
     /// </summary>
     private async Task<(Guid UserId, string NewEmail, string Token)> RequestAChangeWhoseConfirmWillFailAsync()
     {
@@ -919,8 +911,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The first submit of a double click. Nobody sees its answer: the browser replaces it with the answer
-    /// to the second submit.
+    /// Nobody sees this answer: the browser replaces it with the answer to the second submit.
     /// </summary>
     private static async Task SubmitAndDiscardAsync(
         HttpClient client, string pagePath, string getUrl, Dictionary<string, string> formFields)
@@ -929,9 +920,8 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Posts the form the page rendered, with its own hidden values and antiforgery token, the way a
-    /// browser does when the visitor clicks the button once more. The antiforgery cookie comes from the
-    /// client's cookie jar, where the first visit to the page left it.
+    /// Posts the rendered form with its own hidden values and antiforgery token, as a browser does on a
+    /// second click.
     /// </summary>
     private static async Task<HttpResponseMessage> SubmitTheFormOnAsync(
         HttpClient client, string pagePath, HttpResponseMessage page)
@@ -966,10 +956,8 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     private static partial Regex StyleNonceRegex();
 
     /// <summary>
-    /// Holds one step of the account's save until a competing write has committed: another account taking
-    /// the same address, or another save of this account. That is the moment two real requests can reach
-    /// at the same time, and the only one this suite cannot hit on purpose any other way. Only the first
-    /// matching step is held, so a second click runs untouched.
+    /// Holds one step of the account's save until a competing write has committed, the only race this suite
+    /// cannot reach otherwise. Only the first matching step is held, so a second click runs untouched.
     /// </summary>
     private sealed class CompetitorCommitsFirstInterceptor : DbCommandInterceptor
     {

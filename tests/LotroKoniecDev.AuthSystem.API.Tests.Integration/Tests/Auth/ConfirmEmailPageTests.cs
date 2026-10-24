@@ -10,7 +10,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
 /// The success page names the account, so for an address that is already confirmed it needs the mailed
-/// token, like every other branch. Without it the page told anyone which addresses have a confirmed
+/// token, like every other branch. Without it the page would tell anyone which addresses have a confirmed
 /// account (ADR-0059 §7).
 /// </summary>
 public sealed class ConfirmEmailPageTests : EndpointsTestBase
@@ -60,9 +60,9 @@ public sealed class ConfirmEmailPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Identity checks the link first and only then refuses the save, so the page must not call the link
-    /// dead or offer a new one, and it must not print Identity's English text (#1076). A stored name that
-    /// breaks today's name rules makes that refusal happen on every try.
+    /// Identity checks the link before it refuses the save, so the page must not call the link dead, nor
+    /// print Identity's English text (#1076). A stored name that breaks today's rules makes the save fail
+    /// every time.
     /// </summary>
     [Fact]
     public async Task ConfirmEmailPage_ShouldSayInPolishThatTheConfirmationFailed_WhenIdentityRefusesAGoodLink()

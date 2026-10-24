@@ -18,9 +18,9 @@ using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// The reservation that keeps an armed undo target out of everyone else's hands (#684). Taking the
-/// address a change just freed used to kill the owner's "to nie ja" link for good, and it cost one
-/// anonymous POST.
+/// The reservation that keeps an armed undo target out of everyone else's hands (#684). Without it, one
+/// anonymous POST that takes the address a change just freed would kill the owner's "to nie ja" link for
+/// good.
 /// </summary>
 public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBase
 {
@@ -29,8 +29,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     public EmailChangeRevertReservationTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
     /// <summary>
-    /// The registration answers as for any other address and mails nobody, because the address has no
-    /// account to tell (#860). The account is what it must not create.
+    /// The registration answers as for any address and mails nobody (#860). What it must not do is create
+    /// the account.
     /// </summary>
     [Fact]
     public async Task Register_ShouldCreateNoAccount_WhileTheFreedAddressIsAnArmedRevertTarget()
@@ -109,9 +109,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     [Fact]
     public async Task Register_ShouldSucceed_WhenTheAddressOnlyLooksLikeTheArmedOne()
     {
-        // Identity upper-cases and nothing else, so a plus tag is a different address. Pinned so
-        // nobody later "improves" the normalizer into treating the two as one. Only the send budgets
-        // fold the tag (ADR-0057); the address and its reservation never do.
+        // Identity only upper-cases, so a plus tag is another address. Only the send budgets fold the tag
+        // (ADR-0057); the address and its reservation never do.
         (RegisterRequest user, _, _) = await CompleteChangeAsync();
         string tagged = user.Email.Replace("@", "+tag@", StringComparison.Ordinal);
 
@@ -154,8 +153,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     [Fact]
     public async Task Register_ShouldSucceed_WhenTheArmingHasNoTimestamp()
     {
-        // A row armed before this shipped carries no timestamp. It keeps the behaviour it was written
-        // under rather than blocking its address for ever on a value nobody can date.
+        // A row armed before #684 has no timestamp. It keeps its old behaviour instead of blocking the
+        // address forever on a value nobody can date.
         (RegisterRequest user, _, Guid userId) = await CompleteChangeAsync();
         await ClearArmingTimestampAsync(userId);
 
@@ -166,8 +165,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     }
 
     /// <summary>
-    /// The request answers as for any address, and only the warning to the requester's own address goes
-    /// out: a reserved address has no account to tell, and a link there could never land (#860).
+    /// Only the warning to the requester's own address goes out: a reserved address has no account to tell,
+    /// and a link there could never land (#860).
     /// </summary>
     [Fact]
     public async Task RequestEmailChange_ShouldSendNoLink_WhenTheAddressIsAnotherAccountsRevertTarget()
@@ -206,10 +205,9 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     }
 
     /// <summary>
-    /// A stranger's requests to a reserved address spend its inbox's budget like any other address, so the
-    /// budget cannot tell a reserved address apart (#860). That can make the owner's own move back through
-    /// the form wait a quarter of an hour, but the undo link in the mail, the path the reservation exists
-    /// for, takes no budget and still works.
+    /// A stranger's requests to a reserved address spend its inbox's budget like any other (#860). The
+    /// owner's move back through the form may then wait 15 minutes, but the undo link takes no budget and
+    /// still works.
     /// </summary>
     [Fact]
     public async Task RequestEmailChange_ShouldSpendTheBudgetOfAReservedAddress_AndLeaveTheUndoLinkWorking()
@@ -270,8 +268,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     [Fact]
     public async Task ConfirmPage_Post_ShouldLetTheAccountBackOntoItsOwnArmedAddress()
     {
-        // The recovery path this whole ticket protects. Exclude the caller's own row by mistake and
-        // the account could never go home again.
+        // The recovery path #684 protects. Exclude the caller's own row by mistake and the account could
+        // never go home again.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
 
         await ChangeAndConfirmAsync(userId, newEmail, user.Email);
@@ -284,7 +282,7 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     {
         // Coming home by changing back is as final as clicking the undo, so the row is disarmed. Left
         // armed, its timestamp would stay frozen at the first change while a later change still minted
-        // a fresh 14-day link — a link outliving the reservation that keeps its address free (#684).
+        // a fresh 14-day link: a link outliving the reservation that keeps its address free (#684).
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
 
         await ChangeAndConfirmAsync(userId, newEmail, user.Email);
@@ -299,15 +297,14 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     public async Task ConfirmPage_Post_ShouldReArmWithAFreshWindow_WhenTheAccountLeavesAgainAfterComingBack()
     {
         // The chain restarts from here, so the next change arms afresh and its reservation covers the
-        // link it hands out. Before #684 this branch re-used the very first timestamp.
+        // link it hands out.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
         DateTimeOffset firstArming = (await LoadUserByIdAsync(userId)).EmailChangeRevertArmedAt!.Value;
 
         await ChangeAndConfirmAsync(userId, newEmail, user.Email);
 
-        // The row is settled by now, so this backdates a leftover timestamp rather than a live
-        // arming. It stands in for the calendar: it is what the old code would have re-used, so the
-        // asserts below fail against it and pass against a fresh window.
+        // The row is settled by now, so this backdates a leftover timestamp, not a live arming. A branch
+        // that re-used that timestamp fails the asserts below, and a fresh window passes them.
         await BackdateArmingAsync(userId, TimeSpan.FromDays(20));
 
         string thirdEmail = UserFactory.GenerateUniqueEmail(Faker);
@@ -337,10 +334,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     }
 
     /// <summary>
-    /// Moves an account from one address to another the ordinary way: request, then confirm. The spy
-    /// is reset first, for a chain that moves to the same address twice (A to B to A to B). Without the
-    /// reset, the waits below would return on the first move's mails to that address, and the confirm
-    /// would use the first move's link.
+    /// The spy is reset first, for a chain that moves to the same address twice (A to B to A to B):
+    /// otherwise the waits would return on the first move's mails.
     /// </summary>
     private async Task ChangeAndConfirmAsync(Guid userId, string currentEmail, string targetEmail)
     {
@@ -417,9 +412,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     }
 
     /// <summary>
-    /// Mints a confirm token the ordinary way, but for an account the request leg would already have
-    /// refused. It is the only way to reach the confirm leg's own guard, which has to hold on its own
-    /// because a token minted before the arming stays valid after it.
+    /// Mints a confirm token for an account the request leg would refuse, to reach the confirm leg's own
+    /// guard: a token minted before the arming stays valid after it.
     /// </summary>
     private async Task<string> IssueConfirmTokenAsync(Guid userId, string newEmail)
     {
@@ -476,9 +470,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     }
 
     /// <summary>
-    /// Waits until every e-mail change request to <paramref name="newEmail"/> has been delivered, and
-    /// returns how many there were. A delivery is recorded only after all of its mails, so a test that
-    /// checks for a missing mail can check right after it.
+    /// A delivery is recorded only after all of its mails, so a test that checks for a missing mail can
+    /// check right after this.
     /// </summary>
     private async Task<int> WaitForChangeRequestsDeliveredAsync(string newEmail)
     {

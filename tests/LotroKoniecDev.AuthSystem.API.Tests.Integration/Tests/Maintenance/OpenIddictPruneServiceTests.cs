@@ -7,9 +7,8 @@ using LotroKoniecDev.AuthSystem.API.Services.Maintenance;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Maintenance;
 
 /// <summary>
-/// Behavior of a single prune pass against substituted OpenIddict managers: the 14-day threshold,
-/// the tokens-before-authorizations order OpenIddict requires, and the never-crash-the-host
-/// failure posture. Pure tests; they start no container.
+/// One prune pass against substituted OpenIddict managers: the 14-day threshold, tokens before
+/// authorizations, and never crashing the host. No container.
 /// </summary>
 public sealed class OpenIddictPruneServiceTests
 {
@@ -32,9 +31,8 @@ public sealed class OpenIddictPruneServiceTests
         // Act
         await service.PruneOnceAsync(CancellationToken.None);
 
-        // Assert: pruning is invisible in any return value, so the manager calls are the observable
-        // side effect; tokens must go first because OpenIddict never deletes an authorization that
-        // still has tokens attached.
+        // Assert: pruning shows in no return value, so the manager calls are the side effect. Tokens go
+        // first, because OpenIddict never deletes an authorization that still has tokens.
         Received.InOrder(() =>
         {
             _tokenManager.PruneAsync(expectedThreshold, Arg.Any<CancellationToken>());

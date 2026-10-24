@@ -4,14 +4,10 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// Makes the next database command that matches fail before it reaches PostgreSQL. A test uses it to
-/// stop a unit of work between two of its writes, which is the moment a real outage or a killed
-/// process can hit and nothing else in this suite can reach (#839). It does nothing until a test arms
-/// it, and each armed failure fires once, unless a test armed it with <see cref="FailEvery"/>. A test
-/// may arm more than one, for a run that has to meet two failures (#980). Arming one more leaves the
-/// others armed. When one command matches two of them, the failure armed first takes it, and the ones
-/// armed after it never see that command. So a predicate that counts the commands it sees counts fewer
-/// than ran when an earlier arm overlaps it.
+/// Makes the next matching command fail before it reaches PostgreSQL, to stop a unit of work between two
+/// writes as an outage or a killed process can (#839). Each armed failure fires once, unless armed with
+/// <see cref="FailEvery"/>, and a test may arm several (#980). The one armed first takes a command two arms
+/// match, so a counting predicate sees fewer commands than ran.
 /// </summary>
 public sealed class DbCommandFailureInjector : DbCommandInterceptor
 {
@@ -34,11 +30,9 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
         Arm(new ArmedFailure(matches, createFailure, FailAfterItRuns: false, KeepArmed: true));
 
     /// <summary>
-    /// Makes the next matching command fail after PostgreSQL has run it. EF sends a save of one row
-    /// without a transaction, so PostgreSQL commits it on its own, and this is a save whose answer is
-    /// lost on the way back (#962). <see cref="DbCommitFailureInjector"/> cannot reach that save,
-    /// because it has no commit of its own. A command inside a transaction never matches: failing it
-    /// would roll it back, which is a different case, and it is not counted in <see cref="FailuresInjected"/>.
+    /// Fails the next matching command after PostgreSQL ran it. EF sends a one-row save without a
+    /// transaction, so it commits on its own, and this is a save whose answer is lost (#962). A command inside
+    /// a transaction never matches, because failing it would roll it back.
     /// </summary>
     public void FailNextAfterItRuns(Func<DbCommand, bool> matches, Func<Exception> createFailure) =>
         Arm(new ArmedFailure(matches, createFailure, FailAfterItRuns: true, KeepArmed: false));

@@ -47,9 +47,8 @@ public sealed partial class SecurityStampCookieValidationTests : AsyncLifetimeTe
 
         List<string> authCookies = await EstablishAuthCookieAsync(registerRequest.Email, originalPassword);
 
-        // The baseline: before the stamp changes, the cookie authenticates /connect/authorize and an
-        // authorization code is issued. That proves the cookie really works, so the rejection after the
-        // reset below cannot pass for the wrong reason.
+        // The baseline: before the stamp changes the cookie gets an authorization code, so the rejection
+        // after the reset cannot pass for the wrong reason.
         (HttpStatusCode beforeStatus, string beforeLocation) = await AuthorizeWithCookieAsync(authCookies);
         beforeStatus.ShouldBe(HttpStatusCode.Redirect);
         beforeLocation.ShouldContain("code=");
@@ -59,7 +58,7 @@ public sealed partial class SecurityStampCookieValidationTests : AsyncLifetimeTe
         string resetHtml = await ResetPasswordAsync(registerRequest.Email, newPassword);
         resetHtml.ShouldContain("Hasło zmienione"); // reset completed → the security stamp rotated
 
-        // Assert: the SAME cookie can no longer complete /connect/authorize; it is bounced to login.
+        // Assert: the same cookie can no longer complete /connect/authorize; it is bounced to login.
         (HttpStatusCode afterStatus, string afterLocation) = await AuthorizeWithCookieAsync(authCookies);
         afterStatus.ShouldBe(HttpStatusCode.Redirect);
         afterLocation.ShouldContain("/Account/Login");

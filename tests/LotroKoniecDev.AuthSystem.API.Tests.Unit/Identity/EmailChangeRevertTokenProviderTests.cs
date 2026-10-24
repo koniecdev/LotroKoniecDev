@@ -8,8 +8,8 @@ using Shouldly;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Identity;
 
 /// <summary>
-/// The revert token is the only thing standing between a stolen password and a permanently lost
-/// account (ADR-0048), so its rules are pinned here rather than left to the page that uses it.
+/// The revert token is all that stands between a stolen password and a lost account (ADR-0048), so its rules
+/// are pinned here.
 /// </summary>
 public sealed class EmailChangeRevertTokenProviderTests
 {
@@ -37,9 +37,9 @@ public sealed class EmailChangeRevertTokenProviderTests
     [Fact]
     public async Task ValidateAsync_SecurityStampChangedAfterIssuing_StillAccepts()
     {
-        // This assertion IS ADR-0048. Changing the password rotates the security stamp, and that is the
-        // first thing whoever took the account over will do. A stamp-bound token, which is what every
-        // other token in this system uses, would be dead here — and the owner would have no way back.
+        // ADR-0048: changing the password rotates the security stamp, and whoever took the account over
+        // does that first. A stamp-bound token, like every other token here, would be dead, and the owner
+        // would have no way back.
         ApplicationUser user = CreateUser();
         EmailChangeRevertTokenProvider sut = CreateSut(Now);
         string token = await sut.GenerateAsync(Purpose, _userManager, user);
@@ -53,10 +53,8 @@ public sealed class EmailChangeRevertTokenProviderTests
     [Fact]
     public async Task ValidateAsync_RevertStampRotatedAfterIssuing_Refuses()
     {
-        // The counter-takeover this field exists for. Every revert token is a bearer credential to move
-        // the account to its previous address, and after a chain of changes the attacker holds one too.
-        // A successful revert rotates the stamp, which has to retire theirs along with the one just
-        // used.
+        // Every revert token can move the account back, and after a chain of changes the attacker holds one
+        // too. A successful revert rotates this stamp, which must retire theirs as well.
         ApplicationUser user = CreateUser();
         EmailChangeRevertTokenProvider sut = CreateSut(Now);
         string token = await sut.GenerateAsync(Purpose, _userManager, user);

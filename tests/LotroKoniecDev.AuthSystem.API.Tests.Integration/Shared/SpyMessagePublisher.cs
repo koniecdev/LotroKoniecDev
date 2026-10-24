@@ -4,11 +4,9 @@ using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// Replaces the RabbitMQ publisher so the suite needs no broker: captures what the relay
-/// publishes and, when <see cref="FailWith"/> is set, refuses every publish the way a dead
-/// broker would. The optional delivery bridge stands in for the broker-to-consumer hop:
-/// each accepted publish is handed straight to it, the way the real queue would push the
-/// message at <c>EmailDispatchConsumer</c> (which the suite removes, having no broker).
+/// Captures what the relay publishes, refuses every publish while <see cref="FailWith"/> is set, and hands
+/// each accepted message to the optional delivery bridge, as the real queue would push it at the removed
+/// <c>EmailDispatchConsumer</c>.
 /// </summary>
 internal sealed class SpyMessagePublisher : IMessagePublisher
 {

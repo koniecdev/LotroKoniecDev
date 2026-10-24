@@ -15,11 +15,9 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// Proves the duplicate check of ADR-0037 against a real PostgreSQL, through
-/// <see cref="EmailDeliveryProcessor"/>, the one component both delivery paths use: the broker
-/// consumer and this suite's bridge that runs without a broker.
-/// A message id that was processed is recorded, a second copy of it is acknowledged without another
-/// e-mail, and a failed processing leaves no record, so sending it again really does retry.
+/// Proves the duplicate check of ADR-0037 against real PostgreSQL, through
+/// <see cref="EmailDeliveryProcessor"/>, which both delivery paths use. A processed id is recorded, a second
+/// copy is acknowledged without another e-mail, and a failed processing leaves no record, so a resend retries.
 /// </summary>
 public sealed class InboxDeduplicationTests : EndpointsTestBase
 {

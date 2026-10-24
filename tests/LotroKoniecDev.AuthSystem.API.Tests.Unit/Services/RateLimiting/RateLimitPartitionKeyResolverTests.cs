@@ -7,11 +7,10 @@ using Microsoft.AspNetCore.Http;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.RateLimiting;
 
 /// <summary>
-/// The client a request is metered as (ADR-0054): the visitor the frontend forwards, but only next to
-/// the environment's key, and the connection's own address for everything short of that. Each row of
-/// the "short of a proven visitor" matrix would, if believed, land in a fresh bucket instead of its
-/// connection's full one. The address rows pin what one client is (#831): a whole IPv6 /64, and an
-/// IPv4 address however it is written.
+/// The client a request is metered as (ADR-0054): the forwarded visitor, but only next to the environment's
+/// key, and otherwise the connection's own address. Each "short of a proven visitor" row would, if believed,
+/// land in a fresh bucket. The address rows pin what one client is (#831): a whole IPv6 /64, and an IPv4
+/// address however it is written.
 /// </summary>
 public sealed class RateLimitPartitionKeyResolverTests
 {
@@ -69,8 +68,7 @@ public sealed class RateLimitPartitionKeyResolverTests
     }
 
     /// <summary>
-    /// #831: an IPv6 client owns its whole /64, and an IPv4 address written in IPv6 form is still that
-    /// IPv4 address. The last row is one address written two ways.
+    /// #831: the last row is one address written two ways.
     /// </summary>
     public static TheoryData<string, string, bool> AddressesOfOneClient => BothWays(
     [

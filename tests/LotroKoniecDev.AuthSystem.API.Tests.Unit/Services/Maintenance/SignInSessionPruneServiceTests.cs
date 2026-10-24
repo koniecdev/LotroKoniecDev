@@ -10,12 +10,9 @@ using LotroKoniecDev.Tests.Shared;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.Maintenance;
 
 /// <summary>
-/// When the sign-in session prune runs (#948): once a minute after startup, then once a day, and
-/// stopping the app ends the job. The integration host does not run this job. The integration suite's
-/// class of the same name tests what one pass deletes.
-/// A unit test has no database, so a pass is seen where it asks for the database context, and every
-/// pass fails there. These tests therefore also prove that a failed pass is logged and does not stop
-/// the next one.
+/// When the sign-in session prune runs (#948): a minute after startup, then once a day, and stopping the app
+/// ends the job. The integration host does not run it. With no database every pass fails, so these tests
+/// also prove that a failed pass is logged and does not stop the next one.
 /// </summary>
 public sealed class SignInSessionPruneServiceTests
 {
@@ -70,8 +67,7 @@ public sealed class SignInSessionPruneServiceTests
     }
 
     /// <summary>
-    /// Pass 1 fails before the daily timer exists, pass 2 fails on it, and both are followed by the
-    /// next pass.
+    /// Pass 1 fails before the daily timer exists, and pass 2 fails on it.
     /// </summary>
     [Fact]
     public async Task ExecuteAsync_ShouldLogEachFailureAndPruneTheNextDay_WhenPassesFail()

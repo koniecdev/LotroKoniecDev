@@ -21,19 +21,11 @@ using RabbitMQ.Client.Exceptions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Messaging;
 
 /// <summary>
-/// Pins the two invariants the redelivery backoff ladder promises only in prose (ADR-0036):
-/// the ladder and <see cref="RabbitMqTopology.EmailDeliveryLimit"/> move together, and no rung
-/// may hold a delivery unacked long enough for the broker to kill the channel. Without these,
-/// <c>Math.Min</c> in the consumer silently absorbs any drift. Also pins the poison decision for
-/// unusable message ids (ADR-0037): a delivery the inbox cannot deduplicate must be rejected,
-/// not processed blind. And it pins that the consumer stays attached (#1088): a failed attach, a
-/// cancellation the client reports on its own included, a channel the broker closed or a subscription
-/// it cancelled makes it attach again without leaving the old connection behind, one closed look is
-/// left to automatic recovery, and only the host's stop ends it.
-/// On a fake clock it pins which pause follows which failure (#1223): the pause before a temporary
-/// failure goes back on the queue, chosen by the broker's retry count, no pause once the delivery limit
-/// is reached, the first pause after an unexpected error, a quiet stop during a pause, the pause between
-/// connection attempts and the watch interval.
+/// Pins what ADR-0036 promises only in prose: the backoff ladder and
+/// <see cref="RabbitMqTopology.EmailDeliveryLimit"/> move together, and no pause outlives the broker's
+/// consumer timeout (the consumer's <c>Math.Min</c> would hide any drift). Also pins the poison decision for
+/// unusable ids (ADR-0037), attaching again (#1088), and, on a fake clock, which pause follows which failure
+/// (#1223).
 /// </summary>
 public sealed class EmailDispatchConsumerTests
 {
@@ -41,9 +33,6 @@ public sealed class EmailDispatchConsumerTests
     private const string ConsumerTag = "email-consumer";
     private const string MessageType = "TestEmail";
 
-    /// <summary>
-    /// The header in which RabbitMQ counts the returns of a quorum queue delivery.
-    /// </summary>
     private const string DeliveryCountHeader = "x-delivery-count";
 
     private static readonly TimeSpan WaitLimit = TimeSpan.FromSeconds(10);
@@ -67,9 +56,8 @@ public sealed class EmailDispatchConsumerTests
     [Fact]
     public void RedeliveryBackoffs_EveryPause_StaysUnderTheBrokerConsumerTimeout()
     {
-        // The broker closes the channel when an ack takes longer than consumer_timeout, which is 30
-        // minutes by default in RabbitMQ and which compose does not change. A wait at or above that
-        // would turn the pause into a lost channel, which uses up a retry instead of waiting one out.
+        // The broker closes the channel when an ack takes longer than consumer_timeout (30 minutes by
+        // default, compose does not change it). A longer pause would lose the channel and use up a retry.
         TimeSpan consumerTimeout = TimeSpan.FromMinutes(30);
 
         EmailDispatchConsumer.RedeliveryBackoffs.ShouldAllBe(pause => pause < consumerTimeout);
@@ -83,7 +71,7 @@ public sealed class EmailDispatchConsumerTests
     [InlineData("00000000-0000-0000-0000-000000000000")]
     public void TryReadMessageId_WithUnusableValue_ReturnsFalse(string? rawMessageId)
     {
-        // Arrange: BasicProperties implements IReadOnlyBasicProperties
+        // Arrange
         BasicProperties properties = new() { MessageId = rawMessageId };
 
         // Act
@@ -109,8 +97,8 @@ public sealed class EmailDispatchConsumerTests
     }
 
     /// <summary>
-    /// The pause grows with the broker's retry count, so the whole ladder outlasts an SMTP outage of
-    /// about 30 minutes before the message ends in the dead-letter queue (ADR-0036).
+    /// The ladder outlasts an SMTP outage of about 30 minutes before the message goes to the dead-letter
+    /// queue (ADR-0036).
     /// </summary>
     [Theory]
     [InlineData(0, 30)]
@@ -138,15 +126,15 @@ public sealed class EmailDispatchConsumerTests
         _clock.Advance(OneMillisecond);
         await delivering.WaitAsync(WaitLimit);
 
-        // Assert: the channel hears nothing until the pause runs out, and then the delivery goes back
+        // Assert
         wakeUpsJustBeforeThePauseEnds.ShouldBe(0);
         channelCallsJustBeforeThePauseEnds.ShouldBe(0);
         await channel.Received(1).BasicRejectAsync(DeliveryTag, true, Arg.Any<CancellationToken>());
     }
 
     /// <summary>
-    /// This reject takes the count past the delivery limit, so the broker moves the message to the
-    /// dead-letter queue. A pause before it would only hold the queue up.
+    /// This reject moves the message to the dead-letter queue, so a pause before it would only hold the queue
+    /// up.
     /// </summary>
     [Theory]
     [InlineData(0)]
@@ -170,8 +158,7 @@ public sealed class EmailDispatchConsumerTests
     }
 
     /// <summary>
-    /// An unexpected error tells nothing about the SMTP relay, so its pause stays at the first step
-    /// whatever the retry count says.
+    /// An unexpected error says nothing about the SMTP relay, so its pause stays at the first step.
     /// </summary>
     [Theory]
     [InlineData(0)]
@@ -194,15 +181,14 @@ public sealed class EmailDispatchConsumerTests
         _clock.Advance(OneMillisecond);
         await delivering.WaitAsync(WaitLimit);
 
-        // Assert: the channel hears nothing until the pause runs out, and then the delivery goes back
+        // Assert
         wakeUpsJustBeforeThePauseEnds.ShouldBe(0);
         channelCallsJustBeforeThePauseEnds.ShouldBe(0);
         await channel.Received(1).BasicRejectAsync(DeliveryTag, true, Arg.Any<CancellationToken>());
     }
 
     /// <summary>
-    /// A stop in the middle of a pause settles nothing: the broker puts the unacknowledged delivery back
-    /// when the channel closes, and the next start handles it.
+    /// The broker puts an unacknowledged delivery back when the channel closes, and the next start handles it.
     /// </summary>
     [Theory]
     [InlineData(false)]
@@ -224,13 +210,13 @@ public sealed class EmailDispatchConsumerTests
         await stopping.CancelAsync();
         await delivering.WaitAsync(WaitLimit);
 
-        // Assert: no ack and no reject
+        // Assert
         channel.ReceivedCalls().ShouldBeEmpty();
     }
 
     /// <summary>
-    /// A stop that comes during the pause is not a failure, so it must not add an unexpected error to
-    /// the log. The line written before the pause stays.
+    /// A stop is not a failure, so it adds no unexpected error to the log. The line written before the pause
+    /// stays.
     /// </summary>
     [Theory]
     [InlineData(false)]
@@ -285,10 +271,6 @@ public sealed class EmailDispatchConsumerTests
         attached.ShouldBeTrue();
     }
 
-    /// <summary>
-    /// The pause between connection attempts grows, and the last pause repeats for as long as the broker
-    /// stays down.
-    /// </summary>
     [Fact]
     public async Task ExecuteAsync_WhileTheBrokerStaysDown_ShouldWaitLongerBeforeEachAttemptUpToTheLastPause()
     {
@@ -324,8 +306,7 @@ public sealed class EmailDispatchConsumerTests
     }
 
     /// <summary>
-    /// The consumer looks every 30 seconds. One closed look is left to automatic recovery, and the second
-    /// closed look in a row makes it attach again.
+    /// One closed look is left to automatic recovery; the second in a row makes the consumer attach again.
     /// </summary>
     [Fact]
     public async Task ExecuteAsync_WhenTheChannelStaysClosed_ShouldAttachAgainOnlyAfterTwoWatchIntervals()
@@ -352,8 +333,7 @@ public sealed class EmailDispatchConsumerTests
         bool attachedAgain = await openChannel.WaitUntilConsumingAsync();
         await StopWithinLimitAsync(consumer);
 
-        // Assert: no look came early, the first closed look kept the old connection, and the second
-        // attached again
+        // Assert
         wakeUpsJustBeforeTheFirstLook.ShouldBe(0);
         connectionsAfterTheFirstLook.ShouldBe(1);
         attachedAgain.ShouldBeTrue();
@@ -501,8 +481,8 @@ public sealed class EmailDispatchConsumerTests
             watchInterval);
 
     /// <summary>
-    /// What a delivery needs from the container: the processor for <see cref="MessageType"/> and the
-    /// inbox wrapper, over an inbox that has not seen the message yet.
+    /// The processor for <see cref="MessageType"/> and the inbox wrapper, over an inbox that has not seen the
+    /// message.
     /// </summary>
     private static ServiceProvider BuildDeliveryServices(StubEmailProcessor processor)
     {
@@ -536,9 +516,8 @@ public sealed class EmailDispatchConsumerTests
     }
 
     /// <summary>
-    /// Lets each pause or watch interval the consumer starts run out in turn, and returns how many had
-    /// ended a millisecond before each one was due. One that is too long never starts the next one, and
-    /// <see cref="TimerWatchingTimeProvider.WaitForNextTimerAsync"/> then fails the test.
+    /// Returns how many pauses had ended a millisecond before each one was due. A pause that is too long never
+    /// starts the next, and <see cref="TimerWatchingTimeProvider.WaitForNextTimerAsync"/> fails the test.
     /// </summary>
     private async Task<IReadOnlyList<int>> WaitThroughAsync(IEnumerable<TimeSpan> pauses)
     {
@@ -556,9 +535,9 @@ public sealed class EmailDispatchConsumerTests
     }
 
     /// <summary>
-    /// Stops the consumer, but never waits longer than <see cref="WaitLimit"/>, so a consumer that
-    /// ignores its stop token never hangs the run. The stop itself returns quietly when the limit runs
-    /// out, so the test that is about stopping checks the outcome on its own.
+    /// Stops the consumer but waits at most <see cref="WaitLimit"/>, so a consumer that ignores its stop
+    /// token cannot hang the run. It returns quietly when the limit runs out, so the test about stopping
+    /// checks the outcome itself.
     /// </summary>
     private static async Task StopWithinLimitAsync(EmailDispatchConsumer consumer)
     {
@@ -567,7 +546,7 @@ public sealed class EmailDispatchConsumerTests
     }
 
     /// <summary>
-    /// Reads every payload, and answers every send the way the test says: a result or an exception.
+    /// Answers every send with the result or the exception the test set.
     /// </summary>
     private sealed class StubEmailProcessor : IEmailMessageProcessor
     {
@@ -610,9 +589,8 @@ public sealed class EmailDispatchConsumerTests
     }
 
     /// <summary>
-    /// One connection with one channel, standing in for the broker client. The channel confirms a
-    /// subscription the way the broker does, so the consumer counts as running, and the test can wait
-    /// for that moment, cancel the subscription as the broker does, and count the consumer's looks.
+    /// Stands in for the broker client. The channel confirms a subscription as the broker does, so a test can
+    /// wait for the consumer, cancel the subscription and count its looks.
     /// </summary>
     private sealed class BrokerStub
     {
@@ -649,8 +627,7 @@ public sealed class EmailDispatchConsumerTests
         }
 
         /// <summary>
-        /// Takes what the channel answers when the consumer asks whether it is open, one answer per
-        /// look. The last answer holds for every later look.
+        /// One answer per look to "is the channel open"; the last answer holds for every later look.
         /// </summary>
         public BrokerStub(params bool[] channelOpenOnLooks)
         {

@@ -5,10 +5,9 @@ using OpenIddict.Server;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// Makes a test host sign tokens with other audiences than the server picks. A test can then hold a token
-/// the server no longer issues: one from before #1023, or a client token that names this API and so
-/// reaches the checks behind the audience check. The handler runs before OpenIddict builds any token from
-/// the principal.
+/// Signs tokens with other audiences than the server picks, so a test can hold a token the server no longer
+/// issues: one from before #1023, or a client token that names this API. Runs before OpenIddict builds any
+/// token from the principal.
 /// </summary>
 internal static class SignInAudienceOverride
 {

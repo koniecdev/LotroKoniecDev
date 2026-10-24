@@ -5,9 +5,8 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// Keeps every password-reset mail together with the inbox it went to, and a test reads only the inbox
-/// of its own account. A reset mail from an earlier test can still arrive after <see cref="Reset"/>, and
-/// a spy that kept only the last token handed it to the next test as its own (#950).
+/// Keeps every password-reset mail with the inbox it went to, and a test reads only its own account's
+/// inbox: a reset mail from an earlier test can still arrive after <see cref="Reset"/> (#950).
 /// </summary>
 #pragma warning disable CA1515
 public sealed class SpyPasswordResetEmailSender : IPasswordResetEmailSender
@@ -38,9 +37,8 @@ public sealed class SpyPasswordResetEmailSender : IPasswordResetEmailSender
         ResetEmailsTo(recipient).LastOrDefault()?.ResetToken;
 
     /// <summary>
-    /// Waits until a reset mail reaches this inbox, and throws when the time runs out. Any mail since the
-    /// last <see cref="Reset"/> counts, so a test that expects a second mail to one inbox resets in
-    /// between.
+    /// Throws when the time runs out. Any mail since the last <see cref="Reset"/> counts, so a test that
+    /// expects a second mail to one inbox resets in between.
     /// </summary>
     public Task WaitForCaptureAsync(string recipient, TimeSpan? timeout = null) =>
         MailWait.UntilAsync(

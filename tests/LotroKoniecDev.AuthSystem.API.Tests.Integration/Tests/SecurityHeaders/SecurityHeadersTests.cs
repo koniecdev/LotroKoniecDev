@@ -10,11 +10,10 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.SecurityHeaders;
 
 /// <summary>
-/// The auth origin used to send only HSTS. Its frame protection was an accident of antiforgery: a page
-/// got <c>SAMEORIGIN</c> only when it rendered a form (#693). These tests hold the policy that replaced it,
-/// on every account page and on the responses around them.
-/// The pages are listed by reflection rather than by hand, and a test proves that list equals the
-/// Razor pages the app maps, so a new page is checked the day it is added.
+/// The auth origin's security headers on every account page and on the responses around them (#693).
+/// Frame protection must not depend on antiforgery, which adds <c>SAMEORIGIN</c> only when a page renders
+/// a form. The pages are listed by reflection, and a test proves that list equals the Razor pages the app
+/// maps, so a new page is checked the day it is added.
 /// </summary>
 public sealed partial class SecurityHeadersTests : EndpointsTestBase
 {
@@ -58,8 +57,8 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The #670 lesson: a CSP that blocks the page's own markup still returns 200, and only the browser
-    /// console says so. The pages keep their styles inline, so every block needs this response's nonce.
+    /// #670: a CSP that blocks the page's own markup still returns 200, and only the browser console says
+    /// so. The pages keep their styles inline, so every block needs this response's nonce.
     /// </summary>
     [Theory]
     [MemberData(nameof(AccountPages.All), MemberType = typeof(AccountPages))]
@@ -103,8 +102,8 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The acceptance check of #693: these responses render no antiforgery token, so before the change
-    /// they carried no frame header at all. The two link pages render no form when the link is missing.
+    /// #693: these responses render no antiforgery token, so antiforgery adds no frame header to them. The
+    /// two link pages render no form when the link is missing.
     /// </summary>
     [Theory]
     [InlineData("/Account/ConfirmEmail")]
@@ -173,7 +172,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
         using HttpResponseMessage page = await ApiClient.Http.GetAsync(new Uri("/Account/Login", UriKind.Relative));
         using HttpResponseMessage script = await ApiClient.Http.GetAsync(new Uri("/login.js", UriKind.Relative));
 
-        // Assert: the password toggle moved out of the page, and the file it moved to is really there
+        // Assert: the password toggle lives in a file, not in the page, and that file is really there
         string html = await page.Content.ReadAsStringAsync();
         html.ShouldContain("<script src=\"/login.js\"></script>");
         script.StatusCode.ShouldBe(HttpStatusCode.OK);

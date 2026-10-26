@@ -127,6 +127,111 @@ public sealed class AuthSettingsValidatorTests
         error.ErrorMessage.ShouldNotContain(password);
     }
 
+    [Theory]
+    [InlineData("https://deploy:hunter2@auth.lotro-translator.pl")]
+    [InlineData("https://deploy@auth.lotro-translator.pl")]
+    [InlineData("https://:hunter2@auth.lotro-translator.pl")]
+    [InlineData("https://deploy:@auth.lotro-translator.pl")]
+    [InlineData("HTTPS://deploy:hunter2@auth.lotro-translator.pl")]
+    [InlineData("http://deploy:hunter2@auth-api:8080")]
+    [InlineData("https://deploy:hunter2@localhost:5003")]
+    [InlineData("https://deploy:hunter2@auth.lotro-translator.pl/realm")]
+    [InlineData("  https://deploy:hunter2@auth.lotro-translator.pl  ")]
+    [InlineData(@"https:\\deploy:hunter2@auth.lotro-translator.pl")]
+    public void Validate_WithIssuerCarryingUserInfo_FailsNamingTheKeyWithoutTheCredentials(string issuer)
+    {
+        AuthSettings settings = Settings(issuer: issuer);
+
+        ValidationResult result = _validator.Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        ValidationFailure error = result.Errors.ShouldHaveSingleItem();
+        error.PropertyName.ShouldBe(nameof(AuthSettings.Issuer));
+        error.ErrorMessage.ShouldContain("Auth:Issuer must not carry a user name or password", Case.Sensitive);
+        error.ErrorMessage.ShouldNotContain("deploy");
+        error.ErrorMessage.ShouldNotContain("hunter2");
+    }
+
+    /// <summary>
+    /// The issuer is also the address the keys are read from when Authority is left out.
+    /// </summary>
+    [Fact]
+    public void Validate_WithIssuerCarryingUserInfoAndNoAuthority_FailsNamingTheIssuer()
+    {
+        AuthSettings settings = Settings(issuer: "https://deploy:hunter2@auth.lotro-translator.pl", authority: null);
+
+        ValidationResult result = _validator.Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        ValidationFailure error = result.Errors.ShouldHaveSingleItem();
+        error.ErrorMessage.ShouldContain("Auth:Issuer must not carry a user name or password", Case.Sensitive);
+        error.ErrorMessage.ShouldNotContain("hunter2");
+    }
+
+    [Theory]
+    [InlineData("https://deploy:hunter2@auth.lotro-translator.pl")]
+    [InlineData("https://deploy@auth.lotro-translator.pl")]
+    [InlineData("https://:hunter2@auth.lotro-translator.pl")]
+    [InlineData("https://deploy:@auth.lotro-translator.pl")]
+    [InlineData("HTTPS://deploy:hunter2@auth.lotro-translator.pl")]
+    [InlineData("http://deploy:hunter2@auth-api:8080")]
+    [InlineData("https://deploy:hunter2@localhost:5003")]
+    [InlineData("https://deploy:hunter2@auth.lotro-translator.pl/realm")]
+    [InlineData("  https://deploy:hunter2@auth.lotro-translator.pl  ")]
+    [InlineData(@"https:\\deploy:hunter2@auth.lotro-translator.pl")]
+    public void Validate_WithAuthorityCarryingUserInfo_FailsNamingTheKeyWithoutTheCredentials(string authority)
+    {
+        AuthSettings settings = Settings(authority: authority);
+
+        ValidationResult result = _validator.Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        ValidationFailure error = result.Errors.ShouldHaveSingleItem();
+        error.PropertyName.ShouldBe(nameof(AuthSettings.Authority));
+        error.ErrorMessage.ShouldContain("Auth:Authority must not carry a user name or password", Case.Sensitive);
+        error.ErrorMessage.ShouldNotContain("deploy");
+        error.ErrorMessage.ShouldNotContain("hunter2");
+    }
+
+    [Fact]
+    public void Validate_WithIssuerAndAuthorityCarryingUserInfo_FailsNamingBothKeys()
+    {
+        AuthSettings settings = Settings(
+            issuer: "https://deploy:hunter2@auth.lotro-translator.pl",
+            authority: "https://deploy:hunter2@auth.lotro-translator.pl");
+
+        ValidationResult result = _validator.Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        result.Errors.Count.ShouldBe(2);
+        result.Errors.ShouldContain(error =>
+            error.ErrorMessage.Contains("Auth:Issuer must not carry a user name or password", StringComparison.Ordinal));
+        result.Errors.ShouldContain(error =>
+            error.ErrorMessage.Contains("Auth:Authority must not carry a user name or password", StringComparison.Ordinal));
+        result.Errors.ShouldAllBe(error => !error.ErrorMessage.Contains("hunter2", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Only an '@' before the host carries a user name or password. One in the path is part of an
+    /// ordinary address. The values the dev host, the containers and the boxes use start the API as
+    /// before.
+    /// </summary>
+    [Theory]
+    [InlineData("https://localhost:5003")]
+    [InlineData("http://auth-api:8080")]
+    [InlineData("https://auth.lotro-translator.pl")]
+    [InlineData("https://auth.lotro-translator.pl/")]
+    [InlineData("https://auth.lotro-translator.pl/realm@lotro")]
+    [InlineData("https://auth.lotro-translator.pl/realm%40lotro")]
+    public void Validate_WithAddressWithoutUserInfo_Passes(string address)
+    {
+        AuthSettings settings = Settings(issuer: address, authority: address);
+
+        ValidationResult result = _validator.Validate(settings);
+
+        result.IsValid.ShouldBeTrue();
+    }
+
     private static AuthSettings Settings(
         string issuer = "https://auth.lotro-translator.pl",
         string audience = "lotrokoniecdev-api",

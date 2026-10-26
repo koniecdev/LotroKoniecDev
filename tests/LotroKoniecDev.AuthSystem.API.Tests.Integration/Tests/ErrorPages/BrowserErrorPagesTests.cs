@@ -21,6 +21,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
     private const string ValidCallback = AuthSystemApiFactory.TestFrontendAppRoot + "/callback";
     private const string ForeignCallback = "https://attacker.example/callback";
     private const string CallerState = "caller-state-912";
+    private const string ErrorPageStylesheet = "<link rel=\"stylesheet\" href=\"/error-page.css\" />";
 
     /// <summary>The example challenge from RFC 7636. Only its shape matters here.</summary>
     private const string PkceChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
@@ -41,8 +42,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
         response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Nie ma takiej strony</h1>");
-        string nonce = StyleNonce(response).ShouldNotBeNull();
-        html.ShouldContain($"<style nonce=\"{nonce}\">");
+        html.ShouldContain(ErrorPageStylesheet);
     }
 
     [Theory]
@@ -85,8 +85,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
         response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Formularz wygasł</h1>");
-        string nonce = StyleNonce(response).ShouldNotBeNull();
-        html.ShouldContain($"<style nonce=\"{nonce}\">");
+        html.ShouldContain(ErrorPageStylesheet);
     }
 
     [Fact]
@@ -231,8 +230,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
         response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Nie udało się obsłużyć żądania</h1>");
-        string nonce = StyleNonce(response).ShouldNotBeNull();
-        html.ShouldContain($"<style nonce=\"{nonce}\">");
+        html.ShouldContain(ErrorPageStylesheet);
     }
 
     [Theory]
@@ -448,20 +446,6 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
         return await client.SendAsync(request);
     }
 
-    private static string? StyleNonce(HttpResponseMessage response)
-    {
-        if (!response.Headers.TryGetValues("Content-Security-Policy", out IEnumerable<string>? policies))
-        {
-            return null;
-        }
-
-        Match match = StyleNonceRegex().Match(string.Join(", ", policies));
-        return match.Success ? match.Groups["nonce"].Value : null;
-    }
-
     [GeneratedRegex("""name="__RequestVerificationToken".*?value="([^"]+)""")]
     private static partial Regex AntiforgeryTokenRegex();
-
-    [GeneratedRegex(@"style-src [^;]*'nonce-(?<nonce>[A-Za-z0-9_-]+)'")]
-    private static partial Regex StyleNonceRegex();
 }

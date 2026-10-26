@@ -79,7 +79,8 @@ public sealed class ChangeEmailSuccessStyleTests : E2ETestBase
         int errorBoxes = await Page.GetByTestId("confirm-email-change-error").CountAsync();
         errorBoxes.ShouldBe(0);
 
-        // The success colour comes from the page's inline style, which the auth CSP admits by nonce (#693).
+        // The success colour comes from account.css. The auth CSP admits it because it is a file on the
+        // auth origin itself (#693, #833).
         CspViolations.ShouldBeEmpty();
     }
 }

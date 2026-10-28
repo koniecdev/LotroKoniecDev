@@ -6,6 +6,10 @@
          and prints one "not run" line instead. -->
     <PropertyGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
         <IsTestProject>false</IsTestProject>
+        <!-- The SDK lets a test project reference a self-contained exe, and Tests.Infrastructure
+             references the desktop app's. Without IsTestProject that exemption is gone and the
+             build fails with NETSDK1151, so keep it. -->
+        <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
     </PropertyGroup>
 
     <Target Name="BuildWithoutRunningWindowsOnlyTests" BeforeTargets="VSTest" Condition="'$(IsTestProject)' != 'true'">

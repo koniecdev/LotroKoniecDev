@@ -3,9 +3,8 @@ using LotroKoniecDev.Domain.Models;
 namespace LotroKoniecDev.Application.Abstractions;
 
 /// <summary>
-/// The result of reading a translation file: the rows that parsed, plus one warning per line that did
-/// not. A rejected line is never dropped in silence (ADR-0042). The warnings go into
-/// <c>PatchSummaryResponse.Warnings</c>, which the CLI prints after a patch run.
+/// The rows of a translation file that parsed, plus one warning per line that did not. A rejected
+/// line is never dropped in silence (ADR-0042).
 /// </summary>
 /// <param name="Translations">The rows that parsed, sorted by file id and then gossip id.</param>
 /// <param name="Warnings">

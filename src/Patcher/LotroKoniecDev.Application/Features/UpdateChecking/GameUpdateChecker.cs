@@ -72,14 +72,14 @@ public sealed partial class GameUpdateChecker : IGameUpdateChecker
         }
         catch (RegexMatchTimeoutException)
         {
-            // If the match times out on someone else's HTML we treat it as "could not parse". The
-            // caller already copes with a null version.
+            // A timeout on someone else's HTML counts as "could not parse"; the caller copes with a
+            // null version.
             return null;
         }
     }
 
-    // The pattern is linear, so it cannot blow up on input today. The timeout protects us from a
-    // future edit to a regex that runs on someone else's HTML (AUDIT-SEC-07, #397).
+    // The pattern is linear, so it cannot blow up today. The timeout guards a future edit of a regex
+    // that runs on someone else's HTML (#397).
     [GeneratedRegex(@"Update\s+(\d+(?:\.\d+)*)\s+Release\s+Notes", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 1000)]
     private static partial Regex VersionRegex();
 

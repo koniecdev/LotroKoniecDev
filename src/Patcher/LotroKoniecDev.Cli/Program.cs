@@ -13,9 +13,9 @@ public sealed class Program
 {
     private static async Task<int> Main(string[] args)
     {
-        // The file sink stays at Debug on purpose: it is the trail users attach to a bug report, full
-        // paths included, and the log never leaves their machine unless they send it. The console
-        // stays at Information so the CLI output stays readable (AUDIT-SEC-07, #397).
+        // The file sink stays at Debug: it is the trail users attach to a bug report, full paths
+        // included, and it never leaves their machine unless they send it. The console stays at
+        // Information so the CLI output stays readable (#397).
         string logFilePath = Path.Combine(GlobalSettings.DataDir, "patcher.log");
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Debug()

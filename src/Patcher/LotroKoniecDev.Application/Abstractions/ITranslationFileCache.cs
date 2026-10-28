@@ -16,7 +16,6 @@ public interface ITranslationFileCache
     /// </summary>
     string? ReadEndpointHref(string translationFilePath);
 
-    /// <summary>Writes the downloaded translation file and its ETag.</summary>
     Result Save(string translationFilePath, string content, string eTag);
 
     /// <summary>Records the endpoint that just served the file, as a fallback for when it is down.</summary>

@@ -4,11 +4,10 @@ using LotroKoniecDev.Infrastructure.Storage;
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 /// <summary>
-/// Exercises the two small files next to the translation file, against the real filesystem: the ETag
-/// one the conditional request needs, and the endpoint one the sync falls back to when the server is
-/// down (#611).
-/// Both are read back the same way the launch reads them, because the whole fallback rests on the value
-/// surviving a round trip and still parsing as a URI.
+/// The two small files next to the translation file, against the real filesystem: the ETag the
+/// conditional request needs, and the endpoint the sync falls back to when the server is down (#611).
+/// Both are read back the way the launch reads them: the fallback rests on the value surviving a round
+/// trip and still parsing as a URI.
 /// </summary>
 public sealed class TranslationFileCacheTests : IDisposable
 {
@@ -107,9 +106,9 @@ public sealed class TranslationFileCacheTests : IDisposable
     public void ReadEndpointHref_WhenTheSidecarPathIsNotAReadableFile_ShouldDegradeToNothingCached()
     {
         // Arrange: the launch must never fail because of a broken cache entry. A directory where the
-        // file should be is the portable way to get a path that exists but has no content.
-        // The unreadable-file case, an ACL that throws UnauthorizedAccessException, is covered by the
-        // wider catch in ReadSidecar but cannot be produced on every platform, so it is not asserted.
+        // file should be is the portable way to get a path that exists but cannot be read. An ACL
+        // that throws UnauthorizedAccessException cannot be produced on every platform, so it is not
+        // asserted.
         Directory.CreateDirectory(TranslationFilePath + ".endpoint");
 
         // Act

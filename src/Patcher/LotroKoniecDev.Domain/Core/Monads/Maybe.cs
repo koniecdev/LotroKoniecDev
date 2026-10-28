@@ -3,7 +3,6 @@ namespace LotroKoniecDev.Domain.Core.Monads;
 /// <summary>
 /// Holds a value that may or may not be there, so the absent case cannot be forgotten.
 /// </summary>
-/// <typeparam name="T">The value type. It must be a reference type.</typeparam>
 public sealed class Maybe<T> : IEquatable<Maybe<T>> where T : class
 {
     private readonly T? _value;

@@ -46,7 +46,6 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
         LogTranslationFilePath(_logger, command.TranslationFilePath);
         LogGameVersionFilePath(_logger, command.GameVersionFilePath);
 
-        // Step 1: is the game already running?
         if (_gameProcessDetector.IsLotroRunning())
         {
             LogBlockedGameAlreadyRunning(_logger);
@@ -54,7 +53,6 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
                 Result.Failure<GameLaunchingResponse>(DomainErrors.GameLaunch.GameAlreadyRunning));
         }
 
-        // Step 2: has the translation file changed since we last applied it?
         LogComputingTranslationHash(_logger);
         Result<string> hashResult = _fileHasher.ComputeHash(command.TranslationFilePath);
         if (hashResult.IsFailure)
@@ -117,8 +115,8 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
 
             PatchSummaryResponse patchSummary = patchResult.Value;
 
-            // Launch uses the same parser as `patch`, so a rejected line has to reach a person here
-            // too (ADR-0042). `patch` prints the summary; launch has only the log.
+            // A rejected line must reach a person here too (ADR-0042). `patch` prints the summary;
+            // launch has only the log.
             foreach (string warning in patchSummary.Warnings)
             {
                 LogPatchWarning(_logger, warning);
@@ -130,7 +128,6 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
 
             LogTranslationsPatched(_logger, appliedCount, skippedCount);
 
-            // Save the new hash and the current vnum.
             LogReadingDatVnum(_logger);
 
             Result<DatVersionInfo> vnumResult = _datVersionReader.ReadVersion(command.DatFilePath);
@@ -162,9 +159,9 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
         {
             LogSkippedTranslationUnchanged(_logger);
 
-            // Spec 0012 Tier 0: the file is the one we applied, but a game update may have replaced
-            // subfiles we patched since then. The hash cannot see that, so translations lost that way
-            // used to stay lost. When the translation file changed, the patch above covers it already.
+            // Spec 0012 Tier 0: the file is the one we applied, but a game update may since have
+            // replaced subfiles we patched, and the hash cannot see that. When the translation file
+            // changed, the patch above already covers it.
             WipedSubFileSet wiped = _wipeDetector.Detect(command.DatFilePath, command.TranslationFilePath);
             wipedSubFileCount = wiped.Count;
 
@@ -172,9 +169,9 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
             {
                 LogRepairingWipedSubFiles(_logger, wiped.Count);
 
-                // The verdict does not gate this, and it works offline: the source guard admits each row
-                // on its own (ADR-0047). A successful patch saves a new snapshot, so the next launch finds
-                // nothing to repair.
+                // No staleness verdict gates this, and it works offline: the source guard admits each
+                // row on its own (ADR-0047 §5). A successful patch saves a new snapshot, so the next
+                // launch finds nothing to repair.
                 Result<PatchSummaryResponse> repairResult =
                     _patchingService.ApplyTranslations(command.TranslationFilePath, command.DatFilePath);
 
@@ -203,7 +200,6 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
             }
         }
 
-        // Step 3: start the launcher and do not wait for it.
         LogStartingGame(_logger);
         Result launchResult = _gameLauncher.Launch(command.DatFilePath);
         if (launchResult.IsFailure)

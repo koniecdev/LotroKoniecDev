@@ -38,7 +38,6 @@ public class Result
 /// <summary>
 /// A <see cref="Result"/> that also carries a value when it succeeded.
 /// </summary>
-/// <typeparam name="TValue">The type of the value.</typeparam>
 public sealed class Result<TValue> : Result
 {
     private readonly TValue _value;

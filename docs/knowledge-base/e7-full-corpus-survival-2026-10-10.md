@@ -94,7 +94,8 @@ is English (changed or removed).
   the share that is actually translated.
 - **One cumulative update** (47.2 → 49.7, two majors in one go), replayed by forced downgrade. A
   single major should lose less. The Wolves of Mordor expansion (2026-10-28) is the next real
-  single-major measurement, with the same procedure.
+  single-major measurement, with the same procedure. Measured on 2026-10-29: 2.36% lost, see
+  [update-50/RESULTS.md](update-50/RESULTS.md).
 
 ## Files (gitignored `intel/update-49.7/`)
 

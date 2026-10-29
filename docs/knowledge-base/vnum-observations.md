@@ -24,6 +24,7 @@ originSessionId: fcf33c21-a957-445f-bc57-c8ea7814f1b6
 | **2026-06-25** | **48.0 → 48.7 (point)** | **112** | **3** | **Yes (+1 MiB, +1,159 fragments)** |
 | 2026-07-11 | 48.7 → 48.8 (point) | 112 | 3 | Yes (minor) |
 | **2026-08-02** | **48.8 → 49.1 (MAJOR)** | **112** | **3** | **Yes (+1 MiB, +7,192 fragments)** |
+| **2026-10-29** | **49.8 → 50 (expansion)** | **112** | **3** | **Yes (+75 MiB, +16,787 fragments; [update-50/RESULTS.md](update-50/RESULTS.md))** |
 
 ## Conclusions — definitively confirmed
 

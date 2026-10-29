@@ -6,6 +6,7 @@
 measured a cumulative update (47.2 → 49.7, two majors at once) and named this release as the next
 real single-major measurement ([../e7-full-corpus-survival-2026-10-10.md](../e7-full-corpus-survival-2026-10-10.md),
 "Limits").
+**Results:** [RESULTS.md](RESULTS.md) (measured 2026-10-29)
 
 ## The install
 
@@ -52,7 +53,7 @@ File: `intel/update-50/e5-pre-u50-49.8-*.csv`.
   280,606 text subfiles. The launcher therefore still sees plain 49.8 (as in E7).
 - The patch wrote the ledger and the Tier 0 iteration snapshot next to the corpus
   (`e7pl.txt.ledger`, `e7pl.txt.iterations`). Copies of both are kept, because the update tests
-  below need the state from before the update.
+  in [RESULTS.md](RESULTS.md) need the state from before the update.
 
 ## The sandbox install: measuring an update with no elevation
 
@@ -60,7 +61,7 @@ The launcher asks for UAC only when it cannot open a file for write. Its binary 
 `"Failed to open [%1] for write. Error [%2] - restarting launcher as elevated process."`. In
 Program Files the user has read-only access (`BUILTIN\Users:(RX)`), so every start asks for
 elevation (E4). A full copy of the install in the user's profile (46 GB,
-`C:\Users\konie\lotro-sandbox\LOTRO`, 1.5 min with robocopy) is writable, so a launcher started
+`%USERPROFILE%\lotro-sandbox\LOTRO`, 1.5 min with robocopy) is writable, so a launcher started
 from there patches the copy **with no UAC prompt**. Nobody has to click, and the live game is never
 touched.
 

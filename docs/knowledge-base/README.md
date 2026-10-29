@@ -29,6 +29,14 @@ Detailed analysis: [lotro-companion-data-model.md](lotro-companion-data-model.md
 - `lotro-data` GitHub repo **is** the live dataset (updated within days of each patch); labels not needed — our English comes from our own export
 - Caveats: subset coverage, join on keys never text (`${PLAYER}` vs `<--DO_NOT_TOUCH!-->`), version skew tolerated as dangling refs, no LICENSE (attribution = courtesy decision)
 
+### Update 50 "The Wolves of Mordor" — the first single major measured with the E5/E7 tools, and Tier 0 on a real update (2026-10-29)
+Detailed analysis: [update-50/RESULTS.md](update-50/RESULTS.md) · before: [update-50/BASELINE.md](update-50/BASELINE.md)
+- Measured in a **sandbox copy of the install**: the launcher patches a user-writable copy with no UAC prompt, so nobody has to click and the live game is never touched
+- 49.8 → 50: 7,711 iterations (731 English), 16,949 rows added, 7,026 changed, 162 removed; the E5 iteration signal = exactly the 811 changed text subfiles, 0 missed
+- E7 corpus: **97.64% survived; 1.47% collateral revert, 0.87% English changed by SSG, 0.02% removed**, every loss inside the E5 set
+- **Tier 0 through `launch`:** found all 811 replaced subfiles in 0.2 s, re-patched 798,932 rows in 6.7 s (all 11,846 collateral reverts repaired), skipped all 7,026 changed rows as `source moved`; **0 Polish over changed English**; the next launch, after a launcher start, found nothing
+- SSG's current launcher is **not signed**, so `launch` refuses to start it (#1290)
+
 ### E7 — the revert rate of a fully translated corpus, counted, and the source guard on a real update (2026-10-10)
 Detailed analysis: [e7-full-corpus-survival-2026-10-10.md](e7-full-corpus-survival-2026-10-10.md) · tool: `scripts/experiments/e7-corpus-survival.ps1` (#1094)
 - Every 47.2 row marked `[PL] `, patched into a DAT copy, then the launcher applied the real update to 49.7 on it (forced downgrade): **97.03% survived; 2.57% collateral revert, 0.30% English changed by SSG, 0.11% removed** — 1,661 SubFiles, all of them in the E5 diff (0 missed), no loss outside them, nothing survived inside them
@@ -207,6 +215,16 @@ Same shape as the folders above (quest text in synthetic LEGAL-08 equivalents). 
 | [`RESULTS.md`](update-49/RESULTS.md) | Full 48.8→49.1 results: 7/8 survival, the per-SubFile revert mechanism + counter-proof, diff stats, vnum, WRITE test; experiments E1–E4 (2026-08-02) and E5 (2026-08-17, incl. the live 49.1→49.3 measurement) |
 
 No launch log this cycle — our `launch` was deliberately skipped (see RESULTS §deviation).
+
+## `update-50/` — the 49.8 → 50 measurement (2026-10-28 baseline, 2026-10-29 update)
+
+No game text is committed. The DAT backups (~1.9 GB each), full exports (~100 MB), E5 snapshots,
+capture logs and the analysis scripts live in the gitignored `intel/update-50/`; committed here:
+
+| File | What it is |
+|------|-----------|
+| [`BASELINE.md`](update-50/BASELINE.md) | Pre-update 49.8 snapshot: DAT hash, export and E5 counts, the marked E7 corpus, and the sandbox install that patches with no UAC prompt |
+| [`RESULTS.md`](update-50/RESULTS.md) | The real update in the sandbox, E7 on the marked corpus, Tier 0 repair through three `launch` runs, and the unsigned launcher (#1290) |
 
 ---
 

@@ -9,10 +9,17 @@
 # Logs one line per state change (probe result / size / mtime / process set) + a 30 s heartbeat.
 param(
     [string]$DatPath = 'C:\Program Files (x86)\StandingStoneGames\The Lord of the Rings Online\client_local_English.dat',
-    [string]$LogPath = (Join-Path $PSScriptRoot '..\..\intel\update-49\e2-handle-timeline.log'),
+    [string]$LogPath = '',
     [double]$IntervalSeconds = 1.0,
     [int]$HeartbeatSeconds = 30
 )
+
+# Resolve the default here, not in param(): Windows PowerShell 5.1 leaves $PSScriptRoot empty there
+# when the script is started with -File.
+if (-not $LogPath)
+{
+    $LogPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..\..\intel\update-49\e2-handle-timeline.log'
+}
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin)

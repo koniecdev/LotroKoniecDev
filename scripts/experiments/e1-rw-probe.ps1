@@ -7,9 +7,16 @@
 # Labels used by the E1 protocol: baseline | login-screen | in-game
 param(
     [string]$DatPath = 'C:\Program Files (x86)\StandingStoneGames\The Lord of the Rings Online\client_local_English.dat',
-    [string]$LogPath = (Join-Path $PSScriptRoot '..\..\intel\update-49\e1-probe-results.log'),
+    [string]$LogPath = '',
     [string]$Label = 'unlabeled'
 )
+
+# Resolve the default here, not in param(): Windows PowerShell 5.1 leaves $PSScriptRoot empty there
+# when the script is started with -File.
+if (-not $LogPath)
+{
+    $LogPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..\..\intel\update-49\e1-probe-results.log'
+}
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin)

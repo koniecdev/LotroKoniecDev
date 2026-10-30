@@ -113,7 +113,9 @@ handled, nor impossible-by-construction, nor another part's job** is a finding.
     token they receive);
   - **inputs from outside our trust boundary** (ADR-0067 §7): browser requests and form fields,
     anything a user types, imported `||` files and the Companion zip, DAT bytes, CLI arguments and
-    the CLI's settings, the CLI's download, third-party services.
+    the CLI's settings, the CLI's download, third-party services. One exception: a check of who made
+    the game launcher or the libraries it loads from the game folder (signature, hash, publisher)
+    is already decided (ADR-0069); how the patcher chooses the game folder stays a finding.
 
 **Checklist — categories tuned to this repo:**
 

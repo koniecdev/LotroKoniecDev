@@ -1,6 +1,7 @@
 # ADR-0067: Who checks what — each of our parts checks only what it owns, by the standard OAuth roles
 
-**Status:** Accepted
+**Status:** Accepted (§7 item 5 amended 2026-10-30 by ADR-0069 with one exception for the game
+launcher — see the in-body note)
 **Date:** 2026-10-11
 **Decision-makers:** Solo maintainer (owner decision recorded in #1098, 2026-10-11)
 **Related:** Frontend (`Infrastructure/Auth/`), AuthSystem.API (the OpenIddict server and the account
@@ -244,6 +245,9 @@ every instruction file repeats them:
    and ticket text in this public repo. Where the data came from decides, not the last part it
    passed through: text a translator typed is still outside input when our own API hands it to the
    website.
+   > **Amended by ADR-0069 (2026-10-30, #1290):** one exception. The game launcher and the libraries
+   > in the game folder get no check of who made them, because SSG no longer signs the launcher. How
+   > the patcher chooses that folder stays a finding.
 
 Two more points:
 

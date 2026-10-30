@@ -141,7 +141,7 @@ validator.
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
 | Write or hand over a **manual QA ticket** (external tester) | **`/qa-ticket`**: every scenario verified against HEAD first; `/qa-ticket #<n>` re-baselines an existing one |
 | Review a finished change | the **`code-reviewer`** agent |
-| Sort review findings, file one, or triage an `audit` ticket | **ADR-0067 §8** (what is not a finding) + ADR-0008 §3 (the bar for a startup check) + `docs/labels.md` → "One bug class per ticket" |
+| Sort review findings, file one, or triage an `audit` ticket | **ADR-0067 §8** (what is not a finding) + ADR-0008 §3 (the bar for a startup check) + ADR-0069 (the game launcher is not checked) + `docs/labels.md` → "One bug class per ticket" |
 | Understand the backlog / milestones | `gh issue list` + Roadmap below |
 | Compare with the Russian sister project | `docs/RUSSIAN_PROJECT_RESEARCH.md` + `docs/knowledge-base/russian-project.md` |
 
@@ -313,9 +313,9 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   one clean path for an answer the code cannot use; a guard on where a secret goes (another host,
   plain HTTP, a page, an e-mail, a log line); a resource server's check of a token it receives; and
   input from outside our trust boundary (browser, user, imported files, DAT bytes, the CLI and its
-  settings, third-party services). Least privilege between our parts (#1086) is a separate, valid
-  question. This ends the chain #974 → … → #1067: eight tickets in thirteen days, each adding a
-  check the next review audited.
+  settings, third-party services), except a check of who made the game launcher (ADR-0069). Least
+  privilege between our parts (#1086) is a separate, valid question. This ends the chain #974 → … →
+  #1067: eight tickets in thirteen days, each adding a check the next review audited.
 - **Hypermedia links are authorization-aware, not role-branched (ADR-0040).** `ILinkFactory` replays
   the *target* endpoint's own policy (`IAllowAnonymous` → `AuthorizationPolicy.CombineAsync` incl.
   the fallback → `IAuthorizationService`) before it emits a link, so a rel is never advertised to a

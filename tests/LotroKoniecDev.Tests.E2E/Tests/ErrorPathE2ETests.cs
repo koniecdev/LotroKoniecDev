@@ -24,6 +24,19 @@ public sealed class ErrorPathE2ETests
         result.ExitCode.ShouldBe((int)CliExitCode.FileNotFound, $"stdout: {result.Stdout}");
     }
 
+    [Fact]
+    public async Task Launch_TranslationFileMissing_ShouldPrintTheLauncherNoticeAndReturnFileNotFound()
+    {
+        string fakeTranslationsPath = Path.Combine(_fixture.CreateTempDir(), "nonexistent.txt");
+        string fakeDatPath = Path.Combine(_fixture.CreateTempDir(), "client_local_English.dat");
+
+        CliResult result = await _fixture.RunCliAsync(
+            $"launch \"{fakeTranslationsPath}\" -d \"{fakeDatPath}\" --skip-sync");
+
+        result.ExitCode.ShouldBe((int)CliExitCode.FileNotFound, $"stdout: {result.Stdout}");
+        result.Stdout.ShouldContain("Na koniec uruchamiamy LotroLauncher.exe");
+    }
+
     [SkippableFact]
     public async Task Patch_ShouldReturnFileNotFound_WhenTranslationFileDoesNotExist()
     {

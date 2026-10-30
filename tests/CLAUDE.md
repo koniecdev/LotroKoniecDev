@@ -249,7 +249,8 @@ start.
 
 Full-pipeline tests that drive the CLI (`ExportE2ETests`, `PatchE2ETests`, `RoundtripE2ETests`,
 `ErrorPathE2ETests`) against a real DAT. They use `SkippableFact` and **skip** when
-`TestData/client_local_English.dat` is missing (setup: the project's `README.md`). Off Windows the
+`TestData/client_local_English.dat` is missing (setup: the project's `README.md`). A test that
+never reaches the DAT, such as the `launch` notice check, is a plain `Fact`. Off Windows the
 project is not run at all, because the CLI is a win-x86 program: `dotnet test` prints one
 `LotroKoniecDev.Tests.E2E: not run` line instead (`WindowsOnlyTestRun.targets`, #816).
 

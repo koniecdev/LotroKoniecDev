@@ -58,6 +58,7 @@ internal sealed class LaunchCommand : AsyncCommand<LaunchCommand.Settings>
         CancellationToken cancellationToken)
     {
         ConsoleWriter.WriteNotice(RiskNotice.Text);
+        ConsoleWriter.WriteNotice(LauncherNotice.Text);
 
         // Download the current translation file before launching (spec 0001 Q5). It is skipped when
         // the user turned it off or no TMS URL is set. The launch never waits on the network: if the

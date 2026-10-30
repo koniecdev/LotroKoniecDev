@@ -41,22 +41,27 @@ internal sealed class DatPathResolver : IDatPathResolver
         WriteInfo($"Found LOTRO: {location.DisplayName}");
         WriteInfo($"  {location.Path}");
 
-        // A folder found by scanning the drive is not a trusted source: anyone who can write there
-        // could have put a DAT and a launcher in it. So we never use it without asking (AUDIT-SEC-02).
-        if (location.Source is DatFileSource.DiskScan && !ConfirmScannedLocation())
+        // A folder found by scanning the drive, or data/ under the current folder, is not a known
+        // install: anyone who can write there could have put a DAT and a launcher in it. So we never
+        // use it without asking (AUDIT-SEC-02). Nothing checks the launcher itself, so this question
+        // is the guard before launch (ADR-0069).
+        if (location.Source is DatFileSource.DiskScan or DatFileSource.LocalFallback
+            && !ConfirmUnknownLocation(location.Source))
         {
-            WriteError("Scanned location rejected. Provide the DAT file path explicitly with -d.");
+            WriteError("Location rejected. Provide the DAT file path explicitly with -d.");
             return null;
         }
 
         return location.Path;
     }
 
-    private static bool ConfirmScannedLocation()
+    private static bool ConfirmUnknownLocation(DatFileSource source)
     {
         Console.WriteLine();
-        WriteWarning("This installation was found by a drive scan, not a known install source.");
-        WriteWarning("On launch, LotroLauncher.exe from this folder will be started.");
+        WriteWarning(source is DatFileSource.DiskScan
+            ? "This installation was found by a drive scan, not a known install source."
+            : "This installation is the data/ folder under the current folder, not a known install source.");
+        WriteWarning("On launch, LotroLauncher.exe from this folder is started with this tool's rights, and nothing checks it.");
         Console.Write("Use this installation? [y/N]: ");
 
         string? input = Console.ReadLine();
@@ -76,7 +81,7 @@ internal sealed class DatPathResolver : IDatPathResolver
 
             if (locations[i].Source is DatFileSource.DiskScan)
             {
-                Console.WriteLine("      [!] found by drive scan — make sure this is your real install");
+                Console.WriteLine("      [!] found by drive scan — make sure this is your real install; on launch, its LotroLauncher.exe starts unchecked");
             }
         }
 

@@ -12,4 +12,22 @@ takich modyfikacji, choć przez ponad dekadę działania analogicznych projektó
 (rosyjskiego i hiszpańskiego) nie odnotowano za nie banów. Korzystasz na
 własną odpowiedzialność.
 
+The game launcher / Launcher gry:
+
+EN:
+At the end, launch starts LotroLauncher.exe from the game folder, and the
+launcher starts the game. SSG no longer signs the launcher, so we do not check
+that the files in the game folder are genuine. The launcher gets this tool's
+rights (through lotro.bat: administrator), and when it cannot write to the
+game folder, it asks for administrator rights itself. If a virus replaced one of
+those files, it can get those rights this way. You start the game knowingly.
+
+PL:
+Na koniec launch uruchamia LotroLauncher.exe z folderu gry, a on uruchamia
+grę. SSG nie podpisuje już launchera, więc nie sprawdzamy, czy pliki
+w folderze gry są oryginalne. Launcher dostaje uprawnienia tego narzędzia
+(przez lotro.bat: administratora), a gdy nie może zapisywać w folderze gry,
+sam prosi o prawa administratora. Jeśli wirus podmienił któryś z tych plików, może
+je w ten sposób dostać. Uruchamiasz grę świadomie.
+
 Terms of service / Regulamin: https://lotro-translator.pl/regulamin

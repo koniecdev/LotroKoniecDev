@@ -5,16 +5,14 @@ using LotroKoniecDev.Domain.Core.Monads;
 
 namespace LotroKoniecDev.Infrastructure.GameLaunching;
 
+/// <summary>
+/// Starts LotroLauncher.exe from the folder of the DAT, with no check of the file. SSG no longer
+/// signs it, and a signature never covered the libraries it loads from that folder (ADR-0069). The
+/// guard is the player's confirmation of a folder that is not a known install.
+/// </summary>
 public sealed class GameLauncher : IGameLauncher
 {
     private const string LauncherExecutable = "LotroLauncher.exe";
-
-    private readonly ILauncherSignatureVerifier _signatureVerifier;
-
-    public GameLauncher(ILauncherSignatureVerifier signatureVerifier)
-    {
-        _signatureVerifier = signatureVerifier;
-    }
 
     public Result Launch(string datFilePath)
     {
@@ -29,25 +27,12 @@ public sealed class GameLauncher : IGameLauncher
 
         try
         {
-            // The DAT folder can come from a source we do not trust, such as a drive scan or user
-            // input, so the executable has to prove who published it before it runs, possibly with
-            // admin rights (AUDIT-SEC-02). We keep the read handle open from the check until the
-            // start, which blocks writes and renames, so nobody can swap the bytes in between.
-            using FileStream launcherGuard = new(
-                launcherPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-
-            Result signatureResult = _signatureVerifier.VerifySignature(launcherPath);
-            if (signatureResult.IsFailure)
-            {
-                return signatureResult;
-            }
-
             Process? process = Process.Start(new ProcessStartInfo
             {
                 FileName = launcherPath,
                 WorkingDirectory = Path.GetDirectoryName(launcherPath) ?? string.Empty,
-                // UseShellExecute = true lets the launcher raise a UAC prompt when it needs admin
-                // rights for a game update.
+                // Like a double click: a launcher that asks for admin rights at start gets the UAC
+                // prompt instead of failing with error 740.
                 UseShellExecute = true
             });
 
@@ -57,7 +42,8 @@ public sealed class GameLauncher : IGameLauncher
                     "Process.Start returned null — the launcher could not be started."));
             }
 
-            // We do not wait for the launcher to exit. It restarts itself with elevation anyway.
+            // No waiting: the launcher restarts itself after it updates itself, so this process can
+            // end long before the game starts.
             process.Dispose();
             return Result.Success();
         }
@@ -69,17 +55,21 @@ public sealed class GameLauncher : IGameLauncher
 
     private static string ResolveLauncherPath(string datFilePath)
     {
-        if (Directory.Exists(datFilePath))
+        // ShellExecute reads a relative file name against the working directory we pass, so a
+        // relative path would start a different file than the one checked here.
+        string fullDatFilePath = Path.GetFullPath(datFilePath);
+
+        if (Directory.Exists(fullDatFilePath))
         {
-            return Path.Combine(datFilePath, LauncherExecutable);
+            return Path.Combine(fullDatFilePath, LauncherExecutable);
         }
 
-        if (File.Exists(datFilePath))
+        if (File.Exists(fullDatFilePath))
         {
-            string dirPath = Path.GetDirectoryName(datFilePath) ?? string.Empty;
+            string dirPath = Path.GetDirectoryName(fullDatFilePath) ?? string.Empty;
             return Path.Combine(dirPath, LauncherExecutable);
         }
 
-        return Path.Combine(datFilePath, LauncherExecutable);
+        return Path.Combine(fullDatFilePath, LauncherExecutable);
     }
 }

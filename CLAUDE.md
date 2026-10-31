@@ -375,8 +375,9 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
 - **Agent fan-out is budgeted; agents inherit the session's model and effort.** The repo pins no
   model tier of its own. Hard cap: **max 4 subagents in parallel**, no chained waves by default; a
   small diff **starts with inline `/code-review`** instead of a review agent and escalates to
-  `code-reviewer` only as `/ticket` step 7 says; any ticket may add the step-2 `/buddy` claim
-  check. The committed `code-reviewer` agent carries
+  `code-reviewer` only as `/ticket` step 7 says; a plan that rests on a negative claim, a cause
+  outside the repo or a conclusion taken over always gets `/ticket`'s step-2 `/buddy` claim check.
+  The committed `code-reviewer` agent carries
   **`model: inherit`**, so a fresh clone reviews with the contributor's own tier; `/code-review`
   and `/security-review` follow the session model/effort the same way. Loop-mode worker sessions
   take model and effort from the maintainer's machine-local policy (Opus 5.5 at **xhigh** since

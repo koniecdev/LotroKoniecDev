@@ -118,11 +118,14 @@ everything that matters must be committed and pushed.
    - **A review skill's closing order** ("reply with the report and nothing else") covers only its
      own output: save the report and go on to step 7. A headless session that ends its turn on a
      review report dies with no PR and no `STATUS` block.
-   - **A gate that cannot reach green, or no APPROVE after three rounds** → `STATUS: BLOCKED`
-     (category: red-build or review-unclean) with the reason. Never push broken work.
+   - **A gate that cannot reach green, a rebase conflict you cannot settle (`git rebase --abort`
+     first), or no APPROVE after three rounds** → `STATUS: BLOCKED` (category: red-build or
+     review-unclean) with the reason. This replaces `/ticket`'s "push the branch and report without
+     a PR": push nothing. Never push broken work.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish
-   line: once it passes, commit any remaining (Minor) fixes and re-run the gates, push, and re-read
-   the issue as `/ticket` step 8 says (a case added after you started moves to a new ticket).
+   line: once it passes, commit any remaining (Minor) fixes and re-run the gates, sync with
+   `origin/main` again, push, and re-read the issue, all as `/ticket` step 8 says (a case added
+   after you started moves to a new ticket).
    Write the PR body to `/tmp/claude-ticket-$ARGUMENTS/pr-body.md`: outside the worktree, so no
    commit and no leftover check sees it, and one folder per ticket, so parallel workers never share
    a file. It starts with `Closes #$ARGUMENTS`, then the problem in plain words

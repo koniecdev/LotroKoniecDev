@@ -85,9 +85,9 @@ of authority:
   (#1023 reversed #966 that way). "The owner decides" in the ticket body, unless a later owner
   comment answers it, is a question for the gate below, never a default to pick the strictest option
   from (PR #1063).
-- **A `/preflight` verdict comment already on the issue counts as this step done** — trust it,
-  re-verify only what it flagged, and skip straight to its recommended lane. It does **not** cover
-  the claim check below: preflight runs no agents, so nobody has tried to prove its diagnosis wrong.
+- **A `/preflight` verdict comment already on the issue counts as this step done**, except the
+  claim check below — trust it, re-verify only what it flagged, run the claim check, and take its
+  recommended lane. Preflight runs no agents, so nobody has tried to prove its diagnosis wrong.
 - **Challenge the claims the plan rests on — `/buddy`, before the verdict.** Reading the flow at
   `file:line` does not check every claim around it. Run `/buddy` when the plan rests on any of
   these:
@@ -105,8 +105,10 @@ of authority:
 
   `/buddy` is an account-level skill, so a fresh clone may not have it. Then spawn one fresh
   `general-purpose` agent and never pass `name` (a named agent's report never reaches you). Give it
-  the claims numbered, the order to prove them wrong against the code, a CONFIRMED / REFUTED /
-  OVERSTATED verdict per claim, and SOUND / SOUND WITH CORRECTIONS / NOT SOUND overall.
+  the claims numbered, the order to prove them wrong against the code, "read-only: no edits and no
+  git command that changes anything", a CONFIRMED / REFUTED / OVERSTATED verdict per claim with
+  `file:line` evidence, a list of what it checked and found sound, and SOUND / SOUND WITH
+  CORRECTIONS / NOT SOUND overall.
 - **The same bar holds for the rest of the run.** A cause or a claim about an external system that
   goes into docs, an ADR, a ticket or UI copy is backed by evidence, checked by `/buddy`, or
   written as unproven. A reviewer's finding is a claim too: check it at `file:line` before you fix
@@ -157,10 +159,10 @@ you actually have, so an S that grew past the threshold gets `code-reviewer`. Sa
 **`/buddy` before code, in any lane, when the plan carries a design bet.** A design bet is one of:
 an ADR written for this ticket, a deviation from an acceptance criterion, or one load-bearing
 assumption that decides the whole slice. Hand `/buddy` the plan as claims, and include the claim
-"this step protects something the caller could not already get". When step 2 already sends claims
-to `/buddy`, put the design bet into the same run; if `/buddy` is not installed, use step 2's
-fallback agent. A design flaw found here costs one cheap agent; found at the review gate it costs a
-rewrite plus a full re-run of every gate.
+"this step protects something the caller could not already get". A design bet already known at step
+2 goes into step 2's run; one that appears later (an ADR written here) gets its own run. If `/buddy`
+is not installed, use step 2's fallback agent. A design flaw found here costs one cheap agent; found
+at the review gate it costs a rewrite plus a full re-run of every gate.
 Precedent: #690 — the first draft put a password in front of a POST whose payload was identical to
 the open GET beside it, and only review round 1 saw it, after the code and the tests existed.
 
@@ -231,19 +233,20 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   the PR, because `needs-windows-check` holds it.
 - **A regression test is proven, not assumed:** it must fail on the code before the fix. Make a
   throwaway worktree in the gitignored `.claude/worktrees/` (a build there takes gigabytes, and
-  `/tmp` often lives in RAM): `git worktree add --detach .claude/worktrees/<n>-pre-fix HEAD`.
-  In it, `git checkout origin/main -- <the fix's production files>` (`git rm` one the fix added),
-  so the fix goes and the test stays. When the test needs a type or member the fix added, revert
-  only the behaviour inside it: a compile error proves nothing. Build the test project there with
-  `--no-incremental` and
-  `-p:TreatWarningsAsErrors=false -p:WarningsAsErrors= -p:EnforceCodeStyleInBuild=false
-  -p:RunAnalyzersDuringBuild=false`, then `dotnet test <project> --no-build --filter
-  "FullyQualifiedName~<test>"`. Without those switches the old tree can fail on an analyzer
-  (`Directory.Build.props` makes every warning an error, `.editorconfig` marks style rules
-  `:error`), print no test summary and look like a failing test. The proof counts only when the run
-  prints a test summary with that test failing by name. Then `git worktree remove --force` it. A
-  change no test can pin (pure presentation) goes under **Doubts** with the page or step to check
-  by hand.
+  `/tmp` often lives in RAM): `git worktree add --detach .claude/worktrees/ticket-<n>-pre-fix HEAD`.
+  In it, `git checkout $(git merge-base HEAD origin/main) -- <the fix's production files>` (`git rm`
+  one the fix added), so the fix goes and the test stays. Use the merge base, not `origin/main`:
+  another session's fetch can move `origin/main`, because worktrees share it. When the test needs a
+  type or member the fix added, revert only the behaviour inside it: a compile error proves nothing.
+  Build the test project there with `--no-incremental` and `-p:TreatWarningsAsErrors=false
+  -p:WarningsAsErrors= -p:EnforceCodeStyleInBuild=false -p:RunAnalyzersDuringBuild=false`, then
+  `dotnet test <project> --no-build --filter "FullyQualifiedName~<test>"`. Without those switches
+  the old tree can fail on an analyzer (`Directory.Build.props` makes every warning an error,
+  `.editorconfig` marks style rules `:error`), print no test summary and look like a failing test.
+  The proof counts only when the run prints a test summary with that test failing by name. Then `git
+  worktree remove --force` it; an E2E proof also leaves Docker images tagged with the folder name,
+  so remove them as `tests/LotroKoniecDev.Frontend.E2E.Tests/README.md` shows. A change no test can
+  pin (pure presentation) goes under **Doubts** with the page or step to check by hand.
 - **The guard scripts CI runs, every time** — they are bash greps and take seconds:
   `scripts/check-ssr-purity.sh`, `scripts/check-client-hypermedia.sh`,
   `scripts/check-dockerfile-restore-graph.sh`, `scripts/check-migration-safety.sh`.
@@ -251,8 +254,10 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   `git diff --shortstat origin/main...HEAD`. The base is always `origin/main`: a local `main` can
   be behind it (in a worktree it is never pulled), and a stale base pulls other merged work into
   the diff.
-  - **< ~150 changed lines, one concern → inline `/code-review origin/main...HEAD`, two rounds at
-    most.** It has no severity bar and no verdict rule, so the exit is defined here. Sort each
+  - **< ~150 changed lines, one concern → inline `/code-review high origin/main...HEAD`, two
+    rounds at most.** Name the level: with none, the skill reuses the last level typed, and the
+    second pass below shows how much effort decides. It has no severity bar and no verdict rule, so
+    the exit is defined here. Sort each
     round's findings into the four buckets of the second pass below; a round with no bucket-1
     finding is the pass. Otherwise fix every bucket-1 finding, commit, re-run the gates and run one
     more round on the result. If that round still finds a defect in the diff, or the fixes pushed
@@ -267,26 +272,28 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
       so they are not raised again as blockers;
     - the gates you already ran, with their results;
     - "read-only: any probe runs in a throwaway worktree";
-    - the bar: Critical/Major = a defect a user, tester or maintainer would hit; wording and taste
-      are Minor and do not block APPROVE;
+    - the bar: Critical/Major as `code-reviewer.md` defines them, its hard rule on untested
+      unhappy paths included; wording and taste are Minor and do not block APPROVE;
     - "write the report, the reviewed SHA and a final `VERDICT:` line to
       `<scratchpad>/<n>-review-r<round>.md`, and end your turn only after the file exists".
 
     Fix every Critical/Major, commit, re-run the gates, then **spawn a fresh `code-reviewer`** for
     the next round, with the earlier findings and the fix commits, writing the next `-r<round>`
     file. Never ask the old reviewer to re-verify: it has already formed its view and can send its
-    old verdict back as if it were new. Minor-only fixes need no new round. **No APPROVE after three
-    rounds → stop:** push the branch and report without a PR (step 8).
+    old verdict back as if it were new. Minor-only fixes need no new round. NEEDS DISCUSSION counts
+    as REQUEST CHANGES: answer each question from the wiki, the code or an ADR and fix, or stop as
+    below. **No APPROVE after three rounds → stop:** push the branch and report without a PR (step
+    8).
   - **Trust a verdict only after you check its file:** it exists, it is newer than the commit it
-    names, and that commit is `HEAD` or differs from it only by Minor fixes or by the second pass's
-    bucket-1 fixes (below), with the gates green again. A reviewer that
-    reports "completed" with no file has stalled. In an interactive session, one message asking it
-    to write the file now is the fix; its answer comes back as a notification, which a headless
-    session never gets (`/work-ticket` spawns a fresh reviewer instead). A file that names an older
-    commit is stale: spawn a fresh reviewer.
+    names, and that commit is `HEAD` or differs from it only by Minor fixes, the second pass's
+    bucket-1 fixes (below) or a rebase with no conflict (step 8), with the gates green again. A
+    reviewer that reports "completed" with no file has stalled. In an interactive session, one
+    message asking it to write the file now is the fix; its answer comes back as a notification,
+    which a headless session never gets (`/work-ticket` spawns a fresh reviewer instead). A file
+    that names an older commit is stale: spawn a fresh reviewer.
   - **`/security-review`** on top for anything touching native interop, file protection, or auth.
 - **Second pass — after a `code-reviewer` APPROVE on a diff that went to it at the gate: run
-  `/code-review origin/main...HEAD`.** It forks into a fresh context, so it has never seen your
+  `/code-review xhigh origin/main...HEAD`.** It forks into a fresh context, so it has never seen your
   plan, your ADR or the first reviewer's framing, and it reads the code around the diff instead of
   the diff's own story. That independence is the point: the `code-reviewer` rounds converge on what
   the author and the reviewer already talk about. An escalated small diff skips this pass: its two
@@ -336,7 +343,7 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   **before** the push: a finding that lands after `gh pr create` costs a pr-verify run.
   Effort decides what it finds, more than the model does: on #690's PR the same command gave 2 and 4
   findings in two runs at effort medium, and 14 and 15 at xhigh (one run each on the two top tiers,
-  about 6 and 20 USD). A session below effort high should not count this pass as proof.
+  about 6 and 20 USD). A run below level high is no proof.
 - **A review skill's report does not end `/ticket`.** `/security-review` and `/code-review` end
   with an order like "your final reply must contain the report and nothing else". Inside
   `/ticket` that order covers only the review's own output. Save the report to
@@ -350,6 +357,11 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
 
 - **Commit any remaining (Minor) fixes** in logical units and re-run the gates (step 7): leave
   nothing behind.
+- **Sync again right before the push.** `git fetch origin`; if `origin/main` moved during the
+  review, `git rebase origin/main` and re-run the gates, or the PR opens in conflict and its checks
+  never start. A rebase with no conflict keeps the verdict (it changes no line of this diff, as
+  ADR-0060 has it for the owner's approval). One where you resolved a conflict changed reviewed
+  code: it needs a fresh `code-reviewer` round, which counts toward the three.
 - **A PR ships only when nothing can be wrong.** Every gate above is already green on the pushed
   commit and no open question, TODO or unverified assumption remains. Any gate unproven (Docker
   down, a suite skipped, review verdict missing) → **push the branch, write the report (step 9) as

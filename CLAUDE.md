@@ -760,8 +760,8 @@ Per-suite details (inventory, libraries, snapshots, E2E, conventions): `tests/CL
    only at **Status: Agreed**.
 3. **Decision before code.** A non-trivial modeling/architecture choice → **`/adr`** first.
 4. **Slice, mirror, test, review.** Branch as `/ticket` step 5 says (`gh issue develop <n> --list`
-   first, then `--checkout`). Implement by mirroring the nearest sibling slice, add tests, commit
-   and rebase on `origin/main`, then run the review gate the diff picks (`/ticket` step 7: the
+   first). Implement by mirroring the nearest sibling slice, add tests, commit and rebase on
+   `origin/main`, then run the review gate the diff picks (`/ticket` step 7: the
    **`code-reviewer`** agent, or inline `/code-review` for a small diff; **`/security-review`** for
    anything touching native interop, file protection, or auth).
    **Green build + zero warnings + clean review = "done", not before.**

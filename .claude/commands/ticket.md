@@ -194,7 +194,9 @@ Step 0 already left you on a clean, fresh `main`; anything dirty now is this ses
   `gh pr list --head <branch> --state all --json number,state`. A merged PR means that work
   shipped: a push to the branch reaches no PR, so it never reaches `main` (#1097). What is left of
   the ticket goes into a new ticket that links back: say so and stop. Otherwise
-  `git fetch origin <branch>`, `git switch <branch>` and continue.
+  `git fetch origin <branch>`, `git switch <branch>` and `git merge --ff-only origin/<branch>` (a
+  fast-forward, never a merge commit). If that fails, the local and the remote branch have moved
+  apart: say so and stop.
 - **Never work on `main` directly.** If for any reason you find yourself past step 0 with commits
   to make and no ticket branch yet, cut the branch first — nothing is ever committed to `main`.
 
@@ -276,7 +278,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     old verdict back as if it were new. Minor-only fixes need no new round. **No APPROVE after three
     rounds → stop:** push the branch and report without a PR (step 8).
   - **Trust a verdict only after you check its file:** it exists, it is newer than the commit it
-    names, and that commit is `HEAD` or differs from it only by Minor fixes. A reviewer that
+    names, and that commit is `HEAD` or differs from it only by Minor fixes or by the second pass's
+    bucket-1 fixes (below), each with its own test and the gates green again. A reviewer that
     reports "completed" with no file has stalled. In an interactive session, one message asking it
     to write the file now is the fix; its answer comes back as a notification, which a headless
     session never gets (`/work-ticket` spawns a fresh reviewer instead). A file that names an older
@@ -303,7 +306,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
      that case). Finding those cases is this ticket's own task, so fix it in this diff with its
      own test. In the second pass, a case with a cause the diff has not fixed yet gets one more
      round from a fresh `code-reviewer`, which counts toward the three (none left: stop as the
-     three-round rule says); the second pass does not run again.
+     three-round rule says), and the second pass does not run again. Any other fix there keeps
+     the APPROVE.
   2. **Real, older than this diff, and no ticket.** The same code or behavior is on `main`, and
      `gh issue list --state all --search "<key words>"` finds no open ticket that names this case
      (a ticket closed as completed that names it means the bug came back: file a new ticket that
@@ -456,9 +460,9 @@ and say so in the final reply.
 - **Batch independent tool calls** into one message; chain dependent shell steps with `&&` into one
   command when only the final result gates (`build && test` is one call, not two).
 - Never re-read a file already in context; prefer one targeted `grep -n` over `cat`-ing whole files.
-- Subagents only where this command names them: the `/buddy` check of steps 2 and 3, the reviewer
-  step 7 picks (its escalation included), and `dat-format-expert` for DAT work. The repo cap is 4
-  in parallel.
+- Subagents only where this command names them: the `/buddy` check of steps 2 and 3, the reviews
+  of step 7 (the reviewer the diff picks, its escalation, the second pass and `/security-review`),
+  and `dat-format-expert` for DAT work. The repo cap is 4 in parallel.
 - The session dies after step 9's final reply. A second ticket in this context pays this
   ticket's whole conversation as cache reads on every turn — a fresh boot is cheaper.
   Back-to-back `/ticket` sessions reuse only the tool layer of the prompt cache (the rest

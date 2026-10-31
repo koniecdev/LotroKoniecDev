@@ -64,13 +64,14 @@ everything that matters must be committed and pushed.
    evidence — a wrong ticket is not implemented because it exists. An acceptance criterion that sets
    visible behaviour (a status code, a sign-out, a log level, a limit) is checked against the
    owner's rulings on the same flow first, as `/ticket` step 2 says; a conflict → `STATUS: BLOCKED`.
-   **Challenge the plan's claims before the branch.** Apply `/ticket` step 2 → "Challenge the
-   claims the plan rests on" as written: the same triggers (a negative claim, a cause outside the
-   repo, a conclusion taken over unchecked), the same `/buddy` run or fallback agent, and the same
-   bar for claims written into docs, tickets or UI copy. Run it in the FOREGROUND and never pass
-   `name`: a named agent never hands its report back, and the turn ends with no `STATUS` block.
-   NOT SOUND on the premise → `STATUS: BLOCKED` (category: false-premise); corrections → fold them
-   into the plan and the PR's `**Assumptions:**`.
+   **Challenge the plan's claims before the branch.** Apply `/ticket` step 2 → "Challenge the claims
+   the plan rests on" as written: the same triggers (a negative claim, a cause outside the repo, a
+   conclusion taken over unchecked), the same `/buddy` run or fallback agent, and the same bar for
+   claims written into docs, tickets or UI copy. Run it in the FOREGROUND and never pass `name`: a
+   named agent never hands its report back, and the turn ends with no `STATUS` block. `/buddy`'s own
+   last steps (message an idle buddy, report to the user) do not apply here: fold its result into
+   the plan and go straight on. NOT SOUND on the premise → `STATUS: BLOCKED` (category:
+   false-premise); corrections → fold them into the plan and the PR's `**Assumptions:**`.
 2. **Ground it in the repo.** Read the areas the ticket touches; identify the nearest sibling
    slice in this repo to mirror (no fitting sibling → "Anatomy of a feature slice" in `CLAUDE.md`).
    DAT/update work → `docs/knowledge-base/` FIRST (vnum, translation survival, launch flow are
@@ -86,8 +87,9 @@ everything that matters must be committed and pushed.
    `gh issue develop $ARGUMENTS --base main --checkout`. A linked branch → run
    `gh pr list --head <branch> --state all --json number,state` before you touch it: a merged PR
    means that work shipped, a push to the branch reaches no PR (#1097), and what is left belongs in
-   a new ticket → `STATUS: BLOCKED` (category: mis-scope). Otherwise `git fetch origin <branch>`
-   and `git switch <branch>`.
+   a new ticket → `STATUS: BLOCKED` (category: mis-scope). Otherwise `git fetch origin <branch>`,
+   `git switch <branch>` and `git merge --ff-only origin/<branch>` (a fast-forward, never a merge
+   commit); if that fails, the two have moved apart → `STATUS: BLOCKED` (category: mis-scope).
 5. **Implement.** Mirror the sibling slice; honor every CLAUDE.md house rule (no mediator, slim
    SRP handlers, CQRS read/write split, ValueObjects over primitives, EF Fluent-only + `nameof()`
    columns, sealed types, explicit ctors, LINQ methods, zero warnings). A clear modeling decision

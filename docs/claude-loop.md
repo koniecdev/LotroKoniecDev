@@ -292,9 +292,9 @@ Per-ticket outcomes:
     was killed, the next run deletes its old lock folder, the file too. So the file can never stop
     the next run.
   - When no loop runs, `touch` fails with `No such file or directory`, because the lock folder is
-    not there. The one exception is a run killed hard (SIGKILL, a power cut, the two-hour limit of
-    a Claude Code session): its lock folder stays, so `touch` works, but nothing reads the file.
-    `ps -p "$(cat .claude/backlog-loop.lock/pid)"` shows whether a loop runs.
+    not there. The one exception is a run killed hard (SIGKILL, a power cut): its lock folder
+    stays, so `touch` works, but nothing reads the file. A loop runs only when
+    `ps -p "$(cat .claude/backlog-loop.lock/pid)" -o command=` shows `backlog-loop.sh`.
   - Not "drain": in this repo, drain mode means a run of the picker over every ready ticket.
 - **usage limit**: the loop starts nothing new, lets the running tickets finish, sleeps until the
   limit ends and runs the limited tickets again. Each one whose result names its session keeps its

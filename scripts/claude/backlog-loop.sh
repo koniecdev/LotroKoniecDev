@@ -414,7 +414,7 @@ while :; do
                 break
             fi
             # The picker asks GitHub, which can take a minute, so a request made meanwhile still
-            # stops this start. The picker takes the ticket off no list, so nothing is lost.
+            # stops this start. The picker keeps no list, so nothing is lost.
             if [ "$EXPLICIT_MODE" -eq 0 ] && [ "$is_retry" -eq 0 ]; then
                 check_stop_request
                 [ "$stop" -eq 0 ] || break

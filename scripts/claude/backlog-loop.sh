@@ -12,6 +12,11 @@
 # limit message names (#1078), and runs the limited tickets again; work-ticket.sh then resumes each
 # one's session in the worktree it kept (#934).
 #
+# To stop after the tickets that run now, create the file stop-after-running in the lock folder,
+# from the main checkout: `touch .claude/backlog-loop.lock/stop-after-running`. The loop starts
+# nothing new, lets the running tickets finish, and lists the tickets it did not start (#1050).
+# Ctrl-C stops the running tickets too.
+#
 # Start a real run with scripts/claude/start-loop.sh, in a plain terminal: a Claude Code session
 # kills its background commands after two hours (#969). Running this script directly is for a
 # checkout that is up to date with main.
@@ -111,6 +116,8 @@ notify() {
 # owner and a lock whose owner is gone is reclaimed instead of blocking the loop forever.
 LOCK="$MAIN_ROOT/.claude/backlog-loop.lock"
 LOCK_OWNER="$LOCK/pid"
+# It lives in the lock folder, so it goes away with the lock and never stops the next run (#1050).
+STOP_REQUEST="$LOCK/stop-after-running"
 # Without its parent the mkdir below fails as if another conductor held the lock.
 mkdir -p "$(dirname "$LOCK")"
 
@@ -202,10 +209,13 @@ nap() {
 # after each step. It ends at most a minute after its time, or after the computer wakes if that is
 # later (#1199, docs/claude-loop.md). It reads with backquotes, for the reason in job_running: the
 # nap can last hours, and a stop lost here would be lost for all of it.
+# A stop request ends the nap at the next step, so the limited tickets wait for the next run.
 NAP_STEP_SEC=60
 nap_until() {
     local now
     while :; do
+        check_stop_request
+        [ "$stop" -eq 0 ] || return 0
         # shellcheck disable=SC2006  # backquotes on purpose, see above
         now=`date +%s`
         [ "$now" -lt "$1" ] || return 0
@@ -219,7 +229,9 @@ nap_until() {
 
 # A second signal, such as a second Ctrl-C, must not cut the cleanup short: its `exit 130` would
 # end this trap half way, with workers still running and the lock still in place.
-trap 'trap "" INT TERM HUP; stop_jobs; rm -rf "$LOCK"' EXIT
+# A stop request made while rm empties the lock folder makes its last step fail, so it tries once
+# more.
+trap 'trap "" INT TERM HUP; stop_jobs; rm -rf "$LOCK" 2>/dev/null || rm -rf "$LOCK"' EXIT
 trap 'exit 130' INT TERM HUP
 
 RUN_DIR="$MAIN_ROOT/logs/claude-loop/$(date +%Y%m%d-%H%M%S)"
@@ -236,6 +248,7 @@ limit_naps=0
 limit_hold=0      # 1 = a worker hit the usage limit: dispatch nothing until the running ones end
 stop=0            # 1 = dispatch nothing more; finish what runs and report
 stop_reason=""
+stop_requested=0  # 1 = the owner's stop request has been seen
 exit_code=0
 picker_empty=0
 
@@ -244,6 +257,25 @@ count_running() {
     local entry
     RUNNING_COUNT=0
     for entry in $RUNNING; do RUNNING_COUNT=$((RUNNING_COUNT + 1)); done
+}
+
+# The owner's stop request is a file, not a signal, so it never reaches a running worker (#1050).
+# It only stops new starts; a stop that came first for another reason keeps its reason. No $(...)
+# here, for the reason in job_running.
+check_stop_request() {
+    local entry still=""
+    [ "$stop_requested" -eq 0 ] || return 0
+    [ -e "$STOP_REQUEST" ] || return 0
+    stop_requested=1
+    if [ "$stop" -eq 0 ]; then
+        stop=1; stop_reason="stop requested — no new tickets"
+    fi
+    for entry in $RUNNING; do still="$still #${entry##*:}"; done
+    if [ -n "$still" ]; then
+        echo "[conductor] stop requested — starting nothing new, waiting for$still"
+    else
+        echo "[conductor] stop requested — starting nothing new, nothing is running"
+    fi
 }
 
 # First word of a space-separated list, and the list without it.
@@ -369,15 +401,25 @@ echo "[conductor] run $RUN_DIR · up to $PARALLEL at once$([ "$EXPLICIT_MODE" -e
 
 while :; do
     reap_finished
+    check_stop_request
 
     if [ "$stop" -eq 0 ] && [ "$limit_hold" -eq 0 ]; then
         while count_running; [ "$RUNNING_COUNT" -lt "$PARALLEL" ]; do
+            # Before next_ticket takes the ticket off its list, so the roll-up still names it.
+            check_stop_request
+            [ "$stop" -eq 0 ] || break
             is_retry=0
             [ -n "${RETRY// /}" ] && is_retry=1
             next_ticket
             if [ -z "$NEXT" ]; then
                 if [ "$EXPLICIT_MODE" -eq 0 ] && [ "$is_retry" -eq 0 ]; then picker_empty=1; fi
                 break
+            fi
+            # The picker asks GitHub, which can take a minute, so a request made meanwhile still
+            # stops this start. The picker keeps no list, so nothing is lost.
+            if [ "$EXPLICIT_MODE" -eq 0 ] && [ "$is_retry" -eq 0 ]; then
+                check_stop_request
+                [ "$stop" -eq 0 ] || break
             fi
             if [ "$is_retry" -eq 1 ]; then dispatch "$NEXT" 0; else dispatch "$NEXT" 1; fi
             # Give each worker a head start on its fetch and worktree before the next one begins.
@@ -484,6 +526,14 @@ fi
 
 echo
 echo "[conductor] done: $opened PR opened · $merged merged · $blocked blocked · $failed failed · $skipped skipped · $untrusted untrusted · \$$total_cost"
+# Tickets are left after an early stop, or when -n cut the list short. Limited ones go first, as
+# they would have here; the next run resumes the session of each one whose worktree it kept.
+not_started="" not_started_tags=""
+for left in $RETRY $QUEUE; do
+    not_started="$not_started $left"
+    not_started_tags="$not_started_tags #$left"
+done
+[ -n "$not_started" ] && echo "[conductor] not started:$not_started_tags — start them later with: $SCRIPTS/start-loop.sh -j $PARALLEL$not_started"
 [ "$opened" -gt 0 ] && echo "[conductor] next: review each PR, assign yourself to approve it, then run /merge-train"
 [ "$blocked" -gt 0 ] && echo "[conductor] blocked tickets carry your questions as issue comments: gh issue list --label loop-blocked"
 echo "[conductor] raw session logs: $RUN_DIR"

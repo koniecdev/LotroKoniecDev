@@ -142,7 +142,8 @@ Then stop. **Do not run the command** — not in the background, not in the fore
      provenance gate),
    - tickets whose row says **`worktree kept: run #<n> again to resume its session`** (`outcome=limit`
      with `worktree=kept`) — the usage limit outlasted every nap, or ends later than the whole nap
-     budget (then the `stopped early:` line names the reset time, #1078); the session waits in its
+     budget (then the `stopped early:` line names the reset time, #1078), or the owner's stop
+     request ended the nap (then the line says `stop requested`, #1050); the session waits in its
      worktree, and naming the ticket in a run after the reset resumes it,
    - tickets **stopped**, failed or timed out, with a one-line cause each (dig into
      `ticket-<n>.json` or `.stderr` only when the console line isn't enough),

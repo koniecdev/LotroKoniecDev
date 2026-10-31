@@ -266,8 +266,10 @@ Per-ticket outcomes:
   its real outcome (a PR, BLOCKED, a worktree kept after a usage limit); the stop only cancels a
   resume that has not started. A stopped conductor prints no table, so `/backlog` builds the
   roll-up from the `.meta` files.
-- **stop requested**: you asked the loop to stop after the tickets that run now (#1050). A signal
-  would stop those tickets too, so this is a file. From the main checkout:
+- **stop requested**: you asked the loop to stop after the tickets that run now (#1050). The
+  conductor's stop signals (Ctrl-C, `kill`) stop the running tickets too, so this request is a file:
+  it needs no process number, and the conductor cannot miss it while it waits. From the main
+  checkout:
 
   ```bash
   touch .claude/backlog-loop.lock/stop-after-running
@@ -278,12 +280,14 @@ Per-ticket outcomes:
   `stop requested — starting nothing new, waiting for #<n> …`. The running tickets go on as usual
   and end with their real outcome (a PR, BLOCKED, a worktree kept after a usage limit); nothing
   signals them. A usage-limit nap checks for the file once a minute and then ends, and the limited
-  tickets are not run again: their worktrees stay, and the next run resumes their sessions. When
+  tickets are not run again. Each one whose result names its session keeps its worktree, and the
+  next run resumes that session; one without starts over, as after any limit. When
   the last running ticket ends, the conductor prints `stopped early: stop requested — no new
   tickets`, its table, the `done:` line, and one line with every ticket it did not start (the
   limited ones first, then the rest of the list), ready to paste:
   `not started: #549 #816 — start them later with: <loop checkout>/scripts/claude/start-loop.sh -j 1 549 816`.
-  The run exits `0`, as any run does unless no worktree could be made.
+  The run exits `0`, as any run does unless no worktree could be made. The line repeats `-j` and
+  the tickets, not the env vars: a run started with `LOOP_…=` settings in front needs them again.
   - The `not started:` line comes whenever tickets are left: after any early stop (a stop request,
     two failures in a row, a worktree that cannot be made, a usage limit that outlasts the naps),
     and when `-n` cut a list of numbers short. When the picker chooses the tickets (no numbers

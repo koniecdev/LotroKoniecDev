@@ -121,6 +121,7 @@ sleeper=$!
 wait "$sleeper"
 sleeper=""
 rm -f "$STATE/running/$ticket"
+if [ -f "$STATE/request-stop-after-$ticket" ]; then touch "$(cat "$STATE/request-stop-after-$ticket")"; fi
 rc=0
 if [ -f "$STATE/rc-$ticket" ]; then
     set -- $(cat "$STATE/rc-$ticket")
@@ -735,6 +736,47 @@ printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #117 +pr-opened +#1117 ' 
     || fail "#117 should keep its real outcome" "$LAST_OUTPUT"
 expect_in_output "[conductor] not started: #116 #118 — start them later with: "
 expect_in_output "/scripts/claude/start-loop.sh -j 2 116 118"
+
+# A worktree for #151 cannot be made, and that stops the run first. #152 asks for the stop as it
+# ends. The first reason and its exit code stay, and the request still gets its line.
+reset_state
+echo 0.3 > "$STATE/work-sec-151"
+echo 10 > "$STATE/rc-151"
+echo 2 > "$STATE/work-sec-152"
+echo "$STOP_FILE" > "$STATE/request-stop-after-152"
+run_conductor 10 "conductor: a stop request after another stop keeps that stop's reason" -j 2 151 152 153
+expect_started "151 152"
+expect_in_output "[conductor] stop requested — starting nothing new"
+expect_in_output "[conductor] stopped early: could not prepare a worktree"
+expect_in_output "[conductor] not started: #153 — start them later with: "
+
+# The owner's `touch` lands while the conductor empties its lock folder at the end, so the folder
+# is not empty when rm removes it. This `rm` acts that out once: it removes the lock, then puts the
+# folder back with the request in it, and fails as the real one would.
+RACE_BIN="$TMP_ROOT/rm-race-bin"
+mkdir -p "$RACE_BIN"
+REAL_RM="$(command -v rm)"
+export REAL_RM
+cat > "$RACE_BIN/rm" <<'STUB'
+#!/usr/bin/env bash
+"$REAL_RM" "$@"
+case " $* " in
+    *"/backlog-loop.lock "*)
+        if [ -f "$STATE/rm-race" ]; then
+            "$REAL_RM" -f "$STATE/rm-race"
+            mkdir -p "${@: -1}"
+            touch "${@: -1}/stop-after-running"
+            exit 1
+        fi ;;
+esac
+STUB
+chmod +x "$RACE_BIN/rm"
+reset_state
+touch "$STATE/rm-race"
+PATH="$RACE_BIN:$PATH" run_conductor 0 "conductor: a stop request made while the lock is removed does not keep the lock" -j 1 161
+expect_started "161"
+[ ! -e "$STATE/rm-race" ] || fail "the case never acted out the race" "$LAST_OUTPUT"
+[ ! -e "$FAKE_REPO/.claude/backlog-loop.lock" ] || fail "the lock outlived the run" "$(ls -la "$FAKE_REPO/.claude/backlog-loop.lock")"
 
 # A conductor killed hard leaves its lock, with a request in it. The next run takes that lock over
 # and starts its tickets.

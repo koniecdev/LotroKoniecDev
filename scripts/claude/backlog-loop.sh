@@ -229,7 +229,9 @@ nap_until() {
 
 # A second signal, such as a second Ctrl-C, must not cut the cleanup short: its `exit 130` would
 # end this trap half way, with workers still running and the lock still in place.
-trap 'trap "" INT TERM HUP; stop_jobs; rm -rf "$LOCK"' EXIT
+# A stop request made while rm empties the lock folder makes its last step fail, so it tries once
+# more.
+trap 'trap "" INT TERM HUP; stop_jobs; rm -rf "$LOCK" 2>/dev/null || rm -rf "$LOCK"' EXIT
 trap 'exit 130' INT TERM HUP
 
 RUN_DIR="$MAIN_ROOT/logs/claude-loop/$(date +%Y%m%d-%H%M%S)"

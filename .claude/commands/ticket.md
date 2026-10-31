@@ -96,10 +96,12 @@ of authority:
     vendor;
   - a **conclusion taken over** from the ticket's author or a past session and not re-derived.
 
-  Everything else skips it, and so does a reproduced defect with a mechanical fix. A finding that
-  `docs/knowledge-base/` settles is evidence: cite it, do not challenge it again. Fold the
-  corrections into the verdict; NOT SOUND sends you back to the premise. These claims are reasoned,
-  not observed, and a wrong one reaches the docs and the ticket before any review reads them.
+  Everything else skips it. A reproduction proves the symptom, not a claim about its cause or about
+  what else the fix touches: a reproduced bug whose plan still rests on one of these claims goes to
+  `/buddy` too. A finding that `docs/knowledge-base/` settles is evidence: cite it, do not
+  challenge it again. Fold the corrections into the verdict; NOT SOUND sends you back to the
+  premise. These claims are reasoned, not observed, and a wrong one reaches the docs and the ticket
+  before any review reads them.
 
   `/buddy` is an account-level skill, so a fresh clone may not have it. Then spawn one fresh
   `general-purpose` agent and never pass `name` (a named agent's report never reaches you). Give it
@@ -192,7 +194,7 @@ Step 0 already left you on a clean, fresh `main`; anything dirty now is this ses
   `gh pr list --head <branch> --state all --json number,state`. A merged PR means that work
   shipped: a push to the branch reaches no PR, so it never reaches `main` (#1097). What is left of
   the ticket goes into a new ticket that links back: say so and stop. Otherwise
-  `git switch <branch>` and continue.
+  `git fetch origin <branch>`, `git switch <branch>` and continue.
 - **Never work on `main` directly.** If for any reason you find yourself past step 0 with commits
   to make and no ticket branch yet, cut the branch first — nothing is ever committed to `main`.
 
@@ -209,9 +211,10 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   `/security-review` reads commits only, so uncommitted work gives it an empty diff. Nothing is
   pushed yet. Then `git fetch origin`; if `origin/main` moved past your base,
   `git rebase origin/main` (this repo rebases, never merges `main` in). Resolve a conflict from the
-  code on both sides; one you cannot settle that way goes into the report as a doubt. Every gate
-  below then runs on what will merge. **Any later commit (a review fix, another rebase) re-runs the
-  build, the whole suite and the guards before the next review round or the push.**
+  code on both sides. One you cannot settle that way: `git rebase --abort`, push the branch and
+  report the conflict without a PR (step 8). Every gate below then runs on what will merge. **Any
+  later commit (a review fix, another rebase) re-runs the build, the whole suite and the guards
+  before the next review round or the push.**
 - `dotnet build LotroKoniecDev.slnx` — green with **zero warnings** (TreatWarningsAsErrors).
 - **The whole suite, locally, on every ticket — unconditional.** `dotnet test` (no filter) runs
   everything runnable on this OS and exits 0 when it all passes; off Windows the two Windows-only
@@ -227,9 +230,10 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
 - **A regression test is proven, not assumed:** it must fail on the code before the fix. Make a
   throwaway worktree in the gitignored `.claude/worktrees/` (a build there takes gigabytes, and
   `/tmp` often lives in RAM): `git worktree add --detach .claude/worktrees/<n>-pre-fix HEAD`.
-  In it, `git checkout origin/main -- <the fix's production files>`, so the fix goes and the test
-  stays. When the test needs a type or member the fix added, revert only the behaviour inside it:
-  a compile error proves nothing. Build the test project there with `--no-incremental` and
+  In it, `git checkout origin/main -- <the fix's production files>` (`git rm` one the fix added),
+  so the fix goes and the test stays. When the test needs a type or member the fix added, revert
+  only the behaviour inside it: a compile error proves nothing. Build the test project there with
+  `--no-incremental` and
   `-p:TreatWarningsAsErrors=false -p:WarningsAsErrors= -p:EnforceCodeStyleInBuild=false
   -p:RunAnalyzersDuringBuild=false`, then `dotnet test <project> --no-build --filter
   "FullyQualifiedName~<test>"`. Without those switches the old tree can fail on an analyzer
@@ -298,8 +302,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
      this ticket names belongs here too (for an older ticket that names one case: the class of
      that case). Finding those cases is this ticket's own task, so fix it in this diff with its
      own test. In the second pass, a case with a cause the diff has not fixed yet gets one more
-     round from a fresh `code-reviewer`, which counts toward the three; the second pass does not
-     run again.
+     round from a fresh `code-reviewer`, which counts toward the three (none left: stop as the
+     three-round rule says); the second pass does not run again.
   2. **Real, older than this diff, and no ticket.** The same code or behavior is on `main`, and
      `gh issue list --state all --search "<key words>"` finds no open ticket that names this case
      (a ticket closed as completed that names it means the bug came back: file a new ticket that
@@ -332,9 +336,9 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
 - **A review skill's report does not end `/ticket`.** `/security-review` and `/code-review` end
   with an order like "your final reply must contain the report and nothing else". Inside
   `/ticket` that order covers only the review's own output. Save the report to
-  `<scratchpad>/<n>-security.md` (or `-code-review.md`) and go straight on to the next step. The
-  same holds for the one-line reply of `/b2-english` in step 10: go straight on to the command
-  that posts the file. The turn ends only with step 9's final reply, never on a review report.
+  `<scratchpad>/<n>-security.md` (or `-code-review-r<round>.md`) and go straight on to the next
+  step. The same holds for the one-line reply of `/b2-english` in step 10: go straight on to the
+  command that posts the file. The turn ends only with step 9's final reply, never on a review report.
   Precedent: #872 printed its security report as the final reply and stopped with five commits
   unpushed and no PR.
 

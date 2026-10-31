@@ -86,7 +86,8 @@ everything that matters must be committed and pushed.
    `gh issue develop $ARGUMENTS --base main --checkout`. A linked branch → run
    `gh pr list --head <branch> --state all --json number,state` before you touch it: a merged PR
    means that work shipped, a push to the branch reaches no PR (#1097), and what is left belongs in
-   a new ticket → `STATUS: BLOCKED` (category: mis-scope). Otherwise `git switch <branch>`.
+   a new ticket → `STATUS: BLOCKED` (category: mis-scope). Otherwise `git fetch origin <branch>`
+   and `git switch <branch>`.
 5. **Implement.** Mirror the sibling slice; honor every CLAUDE.md house rule (no mediator, slim
    SRP handlers, CQRS read/write split, ValueObjects over primitives, EF Fluent-only + `nameof()`
    columns, sealed types, explicit ctors, LINQ methods, zero warnings). A clear modeling decision
@@ -94,10 +95,10 @@ everything that matters must be committed and pushed.
 6. **Verify "done": run `/ticket` step 7 as written** (read `.claude/commands/ticket.md` → step
    7). That is: commit and sync with `origin/main` before any gate, the zero-warning build, the
    whole suite with its counts, the guard scripts, the regression-test proof, the review gate
-   picked by the diff, the second pass with its four buckets (whose job the check is comes first:
-   ADR-0067), and `/security-review` when the diff touches native interop, file protection, or
-   auth. Every commit message references the ticket and ends with the `Co-Authored-By:` footer.
-   Loop-mode differences:
+   picked by the diff, the second pass with its four buckets when step 7 calls for it (whose job
+   the check is comes first: ADR-0067), and `/security-review` when the diff touches native
+   interop, file protection, or auth. Every commit message references the ticket and ends with the
+   `Co-Authored-By:` footer. Loop-mode differences:
    - **The whole suite runs in the foreground** with the longest Bash `timeout` the loop allows
      (`BASH_MAX_TIMEOUT_MS`, 3600000 ms unless the owner changed it): the loop turns background
      runs off, and a command that reaches its timeout is stopped. A call with no timeout gets ten
@@ -119,9 +120,10 @@ everything that matters must be committed and pushed.
      (category: red-build or review-unclean) with the reason. Never push broken work.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish
    line: once it passes, commit any remaining (Minor) fixes and re-run the gates, push, and re-read
-   the issue as `/ticket` step 8 says (a case added after you started moves to a new ticket). Write the PR body to `/tmp/claude-ticket-$ARGUMENTS/pr-body.md`: outside
-   the worktree, so no commit and no leftover check sees it, and one folder per ticket, so parallel
-   workers never share a file. It starts with `Closes #$ARGUMENTS`, then the problem in plain words
+   the issue as `/ticket` step 8 says (a case added after you started moves to a new ticket).
+   Write the PR body to `/tmp/claude-ticket-$ARGUMENTS/pr-body.md`: outside the worktree, so no
+   commit and no leftover check sees it, and one folder per ticket, so parallel workers never share
+   a file. It starts with `Closes #$ARGUMENTS`, then the problem in plain words
    (`/ticket` step 8, with its Windows check rule when the diff changes Windows-only code), and
    ends with a **`## Ticket report`** section — `**Shipped:**` / `**Proof:**` /
    `**Assumptions:**` / `**Doubts:**` / `**Follow-ups:**`, where "none" is a valid entry and

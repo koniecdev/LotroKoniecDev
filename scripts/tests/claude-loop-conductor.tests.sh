@@ -155,6 +155,8 @@ cat > "$FAKE_REPO/scripts/claude/next-ticket.sh" <<'FAKE'
 exclude=" ${2:-} "
 for n in $(cat "$STATE/backlog" 2>/dev/null); do
     case "$exclude" in *" $n "*) continue ;; esac
+    # The owner asks for a stop while the picker looks for this ticket (#1050).
+    if [ -f "$STATE/request-stop-before-$n" ]; then touch "$(cat "$STATE/request-stop-before-$n")"; fi
     echo "$n"
     exit 0
 done
@@ -655,6 +657,9 @@ run_conductor 0 "conductor: a stop request starts nothing new and lets the runni
 unset BASH_ENV
 expect_started "111"
 expect_in_output "[conductor] stop requested — starting nothing new, waiting for #111"
+# The conductor looks for the file many times while #111 works, and says it once.
+[ "$(printf '%s\n' "$LAST_OUTPUT" | grep -c 'stop requested — starting nothing new')" = "1" ] \
+    || fail "the stop request should be announced once" "$LAST_OUTPUT"
 expect_in_output "[conductor] stopped early: stop requested — no new tickets"
 # The fake worker writes no row when a signal ends it, so this row proves it ran to its end.
 printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #111 +pr-opened +#1111 ' >/dev/null \
@@ -689,6 +694,17 @@ run_conductor 0 "conductor: a stop request between two starts stops the next one
 expect_started "131"
 expect_in_output "[conductor] stop requested — starting nothing new, waiting for #131"
 expect_in_output "[conductor] not started: #132 #133 — start them later with: "
+
+# The request comes while the picker looks for the next ticket. That ticket does not start, and no
+# line lists it, because the picker chooses again in the next run.
+reset_state
+echo "141 142" > "$STATE/backlog"
+echo "$STOP_FILE" > "$STATE/request-stop-before-142"
+run_conductor 0 "conductor: a stop request made while the picker works stops the ticket it picks" -j 1
+expect_started "141"
+expect_in_output "[conductor] stop requested — starting nothing new, nothing is running"
+printf '%s\n' "$LAST_OUTPUT" | grep -q 'not started' \
+    && fail "the picker's ticket was never taken off a list, so no line may list it" "$LAST_OUTPUT"
 
 # The request comes in the first step of a usage-limit nap: the nap ends there, and the limited
 # ticket is not run again. Its worktree waits for the next run.

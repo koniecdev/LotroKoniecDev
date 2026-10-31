@@ -413,6 +413,12 @@ while :; do
                 if [ "$EXPLICIT_MODE" -eq 0 ] && [ "$is_retry" -eq 0 ]; then picker_empty=1; fi
                 break
             fi
+            # The picker asks GitHub, which can take a minute, so a request made meanwhile still
+            # stops this start. The picker takes the ticket off no list, so nothing is lost.
+            if [ "$EXPLICIT_MODE" -eq 0 ] && [ "$is_retry" -eq 0 ]; then
+                check_stop_request
+                [ "$stop" -eq 0 ] || break
+            fi
             if [ "$is_retry" -eq 1 ]; then dispatch "$NEXT" 0; else dispatch "$NEXT" 1; fi
             # Give each worker a head start on its fetch and worktree before the next one begins.
             nap 5
@@ -518,8 +524,8 @@ fi
 
 echo
 echo "[conductor] done: $opened PR opened · $merged merged · $blocked blocked · $failed failed · $skipped skipped · $untrusted untrusted · \$$total_cost"
-# An early stop leaves the limited tickets and the rest of the list. Limited ones go first, as they
-# would have here; the next run resumes the session of each one whose worktree it kept.
+# Tickets are left after an early stop, or when -n cut the list short. Limited ones go first, as
+# they would have here; the next run resumes the session of each one whose worktree it kept.
 not_started="" not_started_tags=""
 for left in $RETRY $QUEUE; do
     not_started="$not_started $left"

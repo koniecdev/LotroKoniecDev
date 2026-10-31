@@ -158,9 +158,9 @@ you actually have, so an S that grew past the threshold gets `code-reviewer`. Sa
 an ADR written for this ticket, a deviation from an acceptance criterion, or one load-bearing
 assumption that decides the whole slice. Hand `/buddy` the plan as claims, and include the claim
 "this step protects something the caller could not already get". When step 2 already sends claims
-to `/buddy`, put the design bet into the same run; without `/buddy`, use step 2's fallback agent.
-A design flaw found here costs one cheap agent; found at the review gate it costs a rewrite plus a
-full re-run of every gate.
+to `/buddy`, put the design bet into the same run; if `/buddy` is not installed, use step 2's
+fallback agent. A design flaw found here costs one cheap agent; found at the review gate it costs a
+rewrite plus a full re-run of every gate.
 Precedent: #690 — the first draft put a password in front of a POST whose payload was identical to
 the open GET beside it, and only review round 1 saw it, after the code and the tests existed.
 
@@ -279,7 +279,7 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     rounds → stop:** push the branch and report without a PR (step 8).
   - **Trust a verdict only after you check its file:** it exists, it is newer than the commit it
     names, and that commit is `HEAD` or differs from it only by Minor fixes or by the second pass's
-    bucket-1 fixes (below), each with its own test and the gates green again. A reviewer that
+    bucket-1 fixes (below), with the gates green again. A reviewer that
     reports "completed" with no file has stalled. In an interactive session, one message asking it
     to write the file now is the fix; its answer comes back as a notification, which a headless
     session never gets (`/work-ticket` spawns a fresh reviewer instead). A file that names an older

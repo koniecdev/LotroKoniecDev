@@ -140,7 +140,8 @@ validator.
 | Touch the game-content catalog (CatalogEntry/TextSlot, Companion zip import, catalog browser, memberships) | `docs/specs/0008-game-content-catalog-layer.md` + `docs/knowledge-base/lotro-companion-data-model.md` (the verified `key:<FileId>:<GossipId>` join; never join on text). Naming rule: **never "entity"** in this layer |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
 | Write or hand over a **manual QA ticket** (external tester) | **`/qa-ticket`**: every scenario verified against HEAD first; `/qa-ticket #<n>` re-baselines an existing one |
-| Review a finished change | the **`code-reviewer`** agent |
+| Act on a negative claim ("not our code"), a cause outside the repo, or a ticket's own conclusion | **`/buddy`** before the verdict (no `/buddy` → its fallback agent): `/ticket` step 2 |
+| Review a finished change | the **`code-reviewer`** agent, a fresh one per round, three rounds at most; a small diff at the gate → inline `/code-review`, two rounds at most (`/ticket` step 7) |
 | Sort review findings, file one, or triage an `audit` ticket | **ADR-0067 §8** (what is not a finding) + ADR-0008 §3 (the bar for a startup check) + `docs/labels.md` → "One bug class per ticket" |
 | Understand the backlog / milestones | `gh issue list` + Roadmap below |
 | Compare with the Russian sister project | `docs/RUSSIAN_PROJECT_RESEARCH.md` + `docs/knowledge-base/russian-project.md` |
@@ -373,7 +374,10 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   amendment).
 - **Agent fan-out is budgeted; agents inherit the session's model and effort.** The repo pins no
   model tier of its own. Hard cap: **max 4 subagents in parallel**, no chained waves by default; a
-  small diff gets reviewed **inline, zero agents**. The committed `code-reviewer` agent carries
+  small diff **starts with inline `/code-review`** instead of a review agent and escalates to
+  `code-reviewer` only as `/ticket` step 7 says; a plan that rests on a negative claim, a cause
+  outside the repo or a conclusion taken over always gets `/ticket`'s step-2 `/buddy` claim check.
+  The committed `code-reviewer` agent carries
   **`model: inherit`**, so a fresh clone reviews with the contributor's own tier; `/code-review`
   and `/security-review` follow the session model/effort the same way. Loop-mode worker sessions
   take model and effort from the maintainer's machine-local policy (Opus 5.5 at **xhigh** since
@@ -756,9 +760,11 @@ Per-suite details (inventory, libraries, snapshots, E2E, conventions): `tests/CL
    `/spec`). Open questions are **extracted for the user, never invented**. Implementation starts
    only at **Status: Agreed**.
 3. **Decision before code.** A non-trivial modeling/architecture choice → **`/adr`** first.
-4. **Slice, mirror, test, review.** Branch via `gh issue develop <n> --checkout`. Implement by
-   mirroring the nearest sibling slice, add tests, then run the **`code-reviewer`** agent on the
-   diff (**`/security-review`** for anything touching native interop, file protection, or auth).
+4. **Slice, mirror, test, review.** Branch as `/ticket` step 5 says (`gh issue develop <n> --list`
+   first). Implement by mirroring the nearest sibling slice, add tests, commit and rebase on
+   `origin/main`, then run the review gate the diff picks (`/ticket` step 7: the
+   **`code-reviewer`** agent, or inline `/code-review` for a small diff; **`/security-review`** for
+   anything touching native interop, file protection, or auth).
    **Green build + zero warnings + clean review = "done", not before.**
 5. **PR closes the ticket.** Title mirrors the ticket; body contains `Closes #<n>`. Push and open
    the PR without asking (the ticket is the authorization), as the last step, only when every gate
@@ -853,8 +859,8 @@ Two non-negotiables: **one ticket = one PR** (git hygiene) and **one ticket = on
   ready ones (`next-ticket.sh`).
 - Each ticket runs in a **fresh headless process** (`work-ticket.sh` → `claude -p "/work-ticket
   <n>"`) inside its **own worktree** `.claude/worktrees/ticket-<n>` cut from `origin/main`, up to
-  three at once. The session does the whole slice (spec weight, branch, implement, tests,
-  `code-reviewer` gate, commit → push → PR), ends with a `STATUS: DONE|BLOCKED` block and dies. No
+  three at once. The session does the whole slice (claim check, spec weight, branch, implement,
+  commit, tests, review gate, push → PR), ends with a `STATUS: DONE|BLOCKED` block and dies. No
   LLM context outlives a ticket; an orchestrator *session* that collects every ticket's returns is
   a retired anti-pattern.
 - **Only maintainer-written tickets may drive the loop** (this repo is public): `issue-trust.sh`
@@ -931,6 +937,8 @@ them yourself when the request matches, without waiting for the user to type the
   scaffolds the patcher-style Application slice**; for a TMS slice, mirror the nearest TMS sibling
   and "Anatomy of a feature slice").
 - User is **settling an architecture/modeling choice** → **`/adr`** first, then implement.
+- A plan or diagnosis rests on a **negative claim** ("not our code"), a **cause outside the
+  repo**, or the ticket's own conclusion → **`/buddy`** before acting (`/ticket` step 2).
 - Any **DAT binary format work** → the **`dat-format-expert`** agent.
 - User says **"kontynuuj pracę w pętli" / "continue the loop" / "work through the backlog" /
   "jazda dalej"** (any keep-grinding-tickets phrasing) → **`/backlog <numbers>`** with the tickets

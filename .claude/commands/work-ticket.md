@@ -53,7 +53,8 @@ everything that matters must be committed and pushed.
    is there), then the page that covers the behavior; then `docs/knowledge-base/`, specs, ADRs, code): bug →
    locate the defect in code and explain the mechanism; feature → confirm the gap still exists
    (recently merged PRs in the area) and that nothing above contradicts it. A
-   `<!-- preflight-verdict -->` comment on the issue counts as this done. Premise false, already
+   `<!-- preflight-verdict -->` comment on the issue counts as this done, except the claim check
+   below, which preflight never runs. Premise false, already
    shipped, a duplicate, a new check of what one of our own parts sends for an answer it never sends
    by design (ADR-0067 §8; never anything ADR-0067 §7 lists: our own part being down, slow or
    failing; the one clean path for an answer the code cannot use; a guard on where a secret goes; a
@@ -63,6 +64,14 @@ everything that matters must be committed and pushed.
    evidence — a wrong ticket is not implemented because it exists. An acceptance criterion that sets
    visible behaviour (a status code, a sign-out, a log level, a limit) is checked against the
    owner's rulings on the same flow first, as `/ticket` step 2 says; a conflict → `STATUS: BLOCKED`.
+   **Challenge the plan's claims before the branch.** Apply `/ticket` step 2 → "Challenge the claims
+   the plan rests on" as written: the same triggers (a negative claim, a cause outside the repo, a
+   conclusion taken over unchecked), the same `/buddy` run or fallback agent, and the same bar for
+   claims written into docs, tickets or UI copy. Run it in the FOREGROUND and never pass `name`: a
+   named agent never hands its report back, and the turn ends with no `STATUS` block. `/buddy`'s own
+   last steps (message an idle buddy, report to the user) do not apply here: fold its result into
+   the plan and go straight on. NOT SOUND on the premise → `STATUS: BLOCKED` (category:
+   false-premise); corrections → fold them into the plan and the PR's `**Assumptions:**`.
 2. **Ground it in the repo.** Read the areas the ticket touches; identify the nearest sibling
    slice in this repo to mirror (no fitting sibling → "Anatomy of a feature slice" in `CLAUDE.md`).
    DAT/update work → `docs/knowledge-base/` FIRST (vnum, translation survival, launch flow are
@@ -70,40 +79,56 @@ everything that matters must be committed and pushed.
 3. **Spec — decide the weight.** Spec-worthy (new feature, fuzzy rules, contract change) → copy
    `docs/specs/_TEMPLATE.md` → `docs/specs/NNNN-kebab-title.md`, fill it concretely, apply the
    Prime directive to every open question. Trivial (crisp bug/refactor) → 3-line inline brief in
-   your summary and proceed.
-4. **Branch.** `gh issue develop $ARGUMENTS --checkout` (off main; if it exists, check it out).
-   You start detached, so this is what puts you on the ticket branch.
+   your summary and proceed. A design bet (`/ticket` step 3: an ADR written for this ticket, a
+   deviation from an acceptance criterion, one load-bearing assumption) gets `/buddy` before code,
+   in the foreground and unnamed, as step 1's claim check.
+4. **Branch.** You start detached, so this is what puts you on the ticket branch.
+   `gh issue develop $ARGUMENTS --list` first. No linked branch →
+   `gh issue develop $ARGUMENTS --base main --checkout`. A linked branch → run
+   `gh pr list --head <branch> --state all --json number,state` before you touch it: a merged PR
+   means that work shipped, a push to the branch reaches no PR (#1097), and what is left belongs in
+   a new ticket → `STATUS: BLOCKED` (category: mis-scope). Otherwise `git fetch origin <branch>`,
+   `git switch <branch>` and `git merge --ff-only origin/<branch>` (a fast-forward, never a merge
+   commit); if that fails, the two have moved apart → `STATUS: BLOCKED` (category: mis-scope).
 5. **Implement.** Mirror the sibling slice; honor every CLAUDE.md house rule (no mediator, slim
    SRP handlers, CQRS read/write split, ValueObjects over primitives, EF Fluent-only + `nameof()`
    columns, sealed types, explicit ctors, LINQ methods, zero warnings). A clear modeling decision
    emerging mid-flight → author an ADR in the house format; a genuinely contested one → `BLOCKED`.
-6. **Verify "done".** `dotnet build LotroKoniecDev.slnx` — green, **zero warnings**. Run the **whole**
-   suite in the foreground — `dotnet test`, no filter, everything runnable on this OS — never just
-   the touched area and never "integration only when the slice ships an endpoint". The loop turns
-   background runs off, and a command that reaches its timeout is stopped, so give the full suite
-   the longest Bash `timeout` the loop allows (`BASH_MAX_TIMEOUT_MS`, 3600000 ms unless the owner
-   changed it). A call with no timeout gets ten minutes; name a longer one for anything slower (a
-   CodeQL wait). Green, with
-   happy path + failure modes + boundary `[Theory]` cases, and report the counts. Then spawn the
-   **`code-reviewer`** agent with the ticket's acceptance criteria; fix every finding; repeat until
-   **APPROVE**. Then the second pass, exactly as `/ticket` step 7 has it: run `/code-review` on the
-   branch (a fresh context that never saw your plan), sort every finding into the four buckets of
-   `/ticket` step 7 (whose job the check is comes first: ADR-0067) and put the split in the
-   report's Proof. Fix bucket 1. File bucket 2 by the
-   one-bug-class rule of `/ticket` step 7. A new follow-up ticket, and an open ticket that gets a
-   case added, both get the `audit` label as well, because nobody checked the case live and the
-   owner triages it before the loop may pick it up. Then re-run the build and the whole suite on
-   the final commit. Run `/security-review` if the diff touches native interop,
-   file protection, or auth. A review skill's closing order ("reply with the report and nothing
-   else") covers only its own output: save the report and go on to step 7. A headless session
-   that ends its turn on a review report dies with no PR and no `STATUS` block. Cannot reach
-   green/clean → `STATUS: BLOCKED` with the reason — never push broken work.
+6. **Verify "done": run `/ticket` step 7 as written** (read `.claude/commands/ticket.md` → step
+   7). That is: commit and sync with `origin/main` before any gate, the zero-warning build, the
+   whole suite with its counts, the guard scripts, the regression-test proof, the review gate
+   picked by the diff, the second pass with its four buckets when step 7 calls for it (whose job
+   the check is comes first: ADR-0067), and `/security-review` when the diff touches native
+   interop, file protection, or auth. Every commit message references the ticket and ends with the
+   `Co-Authored-By:` footer. Loop-mode differences:
+   - **The whole suite runs in the foreground** with the longest Bash `timeout` the loop allows
+     (`BASH_MAX_TIMEOUT_MS`, 3600000 ms unless the owner changed it): the loop turns background
+     runs off, and a command that reaches its timeout is stopped. A call with no timeout gets ten
+     minutes; name a longer one for anything slower (a CodeQL wait).
+   - **Every agent runs in the foreground, and none gets a `name`:** a background or named agent
+     never hands its report back. A `/code-review` that still ends up in the background → run a
+     foreground `code-reviewer` instead.
+   - **A reviewer that ends with no verdict file has stalled:** spawn a fresh `code-reviewer` with
+     the gate results, told to write the file before it ends its turn. Never message the stalled
+     one: its answer would arrive after your turn has ended. The replacement counts as one of the
+     three rounds.
+   - **A ticket you file from bucket 2** (a new one, or an open ticket that gets a case added) gets
+     the `audit` label as well: nobody checked the case live, and the owner triages it before the
+     loop may pick it up.
+   - **A review skill's closing order** ("reply with the report and nothing else") covers only its
+     own output: save the report and go on to step 7. A headless session that ends its turn on a
+     review report dies with no PR and no `STATUS` block.
+   - **A gate that cannot reach green, a rebase conflict you cannot settle (`git rebase --abort`
+     first), or no APPROVE after three rounds** → `STATUS: BLOCKED` (category: red-build or
+     review-unclean) with the reason. This replaces `/ticket`'s "push the branch and report without
+     a PR": push nothing. Never push broken work.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish
-   line: after APPROVE, commit (message references the ticket, ends with the `Co-Authored-By:`
-   footer), push, and re-read the issue as `/ticket` step 8 says (a case added after you started
-   moves to a new ticket). Write the PR body to `/tmp/claude-ticket-$ARGUMENTS/pr-body.md`: outside
-   the worktree, so no commit and no leftover check sees it, and one folder per ticket, so parallel
-   workers never share a file. It starts with `Closes #$ARGUMENTS`, then the problem in plain words
+   line: once it passes, commit any remaining (Minor) fixes and re-run the gates, sync with
+   `origin/main` again, push, and re-read the issue, all as `/ticket` step 8 says (a case added
+   after you started moves to a new ticket).
+   Write the PR body to `/tmp/claude-ticket-$ARGUMENTS/pr-body.md`: outside the worktree, so no
+   commit and no leftover check sees it, and one folder per ticket, so parallel workers never share
+   a file. It starts with `Closes #$ARGUMENTS`, then the problem in plain words
    (`/ticket` step 8, with its Windows check rule when the diff changes Windows-only code), and
    ends with a **`## Ticket report`** section — `**Shipped:**` / `**Proof:**` /
    `**Assumptions:**` / `**Doubts:**` / `**Follow-ups:**`, where "none" is a valid entry and

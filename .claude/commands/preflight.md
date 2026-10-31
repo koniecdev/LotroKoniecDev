@@ -57,7 +57,7 @@ run; a false premise caught here costs a few tool calls instead of a whole imple
      the contradicting ADR or knowledge-base finding). Never close the issue — that is the user's
      call.
 4. Post the verdict as an issue comment, exactly this shape (the marker line lets `/ticket` skip
-   its own step-2 re-verification):
+   its own step-2 re-verification, but not its `/buddy` claim check):
 
    ```markdown
    <!-- preflight-verdict -->

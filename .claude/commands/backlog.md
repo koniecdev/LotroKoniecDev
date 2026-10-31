@@ -75,6 +75,9 @@ Then tell the owner, in a few short lines:
   to `origin/main` first — the main checkout may stay on any branch, and they may keep working in
   it; only the `.claude/worktrees/ticket-<n>` folders belong to the loop;
 - Ctrl-C, or closing the terminal, stops the run, and each worker salvages its work first;
+- to let the running tickets finish and start nothing new, run
+  `touch <MAIN>/.claude/backlog-loop.lock/stop-after-running` (#1050). It sends no signal, and
+  it fails when no loop runs, because the lock folder is not there;
 - the console is copied to `<MAIN>/logs/claude-loop/console-<timestamp>.log`, and `/backlog` with no
   arguments gives the roll-up after the run (or the progress during it).
 
@@ -104,10 +107,12 @@ Then stop. **Do not run the command** — not in the background, not in the fore
    workers to stop, and each worker may take another 20 seconds or so to salvage. Report the
    progress only — the tickets started (`── start #<n>` lines), the ones finished (their
    `[loop] #<n>` outcome lines) and the last few lines — and say the roll-up comes when the run
-   ends. Stop.
+   ends. A `stop requested` line means the owner asked for a stop after the running tickets: the
+   run ends once the tickets it names are done, and starts nothing new before that. Stop.
 5. **Ended.** Where the table comes from depends on how it ended:
    - The copy has a `[conductor] done:` line: the conductor printed its table above it. Use that
-     table.
+     table. After an early stop, a `[conductor] not started: …` line follows it, with the
+     tickets it did not start and the launcher line that starts them: relay it as it is.
    - No `done:` line: the run was stopped (Ctrl-C, a closed terminal) or killed. A stopped conductor
      prints no table, so build one row per ticket from the `.meta` files: `key=value` lines, and the
      last line of a key wins (`issue`, `outcome`, `pr`, `resumes`, `worktree`, `session`,

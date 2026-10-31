@@ -12,7 +12,9 @@
 # script you start, it then hands over to the copy in that checkout, so the run itself uses the
 # reviewed code on origin/main.
 #
-# Ctrl-C, or closing the terminal, stops the loop, and each worker salvages its work first. The
+# Ctrl-C, or closing the terminal, stops the loop, and each worker salvages its work first. To let
+# the running tickets finish and start nothing new, run
+# `touch .claude/backlog-loop.lock/stop-after-running` in the main checkout (#1050). The
 # console is copied to logs/claude-loop/console-<timestamp>.log in the main checkout; /backlog with
 # no arguments builds the roll-up from that file.
 #

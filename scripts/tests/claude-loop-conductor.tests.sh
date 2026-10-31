@@ -16,6 +16,9 @@
 #   * a computer that sleeps during a usage-limit nap does not move its end, and when the end
 #     passed while it slept, the nap ends at most a minute after the computer wakes (#1199),
 #   * a worktree that cannot be made, or two failures in a row, stop new starts,
+#   * the owner's stop request, a file in the lock folder, stops new starts and ends a usage-limit
+#     nap, but never ends a running ticket; the table lists the tickets not started, the run exits
+#     0, and the file goes away with the lock, so the next run starts normally (#1050),
 #   * a skip, a refusal or a blocked ticket is not a failure, and neither is a PR merged before its
 #     session ended: the table shows it as merged, names commits that came after the merge, and it
 #     resets the failure streak (#1082),
@@ -111,6 +114,8 @@ echo "${LOOP_CONFIG_DIR:-unset}" > "$STATE/config-$ticket"
 mkdir -p "$STATE/running"
 touch "$STATE/running/$ticket"
 ls "$STATE/running" | wc -l | tr -d ' ' >> "$STATE/concurrency"
+# The owner asks for a stop while this ticket works (#1050).
+if [ -f "$STATE/request-stop-in-$ticket" ]; then touch "$(cat "$STATE/request-stop-in-$ticket")"; fi
 "$REAL_SLEEP" "$(cat "$STATE/work-sec-$ticket" 2>/dev/null || echo "${FAKE_WORK_SEC:-0.6}")" &
 sleeper=$!
 wait "$sleeper"
@@ -190,11 +195,22 @@ STUB
 # runs, or the mark is gone.
 # With $STATE/asleep-sec, the computer sleeps that many seconds during the first step. The clock
 # moves on by those seconds too, and the nap does not count them, like a real `sleep`.
+# With $STATE/request-stop-in-nap, the owner asks for a stop during the first step (#1050): the
+# file names the path to create. $STATE/request-stop-in-head-start does the same in the 5-second
+# head start the conductor gives each new worker.
 cat > "$TMP_ROOT/bin/sleep" <<'STUB'
 #!/usr/bin/env bash
 echo "$$" >> "$STATE/nap-pids"
+if [ "$1" = 5 ] && [ -f "$STATE/request-stop-in-head-start" ]; then
+    touch "$(cat "$STATE/request-stop-in-head-start")"
+    rm -f "$STATE/request-stop-in-head-start"
+fi
 if [ -z "$(pgrep -P "$PPID" | grep -vx "$$")" ] && [ -e "$STATE/looked" ]; then
     rm -f "$STATE/looked"
+    if [ -f "$STATE/request-stop-in-nap" ]; then
+        touch "$(cat "$STATE/request-stop-in-nap")"
+        rm -f "$STATE/request-stop-in-nap"
+    fi
     seconds="${1%%.*}"
     if [ -f "$STATE/asleep-sec" ]; then
         seconds=$(( ${seconds:-0} + $(cat "$STATE/asleep-sec") ))
@@ -625,6 +641,99 @@ printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #106 +merged +#1106 .*  c
 expect_in_output "done: 1 PR opened · 3 merged · 0 blocked · 2 failed · 0 skipped · 0 untrusted"
 printf '%s\n' "$LAST_OUTPUT" | grep -q "consecutive failures" \
     && fail "a merged ticket must not count toward the stop after consecutive failures" "$LAST_OUTPUT"
+
+# ── The owner's stop request (#1050) ───────────────────────────────────────────────────────────
+STOP_FILE="$FAKE_REPO/.claude/backlog-loop.lock/stop-after-running"
+
+# #111 asks for the stop while it works, and #112 and #113 wait. It works long enough for the
+# conductor to see the request while it runs. Every `kill` call is logged.
+reset_state
+echo "$STOP_FILE" > "$STATE/request-stop-in-111"
+echo 3 > "$STATE/work-sec-111"
+export BASH_ENV="$REUSED_NUMBERS"
+run_conductor 0 "conductor: a stop request starts nothing new and lets the running ticket finish" -j 1 111 112 113
+unset BASH_ENV
+expect_started "111"
+expect_in_output "[conductor] stop requested — starting nothing new, waiting for #111"
+expect_in_output "[conductor] stopped early: stop requested — no new tickets"
+# The fake worker writes no row when a signal ends it, so this row proves it ran to its end.
+printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #111 +pr-opened +#1111 ' >/dev/null \
+    || fail "#111 should keep its real outcome" "$LAST_OUTPUT"
+printf '%s\n' "$LAST_OUTPUT" | grep -qE -- '── start #11[23] ' \
+    && fail "no ticket may start after the stop request" "$LAST_OUTPUT"
+expect_in_output "[conductor] not started: #112 #113 — start them later with: "
+expect_in_output "/scripts/claude/start-loop.sh -j 1 112 113"
+expect_in_output "done: 1 PR opened · 0 merged · 0 blocked · 0 failed"
+if [ -f "$STATE/kills" ] && awk -v w="$(cat "$STATE/pid-111")" \
+    '$1 != "-0" { for (i = 1; i <= NF; i++) if ($i == w) hit = 1 } END { exit !hit }' "$STATE/kills"; then
+    fail "the stop request signalled the running worker" "$(cat "$STATE/kills")"
+fi
+[ ! -e "$FAKE_REPO/.claude/backlog-loop.lock" ] || fail "the lock, and the stop request in it, outlived the run"
+
+# The next run with the same tickets: the request went away with the lock.
+rm -f "$STATE/request-stop-in-111"
+rm -rf "$FAKE_REPO/logs"
+: > "$STATE/started"
+run_conductor 0 "conductor: a run after a stopped run starts its tickets normally" -j 1 112 113
+expect_started "112 113"
+expect_in_output "done: 2 PR opened"
+printf '%s\n' "$LAST_OUTPUT" | grep -qE 'stop requested|not started' \
+    && fail "the request of the last run must not reach this one" "$LAST_OUTPUT"
+
+# The request comes in the head start after the first of three starts: the other two free slots
+# stay empty.
+reset_state
+echo "$STOP_FILE" > "$STATE/request-stop-in-head-start"
+echo 3 > "$STATE/work-sec-131"
+run_conductor 0 "conductor: a stop request between two starts stops the next one" -j 3 131 132 133
+expect_started "131"
+expect_in_output "[conductor] stop requested — starting nothing new, waiting for #131"
+expect_in_output "[conductor] not started: #132 #133 — start them later with: "
+
+# The request comes in the first step of a usage-limit nap: the nap ends there, and the limited
+# ticket is not run again. Its worktree waits for the next run.
+reset_state
+echo "6 0" > "$STATE/rc-114"
+echo "$STOP_FILE" > "$STATE/request-stop-in-nap"
+run_conductor 0 "conductor: a stop request during a usage-limit nap ends the nap and runs nothing again" -j 1 114 115
+expect_started "114"
+expect_in_output "usage limit — sleeping 60m (nap 1/8)"
+expect_in_output "[conductor] stop requested — starting nothing new, nothing is running"
+expect_naps 1 60
+printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #114 +limit .*worktree kept: run #114 again to resume its session$' >/dev/null \
+    || fail "the row of #114 should say its worktree waits for a resume" "$LAST_OUTPUT"
+expect_in_output "[conductor] not started: #114 #115 — start them later with: "
+expect_in_output "/scripts/claude/start-loop.sh -j 1 114 115"
+
+# A usage limit that comes with a stop request gets no nap: the conductor waits for the running
+# ticket and ends.
+reset_state
+echo 0.3 > "$STATE/work-sec-116"
+echo "6 0" > "$STATE/rc-116"
+echo "$STOP_FILE" > "$STATE/request-stop-in-117"
+echo 3 > "$STATE/work-sec-117"
+run_conductor 0 "conductor: a usage limit with a stop request ends the run without a nap" -j 2 116 117 118
+expect_started "116 117"
+expect_naps 0 0
+printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #117 +pr-opened +#1117 ' >/dev/null \
+    || fail "#117 should keep its real outcome" "$LAST_OUTPUT"
+expect_in_output "[conductor] not started: #116 #118 — start them later with: "
+expect_in_output "/scripts/claude/start-loop.sh -j 2 116 118"
+
+# A conductor killed hard leaves its lock, with a request in it. The next run takes that lock over
+# and starts its tickets.
+reset_state
+mkdir -p "$FAKE_REPO/.claude/backlog-loop.lock"
+"$REAL_SLEEP" 0 &
+gone=$!
+wait "$gone"
+echo "$gone" > "$FAKE_REPO/.claude/backlog-loop.lock/pid"
+touch "$STOP_FILE"
+run_conductor 0 "conductor: a stop request left in the lock of a killed run does not stop the next run" -j 1 119
+expect_in_output "stale lock (owner gone)"
+expect_started "119"
+printf '%s\n' "$LAST_OUTPUT" | grep -q 'stop requested' \
+    && fail "the request of the killed run must not reach this one" "$LAST_OUTPUT"
 
 # ── Drain mode ─────────────────────────────────────────────────────────────────────────────────
 reset_state

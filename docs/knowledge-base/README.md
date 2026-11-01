@@ -35,7 +35,7 @@ Detailed analysis: [update-50/RESULTS.md](update-50/RESULTS.md) · before: [upda
 - 49.8 → 50: 7,711 iterations (731 English), 16,949 rows added, 7,026 changed, 162 removed; the E5 iteration signal = exactly the 811 changed text subfiles, 0 missed
 - E7 corpus: **97.64% survived; 1.47% collateral revert, 0.87% English changed by SSG, 0.02% removed**, every loss inside the E5 set
 - **Tier 0 through `launch`:** found all 811 replaced subfiles in 0.2 s, re-patched 798,932 rows in 6.7 s (all 11,846 collateral reverts repaired), skipped all 7,026 changed rows as `source moved`; **0 Polish over changed English**; the next launch, after a launcher start, found nothing
-- SSG's current launcher is **not signed**, so `launch` refuses to start it (#1290)
+- SSG's current launcher is **not signed**, so `launch` refused to start it; #1290 removed the signature check (ADR-0069)
 
 ### E7 — the revert rate of a fully translated corpus, counted, and the source guard on a real update (2026-10-10)
 Detailed analysis: [e7-full-corpus-survival-2026-10-10.md](e7-full-corpus-survival-2026-10-10.md) · tool: `scripts/experiments/e7-corpus-survival.ps1` (#1094)
@@ -76,7 +76,7 @@ Detailed analysis: [live-test-2026-06-25.md](live-test-2026-06-25.md) · committ
 ### Live Test — 2026-07-11 (48.8) — first real-world AUDIT-SEC run
 Detailed analysis: [live-test-2026-07-11.md](live-test-2026-07-11.md)
 - All 7 AUDIT-SEC PRs (#422-429) validated on real Windows for the first time: 42/42 Infrastructure + 23/23 E2E on a main worktree
-- AUDIT-SEC-02 (launcher Authenticode) + AUDIT-SEC-03 (restricted DLL search path) confirmed by a live SKIP launch and a forced live PATCH (8/8, 0 warnings) against the real signed launcher and production DAT
+- AUDIT-SEC-02 (launcher Authenticode) + AUDIT-SEC-03 (restricted DLL search path) confirmed by a live SKIP launch and a forced live PATCH (8/8, 0 warnings) against the real signed launcher and production DAT. The Authenticode check was removed on 2026-10-30, because SSG no longer signs the launcher (#1290, ADR-0069)
 - Live forum fetch returned 48.8 while vnum stayed 112/3 — 5th unchanged cycle
 - `launch`'s SKIP path never refreshes the stored ForumVersion — only a standalone `patch` does (code-verified); the manual export→import gap is decided in #443 + ADR-0030
 

@@ -34,6 +34,8 @@ its English DAT still has the 49.8 hash `0F8C7BB1…3F4` after the run.
 `launch` refuses to start the launcher, because SSG's current launcher has no signature (#1290,
 see "Side findings"). Tier 0 runs before that step, so the measurement was not affected. The
 launcher was started by hand each time instead.
+*Update 2026-10-30:* #1290 removed the signature check (ADR-0069), so `launch` starts the
+unsigned launcher again.
 
 The CLI was built from `main` at `c710a3ad`.
 
@@ -120,7 +122,7 @@ change what SSG replaces.
   The first self-update moved it into `backup\`, and the next one replaces it: after Update 50 the
   sandbox's `backup\` holds the unsigned 49.8 one. Our `launch` checks the signature
   (AUDIT-SEC-02), so today it patches and repairs, and then refuses to start the game with exit
-  code 3.
+  code 3. *Update 2026-10-30:* the check was removed in #1290 (ADR-0069).
 - **The E5 script could not find `datexport.dll` on its own.** Windows PowerShell 5.1 leaves
   `$PSScriptRoot` empty in `param()` defaults when a script is started with `-File`. E5, E1 and E2
   now resolve their default paths in the script body, as E6 already did.

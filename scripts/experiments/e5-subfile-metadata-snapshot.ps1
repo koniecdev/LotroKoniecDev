@@ -40,10 +40,10 @@ param(
     [string]$Label = 'unlabeled',
 
     [Parameter(ParameterSetName = 'Snapshot')]
-    [string]$DllPath = (Join-Path $PSScriptRoot '..\..\src\Patcher\LotroKoniecDev.Infrastructure\datexport.dll'),
+    [string]$DllPath = '',
 
     [Parameter(ParameterSetName = 'Snapshot')]
-    [string]$OutDir = (Join-Path $PSScriptRoot '..\..\intel\update-49'),
+    [string]$OutDir = '',
 
     [Parameter(ParameterSetName = 'Snapshot')]
     [switch]$IncludeVersion,
@@ -59,6 +59,19 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Resolve the defaults here, not in param(): Windows PowerShell 5.1 leaves $PSScriptRoot empty there
+# when the script is started with -File.
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $DllPath)
+{
+    $DllPath = Join-Path $scriptDirectory '..\..\src\Patcher\LotroKoniecDev.Infrastructure\datexport.dll'
+}
+
+if (-not $OutDir)
+{
+    $OutDir = Join-Path $scriptDirectory '..\..\intel\update-49'
+}
 
 # Text SubFiles carry 0x25 as the high byte of their FileId (DatFileConstants.TextFileMarker) -
 # only those can hold our translations, so they get counted separately everywhere below.

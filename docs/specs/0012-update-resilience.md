@@ -383,6 +383,13 @@ code ticket. It carries no milestone and stays that way: the backlog loop must n
       subfile removed): `launch` repaired 300 of 300 rows (checked by an export), and the launch
       after it found nothing. With the copy read-only the repair failed, the launch went on, and
       the next launch repaired. A run on a real update stays with the forced-downgrade E2E of #567.
+      *Update 50 evidence (2026-10-29, manual, sandbox copy of the install):* after the launcher
+      applied the real 49.8→50 update to a DAT patched with a full marked corpus (forced downgrade
+      of the English DAT), `launch` found 811 replaced text subfiles (738 with a new iteration,
+      73 removed; exactly the E5 set) in 0.2 s and re-patched 798,932 rows in 6.7 s, 11,846 of
+      them collateral reverts. The launch after it, with one launcher start in between, found
+      nothing ([update-50/RESULTS.md](../knowledge-base/update-50/RESULTS.md)). `launch` then
+      refused to start the unsigned SSG launcher (#1290).
 - [ ] ~~Sentinel force-patches only when the server's staleness verdict says the artifact is
       current, and declines on stale/unknown/offline (handshake — ADR-0045; the client never
       reads lotro.com and never compares versions itself).~~ *Amended 2026-08-17 (ADR-0047):*
@@ -397,6 +404,10 @@ code ticket. It carries no milestone and stays that way: the backlog loop must n
       the real 47.2→49.7 update, a guarded re-patch with the pre-update file repaired all 20,228
       collateral reverts, skipped all 2,347 changed rows as `source moved` and wrote 0 Polish over
       changed English. The Tier 0/1 write paths are not built yet, so this stays open.
+      *Update 50 evidence (2026-10-29), Tier 0 repair in `launch`:* on the real 49.8→50 update
+      (same replay), the repair restored all 11,846 collateral reverts, skipped all 7,026 changed
+      rows as `source moved` and wrote 0 Polish over changed English. Tier 1 (#566) is not built
+      yet, so this stays open.
 - [ ] Orchestrator branch A: patch lands between launcher-release and Play without killing
       anything (E1 ✅ confirmed the window exists: DAT free at the login screen, full-corpus
       patch 14.7 s).

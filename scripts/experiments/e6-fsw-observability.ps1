@@ -35,8 +35,8 @@ param(
     [switch]$NoStat
 )
 
-# Resolve the default here, not in param(): Windows PowerShell 5.1 can leave $PSScriptRoot empty
-# there (the E5 script hits it when started with -File).
+# Resolve the default here, not in param(): Windows PowerShell 5.1 leaves $PSScriptRoot empty there
+# when the script is started with -File.
 if (-not $LogPath)
 {
     $LogPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..\..\intel\update-49.7\e6-fsw-timeline.log'

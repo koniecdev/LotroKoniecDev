@@ -35,7 +35,7 @@ Detailed analysis: [update-50/RESULTS.md](update-50/RESULTS.md) · before: [upda
 - 49.8 → 50: 7,711 iterations (731 English), 16,949 rows added, 7,026 changed, 162 removed; the E5 iteration signal = exactly the 811 changed text subfiles, 0 missed
 - E7 corpus: **97.64% survived; 1.47% collateral revert, 0.87% English changed by SSG, 0.02% removed**, every loss inside the E5 set
 - **Tier 0 through `launch`:** found all 811 replaced subfiles in 0.2 s, re-patched 798,932 rows in 6.7 s (all 11,846 collateral reverts repaired), skipped all 7,026 changed rows as `source moved`; **0 Polish over changed English**; the next launch, after a launcher start, found nothing
-- SSG's current launcher is **not signed**, so `launch` refuses to start it (#1290)
+- SSG's current launcher is **not signed**, so `launch` refused to start it; #1290 removed the signature check (ADR-0069)
 
 ### E7 — the revert rate of a fully translated corpus, counted, and the source guard on a real update (2026-10-10)
 Detailed analysis: [e7-full-corpus-survival-2026-10-10.md](e7-full-corpus-survival-2026-10-10.md) · tool: `scripts/experiments/e7-corpus-survival.ps1` (#1094)

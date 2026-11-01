@@ -6,7 +6,7 @@
 **Amends:** [ADR-0067](0067-who-checks-what-each-of-our-parts-checks-only-what-it-owns.md) §7 item 5
 **Related:** Patcher (`Infrastructure/GameLaunching/GameLauncher.cs`, `Cli/DatPathResolver.cs`,
 `Cli/LauncherNotice.cs`, `Cli/Commands/LaunchCommand.cs`); spec 0011 LEGAL-12; tickets #392
-(AUDIT-SEC-02), #1290, #1292, #43; the Update 50 measurement
+(AUDIT-SEC-02), #1290, #1292, #1298, #43; the Update 50 measurement
 (`docs/knowledge-base/update-50/RESULTS.md`, PR #1291)
 
 ## Context
@@ -48,8 +48,10 @@ libraries there instead, and a signed launcher would load it with the same right
    Authenticode check, its native wrapper and its `GameLaunch.UntrustedLauncher` error are removed.
    With every current launcher unsigned, the check could not tell a real launcher from a fake one,
    so keeping it anywhere would only block.
-2. **The guard is how the folder was chosen.** A folder from `-d` or a known install location was
-   chosen by the player or by an installer. Any other folder is used only after the player confirms
+2. **The guard is how the folder was chosen.** A folder from `-d` or a known install location is
+   used with no question: the player or an installer chose it. The Steam default folder is used
+   with no question too, although any user on the PC can create the game folder in it; whether to
+   ask about it is open in #1298. Any other folder is used only after the player confirms
    it, or picks it from the list (`DatPathResolver`, #392 criterion 2): a folder the disk scan found,
    and `data/` under the working directory when it is the only location. The tool can be started
    from any folder, so `data/` there is not always the patcher's own. This question is now the only
@@ -83,7 +85,8 @@ libraries there instead, and a signed launcher would load it with the same right
   running as the player, which can also change the source tree and the NuGet cache that `lotro.bat`
   builds as administrator. It also includes a second, non-admin account on the same PC when the
   game sits in a folder all users can write to: the Steam default `C:\Program Files (x86)\Steam`
-  gives `Users` full control, and that location is used with no question. A game on a second drive
+  gives `Users` full control, and that location is used with no question. Such an account can also
+  create a game folder there for a player whose game is elsewhere (#1298). A game on a second drive
   may be the same. In the SSG default folder under Program Files, only an administrator can write.
   The notice tells the player this; nothing in the code prevents it.
 - The only automated test of the AUDIT-SEC-02 attack went with the check. The confirmation that
@@ -147,6 +150,7 @@ planted launcher or library.
 - #392: AUDIT-SEC-02, the attack and the two guards
 - #1290: the unsigned launcher, the options and the owner's choice
 - #1292: a test for the scan confirmation
+- #1298: a game folder another account creates in the Steam folder
 - #43: the desktop app's auto-detection
 - spec 0011, LEGAL-12: the risk notice the launcher notice follows
 - `docs/knowledge-base/update-50/RESULTS.md` (PR #1291): the measurement that found it

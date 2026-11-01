@@ -24,9 +24,11 @@ public sealed class ErrorPathE2ETests
         result.ExitCode.ShouldBe((int)CliExitCode.FileNotFound, $"stdout: {result.Stdout}");
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Launch_TranslationFileMissing_ShouldPrintTheLauncherNoticeAndReturnFileNotFound()
     {
+        Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
+
         string fakeTranslationsPath = Path.Combine(_fixture.CreateTempDir(), "nonexistent.txt");
         string fakeDatPath = Path.Combine(_fixture.CreateTempDir(), "client_local_English.dat");
 

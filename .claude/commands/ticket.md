@@ -1,5 +1,5 @@
 ---
-description: Work a GitHub issue end-to-end — interrogate the ticket first (READY/CLARIFY/BOUNCE, wiki-first), one question gate, then autonomous to a Ticket report in plain English + PR
+description: Work a GitHub issue end-to-end — interrogate the ticket first (READY/CLARIFY/BOUNCE, wiki-first, the plan's claims checked by /buddy), one question gate, then autonomous to a Ticket report in plain English + PR
 argument-hint: <issue number> [extra context]
 ---
 
@@ -85,8 +85,34 @@ of authority:
   (#1023 reversed #966 that way). "The owner decides" in the ticket body, unless a later owner
   comment answers it, is a question for the gate below, never a default to pick the strictest option
   from (PR #1063).
-- **A `/preflight` verdict comment already on the issue counts as this step done** — trust it,
-  re-verify only what it flagged, and skip straight to its recommended lane.
+- **A `/preflight` verdict comment already on the issue counts as this step done**, except the
+  claim check below — trust it, re-verify only what it flagged, run the claim check, and take its
+  recommended lane. Preflight runs no agents, so nobody has tried to prove its diagnosis wrong.
+- **Challenge the claims the plan rests on — `/buddy`, before the verdict.** Reading the flow at
+  `file:line` does not check every claim around it. Run `/buddy` when the plan rests on any of
+  these:
+  - a **negative** claim: "not our code", "nothing else calls this", "X rules out Y";
+  - a **cause outside this repo**: the game client or its launcher, Windows, a remote server, a
+    vendor;
+  - a **conclusion taken over** from the ticket's author or a past session and not re-derived.
+
+  Everything else skips it. A reproduction proves the symptom, not a claim about its cause or about
+  what else the fix touches: a reproduced bug whose plan still rests on one of these claims goes to
+  `/buddy` too. A finding that `docs/knowledge-base/` settles is evidence: cite it, do not
+  challenge it again. Fold the corrections into the verdict; NOT SOUND sends you back to the
+  premise. These claims are reasoned, not observed, and a wrong one reaches the docs and the ticket
+  before any review reads them.
+
+  `/buddy` is an account-level skill, so a fresh clone may not have it. Then spawn one fresh
+  `general-purpose` agent and never pass `name` (a named agent's report never reaches you). Give it
+  the claims numbered, the order to prove them wrong against the code, "read-only: no edits and no
+  git command that changes anything", a CONFIRMED / REFUTED / OVERSTATED verdict per claim with
+  `file:line` evidence, a list of what it checked and found sound, and SOUND / SOUND WITH
+  CORRECTIONS / NOT SOUND overall.
+- **The same bar holds for the rest of the run.** A cause or a claim about an external system that
+  goes into docs, an ADR, a ticket or UI copy is backed by evidence, checked by `/buddy`, or
+  written as unproven. A reviewer's finding is a claim too: check it at `file:line` before you fix
+  it or repeat it.
 - **The wiki and the product disagree?** That is never settled inside a ticket run. Do not soften
   the wiki and do not "align" the code to it on your own: BOUNCE with both sides quoted (wiki
   line, `file:line` / ADR section) and propose the inconsistency ticket — the owner rules, the
@@ -115,10 +141,11 @@ Then exactly one of three verdicts:
 
 ## 3. Lane — size the run before you start it
 
-- **S — small** (< ~150 changed lines, one concern): **zero subagents**; review inline with
-  `/code-review`; the whole run should fit well under a hundred tool calls.
-- **M — standard slice** (the default): `code-reviewer` agent once at the gate; DAT binary work
-  goes to the **`dat-format-expert`** agent.
+- **S — small** (< ~150 changed lines, one concern): the gate **starts with inline `/code-review`**
+  instead of a review agent, and escalates to `code-reviewer` only as step 7 says. The whole run
+  should fit well under a hundred tool calls.
+- **M — standard slice** (the default): `code-reviewer` agent at the gate; DAT binary work goes to
+  the **`dat-format-expert`** agent.
 - **L — spec-worthy** (new feature with fuzzy rules, contract change, modeling decision —
   `CLAUDE.md` → "Spec before code"): the open business questions belonged in step 2's gate — you
   already asked them. Now copy `docs/specs/_TEMPLATE.md` → `docs/specs/NNNN-kebab-title.md` (next
@@ -126,13 +153,16 @@ Then exactly one of three verdicts:
   types and paths, not placeholders — and set **Status: Agreed** (**no second question round**)
   before the branch. A real architecture decision gets an `/adr` before the code.
 
-Name the lane in the READY comment. Changing lanes mid-run is fine — say so in the report.
+Name the lane in the READY comment. The lane is a forecast: step 7 picks the reviewer by the diff
+you actually have, so an S that grew past the threshold gets `code-reviewer`. Say so in the report.
 
 **`/buddy` before code, in any lane, when the plan carries a design bet.** A design bet is one of:
 an ADR written for this ticket, a deviation from an acceptance criterion, or one load-bearing
 assumption that decides the whole slice. Hand `/buddy` the plan as claims, and include the claim
-"this step protects something the caller could not already get". A design flaw found here costs
-one cheap agent; found at the review gate it costs a rewrite plus a full re-run of every gate.
+"this step protects something the caller could not already get". A design bet already known at step
+2 goes into step 2's run; one that appears later (an ADR written here) gets its own run. If `/buddy`
+is not installed, use step 2's fallback agent. A design flaw found here costs one cheap agent; found
+at the review gate it costs a rewrite plus a full re-run of every gate.
 Precedent: #690 — the first draft put a password in front of a POST whose payload was identical to
 the open GET beside it, and only review round 1 saw it, after the code and the tests existed.
 
@@ -157,10 +187,18 @@ answered, so it never stops here — it names the mismatch in the report's **Dou
 ## 5. Branch — always a fresh feature branch off main; never commit to main
 
 Step 0 already left you on a clean, fresh `main`; anything dirty now is this session's own work
-(e.g. the step-3 spec file), and an untracked file travels with the checkout:
+(e.g. the step-3 spec file), and an untracked file travels with the checkout. First
+`gh issue develop <n> --list`: does the ticket already have a linked branch?
 
-- `gh issue develop <n> --base main --checkout` — creates + checks out the linked
-  `{n}-{kebab-title}` branch off `main`. If it already exists, just check it out.
+- **No** → `gh issue develop <n> --base main --checkout` creates and checks out the linked
+  `{n}-{kebab-title}` branch off `main`.
+- **Yes** → check its PR before you touch it:
+  `gh pr list --head <branch> --state all --json number,state`. A merged PR means that work
+  shipped: a push to the branch reaches no PR, so it never reaches `main` (#1097). What is left of
+  the ticket goes into a new ticket that links back: say so and stop. Otherwise
+  `git fetch origin <branch>`, `git switch <branch>` and `git merge --ff-only origin/<branch>` (a
+  fast-forward, never a merge commit). If that fails, the local and the remote branch have moved
+  apart: say so and stop.
 - **Never work on `main` directly.** If for any reason you find yourself past step 0 with commits
   to make and no ticket branch yet, cut the branch first — nothing is ever committed to `main`.
 
@@ -172,6 +210,15 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
 
 ## 7. Verify "done"
 
+- **Commit, then sync with `main`, before any gate.** Mark the spec **Status: Implemented** (if
+  one exists) and commit in logical units, grouped by concern: reviewers diff commits, and
+  `/security-review` reads commits only, so uncommitted work gives it an empty diff. Nothing is
+  pushed yet. Then `git fetch origin`; if `origin/main` moved past your base,
+  `git rebase origin/main` (this repo rebases, never merges `main` in). Resolve a conflict from the
+  code on both sides. One you cannot settle that way: `git rebase --abort`, push the branch and
+  report the conflict without a PR (step 8). Every gate below then runs on what will merge. **Any
+  later commit (a review fix, another rebase) re-runs the build, the whole suite and the guards
+  before the next review round or the push.**
 - `dotnet build LotroKoniecDev.slnx` — green with **zero warnings** (TreatWarningsAsErrors).
 - **The whole suite, locally, on every ticket — unconditional.** `dotnet test` (no filter) runs
   everything runnable on this OS and exits 0 when it all passes; off Windows the two Windows-only
@@ -184,18 +231,73 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   the two Windows-only patcher suites in a session that is not on Windows: for a diff that changes
   Windows-only code, list the Windows run under `## Before merge, on Windows` (step 8) and open
   the PR, because `needs-windows-check` holds it.
+- **A regression test is proven, not assumed:** it must fail on the code before the fix. Make a
+  throwaway worktree in the gitignored `.claude/worktrees/` (a build there takes gigabytes, and
+  `/tmp` often lives in RAM): `git worktree add --detach .claude/worktrees/ticket-<n>-pre-fix HEAD`.
+  In it, `git checkout $(git merge-base HEAD origin/main) -- <the fix's production files>` (`git rm`
+  one the fix added), so the fix goes and the test stays. Use the merge base, not `origin/main`:
+  another session's fetch can move `origin/main`, because worktrees share it. When the test needs a
+  type or member the fix added, revert only the behaviour inside it: a compile error proves nothing.
+  Build the test project there with `--no-incremental` and `-p:TreatWarningsAsErrors=false
+  -p:WarningsAsErrors= -p:EnforceCodeStyleInBuild=false -p:RunAnalyzersDuringBuild=false`, then
+  `dotnet test <project> --no-build --filter "FullyQualifiedName~<test>"`. Without those switches
+  the old tree can fail on an analyzer (`Directory.Build.props` makes every warning an error,
+  `.editorconfig` marks style rules `:error`), print no test summary and look like a failing test.
+  The proof counts only when the run prints a test summary with that test failing by name. Then `git
+  worktree remove --force` it; an E2E proof also leaves Docker images tagged with the folder name,
+  so remove them as `tests/LotroKoniecDev.Frontend.E2E.Tests/README.md` shows. A change no test can
+  pin (pure presentation) goes under **Doubts** with the page or step to check by hand.
 - **The guard scripts CI runs, every time** — they are bash greps and take seconds:
   `scripts/check-ssr-purity.sh`, `scripts/check-client-hypermedia.sh`,
   `scripts/check-dockerfile-restore-graph.sh`, `scripts/check-migration-safety.sh`.
-- **Review gate — by lane.** M/L: hand the diff to the repo's **`code-reviewer`** agent with the
-  ticket number and the acceptance criteria from step 2; have it write its verdict to a scratchpad
-  file; fix every Critical/Major and re-run until APPROVE. S: review inline with
-  **`/code-review`** — zero agents. **`/security-review`** on top for anything touching native
-  interop, file protection, or auth.
-- **Second pass — M/L only, after the APPROVE: run `/code-review` on the branch.** It forks into a
-  fresh context, so it has never seen your plan, your ADR or the first reviewer's framing, and it
-  reads the code around the diff instead of the diff's own story. That independence is the point:
-  the `code-reviewer` rounds converge on what the author and the reviewer already talk about.
+- **Review gate — picked by the diff you have, not the lane you named.**
+  `git diff --shortstat origin/main...HEAD`. The base is always `origin/main`: a local `main` can
+  be behind it (in a worktree it is never pulled), and a stale base pulls other merged work into
+  the diff.
+  - **< ~150 changed lines, one concern → inline `/code-review high origin/main...HEAD`, two
+    rounds at most.** Name the level: with none, the skill reuses the last level typed, and the
+    second pass below shows how much effort decides. It has no severity bar and no verdict rule, so
+    the exit is defined here. Sort each
+    round's findings into the four buckets of the second pass below; a round with no bucket-1
+    finding is the pass. Otherwise fix every bucket-1 finding, commit, re-run the gates and run one
+    more round on the result. If that round still finds a defect in the diff, or the fixes pushed
+    the diff past the threshold, escalate to `code-reviewer`. **Never a third `/code-review`
+    round:** with no verdict rule, "fix and re-run until clean" has no end, and the later rounds
+    mostly find defects that the earlier fixes made.
+  - **Anything bigger, or an escalated small diff → the repo's `code-reviewer` agent**
+    (`.claude/agents/code-reviewer.md`). Its brief carries:
+    - the ticket number, step 2's acceptance criteria, and the base: `origin/main...HEAD`, with the
+      `origin/main` SHA;
+    - the decisions already taken, each with its reason, and the follow-up tickets already filed,
+      so they are not raised again as blockers;
+    - the gates you already ran, with their results;
+    - "read-only: any probe runs in a throwaway worktree";
+    - the bar: Critical/Major as `code-reviewer.md` defines them, its hard rule on untested
+      unhappy paths included; wording and taste are Minor and do not block APPROVE;
+    - "write the report, the reviewed SHA and a final `VERDICT:` line to
+      `<scratchpad>/<n>-review-r<round>.md`, and end your turn only after the file exists".
+
+    Fix every Critical/Major, commit, re-run the gates, then **spawn a fresh `code-reviewer`** for
+    the next round, with the earlier findings and the fix commits, writing the next `-r<round>`
+    file. Never ask the old reviewer to re-verify: it has already formed its view and can send its
+    old verdict back as if it were new. Minor-only fixes need no new round. NEEDS DISCUSSION counts
+    as REQUEST CHANGES: answer each question from the wiki, the code or an ADR and fix, or stop as
+    below. **No APPROVE after three rounds → stop:** push the branch and report without a PR (step
+    8).
+  - **Trust a verdict only after you check its file:** it exists, it is newer than the commit it
+    names, and that commit is `HEAD` or differs from it only by Minor fixes, the second pass's
+    bucket-1 fixes (below) or a rebase with no conflict (step 8), with the gates green again. A
+    reviewer that reports "completed" with no file has stalled. In an interactive session, one
+    message asking it to write the file now is the fix; its answer comes back as a notification,
+    which a headless session never gets (`/work-ticket` spawns a fresh reviewer instead). A file
+    that names an older commit is stale: spawn a fresh reviewer.
+  - **`/security-review`** on top for anything touching native interop, file protection, or auth.
+- **Second pass — after a `code-reviewer` APPROVE on a diff that went to it at the gate: run
+  `/code-review xhigh origin/main...HEAD`.** It forks into a fresh context, so it has never seen your
+  plan, your ADR or the first reviewer's framing, and it reads the code around the diff instead of
+  the diff's own story. That independence is the point: the `code-reviewer` rounds converge on what
+  the author and the reviewer already talk about. An escalated small diff skips this pass: its two
+  `/code-review` rounds were the blind pass already, and a third round never runs.
   Precedent: #690 — three `code-reviewer` rounds and 20 findings ended in APPROVE, and one fresh
   `/code-review` then found four more, among them a password POST that the shared HTTP retry
   pipeline could send three times and an export that spent two rate-limit permits per click.
@@ -205,12 +307,14 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   reviewer's severity. That ground is never anything ADR-0067 §7 lists: our own part being down,
   slow or failing; the one clean path for an answer the code cannot use; a guard on where a secret
   goes; a resource server's check of a token it receives; input from outside our trust boundary.
-  1. **A defect in this diff.** The line is in `git diff main...HEAD`, or the diff made it
+  1. **A defect in this diff.** The line is in `git diff origin/main...HEAD`, or the diff made it
      reachable, and the claim holds when you read the code. Fix it. Another case of the class
      this ticket names belongs here too (for an older ticket that names one case: the class of
      that case). Finding those cases is this ticket's own task, so fix it in this diff with its
-     own test. A case with a cause the diff has not fixed yet gets one more `code-reviewer`
-     round; the second pass does not run again.
+     own test. In the second pass, a case with a cause the diff has not fixed yet gets one more
+     round from a fresh `code-reviewer`, which counts toward the three (none left: stop as the
+     three-round rule says), and the second pass does not run again. Any other fix there keeps
+     the APPROVE.
   2. **Real, older than this diff, and no ticket.** The same code or behavior is on `main`, and
      `gh issue list --state all --search "<key words>"` finds no open ticket that names this case
      (a ticket closed as completed that names it means the bug came back: file a new ticket that
@@ -239,22 +343,25 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   **before** the push: a finding that lands after `gh pr create` costs a pr-verify run.
   Effort decides what it finds, more than the model does: on #690's PR the same command gave 2 and 4
   findings in two runs at effort medium, and 14 and 15 at xhigh (one run each on the two top tiers,
-  about 6 and 20 USD). A session below effort high should not count this pass as proof.
+  about 6 and 20 USD). A run below level high is no proof.
 - **A review skill's report does not end `/ticket`.** `/security-review` and `/code-review` end
   with an order like "your final reply must contain the report and nothing else". Inside
   `/ticket` that order covers only the review's own output. Save the report to
-  `<scratchpad>/<n>-security.md` (or `-code-review.md`) and go straight on to the next step. The
-  same holds for the one-line reply of `/b2-english` in step 10: go straight on to the command
-  that posts the file. The turn ends only with step 9's final reply, never on a review report.
+  `<scratchpad>/<n>-security.md` (or `-code-review-r<round>.md`) and go straight on to the next
+  step. The same holds for the one-line reply of `/b2-english` in step 10: go straight on to the
+  command that posts the file. The turn ends only with step 9's final reply, never on a review report.
   Precedent: #872 printed its security report as the final reply and stopped with five commits
   unpushed and no PR.
 
 ## 8. Ship
 
-- Mark the spec **Status: Implemented** (if one exists).
-- `git fetch origin && git rebase origin/main` — `main` requires branches up to date, and this
-  repo rebases, never merges `main` in.
-- **Commit in logical units** on the ticket branch, group by concern, leave nothing behind.
+- **Commit any remaining (Minor) fixes** in logical units and re-run the gates (step 7): leave
+  nothing behind.
+- **Sync again right before the push.** `git fetch origin`; if `origin/main` moved during the
+  review, `git rebase origin/main` and re-run the gates, or the PR opens in conflict and its checks
+  never start. A rebase with no conflict keeps the verdict (it changes no line of this diff, as
+  ADR-0060 has it for the owner's approval). One where you resolved a conflict changed reviewed
+  code: it needs a fresh `code-reviewer` round, which counts toward the three.
 - **A PR ships only when nothing can be wrong.** Every gate above is already green on the pushed
   commit and no open question, TODO or unverified assumption remains. Any gate unproven (Docker
   down, a suite skipped, review verdict missing) → **push the branch, write the report (step 9) as
@@ -302,8 +409,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     the session's own. Run `git switch --no-track -c <branch>-follow-up origin/main` and
     cherry-pick the `+` commits, oldest first. Skip a pick that comes out empty, or that conflicts
     only because `main` already has that change (`git cherry-pick --skip`). Then the gate of every
-    PR: the build, the whole suite and the guard scripts green, and the `code-reviewer` agent on
-    the follow-up diff until APPROVE. Then `git push -u origin HEAD` and open a follow-up PR the
+    PR: the build, the whole suite and the guard scripts green, and step 7's review gate on the
+    follow-up diff. Then `git push -u origin HEAD` and open a follow-up PR the
     way "The PR opens with its final text" says, from its own body file
     `/tmp/claude-ticket-<n>/follow-up-body.md`. Its body starts with `Follow-up to #<pr> (ticket
     #<n>), which was merged before this fix was pushed.` instead of `Closes #<n>` (the merge
@@ -327,7 +434,7 @@ The PR body (or the issue comment, when there is no PR) ends with:
 ```markdown
 ## Ticket report
 **Shipped:** <what changed, behaviorally, 1-3 lines>
-**Proof:** <each gate with its actual result: build, the suite counts, guards, review verdict, the second-pass `/code-review` split (fixed / filed / already decided / opinion, each rejection with its reason), CodeQL (see below)>
+**Proof:** <each gate with its actual result: build, the suite counts, guards, the reviewer the diff picked with its rounds and verdict, the second-pass `/code-review` split (fixed / filed / already decided / opinion, each rejection with its reason), CodeQL (see below)>
 **Assumptions:** <every judgment call made without the user, each with why + risk — "none" is a valid entry, silence is not>
 **Doubts:** <anything not fully verified or that smells — same rule>
 **Follow-ups:** <tickets filed, or bullets worth one>
@@ -365,7 +472,9 @@ and say so in the final reply.
 - **Batch independent tool calls** into one message; chain dependent shell steps with `&&` into one
   command when only the final result gates (`build && test` is one call, not two).
 - Never re-read a file already in context; prefer one targeted `grep -n` over `cat`-ing whole files.
-- Subagents only where the lane says so — the repo cap is 4 parallel, and an S-lane run uses zero.
+- Subagents only where this command names them: the `/buddy` check of steps 2 and 3, the reviews
+  of step 7 (the reviewer the diff picks, its escalation, the second pass and `/security-review`),
+  and `dat-format-expert` for DAT work. The repo cap is 4 in parallel.
 - The session dies after step 9's final reply. A second ticket in this context pays this
   ticket's whole conversation as cache reads on every turn — a fresh boot is cheaper.
   Back-to-back `/ticket` sessions reuse only the tool layer of the prompt cache (the rest

@@ -14,9 +14,9 @@ When invoked, follow this exact sequence:
 ### Phase 1: Understand the scope
 
 1. Read the ticket/acceptance criteria provided by the caller. If a ticket number is given, `gh issue view <n>`; if an agreed spec exists in `docs/specs/`, its acceptance criteria are the contract.
-2. Run `git diff main...HEAD --stat` to see all changed files.
-3. Run `git diff main...HEAD` to see full diff.
-4. Run `git log main..HEAD --oneline` to see commits on this branch.
+2. Run `git diff origin/main...HEAD --stat` to see all changed files.
+3. Run `git diff origin/main...HEAD` to see full diff.
+4. Run `git log origin/main..HEAD --oneline` to see commits on this branch.
 5. Read `docs/adr/0067-who-checks-what-each-of-our-parts-checks-only-what-it-owns.md` (who checks
    what, and §8 "Not a finding") and the ADRs that govern the area the diff touches (`ls docs/adr/`),
    so you do not report a decision as a defect.

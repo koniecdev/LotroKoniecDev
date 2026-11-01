@@ -75,6 +75,9 @@ Then tell the owner, in a few short lines:
   to `origin/main` first — the main checkout may stay on any branch, and they may keep working in
   it; only the `.claude/worktrees/ticket-<n>` folders belong to the loop;
 - Ctrl-C, or closing the terminal, stops the run, and each worker salvages its work first;
+- to let the running tickets finish and start nothing new, run
+  `touch <MAIN>/.claude/backlog-loop.lock/stop-after-running` (#1050). It sends no signal. It fails
+  when no loop runs, because the lock folder is not there, unless a run killed hard left its lock;
 - the console is copied to `<MAIN>/logs/claude-loop/console-<timestamp>.log`, and `/backlog` with no
   arguments gives the roll-up after the run (or the progress during it).
 
@@ -104,10 +107,13 @@ Then stop. **Do not run the command** — not in the background, not in the fore
    workers to stop, and each worker may take another 20 seconds or so to salvage. Report the
    progress only — the tickets started (`── start #<n>` lines), the ones finished (their
    `[loop] #<n>` outcome lines) and the last few lines — and say the roll-up comes when the run
-   ends. Stop.
+   ends. A `stop requested` line means the owner asked for a stop after the running tickets: the
+   run ends once the tickets it names are done, and starts nothing new before that. Stop.
 5. **Ended.** Where the table comes from depends on how it ended:
    - The copy has a `[conductor] done:` line: the conductor printed its table above it. Use that
-     table.
+     table. When tickets were left (an early stop, or `-n` cut a list short), a
+     `[conductor] not started: …` line follows the `done:` line, with those tickets and the
+     launcher line that starts them: relay it as it is.
    - No `done:` line: the run was stopped (Ctrl-C, a closed terminal) or killed. A stopped conductor
      prints no table, so build one row per ticket from the `.meta` files: `key=value` lines, and the
      last line of a key wins (`issue`, `outcome`, `pr`, `resumes`, `worktree`, `session`,
@@ -136,7 +142,8 @@ Then stop. **Do not run the command** — not in the background, not in the fore
      provenance gate),
    - tickets whose row says **`worktree kept: run #<n> again to resume its session`** (`outcome=limit`
      with `worktree=kept`) — the usage limit outlasted every nap, or ends later than the whole nap
-     budget (then the `stopped early:` line names the reset time, #1078); the session waits in its
+     budget (then the `stopped early:` line names the reset time, #1078), or the owner's stop
+     request ended the nap (then the line says `stop requested`, #1050); the session waits in its
      worktree, and naming the ticket in a run after the reset resumes it,
    - tickets **stopped**, failed or timed out, with a one-line cause each (dig into
      `ticket-<n>.json` or `.stderr` only when the console line isn't enough),

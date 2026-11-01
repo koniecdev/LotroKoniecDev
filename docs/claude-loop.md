@@ -102,10 +102,13 @@ the command instead of running it.
   The copy ignores Ctrl-C, a closed terminal and TERM, and ends only when every writer is done, so
   a worker that writes its cleanup lines is never killed by SIGPIPE before it salvages.
 
-Ctrl-C, or closing the terminal, stops the run as **stopped** below describes. `/backlog` with no
-arguments then reads the newest console copy and the run's `ticket-<n>.meta` files, and writes the
-roll-up. A worker killed with SIGKILL (a power cut, `kill -9`) still leaves its worktree without a
-resume marker, and the loop skips that ticket until you clean the worktree up (see Troubleshooting).
+Ctrl-C, or closing the terminal, stops the run as **stopped** below describes, and that also stops
+the tickets in progress. To let them finish and start nothing new, ask for the stop with a file
+instead (**stop requested** below): `touch .claude/backlog-loop.lock/stop-after-running` from the
+main checkout. `/backlog` with no arguments then reads the newest console copy and the run's
+`ticket-<n>.meta` files, and writes the roll-up. A worker killed with SIGKILL (a power cut,
+`kill -9`) still leaves its worktree without a resume marker, and the loop skips that ticket until
+you clean the worktree up (see Troubleshooting).
 
 **Cron (optional):** prefer a run you start yourself, because cron on a sleeping laptop silently
 skips. If the machine is awake at night anyway, add the entry below. Cron starts with a short `PATH`
@@ -263,6 +266,40 @@ Per-ticket outcomes:
   its real outcome (a PR, BLOCKED, a worktree kept after a usage limit); the stop only cancels a
   resume that has not started. A stopped conductor prints no table, so `/backlog` builds the
   roll-up from the `.meta` files.
+- **stop requested**: you asked the loop to stop after the tickets that run now (#1050). The
+  conductor's stop signals (Ctrl-C, `kill`) stop the running tickets too, so this request is a file:
+  it needs no process number, and the conductor cannot miss it while it waits. From the main
+  checkout:
+
+  ```bash
+  touch .claude/backlog-loop.lock/stop-after-running
+  ```
+
+  Before it starts a ticket, and again after the picker chose one, the conductor checks for the
+  file. When it is there, the conductor starts nothing new and prints once
+  `stop requested — starting nothing new, waiting for #<n> …`. The running tickets go on as usual
+  and end with their real outcome (a PR, BLOCKED, a worktree kept after a usage limit); nothing
+  signals them. A usage-limit nap checks for the file once a minute and then ends, and the limited
+  tickets are not run again. Each one whose result names its session keeps its worktree, and the
+  next run resumes that session; one without starts over, as after any limit. When
+  the last running ticket ends, the conductor prints `stopped early: stop requested — no new
+  tickets`, its table, the `done:` line, and one line with every ticket it did not start (the
+  limited ones first, then the rest of the list), ready to paste:
+  `not started: #549 #816 — start them later with: <loop checkout>/scripts/claude/start-loop.sh -j 1 549 816`.
+  The run exits `0`, as any run does unless no worktree could be made. The line repeats `-j` and
+  the tickets, not the env vars: a run started with `LOOP_…=` settings in front needs them again.
+  - The `not started:` line comes whenever tickets are left: after any early stop (a stop request,
+    two failures in a row, a worktree that cannot be made, a usage limit that outlasts the naps),
+    and when `-n` cut a list of numbers short. When the picker chooses the tickets (no numbers
+    given), it lists only the limited tickets, because the picker chooses again next time.
+  - The file lives in the lock folder, so it goes away with the lock when the run ends. When a run
+    was killed, the next run deletes its old lock folder, the file too. So the file can never stop
+    the next run.
+  - When no loop runs, `touch` fails with `No such file or directory`, because the lock folder is
+    not there. The one exception is a run killed hard (SIGKILL, a power cut): its lock folder
+    stays, so `touch` works, but nothing reads the file. A loop runs only when
+    `ps -p "$(cat .claude/backlog-loop.lock/pid)" -o command=` shows `backlog-loop.sh`.
+  - Not "drain": in this repo, drain mode means a run of the picker over every ready ticket.
 - **usage limit**: the loop starts nothing new, lets the running tickets finish, sleeps until the
   limit ends and runs the limited tickets again. Each one whose result names its session keeps its
   worktree, and the next run resumes that session there. When the limit outlasts every nap, the row
@@ -463,7 +500,8 @@ before the limit.
   allowlist (interactive sessions are not affected). `LOOP_UNSAFE=1` trades that for full
   autonomy; your call per run.
 - One loop at a time, via `.claude/backlog-loop.lock`. The lock records its owner PID, so the next
-  conductor reclaims a crashed run's lock by itself. A lock whose owner is alive is refused, and a
+  conductor reclaims a crashed run's lock by itself. The stop request (`stop-after-running`) lives
+  in the same folder and goes with it. A lock whose owner is alive is refused, and a
   refused start sends the same macOS notification a finished run does, so a scheduled loop never
   fails silently into a log file.
 

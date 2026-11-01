@@ -172,6 +172,7 @@ gh pr create --fill --body "Closes #<n>"               # PR title mirrors the ti
 
 # Backlog loop — start it in a plain TERMINAL, never from a Claude Code session (#969). Manual: docs/claude-loop.md
 scripts/claude/start-loop.sh 123 130 131               # exactly these tickets (the normal use); -j 1 = one at a time; -n 3 = next 3 ready
+touch .claude/backlog-loop.lock/stop-after-running     # from the main checkout: finish the running tickets, start no new ones (#1050); Ctrl-C stops them too
 scripts/claude/next-ticket.sh                          # print the next READY ticket
 
 # TMS — EF Core migrations (the write context owns them; --connection works without appsettings or a live DB).

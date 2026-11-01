@@ -23,7 +23,6 @@ public sealed class SubFile
     /// </summary>
     public OrderedDictionary<ulong, Fragment> Fragments { get; } = new();
 
-    /// <summary>A text file has 0x25 as the high byte of its file id.</summary>
     public static bool IsTextFile(int fileId) => fileId >> 24 == DatFileConstants.TextFileMarker;
 
     public bool IsText => IsTextFile(FileId);

@@ -11,8 +11,8 @@ public static class VarLenEncoder
     private const int LowByteMask = 0xFF;
     private const int MaxSingleByteValue = 0x7F;
 
-    // The same constant Fragment.IsWritablePiece uses. If the two disagreed, #598 would come back:
-    // we would either write a piece that does not fit, or refuse one that does.
+    // Must stay the constant Fragment.IsWritablePiece uses (ADR-0043). If they disagreed, we would
+    // write a piece that does not fit, or refuse one that does.
     private const int MaxTwoByteValue = DatFileConstants.MaxVarLenValue;
 
     public static int Read(BinaryReader reader)

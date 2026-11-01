@@ -8,7 +8,6 @@ namespace LotroKoniecDev.Domain.Core.Utilities;
 public static class BinaryBoundsGuard
 {
     /// <param name="reader">A reader over a seekable stream, placed just after the count field.</param>
-    /// <param name="count">The element count read from the data.</param>
     /// <param name="minBytesPerElement">The smallest number of bytes one element can take.</param>
     /// <param name="elementName">The name used in the error message.</param>
     /// <exception cref="InvalidDataException">The count is negative, or too large for the bytes left.</exception>

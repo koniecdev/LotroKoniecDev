@@ -8,21 +8,19 @@ using LotroKoniecDev.Domain.Core.Monads;
 namespace LotroKoniecDev.Infrastructure.Network;
 
 /// <summary>
-/// Downloads the Polish translation file from the TMS over HTTP. It sends <c>If-None-Match</c>, so an
-/// unchanged file comes back as a 304 instead of the whole body.
-/// The endpoint arrives already resolved from the service document by rel (ADR-0041, #611): this type
-/// knows no route, and neither does the rest of the patcher source.
-/// A downloaded body is accepted only when its hash matches the server's ETag
+/// Downloads the Polish translation file from the TMS. It sends <c>If-None-Match</c>, so an unchanged
+/// file comes back as a 304 instead of the whole body.
+/// The endpoint arrives already resolved by rel (ADR-0041, #611); this type knows no route.
+/// A body is accepted only when its hash matches the server's ETag
 /// (<see cref="TranslationFileContentIntegrity"/>). A damaged or altered file is refused here and the
-/// sync falls back to the cached copy (AUDIT-SEC-01, #391).
+/// sync falls back to the cached copy (#391).
 /// </summary>
 public sealed class TranslationFileDownloader : ITranslationFileDownloader
 {
     /// <summary>
-    /// The largest body we will download (AUDIT-SEC-04, #394). The full English export of the game's
-    /// text is about 82 MB in the same <c>||</c> format, and a complete Polish file is about the same
-    /// size, so 128 MiB leaves room to spare while a hostile or broken server can no longer use up all
-    /// our memory.
+    /// The largest body we download (#394). The full English export is about 82 MB in the same
+    /// <c>||</c> format, and a complete Polish file is about the same size, so 128 MiB leaves room to
+    /// spare while a hostile or broken server cannot use up our memory.
     /// </summary>
     public const long MaxResponseContentBytes = 128 * 1024 * 1024;
 
@@ -41,18 +39,18 @@ public sealed class TranslationFileDownloader : ITranslationFileDownloader
         try
         {
             using HttpRequestMessage request = new(HttpMethod.Get, endpoint);
-            // The stored value comes from a file on disk, so it goes through the typed header API and
-            // not through TryAddWithoutValidation (AUDIT-SEC-07, #397). A value that no longer parses
-            // as an ETag is dropped, and the fetch becomes a full download.
+            // The stored value comes from a file on disk, so it goes through the typed header API, not
+            // TryAddWithoutValidation (#397). A value that does not parse as an ETag is dropped, and
+            // the fetch becomes a full download.
             if (!string.IsNullOrEmpty(currentETag)
                 && EntityTagHeaderValue.TryParse(currentETag, out EntityTagHeaderValue? cachedETag))
             {
                 request.Headers.IfNoneMatch.Add(cachedETag);
             }
 
-            // ResponseHeadersRead stops HttpClient from buffering the whole body before the size
-            // limit is checked. It also takes the body read out of HttpClient.Timeout, so we apply
-            // the same timeout around the whole fetch with a linked token.
+            // ResponseHeadersRead lets the size limit run before HttpClient buffers the body. It also
+            // takes the body read out of HttpClient.Timeout, so a linked token applies that timeout
+            // to the whole fetch.
             using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(_httpClient.Timeout);
 

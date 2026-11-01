@@ -22,9 +22,10 @@ public enum TranslationFileSyncOutcome
     IntegrityCheckFailedUsedCache,
 
     /// <summary>
-    /// The download endpoint was not in the server's service document and no usable one was cached, so
-    /// nothing was fetched. We never guess a path (#611). The launch goes on with the local translation
-    /// file, and when there is none the launch path reports the missing file and exits 2.
+    /// The download endpoint could not be resolved: the service document did not offer it, its href
+    /// was refused, or discovery failed with no usable cached endpoint. Nothing was fetched; we never
+    /// guess a path (#611). The launch goes on with the local translation file, and when there is none
+    /// the launch path reports the missing file and exits 2.
     /// </summary>
     EndpointUnresolvedUsedCache
 }

@@ -8,8 +8,7 @@ public interface ITranslationFileDownloader
 {
     /// <param name="endpoint">
     /// The absolute URI that <see cref="ITranslationFileEndpointResolver"/> read from the service
-    /// document. The downloader builds no path of its own: no route is left in the patcher source
-    /// (#611).
+    /// document. The downloader builds no path of its own (#611).
     /// </param>
     Task<Result<TranslationFileFetchResult>> FetchAsync(Uri endpoint, string? currentETag, CancellationToken cancellationToken);
 }

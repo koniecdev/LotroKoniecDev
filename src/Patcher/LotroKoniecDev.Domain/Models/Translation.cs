@@ -23,22 +23,16 @@ public sealed class Translation
     /// <summary>
     /// The <c>source_digest</c> column (ADR-0047): 16 hex characters naming the English this
     /// translation was written against, or <see langword="null"/> on a six-column line. The parser
-    /// never rejects a row for missing it, because a file that is six columns throughout must still
-    /// parse and still let the game start. It is the patcher's write guard that refuses such a row.
+    /// accepts a row without it, so a six-column file still parses and the game still starts; the
+    /// patcher's write guard refuses the row.
     /// </summary>
     public string? SourceDigest { get; init; }
 
     public bool HasArguments => ArgsOrder is { Length: > 0 };
 
-    /// <summary>
-    /// The 8-byte unsigned <see cref="Fragment.FragmentId"/> this row targets. It is the same value
-    /// as <see cref="GossipId"/>, under the name the DAT uses.
-    /// </summary>
+    /// <summary>The same value as <see cref="GossipId"/>, under the name the DAT uses.</summary>
     public ulong FragmentId => GossipId;
 
-    /// <summary>
-    /// Splits the content at the separator that marks where the game inserts its own variables.
-    /// </summary>
     public string[] GetPieces() =>
         Content.Split([DatFileConstants.PieceSeparator], StringSplitOptions.None);
 

@@ -7,9 +7,9 @@ using LotroKoniecDev.Domain.Models;
 namespace LotroKoniecDev.Infrastructure.Storage;
 
 /// <summary>
-/// Reads and writes the game version in a local text file.
-/// The format is <c>forumVersion|vnumDatFile|vnumGameData</c>. Older files hold the forum version
-/// alone, and those are still read.
+/// Reads and writes the game version in a local text file, as
+/// <c>forumVersion|vnumDatFile|vnumGameData|translationFileHash</c>. Older files hold the forum
+/// version alone, and those are still read.
 /// </summary>
 public sealed class GameVersionFileStore : IGameVersionFileStore
 {

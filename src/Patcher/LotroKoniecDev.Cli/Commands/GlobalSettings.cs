@@ -8,13 +8,11 @@ internal class GlobalSettings : CommandSettings
     public const string TranslationsDir = "translations";
 
     /// <summary>
-    /// The TMS <b>root</b> URL. It is the only address the CLI is configured with: the download
-    /// endpoint comes from the service document served there, found by link relation, so no route is
-    /// baked into this binary (ADR-0041, #611).
-    /// It is empty until the TMS is deployed. While it is empty the launch skips the sync and uses the
-    /// local translation file. Set it here, or per run with <c>--tms-url</c>, once the server has a
-    /// stable address. It must be <c>https</c>; plain <c>http</c> is only allowed for localhost
-    /// (AUDIT-SEC-01, #391).
+    /// The TMS <b>root</b> URL, the only address the CLI is configured with: the download endpoint is
+    /// found by link relation in the service document served there (ADR-0041, #611).
+    /// It is empty, so the launch skips the sync and uses the local translation file unless a run
+    /// passes <c>--tms-url</c>. It must be <c>https</c>; plain <c>http</c> is only allowed for
+    /// localhost (#391).
     /// </summary>
     public const string DefaultTmsBaseUrl = "";
 

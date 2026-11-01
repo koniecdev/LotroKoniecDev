@@ -79,7 +79,6 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
                     {
                         string text = string.Join(DatFileConstants.PieceSeparator, fragment.Pieces);
 
-                        // Build the default args_order and args_id when the fragment has arguments.
                         string argsOrder = "NULL";
                         string argsId = "NULL";
 
@@ -90,7 +89,7 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
                                 .Select(x => x.ToString());
 
                             argsOrder = string.Join("-", order);
-                            argsId = argsOrder; // Default: same order
+                            argsId = argsOrder;
                         }
 
                         await writer.WriteLineAsync(
@@ -128,19 +127,15 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
     }
 
     /// <summary>
-    /// Builds one <c>exported.txt</c> row. The escape is applied here (ADR-0039), on the joined text.
-    /// The piece separator holds nothing that needs escaping, so escaping after the join leaves it as
-    /// it is.
-    /// The row is built in its own method, and not written inline, so the format has one place a test
-    /// can reach: the handler streams straight to disk, and a unit test must not read a real file.
+    /// Builds one <c>exported.txt</c> row. The escape runs on the joined text (ADR-0039); the piece
+    /// separator holds nothing that needs escaping. It is a method of its own so a unit test can reach
+    /// the format: the handler streams straight to disk.
     /// </summary>
     /// <remarks>
-    /// The last field, <c>source_digest</c> (ADR-0047 §2), is the digest of the very triple this row
-    /// carries. A translator who edits <c>exported.txt</c> by hand still gets a file that can be
-    /// patched, and the TMS import can compare the column with its own <c>SourceHash</c> and fail
-    /// loudly instead of shipping a digest that players' patchers would reject.
-    /// It goes through the same <see cref="SourceDigest"/> the write guard uses, so export and guard
-    /// can never disagree about the fragment's export form.
+    /// The last field, <c>source_digest</c> (ADR-0047 §2), is the digest of the triple this row
+    /// carries, from the same <see cref="SourceDigest"/> the write guard uses, so export and guard
+    /// never disagree. A hand-edited <c>exported.txt</c> can still be patched, and the TMS import can
+    /// compare the column with its own <c>SourceHash</c> and fail loudly.
     /// </remarks>
     internal static string FormatRow(int fileId, ulong fragmentId, string text, string argsOrder, string argsId, int argumentCount)
         => $"{fileId}||{fragmentId}||{TranslationLineEscaper.Escape(text)}||{argsOrder}||{argsId}||1||{SourceDigest.ForExportForm(text, argumentCount)}";

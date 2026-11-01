@@ -4,24 +4,21 @@ using LotroKoniecDev.Domain.Core.Monads;
 namespace LotroKoniecDev.Infrastructure.Network;
 
 /// <summary>
-/// Reads an HTTP response body as a string but never past a fixed byte limit, so a hostile or broken
-/// server cannot use up all our memory (AUDIT-SEC-04, #394). A body whose <c>Content-Length</c> is
-/// over the limit is refused before a single byte is transferred, and a chunked response, or one that
-/// lies about its length, is cut off while streaming.
-/// Callers must ask for the response with <see cref="HttpCompletionOption.ResponseHeadersRead"/>. The
-/// default option makes <see cref="HttpClient"/> buffer the whole body before any check here runs.
+/// Reads an HTTP response body as a string, never past a byte limit, so a hostile or broken server
+/// cannot use up our memory (#394). A <c>Content-Length</c> over the limit is refused before any byte
+/// moves; a chunked body, or one that lies about its length, is cut off while streaming.
+/// Callers must ask for the response with <see cref="HttpCompletionOption.ResponseHeadersRead"/>: the
+/// default makes <see cref="HttpClient"/> buffer the whole body before any check here runs.
 /// </summary>
 internal static class BoundedResponseReader
 {
     /// <summary>
     /// Returns the decoded body, or <see cref="Maybe{T}.None"/> when it is larger than
-    /// <paramref name="maxResponseBytes"/>. Network failures still come out as
-    /// <see cref="HttpRequestException"/>, so callers handle them as before.
-    /// The body is decoded by the charset in <c>Content-Type</c> when .NET can use that name, because
-    /// the forum page is HTML and a real charset matters there. A name .NET does not know, such as
-    /// "utf8", or refuses, such as "utf-7", is read as UTF-8 instead of throwing up to the launch
-    /// command (#972). For the translation file that is the same read as under "utf-8", so the ETag
-    /// hash check sees the same text.
+    /// <paramref name="maxResponseBytes"/>. Network failures still throw <see cref="HttpRequestException"/>.
+    /// The body is decoded by the <c>Content-Type</c> charset when .NET can use that name, because the
+    /// forum page is HTML. A name .NET does not know ("utf8") or refuses ("utf-7") is read as UTF-8
+    /// instead of throwing up to the launch command (#972). For the translation file that is the same
+    /// read as "utf-8", so the ETag hash check sees the same text.
     /// </summary>
     internal static async Task<Maybe<string>> TryReadAsStringAsync(
         HttpContent content, long maxResponseBytes, CancellationToken cancellationToken)

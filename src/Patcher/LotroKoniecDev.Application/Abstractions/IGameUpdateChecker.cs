@@ -12,10 +12,7 @@ public interface IGameUpdateChecker
     Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string gameVersionFilePath);
 }
 
-/// <summary>
-/// The result of an update check: the version on the forum and the version we stored. It holds no
-/// decision. The handler compares the DAT vnums and decides.
-/// </summary>
+/// <summary>The version on the forum and the version we stored. It holds no decision.</summary>
 public sealed record GameUpdateCheckSummary(
     string? ForumVersion,
     StoredVersionInfo? StoredInfo)

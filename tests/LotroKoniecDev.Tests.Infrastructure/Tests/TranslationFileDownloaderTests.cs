@@ -10,10 +10,9 @@ using LotroKoniecDev.Tests.Infrastructure.Shared;
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 /// <summary>
-/// Exercises the downloader's integrity check (AUDIT-SEC-01, #391) over an in-memory stub handler, with
-/// no network. The hash comparison itself is covered in
-/// <c>Tests.Unit/TranslationFileContentIntegrityTests</c>. These tests prove the downloader really
-/// applies it before it hands the content to the sync.
+/// The downloader over an in-memory stub handler, with no network. The hash comparison itself is
+/// covered in <c>Tests.Unit/TranslationFileContentIntegrityTests</c>; these tests prove the
+/// downloader applies it (#391), caps the body (#394) and keeps its timeout.
 /// </summary>
 public sealed class TranslationFileDownloaderTests
 {
@@ -101,8 +100,8 @@ public sealed class TranslationFileDownloaderTests
     [Fact]
     public async Task FetchAsync_ResponseDeclaringABodyOverTheSizeCap_ShouldRejectTheDownload()
     {
-        // Arrange: a Content-Length above the cap (AUDIT-SEC-04 / #394) must be refused up front,
-        // before any body byte is read.
+        // Arrange: a Content-Length above the cap (#394) must be refused before any body byte is
+        // read.
         using HttpResponseMessage response = OkResponse(Content, $"\"{ContentHash}\"");
         response.Content.Headers.ContentLength = TranslationFileDownloader.MaxResponseContentBytes + 1;
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));
@@ -119,8 +118,8 @@ public sealed class TranslationFileDownloaderTests
     [Fact]
     public async Task FetchAsync_UndeclaredBodyStreamingPastTheSizeCap_ShouldRejectTheDownload()
     {
-        // Arrange: no Content-Length (chunked-style), the body itself overruns the cap while
-        // streaming: the buffer limit must cut it off instead of growing without bound.
+        // Arrange: no Content-Length, and the body overruns the cap while streaming: the buffer
+        // limit must cut it off.
         using HttpResponseMessage response = new(HttpStatusCode.OK)
         {
             Content = new UndeclaredLengthContent(TranslationFileDownloader.MaxResponseContentBytes + 1)
@@ -139,8 +138,8 @@ public sealed class TranslationFileDownloaderTests
     [Fact]
     public async Task FetchAsync_BodyThatStallsPastTheClientTimeout_ShouldFailAsTimedOutInsteadOfHanging()
     {
-        // Arrange: ResponseHeadersRead moves the body read out of HttpClient.Timeout's scope;
-        // the downloader must re-apply the timeout itself or a stalling server hangs the launch.
+        // Arrange: ResponseHeadersRead moves the body read out of HttpClient.Timeout, so the
+        // downloader must apply the timeout itself, or a stalling server hangs the launch.
         using HttpResponseMessage response = new(HttpStatusCode.OK) { Content = new StallingContent() };
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));
         httpClient.Timeout = TimeSpan.FromMilliseconds(250);
@@ -157,8 +156,8 @@ public sealed class TranslationFileDownloaderTests
     [Fact]
     public async Task FetchAsync_WellFormedCachedETag_ShouldSendItAsTheIfNoneMatchHeader()
     {
-        // Arrange: the sidecar value parses as an ETag, so the conditional header goes out
-        // through the typed API (AUDIT-SEC-07 / #397).
+        // Arrange: the sidecar value parses as an ETag, so the conditional header goes out through
+        // the typed API (#397).
         using HttpResponseMessage response = OkResponse(Content, $"\"{ContentHash}\"");
         StubHttpMessageHandler handler = new(response);
         using HttpClient httpClient = new(handler);
@@ -178,8 +177,8 @@ public sealed class TranslationFileDownloaderTests
     [InlineData("etag-without-quotes")]
     public async Task FetchAsync_MalformedCachedETag_ShouldFetchTheFullFileWithoutTheConditionalHeader(string malformedETag)
     {
-        // Arrange: a sidecar value that no longer parses as an ETag (tampering or corruption)
-        // must never reach the wire; the fetch degrades to a full download (AUDIT-SEC-07 / #397).
+        // Arrange: a sidecar value that does not parse as an ETag must never reach the wire; the
+        // fetch becomes a full download (#397).
         using HttpResponseMessage response = OkResponse(Content, $"\"{ContentHash}\"");
         StubHttpMessageHandler handler = new(response);
         using HttpClient httpClient = new(handler);
@@ -200,7 +199,7 @@ public sealed class TranslationFileDownloaderTests
     public async Task FetchAsync_ShouldRequestTheResolvedEndpointVerbatim()
     {
         // Arrange: the endpoint arrives already resolved from discovery, so the downloader appends
-        // nothing to it: there is no route left in the patcher source to append (#611).
+        // nothing to it (#611).
         Uri movedEndpoint = new("https://tms.example.com/downloads/pl.txt");
         using HttpResponseMessage response = OkResponse(Content, $"\"{ContentHash}\"");
         StubHttpMessageHandler handler = new(response);
@@ -222,10 +221,9 @@ public sealed class TranslationFileDownloaderTests
     [InlineData(HttpStatusCode.TemporaryRedirect)]
     public async Task FetchAsync_RedirectResponse_ShouldBeRejectedRatherThanFollowedOffTheOrigin(HttpStatusCode status)
     {
-        // Arrange: the resolved endpoint was validated to be on the configured origin, and a 302 is
-        // exactly how a hostile server would walk around that check: the body (and the ETag hashing
-        // it) would then come from the redirect target, so the integrity check would confirm the
-        // wrong file. The TMS client is registered with redirects OFF (#611) and a 3xx is a failure.
+        // Arrange: the resolved endpoint was checked to be on the configured origin, and a 302 would
+        // walk around that check: the redirect target would serve both the body and the ETag that
+        // hashes it. The TMS client has redirects off (#611), so a 3xx is a failure.
         using HttpResponseMessage response = new(status);
         response.Headers.Location = new Uri("https://evil.example.com/api/v1/translation-files/pl");
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));

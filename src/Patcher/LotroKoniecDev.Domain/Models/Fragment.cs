@@ -4,10 +4,7 @@ using LotroKoniecDev.Primitives.Constants;
 
 namespace LotroKoniecDev.Domain.Models;
 
-/// <summary>
-/// One text fragment inside a LOTRO subfile: its text pieces, its argument references and its
-/// argument strings.
-/// </summary>
+/// <summary>One text fragment inside a LOTRO subfile.</summary>
 public sealed class Fragment
 {
     private const int BytesPerUtf16Char = 2;
@@ -23,7 +20,6 @@ public sealed class Fragment
 
     public bool HasArguments => ArgRefs.Count > 0;
 
-    /// <summary>Joins the pieces back into one string, with <paramref name="separator"/> between them.</summary>
     public string GetFullText(string separator = "") =>
         string.Join(separator, Pieces);
 
@@ -69,12 +65,10 @@ public sealed class Fragment
     }
 
     /// <summary>
-    /// Whether a text piece fits into the DAT. This is what <see cref="Write"/> requires, and it is
-    /// public so callers can check new content up front instead of hitting an exception halfway
-    /// through a subfile (#598). A piece read out of the DAT always passes; only translated text can
-    /// fail.
+    /// Whether a text piece fits into the DAT, as <see cref="Write"/> requires. Callers check new
+    /// content up front instead of hitting an exception halfway through a subfile (ADR-0043). A piece
+    /// read out of the DAT always passes; only translated text can fail.
     /// </summary>
-    /// <param name="piece">The piece to check.</param>
     public static bool IsWritablePiece(string piece)
     {
         ArgumentNullException.ThrowIfNull(piece);
@@ -83,8 +77,8 @@ public sealed class Fragment
     }
 
     /// <exception cref="ArgumentOutOfRangeException">
-    /// A piece failed <see cref="IsWritablePiece"/>. This throws on purpose: the length prefix cannot
-    /// hold that number, and writing a shortened one would corrupt the whole subfile.
+    /// A piece failed <see cref="IsWritablePiece"/>. The length prefix cannot hold that number, and
+    /// writing a shortened one would corrupt the whole subfile.
     /// </exception>
     public void Write(BinaryWriter writer)
     {

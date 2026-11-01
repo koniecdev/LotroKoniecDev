@@ -12,10 +12,10 @@ using LotroKoniecDev.Tests.Infrastructure.Shared;
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 /// <summary>
-/// Drives the CLI's discovery adapter over an in-memory stub handler, with no network. It proves the
-/// details of the request that the resolver's own tests cannot see: the root is requested at the
-/// configured base URL, our vendor media type is asked for, without which the server sends a document
-/// with no links, and a body that is not the service document becomes a failure instead of throwing.
+/// The CLI's discovery adapter over an in-memory stub handler, with no network. It pins what the
+/// resolver's tests cannot see: the root is requested at the configured base URL, the vendor media
+/// type is asked for (without it the server sends no links), and a body that is not the service
+/// document becomes a failure instead of throwing.
 /// </summary>
 public sealed class TranslationSystemDiscoveryClientTests
 {
@@ -56,8 +56,8 @@ public sealed class TranslationSystemDiscoveryClientTests
     [Fact]
     public async Task FetchLinksAsync_ShouldRequestTheRootAndNegotiateTheHateoasMediaType()
     {
-        // Arrange: links are opt-in: a request that does not accept the vendor media type gets the
-        // payload with no links at all, which would silently strip the CLI of every entry point.
+        // Arrange: links are opt-in. A request that does not accept the vendor media type gets no
+        // links at all, which would strip the CLI of every entry point.
         using HttpResponseMessage response = JsonResponse(ServiceDocument);
         StubHttpMessageHandler handler = new(response);
         using HttpClient httpClient = new(handler);
@@ -110,10 +110,10 @@ public sealed class TranslationSystemDiscoveryClientTests
     [Fact]
     public async Task FetchLinksAsync_ABodyBuiltFromTheRealLinkDto_ShouldStillParse()
     {
-        // Arrange: the CLI re-types the link envelope (it must not link the TMS side), so this is a
-        // wire contract with two independent definitions. Serializing the SERVER's own LinkDto with
-        // the same web defaults ASP.NET uses is the drift guard: rename or re-case a member there and
-        // this fails, instead of every installed CLI quietly seeing an empty link set.
+        // Arrange: the CLI re-types the link envelope (it must not link the TMS side), so the wire
+        // contract has two definitions. Serializing the server's own LinkDto with ASP.NET's web
+        // defaults is the drift guard: rename or re-case a member there and this fails, instead of
+        // every installed CLI quietly seeing an empty link set.
         string body = JsonSerializer.Serialize(
             new { name = "LotroKoniecDev.TranslationSystem", links = new[] { new LinkDto(DownloadHref, "translation-file", "GET") } },
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
@@ -137,8 +137,8 @@ public sealed class TranslationSystemDiscoveryClientTests
     [InlineData(HttpStatusCode.TemporaryRedirect)]
     public async Task FetchLinksAsync_RedirectResponse_ShouldNotBeTreatedAsASuccessfulDocument(HttpStatusCode status)
     {
-        // Arrange: the TMS client is registered with redirects OFF (#611): a 3xx that would carry the
-        // CLI to another origin must surface as a failed discovery, never as a document to trust.
+        // Arrange: the TMS client has redirects off (#611): a 3xx that would carry the CLI to another
+        // origin must be a failed discovery, never a document to trust.
         using HttpResponseMessage response = new(status);
         response.Headers.Location = new Uri("https://evil.example.com/api/v1/translation-files/pl");
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));
@@ -155,8 +155,8 @@ public sealed class TranslationSystemDiscoveryClientTests
     [Fact]
     public async Task FetchLinksAsync_ResponseLargerThanTheCap_ShouldBeRejectedBeforeItIsRead()
     {
-        // Arrange: a hostile or misbehaving server must not be able to exhaust process memory
-        // (AUDIT-SEC-04 / #394); the service document is a few KB of links.
+        // Arrange: a hostile or broken server must not use up our memory (#394); the service document
+        // is a few KB of links.
         using HttpResponseMessage response = JsonResponse(ServiceDocument);
         response.Content.Headers.ContentLength = TranslationSystemDiscoveryClient.MaxResponseContentBytes + 1;
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));

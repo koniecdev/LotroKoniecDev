@@ -141,8 +141,8 @@ public sealed class ErrorPathE2ETests
         CliResult result = await _fixture.RunCliAsync(
             $"patch \"{_fixture.TranslationsPolishPath}\"");
 
-        //Assert: Bug sends empty string to handler → "not found: " with empty path.
-        // Fixed code calls DatPathResolver → either finds DAT or returns meaningful error.
+        //Assert: DatPathResolver either finds the DAT or prints its own error; an empty "not found: "
+        // means it was bypassed.
         result.Stdout.Contains("not found: \r\n").ShouldBeFalse(
             "Empty path in error indicates DatPathResolver was bypassed");
         result.Stdout.Contains("not found: \n").ShouldBeFalse(
@@ -160,8 +160,8 @@ public sealed class ErrorPathE2ETests
         //Act: export with no args (no dat path, output defaults to data/exported.txt)
         CliResult result = await _fixture.RunCliAsync("export", workingDirectory: emptyWorkDir);
 
-        //Assert: Bug sends empty string → "not found: " with empty path.
-        // Fixed code checks for null and returns FileNotFound before reaching handler.
+        //Assert: a missing DAT path returns FileNotFound before the handler; an empty "not found: "
+        // means that guard was bypassed.
         result.Stdout.Contains("not found: \r\n").ShouldBeFalse(
             "Empty path in error indicates null DatPath guard was bypassed");
         result.Stdout.Contains("not found: \n").ShouldBeFalse(

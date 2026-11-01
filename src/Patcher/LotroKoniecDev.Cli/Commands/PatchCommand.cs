@@ -80,8 +80,7 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
             return ErrorMapper.MapErrorToExitCode(canPatchResult.Error);
         }
 
-        // Read the DAT version before patching, so we do not have to reopen the file after the native
-        // DLL closes it.
+        // A failed read does not stop the patch; it only skips the baseline save below.
         Result<DatVersionInfo> datVersionResult = _datVersionReader.ReadVersion(actualResolvedPaths.Value.DatFilePath);
 
         Result backupResult = _backupManager.Create(actualResolvedPaths.Value.DatFilePath);

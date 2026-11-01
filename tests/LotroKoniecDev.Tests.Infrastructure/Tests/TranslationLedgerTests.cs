@@ -5,10 +5,9 @@ using LotroKoniecDev.Infrastructure.Storage;
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 /// <summary>
-/// Exercises the write ledger of ADR-0047 §4 against real files. It is the only record of what this
-/// patcher put into which fragment, and the guard's second rule is the only way a newer translation can
-/// land on a fragment that already holds Polish. So the whole property is: the entries survive a round
-/// trip, and a broken file counts as empty instead of throwing.
+/// The write ledger of ADR-0047 §4 against real files. Its entries are the only way a newer
+/// translation can land on a fragment that already holds Polish, so the whole property is: entries
+/// survive a round trip, and a broken file counts as empty instead of throwing.
 /// </summary>
 public sealed class TranslationLedgerTests : IDisposable
 {
@@ -90,8 +89,8 @@ public sealed class TranslationLedgerTests : IDisposable
     [Fact]
     public void Save_ShouldNotLeaveItsTemporaryFileBehind()
     {
-        // Act: the swap is temp-file + rename so a crash mid-write leaves the PREVIOUS ledger,
-        // never a truncated one the next run would read as a wrong set of entries.
+        // Act: the swap is a temp file and a rename, so a crash mid-write leaves the previous
+        // ledger, never a truncated one.
         _sut.Save(TranslationFilePath, new Dictionary<LedgerKey, string> { [new LedgerKey(1, 2)] = DigestA });
 
         // Assert
@@ -107,8 +106,8 @@ public sealed class TranslationLedgerTests : IDisposable
     [InlineData("1||2||a37cc1683216cd32||extra")]
     public void Read_WithAMalformedLine_ShouldDropThatLineAndKeepTheRest(string malformed)
     {
-        // Arrange: the ledger is a hint. Failing the whole read over one bad line would take down
-        // the patch (and with it the launch) for a file nothing but this patcher ever writes.
+        // Arrange: the ledger is a hint. Failing the whole read over one bad line would stop the
+        // patch, and with it the launch.
         Directory.CreateDirectory(Path.GetDirectoryName(LedgerPath)!);
         File.WriteAllLines(LedgerPath, [malformed, $"620756992||1001||{DigestA}"]);
 

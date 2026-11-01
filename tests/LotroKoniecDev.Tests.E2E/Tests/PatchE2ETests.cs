@@ -120,8 +120,8 @@ public sealed class PatchE2ETests
     }
 
     /// <summary>
-    /// The feasibility check for option A (#443) on real Windows: the read-write open path must still
-    /// really require write access, so patching a read-only copy of the DAT fails and changes nothing.
+    /// The read-write open path must still require write access, so patching a read-only copy of the
+    /// DAT fails and changes nothing (#629).
     /// </summary>
     [SkippableFact]
     public async Task Patch_ShouldFailAndLeaveDatUnchanged_WhenDatCopyIsReadOnly()

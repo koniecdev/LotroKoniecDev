@@ -42,7 +42,7 @@ internal sealed class DatPathResolver : IDatPathResolver
         WriteInfo($"  {location.Path}");
 
         // A folder found by scanning the drive is not a trusted source: anyone who can write there
-        // could have put a DAT and a launcher in it. So we never use it without asking (AUDIT-SEC-02).
+        // could have put a DAT and a launcher in it. So we never use it without asking (#392).
         if (location.Source is DatFileSource.DiskScan && !ConfirmScannedLocation())
         {
             WriteError("Scanned location rejected. Provide the DAT file path explicitly with -d.");

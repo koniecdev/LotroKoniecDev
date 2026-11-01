@@ -102,11 +102,10 @@ public sealed class ExportE2ETests
     }
 
     /// <summary>
-    /// The feasibility check for option A (#443) on real Windows: the read-only open path has to work
-    /// without write access to the file. Setting the read-only attribute is the cheaper of the two ways
-    /// Windows refuses a write.
-    /// <see cref="Export_ShouldExitWithZero_WhenDatCopyGrantsReadButNotWrite"/> pins the other way, the
-    /// ACL, which is what the real DAT in Program Files has.
+    /// The read-only open path must work without write access to the file (#629). The read-only
+    /// attribute is one way Windows refuses a write;
+    /// <see cref="Export_ShouldExitWithZero_WhenDatCopyGrantsReadButNotWrite"/> pins the other, the ACL
+    /// the real DAT in Program Files has.
     /// </summary>
     [SkippableFact]
     public async Task Export_ShouldExitWithZero_WhenDatCopyIsReadOnly()
@@ -139,9 +138,9 @@ public sealed class ExportE2ETests
     }
 
     /// <summary>
-    /// The real DAT in Program Files is not marked read-only. It has an ACL that gives Users read and
-    /// execute rights and nothing more. That is a different kind of refusal from the read-only attribute,
-    /// and it is the one #629 got wrong, so it is pinned on its own.
+    /// The real DAT in Program Files is not marked read-only: an ACL gives Users read and execute
+    /// rights only. That is a different refusal from the read-only attribute (#629), so it is pinned
+    /// on its own.
     /// </summary>
     [SkippableFact]
     public async Task Export_ShouldExitWithZero_WhenDatCopyGrantsReadButNotWrite()
@@ -154,10 +153,10 @@ public sealed class ExportE2ETests
         string outputPath = Path.Combine(Path.GetDirectoryName(tempDatPath)!, "acl_export.txt");
         string account = $"{Environment.UserDomainName}\\{Environment.UserName}";
 
-        // Give read and execute rights and turn inheritance off, like the game directory's Users:(RX).
-        // Never write this as /deny "(W)": FILE_GENERIC_WRITE includes SYNCHRONIZE, so denying it blocks
-        // reads too and the copy no longer behaves like the Program Files file at all. That is the trap
-        // that led to the wrong conclusion in #629, and the checks below are what catch it.
+        // Give read and execute rights and turn inheritance off, like the game folder's Users:(RX).
+        // Never write this as /deny "(W)": FILE_GENERIC_WRITE includes SYNCHRONIZE, so denying it
+        // blocks reads too and the copy no longer behaves like the Program Files file (#629). The
+        // precondition checks below catch that trap.
         int aclExitCode = await RunIcaclsAsync($"\"{tempDatPath}\" /inheritance:r /grant:r \"{account}:(RX)\"");
         aclExitCode.ShouldBe(0, "the test could not set up its own ACL");
 

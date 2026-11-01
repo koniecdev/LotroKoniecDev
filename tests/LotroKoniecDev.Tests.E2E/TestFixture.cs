@@ -76,10 +76,8 @@ public sealed class E2ETestFixture : IAsyncLifetime
 
     /// <summary>
     /// Rewrites the repo's translation file so each row's <c>source_digest</c> comes from the export of
-    /// this DAT (ADR-0047), which is exactly what a translator does after running <c>export</c>.
-    /// Without it the suite would rely on digests copied by hand into a committed file, which are wrong
-    /// for anyone whose game is on another version, and every row would be skipped with the warning
-    /// <c>no source digest</c>.
+    /// this DAT (ADR-0047), as a translator's file would after <c>export</c>. Digests committed by hand
+    /// would be wrong for anyone whose game is on another version, and the guard would skip every row.
     /// </summary>
     private static string StampSourceDigests(string translationsPath, string exportPath, string outputDir)
     {
@@ -175,7 +173,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
 
         process.Start();
 
-        // Close stdin immediately so any Console.ReadLine() prompts
+        // Close stdin at once, so a Console.ReadLine() prompt gets end of input instead of hanging.
         process.StandardInput.Close();
 
         Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();

@@ -7,8 +7,7 @@ namespace LotroKoniecDev.Infrastructure.GameLaunching;
 
 /// <summary>
 /// The P/Invoke wrapper for WinVerifyTrust (wintrust.dll). It checks a file's embedded Authenticode
-/// signature against Windows' own trust rules and returns the signer taken from the certificate chain
-/// that was checked.
+/// signature against Windows' own trust rules and returns the signer from the checked chain.
 /// </summary>
 internal static partial class WinTrustNative
 {
@@ -181,10 +180,7 @@ internal static partial class WinTrustNative
         public IntPtr ChainContext;
     }
 
-    /// <summary>
-    /// The first fields of the native CRYPT_PROVIDER_CERT. We read only those, so the rest are left
-    /// out on purpose.
-    /// </summary>
+    /// <summary>The first fields of the native CRYPT_PROVIDER_CERT. We read only these.</summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct CryptProviderCert
     {

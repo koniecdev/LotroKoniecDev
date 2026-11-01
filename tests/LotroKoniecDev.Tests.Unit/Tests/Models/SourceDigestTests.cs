@@ -15,8 +15,8 @@ public sealed class SourceDigestTests
     public void Compute_OnTheGoldenTriple_ShouldProduceTheContractDigest(
         string text, string? argsOrder, string? argsId, string expected)
         // The twin of this test lives in TranslationSystem.Domain.Tests.Unit over the same fixture.
-        // Both must agree with a value neither implementation produced, or an artifact's digests
-        // would be unrecognisable to every patcher that downloads it.
+        // Both must agree with a value neither implementation produced, or every patcher would refuse
+        // the artifact's digests.
         => SourceDigest.Compute(text, argsOrder, argsId).ShouldBe(expected);
 
     [Fact]

@@ -243,8 +243,7 @@ This project is developed with AI assistance, and that setup is checked in rathe
 you cloned the repo and wondered what those files are, they split cleanly in two:
 
 - **For anyone working on the code** — [`CLAUDE.md`](CLAUDE.md) (conventions, layer rules, house
-  style), `.claude/commands/` (`/spec`, `/feature`, `/ticket`, `/adr`, `/qa-ticket` and a few
-  more) and
+  style), `.claude/commands/` (`/spec`, `/feature`, `/ticket`, `/adr` and a few more) and
   `.claude/agents/dat-format-expert.md`, which writes down the DAT binary format and the
   `datexport.dll` call surface. The first and the last are worth reading as plain documentation
   even if you never run an AI tool.

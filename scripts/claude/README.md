@@ -10,7 +10,7 @@ If you are here to contribute, the things that *are* meant for you are:
 
 - **[`CLAUDE.md`](../../CLAUDE.md)**: the project's conventions, layer rules and house style.
   Useful as a document even if you never touch an AI tool.
-- **`.claude/commands/`**: `/spec`, `/feature`, `/ticket`, `/adr`, `/qa-ticket` and a few more.
+- **`.claude/commands/`**: `/spec`, `/feature`, `/ticket`, `/adr` and a few more.
   Ordinary workflow helpers; use them or ignore them.
 - **`.claude/agents/dat-format-expert.md`**: the DAT binary format, VarLen encoding and the
   `datexport.dll` call surface, written down. Worth reading on its own.

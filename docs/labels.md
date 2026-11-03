@@ -5,8 +5,8 @@ descriptions. Only the `area-*` values and the release-gate label differ, becaus
 differ. A label change in one repo is ported to the other in the same session.
 
 Five axes. A well-formed ticket carries **one `priority-*`**, **one `type-*`**, and
-**zero or more `area-*`**. `type-*` has no exception: a QA scenario is `type-test`, and a decision
-ticket carries the type of the work it will produce plus `question`. A bug **a tester filed** also
+**zero or more `area-*`**. `type-*` has no exception: a decision ticket carries the type of the
+work it will produce plus `question`. A bug **a user found in production** (`escaped-to-prod`) also
 carries **one `severity-*`**.
 
 ## `priority-*` — how urgent (the loop reads this)
@@ -35,17 +35,17 @@ five people use is the reverse.
 | `severity-minor` | Works but wrongly; the user has a workaround — the default choice |
 | `severity-trivial` | The user loses nothing: cosmetics, typo, visual detail |
 
-`severity-*` is **required on a bug a tester filed and on any `escaped-to-prod` bug, optional
-everywhere else**. Testers set it on every bug they file: it is their judgement. A bug the owner or
-an agent session filed may go without one, because `priority-*` already answers the queue question.
-A guessed severity is worse than a blank: `escaped-to-prod` crossed with severity is the only number
-that says whether the QA program pays for what it costs, and invented values turn it into noise. So
-old bugs are never backfilled (#787). `priority-*` stays a queue decision the owner can correct
-later. The tester wiki (`Workflow-testera` §8) has the same two tables in Polish.
+`severity-*` is **required on any `escaped-to-prod` bug, optional everywhere else**. A bug the owner
+or an agent session filed may go without one, because `priority-*` already answers the queue
+question. A guessed severity is worse than a blank: `escaped-to-prod` crossed with severity is the
+only number that says how much harm gets past our checks, and invented values turn it into noise.
+So old bugs are never backfilled (#787). `priority-*` stays a queue decision the owner can correct
+later.
 
 One more label lives next to these: `escaped-to-prod`, applied by the owner to any bug a **user**
-found, not QA and not CI. It is not an axis, and testers never set it. It must be applied every
-time, or the count means nothing.
+found in production, not CI and not the owner. It is not an axis. It is the only signal that says
+how often a defect gets past CI and the staging rollout, so it must be applied every time, or the
+count means nothing.
 
 ## `type-*` — what kind of work
 
@@ -81,11 +81,9 @@ only the identifier list and the examples are per-repo (#787).
   `Search:`, `File storage:` name a subsystem, screen, endpoint or file, which no label carries.
   A named system may also go into the sentence where that reads better.
 - **Keep a prefix when it is a real identifier used elsewhere**: this repo's milestone/epic codes
-  `M{n}-NN:`, `TP-NN:`, `UR-NN:`, `SEC-NN:`, `PERF-NN:`, `LEGAL-NN:`, `OBS-NN:`, `QA-FE-NN:`,
-  `WIKI-NN:`, `[Epic] …`. They are also this repo's release-gate tracking (see `post-mvp` below), so
+  `M{n}-NN:`, `TP-NN:`, `UR-NN:`, `SEC-NN:`, `PERF-NN:`, `LEGAL-NN:`, `OBS-NN:`, `WIKI-NN:`,
+  `[Epic] …`. They are also this repo's release-gate tracking (see `post-mvp` below), so
   never drop them, and never invent a new one without a real cross-reference behind it.
-- **A bug tied to one QA test case** names the test case as a trailing parenthetical,
-  `… (QA-FE-09-TC11)`, never as a leading `BUG: QA-FE-09-TC11 — …`.
 - **An epic carries three signals and needs all three**: the `epic` label, an `[Epic] ` title
   prefix, and a trailing `tracking)` marker (extra words in the same parenthetical are fine, as in
   `(post-M7, tracking)`). For the tooling the first two are redundant: the picker skips a ticket
@@ -97,9 +95,8 @@ only the identifier list and the examples are per-repo (#787).
 ## One bug class per ticket
 
 This section covers a defect a session finds on its own: a bug, a flaky test or a missing check
-that a review turns up next to the code it reads. A bug a tester files follows the tester wiki
-instead (`Workflow-testera.md` §8: one bug, one report). **These rules are the same in both
-repos**; only the examples differ.
+that a review turns up next to the code it reads. **These rules are the same in both repos**; only
+the examples differ.
 
 A ticket for such a defect names one **class**: one kind of wrong result in one flow. It does not
 name the single case someone happened to hit.
@@ -130,8 +127,6 @@ name the single case someone happened to hit.
     A ticket closed as not planned has already decided the case: point to it instead. Search those
     on purpose, because a keyword search over open tickets never shows them:
     `gh issue list --state closed --search "reason:\"not planned\" <key words>"`.
-  - **A bug a tester filed** never gets a case added: the tester's report stays one bug. File a
-    new ticket and link it.
 - **Never put unrelated fixes in one ticket to save sessions.** One unclear fix would block the
   other, and the review gets less sharp. A small ticket is already cheap, because it runs in lane S.
 - **Never drop a finding.** This rule changes the shape of a ticket, not the number of bugs found.
@@ -177,9 +172,7 @@ bullets. Two sources of completion state, one live and one ticked by hand, drift
 | `epic` | Tracking parent that only groups child tickets; the loop never works it. The title carries `[Epic] ` and ` (tracking)` too (**Title convention**), and the children are sub-issues (**Epics**) |
 | `audit` | Finding from an autonomous audit session; triage before `/backlog` |
 | `loop-blocked` | `claude-loop`: needs human input |
-| `qa` | Manual QA / test scenario |
-| `qa-blocked` | Manual QA: a scenario cannot run until the owner supplies a precondition |
-| `escaped-to-prod` | Found by a user in production, not by QA and not by CI: the escape-rate signal |
+| `escaped-to-prod` | Found by a user in production, not by CI: the escape-rate signal |
 | `post-mvp` | Parked beyond the current release gate; do not work it before MVP ships |
 | `on-hold` | Do not merge yet: `/merge-train` skips it until a person reads the PR and removes this label |
 | `needs-windows-check` | Do not merge yet: the PR changes code that runs only on Windows, and CI runs on Linux. `/merge-train` skips it until someone tries the PR on Windows, writes the result in a PR comment and removes this label |
@@ -203,8 +196,8 @@ three at once, or the hold stops without a warning.
 `post-mvp` is this repo's release gate. This repo tracks "required for the release" through the
 `M{milestone}-{nn}` title prefix, not through `release-*` labels.
 
-The picker skips `loop-blocked`, `epic`, `question`, `wontfix`, `invalid`, `duplicate`, `qa`,
-`qa-blocked`, `audit` and `post-mvp` by default (`LOOP_SKIP_LABELS`); see `docs/claude-loop.md`.
+The picker skips `loop-blocked`, `epic`, `question`, `wontfix`, `invalid`, `duplicate`, `audit`
+and `post-mvp` by default (`LOOP_SKIP_LABELS`); see `docs/claude-loop.md`.
 
 ## Housekeeping
 

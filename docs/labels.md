@@ -6,7 +6,7 @@ differ. A label change in one repo is ported to the other in the same session.
 
 Five axes. A well-formed ticket carries **one `priority-*`**, **one `type-*`**, and
 **zero or more `area-*`**. `type-*` has no exception: a decision ticket carries the type of the
-work it will produce plus `question`. A bug **a user found in production** (`escaped-to-prod`) also
+work it will produce plus `question`. A bug **found in production** (`escaped-to-prod`) also
 carries **one `severity-*`**.
 
 ## `priority-*` — how urgent (the loop reads this)
@@ -35,17 +35,16 @@ five people use is the reverse.
 | `severity-minor` | Works but wrongly; the user has a workaround — the default choice |
 | `severity-trivial` | The user loses nothing: cosmetics, typo, visual detail |
 
-`severity-*` is **required on any `escaped-to-prod` bug, optional everywhere else**. A bug the owner
-or an agent session filed may go without one, because `priority-*` already answers the queue
-question. A guessed severity is worse than a blank: `escaped-to-prod` crossed with severity is the
-only number that says how much harm gets past our checks, and invented values turn it into noise.
-So old bugs are never backfilled (#787). `priority-*` stays a queue decision the owner can correct
-later.
+`severity-*` is **required on any `escaped-to-prod` bug, optional everywhere else**. Any other bug
+may go without one, because `priority-*` already answers the queue question. A guessed severity is
+worse than a blank: `escaped-to-prod` crossed with severity is the only number that says how much
+harm gets past our checks, and invented values turn it into noise. So old bugs are never backfilled
+(#787). `priority-*` stays a queue decision the owner can correct later.
 
-One more label lives next to these: `escaped-to-prod`, applied by the owner to any bug a **user**
-found in production, not CI and not the owner. It is not an axis. It is the only signal that says
-how often a defect gets past CI and the staging rollout, so it must be applied every time, or the
-count means nothing.
+One more label lives next to these: `escaped-to-prod`, applied by the owner to any bug **found in
+production** that CI did not catch, whoever found it. It is not an axis. It is the only signal
+that says how often a defect gets past CI and the staging rollout, so it must be applied every
+time, or the count means nothing.
 
 ## `type-*` — what kind of work
 
@@ -172,7 +171,7 @@ bullets. Two sources of completion state, one live and one ticked by hand, drift
 | `epic` | Tracking parent that only groups child tickets; the loop never works it. The title carries `[Epic] ` and ` (tracking)` too (**Title convention**), and the children are sub-issues (**Epics**) |
 | `audit` | Finding from an autonomous audit session; triage before `/backlog` |
 | `loop-blocked` | `claude-loop`: needs human input |
-| `escaped-to-prod` | Found by a user in production, not by CI: the escape-rate signal |
+| `escaped-to-prod` | Found in production, not caught by CI — the escape-rate signal |
 | `post-mvp` | Parked beyond the current release gate; do not work it before MVP ships |
 | `on-hold` | Do not merge yet: `/merge-train` skips it until a person reads the PR and removes this label |
 | `needs-windows-check` | Do not merge yet: the PR changes code that runs only on Windows, and CI runs on Linux. `/merge-train` skips it until someone tries the PR on Windows, writes the result in a PR comment and removes this label |

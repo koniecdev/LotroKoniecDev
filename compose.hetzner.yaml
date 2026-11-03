@@ -104,7 +104,7 @@ x-app-stop-grace-period: &app-stop-grace-period
 #
 #   staging box   the observability stack is the PRODUCTION-critical workload here — it is the
 #                 backend that serves prod, which is why ADR-0050 §1 put it on this box — and the
-#                 applications serve one developer and one tester. The applications go first.
+#                 applications serve one developer. The applications go first.
 #   prod box      inverted. The applications are the product; the only observability component is
 #                 the Alloy agent, whose death costs telemetry rather than the service.
 #
@@ -169,8 +169,8 @@ services:
     <<: *app-stop-grace-period
     image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/lotrokoniecdev-auth-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
-    # Application tier — see the header. Staging: expendable, it serves one developer and one
-    # tester. Prod: it is the product, and it ranks above every observability container on that box.
+    # Application tier — see the header. Staging: expendable, it serves one developer.
+    # Prod: it is the product, and it ranks above every observability container on that box.
     oom_score_adj: ${OOM_SCORE_ADJ_APP:?OOM_SCORE_ADJ_APP must be set in the box .env — 500 on the staging box, 0 on the prod box (see the header of this file and .env.hetzner.example)}
     expose:
       - "8080"

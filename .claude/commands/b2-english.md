@@ -3,7 +3,7 @@ description: Rewrite a PR body, an issue comment or a Markdown file into plain B
 argument-hint: <PR number | issue comment URL | file path>
 ---
 
-Rewrite **$ARGUMENTS** into plain **B2 English**. The reader is a developer or a tester whose first
+Rewrite **$ARGUMENTS** into plain **B2 English**. The reader is a developer whose first
 language is not English. They must understand every line on the first read, without a dictionary.
 
 Why this is its own step: "write in simple English" rules in `CLAUDE.md` do not work for PR bodies.

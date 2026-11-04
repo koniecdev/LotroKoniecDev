@@ -97,10 +97,6 @@ where the owner writes down how the product is meant to behave. It is the **high
 the project**: above `docs/specs/`, above `docs/adr/`, above the code. The code-wins rule above
 settles a repo doc against the code; it does not outrank the wiki.
 
-The wiki is also the only source a manual tester has. Testers write and run QA tickets from it with
-no repo access, so a wiki that disagrees with the product produces false bug reports that someone
-pays to close.
-
 **When the wiki and the product disagree, never fix it silently and never "just align the wiki".**
 The order is fixed:
 
@@ -139,7 +135,6 @@ validator.
 | Touch update-day behaviour on the client (sentinel, orchestrator, any new DAT write path) | `docs/specs/0012-update-resilience.md` (Tier 0/1 rules as amended 2026-08-17) + **ADR-0047**: every write goes through the per-row source guard; the no-masking invariant has no path exceptions |
 | Touch the game-content catalog (CatalogEntry/TextSlot, Companion zip import, catalog browser, memberships) | `docs/specs/0008-game-content-catalog-layer.md` + `docs/knowledge-base/lotro-companion-data-model.md` (the verified `key:<FileId>:<GossipId>` join; never join on text). Naming rule: **never "entity"** in this layer |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
-| Write or hand over a **manual QA ticket** (external tester) | **`/qa-ticket`**: every scenario verified against HEAD first; `/qa-ticket #<n>` re-baselines an existing one |
 | Act on a negative claim ("not our code"), a cause outside the repo, or a ticket's own conclusion | **`/buddy`** before the verdict (no `/buddy` → its fallback agent): `/ticket` step 2 |
 | Review a finished change | the **`code-reviewer`** agent, a fresh one per round, three rounds at most; a small diff at the gate → inline `/code-review`, two rounds at most (`/ticket` step 7) |
 | Sort review findings, file one, or triage an `audit` ticket | **ADR-0067 §8** (what is not a finding) + ADR-0008 §3 (the bar for a startup check) + ADR-0069 (the game launcher is not checked) + `docs/labels.md` → "One bug class per ticket" |
@@ -791,62 +786,6 @@ Per-suite details (inventory, libraries, snapshots, E2E, conventions): `tests/CL
      **gitignored** (this repo is public). Treat it as a scratchpad: a lesson worth keeping is worth
      promoting to a shared, checkable place from the list above.
 
-### Manual QA — external testers execute what you write, literally
-
-Manual QA runs on deployed **staging**, browser-only, by external testers with no repo access, no
-Docker, no CLI, and no way to tell whether a ticket is still true. They pair with a general-purpose
-LLM that has none of this repo's context, so a wrong scenario line is not questioned: it is
-executed and reported as a bug. **Write QA tickets with `/qa-ticket`; re-baseline an existing one
-with `/qa-ticket #<n>` before handing it over.**
-
-- **An unverified scenario is a defect.** Every line must be backed by something you actually read in
-  `src/` (the `.AllowAnonymous()`, the validator rule, the razor condition, the literal message
-  string) or by a live query against staging. Of the first QA batch's 8 bug reports only 2 were
-  valid: the rest traced to stale, unexecutable or code-contradicted ticket lines, or to lines that
-  invited browser-side fault injection (#546, #547, #602–#604). Nothing re-checks a ticket after
-  the product moves (#271 claimed the `polish.txt` download was auth-gated for a month after #309
-  made it public).
-- **Classify every scenario:** plain (browser-only), _(owner-assisted — SKIP unless the owner runs
-  it)_, or **blocked: what is missing**. Never "optional": optional invites improvisation. DevTools
-  "Offline" is not API downtime: it cuts browser→frontend, and nothing server-rendered can render.
-- **Every QA ticket carries a pointer to the wiki, never a copy of its rules (wiki verdict,
-  2026-08-26).** The ticket opens with one line telling the tester to paste `Workflow-testera.md`
-  into their assistant first; the wording lives in `.claude/commands/qa-ticket.md` §3, and
-  `Workflow-testera.md` §13 owns it. Rules live in exactly one place: the ticket says **what** to
-  check, the wiki says **how** to test. Old tickets keep their frame until a `/qa-ticket #<n>`
-  re-baseline strips it; a closed QA ticket is never re-run, so editing it buys nothing.
-- **Every test step carries a stable id (owner rule, 2026-08-27, #742).** Each checkbox under
-  `## Test scenarios` opens with `TC01`, `TC02`, … The id belongs to the **step, not its
-  position**: a deleted step leaves a gap, a new one takes the next unused number, and a retired
-  number is never reused, because ids travel into run reports, bug titles and other tickets. Ids
-  are unique per ticket and never restart inside the next scenario; `### S01 — name` grouping is
-  optional and never enters the id, so the full id is always `QA-FE-{nn}-TC{kk}`. The wiki's
-  `Workflow-testera.md` §13 owns this rule.
-- **Hand over at most 3 tickets at a time**, and give every filed bug a verdict the same day
-  (`valid` / `by design + why` / `needs retest`). A large batch rots, and without the feedback loop
-  a tester keeps applying a wrong mental model.
-- **A QA ticket closes when the run is reported, not when the bugs are fixed (owner rule,
-  2026-08-20).** Its done: every scenario has a status, every non-pass has a same-day verdict, and
-  every `valid` finding has its **own** ticket. Then it closes, with one run-report comment per
-  execution (wiki §5, #767). The retest obligation moves **onto the bug ticket** (an acceptance
-  criterion naming the scenario, e.g. "re-run QA-FE-01 / `S01_PUBLIC` TC01"). Never reopen a closed
-  QA ticket: the next pass is a fresh, re-baselined run. **The exception is `blocked:`**: a
-  scenario that could not run produced no information, so the QA ticket (or a follow-up run) stays
-  open. `FAILED` = information obtained; `blocked:` = work not done (worked example: #262 closed at
-  6/7 with the failures carved out to #670 and #672).
-- **A blocked run is labelled `qa-blocked`, by the tester (owner rule, 2026-08-21).** An open QA
-  ticket does not say why it is open, so a run stalled on a missing precondition would look like one
-  nobody started. The tester applies the label (they hold write access) and names the missing
-  precondition in a comment;
-  `gh issue list --label qa-blocked` is the owner's queue. The owner removes the label when the
-  precondition lands, which is the tester's signal to finish the run. The label comes off once
-  nothing on the ticket is blocked any more, not once the first blocked scenario clears.
-- **Preconditions are the owner's job, not the tester's.** Non-default row states come from
-  `scripts/qa/seed-staging.sql` (staging only; one approve in the UI afterwards rebuilds the
-  artifact). Sample `exported.txt` files and the admin login are owner-provided. A scenario without
-  its precondition ships as `blocked:`, never as a hopeful checkbox, and the ticket is handed over
-  already carrying `qa-blocked`.
-
 ### Loop mode — one ticket = one PR, in its own fresh headless process and worktree
 
 Two non-negotiables: **one ticket = one PR** (git hygiene) and **one ticket = one fresh context**
@@ -892,7 +831,7 @@ Two non-negotiables: **one ticket = one PR** (git hygiene) and **one ticket = on
   to post-MVP** (owner decision 2026-06, ADR-0030): game-version registration stays manual, like the
   export→import pipeline. Neither the loop nor a contributor works #85 without an explicit owner
   go-ahead.
-- **M3 — Frontend (Blazor Static SSR): DONE**; the manual QA pass **QA-FE / #275 is still open**.
+- **M3 — Frontend (Blazor Static SSR): DONE.**
   OIDC sign-in; pages: dashboard, translation list, editor with `<--DO_NOT_TOUCH!-->` placeholder
   validation + approve flow, import/export, game-versions admin, "Moje konto" and the legal pages.
 - **M6 — Deployment: DONE.** CD over ssh + `docker compose` to a **Hetzner VPS** (Caddy ingress,
@@ -923,16 +862,13 @@ Two non-negotiables: **one ticket = one PR** (git hygiene) and **one ticket = on
 
 ## Proactive command use
 
-The `/ticket`, `/spec`, `/feature`, `/adr`, `/qa-ticket` workflows are model-invocable: reach for
+The `/ticket`, `/spec`, `/feature`, `/adr` workflows are model-invocable: reach for
 them yourself when the request matches, without waiting for the user to type the slash.
 
 - User references **a ticket number or pastes an issue** → **`/ticket`**.
 - User asks **which tickets are worth working / whether they make sense** ("czy te tickety mają
   sens", "co brać najpierw", "przejrzyj backlog zanim zaczniemy") → **`/preflight`** over them:
   verdicts and lanes only, never start implementing from a list.
-- User wants a **manual QA scenario written, refreshed or handed to a tester** → **`/qa-ticket`**.
-  Same when triaging a tester's bug report: verify the claim against the code before answering, and
-  re-baseline the QA ticket that produced it.
 - User floats a **rough feature idea** with unclear business rules → **`/spec`** first.
 - User describes a **concrete new use case** → mirror the nearest sibling slice (**`/feature`
   scaffolds the patcher-style Application slice**; for a TMS slice, mirror the nearest TMS sibling

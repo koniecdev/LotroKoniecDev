@@ -98,7 +98,7 @@ stacks on that box (#786).
 **The two boxes are ordered in opposite directions on purpose.** The observability backend lives
 on the *staging* box, so that a prod outage does not take the evidence with it (ADR-0050 §1). On that
 box the observability stack is the production-critical workload, and the applications serve one
-developer and one tester. On the prod box the applications are the product, and the only
+developer. On the prod box the applications are the product, and the only
 observability component is the agent, whose death costs telemetry, not the service.
 
 | Container | staging | prod | Why |
@@ -479,9 +479,8 @@ not arrive on this box, the admin mail will not arrive either, so fix that first
 2. Type the admin e-mail **exactly**, with no trailing space. The page does not trim the address, so
    a pasted space shows the normal "Jeśli konto istnieje…" panel and sends nothing.
 3. Open the mail, follow the link and set a long random password from a password manager. Never
-   write it into the `.env`, a ticket, the wiki or a public channel. The staging admin is shared with
-   testers: hand its password over in a private message, like any other credential. The prod admin
-   must never use the same password as staging. Nothing in the code checks that, so it is up to you.
+   write it into the `.env`, a ticket, the wiki or a public channel. The prod admin must never use
+   the same password as staging. Nothing in the code checks that, so it is up to you.
 4. Sign in with it. A reset also revokes every session the admin had (ADR-0049), which is the point
    of a rotation. An access token that was already issued keeps working until it expires, which takes
    at most five minutes.
@@ -1328,8 +1327,8 @@ curl -sf -X POST -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: appl
 
 Steps 2–4 can be rehearsed on staging at any time, without a deploy: restore the staging branch to
 five minutes ago (no data change while staging is idle), check that the [Verifying](#verifying)
-output is unchanged, then delete the preserved branch. Do **not** run it while manual QA is in
-progress: the restore drops connections and rewinds anything written after the restore point.
+output is unchanged, then delete the preserved branch. Do **not** run it while someone is using
+staging: the restore drops connections and rewinds anything written after the restore point.
 
 ## Message broker (RabbitMQ)
 

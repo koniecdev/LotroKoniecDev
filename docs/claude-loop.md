@@ -137,10 +137,10 @@ then the lowest number first. Priority never outranks provenance. Label taxonomy
 Default exclusions (each one can be changed with an env var):
 
 - the labels `loop-blocked`, `epic` (a tracking parent has no work of its own), `question`,
-  `wontfix`, `invalid`, `duplicate` (not decided work), `qa` and `qa-blocked` (manual passes),
-  `audit` (a human triages audit findings; name one explicitly to work it) and `post-mvp` (cut from
-  MVP). An epic is caught twice: by its `epic` label, and by the picker's own test for an
-  `[Epic]`/`[Tracking]` title, which `LOOP_SKIP_TITLES` does not change;
+  `wontfix`, `invalid`, `duplicate` (not decided work), `audit` (a human triages audit findings;
+  name one explicitly to work it) and `post-mvp` (cut from MVP). An epic is caught twice: by its
+  `epic` label, and by the picker's own test for an `[Epic]`/`[Tracking]` title, which
+  `LOOP_SKIP_TITLES` does not change;
 - titles matching `^M4-` (the desktop app milestone, ADR-0033: it targets the Windows patcher
   runtime, and its E2E criterion cannot run off Windows);
 - issue `#85` (M2-18 forum watcher, deferred post-MVP; work it only by naming it explicitly).
@@ -185,7 +185,7 @@ ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGINS`.
 | `BASH_DEFAULT_TIMEOUT_MS` | `600000` | the timeout of a worker Bash call that names none (ten minutes, not the CLI's two), because a call that runs out is stopped, not moved to the background |
 | `LOOP_KEEP_WORKTREE` | `0` | `1` = keep `.claude/worktrees/ticket-<n>` after the run (by default a clean worktree is removed; the branch always stays). A worktree that would block a fresh start goes anyway: one kept for a resume that can no longer happen, and one a usage limit left with no session to resume (#1096) |
 | `LOOP_GH_USER` | `koniecdev` | gh account whose token backs the loop's gh write calls (labels, issue comments); an existing `GH_TOKEN` wins |
-| `LOOP_SKIP_LABELS` | `loop-blocked,epic,question,wontfix,invalid,duplicate,qa,qa-blocked,audit,post-mvp` | picker label exclusions |
+| `LOOP_SKIP_LABELS` | `loop-blocked,epic,question,wontfix,invalid,duplicate,audit,post-mvp` | picker label exclusions |
 | `LOOP_SKIP_TITLES` | `^M4-` | picker title-regex exclusion |
 | `LOOP_SKIP_ISSUES` | `85` | picker number exclusions |
 | `LOOP_TRUSTED_ASSOCIATIONS` | `OWNER,MEMBER,COLLABORATOR` | provenance gate: associations that carry write access |

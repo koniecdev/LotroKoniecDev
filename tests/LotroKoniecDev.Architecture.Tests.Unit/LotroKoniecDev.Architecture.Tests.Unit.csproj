@@ -30,14 +30,16 @@
     </ItemGroup>
 
     <!-- Every cross-platform production assembly is referenced so the rules run against real IL.
-         The two patcher `net10.0-windows` assemblies (Infrastructure, Cli) cannot be referenced from
-         this `net10.0` project; they are the TOP of the patcher layering, so every rule about them is
-         expressed as a forbidden NAMESPACE on the assemblies below — no reference required. -->
+         The three patcher `net10.0-windows` assemblies (Infrastructure, Cli and the desktop app's exe)
+         cannot be referenced from this `net10.0` project; they are the TOP of the patcher layering, so
+         every rule about them is expressed as a forbidden NAMESPACE on the assemblies below — no
+         reference required. -->
     <ItemGroup>
         <ProjectReference Include="..\..\src\SharedKernel\LotroKoniecDev.SharedKernel\LotroKoniecDev.SharedKernel.csproj" />
         <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Primitives\LotroKoniecDev.Primitives.csproj" />
         <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Domain\LotroKoniecDev.Domain.csproj" />
         <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj" />
+        <ProjectReference Include="..\..\src\Player\LotroKoniecDev.DesktopApp.Presentation\LotroKoniecDev.DesktopApp.Presentation.csproj" />
         <ProjectReference Include="..\..\src\TranslationSystem\LotroKoniecDev.TranslationSystem.Primitives\LotroKoniecDev.TranslationSystem.Primitives.csproj" />
         <ProjectReference Include="..\..\src\TranslationSystem\LotroKoniecDev.TranslationSystem.Domain\LotroKoniecDev.TranslationSystem.Domain.csproj" />
         <ProjectReference Include="..\..\src\TranslationSystem\LotroKoniecDev.TranslationSystem.ReadModels\LotroKoniecDev.TranslationSystem.ReadModels.csproj" />

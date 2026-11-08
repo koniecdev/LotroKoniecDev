@@ -255,11 +255,11 @@ Severities:
 - **Minor** — style inconsistency, naming, optional improvement. Nice to fix.
 - **Note** — observation, not actionable. FYI only.
 
-From round 2 on, the brief names the earlier rounds' fix commits. Mark each Critical or Major whose
-defect one of those commits wrote: `(from the round-N fix, <sha>)`. A defect that was there before
-the fix gets no mark, even when the fix rewrote the code around it. When no Critical or Major has a
-mark, write the line `Fix-made defects: none`. The caller reads the marks to decide whether a
-confirmation round may run (`/ticket` step 7), and a report with neither blocks it.
+From round 2 on, the brief gives your round number and the earlier rounds' fix commits as they are
+on `HEAD`. End the findings with one line: `Fix-made defects: none`, or `Fix-made defects:` and the
+number of each Critical or Major whose defect one of those commits wrote, with the commit. A defect
+that was there before the fix is not fix-made, even when the fix rewrote the code around it. The
+caller reads this line to decide whether a confirmation round may run (`/ticket` step 7).
 
 Then emit the **edge-case matrix** from Phase 6 — one row per (code path × applicable edge case):
 

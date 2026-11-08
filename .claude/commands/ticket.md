@@ -26,36 +26,48 @@ Run this before anything else, even before reading the ticket:
   `.git`; the main checkout is the folder that holds it. From here on, write that path, and every
   other path or SHA, out in full: once the session is in a worktree, the Bash tool refuses a
   command with `$VAR` or `$(…)` in it.
-- `git fetch origin main`
+- **The session stands in another worktree** (it was `/clear`ed after an earlier ticket) →
+  `ExitWorktree(action: "keep")` first; it changes nothing when no worktree was entered.
+- `git fetch origin main`, then `git worktree prune`: a folder deleted by hand stays registered,
+  and `git worktree add` then refuses its path.
 - **Pull the wiki now, while the session is still outside the worktree:**
   `git -C <main checkout>/../LotroKoniecDev.wiki pull --ff-only` (the clone goes stale; inside a
   worktree session the Bash tool refuses a `git -C` that points outside it). When it is refused or
   fails, step 2 reads the wiki as it is and the READY comment says so.
-- **Tidy up, best effort.** For each `.claude/worktrees/ticket-*` in `git worktree list` other
-  than `ticket-<n>` and the folder the session stands in, on a branch whose PR is merged or closed
-  (`gh pr list --head <branch> --state all --json state`): `git worktree remove <folder>`. Never
-  `--force`: git refuses a folder with changes, and that folder stays. The branch stays too. Leave
-  a detached worktree alone: the loop and this step create theirs detached, so it may be a run
-  that has not reached step 5 yet. One worktree takes gigabytes after a build. A refused command
-  is skipped, never a stop.
+- **Tidy up, best effort.** For each `.claude/worktrees/ticket-*` on a branch in `git worktree
+  list`, other than `ticket-<n>` and the folder the session stands in: `gh pr list --head <branch>
+  --state all --json state,mergedAt,closedAt,isCrossRepository` (rows with `isCrossRepository`
+  true do not count). No open PR, and the newest one merged or closed more than 24 hours ago →
+  `git worktree remove <folder>`, then remove its E2E images as the loop does: every
+  `docker image ls --filter label=lotrokoniecdev.e2e` image whose tag contains `-ticket-<m>-`
+  (`tests/LotroKoniecDev.Frontend.E2E.Tests/README.md`). The 24 hours protect a session still at
+  work after its PR was merged or closed (step 8 waits for CodeQL after the PR opens). Never
+  `--force`: git refuses a folder with changes, and that folder stays. The branch stays too.
+  Leave a detached worktree alone: the loop and this step create theirs detached, so it may be a
+  run that has not reached step 5 yet. One worktree takes gigabytes after a build. A refused
+  command is skipped, never a stop.
+- **`ticket-<n>` exists and the backlog loop owns it → STOP** and say so. The loop owns it when its
+  git folder (the `gitdir:` line in `<main checkout>/.claude/worktrees/ticket-<n>/.git`) holds a
+  `loop-resume` file (a run the usage limit stopped, which the loop resumes there), or when a loop
+  runs (`<main checkout>/.claude/backlog-loop.lock/pid` names a live process) and its newest run
+  folder under `<main checkout>/logs/claude-loop/` has a `ticket-<n>.meta`.
 - **Enter the ticket's worktree:**
-  - The session already stands in `ticket-<n>` → stay there.
-  - `ticket-<n>` exists → **STOP** and report when the backlog loop owns it: a live
-    `/work-ticket <n>` in `ps -eo args`, or a file `<main checkout>/.git/worktrees/ticket-<n>/loop-resume`
-    (a run the usage limit stopped, which the loop resumes there). Otherwise
-    `EnterWorktree(path: <main checkout>/.claude/worktrees/ticket-<n>)`; when `git status
-    --porcelain` prints anything, **STOP** and report it: the user decides what happens to it. No
-    stash, no auto-commit, no salvage branch. A clean one is an earlier run of this ticket: go on in
-    it.
+  - `ticket-<n>` exists → `EnterWorktree(path: <main checkout>/.claude/worktrees/ticket-<n>)`.
+    When `git status --porcelain` prints anything, **STOP** and report it: the user decides what
+    happens to it. No stash, no auto-commit, no salvage branch. A clean one is an earlier run of
+    this ticket: detached, `git switch --detach origin/main`, so steps 1–4 read today's code; on a
+    branch, step 5 brings it up to date.
   - No such folder → `git worktree add --detach <main checkout>/.claude/worktrees/ticket-<n>
     origin/main`, then `EnterWorktree(path: <that folder>)`.
 
-A run that stops before step 5 (a blocking dependency, BOUNCE, step 3's question for the owner) in
-a worktree it created has nothing in it: `ExitWorktree(action: "keep")`, and when that moved the
-session out, `git worktree remove <its folder>`. The worktree of a run that got a branch stays
-after the PR, for follow-up fixes, and a later run's tidy-up removes it once the PR is merged or
-closed. The post-merge loop stays self-contained: after merging the previous PR on GitHub,
-`/clear` → `/ticket <n>` needs no manual checkout or pull first.
+A run that stops before it has a ticket branch checked out (a blocking dependency, BOUNCE, a stop
+in step 5) leaves a worktree with nothing in it: `ExitWorktree(action: "keep")`, and when that
+moved the session out, `git worktree remove <its folder>`; while the folder exists, the loop skips
+the ticket. A run that goes on after such a stop because the user says so runs step 0 again first.
+Step 3's model-tier stop keeps its worktree: the user's go-ahead is the expected next message
+there. The worktree of a run that got a branch stays after the PR, for follow-up fixes, and a
+later run's tidy-up removes it a day after the PR is merged or closed. The post-merge loop stays self-contained: after merging the previous PR on
+GitHub, `/clear` → `/ticket <n>` needs no manual checkout or pull first.
 
 ## 1. Pull the ticket
 
@@ -257,8 +269,9 @@ answered, so it never stops here — it names the mismatch in the report's **Dou
 
 Step 0 already left you in the ticket's worktree, at a fresh `origin/main`; anything dirty now is
 this session's own work (e.g. the step-3 spec file), and an untracked file travels with the
-checkout. First
-`gh issue develop <n> --list`: does the ticket already have a linked branch?
+checkout. Before any checkout, `git rev-parse --show-toplevel` must print
+`<main checkout>/.claude/worktrees/ticket-<n>`; anything else (the main checkout) → back to step 0.
+Then `gh issue develop <n> --list`: does the ticket already have a linked branch?
 
 - **No** → `gh issue develop <n> --base main --checkout` creates and checks out the linked
   `{n}-{kebab-title}` branch off `main`.

@@ -135,7 +135,7 @@ validator.
 | Touch update-day behaviour on the client (sentinel, orchestrator, any new DAT write path) | `docs/specs/0012-update-resilience.md` (Tier 0/1 rules as amended 2026-08-17) + **ADR-0047**: every write goes through the per-row source guard; the no-masking invariant has no path exceptions |
 | Touch the game-content catalog (CatalogEntry/TextSlot, Companion zip import, catalog browser, memberships) | `docs/specs/0008-game-content-catalog-layer.md` + `docs/knowledge-base/lotro-companion-data-model.md` (the verified `key:<FileId>:<GossipId>` join; never join on text). Naming rule: **never "entity"** in this layer |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
-| Act on a negative claim ("not our code"), a cause outside the repo, or a ticket's own conclusion | **`/buddy`** before the verdict (no `/buddy` → its fallback agent): `/ticket` step 2 |
+| Plan any ticket's fix, or act on a negative claim, a cause outside the repo, or a ticket's own conclusion | **`/buddy`** with its design challenge, before the verdict, on every ticket (no `/buddy` → its fallback agent): `/ticket` step 2 |
 | Review a finished change | the **`code-reviewer`** agent, a fresh one per round, three rounds at most; a small diff at the gate → inline `/code-review`, two rounds at most (`/ticket` step 7) |
 | Sort review findings, file one, or triage an `audit` ticket | **ADR-0067 §8** (what is not a finding) + ADR-0008 §3 (the bar for a startup check) + ADR-0069 (the game launcher is not checked) + `docs/labels.md` → "One bug class per ticket" |
 | Understand the backlog / milestones | `gh issue list` + Roadmap below |
@@ -371,8 +371,8 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
 - **Agent fan-out is budgeted; agents inherit the session's model and effort.** The repo pins no
   model tier of its own. Hard cap: **max 4 subagents in parallel**, no chained waves by default; a
   small diff **starts with inline `/code-review`** instead of a review agent and escalates to
-  `code-reviewer` only as `/ticket` step 7 says; a plan that rests on a negative claim, a cause
-  outside the repo or a conclusion taken over always gets `/ticket`'s step-2 `/buddy` claim check.
+  `code-reviewer` only as `/ticket` step 7 says; every ticket's plan gets `/ticket`'s step-2
+  `/buddy` challenge (#1306).
   The committed `code-reviewer` agent carries
   **`model: inherit`**, so a fresh clone reviews with the contributor's own tier; `/code-review`
   and `/security-review` follow the session model/effort the same way. Loop-mode worker sessions
@@ -874,8 +874,10 @@ them yourself when the request matches, without waiting for the user to type the
   scaffolds the patcher-style Application slice**; for a TMS slice, mirror the nearest TMS sibling
   and "Anatomy of a feature slice").
 - User is **settling an architecture/modeling choice** → **`/adr`** first, then implement.
-- A plan or diagnosis rests on a **negative claim** ("not our code"), a **cause outside the
-  repo**, or the ticket's own conclusion → **`/buddy`** before acting (`/ticket` step 2).
+- **Any ticket's plan**, and any diagnosis resting on a **negative claim** ("not our code"), a
+  **cause outside the repo**, or the ticket's own conclusion → **`/buddy`** before acting
+  (`/ticket` step 2); a better design that needs the maintainer is a question, never the old design
+  by default.
 - Any **DAT binary format work** → the **`dat-format-expert`** agent.
 - User says **"kontynuuj pracę w pętli" / "continue the loop" / "work through the backlog" /
   "jazda dalej"** (any keep-grinding-tickets phrasing) → **`/backlog <numbers>`** with the tickets

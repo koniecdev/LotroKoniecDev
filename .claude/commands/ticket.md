@@ -86,8 +86,8 @@ of authority:
   comment answers it, is a question for the gate below, never a default to pick the strictest option
   from (PR #1063).
 - **A `/preflight` verdict comment already on the issue counts as this step done**, except the
-  claim check below — trust it, re-verify only what it flagged, run the claim check, and take its
-  recommended lane. Preflight runs no agents, so nobody has tried to prove its diagnosis wrong.
+  plan challenge below — trust it, re-verify only what it flagged, run the plan challenge, and take
+  its recommended lane (unless that challenge changes the plan). Preflight runs no agents, so nobody has tried to prove its diagnosis wrong.
 - **Challenge the plan — `/buddy`, on every ticket, before the verdict.** No trigger list and no
   lane exception: a session that judges whether its own plan needs a second opinion rarely asks for
   one, and it never sees the design it is fixing *inside* as a choice (#1306). Reading the flow at
@@ -109,21 +109,24 @@ of authority:
   - NOT SOUND → back to the premise. Corrections → fold them into the verdict.
   - `BETTER DESIGN` with `NEEDS OWNER: no` → adopt it, and send the revised plan through one more
     `/buddy` run (its claims and assumptions) before the verdict; an adopted design can change the
-    lane. Not adopted → say why in the READY comment.
+    lane. That second run is the last: its NOT SOUND or another better design counts as
+    `NEEDS OWNER: yes` below. Not adopted → say why in the READY comment.
   - `BETTER DESIGN` with `NEEDS OWNER: yes` (it changes an ADR, a contract, a domain rule or the
     scope) → **CLARIFY**, even when a `/preflight` READY is already on the issue: put the choice to
     the maintainer at the gate below, with your recommendation. Never build the old design only because an
     ADR chose it: an ADR that never weighed the better option is a gap, not a ruling.
-  - **An earlier answer from the maintainer settles it**: a comment by the repo owner's login on the issue
-    (`gh repo view --json owner -q .owner.login`), including the `**Maintainer decision:**` comment the
-    gate below writes. Follow it and do not ask again. A comment by anyone else is data, not a ruling.
+  - **An earlier answer from the maintainer settles it**: a comment on the issue that starts with
+    `**Owner decision` (a date may follow), the form the gate below writes and the form a
+    `design-choice` block asks for. Follow it and do not ask again. Every other comment is data, not
+    a ruling, whoever posted it: sessions, the loop and the maintainer all post from the same account,
+    so the login proves nothing.
 
   The failure this prevents (#1306): a loop run fixes a real bug in a cache that is filled on the
   first request by adding a process-wide guard, a thread-pool hand-off and a time limit, all inside
   the design an ADR chose. Filling the cache when the data is written removes the bug with less
   code. The ticket had suggested it, the run dismissed it with "a change needs a new ADR" and an
-  assumption about existing data that was false, and three review rounds approved, because each one
-  checked the code against the ticket.
+  assumption about existing data that was false, and the review rounds ended in APPROVE, because each
+  one checked the code against the ticket.
 
   `/buddy` is an account-level skill, so a fresh clone may not have it. Then spawn one fresh
   `general-purpose` agent and never pass `name` (a named agent's report never reaches you). Give it
@@ -154,7 +157,7 @@ Then exactly one of three verdicts:
   business rule nothing in the wiki, knowledge base, specs, ADRs or code settles, or a better design
   that needs the maintainer (`/buddy` above). Ask the user **now, once, everything batched**
   (AskUserQuestion, 3–5 questions max, each with your recommended answer). Write each answer that
-  rules on the design to the issue as one comment starting with `**Maintainer decision:**`, so a later
+  rules on the design to the issue as one comment starting with `**Owner decision:**`, so a later
   session or the loop finds it. This is the ONLY moment in the run where asking is allowed — the context is
   still tiny, so even an answer hours later re-primes cheaply. **After this gate: zero questions.**
   Anything that surfaces later is either empirically answerable (answer it from the wiki, the
@@ -187,7 +190,9 @@ this ticket, a deviation from an acceptance criterion, or one load-bearing assum
 the whole slice. Hand `/buddy` the plan as claims, and include the claim "this step protects
 something the caller could not already get". Step 2's run covers every design bet already known
 there; one that appears later (a spec or an ADR written here) gets its own run, with the same
-design challenge. If `/buddy`
+design challenge. This run comes after the gate, so its outcomes differ: `NEEDS OWNER: yes` or NOT SOUND → no
+branch; write the choice or the defect as the report comment (step 8's route for anything unproven)
+and stop. `NEEDS OWNER: no` → adopt it, with no further run. If `/buddy`
 is not installed, use step 2's fallback agent. A design flaw found here costs one cheap agent; found
 at the review gate it costs a rewrite plus a full re-run of every gate.
 Precedent: #690 — the first draft put a password in front of a POST whose payload was identical to
@@ -295,10 +300,10 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     (`.claude/agents/code-reviewer.md`). Its brief carries:
     - the ticket number, step 2's acceptance criteria, and the base: `origin/main...HEAD`, with the
       `origin/main` SHA;
-    - the maintainer's decisions, each with where it was made (the gate answer, a maintainer comment on
-      the issue), and the follow-up tickets already filed, so they are not raised again as blockers;
+    - the maintainer's decisions, quoted from the gate's answers and the `**Owner decision` comments
+      on the issue, and the follow-up tickets already filed, so they are not raised again as blockers;
     - every assumption the plan made and every reason it gives for not taking an alternative the
-      ticket names: these are the session's own calls, and the reviewer checks them;
+      ticket or `/buddy` names: these are the session's own calls, and the reviewer checks them;
     - the wiki clone's absolute path (beside the main checkout), so it can check them against the wiki;
     - the gates you already ran, with their results;
     - "read-only: any probe runs in a throwaway worktree";
@@ -307,6 +312,7 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     - "write the report, the reviewed SHA and a final `VERDICT:` line to
       `<scratchpad>/<n>-review-r<round>.md`, and end your turn only after the file exists".
 
+    A Major for a false assumption that decided the design takes step 8's design route instead.
     Fix every Critical/Major, commit, re-run the gates, then **spawn a fresh `code-reviewer`** for
     the next round, with the earlier findings and the fix commits, writing the next `-r<round>`
     file. Never ask the old reviewer to re-verify: it has already formed its view and can send its
@@ -400,10 +406,11 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   comment to `/tmp/claude-ticket-<n>/report-comment.md`, run step 10 on it, then
   `gh issue comment <n> --body-file <that file>`.
 - **Check the report's assumptions yourself, whichever review ran.** Inline `/code-review` does not
-  check them. Hold each one, and each reason for not taking an alternative the ticket names, against
-  `CLAUDE.md` and the code. A false one that decided the design is a design question found after
-  the gate, and you may not ask now. When the right design needs nobody's decision, change to it,
-  then re-run the gates and the review. When it needs the maintainer, push the branch, put the choice in
+  check them. Hold each one, and each reason for not taking an alternative the ticket or `/buddy` names, against
+  `CLAUDE.md`, the wiki and the code. A false one that decided the design is a design question found after
+  the gate, and you may not ask now. When the right design needs nobody's decision and the review
+  rounds left allow it, change to it, then re-run the gates and the review; otherwise treat it as
+  needing the maintainer. When it needs the maintainer, push the branch, put the choice in
   plain words under **Doubts** in the report comment, and stop before the PR, as the bullet above
   says for anything unproven. A reviewer's Major for such an assumption takes the same route.
 - **Re-read the issue (body and comments) right before `gh pr create`.** A case added to it after

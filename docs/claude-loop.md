@@ -246,7 +246,10 @@ Per-ticket outcomes:
   (a manual `/ticket` session or an earlier run is on it). Nothing starts. A worktree kept for a
   resume is skipped too when resuming it is no longer safe, and so is a limited ticket whose PR
   was merged from another branch during the nap.
-- **blocked**: the worker hit a real business question, a dependency, a mis-scope or a red build.
+- **blocked**: the worker hit a real business question, a dependency, a mis-scope or a red build,
+  or a better design that needs the maintainer (`CATEGORY: design-choice`; a block at close-out
+  leaves the pushed branch). Answer a design choice in a comment that starts with
+  `**Owner decision:**`.
   It also stops here, pushing nothing more, when you closed its PR without a merge while the
   session ran (`CATEGORY: pr-closed`), or when GitHub could not give the PR's state before a push
   (`CATEGORY: pr-state-unknown`) (#1097). The ticket gets the `loop-blocked` label and the exact

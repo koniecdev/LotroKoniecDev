@@ -136,7 +136,7 @@ validator.
 | Touch the game-content catalog (CatalogEntry/TextSlot, Companion zip import, catalog browser, memberships) | `docs/specs/0008-game-content-catalog-layer.md` + `docs/knowledge-base/lotro-companion-data-model.md` (the verified `key:<FileId>:<GossipId>` join; never join on text). Naming rule: **never "entity"** in this layer |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
 | Plan any ticket's fix, or act on a negative claim, a cause outside the repo, or a ticket's own conclusion | **`/buddy`** with its design challenge, before the verdict, on every ticket (no `/buddy` → its fallback agent): `/ticket` step 2 |
-| Review a finished change | the **`code-reviewer`** agent, a fresh one per round, three rounds at most; a small diff at the gate → inline `/code-review`, two rounds at most (`/ticket` step 7) |
+| Review a finished change | the **`code-reviewer`** agent, a fresh one per round, three rounds plus one confirmation round only when the review is ending; a small diff at the gate → inline `/code-review`, two rounds at most (`/ticket` step 7) |
 | Sort review findings, file one, or triage an `audit` ticket | **ADR-0067 §8** (what is not a finding) + ADR-0008 §3 (the bar for a startup check) + ADR-0069 (the game launcher is not checked) + `docs/labels.md` → "One bug class per ticket" |
 | Understand the backlog / milestones | `gh issue list` + Roadmap below |
 | Compare with the Russian sister project | `docs/RUSSIAN_PROJECT_RESEARCH.md` + `docs/knowledge-base/russian-project.md` |

@@ -255,6 +255,11 @@ Severities:
 - **Minor** — style inconsistency, naming, optional improvement. Nice to fix.
 - **Note** — observation, not actionable. FYI only.
 
+From round 2 on, the brief names the earlier rounds' fix commits. Mark each Critical or Major whose
+defect one of those commits wrote: `(from the round-N fix, <sha>)`. A defect that was there before
+the fix gets no mark. The caller reads the marks to decide whether a confirmation round may run
+(`/ticket` step 7).
+
 Then emit the **edge-case matrix** from Phase 6 — one row per (code path × applicable edge case):
 
 | Code path | Edge case | Handled? | Tested? | Verdict |

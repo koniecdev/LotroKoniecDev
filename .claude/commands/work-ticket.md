@@ -135,8 +135,7 @@ everything that matters must be committed and pushed.
      foreground `code-reviewer` instead.
    - **A reviewer that ends with no verdict file has stalled:** spawn a fresh `code-reviewer` with
      the gate results, told to write the file before it ends its turn. Never message the stalled
-     one: its answer would arrive after your turn has ended. The replacement counts as one of the
-     three rounds.
+     one: its answer would arrive after your turn has ended. The replacement counts as a round.
    - **A ticket you file from bucket 2** (a new one, or an open ticket that gets a case added) gets
      the `audit` label as well: nobody checked the case live, and the owner triages it before the
      loop may pick it up.
@@ -144,7 +143,7 @@ everything that matters must be committed and pushed.
      own output: save the report and go on to step 7. A headless session that ends its turn on a
      review report dies with no PR and no `STATUS` block.
    - **A gate that cannot reach green, a rebase conflict you cannot settle (`git rebase --abort`
-     first), or no APPROVE after three rounds** → `STATUS: BLOCKED` (category: red-build or
+     first), or no APPROVE after the last round step 7 allows** → `STATUS: BLOCKED` (category: red-build or
      review-unclean) with the reason. This replaces `/ticket`'s "push the branch and report without
      a PR": push nothing. Never push broken work.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish

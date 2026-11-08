@@ -34,9 +34,11 @@ Run this before anything else, even before reading the ticket:
 - **Keep the main checkout's `main` current.** Claude Code loads `CLAUDE.md`, this command, the
   rules and the agents from the folder a session starts in, and that is the main checkout. When
   it has `main` checked out and `git -C <main checkout> status --porcelain` prints nothing,
-  `git -C <main checkout> merge --ff-only origin/main`. On any other branch, with changes, or when
-  the Bash tool refuses the command, leave it as it is and say in the final reply that the main
-  checkout is not on a current `main`, so its rules and commands may be old.
+  `git -C <main checkout> merge --ff-only --no-overwrite-ignore origin/main` (the switch stops the
+  merge instead of overwriting an ignored local file, such as a settings file, that `main` starts
+  to track). On any other branch, with changes, when the merge fails or the Bash tool refuses it,
+  leave it as it is, never retry it another way, go on with the run, and say in the final reply
+  that the main checkout is not on a current `main`, so its rules and commands may be old.
 - **Pull the wiki now, while the session is still outside the worktree:**
   `git -C <main checkout>/../LotroKoniecDev.wiki pull --ff-only` (the clone goes stale; inside a
   worktree session the Bash tool refuses a `git -C` that points outside it). When it is refused or
@@ -595,7 +597,8 @@ entry.
 
 This report is the hand-off contract: a later session fixes what it lists without re-deriving the
 whole ticket. Your final reply to the user, once CodeQL is clear: the verdicts in one line each,
-the PR link, the worktree's full path (step 0; open it in Rider to see the change), and
+the PR link, the worktree's full path (step 0; open it in Rider to see the change), the line step
+0 asks for when it could not fast-forward the main checkout, and
 "session done — `/clear` before the next ticket". If at any point
 the ticket turned out mis-scoped (wrong layer, contradicts the wiki, an ADR or the knowledge base),
 that is a late BOUNCE: stop, report, and propose the correction as a comment draft for the issue.

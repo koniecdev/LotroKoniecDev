@@ -318,7 +318,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     - "read-only: any probe runs in a throwaway worktree";
     - the bar: Critical/Major as `code-reviewer.md` defines them, its hard rule on untested
       unhappy paths included; wording and taste are Minor and do not block APPROVE;
-    - from round 2 on, "mark each Critical or Major whose defect an earlier round's fix commit
+    - from round 2 on, the earlier fix commits as they are on `HEAD` now (after a rebase, find
+      them again by subject), and "mark each Critical or Major whose defect one of those commits
       wrote, with that commit, or write `Fix-made defects: none`": the confirmation-round check
       below reads it;
     - "write the report, the reviewed SHA and a final `VERDICT:` line to
@@ -326,34 +327,37 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
 
     A Major for a false assumption that decided the design takes step 8's design route instead.
     Fix every Critical/Major, commit, re-run the gates, then **spawn a fresh `code-reviewer`** for
-    the next round, with the earlier findings and the fix commits, writing the next `-r<round>`
-    file. Never ask the old reviewer to re-verify: it has already formed its view and can send its
+    the next round, with the earlier findings, the fix commits and the findings you left alone
+    because the check is another part's job (ADR-0067, below) with the reason, writing the next
+    `-r<round>` file. Never ask the old reviewer to re-verify: it has already formed its view and can send its
     old verdict back as if it were new. Minor-only fixes need no new round. NEEDS DISCUSSION counts
     as REQUEST CHANGES: answer each question from the wiki, the code or an ADR and fix, or stop as
     below.
 
-    **Three rounds, plus one confirmation round when the review is ending (#1310).** A round is a
-    reviewer that returned a verdict file. A stall is not a round: its replacement takes the same
-    number, and a second stall in the same round stops the run as below. After a round 3 with no
-    APPROVE, fix it as above, then run a fourth and last round only when all three hold:
-    - the number of Critical + Major you fixed never went up from one round to the next, and round
-      3 has fewer than round 1 (a finding left alone because the check is another part's job,
-      ADR-0067, is not counted);
+    **Three rounds, plus one confirmation round when the review is ending (#1310).** After round
+    3, run a fourth and last round only when all of these hold:
+    - round 3 asked for changes (REQUEST CHANGES, or a NEEDS DISCUSSION you answered from the
+      wiki, the code or an ADR) and you fixed every Critical and Major in it (a stalled round 3, a
+      question only the maintainer can answer or a design-route Major means no round 4);
+    - the number of Critical + Major never went up from one round to the next, and round 3 has
+      fewer than round 1, counted as the reviewers rated them (findings left alone under ADR-0067
+      count too);
     - the round-2 and round-3 reports each carry the marks or `Fix-made defects: none`, and no
-      Critical or Major in them is marked as written by an earlier round's fix (a report with
-      neither fails this check);
+      Critical or Major in them is marked (a report with neither fails this check);
     - every round-3 fix that changes behavior has a test that fails on the code before that fix,
       proven the way the regression-test bullet above says.
 
     The fourth reviewer gets the same brief plus "confirmation round: start at the round-3 fix
     commits and what they touch". Only its APPROVE goes on, to the second pass below, as any
-    APPROVE does. **Anything else in round 4 (REQUEST CHANGES, NEEDS DISCUSSION, a second stall),
-    or no APPROVE after three rounds when a check above fails → stop:** push the branch and report
-    without a PR (step 8). There is never a fifth round. Why: the cap is there for a review that
-    does not end, where fixes make new defects and every round finds as much as the one before.
-    Counting rounds alone also stopped a review that was ending (2, 1 and 1 Majors, each new and
-    real, the round-3 fix proven), and a new session had to run one more round. The three checks
-    are the signs of an ending review, and a stall says nothing about the code.
+    APPROVE does, and the report's `**Proof:**` then lists each round's Critical + Major count, the
+    mark lines and the round-3 proofs, so the maintainer can check that the round was allowed.
+    **Anything else in round 4 (REQUEST CHANGES, NEEDS DISCUSSION, a stall, which gets no
+    replacement), or no APPROVE after three rounds when a check above fails → stop:** push the
+    branch and report without a PR (step 8). There is never a fifth round. Why: the cap is there
+    for a review that does not end, where fixes make new defects and every round finds as much as
+    the one before. Counting rounds alone also stopped a review that was ending (2, 1 and 1 Majors,
+    each new and real, the round-3 fix proven), and a new session had to run one more round. The
+    checks are the signs of an ending review.
   - **Trust a verdict only after you check its file:** it exists, it is newer than the commit it
     names, and that commit is `HEAD` or differs from it only by Minor fixes, the second pass's
     bucket-1 fixes (below) or a rebase with no conflict (step 8), with the gates green again. A
@@ -443,7 +447,7 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   check them. Hold each one, and each reason for not taking an alternative the ticket or `/buddy` names, against
   `CLAUDE.md`, the wiki and the code. A false one that decided the design is a design question found after
   the gate, and you may not ask now. When the right design needs nobody's decision and the review
-  rounds left allow it, change to it, run `/buddy` once on the new design (its `NEEDS OWNER: yes` or NOT SOUND → treat it as
+  rounds left allow it (the confirmation round never takes a redesign), change to it, run `/buddy` once on the new design (its `NEEDS OWNER: yes` or NOT SOUND → treat it as
   needing the maintainer; no report in a headless run → `BLOCKED`, review-unclean), then re-run the gates
   and the review; otherwise treat it as
   needing the maintainer. When it needs the maintainer, push the branch, put the choice in

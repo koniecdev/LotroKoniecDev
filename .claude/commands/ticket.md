@@ -15,10 +15,11 @@ and re-priming a fat context costs far more than a follow-up fix.
 
 Every run works in its own git worktree, `<main checkout>/.claude/worktrees/ticket-<n>`, and never
 in the main checkout. The main checkout's branch and uncommitted files belong to whoever works
-there (Rider, another session), so this command never checks out, pulls, stashes or commits in it:
-two sessions in one folder switch each other's branch mid-run, and one ticket's edits land on the
-other's branch (#1308). The folder name is the backlog loop's (`scripts/claude/work-ticket.sh`),
-so the loop skips a ticket an interactive run holds.
+there (Rider, another session), so this command never checks out, stashes or commits in it, and
+moves it only by the fast-forward below. Two sessions in one folder switch each other's branch
+mid-run, and one ticket's edits land on the other's branch (#1308). The folder name is the
+backlog loop's (`scripts/claude/work-ticket.sh`), so the loop skips a ticket an interactive run
+holds.
 
 Run this before anything else, even before reading the ticket:
 
@@ -30,6 +31,12 @@ Run this before anything else, even before reading the ticket:
   `ExitWorktree(action: "keep")` first; it changes nothing when no worktree was entered.
 - `git fetch origin main`, then `git worktree prune`: a folder deleted by hand stays registered,
   and `git worktree add` then refuses its path.
+- **Keep the main checkout's `main` current.** Claude Code loads `CLAUDE.md`, this command, the
+  rules and the agents from the folder a session starts in, and that is the main checkout. When
+  it has `main` checked out and `git -C <main checkout> status --porcelain` prints nothing,
+  `git -C <main checkout> merge --ff-only origin/main`. On any other branch, with changes, or when
+  the Bash tool refuses the command, leave it as it is and say in the final reply that the main
+  checkout is not on a current `main`, so its rules and commands may be old.
 - **Pull the wiki now, while the session is still outside the worktree:**
   `git -C <main checkout>/../LotroKoniecDev.wiki pull --ff-only` (the clone goes stale; inside a
   worktree session the Bash tool refuses a `git -C` that points outside it). When it is refused or

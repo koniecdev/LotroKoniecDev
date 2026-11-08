@@ -135,7 +135,9 @@ everything that matters must be committed and pushed.
      foreground `code-reviewer` instead.
    - **A reviewer that ends with no verdict file has stalled:** spawn a fresh `code-reviewer` with
      the gate results, told to write the file before it ends its turn. Never message the stalled
-     one: its answer would arrive after your turn has ended. The replacement counts as a round.
+     one: its answer would arrive after your turn has ended. The replacement takes the stalled
+     round's number; a second stall in the same round → `STATUS: BLOCKED` (category:
+     review-unclean).
    - **A ticket you file from bucket 2** (a new one, or an open ticket that gets a case added) gets
      the `audit` label as well: nobody checked the case live, and the owner triages it before the
      loop may pick it up.

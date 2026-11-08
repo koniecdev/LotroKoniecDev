@@ -257,8 +257,9 @@ Severities:
 
 From round 2 on, the brief names the earlier rounds' fix commits. Mark each Critical or Major whose
 defect one of those commits wrote: `(from the round-N fix, <sha>)`. A defect that was there before
-the fix gets no mark. The caller reads the marks to decide whether a confirmation round may run
-(`/ticket` step 7).
+the fix gets no mark, even when the fix rewrote the code around it. When no Critical or Major has a
+mark, write the line `Fix-made defects: none`. The caller reads the marks to decide whether a
+confirmation round may run (`/ticket` step 7), and a report with neither blocks it.
 
 Then emit the **edge-case matrix** from Phase 6 — one row per (code path × applicable edge case):
 

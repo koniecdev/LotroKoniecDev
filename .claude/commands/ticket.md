@@ -318,8 +318,9 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     - "read-only: any probe runs in a throwaway worktree";
     - the bar: Critical/Major as `code-reviewer.md` defines them, its hard rule on untested
       unhappy paths included; wording and taste are Minor and do not block APPROVE;
-    - from round 2 on, "mark each Critical or Major that sits in code an earlier round's fix
-      wrote, with that commit": the confirmation-round check below reads the marks;
+    - from round 2 on, "mark each Critical or Major whose defect an earlier round's fix commit
+      wrote, with that commit, or write `Fix-made defects: none`": the confirmation-round check
+      below reads it;
     - "write the report, the reviewed SHA and a final `VERDICT:` line to
       `<scratchpad>/<n>-review-r<round>.md`, and end your turn only after the file exists".
 
@@ -331,24 +332,28 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     as REQUEST CHANGES: answer each question from the wiki, the code or an ADR and fix, or stop as
     below.
 
-    **Three rounds, plus one confirmation round when the review is ending (#1310).** After a
-    round 3 with no APPROVE, fix it as above, then run a fourth and last round only when all
-    three hold:
-    - the count of Critical + Major never went up from one round to the next (a stalled round has
-      no count and is left out of the comparison);
-    - no Critical or Major in rounds 2 and 3 carries the reviewer's mark for code an earlier
-      round's fix wrote;
+    **Three rounds, plus one confirmation round when the review is ending (#1310).** A round is a
+    reviewer that returned a verdict file. A stall is not a round: its replacement takes the same
+    number, and a second stall in the same round stops the run as below. After a round 3 with no
+    APPROVE, fix it as above, then run a fourth and last round only when all three hold:
+    - the number of Critical + Major you fixed never went up from one round to the next, and round
+      3 has fewer than round 1 (a finding left alone because the check is another part's job,
+      ADR-0067, is not counted);
+    - the round-2 and round-3 reports each carry the marks or `Fix-made defects: none`, and no
+      Critical or Major in them is marked as written by an earlier round's fix (a report with
+      neither fails this check);
     - every round-3 fix that changes behavior has a test that fails on the code before that fix,
       proven the way the regression-test bullet above says.
 
     The fourth reviewer gets the same brief plus "confirmation round: start at the round-3 fix
-    commits and what they touch". Its APPROVE goes on to the second pass below, as any APPROVE
-    does. **Any Critical or Major in round 4, or no APPROVE after three rounds when a check above
-    fails → stop:** push the branch and report without a PR (step 8). There is never a fifth round.
-    Why: the cap is there for a review that does not end, where fixes make new defects and every
-    round finds as much as the one before. Counting rounds alone also stopped a review that was
-    ending (2, 1 and 1 Majors, each new and real, the round-3 fix proven), and a new session had to
-    run one more round. The three checks are the signs of an ending review.
+    commits and what they touch". Only its APPROVE goes on, to the second pass below, as any
+    APPROVE does. **Anything else in round 4 (REQUEST CHANGES, NEEDS DISCUSSION, a second stall),
+    or no APPROVE after three rounds when a check above fails → stop:** push the branch and report
+    without a PR (step 8). There is never a fifth round. Why: the cap is there for a review that
+    does not end, where fixes make new defects and every round finds as much as the one before.
+    Counting rounds alone also stopped a review that was ending (2, 1 and 1 Majors, each new and
+    real, the round-3 fix proven), and a new session had to run one more round. The three checks
+    are the signs of an ending review, and a stall says nothing about the code.
   - **Trust a verdict only after you check its file:** it exists, it is newer than the commit it
     names, and that commit is `HEAD` or differs from it only by Minor fixes, the second pass's
     bucket-1 fixes (below) or a rebase with no conflict (step 8), with the gates green again. A

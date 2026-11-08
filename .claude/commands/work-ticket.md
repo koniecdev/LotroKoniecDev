@@ -78,7 +78,8 @@ everything that matters must be committed and pushed.
    go straight on. Then:
    - NOT SOUND on the premise → `STATUS: BLOCKED` (category: false-premise). NOT SOUND on the plan
      only → fix the plan from its defects and run the challenge once more (the last run); NOT SOUND
-     again → `BLOCKED` (design-choice), the defects under `QUESTIONS`.
+     again → `BLOCKED` (design-choice), the defects under `QUESTIONS` in the shape below (ending with
+     the `**Owner decision:**` ask).
    - No report from `/buddy`, even after its one respawn (`/buddy` §3) → `STATUS: BLOCKED`
      (category: review-unclean): the plan challenge did not run, and no ticket skips it.
    - `BETTER DESIGN` with `NEEDS OWNER: yes` (it changes an ADR, a contract, a domain rule or
@@ -152,10 +153,10 @@ everything that matters must be committed and pushed.
    after you started moves to a new ticket). Check the report's assumptions as `/ticket` step 8
    says. A false one that decided the design, or a reviewer's Major for one, whose fix needs the
    maintainer → push the branch (the work is green; only its design waits), then `STATUS: BLOCKED`
-   (category: design-choice) with the choice under `QUESTIONS` in step 1's shape (under 1,500 characters,
+   (category: design-choice) with the choice under `QUESTIONS` in step 1's shape (no comment of your own, under 1,500 characters,
    ending with "Answer in a comment that starts with `**Owner decision:**`."), instead of a redesign inside the review rounds. If another Major is
    still open in the same round, the block is `review-unclean` instead (push nothing), with the
-   design question in its `QUESTIONS` too.
+   design question in its `QUESTIONS` too, in step 1's shape.
    Write the PR body to `/tmp/claude-ticket-$ARGUMENTS/pr-body.md`: outside the worktree, so no
    commit and no leftover check sees it, and one folder per ticket, so parallel workers never share
    a file. It starts with `Closes #$ARGUMENTS`, then the problem in plain words

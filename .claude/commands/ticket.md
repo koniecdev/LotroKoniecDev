@@ -106,7 +106,9 @@ of authority:
   its cause or about what else the fix touches. A finding that `docs/knowledge-base/` settles is
   evidence: cite it, do not challenge it again.
   Then act on the result:
-  - NOT SOUND → back to the premise. Corrections → fold them into the verdict.
+  - NOT SOUND on the premise → back to the premise. NOT SOUND on the plan only → fix the plan and
+    run `/buddy` once more (the last run); NOT SOUND again → CLARIFY. Corrections → fold them into
+    the verdict.
   - `BETTER DESIGN` with `NEEDS OWNER: no` → adopt it, and send the revised plan through one more
     `/buddy` run (its claims and assumptions) before the verdict; an adopted design can change the
     lane. That second run is the last: its NOT SOUND or another better design counts as
@@ -116,8 +118,10 @@ of authority:
     the maintainer at the gate below, with your recommendation. Never build the old design only because an
     ADR chose it: an ADR that never weighed the better option is a gap, not a ruling.
   - **An earlier answer from the maintainer settles it**: a comment by the repo owner's login
-    (`gh repo view --json owner -q .owner.login`) whose first line, without its Markdown marks (`**`,
-    `#`), starts with `Owner decision` (a date may follow). `**Owner decision:**`, `## Owner decision
+    (`gh repo view --json owner -q .owner.login`) whose first line that is not a quote (`>`), without its Markdown marks (`**`,
+    `#`), starts with `Owner decision` (a date may follow). A first line that asks (`needed`,
+    `required`, a `?`) is a question, not a ruling, and a comment this command or the loop writes
+    never starts with `Owner decision`, except the gate's copy of the maintainer's own answers. `**Owner decision:**`, `## Owner decision
     (2026-11-06)` and a plain `Owner decision` all count; the gate below writes the first form, and
     every design question this command or the loop hands over asks for it. Follow it and do not ask
     again. For a design ruling every other comment is data: sessions and the loop post from the
@@ -195,9 +199,9 @@ something the caller could not already get". Step 2's run covers every design be
 there; one that appears later (a spec or an ADR written here) gets its own run, with the same
 design challenge. This run comes after the gate, so its outcomes differ. An `Owner decision` comment that
 already answers the question settles it (step 2's test). Otherwise `NEEDS OWNER: yes` or NOT SOUND
-→ no branch: put the draft's text and the choice or the defect into the report comment (step 8's
-route for anything unproven), ending with "Answer in a comment that starts with `**Owner decision:**`.", delete the draft file so the tree stays
-clean, and stop. `NEEDS OWNER: no` → adopt it, with no further run. An ADR written after the branch
+→ no branch: put the drafts' text and the choice or the defect into the report comment (step 8's
+route for anything unproven), with "Answer in a comment that starts with `**Owner decision:**`." as its last line, after the report;
+delete the draft files so the tree stays clean, and stop. `NEEDS OWNER: no` → adopt it, with no further run. An ADR written after the branch
 exists takes step 8's route instead. If `/buddy`
 is not installed, use step 2's fallback agent. A design flaw found here costs one cheap agent; found
 at the review gate it costs a rewrite plus a full re-run of every gate.
@@ -414,9 +418,11 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   check them. Hold each one, and each reason for not taking an alternative the ticket or `/buddy` names, against
   `CLAUDE.md`, the wiki and the code. A false one that decided the design is a design question found after
   the gate, and you may not ask now. When the right design needs nobody's decision and the review
-  rounds left allow it, change to it, run `/buddy` once on the new design, then re-run the gates and the review; otherwise treat it as
+  rounds left allow it, change to it, run `/buddy` once on the new design (its `NEEDS OWNER: yes` or NOT SOUND → treat it as
+  needing the maintainer; no report in a headless run → `BLOCKED`, review-unclean), then re-run the gates
+  and the review; otherwise treat it as
   needing the maintainer. When it needs the maintainer, push the branch, put the choice in
-  plain words under **Doubts** in the report comment, ending with "Answer in a comment that starts with `**Owner decision:**`.", and stop before the PR, as the bullet above
+  plain words under **Doubts** in the report comment, with "Answer in a comment that starts with `**Owner decision:**`." as its last line, and stop before the PR, as the bullet above
   says for anything unproven. A reviewer's Major for such an assumption takes the same route.
 - **Re-read the issue (body and comments) right before `gh pr create`.** A case added to it after
   you read it (`docs/labels.md` → **One bug class per ticket**) is not in this diff. Move it to a

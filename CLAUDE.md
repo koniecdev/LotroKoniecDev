@@ -372,7 +372,7 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   model tier of its own. Hard cap: **max 4 subagents in parallel**, no chained waves by default; a
   small diff **starts with inline `/code-review`** instead of a review agent and escalates to
   `code-reviewer` only as `/ticket` step 7 says; every ticket's plan gets `/ticket`'s step-2
-  `/buddy` challenge (one agent, #1306).
+  `/buddy` challenge (#1306).
   The committed `code-reviewer` agent carries
   **`model: inherit`**, so a fresh clone reviews with the contributor's own tier; `/code-review`
   and `/security-review` follow the session model/effort the same way. Loop-mode worker sessions

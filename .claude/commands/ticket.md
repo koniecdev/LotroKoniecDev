@@ -105,8 +105,10 @@ of authority:
   A lane-S plan gets a short brief, never none. A reproduction proves the symptom, not a claim about
   its cause or about what else the fix touches. A finding that `docs/knowledge-base/` settles is
   evidence: cite it, do not challenge it again. Fold the corrections into the verdict; NOT SOUND
-  sends you back to the premise. `BETTER DESIGN` with `NEEDS OWNER: no` → adopt it, or say in the
-  READY comment why not. `BETTER DESIGN` with `NEEDS OWNER: yes` (it changes an ADR, a contract, a
+  sends you back to the premise. `BETTER DESIGN` with `NEEDS OWNER: no` → adopt it, or say why not in the
+  READY comment (under a `/preflight` READY: in your reply under it); an adopted design re-sizes
+  the lane. An maintainer answer to an earlier design question on the issue (a gate answer, or a reply to
+  a `design-choice` block) is a ruling: follow it and do not ask again. `BETTER DESIGN` with `NEEDS OWNER: yes` (it changes an ADR, a contract, a
   domain rule or the scope) → **CLARIFY**: put the choice to the maintainer at the gate below, with
   your recommendation. Never build the old design only because an ADR chose it: an ADR that never
   weighed the better option is a gap, not a ruling.
@@ -285,8 +287,10 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     (`.claude/agents/code-reviewer.md`). Its brief carries:
     - the ticket number, step 2's acceptance criteria, and the base: `origin/main...HEAD`, with the
       `origin/main` SHA;
-    - the decisions already taken, each with its reason, and the follow-up tickets already filed,
-      so they are not raised again as blockers;
+    - the maintainer's decisions, each with where it was made (the gate answer, an maintainer comment on
+      the issue), and the follow-up tickets already filed, so they are not raised again as blockers;
+    - every assumption the plan made and every reason it gives for not taking an alternative the
+      ticket names: these are the session's own calls, and the reviewer checks them;
     - the gates you already ran, with their results;
     - "read-only: any probe runs in a throwaway worktree";
     - the bar: Critical/Major as `code-reviewer.md` defines them, its hard rule on untested
@@ -386,6 +390,9 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   push is free, every later push to an open PR re-runs pr-verify on billed minutes. Write the
   comment to `/tmp/claude-ticket-<n>/report-comment.md`, run step 10 on it, then
   `gh issue comment <n> --body-file <that file>`.
+- **Check the report's assumptions yourself, whichever review ran.** Inline `/code-review` does not
+  check them. Hold each one, and each reason for not taking an alternative the ticket names, against
+  `CLAUDE.md` and the code. A false one that decided the design sends you back to step 2.
 - **Re-read the issue (body and comments) right before `gh pr create`.** A case added to it after
   you read it (`docs/labels.md` → **One bug class per ticket**) is not in this diff. Move it to a
   new ticket with the same labels, link the two both ways, and list it under Follow-ups, so

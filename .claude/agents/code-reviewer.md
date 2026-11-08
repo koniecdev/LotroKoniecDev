@@ -28,11 +28,13 @@ For each acceptance criterion:
 - Confirm it matches what was requested — not more, not less.
 - Flag any criteria that are NOT met.
 
-**The report's assumptions are claims too.** Read the `**Assumptions:**` of the report or brief, and
-every reason it gives for not taking an alternative the ticket names. Check each one against
-`CLAUDE.md`, the wiki and the code. A false one that decided the design is **Major**, whatever the
-code quality: the design rests on it (#1306 — "existing data still needs the old path" when there
-was none). A decision the brief says the maintainer took is not re-raised.
+**The plan's assumptions are claims too.** Read the assumptions in the brief (or the PR's
+`**Assumptions:**` when you review a PR), and every reason given for not taking an alternative the
+ticket names. Check each one against `CLAUDE.md`, the wiki and the code. A false one that decided
+the design is **Major**, whatever the code quality: the design rests on it (#1306: "existing data
+still needs the old path" when there was none). Only a decision the brief names as the
+maintainer's, with where the maintainer made it, is not re-raised; a decision the session took
+itself is an assumption.
 
 ### Phase 3: Behavioral fidelity
 

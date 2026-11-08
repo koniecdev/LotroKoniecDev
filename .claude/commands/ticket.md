@@ -11,23 +11,51 @@ the report and the session ends there. Delivering with documented assumptions an
 the report in a fresh session is cheaper than parking mid-run: the prompt cache dies after 1h idle,
 and re-priming a fat context costs far more than a follow-up fix.
 
-## 0. Preflight — sync `main` FIRST; fail loudly on a dirty tree
+## 0. Preflight — the run gets its own worktree off a fresh `origin/main`
+
+Every run works in its own git worktree, `<main checkout>/.claude/worktrees/ticket-<n>`, and never
+in the main checkout. The main checkout's branch and uncommitted files belong to whoever works
+there (Rider, another session), so this command never checks out, pulls, stashes or commits in it:
+two sessions in one folder switch each other's branch mid-run, and one ticket's edits land on the
+other's branch (#1308). The folder name is the backlog loop's (`scripts/claude/work-ticket.sh`),
+so the loop skips a ticket an interactive run holds.
 
 Run this before anything else, even before reading the ticket:
 
-- `git status --porcelain` — **any output = STOP.** Report exactly what is uncommitted and end the
-  turn; the user decides what happens to it. No stash, no auto-commit, no salvage branch — do not
-  touch the tree.
-- `git checkout main`
-- `git pull --ff-only` — ff-only on purpose: local `main` must never carry its own commits, so a
-  pull that can't fast-forward means something is wrong — fail loudly instead of silently
-  rebasing stray commits into the next PR.
-- **In a worktree** (`.claude/worktrees/…`), `main` is checked out in the main checkout and
-  `git checkout main` fails. Run `git fetch origin main` instead of the two commands above:
-  `gh issue develop` cuts the branch from GitHub's `main` anyway.
+- **Find the main checkout:** `git rev-parse --path-format=absolute --git-common-dir` prints its
+  `.git`; the main checkout is the folder that holds it. From here on, write that path, and every
+  other path or SHA, out in full: once the session is in a worktree, the Bash tool refuses a
+  command with `$VAR` or `$(…)` in it.
+- `git fetch origin main`
+- **Pull the wiki now, while the session is still outside the worktree:**
+  `git -C <main checkout>/../LotroKoniecDev.wiki pull --ff-only` (the clone goes stale; inside a
+  worktree session the Bash tool refuses a `git -C` that points outside it). When it is refused or
+  fails, step 2 reads the wiki as it is and the READY comment says so.
+- **Tidy up, best effort.** For each `.claude/worktrees/ticket-*` in `git worktree list` other
+  than `ticket-<n>` and the folder the session stands in, on a branch whose PR is merged or closed
+  (`gh pr list --head <branch> --state all --json state`): `git worktree remove <folder>`. Never
+  `--force`: git refuses a folder with changes, and that folder stays. The branch stays too. Leave
+  a detached worktree alone: the loop and this step create theirs detached, so it may be a run
+  that has not reached step 5 yet. One worktree takes gigabytes after a build. A refused command
+  is skipped, never a stop.
+- **Enter the ticket's worktree:**
+  - The session already stands in `ticket-<n>` → stay there.
+  - `ticket-<n>` exists → **STOP** and report when the backlog loop owns it: a live
+    `/work-ticket <n>` in `ps -eo args`, or a file `<main checkout>/.git/worktrees/ticket-<n>/loop-resume`
+    (a run the usage limit stopped, which the loop resumes there). Otherwise
+    `EnterWorktree(path: <main checkout>/.claude/worktrees/ticket-<n>)`; when `git status
+    --porcelain` prints anything, **STOP** and report it: the user decides what happens to it. No
+    stash, no auto-commit, no salvage branch. A clean one is an earlier run of this ticket: go on in
+    it.
+  - No such folder → `git worktree add --detach <main checkout>/.claude/worktrees/ticket-<n>
+    origin/main`, then `EnterWorktree(path: <that folder>)`.
 
-This makes the post-merge loop self-contained: after merging the previous PR on GitHub, `/clear` →
-`/ticket <n>` needs no manual `git checkout main` + `git pull` first.
+A run that stops before step 5 (a blocking dependency, BOUNCE, step 3's question for the owner) in
+a worktree it created has nothing in it: `ExitWorktree(action: "keep")`, and when that moved the
+session out, `git worktree remove <its folder>`. The worktree of a run that got a branch stays
+after the PR, for follow-up fixes, and a later run's tidy-up removes it once the PR is merged or
+closed. The post-merge loop stays self-contained: after merging the previous PR on GitHub,
+`/clear` → `/ticket <n>` needs no manual checkout or pull first.
 
 ## 1. Pull the ticket
 
@@ -56,12 +84,11 @@ hurry; premises go stale and are sometimes flat wrong (TheKittySaver #766 was fi
 and later closed — on a false one). Before any branch, verify every factual claim, in this order
 of authority:
 
-1. **The wiki.** It is cloned beside the **main** checkout, so from a worktree
-   `../LotroKoniecDev.wiki` points nowhere; resolve it with
-   `WIKI="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/../LotroKoniecDev.wiki"` and
-   `git -C "$WIKI" pull --ff-only` first (the clone goes stale), then read the page(s) that cover
-   the behavior. The wiki outranks specs, ADRs and
-   code (`CLAUDE.md` → "Source of truth").
+1. **The wiki.** It is cloned beside the **main** checkout, so from the worktree
+   `../LotroKoniecDev.wiki` points nowhere; read it at `<main checkout>/../LotroKoniecDev.wiki`,
+   with the main checkout's path written out (step 0 found it and pulled the wiki): the page(s)
+   that cover the behavior. The wiki outranks specs, ADRs and code (`CLAUDE.md` → "Source of
+   truth").
 2. **`docs/knowledge-base/`** (start at its README) — DAT, update and launch behavior is
    empirically settled there; never re-test it.
 3. **`docs/specs/` and `docs/adr/`** — agreed rules and rulings.
@@ -228,8 +255,9 @@ answered, so it never stops here — it names the mismatch in the report's **Dou
 
 ## 5. Branch — always a fresh feature branch off main; never commit to main
 
-Step 0 already left you on a clean, fresh `main`; anything dirty now is this session's own work
-(e.g. the step-3 spec file), and an untracked file travels with the checkout. First
+Step 0 already left you in the ticket's worktree, at a fresh `origin/main`; anything dirty now is
+this session's own work (e.g. the step-3 spec file), and an untracked file travels with the
+checkout. First
 `gh issue develop <n> --list`: does the ticket already have a linked branch?
 
 - **No** → `gh issue develop <n> --base main --checkout` creates and checks out the linked
@@ -240,7 +268,8 @@ Step 0 already left you on a clean, fresh `main`; anything dirty now is this ses
   the ticket goes into a new ticket that links back: say so and stop. Otherwise
   `git fetch origin <branch>`, `git switch <branch>` and `git merge --ff-only origin/<branch>` (a
   fast-forward, never a merge commit). If that fails, the local and the remote branch have moved
-  apart: say so and stop.
+  apart: say so and stop. When `git switch` refuses because the branch is already checked out in
+  another folder, the work lives there: say so, name the folder, and stop.
 - **Never work on `main` directly.** If for any reason you find yourself past step 0 with commits
   to make and no ticket branch yet, cut the branch first — nothing is ever committed to `main`.
 
@@ -276,7 +305,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
 - **A regression test is proven, not assumed:** it must fail on the code before the fix. Make a
   throwaway worktree in the gitignored `.claude/worktrees/` (a build there takes gigabytes, and
   `/tmp` often lives in RAM): `git worktree add --detach .claude/worktrees/ticket-<n>-pre-fix HEAD`.
-  In it, `git checkout $(git merge-base HEAD origin/main) -- <the fix's production files>` (`git rm`
+  In it, print `git merge-base HEAD origin/main`, then `git checkout <that SHA> -- <the fix's
+  production files>` (`git rm`
   one the fix added), so the fix goes and the test stays. Use the merge base, not `origin/main`:
   another session's fetch can move `origin/main`, because worktrees share it. When the test needs a
   type or member the fix added, revert only the behaviour inside it: a compile error proves nothing.
@@ -536,7 +566,8 @@ entry.
 
 This report is the hand-off contract: a later session fixes what it lists without re-deriving the
 whole ticket. Your final reply to the user, once CodeQL is clear: the verdicts in one line each,
-the PR link, and "session done — `/clear` before the next ticket". If at any point
+the PR link, the worktree's full path (step 0; open it in Rider to see the change), and
+"session done — `/clear` before the next ticket". If at any point
 the ticket turned out mis-scoped (wrong layer, contradicts the wiki, an ADR or the knowledge base),
 that is a late BOUNCE: stop, report, and propose the correction as a comment draft for the issue.
 

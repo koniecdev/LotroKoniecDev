@@ -88,27 +88,43 @@ of authority:
 - **A `/preflight` verdict comment already on the issue counts as this step done**, except the
   claim check below — trust it, re-verify only what it flagged, run the claim check, and take its
   recommended lane. Preflight runs no agents, so nobody has tried to prove its diagnosis wrong.
-- **Challenge the claims the plan rests on — `/buddy`, before the verdict.** Reading the flow at
-  `file:line` does not check every claim around it. Run `/buddy` when the plan rests on any of
-  these:
-  - a **negative** claim: "not our code", "nothing else calls this", "X rules out Y";
-  - a **cause outside this repo**: the game client or its launcher, Windows, a remote server, a
-    vendor;
-  - a **conclusion taken over** from the ticket's author or a past session and not re-derived.
+- **Challenge the plan — `/buddy`, on every ticket, before the verdict.** No trigger list and no
+  lane exception: a session that judges whether its own plan needs a second opinion rarely asks for
+  one, and it never sees the design it is fixing *inside* as a choice (#1306). Reading the flow at
+  `file:line` does not check every claim around it. Hand `/buddy`:
+  - the plan in 3–6 lines and the claims it rests on — always every **negative** claim ("not our
+    code", "nothing else calls this", "X rules out Y"), every **cause outside this repo** (the game
+    client or its launcher, Windows, a remote server, a vendor) and every **conclusion taken over**
+    from the ticket's author or a past session and not re-derived;
+  - every assumption the plan makes, and every ADR it relies on;
+  - the order to run `/buddy`'s **design challenge** (its §1a): read the issue itself, name the
+    design that would make the problem impossible instead of handled, judge every alternative the
+    ticket names, check every assumption against `CLAUDE.md` and the wiki, and check whether an ADR
+    the plan keeps really compared the better design.
 
-  Everything else skips it. A reproduction proves the symptom, not a claim about its cause or about
-  what else the fix touches: a reproduced bug whose plan still rests on one of these claims goes to
-  `/buddy` too. A finding that `docs/knowledge-base/` settles is evidence: cite it, do not
-  challenge it again. Fold the corrections into the verdict; NOT SOUND sends you back to the
-  premise. These claims are reasoned, not observed, and a wrong one reaches the docs and the ticket
-  before any review reads them.
+  A lane-S plan gets a short brief, never none. A reproduction proves the symptom, not a claim about
+  its cause or about what else the fix touches. A finding that `docs/knowledge-base/` settles is
+  evidence: cite it, do not challenge it again. Fold the corrections into the verdict; NOT SOUND
+  sends you back to the premise. `BETTER DESIGN` with `NEEDS OWNER: no` → adopt it, or say in the
+  READY comment why not. `BETTER DESIGN` with `NEEDS OWNER: yes` (it changes an ADR, a contract, a
+  domain rule or the scope) → **CLARIFY**: put the choice to the maintainer at the gate below, with
+  your recommendation. Never build the old design only because an ADR chose it: an ADR that never
+  weighed the better option is a gap, not a ruling.
+
+  The failure this prevents (#1306): a loop run fixes a real bug in a cache that is filled on the
+  first request by adding a process-wide guard, a thread-pool hand-off and a time limit, all inside
+  the design an ADR chose. Filling the cache when the data is written removes the bug with less
+  code. The ticket had suggested it, the run dismissed it with "a change needs a new ADR" and an
+  assumption about existing data that was false, and three review rounds approved, because each one
+  checked the code against the ticket.
 
   `/buddy` is an account-level skill, so a fresh clone may not have it. Then spawn one fresh
   `general-purpose` agent and never pass `name` (a named agent's report never reaches you). Give it
-  the claims numbered, the order to prove them wrong against the code, "read-only: no edits and no
-  git command that changes anything", a CONFIRMED / REFUTED / OVERSTATED verdict per claim with
-  `file:line` evidence, a list of what it checked and found sound, and SOUND / SOUND WITH
-  CORRECTIONS / NOT SOUND overall.
+  the claims numbered, the order to prove them wrong against the code, the design challenge above,
+  "read-only: no edits and no git command that changes anything", a CONFIRMED / REFUTED /
+  OVERSTATED verdict per claim with `file:line` evidence, a list of what it checked and found sound,
+  SOUND / SOUND WITH CORRECTIONS / NOT SOUND overall, and the two lines `BETTER DESIGN: none |
+  <one sentence>` and `NEEDS OWNER: yes | no`.
 - **The same bar holds for the rest of the run.** A cause or a claim about an external system that
   goes into docs, an ADR, a ticket or UI copy is backed by evidence, checked by `/buddy`, or
   written as unproven. A reviewer's finding is a claim too: check it at `file:line` before you fix
@@ -156,11 +172,12 @@ Then exactly one of three verdicts:
 Name the lane in the READY comment. The lane is a forecast: step 7 picks the reviewer by the diff
 you actually have, so an S that grew past the threshold gets `code-reviewer`. Say so in the report.
 
-**`/buddy` before code, in any lane, when the plan carries a design bet.** A design bet is one of:
-an ADR written for this ticket, a deviation from an acceptance criterion, or one load-bearing
-assumption that decides the whole slice. Hand `/buddy` the plan as claims, and include the claim
-"this step protects something the caller could not already get". A design bet already known at step
-2 goes into step 2's run; one that appears later (an ADR written here) gets its own run. If `/buddy`
+**A design bet gets `/buddy` before code, in any lane.** A design bet is one of: an ADR written for
+this ticket, a deviation from an acceptance criterion, or one load-bearing assumption that decides
+the whole slice. Hand `/buddy` the plan as claims, and include the claim "this step protects
+something the caller could not already get". Step 2's run covers every design bet already known
+there; one that appears later (an ADR written here) gets its own run, with the same design
+challenge. If `/buddy`
 is not installed, use step 2's fallback agent. A design flaw found here costs one cheap agent; found
 at the review gate it costs a rewrite plus a full re-run of every gate.
 Precedent: #690 — the first draft put a password in front of a POST whose payload was identical to
@@ -472,7 +489,7 @@ and say so in the final reply.
 - **Batch independent tool calls** into one message; chain dependent shell steps with `&&` into one
   command when only the final result gates (`build && test` is one call, not two).
 - Never re-read a file already in context; prefer one targeted `grep -n` over `cat`-ing whole files.
-- Subagents only where this command names them: the `/buddy` check of steps 2 and 3, the reviews
+- Subagents only where this command names them: the `/buddy` challenge of step 2 (every ticket) and of a later design bet (step 3), the reviews
   of step 7 (the reviewer the diff picks, its escalation, the second pass and `/security-review`),
   and `dat-format-expert` for DAT work. The repo cap is 4 in parallel.
 - The session dies after step 9's final reply. A second ticket in this context pays this

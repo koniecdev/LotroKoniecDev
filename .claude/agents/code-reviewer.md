@@ -28,6 +28,12 @@ For each acceptance criterion:
 - Confirm it matches what was requested — not more, not less.
 - Flag any criteria that are NOT met.
 
+**The report's assumptions are claims too.** Read the `**Assumptions:**` of the report or brief, and
+every reason it gives for not taking an alternative the ticket names. Check each one against
+`CLAUDE.md`, the wiki and the code. A false one that decided the design is **Major**, whatever the
+code quality: the design rests on it (#1306 — "existing data still needs the old path" when there
+was none). A decision the brief says the maintainer took is not re-raised.
+
 ### Phase 3: Behavioral fidelity
 
 When a handler/service replaces or mirrors an existing one:

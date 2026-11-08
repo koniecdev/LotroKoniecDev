@@ -34,31 +34,38 @@ Run this before anything else, even before reading the ticket:
   `git -C <main checkout>/../LotroKoniecDev.wiki pull --ff-only` (the clone goes stale; inside a
   worktree session the Bash tool refuses a `git -C` that points outside it). When it is refused or
   fails, step 2 reads the wiki as it is and the READY comment says so.
-- **Tidy up, best effort.** For each `.claude/worktrees/ticket-*` on a branch in `git worktree
-  list`, other than `ticket-<n>` and the folder the session stands in: `gh pr list --head <branch>
-  --state all --json state,mergedAt,closedAt,isCrossRepository` (rows with `isCrossRepository`
-  true do not count). No open PR, and the newest one merged or closed more than 24 hours ago →
-  `git worktree remove <folder>`, then remove its E2E images as the loop does: every
+- **The loop check** (used twice below). The backlog loop owns ticket `<m>` when a
+  `ticket-<m>.meta` in any folder under `<main checkout>/logs/claude-loop/`, changed in the last
+  24 hours, has no `outcome=` line (a worker is on it, from a loop run or a standalone
+  `scripts/claude/work-ticket.sh`; every way out of a worker writes `outcome=`), or when the git
+  folder of `<main checkout>/.claude/worktrees/ticket-<m>` (the `gitdir:` line in its `.git` file)
+  holds a `loop-resume` file (a run the usage limit stopped, which the loop resumes there).
+- **Tidy up, best effort.** For each `.claude/worktrees/ticket-<m>` on a branch in `git worktree
+  list`, other than `ticket-<n>`, the folder the session stands in and any the loop owns:
+  `gh pr list --head <branch> --state all --json state,mergedAt,isCrossRepository` (rows with
+  `isCrossRepository` true do not count). No open PR, and the newest one merged more than 24 hours
+  ago → `git worktree remove <folder>`, then remove its E2E images as the loop does: every
   `docker image ls --filter label=lotrokoniecdev.e2e` image whose tag contains `-ticket-<m>-`
   (`tests/LotroKoniecDev.Frontend.E2E.Tests/README.md`). The 24 hours protect a session still at
-  work after its PR was merged or closed (step 8 waits for CodeQL after the PR opens). Never
-  `--force`: git refuses a folder with changes, and that folder stays. The branch stays too.
-  Leave a detached worktree alone: the loop and this step create theirs detached, so it may be a
-  run that has not reached step 5 yet. One worktree takes gigabytes after a build. A refused
-  command is skipped, never a stop.
-- **`ticket-<n>` exists and the backlog loop owns it → STOP** and say so. The loop owns it when its
-  git folder (the `gitdir:` line in `<main checkout>/.claude/worktrees/ticket-<n>/.git`) holds a
-  `loop-resume` file (a run the usage limit stopped, which the loop resumes there), or when a loop
-  runs (`<main checkout>/.claude/backlog-loop.lock/pid` names a live process) and its newest run
-  folder under `<main checkout>/logs/claude-loop/` has a `ticket-<n>.meta`.
+  work after its PR was merged (step 8 waits for CodeQL after the PR opens). A merged branch is
+  never worked again (step 5 stops on it); a closed, unmerged one may be, by a later run of its
+  ticket, so its worktree stays for the user to remove. Never
+  `--force`: git refuses a folder with changes, and that folder stays. The branch stays too. Leave
+  a detached worktree alone: the loop and this step create theirs detached, so it may be a run
+  that has not reached step 5 yet. One worktree takes gigabytes after a build. A refused command
+  is skipped, never a stop.
+- **The loop owns ticket `<n>` → STOP** and say so, whether `ticket-<n>` exists yet or not (a
+  worker writes its `.meta` a few seconds before it creates the folder).
 - **Enter the ticket's worktree:**
   - `ticket-<n>` exists → `EnterWorktree(path: <main checkout>/.claude/worktrees/ticket-<n>)`.
-    When `git status --porcelain` prints anything, **STOP** and report it: the user decides what
-    happens to it. No stash, no auto-commit, no salvage branch. A clean one is an earlier run of
-    this ticket: detached, `git switch --detach origin/main`, so steps 1–4 read today's code; on a
-    branch, step 5 brings it up to date.
+    `git rev-parse --show-toplevel` must print that folder; anything else is a half-removed
+    worktree: **STOP** and report it. When `git status --porcelain` prints anything, **STOP** and
+    report it: the user decides what happens to it. No stash, no auto-commit, no salvage branch. A
+    clean one is an earlier run of this ticket: detached, `git switch --detach origin/main`, so
+    steps 1–4 read today's code; on a branch, step 5 brings it up to date.
   - No such folder → `git worktree add --detach <main checkout>/.claude/worktrees/ticket-<n>
-    origin/main`, then `EnterWorktree(path: <that folder>)`.
+    origin/main`, then `EnterWorktree(path: <that folder>)`. When git refuses because the folder
+    appeared in the meantime, run the loop check again, then the case above.
 
 A run that stops before it has a ticket branch checked out (a blocking dependency, BOUNCE, a stop
 in step 5) leaves a worktree with nothing in it: `ExitWorktree(action: "keep")`, and when that
@@ -66,8 +73,9 @@ moved the session out, `git worktree remove <its folder>`; while the folder exis
 the ticket. A run that goes on after such a stop because the user says so runs step 0 again first.
 Step 3's model-tier stop keeps its worktree: the user's go-ahead is the expected next message
 there. The worktree of a run that got a branch stays after the PR, for follow-up fixes, and a
-later run's tidy-up removes it a day after the PR is merged or closed. The post-merge loop stays self-contained: after merging the previous PR on
-GitHub, `/clear` → `/ticket <n>` needs no manual checkout or pull first.
+later run's tidy-up removes it a day after the PR is merged. The post-merge loop stays
+self-contained: after merging the previous PR on GitHub, `/clear` → `/ticket <n>` needs no manual
+checkout or pull first.
 
 ## 1. Pull the ticket
 
@@ -488,8 +496,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   down, a suite skipped, review verdict missing) → **push the branch, write the report (step 9) as
   an issue comment instead, and stop before `gh pr create`** — no draft PR either: a bare branch
   push is free, every later push to an open PR re-runs pr-verify on billed minutes. Write the
-  comment to `/tmp/claude-ticket-<n>/report-comment.md`, run step 10 on it, then
-  `gh issue comment <n> --body-file <that file>`.
+  comment to `/tmp/claude-ticket-<n>/report-comment.md`, run step 10 on it, then, from the
+  worktree root (step 0), `gh issue comment <n> --body-file <that file>`.
 - **Check the report's assumptions yourself, whichever review ran.** Inline `/code-review` does not
   check them. Hold each one, and each reason for not taking an alternative the ticket or `/buddy` names, against
   `CLAUDE.md`, the wiki and the code. A false one that decided the design is a design question found after
@@ -512,8 +520,9 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   opens (`docs/labels.md`). A session that runs on Windows does that check itself and puts the
   E2E counts in its report; any other session lists the manual steps under
   `## Before merge, on Windows` and passes `--label needs-windows-check` to `gh pr create`, because
-  the workflow sees only the paths in `.github/labeler.yml`. Run step 10 on that file, then
-  `gh pr create` with the title mirroring the ticket and `--body-file <that file>`. The ticket is
+  the workflow sees only the paths in `.github/labeler.yml`. Run step 10 on that file, then, from
+  the worktree root (step 0), `gh pr create` with the title mirroring the ticket and
+  `--body-file <that file>`. The ticket is
   the authorization — do not stop to ask for permission to commit, push, or open the PR.
 - **CodeQL alerts block the merge, so clear them before your final reply.** Once the PR's
   `CodeQL` check completes (docs-only diffs skip it), list

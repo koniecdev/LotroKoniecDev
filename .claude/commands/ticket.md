@@ -318,9 +318,9 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     - "read-only: any probe runs in a throwaway worktree";
     - the bar: Critical/Major as `code-reviewer.md` defines them, its hard rule on untested
       unhappy paths included; wording and taste are Minor and do not block APPROVE;
-    - from round 2 on, the round number and the earlier fix commits as they are on `HEAD` now
-      (after a rebase, find them again by subject), so the report ends with its
-      `Fix-made defects:` line (`code-reviewer.md` → Output);
+    - in round 3, "this is round 3" and every commit made since round 1's review (review fixes,
+      conflict resolutions) as it is on `HEAD` now, found again by subject after a rebase, so the
+      report carries its `Fix-made defects:` line (`code-reviewer.md` → Output);
     - "write the report, the reviewed SHA and a final `VERDICT:` line to
       `<scratchpad>/<n>-review-r<round>.md`, and end your turn only after the file exists".
 
@@ -334,28 +334,31 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     below.
 
     **Three rounds, plus one confirmation round when the review is ending (#1310).** After round
-    3, run a fourth and last round only when all three hold:
-    - round 3 asked for changes (REQUEST CHANGES, or a NEEDS DISCUSSION you answered from the
-      wiki, the code or an ADR) with exactly one Critical or Major, and you fixed it. No round 4
-      after a stalled round 3, more than one Critical or Major, one left alone under ADR-0067, a
-      design-route Major, or a round 3 that the second pass or a conflicted rebase asked for (those
-      rounds count toward the three, as below);
-    - the round-3 report ends with `Fix-made defects: none`: no earlier round's fix made that
-      defect (no such line also means no round 4);
-    - the fix has a test that fails on the code before that fix: the regression-test bullet above,
-      with the round-3 fix commit's parent as the code before the fix, unless the fix changes no
-      behavior.
+    3, run a fourth and last round only when all of these hold:
+    - the second pass has not run yet in this review, and round 3 came from its own reviewer's
+      file on `HEAD` (after one nudge in an interactive session is fine; a replacement or a stale
+      file is a stalled round 3);
+    - round 3 returned REQUEST CHANGES with exactly one Critical or Major, and you fixed it (a
+      NEEDS DISCUSSION, more than one Critical or Major, one left alone under ADR-0067, or a
+      design-route Major means no round 4);
+    - the round-3 report has the line `Fix-made defects: none`: no commit made since round 1 wrote
+      that defect (no such line also means no round 4);
+    - the fix has a test that fails on the code before it: the regression-test bullet above, with
+      the parent of the first round-3 fix commit as the code before the fix, unless the fix changes
+      no behavior;
+    - no rebase since round 3 needed a conflict resolved (that changed reviewed code, so stop).
 
     The fourth reviewer gets the same brief plus "confirmation round: start at the round-3 fix and
-    what it touches". Only its APPROVE goes on, to the second pass below, as any APPROVE does, and
-    the report's `**Proof:**` then names the round-3 finding, its `Fix-made defects` line and the
-    proof, so the maintainer can check that the round was allowed. **Anything else in round 4
-    (REQUEST CHANGES, NEEDS DISCUSSION, a stall, which gets no replacement), or no APPROVE after
-    three rounds when a check above fails → stop:** push the branch and report without a PR (step
-    8). There is never a fifth round. Why: the cap is there for a review that does not end, where
-    fixes make new defects and every round finds as much as the one before. A review that is
-    ending (one last finding, not made by an earlier fix, its fix proven) would otherwise stop one
-    round short, and a new session would have to run that round and open the PR.
+    what it touches". Only its APPROVE goes on, to the second pass below (its first run in this
+    review), and the report's `**Proof:**` then names the round-3 finding, its `Fix-made defects`
+    line and the proof, so the maintainer can check that the round was allowed. **Anything else in
+    round 4 (REQUEST CHANGES, NEEDS DISCUSSION, a stall that one nudge does not fix, which gets no
+    replacement), or no APPROVE after three rounds when a check above fails → stop:** push the
+    branch and report without a PR (step 8). There is never a fifth round. Why: the cap is there
+    for a review that does not end, where fixes make new defects and every round finds as much as
+    the one before. A review that is ending (one last finding, not made by an earlier fix, its fix
+    proven) would otherwise stop one round short, and a new session would have to run that round
+    and open the PR.
   - **Trust a verdict only after you check its file:** it exists, it is newer than the commit it
     names, and that commit is `HEAD` or differs from it only by Minor fixes, the second pass's
     bucket-1 fixes (below) or a rebase with no conflict (step 8), with the gates green again. A

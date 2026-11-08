@@ -255,10 +255,10 @@ Severities:
 - **Minor** — style inconsistency, naming, optional improvement. Nice to fix.
 - **Note** — observation, not actionable. FYI only.
 
-From round 2 on, the brief gives your round number and the earlier rounds' fix commits as they are
-on `HEAD`. End the findings with one line: `Fix-made defects: none`, or `Fix-made defects:` and the
-number of each Critical or Major whose defect one of those commits wrote, with the commit. A defect
-that was there before the fix is not fix-made, even when the fix rewrote the code around it. The
+In round 3, the brief says so and lists every commit made since round 1's review. Add one line
+right after the findings table: `Fix-made defects: none`, or `Fix-made defects:` and the number of
+each Critical or Major whose defect one of those commits wrote, with the commit. A defect that was
+there before those commits is not fix-made, even when a commit rewrote the code around it. The
 caller reads this line to decide whether a confirmation round may run (`/ticket` step 7).
 
 Then emit the **edge-case matrix** from Phase 6 — one row per (code path × applicable edge case):

@@ -35,7 +35,7 @@ the design is **Major**, whatever the code quality: the design rests on it (#130
 still needs the old path" when there was none). A reason that only says an ADR chose otherwise, or that the better design
 needs a new ADR, is no merit: an ADR that never weighed the better design is a gap. Such a reason
 that decided the design is Major unless the brief quotes a maintainer decision on it. Only a
-decision the brief quotes from the gate or an `**Owner decision` comment is not re-raised; a
+decision the brief quotes from the gate or an `Owner decision` comment that passes `/ticket` step 2's test is not re-raised; a
 decision the session took itself is an assumption.
 
 ### Phase 3: Behavioral fidelity

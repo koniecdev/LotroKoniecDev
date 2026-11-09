@@ -318,9 +318,9 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     - "read-only: any probe runs in a throwaway worktree";
     - the bar: Critical/Major as `code-reviewer.md` defines them, its hard rule on untested
       unhappy paths included; wording and taste are Minor and do not block APPROVE;
-    - in round 3, "this is round 3" and every commit made since round 1's review (review fixes,
-      conflict resolutions) as it is on `HEAD` now, found again by subject after a rebase, so the
-      report carries its `Fix-made defects:` line (`code-reviewer.md` → Output);
+    - in round 3, "this is round 3", every commit made since round 1's review as it is on `HEAD`
+      now (found again by subject after a rebase), and the files each conflicted rebase since round
+      1 resolved, so the report carries its `Fix-made defects:` line (`code-reviewer.md` → Output);
     - "write the report, the reviewed SHA and a final `VERDICT:` line to
       `<scratchpad>/<n>-review-r<round>.md`, and end your turn only after the file exists".
 
@@ -335,9 +335,10 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
 
     **Three rounds, plus one confirmation round when the review is ending (#1310).** After round
     3, run a fourth and last round only when all of these hold:
-    - the second pass has not run yet in this review, and round 3 came from its own reviewer's
-      file on `HEAD` (after one nudge in an interactive session is fine; a replacement or a stale
-      file is a stalled round 3);
+    - the second pass has not run yet in this review, and round 3's verdict came from its
+      reviewer's own file, naming the commit round 3 was briefed on (after one nudge in an
+      interactive session is fine; a stale file, or a fresh reviewer spawned for a stalled round 3,
+      is a stalled round 3);
     - round 3 returned REQUEST CHANGES with exactly one Critical or Major, and you fixed it (a
       NEEDS DISCUSSION, more than one Critical or Major, one left alone under ADR-0067, or a
       design-route Major means no round 4);
@@ -365,7 +366,9 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     reviewer that reports "completed" with no file has stalled. In an interactive session, one
     message asking it to write the file now is the fix; its answer comes back as a notification,
     which a headless session never gets (`/work-ticket` spawns a fresh reviewer instead). A file
-    that names an older commit is stale: spawn a fresh reviewer.
+    that names an older commit is stale: spawn a fresh reviewer. In round 3 or 4, a stall that one
+    message does not fix and a stale file get no fresh reviewer: stop, as the confirmation-round
+    rule above says.
   - **`/security-review`** on top for anything touching native interop, file protection, or auth.
 - **Second pass — after a `code-reviewer` APPROVE on a diff that went to it at the gate: run
   `/code-review xhigh origin/main...HEAD`.** It forks into a fresh context, so it has never seen your

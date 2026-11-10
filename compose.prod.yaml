@@ -275,7 +275,7 @@ services:
     # Pinned in lockstep with compose.hetzner.yaml (the `x-caddy-image` anchor and its comment, #988),
     # so this parity stack runs the same Caddy as the boxes. Bump both together: Dependabot's Caddy
     # pull request does that in one change (#1001).
-    image: caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
+    image: caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
     ports:
       - "80:80"
       - "443:443"

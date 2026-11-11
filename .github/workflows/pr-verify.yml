@@ -195,6 +195,12 @@ jobs:
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/hetzner-bootstrap-docker-user.tests.sh
 
+      # The bootstrap's night-reboot leg (#1327): a box keeps its own reboot time across re-runs, a
+      # box without one is refused, and a bad time never reaches apt's config.
+      - name: Hetzner bootstrap reboot self-test
+        if: steps.diff.outputs.guards != 'false'
+        run: ./scripts/tests/hetzner-bootstrap-reboot.tests.sh
+
       # The prod-promotion N-1 gate (#534) runs inside CD's prod leg, where its real inputs (the
       # deployments API, the box .env, a schema) exist nowhere in CI — so both halves get a stubbed
       # suite here. The resolver's cases pin the properties the safety story rests on: an

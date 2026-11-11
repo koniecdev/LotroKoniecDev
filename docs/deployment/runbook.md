@@ -46,7 +46,7 @@ staging.
 | Memory | 4 GB RAM + a **2 GiB `/swapfile`** at `vm.swappiness = 10`, laid down by `bootstrap.sh` and persisted in `/etc/fstab` (#708). The Hetzner image ships no swap, which turns any spike into an OOM kill instead of a slowdown |
 | Users | `root` (key-only) · `deploy` (docker group, key-only, locked password — CD and day-2 ops run as this user) |
 | Firewall | ufw: deny incoming except **22/80/443**, allow outgoing · **`DOCKER-USER`**: from the public interface only **80/443** reach a container, everything else published is dropped. ufw cannot filter a published port (Docker's DNAT runs first), this chain can (#808). Rules script `/usr/local/sbin/docker-user-firewall`, re-applied by `docker-user-firewall.service` whenever Docker starts, both laid down by `bootstrap.sh` |
-| Intrusion / patching | fail2ban (sshd jail, systemd backend) · unattended-upgrades |
+| Intrusion / patching | fail2ban (sshd jail, systemd backend) · unattended-upgrades, plus a reboot on the nights an update needs one: **staging 01:30 UTC, prod 02:30 UTC** (#1327, see [Gotchas](#gotchas)) |
 | Container runtime | Docker Engine + compose plugin (the box's own — bootstrap **adopts** it, never swaps it: see [Gotchas](#gotchas)) |
 | Registry | `deploy` is `docker login`-ed to **ghcr.io** with a **read-only** (`read:packages`) PAT |
 | DB | none on the box — **Neon** is the database for prod AND staging (ADR-0034 §2) |
@@ -802,11 +802,15 @@ against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://
 
    ```bash
    scp scripts/hetzner/bootstrap.sh root@<ip>:/root/
-   ssh -t root@<ip> bash /root/bootstrap.sh          # prompts for GHCR user + read-only PAT
+   ssh -t root@<ip> REBOOT_TIME=02:30 bash /root/bootstrap.sh    # prod; prompts for GHCR user + read-only PAT
+   ssh -t root@<ip> REBOOT_TIME=01:30 bash /root/bootstrap.sh    # staging: reboots an hour before prod
    ```
 
+   A box's first run needs `REBOOT_TIME` and stops before any change without it. A later re-run
+   without it keeps the time the box has ([Gotchas](#gotchas)).
+
    The PAT is a GitHub token with **only `read:packages`**. For automation you *can* pass it via env
-   (`ssh root@<ip> 'GHCR_USER=<u> GHCR_TOKEN=<pat> bash -s' < scripts/hetzner/bootstrap.sh`), but the
+   (`ssh root@<ip> 'REBOOT_TIME=<01:30 staging | 02:30 prod> GHCR_USER=<u> GHCR_TOKEN=<pat> bash -s' < scripts/hetzner/bootstrap.sh`), but the
    inline assignment **lands in your local shell history**, so prefer the prompt for hand runs.
    Without env vars and without a TTY, the script skips the GHCR login with a warning and the rest
    still completes.
@@ -2004,6 +2008,45 @@ works for `up` too. It does not.
 
   Only run that `swapoff` right after creation, while nothing is paged out (`swapon --show` USED = 0B):
   on a box that is actually using swap, it forces every page back into RAM at once.
+- **A new kernel runs only after a reboot, and the boxes reboot themselves at night** (#1327).
+  `unattended-upgrades` installs security updates every day around 06:00 UTC, but a kernel, libc or
+  Docker update stays on disk until the next boot, so a box nobody reboots runs an old kernel for
+  months. `bootstrap.sh` writes `/etc/apt/apt.conf.d/52unattended-reboot`: on a night after an update
+  that needs it, **staging reboots at 01:30 UTC and prod at 02:30 UTC** (02:30 and 03:30 Polish time
+  in winter, an hour later in summer). Most nights nothing happens. Staging goes first, as an early
+  warning, and an hour apart, so the monitoring stack on staging is up while prod reboots. There is
+  no default time for that reason: a box without one refuses the bootstrap until `REBOOT_TIME` is
+  set, and a re-run keeps the time the box already has.
+
+  Every stack on the box, the guest stack included, is down for about a minute. The containers come
+  back on their own (`docker` starts at boot and every container is `unless-stopped`; the migrator is
+  not, so a reboot never runs a migration). The morning health ping is the check that prod came back.
+  From 5 minutes before the reboot, ssh logins are refused, so a CD run to that box at 01:25-01:30 or
+  02:25-02:30 UTC fails at ssh, and one in progress is cut off: do not approve a prod promotion near
+  02:30 UTC, and re-run a staging deploy that hit the window. A job of the guest project's CI runner
+  on the staging box dies too and needs a re-run. If prod's Hetzner backup window covers 02:30 UTC,
+  give prod another time.
+
+  **Bringing a box onto this leg** (both boxes predate it). Reboot by hand first, while you watch: a
+  box that already has `/var/run/reboot-required` reboots unattended the night after the leg lands,
+  onto a kernel many builds newer. Staging first, then prod after staging checks out:
+
+  ```bash
+  ssh root@<ip> 'cat /var/run/reboot-required.pkgs; reboot'
+  # a minute later: new kernel, firewall chain, containers, and the smoke test against the box's origins
+  ssh root@<ip> 'uname -r; iptables -S DOCKER-USER; systemctl --failed --no-legend; docker ps --format "{{.Names}} {{.Status}}"'
+  ```
+
+  Then apply the leg alone (it only writes the file):
+
+  ```bash
+  scp scripts/hetzner/bootstrap.sh root@<ip>:/root/
+  ssh root@<ip> "bash -c 'BOOTSTRAP_SOURCE_ONLY=1 . /root/bootstrap.sh && REBOOT_TIME=01:30 ensure_unattended_reboot'"   # staging; 02:30 for prod
+  ssh root@<ip> 'apt-config dump | grep Automatic-Reboot'
+  ```
+
+  `scripts/tests/hetzner-bootstrap-reboot.tests.sh` drives the real `ensure_unattended_reboot` against
+  a throwaway file, in `pr-verify` and `ci`.
 - **Container log rotation is unbounded by default** (json-file driver, small VPS disk).
   `compose.observability.yaml` caps it per service; `compose.hetzner.yaml` does not yet. Cap it at the
   compose level (`logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }` per

@@ -1222,7 +1222,7 @@ away in real production too.
 
 ## Part 11 — CI/CD and production
 
-### 11.1 The pipelines (GitHub Actions, 14 workflows)
+### 11.1 The pipelines (GitHub Actions, 15 workflows)
 
 | Workflow | When | What it guards |
 |---|---|---|
@@ -1235,6 +1235,7 @@ away in real production too.
 | `e2e` | manual + PRs touching package/Docker dependency manifests | full-stack and browser E2E suites |
 | `smoke` | after deploys | health + a real OIDC token round trip + file distribution |
 | `health-ping` | daily cron | probes the three public origins once a day (deep `/health`, with the health check key) |
+| `image-scan` | daily cron | scans the four images that staging and prod run with the same Trivy gate as `cd`, so a vulnerability published after the build shows up (#1326) |
 | `cd-janitor` | nightly cron | cancels CD runs left waiting at the `production` approval gate for more than 24 h, so an old candidate can never be approved by accident (#527) |
 | `codeql` | PRs + weekly schedule | static security analysis; no PR merges with an open alert |
 | `gitleaks` | PRs/pushes | secret scanning |

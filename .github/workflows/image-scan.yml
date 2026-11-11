@@ -1,0 +1,131 @@
+name: Image scan (deployed)
+
+# cd.yml scans an image once, when it builds it. A vulnerability published after that build stays
+# invisible until some later change rebuilds the image (#1326). This job scans again, every day, the
+# images that staging and prod actually run, with the same Trivy gate as cd.yml.
+#
+# Prod promotion is batched, so prod can run an older image than main builds. That is why this scans
+# what each environment deployed, not main.
+#
+# Known gap: the deployment record can name a different image than the box runs. A cd.yml dispatch
+# with an explicit image_tag records the run's commit, not the tag it rolled out; a deploy or rollback
+# run by hand on the box (runbook, "Deploy or roll back by hand") leaves no record at all. After
+# either, this scans the image the newest successful record names. Third-party images: #1325.
+#
+# A failed scheduled run e-mails the user who last changed the cron line, like health-ping.yml.
+# Cron is UTC.
+
+on:
+  schedule:
+    - cron: "10 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve the deployed image tags
+    if: github.repository == 'koniecdev/LotroKoniecDev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      deployments: read
+    outputs:
+      staging: ${{ steps.tags.outputs.staging }}
+      production: ${{ steps.tags.outputs.production }}
+    steps:
+      # The same rule as resolve_via_api in scripts/ci/resolve-prod-baseline.sh: the newest deployment
+      # that ever reached `success`. A newer success marks the older one `inactive`, so the latest
+      # status alone would find nothing. --paginate, because a long prod promotion pause pushes the
+      # last success past the first 100 records.
+      - name: Find the newest successful deployment of each environment
+        id: tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          images="lotrokoniecdev-auth-api lotrokoniecdev-tms-api lotrokoniecdev-frontend lotrokoniecdev-migrator"
+          echo '## Deployed images' >> "$GITHUB_STEP_SUMMARY"
+          failed=0
+          for environment in staging production; do
+            sha=''
+            deployments="$(gh api --paginate "repos/${REPO}/deployments?environment=${environment}&per_page=100" --jq '.[] | "\(.id) \(.sha)"')"
+            while read -r id deployment_sha; do
+              [ -n "$id" ] || continue
+              states="$(gh api "repos/${REPO}/deployments/${id}/statuses?per_page=100" --jq '.[].state')"
+              if grep -qx 'success' <<< "$states"; then
+                sha="$deployment_sha"
+                break
+              fi
+            done <<< "$deployments"
+            if [ -z "$sha" ]; then
+              echo "::error::No ${environment} deployment ever reached success, so there is nothing known to scan."
+              failed=1
+              continue
+            fi
+            tag="sha-${sha:0:7}"
+            # The tag is published only when all four images exist, so a missing image fails the
+            # legs at their clear check step, not with a Trivy pull error.
+            missing=0
+            for image in $images; do
+              if ! docker buildx imagetools inspect "${IMAGE_PREFIX}/${image}:${tag}" > /dev/null; then
+                echo "::error::${IMAGE_PREFIX}/${image}:${tag} is not in GHCR, although the ${environment} deployment record names commit ${sha}."
+                missing=1
+              fi
+            done
+            if [ "$missing" -ne 0 ]; then
+              failed=1
+              continue
+            fi
+            echo "${environment}=${tag}" >> "$GITHUB_OUTPUT"
+            # The backticks are markdown for the job summary, not command substitution.
+            # shellcheck disable=SC2016
+            printf -- '- **%s**: `%s` (commit %s)\n' "$environment" "$tag" "$sha" >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit "$failed"
+
+  # Runs even when resolve failed, so an environment that could not resolve does not hide the
+  # other one. Each leg of an environment without a tag fails at its first step.
+  scan:
+    name: Scan ${{ matrix.environment }} / ${{ matrix.image }}
+    needs: resolve
+    if: ${{ !cancelled() && github.repository == 'koniecdev/LotroKoniecDev' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [staging, production]
+        image:
+          - lotrokoniecdev-auth-api
+          - lotrokoniecdev-tms-api
+          - lotrokoniecdev-frontend
+          - lotrokoniecdev-migrator
+    steps:
+      - name: Check that the environment resolved
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+          TAG: ${{ needs.resolve.outputs[matrix.environment] }}
+        run: |
+          if [ -z "$TAG" ]; then
+            echo "::error::No image tag for ${ENVIRONMENT}. The resolve job says why."
+            exit 1
+          fi
+
+      - name: Scan image for vulnerabilities (Trivy — fail HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ needs.resolve.outputs[matrix.environment] }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}

@@ -3,33 +3,29 @@
 # Prints the number of the next ready ticket and exits 0; exits 1 when none is ready.
 #
 # "Ready" = open, not skip-labeled, not an [Epic]/[Tracking] title, written only by trusted
-# maintainers (issue-trust.sh — ADR-0026), no open PR and no `.claude/worktrees/ticket-<n>` yet
-# (the PR waits for the owner's review, the worktree means a session is on it — ADR-0060) unless
-# that worktree was kept for a resume after a usage limit (work-ticket.sh then decides — #934),
-# and every "Depends on #X" reference in the body points at a CLOSED issue (a ticket is
-# closed by its merged PR, so closed == merged in this repo's workflow). Order: priority label (priority-critical > -high > -medium > -low > none), then issue
-# number. Label taxonomy: docs/labels.md (kept in sync with TheKittySaver).
+# maintainers (issue-trust.sh, when the settings turn the provenance gate on), no open PR and no
+# `.claude/worktrees/ticket-<n>` yet (the PR waits for the owner's review, the worktree means a
+# session is on it) unless that worktree was kept for a resume after a usage limit (work-ticket.sh
+# then decides), and every "Depends on #X" reference in the body points at a CLOSED issue (a ticket
+# is closed by its merged PR, so closed == merged). Order: priority-critical > priority-high >
+# priority-medium > priority-low > no priority label, then issue number ascending.
 #
-# Usage: next-ticket.sh [--exclude "296 293"]     # numbers already attempted this run
-# Env:   LOOP_SKIP_LABELS   comma-separated labels that exclude a ticket
-#                           (default: loop-blocked,epic,question,wontfix,invalid,duplicate,audit,
-#                           post-mvp — an epic is a tracking parent with no work of its own,
-#                           question/wontfix/invalid/duplicate are not decided work, audit
-#                           findings are triaged by a human first, post-mvp is deliberately cut
-#                           from MVP per CLAUDE.md: name one explicitly to work it. Same list as
-#                           TheKittySaver plus the parking label)
-#        LOOP_SKIP_TITLES   regex over titles to exclude (default: ^M4- — the desktop-app milestone
-#                           targets the Windows patcher runtime; its E2E can't run on the macOS host)
-#        LOOP_SKIP_ISSUES   space-separated numbers to exclude (default: 85 — the M2-18 forum
-#                           watcher is deferred post-MVP; work it only by naming it explicitly)
+# Usage: next-ticket.sh [--exclude "<n> <n>"]     # numbers already attempted this run
+# Env:   LOOP_SKIP_LABELS   comma-separated labels that exclude a ticket, for this run (default:
+#                           skip_labels in scripts/claude-loop.conf). loop-blocked is always
+#                           skipped: the loop owns that label.
+#        LOOP_SKIP_TITLES   jq regex over titles to exclude, for this run (default: skip_titles)
+#        LOOP_SKIP_ISSUES   space-separated numbers to exclude, for this run (default: skip_issues)
 #        see issue-trust.sh for the provenance knobs (LOOP_TRUSTED_ASSOCIATIONS / _LOGINS,
 #        LOOP_TRUST_GATE)
 set -euo pipefail
 
-# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here.
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname "$0")" && pwd)"
-# Resolve `gh`'s repository from this checkout, not from the caller's cwd (see issue-trust.sh).
 cd "$SCRIPT_DIR/../.."
+# shellcheck source=loop-config.sh
+. "$SCRIPT_DIR/loop-config.sh"
+load_loop_config "$PWD" || exit 1
 # Worktrees live under the MAIN checkout, even when this runs from a worktree (see work-ticket.sh).
 WORKTREES="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.claude/worktrees"
 
@@ -37,13 +33,16 @@ EXCLUDE=""
 if [ "${1:-}" = "--exclude" ]; then
     EXCLUDE="${2:-}"
 fi
-EXCLUDE="$EXCLUDE ${LOOP_SKIP_ISSUES-85}"
+EXCLUDE="$EXCLUDE ${LOOP_SKIP_ISSUES-$LOOP_CFG_skip_issues}"
 
-SKIP_LABELS="${LOOP_SKIP_LABELS:-loop-blocked,epic,question,wontfix,invalid,duplicate,audit,post-mvp}"
-SKIP_TITLES="${LOOP_SKIP_TITLES:-^M4-}"
+# The loop owns loop-blocked: a ticket that carries it waits for the owner's answer, whatever the
+# settings list.
+SKIP_LABELS="loop-blocked,${LOOP_SKIP_LABELS:-$LOOP_CFG_skip_labels}"
+SKIP_TITLES="${LOOP_SKIP_TITLES-$LOOP_CFG_skip_titles}"
 
+# type -P finds programs only: `gh` is also a function of loop-config.sh.
 for tool in gh jq; do
-    command -v "$tool" >/dev/null 2>&1 || { echo "next-ticket: missing dependency: $tool" >&2; exit 1; }
+    type -P "$tool" >/dev/null 2>&1 || { echo "next-ticket: missing dependency: $tool" >&2; exit 1; }
 done
 
 candidates="$(gh issue list --state open --limit 200 --json number,title,labels \
@@ -88,7 +87,7 @@ for n in $candidates; do
     esac
     # Its session may have opened the PR before the limit hit; work-ticket.sh tells that apart.
     if ! kept_for_resume "$n"; then
-        if printf '%s\n' "$open_heads" | grep -q "^$n-"; then
+        if grep -q "^$n-" <<< "$open_heads"; then
             continue
         fi
         if [ -e "$WORKTREES/ticket-$n" ]; then
@@ -96,16 +95,18 @@ for n in $candidates; do
         fi
     fi
 
-    # Provenance gate (ADR-0026): on a public repo anyone can write the text the worker reads as
+    # Provenance gate: on a public repo anyone can write the text the worker reads as
     # its task. An issue whose author — or any of whose commenters — lacks write access is never
     # ready. work-ticket.sh re-checks this, so naming a ticket explicitly cannot bypass it.
-    trust_rc=0
-    "$SCRIPT_DIR/issue-trust.sh" "$n" || trust_rc=$?
-    if [ "$trust_rc" -eq 2 ]; then
-        # Say so loudly: an unreachable API skipping every candidate must not read as "backlog drained".
-        echo "next-ticket: WARNING — could not verify #$n (GitHub API); skipping it (fail-closed)" >&2
+    if [ "$LOOP_CFG_provenance_gate" = "on" ]; then
+        trust_rc=0
+        "$SCRIPT_DIR/issue-trust.sh" "$n" || trust_rc=$?
+        if [ "$trust_rc" -eq 2 ]; then
+            # Say so loudly: an unreachable API skipping every candidate must not read as "backlog drained".
+            echo "next-ticket: WARNING — could not verify #$n (GitHub API); skipping it (fail-closed)" >&2
+        fi
+        [ "$trust_rc" -eq 0 ] || continue
     fi
-    [ "$trust_rc" -eq 0 ] || continue
 
     # Dependency gate: every "Depends on #X" must be CLOSED (i.e. merged).
     deps="$(gh issue view "$n" --json body --jq '.body // ""' \

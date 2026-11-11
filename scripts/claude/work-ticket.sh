@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Works ONE GitHub ticket in a headless Claude session inside its own git worktree, then
-# judges the outcome. It stops at the pull request — nothing here merges (ADR-0060):
+# judges the outcome. It stops at the pull request — nothing here merges:
 #   worktree from origin/main  →  claude -p "/work-ticket <n>"  →  STATUS: DONE (PR opened, waits for the owner's review)
-#                                                             →  STATUS: DONE, PR already merged: done (#1082)
+#                                                             →  STATUS: DONE, PR already merged: done
 #                                                             →  STATUS: DONE, no open PR: resume the session once to open it
 #                                                             →  STATUS: BLOCKED (label `loop-blocked` + questions as issue comment)
 #                                                             →  no STATUS line: resume the same session (up to LOOP_MAX_RESUMES)
 #                                                             →  usage limit: keep the worktree, so the next run resumes the session
-#                                                                (its PR merged in the meantime: done, never resumed — #1096)
+#                                                                (its PR merged in the meantime: done, never resumed)
 #
 # The worktree is `.claude/worktrees/ticket-<n>` under the main checkout — the same name a manual
 # `/ticket` session uses — so the main checkout is never touched and several tickets can run at
@@ -18,26 +18,23 @@
 # Usage: work-ticket.sh <issue-number> [run-dir]
 # Env:
 #   LOOP_EFFORT             claude effort level (default: the worker effort from
-#                           ~/.claude/model-policy.env when present, else high — reviews inside
-#                           the session run at high via the code-reviewer agent definition)
+#                           ~/.claude/model-policy.env when present, else high)
 #   LOOP_MODEL              model (default: the worker model from ~/.claude/model-policy.env
-#                           when present, else opus — Opus 5.5 in the policy since
-#                           2026-09-22)
+#                           when present, else opus)
 #   LOOP_CONFIG_DIR         Claude config dir = which account runs the loop
-#                           (default: ~/.claude-account1)
-#   LOOP_GH_USER            gh account whose token backs the loop's gh write calls — labels and
-#                           issue comments (default: koniecdev, the repo owner); an existing
-#                           GH_TOKEN in the environment wins
+#                           (default: claude_config_dir in scripts/claude-loop.conf)
+#   LOOP_GH_USER            gh account whose token backs the loop's gh calls (default: gh_user in
+#                           scripts/claude-loop.conf); an existing GH_TOKEN in the environment wins
 #   LOOP_PERMISSION_MODE    default: auto, plus a loop-scoped --allowedTools Bash allowlist
 #                           (git/gh/dotnet/scripts — see LOOP_ALLOWED_TOOLS below); this does NOT
 #                           widen permissions of your interactive sessions
 #   LOOP_ALLOWED_TOOLS      override the loop's Bash allowlist (space-separated rule list)
 #   LOOP_UNSAFE=1           use --dangerously-skip-permissions instead (full overnight autonomy)
 #   LOOP_MAX_BUDGET_USD     optional per-ticket API budget cap; unset by default on purpose (why:
-#                           docs/claude-loop.md, #953)
+#                           LOOP.md, "Knobs")
 #   LOOP_TICKET_TIMEOUT_MIN wall-clock kill switch per run of this script, resumes included
 #                           (default: 240, only a guard against a stuck session — why:
-#                           docs/claude-loop.md, #953); the run that resumes after a usage limit
+#                           LOOP.md, "Knobs"); the run that resumes after a usage limit
 #                           gets a new one
 #   LOOP_MAX_RESUMES        how many times a session that ends normally without a STATUS line is
 #                           resumed before the ticket counts as an error (default: 2); the one
@@ -59,15 +56,15 @@
 #             11 issue refused by the provenance gate (untrusted author or commenter)
 #             12 skipped: the ticket already has an open PR, its worktree already exists, a
 #                worktree kept for a resume can no longer be resumed safely, or a PR of the ticket
-#                was merged from another branch while a usage limit held it (#1096)
+#                was merged from another branch while a usage limit held it
 #             13 the PR was merged before the session ended, or before a ticket stopped by a usage
-#                limit could resume or start over (#1096): a success, counted apart from 0
+#                limit could resume or start over: a success, counted apart from 0
 set -euo pipefail
 
-# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here.
 REPO_ROOT="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
 # A relative path the caller gave means a folder seen from where they started this script, so the
-# run folder and the config folder become full paths before the cd below (#1080). pwd -P gives
+# run folder and the config folder become full paths before the cd below. pwd -P gives
 # the real folder, so every program reads a ".." in the path the same way.
 run_dir_arg="${2:-}"
 case "$run_dir_arg" in ''|/*) ;; *) run_dir_arg="$(pwd -P)/$run_dir_arg" ;; esac
@@ -79,12 +76,18 @@ case "$ISSUE" in
     ''|*[!0-9]*) echo "work-ticket: not an issue number: '$ISSUE'" >&2; exit 3 ;;
 esac
 
-# A Claude Code session kills its background commands after two hours, and nothing cleans up then
-# (#969). Claude Code sets CLAUDECODE in every command its Bash tool runs.
+# A Claude Code session kills its background commands after two hours, and nothing cleans up then.
+# Claude Code sets CLAUDECODE in every command its Bash tool runs.
 if [ -n "${CLAUDECODE:-}" ]; then
-    echo "work-ticket: run the loop in a plain terminal with scripts/claude/start-loop.sh, never from a Claude Code session (#969)" >&2
+    echo "work-ticket: run the loop in a plain terminal with scripts/claude/start-loop.sh, never from a Claude Code session (it kills a background command after two hours)" >&2
     exit 3
 fi
+
+# The repository's loop settings (CONTRACT.md, section 2). The conductor has read them before, so
+# a run it started never fails here.
+# shellcheck source=loop-config.sh
+. "$REPO_ROOT/scripts/claude/loop-config.sh"
+load_loop_config "$REPO_ROOT" || exit 3
 
 # Worktrees, logs and the lock live under the MAIN checkout even when this script runs from a
 # worktree, so every run on the machine sees the same `.claude/worktrees/ticket-<n>` names.
@@ -103,7 +106,10 @@ if [ -f "$HOME/.claude/model-policy.env" ]; then
 fi
 EFFORT="${LOOP_EFFORT:-${MODEL_POLICY_WORKER_EFFORT:-high}}"
 MODEL="${LOOP_MODEL:-${MODEL_POLICY_WORKER_MODEL:-opus}}"
-export CLAUDE_CONFIG_DIR="${LOOP_CONFIG_DIR:-$HOME/.claude-account1}"
+# A bare `claude` picks its account from CLAUDE_CONFIG_DIR, which the caller's shell may set to
+# another account. So the account of the settings is set here, whatever the caller's environment
+# says; only LOOP_CONFIG_DIR changes it.
+export CLAUDE_CONFIG_DIR="${LOOP_CONFIG_DIR:-$LOOP_CLAUDE_CONFIG_DIR}"
 PERMISSION_MODE="${LOOP_PERMISSION_MODE:-auto}"
 TIMEOUT_MIN="${LOOP_TICKET_TIMEOUT_MIN:-240}"
 KEEP_WORKTREE="${LOOP_KEEP_WORKTREE:-0}"
@@ -111,7 +117,7 @@ MAX_RESUMES="${LOOP_MAX_RESUMES:-2}"
 # A resume needs time for at least the test suite and the push.
 MIN_RESUME_MIN=10
 # The longest the fetch of a merged PR's head may take. Most such fetches find the commits already
-# here and end in seconds (#1165).
+# here and end in seconds.
 MERGED_FETCH_LIMIT_SEC=60
 
 OUT="$RUN_DIR/ticket-$ISSUE.json"
@@ -119,8 +125,9 @@ ERR="$RUN_DIR/ticket-$ISSUE.stderr"
 META="$RUN_DIR/ticket-$ISSUE.meta"
 WT="$MAIN_ROOT/.claude/worktrees/ticket-$ISSUE"
 
+# type -P finds programs only: `gh` is also a function of loop-config.sh.
 for tool in claude gh jq git; do
-    command -v "$tool" >/dev/null 2>&1 || { echo "work-ticket: missing dependency: $tool" >&2; exit 3; }
+    type -P "$tool" >/dev/null 2>&1 || { echo "work-ticket: missing dependency: $tool" >&2; exit 3; }
 done
 
 log() { echo "[loop] #$ISSUE $(date +%H:%M:%S) $*"; }
@@ -135,7 +142,7 @@ key_value() {
 # The conductor runs a ticket stopped by a usage limit again in the same run folder. When that
 # attempt could not keep its worktree for a resume, its .meta is the only record of when its
 # session started, on which branch it worked and where its leftovers went. So it is read before the
-# file starts over: a PR merged since then must not get a second session (#1096).
+# file starts over: a PR merged since then must not get a second session.
 earlier_text=""
 if [ "$(sed -n 's/^outcome=//p' "$META" 2>/dev/null | tail -1)" = "limit" ]; then
     earlier_text="$(cat "$META" 2>/dev/null || true)"
@@ -169,18 +176,11 @@ case "$TIMEOUT_MIN" in
         ;;
 esac
 
-# ── gh identity: write calls must not depend on the machine's ACTIVE gh account ────────────────
-# Labels and issue comments need write access, but the active gh account here is often the EMU
-# work account, which GitHub bars from writing outside its enterprise ("Enterprise Managed User
-# cannot access this content"). Mint the owner's token unless the caller set one.
-if [ -z "${GH_TOKEN:-}" ]; then
-    owner_token="$(gh auth token --user "${LOOP_GH_USER:-koniecdev}" 2>/dev/null || true)"
-    if [ -n "$owner_token" ]; then
-        export GH_TOKEN="$owner_token"
-    else
-        log "no gh token for '${LOOP_GH_USER:-koniecdev}' — gh write calls will use the active gh account"
-    fi
-fi
+# ── gh identity: gh calls must not depend on the machine's ACTIVE gh account ──────────────────
+# Labels and issue comments need write access, and a private repository needs read access, which
+# the active gh account may not have. The conductor mints the token of the settings' gh_user once;
+# a run started on its own does it here.
+mint_gh_token log
 
 # A rebase, merge or cherry-pick the session left half done. A commit on top of it would bury the
 # conflict, so such a worktree is left exactly as it is, for a human.
@@ -220,12 +220,14 @@ salvage() {
     fi
 }
 
-# Each E2E suite tags its images per worktree as `<repository>:<suite>-<folder>-<hash>` (#884), and
-# nothing removes them with the worktree. A loop run removes its worktree, so it removes them too.
+# A repository whose test suites tag Docker images per worktree, as `<name>:<suite>-<folder>-<hash>`
+# with a label, names that label in e2e_image_label. Nothing else removes those images with the
+# worktree, so a loop run that removes its worktree removes them too.
 remove_e2e_images() {
+    [ -n "$LOOP_CFG_e2e_image_label" ] || return 0
     command -v docker >/dev/null 2>&1 || return 0
     local images image
-    images="$(docker image ls --filter label=lotrokoniecdev.e2e --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+    images="$(docker image ls --filter "label=$LOOP_CFG_e2e_image_label" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
         | grep -F -- "-ticket-$ISSUE-" || true)"
     for image in $images; do
         docker image rm "$image" >/dev/null 2>&1 || true
@@ -259,7 +261,7 @@ finish() {
 
 # follows_up <PR branch> <session branch> — true when the session's branch is the PR's branch with
 # `-follow-up` added, once or more, each time maybe with `-<k>`. A session whose PR was merged
-# before its last fix was pushed moves the fix to such a branch from main (#1097).
+# before its last fix was pushed moves the fix to such a branch from main.
 follows_up() {
     local rest
     [[ "$2" == "$1"?* ]] || return 1
@@ -268,10 +270,10 @@ follows_up() {
 }
 
 # fetch_merged_head <folder> — sets merged_head to the head of the merged PR (pr_num) on origin, or
-# fails. It runs where a stop is only noted, so it must end on its own. It never waits for an answer
-# (#1139): a password prompt makes it fail, on the terminal or in an askpass program, and so does an
+# fails. It runs where a stop is only noted, so it must end on its own. It never waits for an answer:
+# a password prompt makes it fail, on the terminal or in an askpass program, and so does an
 # OpenSSH question about a key's passphrase or a new host key, also for a jump host. And it is ended
-# after MERGED_FETCH_LIMIT_SEC seconds, whatever else it waits for (#1165): a transfer that stalls, a
+# after MERGED_FETCH_LIMIT_SEC seconds, whatever else it waits for: a transfer that stalls, a
 # security key that waits for a touch, the window of a credential helper or of an ssh-agent, a
 # ProxyCommand that waits for a person, or a jump host on an OpenSSH that still asks on the terminal.
 # It runs as the session does, a watched command in `pid`: so the end reaches every process ssh
@@ -329,7 +331,7 @@ fetch_merged_head() {
 # example for a CodeQL alert: on the PR's branch, on a new branch or on a detached HEAD. That fix is
 # then not on main. When this ticket has no worktree of its own any more, after an attempt the usage
 # limit stopped and `finish` salvaged, it reads the PR's branch and that attempt's salvage branch
-# instead (#1096). Commits are matched by their change, not by their id, so a rebase by GitHub
+# instead. Commits are matched by their change, not by their id, so a rebase by GitHub
 # before the merge still matches, and commits main already has never count. The count can still be
 # too high (a conflict fixed in a rebase, an empty commit), so the log asks the owner to check, and
 # never claims the commits are lost. Fails when it cannot tell.
@@ -344,7 +346,7 @@ commits_after_merge() {
         listed="$(git -C "$dir" cherry "$merged_head" "$tip" 2>/dev/null)" || return 1
         found="$found$(sed -n 's/^+ //p' <<< "$listed")"$'\n'
     done
-    # The session followed the merged PR up (#1097): a fix may still sit on the PR's own branch,
+    # The session followed the merged PR up: a fix may still sit on the PR's own branch,
     # not moved yet. A change the follow-up branch already has counts once.
     if [ -n "$merged_branch" ] && [ "$merged_branch" != "$pr_branch" ] \
         && git -C "$dir" rev-parse -q --verify "refs/heads/$merged_branch^{commit}" >/dev/null 2>&1; then
@@ -363,7 +365,7 @@ commits_after_merge() {
 }
 
 # finish_merged <when> <note> — ends a ticket whose PR (pr_num, from the branch pr_branch) is merged,
-# so its work is on main (#1082, #1096): it counts what the merge did not take, removes the worktree
+# so its work is on main: it counts what the merge did not take, removes the worktree
 # as for an opened PR and exits 13. Call it only where a stop is only noted (see `ending`).
 finish_merged() {
     local after_merge="?" head_place where checked="branch ${pr_branch:-?}" dir="$WT"
@@ -397,7 +399,7 @@ finish_merged() {
     exit 13
 }
 
-# ── A worktree kept after a usage limit (#934) ─────────────────────────────────────────────────
+# ── A worktree kept after a usage limit ─────────────────────────────────────────────────
 # On a usage limit the worktree stays exactly as the session left it, uncommitted files included,
 # and a marker in the worktree's own git folder names the session. Salvage would move those files
 # to another branch, so a re-created worktree would not be the tree the session knows. The marker
@@ -434,8 +436,8 @@ keep_for_resume() {
     marker="$(kept_marker)" || return 1
     head="$(git -C "$WT" rev-parse HEAD 2>/dev/null)" || return 1
     tree="$(tree_state)" || return 1
-    printf 'session=%s\nhead=%s\ntree=%s\nturns=%s\nstarted=%s\n' \
-        "$known_session" "$head" "$tree" "$turns" "$session_started" > "$marker" 2>/dev/null || return 1
+    printf 'session=%s\nhead=%s\ntree=%s\nturns=%s\nstarted=%s\ncontract=%s\n' \
+        "$known_session" "$head" "$tree" "$turns" "$session_started" "$LOOP_CONTRACT" > "$marker" 2>/dev/null || return 1
 }
 
 # The branch of the kept worktree. A rebase that stopped half way detaches HEAD, but git still
@@ -453,6 +455,14 @@ kept_branch() {
         done
     fi
     echo "$branch"
+}
+
+# The contract a fresh worktree's settings name: that of the prompts a new session reads there, cut
+# from origin/main. Empty when the worktree has no settings. Read only before a fresh start: a
+# session may rebase its worktree onto a newer main, but the prompt it read stays the one it started
+# with, so a resume goes by the contract the session started under (the marker's contract=).
+worktree_contract() {
+    sed -n 's/^contract=//p' "$WT/scripts/claude-loop.conf" 2>/dev/null | tail -1 | tr -d '\r'
 }
 
 # `--resume` finds a session only in the config dir that ran it, and only until the CLI's cleanup
@@ -477,29 +487,80 @@ marker_value() {
     key_value "$marker_text" "$1"
 }
 
+# A check below that stops a ticket kept after a usage limit leaves its worktree and marker as they
+# are, for a later run; the conductor's table says so. Only the provenance gate's refusal salvages
+# it: that ticket does not run again until someone fixes its issue.
+keep_note() {
+    [ -z "$marker_text" ] || meta worktree kept
+}
+
+# ── A repository that must be private ──────────────────────────────────────────────────────────
+# The worker reads the issue's title, body and comments as its task. Without the provenance gate,
+# only a private repository keeps that text to the people the owner invited, so the gate may be off
+# only there. require_private=on keeps this check with the gate on too. A repository GitHub cannot
+# report on gets no session either.
+if [ "$LOOP_CFG_require_private" = "on" ] || [ "$LOOP_CFG_provenance_gate" = "off" ]; then
+    private_repo="$(gh repo view "$LOOP_REPO" --json isPrivate --jq '.isPrivate' 2>/dev/null || true)"
+    if [ "$private_repo" != "true" ]; then
+        meta outcome error
+        keep_note
+        if [ "$private_repo" = "false" ] && [ "$LOOP_CFG_provenance_gate" = "off" ]; then
+            log "REFUSED — this repository is public, and the settings turn the provenance gate off; no session spawned"
+        elif [ "$private_repo" = "false" ]; then
+            log "REFUSED — this repository is public, and the settings require a private one; no session spawned"
+        else
+            log "could not read from GitHub whether this repository is private — treating as an error; no session spawned"
+        fi
+        exit 3
+    fi
+fi
+
 # ── Provenance gate: only maintainer-written issue text may become the worker's task ───────────
 # This is the enforcement point, not next-ticket.sh: the picker merely *selects*, whereas the
 # untrusted text reaches the LLM here. Explicit ticket numbers (backlog-loop.sh 123) and direct
-# invocations skip the picker entirely, so the gate has to live in front of the session (ADR-0026).
-trust_rc=0
-"$REPO_ROOT/scripts/claude/issue-trust.sh" "$ISSUE" || trust_rc=$?
-if [ "$trust_rc" -eq 1 ]; then
-    meta outcome untrusted
-    # A session kept for a resume will never run again, so its work is salvaged now, as it was
-    # before #934, instead of waiting in a worktree nobody is told about.
-    if [ -n "$marker_text" ]; then
-        rm -f "$marker"
-        finish remove
+# invocations skip the picker entirely, so the gate has to live in front of the session.
+if [ "$LOOP_CFG_provenance_gate" = "on" ]; then
+    trust_rc=0
+    "$REPO_ROOT/scripts/claude/issue-trust.sh" "$ISSUE" || trust_rc=$?
+    if [ "$trust_rc" -eq 1 ]; then
+        meta outcome untrusted
+        # A session kept for a resume will never run again, so its work is salvaged now instead of
+        # waiting in a worktree nobody is told about.
+        if [ -n "$marker_text" ]; then
+            rm -f "$marker"
+            finish remove
+        fi
+        log "REFUSED by the provenance gate — untrusted writer (see above); no session spawned"
+        exit 11
     fi
-    log "REFUSED by the provenance gate — untrusted writer (see above); no session spawned"
-    exit 11
+    if [ "$trust_rc" -ne 0 ]; then
+        # An unreadable API is systemic, not a property of this ticket: report it as a session
+        # error so the conductor's circuit breaker stops the run instead of "skipping" the whole
+        # backlog.
+        meta outcome error
+        keep_note
+        log "provenance gate could not verify #$ISSUE (rc=$trust_rc) — treating as an error"
+        exit 3
+    fi
 fi
-if [ "$trust_rc" -ne 0 ]; then
-    # An unreadable API is systemic, not a property of this ticket: report it as a session error
-    # so the conductor's circuit breaker stops the run instead of "skipping" the whole backlog.
-    meta outcome error
-    log "provenance gate could not verify #$ISSUE (rc=$trust_rc) — treating as an error"
-    exit 3
+
+# ── A red main: fix forward first ──────────────────────────────────────────────────────────────
+# Every worktree is cut from origin/main, so a main that CI left red hands its failure to the
+# session: it would spend the ticket on a build or a test someone else broke, and end BLOCKED at
+# best. So no session starts while the last finished run of red_main_workflow on main failed. A
+# kept worktree keeps its marker for a later run. When GitHub does not answer, the check does not
+# block: it only saves a session, and the worker's own gates still stop a red build.
+if [ -n "$LOOP_CFG_red_main_workflow" ]; then
+    main_ci="$(gh run list --workflow "$LOOP_CFG_red_main_workflow" --branch main --status completed --limit 1 \
+        --json conclusion,headSha --jq '.[0] // {} | "\(.conclusion // "") \(.headSha // "")"' 2>/dev/null || true)"
+    case "${main_ci%% *}" in
+        failure|timed_out)
+            meta outcome error
+            keep_note
+            log "REFUSED — the last $LOOP_CFG_red_main_workflow run on main (${main_ci#* }) ended ${main_ci%% *}; fix main forward first; no session spawned"
+            exit 3 ;;
+        '') log "could not read the last $LOOP_CFG_red_main_workflow run on main from GitHub — starting anyway" ;;
+    esac
 fi
 
 # ── Resume a kept worktree, or never start a ticket that is already in flight ──────────────────
@@ -511,12 +572,12 @@ resume_turns=0
 resume_started=""
 release_kept=0
 # A PR of this ticket from the branch of an attempt the usage limit stopped, merged since that
-# attempt started (#1096). Its work is on main, so no session runs.
+# attempt started. Its work is on main, so no session runs.
 merged_pr=""
 # The branch of merged_pr, when the stopped session moved its work off it to a follow-up branch.
 merged_branch=""
 # 0 when a ticket merged during a usage-limit nap has no worktree of its own any more: a folder that
-# appears under its name from then on is someone else's (#1096).
+# appears under its name from then on is someone else's.
 own_worktree=1
 if [ -n "$marker_text" ]; then
     kept_session="$(marker_value session)"
@@ -534,7 +595,13 @@ if [ -n "$marker_text" ]; then
         log "SKIPPED — $WT was kept to resume a session after a usage limit, but its HEAD or its files changed since, so someone else works there. When that work is done: git worktree remove \"$WT\""
         exit 12
     fi
-    if has_transcript "$kept_session"; then
+    kept_contract="$(marker_value contract)"
+    if [ "$kept_contract" != "$LOOP_CONTRACT" ]; then
+        # The session read the prompts of another contract, and this engine would pass it facts in
+        # the shape of its own (CONTRACT.md). A marker without one was written before contracts.
+        log "the kept session ${kept_session:-<none>} started under contract ${kept_contract:-none}, and this engine speaks contract $LOOP_CONTRACT, so it cannot be resumed"
+        release_kept=1
+    elif has_transcript "$kept_session"; then
         resume_session="$kept_session"
         resume_turns="$(marker_value turns)"
         case "$resume_turns" in ''|*[!0-9]*) resume_turns=0 ;; esac
@@ -550,7 +617,7 @@ if [ -n "$resume_session" ]; then
     # The session may have opened its PR before the limit hit, so an open PR from the kept branch
     # is its own, as long as nobody pushed to it since. When a PR from the kept branch was merged
     # after the session started, its work is on main: the ticket is merged, and the session is not
-    # resumed (#1096). Any other PR of the ticket that is open or was merged since the session
+    # resumed. Any other PR of the ticket that is open or was merged since the session
     # started, or a PR from the kept branch closed since then, means the work went on without it.
     branch="$(kept_branch)"
     ticket_prs="$(gh pr list --state all --limit 200 --json number,headRefName,headRefOid,isCrossRepository,state,mergedAt,closedAt \
@@ -585,7 +652,7 @@ if [ -n "$resume_session" ]; then
                         merged_pr="${merged_pr:-$number}"
                     elif ! follows_up "$head" "$branch"; then
                         # A PR the session follows up is its own: the resume finishes moving the fix
-                        # to the follow-up branch (#1097).
+                        # to the follow-up branch.
                         blocker="PR #$number was merged from another branch ($head)"
                     fi
                 fi
@@ -599,7 +666,7 @@ if [ -n "$resume_session" ]; then
         [ -z "$blocker" ] || break
     done <<< "$ticket_prs"
     # A PR from the kept branch that was merged holds the session's work even when another one from
-    # that branch was closed: the session may close a PR and open a new one (#1096).
+    # that branch was closed: the session may close a PR and open a new one.
     [ -n "$blocker" ] || [ -n "$merged_pr" ] || blocker="$closed_blocker"
     if [ -n "$blocker" ]; then
         # The work went on without the session, so this will not change. Without the marker the
@@ -626,7 +693,7 @@ else
     # A retry that starts over after a usage limit has no session to resume, and its attempt may
     # have opened a PR that was merged during the nap. A PR from that attempt's branch merged since
     # it started holds its work, so the ticket is merged; one from another branch is someone else's
-    # work. Either way no new session starts (#1096).
+    # work. Either way no new session starts.
     retry_started="$earlier_started"
     retry_branch="$earlier_branch"
     if [ "$release_kept" -eq 1 ]; then
@@ -731,7 +798,7 @@ session_groups() {
 
 # ── The lifeline: how the watchdog learns that this script is done with the session ─────────────
 # A process number cannot tell the watchdog this: by the time the watchdog checks one, the system
-# may have given it to another program (#983, #995, #997). A pipe can. This script holds the only
+# may have given it to another program. A pipe can. This script holds the only
 # write end, and the watchdog waits on the read end until no write end is left. That happens when
 # this script dies, by any signal, or when it lets go of the session after its last signal to the
 # session's group. A child inherits the write end, so every child that can outlive this script
@@ -779,7 +846,7 @@ release_lifeline() {
 end_session_tree() {
     local leader="$1" grace="$2" groups found group tries=0
     # Paused while its tree is read, the session cannot start a command in a new group between the
-    # read and the TERM, where no signal would reach that group (#935). The TERM waits for the
+    # read and the TERM, where no signal would reach that group. The TERM waits for the
     # CONT. Only the leader is paused, not its group: the watchdog is in that group and runs this
     # function itself. The pause lasts one read and no more: if the worker dies while the session
     # is paused, the system sends HUP to the session's whole group.
@@ -817,7 +884,7 @@ end_session_tree() {
 
 # start_watched <folder> <output file> <error file> <grace> <command...> — starts the command in the
 # folder, in a process group of its own, and sets pid. Open the lifeline first. The session runs
-# this way, and so does the merged-PR fetch (#1165).
+# this way, and so does the merged-PR fetch.
 # `set -m` gives the command its own process group. It also stops bash from pointing a background
 # job's stdin at /dev/null, so that is done by hand: a job outside the terminal's foreground group
 # that reads the terminal is suspended. A SIGKILL to this script runs no trap, and the command is no
@@ -826,7 +893,7 @@ end_session_tree() {
 # watching it. The watchdog gives the command <grace> seconds to end its own children. It ignores
 # TERM: the TERM it sends to its own group must not end it half way. It ignores HUP too: when this
 # script dies while end_session_tree has paused the command, the system sends HUP to the command's
-# whole group (#935).
+# whole group.
 start_watched() {
     local dir="$1" out="$2" err="$3" grace="$4"
     shift 4
@@ -842,8 +909,8 @@ start_watched() {
             # A dying worker closes its files a moment before the system gives its children a new
             # parent. A pause in that moment leaves a paused command in a group that has just lost
             # its last parent outside it, so the system sends HUP to the whole group. The command
-            # dies at once, and its children move to PID 1, where the watchdog no longer finds them
-            # (#1227). So the pause waits until the worker ($$, also in this subshell) is no longer
+            # dies at once, and its children move to PID 1, where the watchdog no longer finds them.
+            # So the pause waits until the worker ($$, also in this subshell) is no longer
             # the command's parent, for 50 naps of 0.1 seconds at most: about five seconds, a little
             # more when the box is busy. Linux gives the new parent and decides on that HUP in one
             # step, and a `ps` that has seen the new parent cannot exit before that step ends. When
@@ -859,7 +926,7 @@ start_watched() {
             done
             end_session_tree "$group" "$grace"
         ) < /dev/null > /dev/null 2>&1 &
-        # Only now: a command that cannot start must still leave the watchdog in its group (#983).
+        # Only now: a command that cannot start must still leave the watchdog in its group.
         cd "$dir" || exit 1
         # A bare `exec` first. On `exec cmd 8<&- 9>&-`, bash 3.2 keeps saved copies of both fds
         # (as 10 and 11), so the command and all its children would hold the write end.
@@ -873,14 +940,14 @@ start_watched() {
 
 # A background child of this script ignores SIGINT and would outlive it, so the session is stopped
 # on every way out. Bash reaps a finished background job at once, not at `wait`, and from then on
-# the system may give the session's number to another program (#983). It cannot do that while a
+# the system may give the session's number to another program. It cannot do that while a
 # process is still in the session's group, which has the same number, and the watchdog stays in
 # that group until this script lets go of the lifeline or kills the group. A stop starts only while
 # bash still lists the session as running, so it leans on the watchdog only if the session ends at
 # that very moment. The steps after the session's end always lean on it: the sweep after `wait`,
 # and the last steps of a stop.
 # The poll timer leads no group, so nothing keeps its number reserved: it gets a signal only while
-# bash still lists it as running (#992).
+# bash still lists it as running.
 pid=""
 sleeper=""
 
@@ -891,11 +958,11 @@ sleeper=""
 # run_session and fetch_merged_head: a stop must reach this script while it waits for its session.
 # Bash 5.2 runs a waiting trap when it starts to parse a $(...). At that point it still expects the
 # closing `)`, so the trap's own text does not parse: the trap fails with "unexpected EOF while
-# looking for matching `)'", never runs, and the stop is lost (#1064). Bash parses a backquote in
+# looking for matching `)'", never runs, and the stop is lost. Bash parses a backquote in
 # the child, so the trap runs after the command.
 # In a run started by hand in a terminal, a Ctrl-C also reaches that child, which then dies and
 # lists nothing. A job that still runs would look ended, and the wait for it has no limit, so a
-# killed read is read again, up to five times in all (#1165). A read only looks at the list, so it
+# killed read is read again, up to five times in all. A read only looks at the list, so it
 # never signals a number.
 job_running() {
     local running tries=1
@@ -940,9 +1007,9 @@ stop_sleeper() {
 # While `ending` is 1, a stop is only noted. That holds from the claim or the making of the worktree
 # until the session starts, and again from the end of the last session, or while this script ends
 # one itself (a stop, the clock, a failed start), and while a ticket whose PR was merged during a
-# usage-limit nap ends with no session (#1096). Before a session starts, run_session acts on the
+# usage-limit nap ends with no session. Before a session starts, run_session acts on the
 # noted stop. After the last session it changes nothing: the script exits in moments anyway, at
-# most about a minute later when it fetches a merged PR's head (#1165), and keeps its real outcome.
+# most about a minute later when it fetches a merged PR's head, and keeps its real outcome.
 # A stop between a session and its resume cancels only the resume. Closing a terminal sends HUP to
 # the job and then TERM from the conductor: the second one lands here too, so it cannot cut the
 # first one's cleanup short. The signals stay caught, never ignored: an ignored signal would carry
@@ -999,8 +1066,8 @@ elif [ -z "$merged_pr" ]; then
     fi
 fi
 
-# The ticket's PR was merged while a usage limit held its attempt (#1096). From here a stop is only
-# noted (see `ending`): the ticket ends soon anyway, at most about a minute later (#1165).
+# The ticket's PR was merged while a usage limit held its attempt. From here a stop is only
+# noted (see `ending`): the ticket ends soon anyway, at most about a minute later.
 if [ -n "$merged_pr" ]; then
     ending=1
     pr_num="$merged_pr"
@@ -1027,7 +1094,7 @@ fi
 
 # `claude -p` ends a background shell about five seconds after its final message, and nothing can
 # wake the session after that. Two workers lost finished tickets this way: they started the test
-# suite in the background and ended their turn to wait for it (#925). With this switch the Bash
+# suite in the background and ended their turn to wait for it. With this switch the Bash
 # tool has no `run_in_background`, and a command that reaches its timeout is stopped instead of
 # moved to the background. So the timeout ceiling is raised to fit the whole suite, and a call
 # that names no timeout (a cold build, a CodeQL wait) gets ten minutes instead of two.
@@ -1035,28 +1102,14 @@ export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
 export BASH_MAX_TIMEOUT_MS="${BASH_MAX_TIMEOUT_MS:-3600000}"
 export BASH_DEFAULT_TIMEOUT_MS="${BASH_DEFAULT_TIMEOUT_MS:-600000}"
 
-# resume_prompt <no-status|no-pr|limit> <minutes left> — the prompt of a resume, on one line.
+# resume_prompt <no-status|no-pr|limit> <minutes left> — the prompt of a resume: one line of facts
+# (CONTRACT.md, section 3). What the session does with them is written in the repository's own
+# /work-ticket prompt, which the session read at its start. pr_named is the number the session's
+# message linked; a PR's branch name never reaches the prompt, because whoever opens a PR names it.
 resume_prompt() {
-    local why
-    case "$1" in
-        no-status) why="Your last message has no STATUS line, so the loop cannot tell how ticket #$ISSUE ended." ;;
-        no-pr) why="Your last message says STATUS: DONE, but the loop found no open pull request for ticket #$ISSUE${pr_named:+ (PR #$pr_named, which your message links, is not one)}. \
-The loop counts only an open PR in this repository whose branch name starts with \"$ISSUE-\". \
-If the PR you opened in this session was closed without a merge, and you did not close it yourself, \
-push nothing and open no new PR: end with STATUS: BLOCKED, as step 8 of /work-ticket says. \
-Otherwise push the branch and open the PR now, or name the full URL of that PR if it already exists." ;;
-        limit) why="The usage limit that stopped this session is over, and the loop resumes ticket #$ISSUE in the same worktree. \
-Time has passed since your last step, so check git status, and whether the PR already exists and what state it is in \
-(step 8 of /work-ticket), before you go on. \
-A command that was running when the limit hit did not finish: run it again." ;;
-    esac
-    echo "$why \
-This is a headless run: when you end your turn, the process exits and nothing wakes you again. \
-Background runs are switched off here. If you were waiting for something, such as the test suite, \
-run it again now in the foreground, with a Bash timeout long enough for it (at most $BASH_MAX_TIMEOUT_MS ms). \
-The loop stops this session in about $2 minutes. \
-Then finish the /work-ticket steps that are still open (commit, push, the plain-English pass on the PR body file, PR, CodeQL) \
-and end with the STATUS: DONE or STATUS: BLOCKED block from /work-ticket, with nothing after it."
+    local named=""
+    [ "$1" != no-pr ] || named="${pr_named:+ pr_named=$pr_named}"
+    echo "loop-resume reason=$1 issue=$ISSUE minutes_left=$2 bash_max_timeout_ms=$BASH_MAX_TIMEOUT_MS$named"
 }
 
 # run_session <output file> <prompt> [more claude arguments] — one headless run in the worktree;
@@ -1067,7 +1120,7 @@ run_session() {
     if ! open_lifeline; then
         ending=1
         meta outcome error
-        # A worktree kept for a resume after a usage limit stays as the session left it (#934), so
+        # A worktree kept for a resume after a usage limit stays as the session left it, so
         # the next run can still resume the session there.
         if [ "$resuming_kept" -eq 1 ] && keep_for_resume; then
             meta worktree kept
@@ -1090,7 +1143,7 @@ run_session() {
         sleeper=$!
         wait "$sleeper"
         sleeper=""
-        # A session that ended in the nap is judged from its result, even past the limit (#991).
+        # A session that ended in the nap is judged from its result, even past the limit.
         session_running || break
         # shellcheck disable=SC2006  # backquotes on purpose, see job_running
         now=`date +%s`
@@ -1126,14 +1179,14 @@ keep_result() {
 }
 
 # find_ticket_pr <final message> — sets pr_num to this ticket's PR: an open one, or one merged while
-# the session still ran (#1082), which also sets pr_merged=1 and pr_branch to the merged PR's
+# the session still ran, which also sets pr_merged=1 and pr_branch to the merged PR's
 # branch. A session opens its PR well before it ends, and the PR looks finished by then, so the
 # owner may merge it. An open PR of the ticket goes first, even before a merged one the message
 # links: it still waits for review. A merged PR counts only when it was opened after this session
 # started: an older one is history from an earlier attempt. A PR closed without a merge never
 # counts. Without a PR it sets pr_problem for the log, pr_named to the number the message links, and
 # pr_unknown=1 when GitHub could not say whether there is one. pr_problem and pr_branch hold a branch
-# name, which anyone who opens a PR can choose, so only pr_named may reach a prompt (ADR-0026).
+# name, which anyone who opens a PR can choose, so only pr_named may reach a prompt.
 find_ticket_pr() {
     local url view pr_state pr_fork pr_head pr_created shown linked_merged="" found merged_line list_failed=0
     pr_num=""
@@ -1142,7 +1195,8 @@ find_ticket_pr() {
     pr_unknown=0
     pr_merged=0
     pr_branch=""
-    url="$(grep -oE 'https://github\.com/[^ )>,]+/pull/[0-9]+' <<< "$1" | head -1 || true)"
+    url="$(grep -oE 'https://github\.com/[^ )>,]+/pull/[0-9]+' <<< "$1" || true)"
+    url="${url%%$'\n'*}"
     if [ -n "$url" ]; then
         pr_named="${url##*/}"
         view="$(gh pr view "$pr_named" --json state,isCrossRepository,headRefName,createdAt \
@@ -1230,6 +1284,17 @@ if [ -n "$resume_session" ]; then
     resuming_kept=0
     keep_result 1
 else
+    # A new session reads the prompts of its fresh worktree, and this engine passes it facts in the
+    # shape of its own contract (CONTRACT.md). The worktree speaks another one when main brought a
+    # new engine version after this run started.
+    fresh_contract="$(worktree_contract)"
+    if [ "$fresh_contract" != "$LOOP_CONTRACT" ]; then
+        ending=1
+        meta outcome error
+        finish
+        log "the worktree's settings name contract ${fresh_contract:-none}, and this engine speaks contract $LOOP_CONTRACT: start the loop again from a checkout on the current main; no session started"
+        exit 3
+    fi
     log "fresh headless session starting in $WT (model=$MODEL, effort=$EFFORT, timeout=${TIMEOUT_MIN}m)"
     # A usage-limit retry that could not resume runs the ticket again in the same run folder: start
     # from clean logs.
@@ -1281,25 +1346,27 @@ while :; do
     fi
     [ -n "$run_session_id" ] || break
     left_min=$(( TIMEOUT_MIN - ( $(date +%s) - start_epoch ) / 60 ))
-    # A session that ended in its last nap is judged after the clock has run out (#991).
+    # A session that ended in its last nap is judged after the clock has run out.
     [ "$left_min" -ge 0 ] || left_min=0
     if [ "$left_min" -lt "$MIN_RESUME_MIN" ]; then
         log "the session needs a resume, but only ${left_min}m of the ticket's clock is left — not resuming"
         break
     fi
-    # A resume is a new process that may read the issue again, so the gate runs in front of it too
-    # (ADR-0026): a stranger's comment added since the start must not reach the session.
-    trust_rc=0
-    "$REPO_ROOT/scripts/claude/issue-trust.sh" "$ISSUE" || trust_rc=$?
-    if [ "$trust_rc" -eq 1 ]; then
-        meta outcome untrusted
-        finish
-        log "REFUSED by the provenance gate before a resume — untrusted writer (see above)"
-        exit 11
-    fi
-    if [ "$trust_rc" -ne 0 ]; then
-        log "provenance gate could not verify #$ISSUE before a resume (rc=$trust_rc) — not resuming"
-        break
+    # A resume is a new process that may read the issue again, so the gate runs in front of it too:
+    # a stranger's comment added since the start must not reach the session.
+    if [ "$LOOP_CFG_provenance_gate" = "on" ]; then
+        trust_rc=0
+        "$REPO_ROOT/scripts/claude/issue-trust.sh" "$ISSUE" || trust_rc=$?
+        if [ "$trust_rc" -eq 1 ]; then
+            meta outcome untrusted
+            finish
+            log "REFUSED by the provenance gate before a resume — untrusted writer (see above)"
+            exit 11
+        fi
+        if [ "$trust_rc" -ne 0 ]; then
+            log "provenance gate could not verify #$ISSUE before a resume (rc=$trust_rc) — not resuming"
+            break
+        fi
     fi
     # A stop that came while the loop judged the session's end cancels the resume (see `ending`).
     [ "$stop_requested" -eq 0 ] || stop_run
@@ -1326,7 +1393,7 @@ meta turns "$turns"
 meta minutes "$elapsed_min"
 [ -z "$known_session" ] || meta session "$known_session"
 
-# ── When the usage limit ends (#1078) ──────────────────────────────────────────────────────────
+# ── When the usage limit ends ──────────────────────────────────────────────────────────
 # The limit message names the minute the limit ends: "resets 8:20pm (Europe/Warsaw)". The conductor
 # then sleeps until that time instead of a fixed hour. Only this shape is read. Anything else, a
 # weekly limit with a date for example, gives no time, and the conductor takes the fixed nap.
@@ -1413,15 +1480,15 @@ if [ "$claude_rc" -ne 0 ] || [ "$is_error" = "true" ]; then
     session_failed=1
 fi
 if [ "$api_error_status" = "429" ] \
-    || { [ "$session_failed" -eq 1 ] && echo "$combined" | grep -qiE 'usage limit|session limit|rate.?limit|overloaded|quota'; }; then
+    || { [ "$session_failed" -eq 1 ] && grep -qiE 'usage limit|session limit|rate.?limit|overloaded|quota' <<< "$combined"; }; then
     meta outcome limit
-    # The conductor sleeps until this moment instead of a fixed nap (#1078). The stderr is read
+    # The conductor sleeps until this moment instead of a fixed nap. The stderr is read
     # only when the result names no time, as for the limit check above.
     seen="$(date +%s)"
     reset_at="$(reset_epoch "$result" "$seen" || reset_epoch "$err_tail" "$seen" || true)"
     [ -z "$reset_at" ] || meta reset_at "$reset_at"
     # The retry reads these when it has no kept worktree to resume, to find a PR merged during the
-    # nap (#1096). The branch is read before `finish`, which may move it to a salvage branch.
+    # nap. The branch is read before `finish`, which may move it to a salvage branch.
     meta started "$session_started"
     meta branch "$(kept_branch)"
     if keep_for_resume; then
@@ -1446,20 +1513,20 @@ if [ "$claude_rc" -ne 0 ] || [ "$is_error" = "true" ]; then
 fi
 
 # ── Judge the worker's final message (STATUS contract from /work-ticket) ───────────────────────
-if echo "$result" | grep -qE '^STATUS:[[:space:]]*BLOCKED'; then
+if grep -qE '^STATUS:[[:space:]]*BLOCKED' <<< "$result"; then
     meta outcome blocked
     gh label create loop-blocked --color e36209 \
         --description "claude-loop: needs human input" --force >/dev/null 2>&1 || true
     gh issue edit "$ISSUE" --add-label loop-blocked >/dev/null 2>&1 || true
     comment="$(printf '🤖 **claude-loop: BLOCKED** — needs your input before the loop retries this ticket.\n\n%s' \
-        "$(echo "$result" | head -c 4000)")"
+        "${result:0:4000}")"
     gh issue comment "$ISSUE" --body "$comment" >/dev/null 2>&1 || true
     finish
     log "BLOCKED — questions posted on the issue, labeled loop-blocked"
     exit 2
 fi
 
-if ! echo "$result" | grep -qE '^STATUS:[[:space:]]*DONE'; then
+if ! grep -qE '^STATUS:[[:space:]]*DONE' <<< "$result"; then
     meta outcome error
     finish
     log "no STATUS: DONE/BLOCKED contract in the final message after $resumes resume(s) — treating as error (see $OUT)"

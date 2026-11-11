@@ -4,8 +4,8 @@
 # Never start the loop from a Claude Code session. Since Claude Code 2.1.285, a command that the
 # Bash tool runs in the background is killed after two hours at most, and the kill is a SIGKILL to
 # the whole process tree. No trap runs then: the lock stays, no worker salvages its work, no resume
-# marker is written, and the next run skips those tickets. A normal batch runs five hours or more
-# (#969). A plain terminal has no such limit, so this script refuses to run inside a session.
+# marker is written, and the next run skips those tickets. A normal batch runs five hours or more.
+# A plain terminal has no such limit, so this script refuses to run inside a session.
 #
 # The conductor runs from its own detached checkout next to the main one (`<main checkout>-loop`),
 # moved to origin/main first, so the main checkout may sit on any branch. Whichever copy of this
@@ -14,7 +14,7 @@
 #
 # Ctrl-C, or closing the terminal, stops the loop, and each worker salvages its work first. To let
 # the running tickets finish and start nothing new, run
-# `touch .claude/backlog-loop.lock/stop-after-running` in the main checkout (#1050). The
+# `touch .claude/backlog-loop.lock/stop-after-running` in the main checkout. The
 # console is copied to logs/claude-loop/console-<timestamp>.log in the main checkout; /backlog with
 # no arguments builds the roll-up from that file.
 #
@@ -40,7 +40,7 @@ esac
 
 # Claude Code sets CLAUDECODE in every command its Bash tool runs.
 if [ -n "${CLAUDECODE:-}" ]; then
-    echo "start-loop: run this in a plain terminal, never from a Claude Code session (#969)" >&2
+    echo "start-loop: run this in a plain terminal, never from a Claude Code session (it kills a background command after two hours)" >&2
     exit 1
 fi
 
@@ -97,7 +97,7 @@ LOOP_CHECKOUT="$MAIN_ROOT-loop"
 # would change the files under a conductor that is running from there.
 lock_pid="$(cat "$MAIN_ROOT/.claude/backlog-loop.lock/pid" 2>/dev/null || true)"
 if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null \
-    && ps -p "$lock_pid" -o command= 2>/dev/null | grep -q 'backlog-loop.sh'; then
+    && grep -q 'backlog-loop.sh' <<< "$(ps -p "$lock_pid" -o command= 2>/dev/null || true)"; then
     echo "start-loop: a loop is already running (pid $lock_pid) — one at a time" >&2
     exit 1
 fi
@@ -108,7 +108,7 @@ processes="$(ps -A -o pid=,command= 2>/dev/null || true)"
 case "$processes" in
     *"bash $LOOP_CHECKOUT/scripts/claude/work-ticket.sh "*)
         echo "start-loop: workers from $LOOP_CHECKOUT are still running:" >&2
-        printf '%s\n' "$processes" | grep -F "bash $LOOP_CHECKOUT/scripts/claude/work-ticket.sh " >&2 || true
+        grep -F "bash $LOOP_CHECKOUT/scripts/claude/work-ticket.sh " <<< "$processes" >&2 || true
         echo "start-loop: wait until they end, or stop each one with kill <pid> (it salvages its work first)" >&2
         exit 1 ;;
 esac
@@ -150,20 +150,39 @@ printf 'start-loop: loop code %s\nstart-loop: console copy in %s\n' \
     "$(git -C "$LOOP_CHECKOUT" log --oneline -1 | cut -c1-80)" "$log" | tee -a "$log"
 
 # A relative path the caller gave means a folder seen from where they started this script, so it
-# becomes a full path before the cd below (#1080). pwd -P gives the real folder, so every program
+# becomes a full path before the cd below. pwd -P gives the real folder, so every program
 # reads a ".." in the path the same way. The value came from the environment, so the
 # conductor gets the new one.
 case "${LOOP_CONFIG_DIR:-}" in ''|/*) ;; *) LOOP_CONFIG_DIR="$(pwd -P)/$LOOP_CONFIG_DIR" ;; esac
 cd "$LOOP_CHECKOUT"
 # The full path makes every script under it, which works out its own folder from that path, safe
-# from CDPATH. caffeinate keeps macOS awake for the whole run; other systems run the loop as it is.
+# from CDPATH.
 conductor="$LOOP_CHECKOUT/scripts/claude/backlog-loop.sh"
+
+# What keeps the computer awake for the run. caffeinate keeps an idle Mac awake, but not a laptop
+# with a closed lid. systemd-inhibit holds an idle and sleep lock on Linux while logind grants one,
+# so a short lock is asked for first: a machine without logind, such as a container, refuses it,
+# and the loop then runs as it is. Other systems run the loop as it is.
+keep_awake=""
 if command -v caffeinate >/dev/null 2>&1; then
-    set -- caffeinate -is "$conductor" "$@"
-else
-    set -- "$conductor" "$@"
+    keep_awake=caffeinate
+elif command -v systemd-inhibit >/dev/null 2>&1 \
+    && systemd-inhibit --what=idle:sleep --who=claude-loop --why="backlog loop check" true >/dev/null 2>&1; then
+    keep_awake=systemd-inhibit
 fi
+
 # The copy ignores Ctrl-C, a closed terminal and TERM (a logout sends it to every process), and
 # ends only when every writer has closed the pipe. If it ended first, a worker that writes its
 # cleanup lines into the closed pipe would be killed by SIGPIPE before it salvaged anything.
-"$@" 2>&1 | (trap '' INT HUP TERM; exec tee -a "$log")
+case "$keep_awake" in
+    caffeinate)
+        caffeinate -is "$conductor" "$@" 2>&1 | (trap '' INT HUP TERM; exec tee -a "$log") ;;
+    systemd-inhibit)
+        # systemd-inhibit ignores Ctrl-C and a closed terminal too: when it dies, it ends its
+        # command with TERM, which would cut the conductor's salvage short. It starts the
+        # conductor with every signal back at its default, so Ctrl-C still reaches the loop.
+        (trap '' INT HUP; exec systemd-inhibit --what=idle:sleep --who=claude-loop \
+            --why="backlog loop running" "$conductor" "$@") 2>&1 | (trap '' INT HUP TERM; exec tee -a "$log") ;;
+    *)
+        "$conductor" "$@" 2>&1 | (trap '' INT HUP TERM; exec tee -a "$log") ;;
+esac

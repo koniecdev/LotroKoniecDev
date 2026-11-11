@@ -25,6 +25,11 @@ on:
       - '.claude/**'
       - 'LICENSE'
       - '.gitignore'
+      # The copy of the loop engine, its stamp and the loop settings ship nothing and the classifier
+      # calls them inert; pr-verify ran their copy check on the PR that brought them.
+      - 'scripts/claude/**'
+      - 'scripts/claude-loop.conf'
+      - 'scripts/claude-loop.engine'
 
 concurrency:
   group: ci-main-${{ github.ref }}

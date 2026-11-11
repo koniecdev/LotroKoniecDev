@@ -228,8 +228,9 @@ Then exactly one of three verdicts:
   — pick the most defensible reading and keep moving. Business answers are never invented.
 - **BOUNCE** → the premise is false, the work already shipped, it duplicates another ticket, it
   contradicts the wiki, it asks a part for a check that ADR-0067 gives to another part, or it asks
-  for a change inside `scripts/claude/`, the copy of the shared loop engine (`CLAUDE.md` → "Loop
-  mode": the change is made in the engine). Comment
+  for a hand edit inside `scripts/claude/`, the copy of the shared loop engine (`CLAUDE.md` → "Loop
+  mode": the change is made in the engine). A ticket that brings a new engine version with the
+  engine's sync tool is not such an edit. Comment
   the evidence on the issue and STOP — no branch, no code. A wrong ticket does not get implemented
   because it exists. Closing it is the user's call — never close, just report.
 

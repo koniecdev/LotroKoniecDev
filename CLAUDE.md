@@ -807,9 +807,9 @@ this repo's settings and their reasons are in `docs/claude-loop.md`.
   is byte for byte one engine commit, named with its tree id in the stamp
   `scripts/claude-loop.engine`, and `scripts/claude/verify-copy.sh` fails CI when the copy is not
   the tree its stamp names. A loop bug or feature is fixed in the engine and arrives here in
-  a sync PR, worked by hand with `/ticket`, never by the loop. A ticket that asks for a change
-  inside the copy is mis-scoped: BOUNCE it (`/ticket`) or end BLOCKED (`/work-ticket`), and never
-  edit the stamp to make the check pass. What this repo decides for itself is
+  a sync PR, worked by hand with `/ticket`, never by the loop. A ticket that asks for a hand edit
+  inside the copy (a loop fix or feature, not a sync) is mis-scoped: BOUNCE it (`/ticket`) or end
+  BLOCKED (`/work-ticket`), and never edit the stamp to make the check pass. What this repo decides for itself is
   `scripts/claude-loop.conf`, a reviewed file like any other.
 - **The loop is a script, not a session.** The owner starts the conductor
   (`scripts/claude/backlog-loop.sh`) with `scripts/claude/start-loop.sh` in a plain terminal,

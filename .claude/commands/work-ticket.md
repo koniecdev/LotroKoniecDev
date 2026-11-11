@@ -208,9 +208,9 @@ everything that matters must be committed and pushed.
   assertions untouched, and must not regress behavior proven in `docs/knowledge-base/`.
 - **Never edit `scripts/claude/` or `scripts/claude-loop.engine`.** They are a copy of the
   maintainer's shared loop engine and its stamp, and CI fails when the copy is not the tree its stamp
-  names. A ticket that needs a change there (a loop bug, a loop feature) → STOP, return
-  `BLOCKED` (category: mis-scope) and name the change: it is made in the engine and arrives here in
-  a sync PR. Never edit the stamp to make the check pass. `scripts/claude-loop.conf` is this repo's
+  names. A ticket that needs a change there (a loop bug, a loop feature, or a sync of a new engine
+  version, which is done by hand) → STOP, return `BLOCKED` (category: mis-scope) and name the
+  change: it is made in the engine and arrives here in a sync PR. Never edit the stamp to make the check pass. `scripts/claude-loop.conf` is this repo's
   own and changes like any other file.
 - Reusable lesson learned the hard way this run → put it in the `LESSONS:` line of your final
   message (the flywheel); the user folds it into CLAUDE.md / agent memory / an ADR.

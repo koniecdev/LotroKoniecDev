@@ -34,8 +34,10 @@ the loop. The gate's decision stands. Where its parts live changes.
   change here without the copy check failing, and it would have to stub `gh` the way the engine
   calls it, so a new engine version could break it here: the drift that the copy removes.
 - **What the copy check does not prove.** It stops a hand edit of the copy. It does not stop an
-  edit of the copy, the stamp and the check made together in one PR: the owner's review of that PR
-  does, as it did for every change to the scripts before. This public repo cannot read the private
+  edit of the copy made together with the stamp's `tree=` line in one PR, because the check trusts
+  the stamp (and its failure message prints the tree id the stamp would need). The owner's review
+  of that PR stops it, as it did for every change to the scripts before, and `CLAUDE.md` forbids a
+  session to edit the stamp. This public repo cannot read the private
   engine, so only the maintainer's `verify-copy.sh --engine <engine checkout>` checks that the stamp
   names a real engine commit. The engine's test profile has this repo's trust lists today, but
   nothing keeps the two equal: a change to the trust lists here is no longer tested with its exact

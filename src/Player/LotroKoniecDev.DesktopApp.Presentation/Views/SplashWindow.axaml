@@ -1,0 +1,19 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="LotroKoniecDev.DesktopApp.Presentation.Views.SplashWindow"
+        Title="LOTRO po Polsku"
+        Icon="/Assets/app.ico"
+        Width="360"
+        Height="240"
+        CanResize="False"
+        WindowDecorations="None"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterScreen">
+    <Border Background="#1A241C" BorderBrush="#C9A24A" BorderThickness="1">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+            <Image Source="/Assets/app.png" Width="112" Height="112" />
+            <TextBlock Name="TitleText" Text="LOTRO po Polsku" FontSize="24" FontWeight="SemiBold"
+                       Foreground="#F7D774" HorizontalAlignment="Center" />
+        </StackPanel>
+    </Border>
+</Window>

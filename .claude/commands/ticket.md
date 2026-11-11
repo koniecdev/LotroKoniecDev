@@ -329,7 +329,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   patcher suites print "not run" instead of running. Never narrow it to
   `tests/LotroKoniecDev.Tests.Unit` because the diff "cannot reach" the rest — that judgement is
   the mistake. New behavior covered (happy path + failure modes + boundary `[Theory]` cases), and
-  report the counts rather than "tests pass". Local minutes cost nothing; GitHub Actions minutes
+  report the counts rather than "tests pass". A test project that is red only in the full run:
+  re-run and report it as `code-reviewer.md` Phase 0 step 3 says. Local minutes cost nothing; GitHub Actions minutes
   are the scarce resource, so a suite skipped here and run on a runner is pure waste. Anything
   that will not run locally is unproven: say which, and do not open the PR. The one exception is
   the two Windows-only patcher suites in a session that is not on Windows: for a diff that changes
@@ -374,12 +375,19 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     (`.claude/agents/code-reviewer.md`). Its brief carries:
     - the ticket number, step 2's acceptance criteria, and the base: `origin/main...HEAD`, with the
       `origin/main` SHA;
+    - the commit under review: the SHA `git rev-parse HEAD` prints, with nothing uncommitted. The
+      reviewer runs the gates on it itself (`code-reviewer.md` Phase 0);
     - the maintainer's decisions, quoted from the gate's answers and the `Owner decision` comments on the issue that pass step 2's test, and the follow-up tickets already filed, so they are not raised again as blockers;
     - every assumption the plan made and every reason it gives for not taking an alternative the
       ticket or `/buddy` names: these are the session's own calls, and the reviewer checks them;
     - the wiki clone's absolute path (beside the main checkout), so it can check them against the wiki;
-    - the gates you already ran, with their results;
-    - "read-only: any probe runs in a throwaway worktree";
+    - the gates you already ran on that commit: each command as you ran it
+      (`dotnet build LotroKoniecDev.slnx`, `dotnet test`, each `scripts/check-*.sh`) and its result,
+      with the result line of each test project pasted as `dotnet test` printed it, not retyped. A
+      gate red on that commit, or a test project or guard missing from your results, comes back
+      as Critical;
+    - "read-only: Phase 0's gate run is the one thing you run in this folder; any other probe runs
+      in a throwaway worktree";
     - the bar: Critical/Major as `code-reviewer.md` defines them, its hard rule on untested
       unhappy paths included; wording and taste are Minor and do not block APPROVE;
     - in round 3, "this is round 3", every commit made since round 1's review as it is on `HEAD`
@@ -387,6 +395,11 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
       1 resolved, so the report carries its `Fix-made defects:` line (`code-reviewer.md` → Output);
     - "write the report, the reviewed SHA and a final `VERDICT:` line to
       `<scratchpad>/<n>-review-r<round>.md`, and end your turn only after the file exists".
+
+    Wait for the reviewer: while it runs, do not edit, commit or run tests in this worktree. Its gate
+    run reads this folder, and a second run of a suite in one worktree breaks the E2E images
+    (`tests/CLAUDE.md`). A Phase 0 Critical with no code to fix (a test project missing from your
+    results but green there) is fixed by running that gate yourself; the next round still counts.
 
     A Major for a false assumption that decided the design takes step 8's design route instead. Fix
     every Critical/Major, commit, re-run the gates, then **spawn a fresh `code-reviewer`** for the
@@ -426,7 +439,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     and a new session would have to run that round and open the PR.
   - **Trust a verdict only after you check its file:** it exists, it is newer than the commit it
     names, and that commit is `HEAD` or differs from it only by Minor fixes, the second pass's
-    bucket-1 fixes (below) or a rebase with no conflict (step 8), with the gates green again. A
+    bucket-1 fixes (below) or a rebase with no conflict (step 8), with the gates green again (step
+    8's gates-only run proves them on the commit you push). A
     reviewer that reports "completed" with no file has stalled. In an interactive session, one
     message asking it to write the file now is the fix; its answer comes back as a notification,
     which a headless session never gets (`/work-ticket` spawns a fresh reviewer instead). A file
@@ -504,6 +518,13 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   never start. A rebase with no conflict keeps the verdict (it changes no line of this diff, as
   ADR-0060 has it for the owner's approval). One where you resolved a conflict changed reviewed
   code: it needs a fresh `code-reviewer` round, which counts as a round.
+- **The pushed commit gets a gate run of its own, before every push** (#1319). When a
+  `code-reviewer` reviewed this diff and `HEAD` is not the commit named in its last report (Minor
+  fixes, second-pass fixes, a rebase, a CodeQL fix), spawn a fresh `code-reviewer` with "gates
+  only", that brief's lines on the commit and your gate results, writing
+  `<scratchpad>/<n>-gates.md`. It is not a review round. `GATES: RED` is a red gate: fix it,
+  commit, re-run your gates and run it again. The suite counts in the report's Proof come from the
+  last reviewer gate run on the pushed commit.
 - **A PR ships only when nothing can be wrong.** Every gate above is already green on the pushed
   commit and no open question, TODO or unverified assumption remains. Any gate unproven (Docker
   down, a suite skipped, review verdict missing) → **push the branch, write the report (step 9) as
@@ -587,7 +608,7 @@ The PR body (or the issue comment, when there is no PR) ends with:
 ```markdown
 ## Ticket report
 **Shipped:** <what changed, behaviorally, 1-3 lines>
-**Proof:** <each gate with its actual result: build, the suite counts, guards, the reviewer the diff picked with its rounds and verdict, the second-pass `/code-review` split (fixed / filed / already decided / opinion, each rejection with its reason), CodeQL (see below)>
+**Proof:** <each gate with its actual result: build, the suite counts (from the reviewer's gate run on the pushed commit, when a `code-reviewer` ran), guards, the reviewer the diff picked with its rounds and verdict, the second-pass `/code-review` split (fixed / filed / already decided / opinion, each rejection with its reason), CodeQL (see below)>
 **Assumptions:** <every judgment call made without the user, each with why + risk — "none" is a valid entry, silence is not>
 **Doubts:** <anything not fully verified or that smells — same rule>
 **Follow-ups:** <tickets filed, or bullets worth one>

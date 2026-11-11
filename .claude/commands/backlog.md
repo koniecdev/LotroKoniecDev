@@ -73,7 +73,8 @@ Then tell the owner, in a few short lines:
 
 - the loop runs in that terminal, from its own checkout next to the main one (`<MAIN>-loop`), moved
   to `origin/main` first — the main checkout may stay on any branch, and they may keep working in
-  it; only the `.claude/worktrees/ticket-<n>` folders belong to the loop;
+  it; the loop works only in `.claude/worktrees/ticket-<n>` folders, the same ones an interactive
+  `/ticket <n>` uses, so it skips a ticket whose folder already exists;
 - Ctrl-C, or closing the terminal, stops the run, and each worker salvages its work first;
 - to let the running tickets finish and start nothing new, run
   `touch <MAIN>/.claude/backlog-loop.lock/stop-after-running` (#1050). It sends no signal. It fails

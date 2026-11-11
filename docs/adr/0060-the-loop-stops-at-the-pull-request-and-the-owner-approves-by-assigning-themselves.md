@@ -5,8 +5,22 @@
 **Decision-makers:** Solo maintainer
 **Related:** `scripts/claude/backlog-loop.sh`, `scripts/claude/work-ticket.sh`,
 `scripts/claude/next-ticket.sh`, `.claude/commands/work-ticket.md`, `.claude/commands/backlog.md`,
-`docs/claude-loop.md`, `.github/dependabot.yml`, the maintainer's `merge-train` skill (outside this
-repo); ADR-0026 (its §D is reversed here); ticket #884 / PR #895 (per-worktree E2E images)
+`scripts/claude/LOOP.md`, `docs/claude-loop.md`, `.github/dependabot.yml`, the maintainer's
+`merge-train` skill (outside this repo); ADR-0026 (its §D is reversed here); ticket #884 / PR #895
+(per-worktree E2E images); ticket #1317 (the loop's code becomes a copy of the shared engine)
+
+## Amendment (2026-11-11): the loop's code is a copy of the shared loop engine
+
+**Keeps §1's rule that the loop runs only reviewed code, for the copy (#1317).** `scripts/claude/`
+is now a byte-for-byte copy of the maintainer's shared loop engine, with the stamp
+`scripts/claude-loop.engine` (which engine commit) and this repo's settings
+`scripts/claude-loop.conf` beside it. The conductor refuses to start when `scripts/claude/`, the
+stamp or the settings differ from `origin/main` (`LOOP_ALLOW_LOCAL_SCRIPTS=1` is still the explicit
+way round it). A new engine version reaches `origin/main` only in a reviewed PR of this repo,
+worked by hand, never by the loop, so the code that runs is still the code the owner reviewed. The
+rest of this ADR stands: the loop stops at the PR, and the owner approves by assigning
+themselves. The manual moved to `scripts/claude/LOOP.md`, with the same section names;
+`docs/claude-loop.md` explains this repo's settings.
 
 ## Amendment (2026-10-11): a PR merged before its session ends counts as done
 
@@ -17,7 +31,7 @@ would have stopped the run (#1082). Now a merged PR from the ticket's own branch
 the session started, is a success with its own outcome, `merged`: no resume, no failure count,
 and the worktree goes as for an open PR. A PR closed without a merge, or merged before the
 session started, is still an error. The loop never merges, as before. Details:
-`docs/claude-loop.md`, "Outcomes & triage".
+`scripts/claude/LOOP.md`, "Outcomes & triage".
 
 ## Amendment (2026-10-05): the merge train fixes conflicts itself, and its fix keeps the approval
 
@@ -75,7 +89,7 @@ flight", and the picker no longer hides such a ticket. Any other worktree still 
 on the ticket, and an open PR still means the ticket waits for review, with one exception: an open
 PR from the kept worktree's own branch belongs to the session that is resumed. So the salvage and
 removal in §2 now happen when the resumed session ends, not at the limit. Nothing here merges or
-assigns. Details: `docs/claude-loop.md`, "A session stopped by a usage limit, or DONE without a
+assigns. Details: `scripts/claude/LOOP.md`, "A session stopped by a usage limit, or DONE without a
 PR".
 
 ## Amendment (2026-09-28): rebase only, and the push log decides what the owner read
@@ -349,4 +363,4 @@ the same either way, so serial only costs wall-clock time. `-j 1` stays availabl
 - ADR-0026 — the provenance gate; its §D ("require human approval before every loop merge") is
   reversed by this ADR.
 - #884 / PR #895 — per-worktree E2E image tags, the precondition for parallel runs.
-- `docs/claude-loop.md` — the loop manual.
+- `scripts/claude/LOOP.md` — the loop manual; `docs/claude-loop.md` — this repo's settings.

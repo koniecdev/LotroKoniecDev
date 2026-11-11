@@ -1226,7 +1226,7 @@ away in real production too.
 
 | Workflow | When | What it guards |
 |---|---|---|
-| `pr-verify` | every PR | **the merge gate** ("Pull Request Verification"): the cheap script guards (SSR purity, client hypermedia, Docker restore graph, migration safety, loop provenance) and their self-tests, a Release build with **zero warnings**, unit tests and integration tests — each run only when the diff can break it; plus a build and Trivy scan of each image when the images can change. The details are in `CLAUDE.md` |
+| `pr-verify` | every PR | **the merge gate** ("Pull Request Verification"): the cheap script guards (SSR purity, client hypermedia, Docker restore graph, migration safety) and their self-tests, the check that the backlog loop's scripts are an unchanged copy of the shared loop engine, a Release build with **zero warnings**, unit tests and integration tests — each run only when the diff can break it; plus a build and Trivy scan of each image when the images can change. The details are in `CLAUDE.md` |
 | `ci` | push to main | the build and both test suites after the merge; CD starts only from a green CI |
 | `cd` | after CI succeeds | build 4 images once → security scan (Trivy, fails on fixable HIGH/CRITICAL) → sign (cosign, keyless) + provenance + SBOM → auto-deploy **staging** → wait for human approval → deploy **production** |
 | `deploy` | reusable | the rollout over ssh described below |

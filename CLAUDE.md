@@ -125,7 +125,7 @@ validator.
 | Make a PR body, report or comment readable for a non-native reader | **`/b2-english <PR# / comment URL / file>`**; `/ticket` and `/work-ticket` run it on the PR body before `gh pr create`, so a PR opens with its final text (#1083) |
 | Touch the `\|\|` translation file (parser, serializer, a column) | `README.md` → "Translation file format", the rules digest below, ADRs 0039/0042/0043/0047; golden fixtures on both sides; the format changes only via ADR |
 | **File** an issue, label one, or title one | `docs/labels.md` *before* `gh issue create`: the five axes, the title convention, the three-signal epic rule and one bug class per ticket. It is shared 1:1 with the maintainer's other repo; a change in one is ported to the other in the same session |
-| Run the backlog autonomously (Loop mode) | **`scripts/claude/start-loop.sh <numbers>` in a plain terminal**, never from a session (#969); **`/backlog <numbers>`** prints that line, `/backlog` after the run reports the roll-up. Manual: `docs/claude-loop.md` |
+| Run the backlog autonomously (Loop mode) | **`scripts/claude/start-loop.sh <numbers>` in a plain terminal**, never from a session (#969); **`/backlog <numbers>`** prints that line, `/backlog` after the run reports the roll-up. Manual: `scripts/claude/LOOP.md`; this repo's settings: `docs/claude-loop.md` |
 | Merge reviewed PRs | **`/merge-train`**: merges only PRs the owner approved by assigning themselves after the last push, and fixes an approved PR's conflicts itself (ADR-0060) |
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
 | Re-investigate update behaviour, vnum, translation survival, launch flow | **don't**: empirically settled in `docs/knowledge-base/` (start at its README) |
@@ -168,7 +168,7 @@ gh issue view <n>                                      # body holds Context / De
 gh issue develop <n> --checkout                        # create + checkout the linked "{n}-{kebab-title}" branch
 gh pr create --fill --body "Closes #<n>"               # PR title mirrors the ticket; body closes it
 
-# Backlog loop — start it in a plain TERMINAL, never from a Claude Code session (#969). Manual: docs/claude-loop.md
+# Backlog loop — start it in a plain TERMINAL, never from a Claude Code session (#969). Manual: scripts/claude/LOOP.md
 scripts/claude/start-loop.sh 123 130 131               # exactly these tickets (the normal use); -j 1 = one at a time; -n 3 = next 3 ready
 touch .claude/backlog-loop.lock/stop-after-running     # from the main checkout: finish the running tickets, start no new ones (#1050); Ctrl-C stops them too
 scripts/claude/next-ticket.sh                          # print the next READY ticket
@@ -572,6 +572,10 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
     scan, they can hide one (`void ÜDown(` ended the scan of `Up()`), so keep `[[:space:]]` there
     unless nothing valid can stand in that place. macOS grep and sed act differently, so prove a
     guard change on Linux with `LANG=C.UTF-8`.
+  - `scripts/claude/verify-copy.sh` (+ `.ps1` twin), the backlog-loop copy check, is not one of
+    these guards: it is part of the copy of the loop engine, whose own CI runs its tests and both
+    twins. `pr-verify` runs it on every PR, with no verdict, and `ci` runs it too; there is no
+    self-test of it here.
   - **The Blazor exception (#414):** the frontend image's `dotnet build` runs **without**
     `--no-restore`, because `blazor.web.js` comes from a package the SDK references only once it
     sees `.razor` files, never in the `.csproj`-only restore; with the flag every `_framework/*`
@@ -592,7 +596,7 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
 - **CI runs what the diff can break, nothing more (`scripts/ci/classify-changes.sh`).** Every PR
   gets three **independent** verdicts: `code` (restore + Release build + unit + integration tests),
   `guards` (the cheap bash gates CI executes: SSR purity, client hypermedia, Dockerfile restore
-  graph, migration safety, loop provenance) and `images`. Keep them independent: a change to a
+  graph, migration safety, the box scripts' self-tests) and `images`. Keep them independent: a change to a
   script CI merely runs must not pay for the .NET gate. The failure that matters is the other
   direction: a **build input** (`.editorconfig`, `Directory.*.props`, `global.json`, a fixture, a
   script a test reads: #1163) in the inert list buys a silent false green, so `scripts/tests/classify-changes.tests.sh` pins both
@@ -796,8 +800,17 @@ Per-suite details (inventory, libraries, snapshots, E2E, conventions): `tests/CL
 ### Loop mode — one ticket = one PR, in its own fresh headless process and worktree
 
 Two non-negotiables: **one ticket = one PR** (git hygiene) and **one ticket = one fresh context**
-(cost and quality). The full manual, with every outcome and setting, is `docs/claude-loop.md`.
+(cost and quality). The full manual, with every outcome and setting, is `scripts/claude/LOOP.md`;
+this repo's settings and their reasons are in `docs/claude-loop.md`.
 
+- **`scripts/claude/` is a copy of the maintainer's shared loop engine: never edit it here.** It
+  is byte for byte one engine commit, named with its tree id in the stamp
+  `scripts/claude-loop.engine`, and `scripts/claude/verify-copy.sh` fails CI when the copy is not
+  the tree its stamp names. A loop bug or feature is fixed in the engine and arrives here in
+  a sync PR, worked by hand with `/ticket`, never by the loop. A ticket that asks for a hand edit
+  inside the copy (a loop fix or feature, not a sync) is mis-scoped: BOUNCE it (`/ticket`) or end
+  BLOCKED (`/work-ticket`), and never edit the stamp to make the check pass. What this repo decides for itself is
+  `scripts/claude-loop.conf`, a reviewed file like any other.
 - **The loop is a script, not a session.** The owner starts the conductor
   (`scripts/claude/backlog-loop.sh`) with `scripts/claude/start-loop.sh` in a plain terminal,
   never from a Claude Code session: a background command there is killed after two hours with no

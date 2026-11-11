@@ -196,7 +196,7 @@ three at once, or the hold stops without a warning.
 `M{milestone}-{nn}` title prefix, not through `release-*` labels.
 
 The picker skips `loop-blocked`, `epic`, `question`, `wontfix`, `invalid`, `duplicate`, `audit`
-and `post-mvp` by default (`LOOP_SKIP_LABELS`); see `docs/claude-loop.md`.
+and `post-mvp` (`skip_labels` in `scripts/claude-loop.conf`); see `docs/claude-loop.md`.
 
 ## Housekeeping
 

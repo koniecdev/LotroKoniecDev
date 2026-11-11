@@ -1,13 +1,50 @@
 # ADR-0026: Issue provenance gate — only maintainer-written text may drive the autonomous loop
 
-**Status:** Accepted — §D reversed by ADR-0060 (2026-09-27): the loop no longer merges
+**Status:** Accepted — §D reversed by ADR-0060 (2026-09-27): the loop no longer merges; §1, §4,
+§5 amended 2026-11-11 (the gate is part of a copy of the shared loop engine)
 **Date:** 2026-07-09
 **Decision-makers:** Solo maintainer
-**Related:** ticket #398 (AUDIT-SEC-08), `docs/claude-loop.md` (the loop manual — Safety model),
+**Related:** ticket #398 (AUDIT-SEC-08), `scripts/claude/LOOP.md` (the loop manual — Safety model),
 `scripts/claude/issue-trust.sh` (the gate), `scripts/claude/next-ticket.sh` (picker),
-`scripts/claude/work-ticket.sh` (per-ticket runner), `.claude/commands/work-ticket.md` (the worker
-prompt whose contract makes comments authoritative), CLAUDE.md ("Loop mode" — the standing
-commit/push/PR/merge authorization this ADR bounds).
+`scripts/claude/work-ticket.sh` (per-ticket runner), `scripts/claude-loop.conf` (this repo's gate
+settings), `.claude/commands/work-ticket.md` (the worker prompt whose contract makes comments
+authoritative), CLAUDE.md ("Loop mode" — the standing commit/push/PR authorization this ADR
+bounds), ticket #1317 (the copy).
+
+## Amendment (2026-11-11): the gate is part of a copy of the shared loop engine, and its tests run there
+
+**Changes §1, §4, §5 and the Implementation Notes (#1317).** `scripts/claude/` is now a
+byte-for-byte copy of the maintainer's shared loop engine, the same in every repository that runs
+the loop. The gate's decision stands. Where its parts live changes.
+
+- **§1 and §4: the policy values are this repo's settings.** The trusted associations, the trusted
+  logins and the skip labels are no longer defaults inside the scripts. They are lines in
+  `scripts/claude-loop.conf`: `provenance_gate=on`, `trusted_associations=OWNER,MEMBER,COLLABORATOR`,
+  an empty `trusted_logins=`, and `audit` in `skip_labels`. The environment variables of §1 and §4
+  still override them for one run. A change to these lines is reviewed like code, and widening the
+  trust lists needs an ADR. Switching the gate off does not work in this repo: with the gate off,
+  the engine starts no session unless GitHub reports the repository private.
+- **§5: no self-test of the gate in this repo.** The gate's suite runs in the engine's own CI, under
+  a test profile with the gate on and the same trust lists, and the engine's sync tool copies only
+  an engine commit whose CI run ended green. Instead, `pr-verify` runs
+  `scripts/claude/verify-copy.sh` on every PR here, and `ci` on every push to `main` it runs for
+  (`main` takes changes only through a PR). It fails when the copy is not exactly the
+  git tree that the stamp `scripts/claude-loop.engine` names, or when the settings do not fit that
+  engine version. A small local self-test was weighed and rejected. It would test code that cannot
+  change here without the copy check failing, and it would have to stub `gh` the way the engine
+  calls it, so a new engine version could break it here: the drift that the copy removes.
+- **What the copy check does not prove.** It stops a hand edit of the copy. It does not stop an
+  edit of the copy made together with the stamp's `tree=` line in one PR, because the check trusts
+  the stamp (and its failure message prints the tree id the stamp would need). The owner's review
+  of that PR stops it, as it did for every change to the scripts before, and `CLAUDE.md` forbids a
+  session to edit the stamp. This public repo cannot read the private
+  engine, so only the maintainer's `verify-copy.sh --engine <engine checkout>` checks that the stamp
+  names a real engine commit. The engine's test profile has this repo's trust lists today, but
+  nothing keeps the two equal: a change to the trust lists here is no longer tested with its exact
+  values.
+- **Implementation Notes.** They still describe the gate in the copy, with two changes: the engine
+  takes the repository from `repo=` in the settings, not from the folder it runs in, and the
+  mutation-checked cases now live in the engine's suite.
 
 ## Context
 
@@ -188,4 +225,4 @@ invites trusting it. Refusing is correct and cheap.
 
 - Ticket #398 — AUDIT-SEC-08 (the finding, from the `security` audit lens, 2026-07-07).
 - GitHub REST: `author_association` on issues and issue comments.
-- `docs/claude-loop.md` — Safety model, Knobs, Troubleshooting.
+- `scripts/claude/LOOP.md` — Safety model, Knobs, Troubleshooting.

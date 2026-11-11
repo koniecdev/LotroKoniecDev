@@ -248,8 +248,9 @@ you cloned the repo and wondered what those files are, they split cleanly in two
   `datexport.dll` call surface. The first and the last are worth reading as plain documentation
   even if you never run an AI tool.
 - **For the maintainer only** — `scripts/claude/` and [`docs/claude-loop.md`](docs/claude-loop.md),
-  an autonomous backlog loop that needs write access to this repository. Nothing there is required
-  to build, test or contribute; see [`scripts/claude/README.md`](scripts/claude/README.md).
+  an autonomous backlog loop that needs write access to this repository. `scripts/claude/` is a
+  copy of the maintainer's loop engine: do not edit it here. Nothing there is required to build,
+  test or contribute; see [`scripts/claude/README.md`](scripts/claude/README.md).
 
 **If you are filing an issue:** that loop reads issue text as instructions, so every ticket passes a
 provenance gate (ADR-0026) that trusts only writers with repository access, and fails closed.

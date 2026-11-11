@@ -3,22 +3,22 @@
 # from origin/main, up to `-j` at a time. Loop control is deterministic bash (zero tokens), so no
 # context ever balloons no matter how many tickets run.
 #
-# It stops at the pull request. Nothing here merges (ADR-0060): you review each PR, approve it by
+# It stops at the pull request. Nothing here merges: you review each PR, approve it by
 # assigning yourself, and merge the approved batch with /merge-train.
 #
 #   work-ticket.sh <n> (worktree → session → PR)  ×  up to -j at once  →  roll-up table of PRs
 #
 # After a usage limit it waits for the running tickets, sleeps until two minutes after the time the
-# limit message names (#1078), and runs the limited tickets again; work-ticket.sh then resumes each
-# one's session in the worktree it kept (#934).
+# limit message names, and runs the limited tickets again; work-ticket.sh then resumes each
+# one's session in the worktree it kept.
 #
 # To stop after the tickets that run now, create the file stop-after-running in the lock folder,
 # from the main checkout: `touch .claude/backlog-loop.lock/stop-after-running`. The loop starts
-# nothing new, lets the running tickets finish, and lists the tickets it did not start (#1050).
+# nothing new, lets the running tickets finish, and lists the tickets it did not start.
 # Ctrl-C stops the running tickets too.
 #
 # Start a real run with scripts/claude/start-loop.sh, in a plain terminal: a Claude Code session
-# kills its background commands after two hours (#969). Running this script directly is for a
+# kills its background commands after two hours. Running this script directly is for a
 # checkout that is up to date with main.
 #
 # Usage:
@@ -30,12 +30,14 @@
 #
 # Env (all forwarded to work-ticket.sh): LOOP_EFFORT and LOOP_MODEL (defaults come from the
 #   worker role in ~/.claude/model-policy.env when present, else high/opus),
-#   LOOP_CONFIG_DIR (default ~/.claude-account1 — which account runs the loop),
+#   LOOP_CONFIG_DIR (which Claude account runs the loop; default: claude_config_dir in the settings),
 #   LOOP_PERMISSION_MODE (default auto), LOOP_UNSAFE, LOOP_MAX_BUDGET_USD,
 #   LOOP_TICKET_TIMEOUT_MIN, LOOP_MAX_RESUMES, LOOP_KEEP_WORKTREE, LOOP_SKIP_LABELS,
 #   BASH_MAX_TIMEOUT_MS / BASH_DEFAULT_TIMEOUT_MS (the worker's Bash timeouts),
-#   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE (the provenance gate —
-#   ADR-0026; it also fires on explicitly-named tickets, which never touch the picker).
+#   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE (the provenance gate, when
+#   the settings turn it on; it also fires on explicitly-named tickets, which never touch the
+#   picker), LOOP_GH_USER (whose gh token the whole run uses; default: gh_user in the settings).
+#   The repository's own settings are in scripts/claude-loop.conf (CONTRACT.md, section 2).
 #   Loop-only: LOOP_PARALLEL (default 3, same as -j), LOOP_ALLOW_LOCAL_SCRIPTS=1 (run even when
 #   scripts/claude/ here differs from origin/main), LOOP_LIMIT_SLEEP_MIN (default 60 — the nap
 #   when no limit message names a time, or when two minutes after it have already passed),
@@ -48,10 +50,10 @@
 # blocked-ticket triage is on GitHub: `gh issue list --label loop-blocked`.
 set -euo pipefail
 
-# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
+# With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here.
 REPO_ROOT="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
 # A relative path the caller gave means a folder seen from where they started this script, so it
-# becomes a full path before the cd below (#1080). pwd -P gives the real folder, so every program
+# becomes a full path before the cd below. pwd -P gives the real folder, so every program
 # reads a ".." in the path the same way. The value came from the environment, so the
 # workers get the new one.
 case "${LOOP_CONFIG_DIR:-}" in ''|/*) ;; *) LOOP_CONFIG_DIR="$(pwd -P)/$LOOP_CONFIG_DIR" ;; esac
@@ -69,7 +71,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         -n) MAX="${2:?-n needs a number}"; shift 2 ;;
         -j) PARALLEL="${2:?-j needs a number}"; shift 2 ;;
-        # $0 may be relative to the caller's folder, which the cd above has left (#1080).
+        # $0 may be relative to the caller's folder, which the cd above has left.
         -h|--help) sed -n '2,/^set /p' "$SCRIPTS/backlog-loop.sh" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
         [0-9]*)
             # A number given twice would start two workers racing for one worktree.
@@ -82,24 +84,32 @@ case "$PARALLEL" in
     ''|*[!0-9]*|0) echo "-j needs a positive number, got '$PARALLEL'" >&2; exit 1 ;;
 esac
 
-# A Claude Code session kills its background commands after two hours, and nothing cleans up then
-# (#969). Claude Code sets CLAUDECODE in every command its Bash tool runs.
+# A Claude Code session kills its background commands after two hours, and nothing cleans up then.
+# Claude Code sets CLAUDECODE in every command its Bash tool runs.
 if [ -n "${CLAUDECODE:-}" ]; then
-    echo "backlog-loop: run the loop in a plain terminal with scripts/claude/start-loop.sh, never from a Claude Code session (#969)" >&2
+    echo "backlog-loop: run the loop in a plain terminal with scripts/claude/start-loop.sh, never from a Claude Code session (it kills a background command after two hours)" >&2
     exit 1
 fi
 
 # The loop scripts run from THIS checkout, while every worker session reads its /work-ticket prompt
-# from origin/main. A checkout on an old branch would run old loop code, and before ADR-0060 that
-# code merged PRs by itself. So the loop starts only when scripts/claude/ matches origin/main.
+# from origin/main. A checkout on an old branch would run old loop code, and an old version of that
+# code merged PRs by itself. So the loop starts only when scripts/claude/, its stamp and the
+# repository's loop settings match origin/main.
 if [ "${LOOP_ALLOW_LOCAL_SCRIPTS:-0}" != "1" ]; then
     git fetch --quiet origin main 2>/dev/null || true
-    if ! git diff --quiet origin/main -- scripts/claude/ 2>/dev/null; then
-        echo "scripts/claude/ in $REPO_ROOT differs from origin/main — refusing to run old or unreviewed loop code." >&2
+    if ! git diff --quiet origin/main -- scripts/claude/ scripts/claude-loop.conf scripts/claude-loop.engine 2>/dev/null; then
+        echo "scripts/claude/ or its settings in $REPO_ROOT differ from origin/main — refusing to run old or unreviewed loop code." >&2
         echo "Run the loop from a checkout that is up to date with main, or set LOOP_ALLOW_LOCAL_SCRIPTS=1 on purpose." >&2
         exit 1
     fi
 fi
+
+# shellcheck source=loop-config.sh
+. "$SCRIPTS/loop-config.sh"
+load_loop_config "$REPO_ROOT" || exit 1
+# The picker, the roll-up and every worker inherit the token minted here.
+conductor_log() { echo "[conductor] $*" >&2; }
+mint_gh_token conductor_log
 
 LIMIT_SLEEP_MIN="${LOOP_LIMIT_SLEEP_MIN:-60}"
 LIMIT_RETRIES="${LOOP_LIMIT_RETRIES:-8}"
@@ -116,7 +126,7 @@ notify() {
 # owner and a lock whose owner is gone is reclaimed instead of blocking the loop forever.
 LOCK="$MAIN_ROOT/.claude/backlog-loop.lock"
 LOCK_OWNER="$LOCK/pid"
-# It lives in the lock folder, so it goes away with the lock and never stops the next run (#1050).
+# It lives in the lock folder, so it goes away with the lock and never stops the next run.
 STOP_REQUEST="$LOCK/stop-after-running"
 # Without its parent the mkdir below fails as if another conductor held the lock.
 mkdir -p "$(dirname "$LOCK")"
@@ -128,7 +138,7 @@ lock_owner_alive() {
     [ -n "$pid" ] || return 1
     kill -0 "$pid" 2>/dev/null || return 1
     # The PID may have been recycled by an unrelated process — only a live conductor counts.
-    ps -p "$pid" -o command= 2>/dev/null | grep -q 'backlog-loop.sh'
+    grep -q 'backlog-loop.sh' <<< "$(ps -p "$pid" -o command= 2>/dev/null || true)"
 }
 
 if ! mkdir "$LOCK" 2>/dev/null; then
@@ -157,15 +167,15 @@ echo "$$" > "$LOCK_OWNER"
 RUNNING=""
 
 # Bash reaps a finished background job at once, not at `wait`. From then on the system may give its
-# number to another program (#992), and no process group keeps the number reserved: a worker does
+# number to another program, and no process group keeps the number reserved: a worker does
 # not lead one. So a number that answers `kill -0` proves nothing. This reads the shell's own job
 # list instead: bash takes a job off the running list in the same step in which it reaps it. The
-# worker does the same for its session (#983). Job control is off here, so bash never sees a job
+# worker does the same for its session. Job control is off here, so bash never sees a job
 # stop, and a job is off that list only once it has ended.
 # The list is read with backquotes, not $(...), and count_running sets a variable: the main loop
 # must not lose a stop while it waits for its workers, and bash 5.2 loses one that arrives as it
-# starts to parse a $(...) (#1064, see job_running in work-ticket.sh). A read that a signal killed
-# lists nothing, so it is read again, as there (#1165).
+# starts to parse a $(...) (see job_running in work-ticket.sh). A read that a signal killed
+# lists nothing, so it is read again, as there.
 job_running() {
     local running tries=1
     [ -n "$1" ] || return 1
@@ -194,9 +204,8 @@ stop_jobs() {
 
 # Every wait here is a background sleep + `wait`, so a stop signal runs its trap at once instead
 # of after the sleep. A usage-limit nap is a chain of these (see nap_until) and can last hours.
-# The sleep writes nowhere: a nap left behind
-# by a conductor killed with SIGKILL must not keep the launcher's console copy, and its terminal,
-# busy.
+# The sleep writes nowhere: a nap left behind by a conductor killed with SIGKILL must not keep the
+# launcher's console copy, and its terminal, busy.
 nap() {
     local timer
     sleep "$1" > /dev/null 2>&1 &
@@ -205,12 +214,14 @@ nap() {
 }
 
 # nap_until <epoch> — a usage-limit nap, which lasts until a time on the clock. `sleep` does not
-# count the time the computer sleeps, so this sleeps at most a minute at a time and reads the clock
-# after each step. It ends at most a minute after its time, or after the computer wakes if that is
-# later (#1199, docs/claude-loop.md). It reads with backquotes, for the reason in job_running: the
-# nap can last hours, and a stop lost here would be lost for all of it.
+# count the time the computer sleeps, so this sleeps at most NAP_STEP_SEC at a time and reads the
+# clock after each step. It ends at most one step after its time, or after the computer wakes if
+# that is later (LOOP.md). It reads with backquotes, for the reason in job_running: the nap can
+# last hours, and a stop lost here would be lost for all of it.
 # A stop request ends the nap at the next step, so the limited tickets wait for the next run.
-NAP_STEP_SEC=60
+# The step is how late the nap may notice a stop request, its own end or a wake from sleep. A step
+# costs one read of the clock, so half a minute is cheap.
+NAP_STEP_SEC=30
 nap_until() {
     local now
     while :; do
@@ -259,7 +270,7 @@ count_running() {
     for entry in $RUNNING; do RUNNING_COUNT=$((RUNNING_COUNT + 1)); done
 }
 
-# The owner's stop request is a file, not a signal, so it never reaches a running worker (#1050).
+# The owner's stop request is a file, not a signal, so it never reaches a running worker.
 # It only stops new starts; a stop that came first for another reason keeps its reason. No $(...)
 # here, for the reason in job_running.
 check_stop_request() {
@@ -283,7 +294,7 @@ head_of() { set -- $1; echo "${1:-}"; }
 tail_of() { set -- $1; [ $# -gt 0 ] && shift; echo "$*"; }
 
 # Sets RESET_AT to the latest `reset_at` the tickets in RETRY wrote: the epoch at which their limit
-# message says the limit ends, or nothing (#1078). They all run on one account, so the latest one
+# message says the limit ends, or nothing. They all run on one account, so the latest one
 # is when every one of them can go on. A ticket whose message named no time does not change it.
 # It reads with backquotes and sets a variable, for the reason in job_running: the nap that follows
 # can last hours, and a stop lost here would be lost for all of it.
@@ -353,8 +364,8 @@ handle_exit() {
     local ticket="$1" rc="$2"
     case "$rc" in
         0) opened=$((opened + 1)); consecutive_failures=0 ;;
-        # The PR was merged while its session still ran (#1082), or while a usage limit held the
-        # ticket (#1096): done work, not a failure.
+        # The PR was merged while its session still ran, or while a usage limit held the
+        # ticket: done work, not a failure.
         13) merged=$((merged + 1)); consecutive_failures=0 ;;
         2) blocked=$((blocked + 1)); consecutive_failures=0 ;;
         12) skipped=$((skipped + 1)); consecutive_failures=0 ;;
@@ -438,7 +449,7 @@ while :; do
                 stop_reason="usage limit persisted after $LIMIT_RETRIES naps"
                 break
             fi
-            # Until two minutes after the limit ends, when a message said when (#1078). A wake-up
+            # Until two minutes after the limit ends, when a message said when. A wake-up
             # time already past gets the fixed nap, so a retry that meets the limit again cannot
             # run through every nap in a few minutes.
             latest_reset
@@ -480,12 +491,16 @@ pr_checks() {
         else "green" end' 2>/dev/null || echo "?"
 }
 pr_alerts() {
-    gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/$1/merge&state=open&per_page=100" \
+    gh api "repos/$LOOP_REPO/code-scanning/alerts?ref=refs/pull/$1/merge&state=open&per_page=100" \
         --jq 'length' 2>/dev/null || echo "?"
 }
 
 echo
-echo "[conductor] ticket   outcome      PR     checks   CodeQL alerts"
+if [ "$LOOP_CFG_code_scanning" = "on" ]; then
+    echo "[conductor] ticket   outcome      PR     checks   CodeQL alerts"
+else
+    echo "[conductor] ticket   outcome      PR     checks"
+fi
 total_cost=0
 shopt -s nullglob
 for meta_file in "$RUN_DIR"/ticket-*.meta; do
@@ -498,25 +513,32 @@ for meta_file in "$RUN_DIR"/ticket-*.meta; do
     checks="-"; alerts="-"
     if [ -n "$pr" ]; then
         checks="$(pr_checks "$pr")"
-        alerts="$(pr_alerts "$pr")"
+        [ "$LOOP_CFG_code_scanning" != "on" ] || alerts="$(pr_alerts "$pr")"
     fi
     # A worker that had to be resumed is worth a look: its session stopped without a STATUS line,
-    # said DONE with no PR, or hit the usage limit (#925, #934).
+    # said DONE with no PR, or hit the usage limit.
     note=""
     case "$resumes" in ''|0) ;; *) note="  resumed ${resumes}x" ;; esac
-    # The limit outlasted every nap: the session waits in its worktree for a later run (#934).
-    if [ "$outcome" = "limit" ] && [ "$worktree" = "kept" ]; then
+    # The session waits in its worktree for a later run: the limit outlasted every nap, or a check
+    # stopped its resume (a repository that must be private and is not, a red main, an unreadable
+    # gate, no lifeline pipe).
+    if [ "$worktree" = "kept" ]; then
         note="$note  worktree kept: run #$ticket again to resume its session"
     fi
     # The PR was merged before its session ended or during a usage-limit nap, and the session made
-    # commits or left files the merge did not take (#1082, #1096).
+    # commits or left files the merge did not take.
     case "$outcome:$unmerged" in
         merged:0|merged:) ;;
         "merged:?") note="$note  could not check for commits after the merge" ;;
         merged:*) note="$note  $unmerged commit(s) not in the merged PR: check them" ;;
     esac
-    printf '[conductor] #%-6s %-12s %-6s %-8s %s%s\n' \
-        "$ticket" "${outcome:-running?}" "${pr:+#$pr}" "$checks" "$alerts" "$note"
+    if [ "$LOOP_CFG_code_scanning" = "on" ]; then
+        printf '[conductor] #%-6s %-12s %-6s %-8s %s%s\n' \
+            "$ticket" "${outcome:-running?}" "${pr:+#$pr}" "$checks" "$alerts" "$note"
+    else
+        printf '[conductor] #%-6s %-12s %-6s %s%s\n' \
+            "$ticket" "${outcome:-running?}" "${pr:+#$pr}" "$checks" "$note"
+    fi
 done
 ticket_json=( "$RUN_DIR"/ticket-*.json )
 shopt -u nullglob

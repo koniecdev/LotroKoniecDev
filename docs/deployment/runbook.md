@@ -1589,6 +1589,14 @@ also run **on demand** (`workflow_dispatch`: enter the three URLs).
   repository secret; a red run with **HTTP 404** means that secret and the prod box's
   `HEALTH_CHECK_KEY` differ, not that the site is down. A failed run e-mails the last committer of
   that file. Trigger it on demand: `gh workflow run health-ping.yml`.
+- **The daily image scan**: [`.github/workflows/image-scan.yml`](../../.github/workflows/image-scan.yml)
+  scans the four images that staging and prod run, once a day (05:10 UTC), with the same Trivy gate
+  as `cd.yml` (#1326). A vulnerability published after the image was built shows up here, not at the
+  next build. It finds each environment's image from its newest successful deployment record, so
+  after a deploy or rollback by hand on the box it scans the recorded image, not the running one. A
+  red run usually means the base image pins need to move (#1324); when only prod is red, the fix may
+  already be on staging and need a promotion. A failed run e-mails the user who last changed its
+  cron line. Trigger it on demand: `gh workflow run image-scan.yml`.
 - **Post-deploy smoke**: every CD rollout, with automatic rollback on red.
 - **Grafana**: logs, metrics and traces for **both projects** from both boxes, on the stack described
   below (epic #707).

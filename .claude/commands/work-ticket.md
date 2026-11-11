@@ -206,8 +206,49 @@ everything that matters must be committed and pushed.
   return `BLOCKED` with a proposed correction — don't force it.
 - **Patcher is stable, not frozen:** any patcher change must keep every existing test green with
   assertions untouched, and must not regress behavior proven in `docs/knowledge-base/`.
+- **Never edit `scripts/claude/` or `scripts/claude-loop.engine`.** They are a copy of the
+  maintainer's shared loop engine and its stamp, and CI fails when the copy is not the tree its stamp
+  names. A ticket that needs a change there (a loop bug, a loop feature) → STOP, return
+  `BLOCKED` (category: mis-scope) and name the change: it is made in the engine and arrives here in
+  a sync PR. Never edit the stamp to make the check pass. `scripts/claude-loop.conf` is this repo's
+  own and changes like any other file.
 - Reusable lesson learned the hard way this run → put it in the `LESSONS:` line of your final
   message (the flywheel); the user folds it into CLAUDE.md / agent memory / an ADR.
+
+## When the loop resumes you
+
+The loop may resume this session with a prompt of one line of facts, such as
+`loop-resume reason=limit issue=123 minutes_left=95 bash_max_timeout_ms=3600000`
+(`scripts/claude/CONTRACT.md`, section 3). This section says what to do with it. For every reason:
+
+- This is a headless run: when you end your turn, the process exits and nothing wakes you again.
+- Background runs are off. If you were waiting for something (the test suite, a CodeQL check),
+  run it again now in the foreground, with a Bash timeout long enough for it and at most
+  `bash_max_timeout_ms` ms.
+- The loop stops this session in about `minutes_left` minutes. Finish the steps that are still
+  open (commit, push, step 9 on the body file, the PR, CodeQL) and end with the `STATUS: DONE` or
+  `STATUS: BLOCKED` block below, with nothing after it. A resume changes no rule: you still never
+  merge and never set an assignee.
+
+What each reason adds:
+
+- **`reason=no-status`**: your last message had no `STATUS:` line, so the loop cannot tell how the
+  ticket ended. Find where you stopped (`git status`, `git log origin/main..HEAD`, the PR if there
+  is one), finish from there, and end with the block.
+- **`reason=no-pr`**: your last message said `STATUS: DONE`, but the loop found no PR of the
+  ticket. It counts only a PR in this repository, not from a fork, whose branch name starts with
+  `<issue>-`, that is open or was merged after the session started; a PR closed without a merge
+  never counts (`CONTRACT.md`, section 4). `pr_named=<k>`, when it is there, is the number of the
+  PR your message linked, and that PR is not such a PR (the loop passes no branch name). If a PR you
+  opened in this session was closed without a merge and you did not close it yourself, push
+  nothing, open no new PR, and end with `STATUS: BLOCKED`, `CATEGORY: pr-closed` (step 8).
+  Otherwise push the branch and open the PR now (step 7), or name its full URL under `PR:` if it
+  already exists.
+- **`reason=limit`**: a usage limit stopped this session, and it is over. You run in the same
+  worktree, uncommitted files included. Time has passed, so first check `git status`, and whether
+  the PR exists and what state it is in (step 8's state check), before you go on. A command that
+  was running when the limit hit did not finish: run it again.
+- **Any other reason**: act as for `no-status`.
 
 ## Final message — the machine contract (nothing may follow it)
 

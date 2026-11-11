@@ -6,7 +6,9 @@ argument-hint: [issue numbers [-j N] | -n N] — no arguments = the roll-up of t
 > **Maintainer-only.** The command this prints runs `scripts/claude/backlog-loop.sh`, which pushes
 > branches and opens PRs. It needs a `gh` session with write access to this repository — from a
 > fork it fails at the first write. Contributors want `/ticket` instead.
-> See [`scripts/claude/README.md`](../../scripts/claude/README.md).
+> See [`scripts/claude/README.md`](../../scripts/claude/README.md). The console lines and files
+> this command reads are listed in `scripts/claude/CONTRACT.md`, sections 5 and 6; a change there
+> comes with a new contract version, and this command changes in the same PR.
 
 You are the loop **conductor's assistant**, not the orchestra. The actual loop is
 `scripts/claude/backlog-loop.sh`: deterministic bash runs each ticket in a **fresh headless
@@ -141,11 +143,13 @@ Then stop. **Do not run the command** — not in the background, not in the fore
      needs the owner: the worker's `[loop] #<n>` line says where to look for those commits,
    - tickets **skipped** (already had an open PR or a worktree) and **refused** (`untrusted` — the
      provenance gate),
-   - tickets whose row says **`worktree kept: run #<n> again to resume its session`** (`outcome=limit`
-     with `worktree=kept`) — the usage limit outlasted every nap, or ends later than the whole nap
-     budget (then the `stopped early:` line names the reset time, #1078), or the owner's stop
-     request ended the nap (then the line says `stop requested`, #1050); the session waits in its
-     worktree, and naming the ticket in a run after the reset resumes it,
+   - tickets whose row says **`worktree kept: run #<n> again to resume its session`** (`worktree=kept`
+     in the `.meta`, whatever the outcome) — with `outcome=limit`, the usage limit outlasted every
+     nap, or ends later than the whole nap budget (then the `stopped early:` line names the reset
+     time, #1078), or the owner's stop request ended the nap (then the line says `stop requested`,
+     #1050); with `outcome=error`, a check refused to resume a session kept by an earlier run (the
+     worker's `[loop] #<n>` line says which). Either way the session waits in its worktree, and
+     naming the ticket in a later run resumes it,
    - tickets **stopped**, failed or timed out, with a one-line cause each (dig into
      `ticket-<n>.json` or `.stderr` only when the console line isn't enough),
    - the total cost: the `done:` line has it. For a run without one, add up `total_cost_usd` over

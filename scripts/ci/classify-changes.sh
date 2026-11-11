@@ -5,20 +5,26 @@
 #   code=…    the .NET gate — restore + Release build (the repo-wide zero-warning gate)
 #             + unit tests + integration tests (every *.Tests.Integration project). Minutes.
 #   guards=…  the cheap bash gates CI EXECUTES — SSR purity, client hypermedia, Dockerfile restore
-#             graph, migration safety (each with its self-test), backlog-loop provenance + conductor
-#             self-tests. Seconds.
+#             graph, migration safety (each with its self-test) and the box scripts' self-tests.
+#             Seconds.
 #   images=…  the four shipped OCI images — build + Trivy scan.
 #
-# Why three and not one: a change to a script that CI executes (say scripts/claude/work-ticket.sh)
+# The backlog-loop copy check (scripts/claude/verify-copy.sh) needs no verdict: it takes a second
+# and runs on every change, so the copy of the loop engine, its stamp and the loop settings are
+# inert here.
+#
+# Why three and not one: a change to a script that CI executes (say scripts/check-ssr-purity.sh)
 # must re-run the guard that executes it — but it cannot break `dotnet build`, the test suites or
 # the SSR guard. Collapsing the two into a single "run everything" verdict is what made a PR that
-# only touched .claude/ + docs + the loop scripts pay for a full .NET build + both test suites.
+# only touched .claude/ + docs + two scripts pay for a full .NET build + both test suites.
 #
 # Verdict rules:
 #   * A file is INERT unless it can affect one of the three gates. Everything under docs/, .claude/,
 #     .github/, .idea/, .run/, .vscode/, .docker/; Markdown at the root and in scripts/; every
-#     README.md and CLAUDE.md; *.sh / *.ps1 under scripts/; the root LICENSE, .gitignore, compose
-#     files, .dockerignore and env examples; the Dockerfiles where they sit today. Each rule names
+#     README.md and CLAUDE.md; *.sh / *.ps1 under scripts/; the loop engine copy scripts/claude/
+#     (every file in it) with scripts/claude-loop.conf and .engine beside it; the root LICENSE,
+#     .gitignore, compose files, .dockerignore and env examples; the Dockerfiles where they sit
+#     today. Each rule names
 #     the places, so the same kind of file somewhere else (a fixture in tests/, a template in src/)
 #     counts as code.
 #   * code    = any NON-inert file (fail-safe default: an unrecognized path IS a build input).
@@ -66,8 +72,9 @@ set -euo pipefail
 # Dockerfile.Tools.csproj that breaks the bare `dotnet restore`. `\.md$` would catch a Markdown
 # template that a project embeds. A new file in a place no rule names only costs a redundant build.
 # GUARD_INPUTS and IMAGE_INPUTS keep their broad rules, because broad is the safe side there.
-# .gitattributes is not here: it decides the bytes of every fixture at checkout (eol, binary).
-INERT='^[^/]*\.md$|(^|/)(README|CLAUDE)\.md$|^scripts/.*\.(md|sh|ps1)$|^docs/|^LICENSE$|^\.gitignore$|^Dockerfile(\.migrator|\.migrator\.prod|\.tests)?$|^src/[^/]+/[^/]+/Dockerfile$|^\.dockerignore$|^compose[^/]*\.ya?ml$|^\.docker/|^\.github/|^\.claude/|^\.run/|^\.vscode/|^\.idea/|^\.env[^/]*\.example$'
+# .gitattributes is not here: it decides the bytes of every fixture at checkout (eol, binary). The
+# one in scripts/claude/ is: it covers only that folder, which no build or test reads.
+INERT='^[^/]*\.md$|(^|/)(README|CLAUDE)\.md$|^scripts/.*\.(md|sh|ps1)$|^scripts/claude/|^scripts/claude-loop\.(conf|engine)$|^docs/|^LICENSE$|^\.gitignore$|^Dockerfile(\.migrator|\.migrator\.prod|\.tests)?$|^src/[^/]+/[^/]+/Dockerfile$|^\.dockerignore$|^compose[^/]*\.ya?ml$|^\.docker/|^\.github/|^\.claude/|^\.run/|^\.vscode/|^\.idea/|^\.env[^/]*\.example$'
 
 # Executed or read by the guard steps of pr-verify/ci. The .ps1 twins are here because the
 # migration-safety self-test runs its pwsh leg; the Dockerfiles because the restore-graph guard
@@ -82,7 +89,7 @@ INERT='^[^/]*\.md$|(^|/)(README|CLAUDE)\.md$|^scripts/.*\.(md|sh|ps1)$|^docs/|^L
 # their self-tests are the only pre-deploy check they face; and scripts/n1-compat.sh, the proof
 # those halves call, whose verdict classification decides whether a blocked promotion reads as
 # "your migrations break prod" or as "the proof never ran" (#679).
-GUARD_INPUTS='^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/tests/check-ssr-purity\.tests\.sh$|^scripts/smoke\.(sh|ps1)$|^scripts/tests/smoke\.tests\.sh$|^scripts/check-client-hypermedia\.(sh|ps1)$|^scripts/tests/check-client-hypermedia\.tests\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/tests/check-dockerfile-restore-graph\.tests\.sh$|^scripts/claude/(issue-trust|next-ticket|work-ticket|backlog-loop|start-loop)\.sh$|^scripts/tests/claude-loop-(provenance|conductor|launcher)\.tests\.sh$|^scripts/hetzner/(deploy|bootstrap)\.sh$|^scripts/tests/hetzner-(deploy|bootstrap-swap|bootstrap-docker-user|bootstrap-reboot)\.tests\.sh$|^scripts/ci/(resolve-prod-baseline|n1-promotion-gate)\.sh$|^scripts/n1-compat\.sh$|^scripts/tests/(resolve-prod-baseline|n1-promotion-gate|n1-compat)\.tests\.sh$|(^|/)Dockerfile[^/]*$|^\.github/workflows/(pr-verify|ci)\.yml$'
+GUARD_INPUTS='^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/tests/check-ssr-purity\.tests\.sh$|^scripts/smoke\.(sh|ps1)$|^scripts/tests/smoke\.tests\.sh$|^scripts/check-client-hypermedia\.(sh|ps1)$|^scripts/tests/check-client-hypermedia\.tests\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/tests/check-dockerfile-restore-graph\.tests\.sh$|^scripts/hetzner/(deploy|bootstrap)\.sh$|^scripts/tests/hetzner-(deploy|bootstrap-swap|bootstrap-docker-user|bootstrap-reboot)\.tests\.sh$|^scripts/ci/(resolve-prod-baseline|n1-promotion-gate)\.sh$|^scripts/n1-compat\.sh$|^scripts/tests/(resolve-prod-baseline|n1-promotion-gate|n1-compat)\.tests\.sh$|(^|/)Dockerfile[^/]*$|^\.github/workflows/(pr-verify|ci)\.yml$'
 
 # Build-relevant despite matching INERT:
 #   * the two workflows that DEFINE the .NET gate;

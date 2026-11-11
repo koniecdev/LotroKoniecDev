@@ -166,6 +166,9 @@ expect_code 'a PowerShell file in a project folder'             'src/Patcher/Lot
 expect_code 'an env example in a test folder'                   'tests/LotroKoniecDev.Tests.Unit/TestData/.env.sample.example'
 # git applies it to the bytes of every fixture at checkout: line endings, binary files.
 expect_code 'the git attributes'                                '.gitattributes'
+# The loop rules name one folder and two files, never a prefix of a name.
+expect_code 'a folder next to the loop copy, not in it'         'scripts/claude-tools/settings.json'
+expect_code 'a file named like the loop settings'               'scripts/claude-loop.conf.bak'
 expect_code 'such a C# file in a path git printed in quotes'    '"src/we\"ird/DockerfileParser.cs"'
 
 echo
@@ -178,16 +181,13 @@ expect 'code=false guards=false images=false' 'an env example'                '.
 expect 'code=false guards=false images=false' 'docs inside tests/ and scripts/' 'tests/CLAUDE.md' 'tests/LotroKoniecDev.Tests.E2E/README.md' 'scripts/claude/README.md'
 expect 'code=false guards=false images=false' 'a CLAUDE.md in a project folder' 'src/Patcher/LotroKoniecDev.Cli/CLAUDE.md'
 expect 'code=false guards=false images=false' 'a script CI does not run'      'scripts/up.sh' 'scripts/up.ps1'
+# The copy check runs on every change, so the loop engine copy needs no verdict, whatever the file.
+expect 'code=false guards=false images=false' 'the loop engine copy, every kind of file' 'scripts/claude/work-ticket.sh' 'scripts/claude/verify-copy.ps1' 'scripts/claude/LOOP.md' 'scripts/claude/.gitattributes'
+expect 'code=false guards=false images=false' 'the loop settings and the copy stamp' 'scripts/claude-loop.conf' 'scripts/claude-loop.engine'
 
 echo
 echo '── guards only: the bash gates re-run, the .NET gate does not ────────────────────────────────'
-expect 'code=false guards=true images=false' 'a script the provenance self-test executes' 'scripts/claude/work-ticket.sh'
-expect 'code=false guards=true images=false' 'the loop conductor, which its self-test runs' 'scripts/claude/backlog-loop.sh'
-expect 'code=false guards=true images=false' 'the conductor self-test'                   'scripts/tests/claude-loop-conductor.tests.sh'
-expect 'code=false guards=true images=false' 'the terminal launcher, which its self-test runs' 'scripts/claude/start-loop.sh'
-expect 'code=false guards=true images=false' 'the launcher self-test'                    'scripts/tests/claude-loop-launcher.tests.sh'
-expect 'code=false guards=true images=false' 'the provenance gate itself'                 'scripts/claude/issue-trust.sh'
-expect 'code=false guards=true images=false' 'the SSR-purity guard'                       'scripts/check-ssr-purity.sh'
+expect 'code=false guards=true images=false' 'the SSR-purity guard'                      'scripts/check-ssr-purity.sh'
 expect 'code=false guards=true images=false' 'the post-deploy smoke test'                 'scripts/smoke.sh'
 expect 'code=false guards=true images=false' 'the smoke test PowerShell twin'             'scripts/smoke.ps1'
 expect 'code=false guards=true images=false' 'the smoke test self-test'                   'scripts/tests/smoke.tests.sh'

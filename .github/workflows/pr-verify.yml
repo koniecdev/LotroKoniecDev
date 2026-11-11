@@ -25,11 +25,11 @@ name: Pull Request Verification
 #
 # What runs is decided by scripts/ci/classify-changes.sh, which returns THREE independent verdicts —
 # `code` (the .NET gate: restore + Release build + unit + integration tests), `guards` (the cheap
-# bash gates CI executes) and `images` — because they have three different sets of inputs. The
-# earlier single `force_build` verdict conflated the first two: a change to a script that CI merely
-# EXECUTES (e.g. scripts/claude/work-ticket.sh, which the provenance self-test drives) forced the
-# whole .NET gate, so PR #497 — .claude/ + docs + two loop scripts, not one line of C# — paid for a
-# full Release build and both test suites. Now such a PR runs the guard steps only, in seconds, and
+# bash gates CI executes) and `images` — because they have three different sets of inputs. A
+# single verdict would conflate the first two: a change to a script that CI merely EXECUTES (e.g.
+# scripts/check-ssr-purity.sh, which its self-test drives) would force the whole .NET gate, as it
+# did for PR #497 (.claude/ + docs + two scripts, not one line of C#). Such a PR runs the guard
+# steps only, in seconds, and
 # the .NET steps are skipped by their step-level `if:` — the job (and therefore the required check)
 # still reports. The classifier's self-test runs UNCONDITIONALLY in the required job, before any
 # verdict is trusted: a classifier that mis-classifies real source as inert would skip the build
@@ -151,26 +151,13 @@ jobs:
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/check-migration-safety.sh HEAD^1
 
-      # The backlog loop's issue-provenance gate (ADR-0026) is what keeps attacker-authored text
-      # on this public repo from becoming the task of an agent that pushes branches and opens PRs.
-      # It runs on the maintainer's machine, never in CI — this offline self-test is the only thing
-      # that stops it rotting green.
-      - name: Backlog-loop provenance gate self-test
-        if: steps.diff.outputs.guards != 'false'
-        run: ./scripts/tests/claude-loop-provenance.tests.sh
-
-      # The loop's conductor runs several tickets at once and must stop at the PR (ADR-0060). Its
-      # scheduling breaks silently (a lost queue, a missed slot count, workers left running), and
-      # it too runs only on the maintainer's machine — this offline self-test pins it.
-      - name: Backlog-loop conductor self-test
-        if: steps.diff.outputs.guards != 'false'
-        run: ./scripts/tests/claude-loop-conductor.tests.sh
-
-      # The loop must run in a plain terminal: a Claude Code session kills a background command
-      # after two hours, with no cleanup (#969). The launcher that makes that one command also keeps
-      # the console copy alive on Ctrl-C, so a worker is not killed by SIGPIPE while it salvages.
-      - name: Backlog-loop launcher self-test
-        run: ./scripts/tests/claude-loop-launcher.tests.sh
+      # scripts/claude/ is a copy of the maintainer's shared loop engine, whose own CI runs the
+      # loop's suites, the provenance gate's included (ADR-0026 amendment). This check fails when the
+      # copy is not exactly the engine version its stamp names, or when the loop settings do not fit
+      # that version, so a fix made by hand here fails instead of being lost at the next copy. It takes
+      # a second, so it runs on every PR: no classifier rule can then skip it.
+      - name: Backlog-loop copy check
+        run: ./scripts/claude/verify-copy.sh
 
       # The Hetzner rollout script (HETZ-04) runs on a PROD box, driven by CD over ssh, and its real
       # inputs (Docker daemon, GHCR, Neon) exist nowhere in CI. This suite stubs `docker` and pins the

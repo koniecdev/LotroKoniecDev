@@ -4,11 +4,11 @@
 # ticket #487). Safe to re-run at any time — including on the Phase-0 boxes that were hardened by
 # hand: a pass on an already-bootstrapped box converges it and changes nothing on the second run.
 #
-# Runs ON the server as root. Preferred invocation (the -t gives the GHCR prompt its TTY, so the
-# PAT never touches shell history or argv):
-#   scp scripts/hetzner/bootstrap.sh root@<ip>:/root/ && ssh -t root@<ip> bash /root/bootstrap.sh
+# Runs ON the server as root. REBOOT_TIME is 01:30 on staging and 02:30 on prod (#1327). Preferred
+# invocation (the -t gives the GHCR prompt its TTY, so the PAT never touches shell history or argv):
+#   scp scripts/hetzner/bootstrap.sh root@<ip>:/root/ && ssh -t root@<ip> REBOOT_TIME=<time> bash /root/bootstrap.sh
 # Non-interactive/automation form — NOTE: the inline env assignments land in YOUR shell history:
-#   ssh root@<ip> 'GHCR_USER=<user> GHCR_TOKEN=<pat> bash -s' < scripts/hetzner/bootstrap.sh
+#   ssh root@<ip> 'REBOOT_TIME=<time> GHCR_USER=<user> GHCR_TOKEN=<pat> bash -s' < scripts/hetzner/bootstrap.sh
 #
 # What it sets up:
 #   * a 2 GiB /swapfile, persisted in /etc/fstab, + vm.swappiness=10 — the Hetzner images ship with
@@ -19,7 +19,8 @@
 #   * a DOCKER-USER firewall rule (rules script + oneshot unit, re-applied whenever docker starts):
 #     from the public interface only 80/443 reach a container — Docker's DNAT bypasses ufw (#808)
 #   * fail2ban with the systemd backend (24.04 ships no /var/log/auth.log without rsyslog)
-#   * unattended-upgrades (security patches apply themselves)
+#   * unattended-upgrades (security patches apply themselves), plus a night reboot when an update
+#     needs one, at REBOOT_TIME (UTC; required on a box's first run — #1327)
 #   * non-root `deploy` user: docker group, ssh key auth only (key copied from root), locked
 #     password; owns /opt/lotro and /opt/tks (the two compose stacks — ADR-0034 §5)
 #   * sshd hardening: PasswordAuthentication no (root stays key-only via Ubuntu's default
@@ -270,10 +271,48 @@ EOF
     systemctl restart "$unit_name"
 }
 
+# unattended-upgrades installs a new kernel, libc or Docker but never reboots into it on its own
+# (#1327). This file makes it reboot at a fixed UTC time on the nights an update asks for one.
+# Staging and prod need different times (runbook, Gotchas), so there is no default.
+ensure_unattended_reboot() {
+    local conf="${UNATTENDED_REBOOT_CONF:-/etc/apt/apt.conf.d/52unattended-reboot}"
+    local reboot_time
+    reboot_time="$(unattended_reboot_time)" || exit 1
+
+    write_file "$conf" 0644 << EOF || true
+// Written by LotroKoniecDev scripts/hetzner/bootstrap.sh (#1327); edits here are overwritten.
+// Set the time with REBOOT_TIME=HH:MM (UTC) on a bootstrap run.
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "${reboot_time}";
+EOF
+    echo "unattended-upgrades reboots this box at ${reboot_time} UTC when an update needs it."
+}
+
+# Prints the box's reboot time: REBOOT_TIME when set, else the time a previous run wrote. A box with
+# neither stops here, so a re-run can never give staging prod's time by default.
+unattended_reboot_time() {
+    local conf="${UNATTENDED_REBOOT_CONF:-/etc/apt/apt.conf.d/52unattended-reboot}"
+    local reboot_time="${REBOOT_TIME:-}"
+
+    if [ -z "$reboot_time" ] && [ -f "$conf" ]; then
+        reboot_time="$(sed -n 's/^Unattended-Upgrade::Automatic-Reboot-Time "\(.*\)";$/\1/p' "$conf")"
+    fi
+    if [ -z "$reboot_time" ]; then
+        echo "FATAL: this box has no reboot time yet. Run with REBOOT_TIME=01:30 on staging or REBOOT_TIME=02:30 on prod (UTC)." >&2
+        exit 1
+    fi
+    # Digit lists, not ranges: under a UTF-8 locale [0-9] also matches digits such as ² (#1162).
+    if ! [[ "$reboot_time" =~ ^([01][0123456789]|2[0123]):[012345][0123456789]$ ]]; then
+        echo "FATAL: the reboot time must be HH:MM in UTC (for example 01:30), not '${reboot_time}'." >&2
+        exit 1
+    fi
+    printf '%s\n' "$reboot_time"
+}
+
 # Test seam: `BOOTSTRAP_SOURCE_ONLY=1 . bootstrap.sh` defines the helpers above and stops here,
-# before the script touches anything. It is what lets the self-tests drive ensure_swap and
-# ensure_docker_user_firewall against a temp root, and how an already-bootstrapped box gets one leg
-# without a full re-run (#708, #808).
+# before the script touches anything. It is what lets the self-tests drive ensure_swap,
+# ensure_docker_user_firewall and ensure_unattended_reboot against a temp root, and how an
+# already-bootstrapped box gets one leg without a full re-run (#708, #808, #1327).
 if [ "${BOOTSTRAP_SOURCE_ONLY:-0}" = "1" ]; then
     # `return` is the sourced path; the fallback catches someone EXECUTING the script with the seam
     # set, where a bare `return` would be an error. SC2317: not dead code, just conditionally reached.
@@ -293,6 +332,9 @@ if [ -z "$CODENAME" ]; then
     CODENAME="noble"
 fi
 echo "Detected Ubuntu codename: $CODENAME"
+
+# Stop before the first leg, not halfway through, when the box has no reboot time yet (#1327).
+unattended_reboot_time > /dev/null
 
 # First leg on purpose: every step below it (apt, the image pulls a later deploy runs) is a memory
 # spike on a box that has no buffer until this returns.
@@ -419,11 +461,12 @@ then
 fi
 systemctl enable --now fail2ban
 
-log "unattended-upgrades"
+log "unattended-upgrades (+ a night reboot when an update needs one)"
 write_file /etc/apt/apt.conf.d/20auto-upgrades 0644 <<'EOF' || true
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 EOF
+ensure_unattended_reboot
 systemctl enable --now unattended-upgrades
 
 log "GHCR login as deploy (read-only PAT)"

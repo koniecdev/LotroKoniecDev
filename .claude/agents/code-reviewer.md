@@ -21,8 +21,8 @@ results. With no brief, use `HEAD` and the commands below, and skip the comparis
    `git status --porcelain` prints nothing. Then run `git status --porcelain --ignored`. Ignored
    build and test output (`bin/`, `obj/`, `TestResults/`, `*.received.*`) and folders under
    `.claude/` are fine. An ignored file that a build, a test or a guard reads is not: an
-   `appsettings.Local.json`, a `.env`, a `*.props` or `*.targets` file. If a check fails, run
-   nothing: report a Critical with what you saw, and go on to Phase 1.
+   `appsettings.Local.json`, a `*.props` or `*.targets` file. If a check fails, run nothing:
+   report a Critical with what you saw, and go on to Phase 1 (in gates-only mode, to the report).
 2. **Run each command in the foreground**, with the longest Bash timeout the tool allows (one hour
    in the backlog loop). Send its output to a log file next to the report file the brief names
    (with no brief, under `/tmp`), in the form `<command> > <log> 2>&1 && echo GREEN || echo RED`,
@@ -33,7 +33,7 @@ results. With no brief, use `HEAD` and the commands below, and skip the comparis
      folder built earlier, maybe from an older commit (`tests/Shared/E2EWorktree.cs`). Keep the
      result line of each test project. Off Windows, the two Windows-only patcher suites print
      "not run": that is expected (`needs-windows-check` covers them), not a finding.
-   - every `scripts/check-*.sh`, with no argument (four today).
+   - every `scripts/check-*.sh`, with no argument.
 3. **A test project that is red in the full run:** run it again alone
    (`env -u SKIP_DOCKER_BUILD dotnet test <project>`), at most twice. Several worktrees may run
    container suites at the same time, and a container can fail to start under that load. Still red
@@ -57,8 +57,8 @@ A red gate does not end the review: go on with Phase 1, so the author gets every
 round. Phase 0 comes first so that the other phases keep their numbers (ADR-0067 cites them).
 
 **Gates only.** When the brief says "gates only", run Phase 0 and nothing else. The report is the
-gates table (Output Format) with its findings, and a last line `GATES: GREEN` or `GATES: RED`.
-It is not a review round (`/ticket` step 8).
+gates table (Output Format) with its findings, and a last line `GATES: GREEN` when Phase 0 found
+no Critical and no Major, otherwise `GATES: RED`. It is not a review round (`/ticket` step 8).
 
 ### Phase 1: Understand the scope
 
@@ -331,8 +331,7 @@ After the tables, provide:
 1. **Verdict**: APPROVE, REQUEST CHANGES, or NEEDS DISCUSSION.
    **Hard rule:** if any reachable code path in the diff is happy-path-only (an unhappy branch is
    unhandled, or handled but untested), the verdict is **REQUEST CHANGES** — never APPROVE. The
-   same holds for any Critical from Phase 0: never APPROVE a commit whose gates you did not see
-   green yourself.
+   same holds for any Critical from Phase 0.
 2. **Summary**: 2-3 sentences on overall quality, explicitly stating whether the change is hardened
    against its edge cases or still happy-path-only.
 3. **Suggested commit strategy**: how to split/organize commits if scope is messy

@@ -397,8 +397,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
       `<scratchpad>/<n>-review-r<round>.md`, and end your turn only after the file exists".
 
     Wait for the reviewer: while it runs, do not edit, commit or run tests in this worktree. Its gate
-    run reads this folder, and a second run of a suite in one worktree breaks the E2E images
-    (`tests/CLAUDE.md`). A Phase 0 Critical with no code to fix (a test project missing from your
+    run reads this folder, and two runs of a suite at the same time in one worktree break the E2E
+    images (`tests/CLAUDE.md`). A Phase 0 Critical with no code to fix (a test project missing from your
     results but green there) is fixed by running that gate yourself; the next round still counts.
 
     A Major for a false assumption that decided the design takes step 8's design route instead. Fix
@@ -518,13 +518,17 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   never start. A rebase with no conflict keeps the verdict (it changes no line of this diff, as
   ADR-0060 has it for the owner's approval). One where you resolved a conflict changed reviewed
   code: it needs a fresh `code-reviewer` round, which counts as a round.
-- **The pushed commit gets a gate run of its own, before every push** (#1319). When a
+- **The pushed commit has a reviewer gate run of its own** (#1319). Before a push, when a
   `code-reviewer` reviewed this diff and `HEAD` is not the commit named in its last report (Minor
   fixes, second-pass fixes, a rebase, a CodeQL fix), spawn a fresh `code-reviewer` with "gates
-  only", that brief's lines on the commit and your gate results, writing
-  `<scratchpad>/<n>-gates.md`. It is not a review round. `GATES: RED` is a red gate: fix it,
-  commit, re-run your gates and run it again. The suite counts in the report's Proof come from the
-  last reviewer gate run on the pushed commit.
+  only", the commit and your gate results on it as step 7's brief gives them, writing
+  `<scratchpad>/<n>-gates-<short SHA>.md`. It is not a review round. Its file must exist, be newer
+  than the commit and name `HEAD`; a run without such a file has stalled: spawn one fresh run, and
+  a second stall is an unproven gate (no PR, below). `GATES: RED` → fix what it found. A fix that changes code needs
+  a fresh `code-reviewer` round, which counts as a round (none left: stop as step 7's round rule
+  says); a finding with no code to fix (a gate you had not run) needs your own run of that gate
+  and a new gates-only run. The suite counts in the report's Proof come from the last reviewer
+  gate run on the pushed commit.
 - **A PR ships only when nothing can be wrong.** Every gate above is already green on the pushed
   commit and no open question, TODO or unverified assumption remains. Any gate unproven (Docker
   down, a suite skipped, review verdict missing) → **push the branch, write the report (step 9) as
@@ -650,7 +654,7 @@ and say so in the final reply.
 - Never re-read a file already in context; prefer one targeted `grep -n` over `cat`-ing whole files.
 - Subagents only where this command names them: the `/buddy` challenge of step 2 (every ticket) and of a later design bet (step 3), the reviews
   of step 7 (the reviewer the diff picks, its escalation, the second pass and `/security-review`),
-  and `dat-format-expert` for DAT work. The repo cap is 4 in parallel.
+  step 8's gates-only run, and `dat-format-expert` for DAT work. The repo cap is 4 in parallel.
 - The session dies after step 9's final reply. A second ticket in this context pays this
   ticket's whole conversation as cache reads on every turn — a fresh boot is cheaper.
   Back-to-back `/ticket` sessions reuse only the tool layer of the prompt cache (the rest

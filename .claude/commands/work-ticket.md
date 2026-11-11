@@ -134,9 +134,9 @@ everything that matters must be committed and pushed.
      never hands its report back. A `/code-review` that still ends up in the background → run a
      foreground `code-reviewer` instead.
    - **A reviewer that ends with no verdict file has stalled:** spawn a fresh `code-reviewer` with
-     the gate results, told to write the file before it ends its turn. Never message the stalled
-     one: its answer would arrive after your turn has ended. The replacement counts as one of the
-     three rounds.
+     the full brief and the gate results, told to write the file before it ends its turn. Never
+     message the stalled one: its answer would arrive after your turn has ended. The replacement
+     counts as a round; a stalled round 3 or 4 gets none (stop as below).
    - **A ticket you file from bucket 2** (a new one, or an open ticket that gets a case added) gets
      the `audit` label as well: nobody checked the case live, and the owner triages it before the
      loop may pick it up.
@@ -144,9 +144,9 @@ everything that matters must be committed and pushed.
      own output: save the report and go on to step 7. A headless session that ends its turn on a
      review report dies with no PR and no `STATUS` block.
    - **A gate that cannot reach green, a rebase conflict you cannot settle (`git rebase --abort`
-     first), or no APPROVE after three rounds** → `STATUS: BLOCKED` (category: red-build or
-     review-unclean) with the reason. This replaces `/ticket`'s "push the branch and report without
-     a PR": push nothing. Never push broken work.
+     first), or no APPROVE after the last round `/ticket` step 7 allows** → `STATUS: BLOCKED`
+     (category: red-build or review-unclean) with the reason. This replaces `/ticket`'s "push the
+     branch and report without a PR": push nothing. Never push broken work.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish
    line: once it passes, commit any remaining (Minor) fixes and re-run the gates, sync with
    `origin/main` again, push, and re-read the issue, all as `/ticket` step 8 says (a case added

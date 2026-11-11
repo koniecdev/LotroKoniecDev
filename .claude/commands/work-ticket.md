@@ -237,8 +237,8 @@ What each reason adds:
   is one), finish from there, and end with the block.
 - **`reason=no-pr`**: your last message said `STATUS: DONE`, but the loop found no PR of the
   ticket. It counts only a PR in this repository, not from a fork, whose branch name starts with
-  `<issue>-`, that is open or was merged after the session started; a PR closed without a merge
-  never counts (`CONTRACT.md`, section 4). `pr_named=<k>`, when it is there, is the number of the
+  `<issue>-`, that is open, or that was opened after the session started and has been merged since;
+  a PR closed without a merge never counts (`CONTRACT.md`, section 4). `pr_named=<k>`, when it is there, is the number of the
   PR your message linked, and that PR is not such a PR (the loop passes no branch name). If a PR you
   opened in this session was closed without a merge and you did not close it yourself, push
   nothing, open no new PR, and end with `STATUS: BLOCKED`, `CATEGORY: pr-closed` (step 8).

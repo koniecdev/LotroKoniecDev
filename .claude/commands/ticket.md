@@ -227,7 +227,9 @@ Then exactly one of three verdicts:
   knowledge base or the code and cite the source) or becomes a documented assumption in the report
   — pick the most defensible reading and keep moving. Business answers are never invented.
 - **BOUNCE** → the premise is false, the work already shipped, it duplicates another ticket, it
-  contradicts the wiki, or it asks a part for a check that ADR-0067 gives to another part. Comment
+  contradicts the wiki, it asks a part for a check that ADR-0067 gives to another part, or it asks
+  for a change inside `scripts/claude/`, the copy of the shared loop engine (`CLAUDE.md` → "Loop
+  mode": the change is made in the engine). Comment
   the evidence on the issue and STOP — no branch, no code. A wrong ticket does not get implemented
   because it exists. Closing it is the user's call — never close, just report.
 
@@ -351,7 +353,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   pin (pure presentation) goes under **Doubts** with the page or step to check by hand.
 - **The guard scripts CI runs, every time** — they are bash greps and take seconds:
   `scripts/check-ssr-purity.sh`, `scripts/check-client-hypermedia.sh`,
-  `scripts/check-dockerfile-restore-graph.sh`, `scripts/check-migration-safety.sh`.
+  `scripts/check-dockerfile-restore-graph.sh`, `scripts/check-migration-safety.sh`, and the
+  backlog-loop copy check `scripts/claude/verify-copy.sh`.
 - **Review gate — picked by the diff you have, not the lane you named.**
   `git diff --shortstat origin/main...HEAD`. The base is always `origin/main`: a local `main` can
   be behind it (in a worktree it is never pulled), and a stale base pulls other merged work into

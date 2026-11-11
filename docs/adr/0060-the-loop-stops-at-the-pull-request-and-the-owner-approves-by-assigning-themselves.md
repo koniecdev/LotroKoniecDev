@@ -19,8 +19,8 @@ stamp or the settings differ from `origin/main` (`LOOP_ALLOW_LOCAL_SCRIPTS=1` is
 way round it). A new engine version reaches `origin/main` only in a reviewed PR of this repo,
 worked by hand, never by the loop, so the code that runs is still the code the owner reviewed. The
 rest of this ADR stands: the loop stops at the PR, and the owner approves by assigning
-themselves. The manual moved to `scripts/claude/LOOP.md`, with the same section names;
-`docs/claude-loop.md` explains this repo's settings.
+themselves. The manual moved to `scripts/claude/LOOP.md`, where the two sections the amendments
+below cite keep their names; `docs/claude-loop.md` explains this repo's settings.
 
 ## Amendment (2026-10-11): a PR merged before its session ends counts as done
 

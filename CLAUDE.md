@@ -574,7 +574,8 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
     guard change on Linux with `LANG=C.UTF-8`.
   - `scripts/claude/verify-copy.sh` (+ `.ps1` twin), the backlog-loop copy check, is not one of
     these guards: it is part of the copy of the loop engine, whose own CI runs its tests and both
-    twins. Both workflows run it on every change, with no verdict and no self-test here.
+    twins. `pr-verify` runs it on every PR, with no verdict, and `ci` runs it too; there is no
+    self-test of it here.
   - **The Blazor exception (#414):** the frontend image's `dotnet build` runs **without**
     `--no-restore`, because `blazor.web.js` comes from a package the SDK references only once it
     sees `.razor` files, never in the `.csproj`-only restore; with the flag every `_framework/*`

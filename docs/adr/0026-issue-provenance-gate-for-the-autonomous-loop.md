@@ -26,8 +26,9 @@ the loop. The gate's decision stands. Where its parts live changes.
   the engine starts no session unless GitHub reports the repository private.
 - **§5: no self-test of the gate in this repo.** The gate's suite runs in the engine's own CI, under
   a test profile with the gate on and the same trust lists, and the engine's sync tool copies only
-  an engine commit whose CI run ended green. `pr-verify` and `ci` here run
-  `scripts/claude/verify-copy.sh` on every change instead. It fails when the copy is not exactly the
+  an engine commit whose CI run ended green. Instead, `pr-verify` runs
+  `scripts/claude/verify-copy.sh` on every PR here, and `ci` on every push to `main` it runs for
+  (`main` takes changes only through a PR). It fails when the copy is not exactly the
   git tree that the stamp `scripts/claude-loop.engine` names, or when the settings do not fit that
   engine version. A small local self-test was weighed and rejected. It would test code that cannot
   change here without the copy check failing, and it would have to stub `gh` the way the engine

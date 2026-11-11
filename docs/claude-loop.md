@@ -68,7 +68,7 @@ rebuild itself):
 
 Nothing here brings a new engine version by itself: the maintainer runs the sync.
 `scripts/claude/verify-copy.sh --engine <engine checkout>` prints how many engine commits the copy
-is behind. CI runs `scripts/claude/verify-copy.sh` on every change: it fails when the copy is not
+is behind. `pr-verify` runs `scripts/claude/verify-copy.sh` on every PR: it fails when the copy is not
 exactly the tree its stamp names, or when the settings do not fit that engine version. It stops a
 hand edit of the copy. It cannot stop an edit of the copy, the stamp and the check together: the
 PR's review does, as for any other change.

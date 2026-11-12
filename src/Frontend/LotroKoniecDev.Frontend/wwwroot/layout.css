@@ -821,6 +821,10 @@ code {
     color: var(--text-dim);
 }
 
+.home-tech p + p {
+    margin-top: 6px;
+}
+
 .home-tech a {
     color: var(--accent-hi);
 }

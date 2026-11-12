@@ -126,6 +126,20 @@ public sealed class HomeTests : BunitContext
         component.FindAll("a[href='/translations']").ShouldNotBeEmpty();
     }
 
+    [Fact]
+    public void Render_WhenProgressUnavailable_StillLinksTheDiscordServer()
+    {
+        AddAuthorization().SetNotAuthorized();
+        StubProgress(ApiResult.Failure<PublicProgressResponse>(
+            new ProblemDetails { Title = "API nieosiągalne", Status = 503 }));
+
+        IRenderedComponent<HomeComponent> component = RenderHome();
+
+        IElement discordLink = component.Find(".home-tech a[href='https://discord.gg/sncXwa64Ex']");
+        discordLink.GetAttribute("rel").ShouldBe("noopener");
+        discordLink.TextContent.ShouldBe("Discord „LOTRO po polsku”");
+    }
+
     private void StubProgress(ApiResult<PublicProgressResponse> result) =>
         _client
             .GetApiResultAsync<PublicProgressResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())

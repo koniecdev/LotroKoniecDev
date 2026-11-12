@@ -26,11 +26,15 @@ bases have gone their own ways (ADR-0002 §4, amended 2026-10-11). **NO MEDIATOR
 (ADR-0001):** in-house `ICommand`/`IQuery` handlers; the `Mediator`/`MediatR` packages are
 forbidden. Never add them back.
 
-## Project status — deployed, pre-launch (no real users yet)
+## Project status — deployed, versions 0.x, first real users
 
-Active development; what is done and what is open is in "Roadmap" below. No real users yet, so
-**API/code breaking changes are free**: no back-compat shims, no deprecation windows. The one
-exception is the **database schema**: the stack is deployed with zero-downtime CD, so migrations
+Active development, released as **0.x**; 1.0 is the release for players (the wiki page
+`Wersje-systemu` defines both, epic #1346). What is done and what is open is in "Roadmap" below.
+Since 2026-11-11 an outside translator works on prod, so **prod data cannot be re-created by
+hand**. **API/code breaking changes stay free in 0.x** (owner decision, #1344), because every
+client ships from this repo and deploys with it: no back-compat shims, no deprecation windows. A
+release is a git tag + a GitHub Release on the commit prod runs, and CD builds each commit once
+(ADR-0070; runbook → "Releases"). The one exception is the **database schema**: the stack is deployed with zero-downtime CD, so migrations
 follow ADR-0023 (forward-only, N-1 backward-compatible, expand→backfill→contract) whatever the user
 count. Live backlog: `gh issue list`. Where an issue body conflicts with this file, **this file
 wins**: align the ticket before coding.

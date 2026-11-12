@@ -136,7 +136,7 @@ validator.
 | Touch update-day behaviour on the client (sentinel, orchestrator, any new DAT write path) | `docs/specs/0012-update-resilience.md` (Tier 0/1 rules as amended 2026-08-17) + **ADR-0047**: every write goes through the per-row source guard; the no-masking invariant has no path exceptions |
 | Touch the game-content catalog (CatalogEntry/TextSlot, Companion zip import, catalog browser, memberships) | `docs/specs/0008-game-content-catalog-layer.md` + `docs/knowledge-base/lotro-companion-data-model.md` (the verified `key:<FileId>:<GossipId>` join; never join on text). Naming rule: **never "entity"** in this layer |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
-| Plan any ticket's fix, or act on a negative claim, a cause outside the repo, or a ticket's own conclusion | the **`ticket-triage`** agent (on Fable) writes the verdict and the plan, then **`/buddy`** with its design challenge, before the verdict, on every ticket (no `/buddy` → its fallback agent): `/ticket` step 2 |
+| Plan any ticket's fix, or act on a negative claim, a cause outside the repo, or a ticket's own conclusion | the **`ticket-triage`** agent (on Fable) writes the verdict and the plan, then **`/buddy`** with its design challenge, before the verdict is posted, on every ticket (no `/buddy` → its fallback agent): `/ticket` step 2 |
 | Review a finished change | the **`code-reviewer`** agent (on Fable) on every diff, small ones too, a fresh one per round, three rounds plus one confirmation round only when the review is ending, then `/code-review` as the second pass (`/ticket` step 7); before the push, a **`gate-runner`** run on the pushed commit unless a `code-reviewer` or `gate-runner` report already names it (`/ticket` step 8) |
 | Sort review findings, file one, or triage an `audit` ticket | **ADR-0067 §8** (what is not a finding) + ADR-0008 §3 (the bar for a startup check) + ADR-0069 (the game launcher is not checked) + `docs/labels.md` → "One bug class per ticket" |
 | Understand the backlog / milestones | `gh issue list` + Roadmap below |
@@ -377,8 +377,8 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   **max 4 subagents in parallel**, no chained waves by default. Two committed agents are pinned to
   **Claude Fable 5.2 at `xhigh`** (the maintainer's decision of 2026-11-10): `ticket-triage`, which
   judges every ticket and writes its plan (`/ticket` step 2), and `code-reviewer`, which reviews
-  every diff, small ones too (`/ticket` step 7). The session that writes the code runs on Opus,
-  and one model has one set of blind spots. Every ticket's plan also gets the `/buddy` challenge
+  every diff, small ones too (`/ticket` step 7). The session that writes the code runs on its own
+  model (Opus 5.5 in the maintainer's runs), and one model has one set of blind spots. Every ticket's plan also gets the `/buddy` challenge
   (#1306), `/code-review` stays the second pass, and the pushed commit has a gate run of its own:
   a `gate-runner` run before the push when no `code-reviewer` or `gate-runner` report names that
   commit yet (`/ticket` step 8, #1319). `gate-runner`, `dat-format-expert`, `/code-review` and

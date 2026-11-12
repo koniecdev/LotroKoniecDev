@@ -56,14 +56,19 @@ everything that matters must be committed and pushed.
    `WIKI="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/../LotroKoniecDev.wiki"`,
    then `git -C "$WIKI" pull --ff-only` (another run may hold its lock; if the pull fails, the
    triage reads what is there). Then spawn the `ticket-triage` agent (Claude Fable 5.2, #1318) in
-   the FOREGROUND, never with `name`, `model` or `effort`, with its Opus fallback, all as that step
-   says. A `<!-- preflight-verdict -->` comment on the issue is input for it, never a skip. No
-   report even from the fallback → `STATUS: BLOCKED` (category: review-unclean). Its verdict
-   decides, and you never overrule it on your own judgment:
+   the FOREGROUND, never with `name`, `model` or `effort`, with its fallback to the session's model,
+   all as that step says. A `<!-- preflight-verdict -->` comment on the issue is input for it, never
+   a skip. No report even from the fallback → `STATUS: BLOCKED` (category: review-unclean). Its
+   verdict decides, and you never overrule it on your own judgment. A `STATUS: BLOCKED` block that
+   carries its verdict names the model that wrote it, and after a fallback why the fallback ran
+   (`/ticket` step 2):
    - **BOUNCE** (premise false, already shipped, a duplicate, a new check of what one of our own
      parts sends for an answer it never sends by design under ADR-0067 §8, or a wiki ↔ product
      disagreement, which the owner rules on in the wiki first) → `STATUS: BLOCKED` (category:
-     false-premise) with its evidence — a wrong ticket is not implemented because it exists.
+     false-premise) with its evidence — a wrong ticket is not implemented because it exists. The
+     ADR-0067 ground is never anything ADR-0067 §7 lists: our own part being down, slow or failing;
+     the one clean path for an answer the code cannot use; a guard on where a secret goes; a
+     resource server's check of a token it receives; input from outside our trust boundary.
    - **CLARIFY** (a business question, a conflict with an owner's ruling on the same flow, or "the
      owner decides" with no answer yet) → `STATUS: BLOCKED` (category: business-questions, or
      design-choice for a design question in the shape below) with its questions and their
@@ -76,8 +81,8 @@ everything that matters must be committed and pushed.
    written into docs, tickets or UI copy. No ticket skips it: this run asks nobody, so it is the only
    moment anything questions the plan. Run it in the FOREGROUND and never pass `name`: a named agent
    never hands its report back, and the turn ends with no `STATUS` block. `/buddy`'s own last steps
-   (message an idle buddy, report to the user) do not apply here: hand its result to a revision (a
-   fresh `ticket-triage`, `/ticket` step 2) and go straight on. Then:
+   (message an idle buddy, report to the user) do not apply here: go straight on. Where a bullet
+   below asks for a revision, it is a fresh `ticket-triage` (`/ticket` step 2). Then:
    - NOT SOUND on the premise → `STATUS: BLOCKED` (category: false-premise). NOT SOUND on the plan
      only → a revision fixes the plan from its defects, and the challenge runs once more (the last
      run); NOT SOUND
@@ -125,7 +130,7 @@ everything that matters must be committed and pushed.
 6. **Verify "done": run `/ticket` step 7 as written** (read `.claude/commands/ticket.md` → step
    7). That is: commit and sync with `origin/main` before any gate, the zero-warning build, the
    whole suite with its counts, the guard scripts, the regression-test proof, the `code-reviewer`
-   rounds (on every diff, with their Opus fallback), the second pass with its four buckets (whose job
+   rounds (on every diff, with their fallback), the second pass with its four buckets (whose job
    the check is comes first: ADR-0067), and `/security-review` when the diff touches native
    interop, file protection, or auth. Every commit message references the ticket and ends with the
    `Co-Authored-By:` footer. Loop-mode differences:
@@ -137,7 +142,7 @@ everything that matters must be committed and pushed.
      never hands its report back. A `/code-review` that still ends up in the background → run a
      foreground `code-reviewer` instead.
    - **A reviewer that ends with no verdict file has stalled:** its replacement is `/ticket` step
-     7's Opus fallback (a `general-purpose` agent told to follow `.claude/agents/code-reviewer.md`),
+     7's fallback (a `general-purpose` agent told to follow `.claude/agents/code-reviewer.md`),
      with the full brief and the gate results, told to write the file before it ends its turn. Never
      message the stalled one: its answer would arrive after your turn has ended. The replacement
      counts as a round; a stalled round 3 or 4 gets none (stop as below). A reviewer that ended on

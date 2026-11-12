@@ -111,8 +111,10 @@ The ticket is a claim, not a fact. Tickets here are written by past agent runs a
 hurry; premises go stale and are sometimes flat wrong (TheKittySaver #766 was filed —
 and later closed — on a false one). Before any branch, every factual claim is verified and the plan
 is written by the **`ticket-triage` agent** (`.claude/agents/ticket-triage.md`), pinned to Claude
-Fable 5.2 at `xhigh`. This session runs on Opus and builds what the plan says. One model has one set
-of blind spots, so the model that writes the code is not the one that judged the ticket (#1318). The
+Fable 5.2 at `xhigh`. This session builds what the plan says, on its own model (Opus 5.5 in the
+maintainer's runs). One model has one set of blind spots, so the model that writes the code is not
+the one that judged the ticket (#1318). A session that itself runs on Fable says so under the
+report's **Doubts**: the triage, the code and the review then share one model again. The
 agent works through this step's checks up to the verdict. This session spawns it, runs `/buddy` on
 its plan, holds the gate and posts the comments.
 
@@ -122,16 +124,23 @@ its plan, holds the gate and posts the comments.
   the wiki clone's path written out, and the result of step 0's wiki pull. A revision (below) is a
   fresh agent too, with the last triage report, `/buddy`'s report and the gate's answers in its
   brief: a headless session never gets the answer to a message, so the agent is never resumed.
-- **Fallback to Opus, once.** The agent ends with `Agent terminated early due to an API error`, or
-  its report has no `VERDICT:` line: spawn the same brief once as `general-purpose`, told to read
-  `.claude/agents/ticket-triage.md` and follow it as its instructions. The cause may be Fable's share
-  of the weekly limit running out, or an account with no Fable. Quote the error in the READY comment
-  and in the report, and say there that the triage ran on Opus. No report from the fallback either
-  → stop and report it: the triage did not run, and no ticket skips it.
+- **Fallback to the session's model, once.** The agent ends with `Agent terminated early due to an
+  API error`, or its report has no `VERDICT:` line: spawn the same brief once as `general-purpose`,
+  told to read `.claude/agents/ticket-triage.md` and follow it as its instructions. The cause may be
+  Fable's share of the weekly limit running out, or an account with no Fable. No report from the
+  fallback either → stop and report it: the triage did not run, and no ticket skips it.
+- **Every comment that carries the triage's verdict names its model** (the READY comment, the
+  gate's questions, a BOUNCE comment), and so does the report: the `Model:` line of the report the
+  verdict came from. After a fallback, add why it ran: the quoted error, or that the agent's report
+  had no `VERDICT:` line.
 - **The triage's verdict and plan are binding.** Do not redo its checks and do not overrule it on
   your own judgment. The verdict changes only by the rules on `/buddy`'s result and the gate below,
-  and every change to the plan before the branch is a revision, written by a fresh
-  `ticket-triage`, never by this session.
+  and every change to the plan in this step is a revision, written by a fresh `ticket-triage`,
+  never by this session. The last triage report is the binding one. A revision that carries the
+  gate's answers asks nothing new: its CLARIFY ends the run before the branch, with its questions in
+  the report comment and "Answer in a comment that starts with `**Owner decision:**`." as the last
+  line (step 3's route for a late design question). Step 3's design-bet run and step 8's late
+  route stay this session's: they judge drafts this session wrote after the plan.
 
 The agent's checklist, in this order of authority:
 
@@ -166,7 +175,8 @@ The agent's checklist, in this order of authority:
 - **A `/preflight` verdict comment already on the issue is input, never a skip.** The triage
   checks its claims like any other: preflight runs no agents, so nobody has tried to prove its
   diagnosis wrong.
-- **Challenge the plan — `/buddy`, on every ticket, before the verdict.** This is the session's part.
+- **Challenge the plan — `/buddy`, on every ticket, before the verdict is posted.** This is the
+  session's part.
   No trigger list and no
   lane exception: a session that judges whether its own plan needs a second opinion rarely asks for
   one, and it never sees the design it is fixing *inside* as a choice (#1306). Reading the flow at
@@ -191,7 +201,7 @@ The agent's checklist, in this order of authority:
     revision fixes the plan, and `/buddy` runs once more (the last run); NOT SOUND again → CLARIFY.
     Corrections → a revision folds them into the plan.
   - `BETTER DESIGN` with `NEEDS OWNER: no` → a revision adopts it, and its plan goes through one
-    more `/buddy` run (its claims and assumptions) before the verdict; an adopted design can change
+    more `/buddy` run (its claims and assumptions) before the verdict is posted; an adopted design can change
     the lane. That second run is the last: its NOT SOUND or another better design counts as
     `NEEDS OWNER: yes` below. Not adopted (the revision rejects it with a reason) → the READY comment
     carries that reason.
@@ -237,8 +247,7 @@ The agent's checklist, in this order of authority:
 Then exactly one of three verdicts:
 
 - **READY** → post a short comment on the issue: the verdict, the plan in 3–6 lines, the lane
-  (step 3), the assumptions, and the model that wrote the plan (the triage report's `Model:` line,
-  or Opus with the quoted error after a fallback). That comment is the "worth following"
+  (step 3), the assumptions, and the model that wrote the plan (above). That comment is the "worth following"
   signal — the user can glance at the issue and interrupt early if the plan is wrong. Proceed.
   A `/preflight` READY comment already on the issue does not replace it: keep yours short where
   it agrees, and name where it differs (an adopted better design, or the reason one was not
@@ -412,13 +421,16 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     images (`tests/CLAUDE.md`). A Phase 0 Critical with no code to fix (a test project missing from your
     results but green there) is fixed by running that gate yourself; the next round still counts.
 
-    **Fallback to Opus.** A reviewer that ends with `Agent terminated early due to an API error`
-    never reviewed: spawn the same brief once as `general-purpose`, told to read
+    **Fallback to the session's model.** A reviewer that ends with `Agent terminated early due to
+    an API error` never reviewed: spawn the same brief once as `general-purpose`, told to read
     `.claude/agents/code-reviewer.md` and follow it as its instructions, and it is that round's
     reviewer. A reviewer that stalled (no file with a `VERDICT:` line, below) gets the same
     `general-purpose` agent as its replacement, under the stall rules below. The cause may be
-    Fable's share of the weekly limit running out, or an account with no Fable. The report's Proof
-    quotes the error and names each round that ran on Opus (its report's `Model:` line).
+    Fable's share of the weekly limit running out, or an account with no Fable. The fallback runs
+    once per round: when it too ends on an API error or with no file with a `VERDICT:` line, the
+    round has no verdict, so stop as step 8 says for an unproven gate (`/work-ticket`: `BLOCKED`,
+    review-unclean). The report's Proof names the model of each round (its report's `Model:` line)
+    and, for a fallback, why it ran: the quoted error, or the missing `VERDICT:` line.
 
     A Major for a false assumption that decided the design takes step 8's design route instead. Fix
     every Critical/Major, commit, re-run the gates, then **spawn a fresh `code-reviewer`** for the
@@ -464,7 +476,7 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     stalled. In an interactive session, one
     message asking it to write the file now is the fix; its answer comes back as a notification,
     which a headless session never gets (`/work-ticket` spawns the replacement at once). A stall
-    that one message does not fix gets the Opus fallback above as its replacement, which counts as
+    that one message does not fix gets the fallback above as its replacement, which counts as
     a round. A file that names an older commit is stale: spawn a fresh `code-reviewer`, which counts
     as a round. In round 3 or 4, a stall that one message does not fix and a stale file get no
     replacement: stop, as the confirmation-round rule above says.

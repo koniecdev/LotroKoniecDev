@@ -1044,8 +1044,10 @@ CD fails closed with a "not wired for ssh deploys" error until each environment 
 > release; the fault is the secret. Whenever you rotate `OpenIddict__ApiClientSecret`, set this again
 > at the same time, **per environment**, and check it with the hand-started smoke
 > ([Post-deploy smoke test](#post-deploy-smoke-test) → "In CI") before the next deploy. There is no
-> repository-level copy (#1335): an environment without its own `SMOKE_CLIENT_SECRET` stops CD at the
-> "not wired for ssh deploys" check, before anything touches the box.
+> repository-level copy (#1335), so an environment without its own `SMOKE_CLIENT_SECRET` stops CD at
+> the "not wired for ssh deploys" check, before anything touches the box. **Never set it without
+> `--env`:** a workflow cannot tell a repository copy from an environment one, so a repository copy
+> would again fill in, unseen, for an environment that has none.
 
 **Mint a CD deploy key per box**: one key per environment, so a staging compromise cannot touch prod.
 It is the `deploy` user's key, never `root`'s:
@@ -1567,7 +1569,8 @@ gh workflow run smoke.yml -f environment=staging       # or production
 ```
 
 It creates **no deployment record** (`deployment: false`), so `image-scan.yml` and the N-1 promotion
-gate still see the last real deploy. A `production` run waits at the same reviewer gate as a
+gate still see the last real deploy. Do not start it while a deploy runs on that box: `up -d`
+recreates the containers, and a red result in those seconds says nothing about the release. A `production` run waits at the same reviewer gate as a
 promotion: approving it (*Review deployments*) runs only the smoke and deploys nothing. A run nobody
 approves stays `waiting`, and the janitor clears only `cd.yml` runs, so cancel it with
 `gh api -X POST repos/koniecdev/LotroKoniecDev/actions/runs/<run-id>/force-cancel` (*Cancel* does not

@@ -106,6 +106,11 @@ branch snapshot (MIGR-04 #339).
 readiness wait. A failed smoke marks the release failed and visible (the documented "call the smoke
 job at the end of the deploy workflow").
 
+> **Amended by #1335 (2026-11-12):** `smoke.yml` has no `workflow_call` entry any more. `deploy.yml`
+> runs `scripts/smoke.sh` inside its own rollout job, so nothing called it. `smoke.yml` is now only
+> the smoke started by hand against one environment, with that environment's secret and URLs and
+> `deployment: false`, so it writes no deployment record.
+
 **Amendment (2026-06-30, audit 0001 H7 — health-gated rollout, supersedes the single-revision
 rollout below).** The rollout is no longer "`az containerapp update` → 100% of traffic onto the new
 revision immediately, smoke afterwards". The three web apps run in **multiple-revision mode**

@@ -4,9 +4,12 @@
 #   find  Is this commit's image already in GHCR? Writes `exists=true` (reuse it) or `exists=false`
 #         (build it) to $GITHUB_OUTPUT. The job names an image only after Trivy, signing and the
 #         attestation passed (`name`), so a tag CD wrote is a checked image. A tag whose provenance
-#         does not verify stops the job: CD never builds over a tag.
+#         does not verify (one from before ADR-0070, or pushed by hand) stops the job.
 #   name  Adds the tags to the checked digest, as the job's last step. It never moves an existing
-#         tag to another digest, except `latest`, and reads every tag back afterwards.
+#         tag to another digest, except `latest`, and reads the other tags back afterwards.
+#
+# Only the registry's "not found" means a tag is missing. Any other failed read, a refusal included,
+# stops the job: a token refused for a moment may still write, and a write could move a tag.
 #
 # Input (env): IMAGE_REPO (ghcr.io/<owner>/<image>). find: IMAGE_TAG (sha-<short>),
 # GITHUB_REPOSITORY, GITHUB_OUTPUT. name: DIGEST (sha256:…) and TAGS (full refs, one per line).
@@ -34,9 +37,8 @@ is_digest() {
     [[ "$1" =~ ^sha256:[0-9a-f]{64}$ ]]
 }
 
-# Prints the digest $1 names and returns 0. Returns 3 when the registry says the tag is missing, or
-# will not tell this token: a token that cannot read a package cannot write it either, so a build
-# that follows can move no tag it could not see. Returns 1 on any other answer.
+# Prints the digest $1 names and returns 0. Returns 3 when the registry says the tag is not found,
+# and 1 on any other answer.
 digest_of() {
     local ref="$1" error_file printed
     error_file="$(mktemp)"
@@ -49,7 +51,7 @@ digest_of() {
         log "::error::Could not read the digest of ${ref} (got '${printed:-<empty>}')."
         return 1
     fi
-    if grep -qE ': not found$|denied|unauthorized|401 Unauthorized|403 Forbidden' "$error_file"; then
+    if grep -q ': not found$' "$error_file"; then
         rm -f "$error_file"
         return 3
     fi
@@ -70,7 +72,7 @@ find_image() {
                 log "::notice::${ref} was built before (${found}). Nothing is built or pushed; the deploy uses that image."
                 return 0
             fi
-            log "::error::${ref} exists, but its build provenance did not verify. If the check failed for a moment, re-run the job. CD never builds over an existing tag: see the runbook, 'An image that failed its checks'."
+            log "::error::${ref} exists, but its build provenance did not verify. If the check failed for a moment, re-run the job. A tag from before ADR-0070 or one pushed by hand stays: CD never builds over a tag. See the runbook, 'An image that failed its checks'."
             return 1
             ;;
         3)
@@ -89,7 +91,7 @@ name_image() {
         log "::error::DIGEST '${DIGEST}' is not a sha256 digest."
         return 1
     fi
-    local tag current status args=() names=()
+    local tag current status args=() fixed=()
     while IFS= read -r tag; do
         [ -n "$tag" ] || continue
         case "$tag" in
@@ -99,32 +101,33 @@ name_image() {
                 return 1
                 ;;
         esac
-        if [ "$tag" != "${IMAGE_REPO}:latest" ]; then
-            status=0
-            current="$(digest_of "$tag")" || status=$?
-            case "$status" in
-                0)
-                    if [ "$current" != "$DIGEST" ]; then
-                        log "::error::${tag} already names ${current}, not ${DIGEST}. CD never moves an existing tag (ADR-0070)."
-                        return 1
-                    fi
-                    ;;
-                3) ;;
-                *) return 1 ;;
-            esac
-        fi
         args+=(--tag "$tag")
-        names+=("$tag")
+        # `latest` moves with every new commit on main, so only the other tags are protected.
+        [ "$tag" != "${IMAGE_REPO}:latest" ] || continue
+        status=0
+        current="$(digest_of "$tag")" || status=$?
+        case "$status" in
+            0)
+                if [ "$current" != "$DIGEST" ]; then
+                    log "::error::${tag} already names ${current}, not ${DIGEST}. CD never moves an existing tag (ADR-0070)."
+                    return 1
+                fi
+                ;;
+            3) ;;
+            *) return 1 ;;
+        esac
+        fixed+=("$tag")
     done <<< "$TAGS"
-    if [ "${#names[@]}" -eq 0 ]; then
+    if [ "${#args[@]}" -eq 0 ]; then
         log "::error::TAGS names no tag."
         return 1
     fi
 
-    # One source that is an image index is copied as it is, so the tags name the signed digest.
-    docker buildx imagetools create "${args[@]}" "${IMAGE_REPO}@${DIGEST}" >&2
+    # With one source and --prefer-index=false, the tags name the source digest itself (a carbon
+    # copy), so the signature and the attestation made for that digest still apply.
+    docker buildx imagetools create --prefer-index=false "${args[@]}" "${IMAGE_REPO}@${DIGEST}" >&2
 
-    for tag in "${names[@]}"; do
+    for tag in "${fixed[@]}"; do
         status=0
         current="$(digest_of "$tag")" || status=$?
         if [ "$status" -ne 0 ] || [ "$current" != "$DIGEST" ]; then

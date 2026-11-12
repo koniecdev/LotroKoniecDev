@@ -288,8 +288,10 @@ jobs:
           # Attach build attestations to the image in GHCR (audit 0001 H9): SLSA provenance (build
           # inputs/invocation) + an SPDX SBOM (package inventory for CVE triage). These ride along as
           # OCI referrer manifests, so the push is an image INDEX — the linux/amd64 runtime manifest
-          # plus two `unknown/unknown` attestation manifests. The box's Docker engine platform-matches
-          # the amd64 entry and ignores the attestation manifests, so the rollout pull is unchanged.
+          # plus an `unknown/unknown` attestation manifest. The box's Docker engine platform-matches
+          # the amd64 entry and ignores the attestation manifest, so the rollout pull is unchanged.
+          # The naming step relies on the index: one index copied with --prefer-index=false keeps
+          # its digest.
           provenance: true
           sbom: true
 

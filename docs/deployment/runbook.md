@@ -1127,6 +1127,8 @@ v0.1.0 waits until the translators' work is in the daily backup (#688), as the w
    git cat-file -e <sha>:docs/adr/0070-a-release-is-a-git-tag-and-cd-builds-each-commit-once.md && echo "has ADR-0070"
    ```
 
+   If it prints nothing, do not tag that commit: promote a newer commit to prod first, then start
+   again at step 1.
 3. **Tag it and push the tag:**
 
    ```bash
@@ -1161,6 +1163,8 @@ not the same image.
 **Never re-run the build jobs of a CD run that started before ADR-0070 merged** (GitHub allows a
 re-run for 30 days). A re-run uses the `cd.yml` of the original run, which builds the commit again
 and moves its tag. To deploy that commit again, run CD by hand from `main` with its `image_tag`.
+That is also the way for any other CD run of a commit from before ADR-0070: the new `cd.yml` checks
+out that commit, which has no `commit-image.sh`, so its lookup stops.
 
 ## Database migrations
 

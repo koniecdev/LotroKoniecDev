@@ -1570,11 +1570,14 @@ gh workflow run smoke.yml -f environment=staging       # or production
 
 It creates **no deployment record** (`deployment: false`), so `image-scan.yml` and the N-1 promotion
 gate still see the last real deploy. Do not start it while a deploy runs on that box: `up -d`
-recreates the containers, and a red result in those seconds says nothing about the release. A `production` run waits at the same reviewer gate as a
-promotion: approving it (*Review deployments*) runs only the smoke and deploys nothing. A run nobody
-approves stays `waiting`, and the janitor clears only `cd.yml` runs, so cancel it with
-`gh api -X POST repos/koniecdev/LotroKoniecDev/actions/runs/<run-id>/force-cancel` (*Cancel* does not
-work on a gated run, as in [Continuous deployment](#continuous-deployment-cd-over-ssh)).
+recreates the containers, and a red result in those seconds says nothing about the release.
+
+A `production` run waits at the same reviewer gate as a promotion: approving it (*Review
+deployments*) runs only the smoke and deploys nothing. To drop one, choose *Reject* in the same
+dialog. The janitor clears only `cd.yml` runs, so a run nobody approves or rejects stays `waiting`;
+*Cancel* does not work on a gated run (see
+[Continuous deployment](#continuous-deployment-cd-over-ssh)), so end it with
+`gh api -X POST repos/koniecdev/LotroKoniecDev/actions/runs/<run-id>/force-cancel`.
 
 > **`GET / -> 200` never proves the frontend works.** A `[StreamRendering]` page returns 200 with its
 > spinner frame before it fetches anything. Leg 2's **fingerprint** check is the signature of a

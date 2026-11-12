@@ -28,7 +28,9 @@ jobs:
   smoke:
     name: Smoke test (${{ inputs.environment }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # smoke.sh makes about 16 requests of up to SMOKE_TIMEOUT each. Against a box that hangs, this
+    # still lets it print its own result.
+    timeout-minutes: 10
     # No concurrency group: a pending job in deploy.yml's `*-mutation` group would cancel another
     # pending one, so a smoke there could push out a queued deploy.
     environment:

@@ -126,7 +126,8 @@ jobs:
       # per environment (runbook → "Continuous deployment (CD over ssh)"). A missing host key var in
       # particular must never degrade into StrictHostKeyChecking=no: that would hand the deploy key and
       # the whole box to whoever answers on that IP. A missing smoke secret would let the rollout run,
-      # fail the smoke and roll the box back; there is no repository copy to fall back to (#1335).
+      # fail the smoke and roll the box back. The check proves the secret is set, not where: a
+      # repository copy would pass it too, so there must be none (#1335).
       - name: Check the environment is wired for ssh deploys
         env:
           SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}

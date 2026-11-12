@@ -1,9 +1,8 @@
 name: Smoke test
 
-# The smoke test (M6-13) started by hand against staging or production: health, an OIDC token
-# round-trip, tms accepting the token, the translation-file download and the CSP legs. CD does not
-# call this file: deploy.yml runs scripts/smoke.sh inside its own rollout job, so a red result can
-# roll the box back.
+# The smoke test (M6-13) started by hand against staging or production; scripts/smoke.sh lists what
+# it checks. CD does not call this file: deploy.yml runs scripts/smoke.sh inside its own rollout
+# job, so a red result can roll the box back.
 #
 # The job reads the environment's own SMOKE_CLIENT_SECRET and AUTH_URL / TMS_URL / FRONTEND_URL,
 # the same values CD uses, so the two runs cannot drift apart (#1335). `deployment: false` keeps it

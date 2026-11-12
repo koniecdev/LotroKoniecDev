@@ -1573,8 +1573,9 @@ gate still see the last real deploy. Do not start it while a deploy runs on that
 recreates the containers, and a red result in those seconds says nothing about the release.
 
 A `production` run waits at the same reviewer gate as a promotion: approving it (*Review
-deployments*) runs only the smoke and deploys nothing. To drop one, choose *Reject* in the same
-dialog. The janitor clears only `cd.yml` runs, so a run nobody approves or rejects stays `waiting`;
+deployments*) runs only the smoke and deploys nothing. Check first that the run is on `main`: a run
+started from another branch runs that branch's `smoke.yml` and `smoke.sh` with every production
+secret, the deploy key included (#1336). To drop one, choose *Reject* in the same dialog. The janitor clears only `cd.yml` runs, so a run nobody approves or rejects stays `waiting`;
 *Cancel* does not work on a gated run (see
 [Continuous deployment](#continuous-deployment-cd-over-ssh)), so end it with
 `gh api -X POST repos/koniecdev/LotroKoniecDev/actions/runs/<run-id>/force-cancel`.

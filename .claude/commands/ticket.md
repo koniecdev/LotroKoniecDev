@@ -1,5 +1,5 @@
 ---
-description: Work a GitHub issue end-to-end — interrogate the ticket first (READY/CLARIFY/BOUNCE, wiki-first, the plan's claims checked by /buddy), one question gate, then autonomous to a Ticket report in plain English + PR
+description: Work a GitHub issue end-to-end — a triage agent on Fable interrogates the ticket first (READY/CLARIFY/BOUNCE, wiki-first, the plan's claims checked by /buddy), one question gate, then autonomous to a Ticket report in plain English + PR
 argument-hint: <issue number> [extra context]
 ---
 
@@ -80,8 +80,7 @@ A run that stops before it has a ticket branch checked out (a blocking dependenc
 in step 5) leaves a worktree with nothing in it: `ExitWorktree(action: "keep")`, and when that
 moved the session out, `git worktree remove <its folder>`; while the folder exists, the loop skips
 the ticket. A run that goes on after such a stop because the user says so runs step 0 again first.
-Step 3's model-tier stop keeps its worktree: the user's go-ahead is the expected next message
-there. The worktree of a run that got a branch stays after the PR, for follow-up fixes, and a
+The worktree of a run that got a branch stays after the PR, for follow-up fixes, and a
 later run's tidy-up removes it a day after the PR is merged. The post-merge loop stays
 self-contained: after merging the previous PR on GitHub, `/clear` → `/ticket <n>` needs no manual
 checkout or pull first.
@@ -110,8 +109,31 @@ checkout or pull first.
 
 The ticket is a claim, not a fact. Tickets here are written by past agent runs and a human in a
 hurry; premises go stale and are sometimes flat wrong (TheKittySaver #766 was filed —
-and later closed — on a false one). Before any branch, verify every factual claim, in this order
-of authority:
+and later closed — on a false one). Before any branch, every factual claim is verified and the plan
+is written by the **`ticket-triage` agent** (`.claude/agents/ticket-triage.md`), pinned to Claude
+Fable 5.2 at `xhigh`. This session runs on Opus and builds what the plan says. One model has one set
+of blind spots, so the model that writes the code is not the one that judged the ticket (#1318). The
+agent works through this step's checks up to the verdict. This session spawns it, runs `/buddy` on
+its plan, holds the gate and posts the comments.
+
+- **Spawn the triage, on every ticket.** One fresh `ticket-triage`, in the foreground. Never pass
+  `name` (a named agent's report never reaches you), and never `model` or `effort`: either beats
+  the pin, and Fable never runs at `max`. Its brief: the ticket number, the main checkout's path and
+  the wiki clone's path written out, and the result of step 0's wiki pull. A revision (below) is a
+  fresh agent too, with the last triage report, `/buddy`'s report and the gate's answers in its
+  brief: a headless session never gets the answer to a message, so the agent is never resumed.
+- **Fallback to Opus, once.** The agent ends with `Agent terminated early due to an API error`, or
+  its report has no `VERDICT:` line: spawn the same brief once as `general-purpose`, told to read
+  `.claude/agents/ticket-triage.md` and follow it as its instructions. The cause may be Fable's share
+  of the weekly limit running out, or an account with no Fable. Quote the error in the READY comment
+  and in the report, and say there that the triage ran on Opus. No report from the fallback either
+  → stop and report it: the triage did not run, and no ticket skips it.
+- **The triage's verdict and plan are binding.** Do not redo its checks and do not overrule it on
+  your own judgment. The verdict changes only by the rules on `/buddy`'s result and the gate below,
+  and every change to the plan before the branch is a revision, written by a fresh
+  `ticket-triage`, never by this session.
+
+The agent's checklist, in this order of authority:
 
 1. **The wiki.** It is cloned beside the **main** checkout, so from the worktree
    `../LotroKoniecDev.wiki` points nowhere; read it at `<main checkout>/../LotroKoniecDev.wiki`,
@@ -141,13 +163,15 @@ of authority:
   (#1023 reversed #966 that way). "The owner decides" in the ticket body, unless a later owner
   comment answers it, is a question for the gate below, never a default to pick the strictest option
   from (PR #1063).
-- **A `/preflight` verdict comment already on the issue counts as this step done**, except the
-  plan challenge below — trust it, re-verify only what it flagged, run the plan challenge, and take
-  its recommended lane (unless that challenge changes the plan). Preflight runs no agents, so nobody has tried to prove its diagnosis wrong.
-- **Challenge the plan — `/buddy`, on every ticket, before the verdict.** No trigger list and no
+- **A `/preflight` verdict comment already on the issue is input, never a skip.** The triage
+  checks its claims like any other: preflight runs no agents, so nobody has tried to prove its
+  diagnosis wrong.
+- **Challenge the plan — `/buddy`, on every ticket, before the verdict.** This is the session's part.
+  No trigger list and no
   lane exception: a session that judges whether its own plan needs a second opinion rarely asks for
   one, and it never sees the design it is fixing *inside* as a choice (#1306). Reading the flow at
-  `file:line` does not check every claim around it. Hand `/buddy`:
+  `file:line` does not check every claim around it. Hand `/buddy` the triage's report, which holds
+  the first two items below, and the third:
   - the plan in 3–6 lines and the claims it rests on — always every **negative** claim ("not our
     code", "nothing else calls this", "X rules out Y"), every **cause outside this repo** (the game
     client or its launcher, Windows, a remote server, a vendor) and every **conclusion taken over**
@@ -161,14 +185,16 @@ of authority:
   A lane-S plan gets a short brief, never none. A reproduction proves the symptom, not a claim about
   its cause or about what else the fix touches. A finding that `docs/knowledge-base/` settles is
   evidence: cite it, do not challenge it again.
-  Then act on the result:
-  - NOT SOUND on the premise → back to the premise. NOT SOUND on the plan only → fix the plan and
-    run `/buddy` once more (the last run); NOT SOUND again → CLARIFY. Corrections → fold them into
-    the verdict.
-  - `BETTER DESIGN` with `NEEDS OWNER: no` → adopt it, and send the revised plan through one more
-    `/buddy` run (its claims and assumptions) before the verdict; an adopted design can change the
-    lane. That second run is the last: its NOT SOUND or another better design counts as
-    `NEEDS OWNER: yes` below. Not adopted → say why in the READY comment.
+  Then act on the result. A revision means a fresh `ticket-triage` with its last report and
+  `/buddy`'s report in the brief:
+  - NOT SOUND on the premise → a revision checks the premise again. NOT SOUND on the plan only → a
+    revision fixes the plan, and `/buddy` runs once more (the last run); NOT SOUND again → CLARIFY.
+    Corrections → a revision folds them into the plan.
+  - `BETTER DESIGN` with `NEEDS OWNER: no` → a revision adopts it, and its plan goes through one
+    more `/buddy` run (its claims and assumptions) before the verdict; an adopted design can change
+    the lane. That second run is the last: its NOT SOUND or another better design counts as
+    `NEEDS OWNER: yes` below. Not adopted (the revision rejects it with a reason) → the READY comment
+    carries that reason.
   - `BETTER DESIGN` with `NEEDS OWNER: yes` (it changes an ADR, a contract, a domain rule or the
     scope) → **CLARIFY**, even when a `/preflight` READY is already on the issue: put the choice to
     the maintainer at the gate below, with your recommendation. Never build the old design only because an
@@ -211,17 +237,21 @@ of authority:
 Then exactly one of three verdicts:
 
 - **READY** → post a short comment on the issue: the verdict, the plan in 3–6 lines, the lane
-  (step 3), and any assumptions you are already making. That comment is the "worth following"
+  (step 3), the assumptions, and the model that wrote the plan (the triage report's `Model:` line,
+  or Opus with the quoted error after a fallback). That comment is the "worth following"
   signal — the user can glance at the issue and interrupt early if the plan is wrong. Proceed.
-  A `/preflight` READY comment already on the issue **is** that signal: do not post a second
-  verdict — reply under it only where your plan or assumptions differ from it (an adopted better
-  design, or the reason you did not adopt one, is such a difference).
+  A `/preflight` READY comment already on the issue does not replace it: keep yours short where
+  it agrees, and name where it differs (an adopted better design, or the reason one was not
+  adopted, is such a difference).
 - **CLARIFY** → the ticket genuinely forks: contradictory statements, two defensible scopes, a
   business rule nothing in the wiki, knowledge base, specs, ADRs or code settles, or a better design
   that needs the maintainer (`/buddy` above). Ask the user **now, once, everything batched**
-  (AskUserQuestion, 3–5 questions max, each with your recommended answer). Write each answer that
+  (AskUserQuestion: the triage's questions and any choice `/buddy` handed to the maintainer, 3–5
+  questions max, each with its recommended answer). Write each answer that
   rules on the design to the issue as one comment starting with `**Owner decision:**`, so a later
-  session or the loop finds it. This is the ONLY moment in the run where asking is allowed — the context is
+  session or the loop finds it. When an answer changes the plan, a revision with the answers in its
+  brief writes the final plan before step 3, and the READY comment carries it. This is the ONLY
+  moment in the run where asking is allowed — the context is
   still tiny, so even an answer hours later re-primes cheaply. **After this gate: zero questions.**
   Anything that surfaces later is either empirically answerable (answer it from the wiki, the
   knowledge base or the code and cite the source) or becomes a documented assumption in the report
@@ -231,17 +261,14 @@ Then exactly one of three verdicts:
   for a hand edit inside `scripts/claude/`, the copy of the shared loop engine (`CLAUDE.md` → "Loop
   mode": the change is made in the engine). A ticket that brings a new engine version with the
   engine's sync tool is not such an edit. Comment
-  the evidence on the issue and STOP — no branch, no code. A wrong ticket does not get implemented
+  the evidence (the triage report's `Evidence`) on the issue and STOP — no branch, no code. A wrong ticket does not get implemented
   because it exists. Closing it is the user's call — never close, just report.
 
 ## 3. Lane — size the run before you start it
 
-- **S — small** (< ~150 changed lines, one concern): the gate **starts with inline `/code-review`**
-  instead of a review agent, and escalates to `code-reviewer` only as step 7 says. Step 8's
-  gates-only `code-reviewer` run on the pushed commit still applies. The whole run should fit well
-  under a hundred tool calls.
-- **M — standard slice** (the default): `code-reviewer` agent at the gate; DAT binary work goes to
-  the **`dat-format-expert`** agent.
+- **S — small** (< ~150 changed lines, one concern): a short `/buddy` brief and a short run, which
+  should fit well under a hundred tool calls. The review gate is the same as in every lane (step 7).
+- **M — standard slice** (the default): DAT binary work goes to the **`dat-format-expert`** agent.
 - **L — spec-worthy** (new feature with fuzzy rules, contract change, modeling decision —
   `CLAUDE.md` → "Spec before code"): the open business questions belonged in step 2's gate — you
   already asked them. Now copy `docs/specs/_TEMPLATE.md` → `docs/specs/NNNN-kebab-title.md` (next
@@ -249,8 +276,9 @@ Then exactly one of three verdicts:
   types and paths, not placeholders — and set **Status: Agreed** (**no second question round**)
   before the branch. A real architecture decision gets an `/adr` before the code.
 
-Name the lane in the READY comment. The lane is a forecast: step 7 picks the reviewer by the diff
-you actually have, so an S that grew past the threshold gets `code-reviewer`. Say so in the report.
+The triage names the lane, and the READY comment carries it. The lane is a forecast and picks no
+reviewer: every diff goes to `code-reviewer` (step 7). An S that grew past the threshold is worth
+one line in the report.
 
 **A design bet gets `/buddy` before code, in any lane.** A design bet is one of: an ADR written for
 this ticket, a deviation from an acceptance criterion, or one load-bearing assumption that decides
@@ -267,16 +295,6 @@ is not installed, use step 2's fallback agent. A design flaw found here costs on
 at the review gate it costs a rewrite plus a full re-run of every gate.
 Precedent: #690 — the first draft put a password in front of a POST whose payload was identical to
 the open GET beside it, and only review round 1 saw it, after the code and the tests existed.
-
-**The lane also sizes the model.** S and M lanes are mirror-the-sibling work and do not need the
-maintainer's scarcest model tier (Fable-class today: a weekly quota, and the strongest tool for
-architecture and the heaviest features). Measured on #690, an M-lane security ticket: that tier
-produced a PR equal in quality to the workhorse tier's and spent about 8% of its weekly quota on
-it. So if this session runs on the scarce tier and the lane is S or M, say so in one line and STOP
-here — the READY comment is already on the issue, so a fresh session on the workhorse tier skips
-step 2 and loses nothing. Continue only when the user says to. An L lane, or a ticket that needs an
-ADR, is where that tier earns its cost: keep going. A headless run (`claude -p`) cannot be
-answered, so it never stops here — it names the mismatch in the report's **Doubts** instead.
 
 ## 4. Ground it in the repo
 
@@ -358,22 +376,14 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   `scripts/check-ssr-purity.sh`, `scripts/check-client-hypermedia.sh`,
   `scripts/check-dockerfile-restore-graph.sh`, `scripts/check-migration-safety.sh`, and the
   backlog-loop copy check `scripts/claude/verify-copy.sh`.
-- **Review gate — picked by the diff you have, not the lane you named.**
-  `git diff --shortstat origin/main...HEAD`. The base is always `origin/main`: a local `main` can
-  be behind it (in a worktree it is never pulled), and a stale base pulls other merged work into
-  the diff.
-  - **< ~150 changed lines, one concern → inline `/code-review high origin/main...HEAD`, two
-    rounds at most.** Name the level: with none, the skill reuses the last level typed, and the
-    second pass below shows how much effort decides. It has no severity bar and no verdict rule, so
-    the exit is defined here. Sort each
-    round's findings into the four buckets of the second pass below; a round with no bucket-1
-    finding is the pass. Otherwise fix every bucket-1 finding, commit, re-run the gates and run one
-    more round on the result. If that round still finds a defect in the diff, or the fixes pushed
-    the diff past the threshold, escalate to `code-reviewer`. **Never a third `/code-review`
-    round:** with no verdict rule, "fix and re-run until clean" has no end, and the later rounds
-    mostly find defects that the earlier fixes made.
-  - **Anything bigger, or an escalated small diff → the repo's `code-reviewer` agent**
-    (`.claude/agents/code-reviewer.md`). Its brief carries:
+- **Review gate — every diff goes to the `code-reviewer` agent, small ones too** (#1318).
+  `git diff --shortstat origin/main...HEAD` sizes it for the report. The base is always
+  `origin/main`: a local `main` can be behind it (in a worktree it is never pulled), and a stale
+  base pulls other merged work into the diff.
+  - **The repo's `code-reviewer` agent** (`.claude/agents/code-reviewer.md`) is pinned to Claude
+    Fable 5.2 at `xhigh`: the code comes from this session's model, and a review on the same model
+    shares its blind spots. Never pass `model` or `effort` when you spawn it: either beats the pin,
+    and Fable never runs at `max`. Its brief carries:
     - the ticket number, step 2's acceptance criteria, and the base: `origin/main...HEAD`, with the
       `origin/main` SHA;
     - the commit under review: the SHA `git rev-parse HEAD` prints, with nothing uncommitted. The
@@ -402,6 +412,14 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     images (`tests/CLAUDE.md`). A Phase 0 Critical with no code to fix (a test project missing from your
     results but green there) is fixed by running that gate yourself; the next round still counts.
 
+    **Fallback to Opus.** A reviewer that ends with `Agent terminated early due to an API error`
+    never reviewed: spawn the same brief once as `general-purpose`, told to read
+    `.claude/agents/code-reviewer.md` and follow it as its instructions, and it is that round's
+    reviewer. A reviewer that stalled (no file with a `VERDICT:` line, below) gets the same
+    `general-purpose` agent as its replacement, under the stall rules below. The cause may be
+    Fable's share of the weekly limit running out, or an account with no Fable. The report's Proof
+    quotes the error and names each round that ran on Opus (its report's `Model:` line).
+
     A Major for a false assumption that decided the design takes step 8's design route instead. Fix
     every Critical/Major, commit, re-run the gates, then **spawn a fresh `code-reviewer`** for the
     next round, with the earlier findings, the fix commits and the findings you left alone because
@@ -415,8 +433,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     3, run a fourth and last round only when all of these hold:
     - the second pass has not run yet in this review, and round 3's verdict came from its
       reviewer's own file, naming the commit round 3 was briefed on (after one nudge in an
-      interactive session is fine; a stale file, or a fresh reviewer spawned for a stalled round 3,
-      is a stalled round 3);
+      interactive session is fine; a stale file, or a reviewer spawned for a stalled round 3,
+      is a stalled round 3; the fallback for an API error is round 3's own reviewer);
     - round 3 returned REQUEST CHANGES with exactly one Critical or Major, and you fixed it (a
       NEEDS DISCUSSION, more than one Critical or Major, one left alone under ADR-0067, or a
       design-route Major means no round 4);
@@ -441,20 +459,22 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   - **Trust a verdict only after you check its file:** it exists, it is newer than the commit it
     names, and that commit is `HEAD` or differs from it only by Minor fixes, the second pass's
     bucket-1 fixes (below) or a rebase with no conflict (step 8), with the gates green again (step
-    8's gates-only run proves them on the commit you push). A
-    reviewer that reports "completed" with no file has stalled. In an interactive session, one
+    8's `gate-runner` run proves them on the commit you push). A
+    reviewer that reports "completed" with no file, or with a file that has no `VERDICT:` line, has
+    stalled. In an interactive session, one
     message asking it to write the file now is the fix; its answer comes back as a notification,
-    which a headless session never gets (`/work-ticket` spawns a fresh reviewer instead). A file
-    that names an older commit is stale: spawn a fresh reviewer, which counts as a round. In round 3
-    or 4, a stall that one message does not fix and a stale file get no fresh reviewer: stop, as the
-    confirmation-round rule above says.
+    which a headless session never gets (`/work-ticket` spawns the replacement at once). A stall
+    that one message does not fix gets the Opus fallback above as its replacement, which counts as
+    a round. A file that names an older commit is stale: spawn a fresh `code-reviewer`, which counts
+    as a round. In round 3 or 4, a stall that one message does not fix and a stale file get no
+    replacement: stop, as the confirmation-round rule above says.
   - **`/security-review`** on top for anything touching native interop, file protection, or auth.
-- **Second pass — after a `code-reviewer` APPROVE on a diff that went to it at the gate: run
+- **Second pass — after the `code-reviewer` APPROVE, on every diff: run
   `/code-review xhigh origin/main...HEAD`.** It forks into a fresh context, so it has never seen your
   plan, your ADR or the first reviewer's framing, and it reads the code around the diff instead of
   the diff's own story. That independence is the point: the `code-reviewer` rounds converge on what
-  the author and the reviewer already talk about. An escalated small diff skips this pass: its two
-  `/code-review` rounds were the blind pass already, and a third round never runs.
+  the author and the reviewer already talk about. It runs on this session's model, beside the Fable
+  rounds (#1318).
   Precedent: #690 — three `code-reviewer` rounds and 20 findings ended in APPROVE, and one fresh
   `/code-review` then found four more, among them a password POST that the shared HTTP retry
   pipeline could send three times and an export that spent two rate-limit permits per click.
@@ -519,29 +539,28 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   never start. A rebase with no conflict keeps the verdict (it changes no line of this diff, as
   ADR-0060 has it for the owner's approval). One where you resolved a conflict changed reviewed
   code: it needs a fresh `code-reviewer` round, which counts as a round.
-- **The pushed commit has a reviewer gate run of its own, in both review paths** (#1319). Before
+- **The pushed commit has a gate run of its own** (#1319). Before
   every push a PR carries (the push before `gh pr create`, and every push to an open PR; a push
-  that only parks the branch with no PR needs none), unless the last `code-reviewer` report (a
-  review round's or a gates-only run's) names
-  `HEAD`, spawn a fresh `code-reviewer` with "gates only", the commit and your gate results on it
-  as step 7's brief gives them, writing `<scratchpad>/<n>-gates-<short SHA>.md`. A small diff
-  reviewed by inline `/code-review` always needs it; after `code-reviewer` rounds it is needed
+  that only parks the branch with no PR needs none), unless the last `code-reviewer` or
+  `gate-runner` report names `HEAD`, spawn a fresh `gate-runner` (`.claude/agents/gate-runner.md`:
+  `code-reviewer.md` Phase 0 alone, on this session's model, so a gate run spends no Fable) with
+  the commit and your gate results on it as step 7's brief gives them, writing
+  `<scratchpad>/<n>-gates-<short SHA>.md`. It is needed
   when `HEAD` moved after the last report (Minor fixes, second-pass fixes, a rebase, a CodeQL
   fix). It is not a review round. Wait for it as step 7 says for a reviewer: no edits, commits or
   test runs in this worktree while it runs. Its file must exist, be newer than the commit and name `HEAD`; a
   run without such a file has stalled: spawn one fresh run, and a second stall is an unproven
   gate (no PR, below). `GATES: RED` → fix what it found. A fix that changes code needs one more
-  review round as step 7 allows it (a fresh `code-reviewer` round, which counts; in the small-diff
-  path, the second `/code-review` round if it is left, otherwise the escalation to
-  `code-reviewer`), and none left means stop as step 7's round rule says. A finding with no code
-  to fix (a gate you had not run) needs your own run of that gate and one new gates-only run; a
+  review round as step 7 allows it (a fresh `code-reviewer` round, which counts), and none left
+  means stop as step 7's round rule says. A finding with no code
+  to fix (a gate you had not run) needs your own run of that gate and one new `gate-runner` run; a
   second `GATES: RED` with no code to fix is an unproven gate. After `GATES: GREEN`, act on its
   Minor findings as step 7 says, then push without another rebase, even when `origin/main` moved
   during the run: a branch that is behind opens fine, and pr-verify tests the merge with `main`.
   Only when `git fetch origin` and then `git merge-tree --write-tree HEAD origin/main` report a
   conflict, rebase as the sync bullet above says (a resolved conflict needs a fresh `code-reviewer`
   round), then run this check again. The suite counts in the report's Proof come from the last
-  reviewer gate run on the pushed commit.
+  `code-reviewer` or `gate-runner` run on the pushed commit.
 - **A PR ships only when nothing can be wrong.** Every gate above is already green on the pushed
   commit and no open question, TODO or unverified assumption remains. Any gate unproven (Docker
   down, a suite skipped, review verdict missing) → **push the branch, write the report (step 9) as
@@ -549,8 +568,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   push is free, every later push to an open PR re-runs pr-verify on billed minutes. Write the
   comment to `/tmp/claude-ticket-<n>/report-comment.md`, run step 10 on it, then, from the
   worktree root (step 0), `gh issue comment <n> --body-file <that file>`.
-- **Check the report's assumptions yourself, whichever review ran.** Inline `/code-review` does not
-  check them. Hold each one, and each reason for not taking an alternative the ticket or `/buddy` names, against
+- **Check the report's assumptions yourself.** The second-pass `/code-review` never sees them.
+  Hold each one, and each reason for not taking an alternative the ticket or `/buddy` names, against
   `CLAUDE.md`, the wiki and the code. A false one that decided the design is a design question found after
   the gate, and you may not ask now. When the right design needs nobody's decision and the review
   rounds left allow it (the confirmation round never takes a redesign), change to it, run `/buddy` once on the new design (its `NEEDS OWNER: yes` or NOT SOUND → treat it as
@@ -625,7 +644,7 @@ The PR body (or the issue comment, when there is no PR) ends with:
 ```markdown
 ## Ticket report
 **Shipped:** <what changed, behaviorally, 1-3 lines>
-**Proof:** <each gate with its actual result: build, the suite counts (from the reviewer gate run on the pushed commit, step 8), guards, the reviewer the diff picked with its rounds and verdict, the second-pass `/code-review` split (fixed / filed / already decided / opinion, each rejection with its reason), CodeQL (see below)>
+**Proof:** <each gate with its actual result: build, the suite counts (from the last `code-reviewer` or `gate-runner` run on the pushed commit, step 8), guards, the model the triage ran on, the `code-reviewer` rounds with their verdicts and the model each ran on (a fallback quotes its error), the second-pass `/code-review` split (fixed / filed / already decided / opinion, each rejection with its reason), CodeQL (see below)>
 **Assumptions:** <every judgment call made without the user, each with why + risk — "none" is a valid entry, silence is not>
 **Doubts:** <anything not fully verified or that smells — same rule>
 **Follow-ups:** <tickets filed, or bullets worth one>
@@ -665,9 +684,10 @@ and say so in the final reply.
 - **Batch independent tool calls** into one message; chain dependent shell steps with `&&` into one
   command when only the final result gates (`build && test` is one call, not two).
 - Never re-read a file already in context; prefer one targeted `grep -n` over `cat`-ing whole files.
-- Subagents only where this command names them: the `/buddy` challenge of step 2 (every ticket) and of a later design bet (step 3), the reviews
-  of step 7 (the reviewer the diff picks, its escalation, the second pass and `/security-review`),
-  step 8's gates-only run, and `dat-format-expert` for DAT work. The repo cap is 4 in parallel.
+- Subagents only where this command names them: the `ticket-triage` of step 2 (every ticket, with
+  its revisions and its fallback), the `/buddy` challenge of step 2 (every ticket) and of a later design bet (step 3), the reviews
+  of step 7 (the `code-reviewer` rounds and their fallback, the second pass and `/security-review`),
+  step 8's `gate-runner` run, and `dat-format-expert` for DAT work. The repo cap is 4 in parallel.
 - The session dies after step 9's final reply. A second ticket in this context pays this
   ticket's whole conversation as cache reads on every turn — a fresh boot is cheaper.
   Back-to-back `/ticket` sessions reuse only the tool layer of the prompt cache (the rest

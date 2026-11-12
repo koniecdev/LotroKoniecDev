@@ -9,8 +9,9 @@ using NSubstitute;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Layout;
 
 /// <summary>
-/// The footer's legal links (LEGAL-05). Every page must reach the terms and the privacy policy the auth
-/// server hosts, or the app quietly stops meeting Art. 13.
+/// The footer's links. Every page must reach the terms and the privacy policy the auth server hosts, or
+/// the app quietly stops meeting Art. 13 (LEGAL-05). The Discord link is how visitors find the community
+/// (#1340).
 /// </summary>
 public sealed class MainLayoutTests : BunitContext
 {
@@ -52,10 +53,21 @@ public sealed class MainLayoutTests : BunitContext
     {
         IRenderedComponent<MainLayout> component = RenderMainLayout();
 
-        IElement policyLink = component.Find("footer .foot-links a[target=_blank]");
+        IElement policyLink = component.FindAll("footer .foot-links a[target=_blank]")
+            .Single(link => link.TextContent == "Polityka prywatności");
         policyLink.GetAttribute("href").ShouldBe("https://localhost:5003/Account/PrivacyPolicy");
         policyLink.GetAttribute("rel").ShouldBe("noopener");
-        policyLink.TextContent.ShouldBe("Polityka prywatności");
+    }
+
+    [Fact]
+    public void Render_Footer_LinksTheDiscordInviteInANewTab()
+    {
+        IRenderedComponent<MainLayout> component = RenderMainLayout();
+
+        IElement discordLink = component.Find("footer .foot-links a[href='https://discord.gg/sncXwa64Ex']");
+        discordLink.GetAttribute("target").ShouldBe("_blank");
+        discordLink.GetAttribute("rel").ShouldBe("noopener");
+        discordLink.TextContent.ShouldBe("Discord");
     }
 
     [Fact]

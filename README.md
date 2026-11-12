@@ -15,6 +15,9 @@
 
 **🔗 Live:** https://lotro-translator.pl &nbsp;·&nbsp; **Staging:** https://staging.lotro-translator.pl
 
+**💬 Community:** the [LOTRO po polsku](https://discord.gg/sncXwa64Ex) Discord server, in Polish:
+help with the patcher, reports of bad translations, and agreeing on terms.
+
 ---
 
 ## Overview

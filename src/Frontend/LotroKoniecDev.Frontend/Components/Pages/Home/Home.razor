@@ -139,7 +139,7 @@
                        download="@ImportExportLoader.DownloadFileName">
                         Pobierz @ImportExportLoader.DownloadFileName
                     </a>
-                    <a class="btn btn-ghost" href="@RepositoryUrl" rel="noopener">Patcher na GitHubie</a>
+                    <a class="btn btn-ghost" href="@ExternalLinks.Repository" rel="noopener">Patcher na GitHubie</a>
                 </div>
                 <p class="risk-note">
                     Spolszczenie modyfikuje pliki gry — formalnie regulamin LOTRO nie przewiduje
@@ -190,15 +190,16 @@
     <section class="home-tech">
         <p>
             Projekt open source — .NET 10 · Blazor SSR · PostgreSQL.
-            Kod, patcher i historia zmian: <a href="@RepositoryUrl" rel="noopener">github.com/koniecdev/LotroKoniecDev</a>
+            Kod, patcher i historia zmian: <a href="@ExternalLinks.Repository" rel="noopener">github.com/koniecdev/LotroKoniecDev</a>
+        </p>
+        <p>
+            Pomoc, rozmowy i zgłaszanie błędów w tłumaczeniu: <a href="@ExternalLinks.Discord" rel="noopener">Discord „LOTRO po polsku”</a>
         </p>
     </section>
 </section>
 
 @code
 {
-    private const string RepositoryUrl = "https://github.com/koniecdev/LotroKoniecDev";
-
     private ApiResult<PublicProgressResponse>? _result;
     private HomeProgressView? _view;
 

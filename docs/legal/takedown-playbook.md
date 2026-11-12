@@ -31,6 +31,7 @@
 | GitHub DMCA process | notice forwarded by GitHub, or content pre-emptively disabled | GitHub normally gives the repo owner ~1 business day to remove the named content before disabling the whole repository — act inside that window |
 | Domain registrar / .pl registry | complaint routed via DOMENY.TV or NASK | see [Domain contacts](#domain-contacts--lotro-translatorpl) |
 | Hosting provider | abuse report routed by Hetzner | prod + staging VPS boxes |
+| Discord server "LOTRO po polsku" | a DM to the server owner, or a post on a channel | the Operator owns the server; see [Record keeping](#record-keeping) for how to save a notice |
 
 ## The flow
 
@@ -179,6 +180,9 @@ Verified against the .pl registry WHOIS (`whois -h whois.dns.pl lotro-translator
   archive **and** mirrored to a local, non-public folder — `intel/legal/<YYYY-MM-DD>-<sender>/`
   (`intel/` is gitignored). Nothing about an ongoing legal contact is ever committed to
   this public repository beyond neutral code/content changes.
+- A notice that arrives on Discord is not in any mail archive, and its sender can delete it.
+  Save screenshots and the text, with the sender's Discord name and the date, in the same
+  `intel/legal/` folder.
 - For every executed action, record: what, when (timestamp + timezone), by which command,
   and the verification output (the `curl` code, the 404 screenshot).
 - If content was removed on request, note it as a standing obligation: it must not be

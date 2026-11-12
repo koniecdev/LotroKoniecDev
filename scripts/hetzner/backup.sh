@@ -7,7 +7,7 @@
 #
 # For each database, auth first (so an erasure is never newer in the auth dump than in the other):
 #   1. pg_dump --format=custom in a postgres container, against the direct host (never the pooler);
-#   2. pg_restore --list on the dump, so a file that is not a readable archive never counts;
+#   2. pg_restore reads the whole dump, so a file that is not a complete archive never counts;
 #   3. AES-256 encryption under BACKUP_ENCRYPTION_KEY, and a decrypt that must give the same bytes;
 #   4. a PUT to the bucket, then a HEAD that must show the same size and MD5 (the ETag).
 # Only when every database landed does it write the success metric that the agent on the box
@@ -104,6 +104,8 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 parse_connection_string() {
     local connection_string="$1" part name value
     PGHOST='' PGPORT='' PGDATABASE='' PGUSER='' PGPASSWORD='' PGSSLMODE=''
+    # Unset, not empty: `docker run -e NAME` then leaves it out of the container.
+    unset PGSSLROOTCERT
     IFS=';' read -ra parts <<< "$connection_string"
     for part in "${parts[@]}"; do
         [ -n "$part" ] || continue
@@ -127,6 +129,10 @@ parse_connection_string() {
         disable|allow|prefer|require) ;;
         *) PGSSLMODE='require' ;;
     esac
+    # A verify mode needs a CA to check against: the image's own store, as Npgsql uses the OS one.
+    case "$PGSSLMODE" in
+        verify-*) export PGSSLROOTCERT='system' ;;
+    esac
     export PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD PGSSLMODE
 }
 
@@ -143,7 +149,7 @@ postgres_container() {
         network_args=(--network "$BACKUP_DOCKER_NETWORK")
     fi
     docker run --rm -i "${network_args[@]}" \
-        -e PGHOST -e PGPORT -e PGDATABASE -e PGUSER -e PGPASSWORD -e PGSSLMODE \
+        -e PGHOST -e PGPORT -e PGDATABASE -e PGUSER -e PGPASSWORD -e PGSSLMODE -e PGSSLROOTCERT \
         -e PGCONNECT_TIMEOUT=60 \
         "$POSTGRES_IMAGE" "$@"
 }
@@ -172,8 +178,9 @@ backup_database() {
         fail "$PGDATABASE: pg_dump failed."
         return 1
     fi
-    if ! postgres_container pg_restore --list < "$dump" > /dev/null; then
-        fail "$PGDATABASE: the dump is not a readable archive."
+    # Without a database pg_restore writes the whole restore script, so it reads every data block.
+    if ! postgres_container pg_restore --file=/dev/null < "$dump"; then
+        fail "$PGDATABASE: the dump is not a complete archive."
         return 1
     fi
 

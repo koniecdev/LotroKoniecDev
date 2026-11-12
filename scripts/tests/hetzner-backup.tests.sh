@@ -14,6 +14,8 @@ set -euo pipefail
 # With CDPATH set, `cd` to a relative path may print the folder, and that text would end up here (#1048).
 SCRIPTS_DIR="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 BACKUP_SH="$SCRIPTS_DIR/hetzner/backup.sh"
+REAL_OPENSSL="$(command -v openssl)"
+export REAL_OPENSSL
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
@@ -51,8 +53,8 @@ make_stubs() {
 printf 'docker %s\n' "$*" >> "$STUB_STATE/calls.log"
 case " $* " in
     *" pg_dump "*)
-        printf 'PGHOST=%s PGPORT=%s PGDATABASE=%s PGUSER=%s PGSSLMODE=%s\n' \
-            "$PGHOST" "$PGPORT" "$PGDATABASE" "$PGUSER" "$PGSSLMODE" >> "$STUB_STATE/env.log"
+        printf 'PGHOST=%s PGPORT=%s PGDATABASE=%s PGUSER=%s PGSSLMODE=%s PGSSLROOTCERT=%s\n' \
+            "$PGHOST" "$PGPORT" "$PGDATABASE" "$PGUSER" "$PGSSLMODE" "${PGSSLROOTCERT-<unset>}" >> "$STUB_STATE/env.log"
         [ -n "$PGPASSWORD" ] && echo "password-set $PGDATABASE" >> "$STUB_STATE/env.log"
         if [ "${FAIL_DUMP_DB:-}" = "$PGDATABASE" ]; then
             echo "pg_dump: error: connection failed" >&2
@@ -64,7 +66,7 @@ case " $* " in
         fi
         printf 'PGDMP-archive-of-%s-%s\n' "$PGDATABASE" "zażółć gęślą jaźń"
         ;;
-    *" pg_restore --list "*)
+    *" pg_restore --file=/dev/null "*)
         first="$(head -c 5)"
         cat > /dev/null
         [ "$first" = "PGDMP" ] || { echo "pg_restore: error: input file does not appear to be a valid archive" >&2; exit 1; }
@@ -103,16 +105,30 @@ if [ -n "$upload" ]; then
     exit 0
 fi
 if [ "$head" = 1 ]; then
+    [ -z "${FAIL_HEAD:-}" ] || { echo "curl: (28) Operation timed out" >&2; exit 28; }
     [ -f "$object" ] || { echo "curl: (22) The requested URL returned error: 404" >&2; exit 22; }
-    etag="$(openssl dgst -md5 -r "$object" | cut -d' ' -f1)"
+    etag="$("$REAL_OPENSSL" dgst -md5 -r "$object" | cut -d' ' -f1)"
+    size="$(stat -c %s "$object")"
     [ -n "${WRONG_ETAG:-}" ] && etag='00000000000000000000000000000000'
-    printf 'HTTP/1.1 200 OK\r\nETag: "%s"\r\nContent-Length: %s\r\n\r\n' "$etag" "$(stat -c %s "$object")"
+    [ -n "${WRONG_SIZE:-}" ] && size=$((size + 1))
+    printf 'HTTP/1.1 200 OK\r\nETag: "%s"\r\nContent-Length: %s\r\n\r\n' "$etag" "$size"
     exit 0
 fi
 echo "unexpected curl call" >&2
 exit 99
 STUB
-    chmod +x "$bin/docker" "$bin/curl"
+    # The real openssl, except where a case makes encryption fail or a decrypt give other bytes.
+    cat > "$bin/openssl" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = enc ]; then
+    case " $* " in
+        *" -d "*) [ -z "${OPENSSL_DECRYPTS_WRONG:-}" ] || { echo 'other bytes'; exit 0; } ;;
+        *) [ -z "${OPENSSL_ENCRYPT_FAILS:-}" ] || { echo 'openssl: write error' >&2; exit 1; } ;;
+    esac
+fi
+exec "$REAL_OPENSSL" "$@"
+STUB
+    chmod +x "$bin/docker" "$bin/curl" "$bin/openssl"
 }
 
 # A stack dir with an .env as the runbook's wiring leaves it. The auth string uses Neon's pooled
@@ -173,10 +189,12 @@ decrypted="$(BACKUP_ENCRYPTION_KEY="$ENCRYPTION_KEY" openssl enc -d -aes-256-cbc
 [ "$decrypted" = 'PGDMP-archive-of-lotro_translation-zażółć gęślą jaźń' ] || fail "the object must decrypt to the dump, got: $decrypted"
 pass "the objects are ciphertext that the key decrypts back to the exact dump"
 
-grep -q 'PGHOST=ep-calm-1.eu-central-1.aws.neon.tech PGPORT=5432 PGDATABASE=lotro_auth PGUSER=neondb_owner PGSSLMODE=require' "$STACK/env.log" \
+grep -q 'PGHOST=ep-calm-1.eu-central-1.aws.neon.tech PGPORT=5432 PGDATABASE=lotro_auth PGUSER=neondb_owner PGSSLMODE=require ' "$STACK/env.log" \
     || fail "the pooled host must become the direct host, with the default port and require"
-grep -q 'PGHOST=ep-calm-1.eu-central-1.aws.neon.tech PGPORT=5433 PGDATABASE=lotro_translation PGUSER=neondb_owner PGSSLMODE=verify-full' "$STACK/env.log" \
+grep -q 'PGHOST=ep-calm-1.eu-central-1.aws.neon.tech PGPORT=5433 PGDATABASE=lotro_translation PGUSER=neondb_owner PGSSLMODE=verify-full ' "$STACK/env.log" \
     || fail "the translation string's port and SSL mode must reach pg_dump"
+grep -q 'PGDATABASE=lotro_auth .* PGSSLROOTCERT=<unset>' "$STACK/env.log" || fail "require must not set a root certificate"
+grep -q 'PGDATABASE=lotro_translation .* PGSSLROOTCERT=system' "$STACK/env.log" || fail "verify-full must check against the system CA store"
 grep -q 'password-set lotro_translation' "$STACK/env.log" || fail "the password must reach pg_dump"
 pass "the connection strings become libpq variables, and the pooler is never used"
 
@@ -218,6 +236,23 @@ run_backup GARBAGE_DUMP_DB=lotro_translation
 metric_untouched || fail "the metric must keep the last good run"
 pass "a dump that pg_restore cannot read is never uploaded"
 
+CASE="encryption"
+new_stack encrypt-fails
+run_backup OPENSSL_ENCRYPT_FAILS=1
+[ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
+[ ! -d "$STACK/bucket" ] || fail "nothing may be uploaded when encryption fails"
+metric_untouched || fail "the metric must keep the last good run"
+printf '%s' "$LAST_OUTPUT" | grep -q 'lotro_auth: encryption failed' || fail "the output must name the step"
+pass "a failed encryption uploads nothing"
+
+new_stack decrypt-differs
+run_backup OPENSSL_DECRYPTS_WRONG=1
+[ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
+[ ! -d "$STACK/bucket" ] || fail "nothing may be uploaded when the ciphertext does not decrypt to the dump"
+metric_untouched || fail "the metric must keep the last good run"
+printf '%s' "$LAST_OUTPUT" | grep -q 'does not decrypt to the dump' || fail "the output must say why"
+pass "ciphertext that does not decrypt to the exact dump is never uploaded"
+
 # ---------------------------------------------------------------------------------------------------
 CASE="a failed upload"
 new_stack failed-upload
@@ -235,6 +270,21 @@ metric_untouched || fail "the metric must keep the last good run"
 printf '%s' "$LAST_OUTPUT" | grep -q 'is not what was sent' || fail "the output must say the object differs"
 pass "an object whose ETag is not the MD5 of what was sent fails the run"
 
+CASE="a wrong size"
+new_stack wrong-size
+run_backup WRONG_SIZE=1
+[ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
+metric_untouched || fail "the metric must keep the last good run"
+pass "an object of another size fails the run, even with the right ETag"
+
+CASE="a failed read-back"
+new_stack head-fails
+run_backup FAIL_HEAD=1
+[ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
+metric_untouched || fail "the metric must keep the last good run"
+printf '%s' "$LAST_OUTPUT" | grep -q 'cannot be read back' || fail "the output must say why"
+pass "an upload that cannot be read back does not count"
+
 # ---------------------------------------------------------------------------------------------------
 CASE="missing settings"
 new_stack missing
@@ -249,12 +299,63 @@ printf '%s' "$LAST_OUTPUT" | grep -q 'BACKUP_ENCRYPTION_KEY BACKUP_R2_ACCOUNT_ID
 metric_untouched || fail "the metric must keep the last good run"
 pass "a missing key stops the run before any dump, and names the key"
 
+CASE="a connection string without a password"
+new_stack no-password
+sed -i 's/;Password=[^;]*;SSL Mode/;SSL Mode/' "$STACK/.env"
+run_backup
+[ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
+[ -n "$(object_for lotro_auth)" ] || fail "the other database must still be backed up"
+[ -z "$(object_for lotro_translation)" ] || fail "nothing may be dumped from an incomplete string"
+grep -q 'PGDATABASE=lotro_translation' "$STACK/env.log" && fail "pg_dump must not run for an incomplete string"
+metric_untouched || fail "the metric must keep the last good run"
+printf '%s' "$LAST_OUTPUT" | grep -q 'ConnectionStrings__TranslationDatabase needs Host, Database, Username and Password' \
+    || fail "the output must name the key"
+pass "a connection string without a password is refused, and the other database is still backed up"
+
+CASE="an empty connection string"
+new_stack no-auth-string
+sed -i '/^ConnectionStrings__AuthDatabase=/d' "$STACK/.env"
+run_backup
+[ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
+[ -n "$(object_for lotro_translation)" ] || fail "the other database must still be backed up"
+metric_untouched || fail "the metric must keep the last good run"
+printf '%s' "$LAST_OUTPUT" | grep -q 'has no value for ConnectionStrings__AuthDatabase' || fail "the output must name the key"
+pass "a missing connection string fails the run and names the key"
+
 CASE="no .env"
 new_stack no-env
 rm -f "$STACK/.env"
 run_backup
 [ "$LAST_STATUS" = 2 ] || fail "expected exit 2, got $LAST_STATUS"
 pass "a missing .env stops the run"
+
+CASE="an unreadable .env"
+if [ "$(id -u)" = 0 ]; then
+    printf '- [%s] skipped: root reads any file\n' "$CASE"
+else
+    new_stack unreadable
+    chmod 000 "$STACK/.env"
+    run_backup
+    chmod 600 "$STACK/.env"
+    [ "$LAST_STATUS" = 2 ] || fail "expected exit 2, got $LAST_STATUS"
+    [ ! -s "$STACK/calls.log" ] || fail "nothing may be dumped"
+    printf '%s' "$LAST_OUTPUT" | grep -q 'is not readable by' || fail "the output must name the cause"
+    pass "an .env the user cannot read stops the run and says so"
+fi
+
+CASE="a missing tool"
+new_stack no-flock
+mkdir -p "$STACK/sandbox"
+for tool in sed head id cmp; do ln -s "$(command -v "$tool")" "$STACK/sandbox/$tool"; done
+set +e
+LAST_OUTPUT="$(env PATH="$STACK/bin:$STACK/sandbox" STUB_STATE="$STACK" STACK_DIR="$STACK" \
+    BACKUP_S3_ENDPOINT='https://stub.invalid' "$BASH" "$BACKUP_SH" 2>&1)"
+LAST_STATUS=$?
+set -e
+[ "$LAST_STATUS" = 2 ] || fail "expected exit 2, got $LAST_STATUS"
+printf '%s' "$LAST_OUTPUT" | grep -q "'flock' is not installed" || fail "the output must name the tool"
+[ ! -s "$STACK/calls.log" ] || fail "nothing may be dumped"
+pass "a missing tool stops the run before any dump, and names the tool"
 
 # ---------------------------------------------------------------------------------------------------
 CASE="the lock"

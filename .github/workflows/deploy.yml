@@ -375,7 +375,7 @@ jobs:
             echo "| Target migration — translation | \`${tms_target:-unknown}\` |"
             echo "| Target migration — auth | \`${auth_target:-unknown}\` |"
             echo ""
-            echo "Bad migration? Runbook → \"Restore from the auto-snapshot\" (works past the 6 h window when the snapshot row above is a branch) or \"Recover from a bad migration (Neon PITR)\" (restore to the timestamp above, 6 h retention)."
+            echo "Bad migration? Runbook → \"Restore from the auto-snapshot\" (works past the history window when the snapshot row above is a branch) or \"Recover from a bad migration (Neon PITR)\" (restore to the timestamp above, inside the history window: 7 days on prod, 6 h on staging)."
           } >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
 
       # The box's config must BE the deployed commit — otherwise a Caddyfile or compose change would
@@ -405,10 +405,11 @@ jobs:
           scp scripts/hetzner/deploy.sh "box:${STACK_DIR}/deploy.sh"
           # The nightly backup (#688, ADR-0070) is not part of the rollback unit: it never touches the
           # running stack. Every box gets it and the metrics folder the agent reads, but only a box
-          # whose crontab runs it (prod) writes anything there.
-          scp scripts/hetzner/backup.sh "box:${STACK_DIR}/backup.sh"
+          # whose crontab runs it (prod) writes anything there. It lands under a new name and is then
+          # renamed: bash reads a script while it runs, so a copy over a running backup would break it.
+          scp scripts/hetzner/backup.sh "box:${STACK_DIR}/backup.sh.new"
           # shellcheck disable=SC2029
-          ssh box "chmod 755 ${STACK_DIR}/deploy.sh ${STACK_DIR}/backup.sh"
+          ssh box "chmod 755 ${STACK_DIR}/deploy.sh ${STACK_DIR}/backup.sh.new && mv -f ${STACK_DIR}/backup.sh.new ${STACK_DIR}/backup.sh"
 
       # The rollout itself (scripts/hetzner/deploy.sh, on the box): pull → assert the pulled digests are
       # the attested ones → the one-shot migrator as a gate → `up -d` → reload Caddy → set the e-mail

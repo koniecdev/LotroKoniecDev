@@ -154,8 +154,8 @@ provenance, so they would also run such an image. Naming the image last removes 
   reports `exists=false`. The build pushes by digest (`push-by-digest=true`, no `tags`), and the last
   step, "Name the checked image" (`commit-image.sh name`), adds the tags. Its concurrency group no
   longer cancels a running build.
-- `scripts/tests/commit-image.tests.sh` runs in pr-verify (guards), ci and actionlint. Besides the
-  script, it checks that no workflow starts on a tag, a release or a new ref.
+- `scripts/tests/commit-image.tests.sh` runs in pr-verify on every PR and in ci on main. Besides
+  the script, it checks that no workflow starts on a tag, a release or a new ref.
 - `scripts/ci/resolve-prod-baseline.sh` no longer tries `v<tag>` for a box-pinned tag, because the
   box can only pin `sha-<short>`.
 - Runbook: "Cutting a release" and "An image that failed its checks".

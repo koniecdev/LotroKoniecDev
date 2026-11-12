@@ -182,11 +182,11 @@ jobs:
       attestations: write
     # Serialize builds of the SAME image for the SAME tested commit (e.g. a CI re-run while the first
     # build runs). The later run waits, then finds the named image and reuses it (ADR-0070) instead
-    # of building the same commit a second time. Keyed on the tested commit (workflow_run.head_sha, else github.sha for
-    # a dispatch), NOT github.ref: under workflow_run github.ref is always refs/heads/main, so a
-    # github.ref key would queue builds of *different* commits behind each other. Deploys are
-    # serialized separately (deploy-prod has its own group). The group MUST include matrix.image,
-    # else the four legs share one group and wait for each other.
+    # of building the same commit a second time. Keyed on the tested commit (workflow_run.head_sha,
+    # else github.sha for a dispatch), NOT github.ref: under workflow_run github.ref is always
+    # refs/heads/main, so a github.ref key would queue builds of *different* commits behind each
+    # other. Deploys are serialized separately (deploy-prod has its own group). The group MUST
+    # include matrix.image, else the four legs share one group and wait for each other.
     concurrency:
       group: cd-build-${{ github.event.workflow_run.head_sha || github.sha }}-${{ matrix.image }}
       cancel-in-progress: false

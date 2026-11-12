@@ -63,3 +63,8 @@ jobs:
       # PR) would skip the test with it. This job has no `needs:` and no `if:`, so the test still runs.
       - name: Required-check shape self-test
         run: ./scripts/tests/pr-verify-required-check.tests.sh
+
+      # pr-verify runs this only when the classifier sees a guard input, and a change to any other
+      # workflow is not one. Here it runs on every PR, so a new tag trigger anywhere is caught.
+      - name: Build-once self-test
+        run: ./scripts/tests/commit-image.tests.sh

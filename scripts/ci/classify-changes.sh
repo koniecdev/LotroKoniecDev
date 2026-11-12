@@ -88,8 +88,10 @@ INERT='^[^/]*\.md$|(^|/)(README|CLAUDE)\.md$|^scripts/.*\.(md|sh|ps1)$|^scripts/
 # the two scripts/ci/ halves of the N-1 promotion gate because CD's prod leg runs them (#534) and
 # their self-tests are the only pre-deploy check they face; and scripts/n1-compat.sh, the proof
 # those halves call, whose verdict classification decides whether a blocked promotion reads as
-# "your migrations break prod" or as "the proof never ran" (#679).
-GUARD_INPUTS='^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/tests/check-ssr-purity\.tests\.sh$|^scripts/smoke\.(sh|ps1)$|^scripts/tests/smoke\.tests\.sh$|^scripts/check-client-hypermedia\.(sh|ps1)$|^scripts/tests/check-client-hypermedia\.tests\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/tests/check-dockerfile-restore-graph\.tests\.sh$|^scripts/hetzner/(deploy|bootstrap)\.sh$|^scripts/tests/hetzner-(deploy|bootstrap-swap|bootstrap-docker-user|bootstrap-reboot)\.tests\.sh$|^scripts/ci/(resolve-prod-baseline|n1-promotion-gate)\.sh$|^scripts/n1-compat\.sh$|^scripts/tests/(resolve-prod-baseline|n1-promotion-gate|n1-compat)\.tests\.sh$|(^|/)Dockerfile[^/]*$|^\.github/workflows/(pr-verify|ci)\.yml$'
+# "your migrations break prod" or as "the proof never ran" (#679). scripts/ci/commit-image.sh and
+# cd.yml are here because CD builds each commit once through them (ADR-0070), cd.yml cannot run on
+# a PR, and the build-once self-test is the only check they face before main.
+GUARD_INPUTS='^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/tests/check-ssr-purity\.tests\.sh$|^scripts/smoke\.(sh|ps1)$|^scripts/tests/smoke\.tests\.sh$|^scripts/check-client-hypermedia\.(sh|ps1)$|^scripts/tests/check-client-hypermedia\.tests\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/tests/check-dockerfile-restore-graph\.tests\.sh$|^scripts/hetzner/(deploy|bootstrap)\.sh$|^scripts/tests/hetzner-(deploy|bootstrap-swap|bootstrap-docker-user|bootstrap-reboot)\.tests\.sh$|^scripts/ci/(resolve-prod-baseline|n1-promotion-gate|commit-image)\.sh$|^scripts/n1-compat\.sh$|^scripts/tests/(resolve-prod-baseline|n1-promotion-gate|n1-compat|commit-image)\.tests\.sh$|(^|/)Dockerfile[^/]*$|^\.github/workflows/(pr-verify|ci|cd)\.yml$'
 
 # Build-relevant despite matching INERT:
 #   * the two workflows that DEFINE the .NET gate;

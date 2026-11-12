@@ -198,6 +198,13 @@ jobs:
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/resolve-prod-baseline.tests.sh
 
+      # CD builds each commit once (ADR-0070, #1344). cd.yml cannot run on a PR, so its registry
+      # decisions and its build job's shape are pinned here: no workflow starts on a tag, and no
+      # step can build over or rename an existing `sha-<short>` image.
+      - name: Build-once self-test
+        if: steps.diff.outputs.guards != 'false'
+        run: ./scripts/tests/commit-image.tests.sh
+
       # The verdict mapping is its own gate: n1-compat.sh's exit 1 (schema proven incompatible) and
       # exit 2 (the proof never ran) both block the promotion but demand OPPOSITE fixes, and the
       # runbook tells the approver not to retry a RED. Collapsing them would send them to split a

@@ -113,6 +113,9 @@ jobs:
       - name: Prod-baseline resolution self-test
         run: ./scripts/tests/resolve-prod-baseline.tests.sh
 
+      - name: Build-once self-test
+        run: ./scripts/tests/commit-image.tests.sh
+
       - name: N-1 promotion gate verdict self-test
         run: ./scripts/tests/n1-promotion-gate.tests.sh
 

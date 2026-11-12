@@ -136,7 +136,8 @@ everything that matters must be committed and pushed.
    - **A reviewer that ends with no verdict file has stalled:** spawn a fresh `code-reviewer` with
      the full brief and the gate results, told to write the file before it ends its turn. Never
      message the stalled one: its answer would arrive after your turn has ended. The replacement
-     counts as a round; a stalled round 3 or 4 gets none (stop as below).
+     counts as a round; a stalled round 3 or 4 gets none (stop as below). A stalled gates-only run
+     (`/ticket` step 8) is no round: it follows step 8's own stall rule.
    - **A ticket you file from bucket 2** (a new one, or an open ticket that gets a case added) gets
      the `audit` label as well: nobody checked the case live, and the owner triages it before the
      loop may pick it up.
@@ -149,7 +150,8 @@ everything that matters must be committed and pushed.
      branch and report without a PR": push nothing. Never push broken work.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish
    line: once it passes, commit any remaining (Minor) fixes and re-run the gates, sync with
-   `origin/main` again, push, and re-read the issue, all as `/ticket` step 8 says (a case added
+   `origin/main` again, run the gates-only reviewer on the commit you push unless the last
+   `code-reviewer` report already names it, push, and re-read the issue, all as `/ticket` step 8 says (a case added
    after you started moves to a new ticket). Check the report's assumptions as `/ticket` step 8
    says. A false one that decided the design, or a reviewer's Major for one, whose fix needs the
    maintainer → push the branch (the work is green; only its design waits), then `STATUS: BLOCKED`
@@ -172,7 +174,8 @@ everything that matters must be committed and pushed.
    complete (`gh pr checks <pr> --watch --fail-fast` or poll; docs-only diffs skip it), then list
    the PR's open alerts:
    `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<pr>/merge&state=open"`.
-   Fix every alert and push again (re-check after the re-run); dismissal instead of a fix is
+   Fix every alert and push again, after `/ticket` step 8's gate run on the new commit (re-check
+   after the re-run); dismissal instead of a fix is
    allowed only with a real stated reason. `/merge-train` refuses any PR with open alerts, so
    leaving one means the owner's review ends in a fix round, not in a merge. When something after
    the PR opens makes the report wrong (a fix commit, a dismissal, a CodeQL run that fails or is

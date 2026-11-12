@@ -4,7 +4,8 @@
 #   find  Is this commit's image already in GHCR? Writes `exists=true` (reuse it) or `exists=false`
 #         (build it) to $GITHUB_OUTPUT. The job names an image only after Trivy, signing and the
 #         attestation passed (`name`), so a tag CD wrote is a checked image. A tag whose provenance
-#         does not verify (one from before ADR-0070, or pushed by hand) stops the job.
+#         does not verify stops the job: one from before ADR-0070 with no provenance (built before
+#         signing began, or whose build failed after the push), or one pushed by hand.
 #   name  Adds the tags to the checked digest, as the job's last step. It never moves an existing
 #         tag to another digest, except `latest`, and reads the other tags back afterwards.
 #

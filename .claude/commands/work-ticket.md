@@ -150,8 +150,8 @@ everything that matters must be committed and pushed.
      branch and report without a PR": push nothing. Never push broken work.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish
    line: once it passes, commit any remaining (Minor) fixes and re-run the gates, sync with
-   `origin/main` again, run the gates-only reviewer on the commit you push unless a reviewer's
-   last report already names it, push, and re-read the issue, all as `/ticket` step 8 says (a case added
+   `origin/main` again, run the gates-only reviewer on the commit you push unless the last
+   `code-reviewer` report already names it, push, and re-read the issue, all as `/ticket` step 8 says (a case added
    after you started moves to a new ticket). Check the report's assumptions as `/ticket` step 8
    says. A false one that decided the design, or a reviewer's Major for one, whose fix needs the
    maintainer → push the branch (the work is green; only its design waits), then `STATUS: BLOCKED`

@@ -520,7 +520,9 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   ADR-0060 has it for the owner's approval). One where you resolved a conflict changed reviewed
   code: it needs a fresh `code-reviewer` round, which counts as a round.
 - **The pushed commit has a reviewer gate run of its own, in both review paths** (#1319). Before
-  every push, unless the last `code-reviewer` report (a review round's or a gates-only run's) names
+  every push a PR carries (the push before `gh pr create`, and every push to an open PR; a push
+  that only parks the branch with no PR needs none), unless the last `code-reviewer` report (a
+  review round's or a gates-only run's) names
   `HEAD`, spawn a fresh `code-reviewer` with "gates only", the commit and your gate results on it
   as step 7's brief gives them, writing `<scratchpad>/<n>-gates-<short SHA>.md`. A small diff
   reviewed by inline `/code-review` always needs it; after `code-reviewer` rounds it is needed
@@ -533,11 +535,13 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   path, the second `/code-review` round if it is left, otherwise the escalation to
   `code-reviewer`), and none left means stop as step 7's round rule says. A finding with no code
   to fix (a gate you had not run) needs your own run of that gate and one new gates-only run; a
-  second `GATES: RED` with no code to fix is an unproven gate. After `GATES: GREEN`, push without
-  another sync, even when `origin/main` moved during the run: a branch that is behind opens fine,
-  and pr-verify tests the merge with `main`. Only when `git merge-tree --write-tree HEAD
-  origin/main` reports a conflict, rebase, which needs a new gates-only run. The suite counts in
-  the report's Proof come from the last reviewer gate run on the pushed commit.
+  second `GATES: RED` with no code to fix is an unproven gate. After `GATES: GREEN`, act on its
+  Minor findings as step 7 says, then push without another rebase, even when `origin/main` moved
+  during the run: a branch that is behind opens fine, and pr-verify tests the merge with `main`.
+  Only when `git fetch origin` and then `git merge-tree --write-tree HEAD origin/main` report a
+  conflict, rebase as the sync bullet above says (a resolved conflict needs a fresh `code-reviewer`
+  round), then run this check again. The suite counts in the report's Proof come from the last
+  reviewer gate run on the pushed commit.
 - **A PR ships only when nothing can be wrong.** Every gate above is already green on the pushed
   commit and no open question, TODO or unverified assumption remains. Any gate unproven (Docker
   down, a suite skipped, review verdict missing) → **push the branch, write the report (step 9) as

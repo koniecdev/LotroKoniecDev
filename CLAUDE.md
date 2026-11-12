@@ -137,7 +137,7 @@ validator.
 | Touch the game-content catalog (CatalogEntry/TextSlot, Companion zip import, catalog browser, memberships) | `docs/specs/0008-game-content-catalog-layer.md` + `docs/knowledge-base/lotro-companion-data-model.md` (the verified `key:<FileId>:<GossipId>` join; never join on text). Naming rule: **never "entity"** in this layer |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
 | Plan any ticket's fix, or act on a negative claim, a cause outside the repo, or a ticket's own conclusion | **`/buddy`** with its design challenge, before the verdict, on every ticket (no `/buddy` → its fallback agent): `/ticket` step 2 |
-| Review a finished change | the **`code-reviewer`** agent, a fresh one per round, three rounds plus one confirmation round only when the review is ending; a small diff at the gate → inline `/code-review`, two rounds at most (`/ticket` step 7); before the push, a gates-only `code-reviewer` run on the pushed commit unless a reviewer report already names it (`/ticket` step 8) |
+| Review a finished change | the **`code-reviewer`** agent, a fresh one per round, three rounds plus one confirmation round only when the review is ending; a small diff at the gate → inline `/code-review`, two rounds at most (`/ticket` step 7); before the push, a gates-only `code-reviewer` run on the pushed commit unless a `code-reviewer` report already names it (`/ticket` step 8) |
 | Sort review findings, file one, or triage an `audit` ticket | **ADR-0067 §8** (what is not a finding) + ADR-0008 §3 (the bar for a startup check) + ADR-0069 (the game launcher is not checked) + `docs/labels.md` → "One bug class per ticket" |
 | Understand the backlog / milestones | `gh issue list` + Roadmap below |
 | Compare with the Russian sister project | `docs/RUSSIAN_PROJECT_RESEARCH.md` + `docs/knowledge-base/russian-project.md` |
@@ -378,7 +378,7 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   small diff **starts with inline `/code-review`** instead of a review agent and escalates to
   `code-reviewer` only as `/ticket` step 7 says; every ticket's plan gets `/ticket`'s step-2
   `/buddy` challenge (#1306); and in both paths the pushed commit has a `code-reviewer` gate run
-  of its own: a gates-only run before the push when no reviewer report names that commit yet
+  of its own: a gates-only run before the push when no `code-reviewer` report names that commit yet
   (`/ticket` step 8, #1319).
   The committed `code-reviewer` agent carries
   **`model: inherit`**, so a fresh clone reviews with the contributor's own tier; `/code-review`

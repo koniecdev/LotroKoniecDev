@@ -19,8 +19,9 @@ results. With no brief, use `HEAD` and the commands below, and skip the comparis
 
 1. **The tree must be the commit.** `git rev-parse HEAD` prints the SHA the brief names, and
    `git status --porcelain` prints nothing. Then run `git status --porcelain --ignored`: only an
-   ignored `appsettings.Local.json` (the auth host loads it in every environment) or an ignored
-   `*.props`, `*.targets` or `.editorconfig` outside `bin/` and `obj/` fails this check; any other
+   ignored `appsettings.Local.json` (the auth host loads it in every environment), an ignored
+   `*.user` file (MSBuild imports `<project>.csproj.user` into every build of that project), or an
+   ignored `*.props`, `*.targets` or `.editorconfig` outside `bin/` and `obj/` fails this check; any other
    ignored file is fine. `printenv SKIP_DOCKER_BUILD` must not print `true`: that value reuses E2E
    images this folder built earlier, maybe from an older commit (`tests/Shared/E2EWorktree.cs`). If
    a check fails, run nothing: report a Critical with what you saw, and go on to Phase 1 (in
@@ -29,8 +30,11 @@ results. With no brief, use `HEAD` and the commands below, and skip the comparis
    in the backlog loop). Send its output to a log file next to the report file the brief names
    (with no brief, under `/tmp`), in the form `<command> > <log> 2>&1 && echo GREEN || echo RED`,
    then read the log. Never pipe a gate to `tail` or `grep`: the pipe hides its exit code. A call
-   that ends at its timeout with neither word printed proves nothing: run `dotnet test <project>`
-   for each test project under `tests/` instead, one call each.
+   that reaches its timeout proves nothing yet. If the tool moved it to the background (an
+   interactive session does that), wait for it to end and use its GREEN or RED; never start a
+   second `dotnet test` in this folder while one still runs (`tests/CLAUDE.md`, #889). If the tool
+   stopped it, run `dotnet test <project>` for each test project under `tests/` instead, one call
+   each.
    - `dotnet build LotroKoniecDev.slnx`: green with zero warnings. If it is red, the suite counts
      as not run; go on to the guards.
    - `dotnet test`, with no filter. Keep the result line of each test project. Off Windows, the two

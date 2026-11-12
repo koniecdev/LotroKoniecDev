@@ -136,8 +136,8 @@ validator.
 | Touch update-day behaviour on the client (sentinel, orchestrator, any new DAT write path) | `docs/specs/0012-update-resilience.md` (Tier 0/1 rules as amended 2026-08-17) + **ADR-0047**: every write goes through the per-row source guard; the no-masking invariant has no path exceptions |
 | Touch the game-content catalog (CatalogEntry/TextSlot, Companion zip import, catalog browser, memberships) | `docs/specs/0008-game-content-catalog-layer.md` + `docs/knowledge-base/lotro-companion-data-model.md` (the verified `key:<FileId>:<GossipId>` join; never join on text). Naming rule: **never "entity"** in this layer |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
-| Plan any ticket's fix, or act on a negative claim, a cause outside the repo, or a ticket's own conclusion | **`/buddy`** with its design challenge, before the verdict, on every ticket (no `/buddy` → its fallback agent): `/ticket` step 2 |
-| Review a finished change | the **`code-reviewer`** agent, a fresh one per round, three rounds plus one confirmation round only when the review is ending; a small diff at the gate → inline `/code-review`, two rounds at most (`/ticket` step 7); before the push, a gates-only `code-reviewer` run on the pushed commit unless a `code-reviewer` report already names it (`/ticket` step 8) |
+| Plan any ticket's fix, or act on a negative claim, a cause outside the repo, or a ticket's own conclusion | the **`ticket-triage`** agent (on Fable) writes the verdict and the plan, then **`/buddy`** with its design challenge, before the verdict is posted, on every ticket (no `/buddy` → its fallback agent): `/ticket` step 2 |
+| Review a finished change | the **`code-reviewer`** agent (on Fable) on every diff, small ones too, a fresh one per round, three rounds plus one confirmation round only when the review is ending, then `/code-review` as the second pass (`/ticket` step 7); before the push, a **`gate-runner`** run on the pushed commit unless a `code-reviewer` or `gate-runner` report already names it (`/ticket` step 8) |
 | Sort review findings, file one, or triage an `audit` ticket | **ADR-0067 §8** (what is not a finding) + ADR-0008 §3 (the bar for a startup check) + ADR-0069 (the game launcher is not checked) + `docs/labels.md` → "One bug class per ticket" |
 | Understand the backlog / milestones | `gh issue list` + Roadmap below |
 | Compare with the Russian sister project | `docs/RUSSIAN_PROJECT_RESEARCH.md` + `docs/knowledge-base/russian-project.md` |
@@ -373,16 +373,21 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   the convention next to it, with rough sizes, and pick the smaller and more readable one (PR #952's
   IL scanner was bigger than the interceptor it stood in for, and the owner closed it; ADR-0038 §6
   amendment).
-- **Agent fan-out is budgeted; agents inherit the session's model and effort.** The repo pins no
-  model tier of its own. Hard cap: **max 4 subagents in parallel**, no chained waves by default; a
-  small diff **starts with inline `/code-review`** instead of a review agent and escalates to
-  `code-reviewer` only as `/ticket` step 7 says; every ticket's plan gets `/ticket`'s step-2
-  `/buddy` challenge (#1306); and in both paths the pushed commit has a `code-reviewer` gate run
-  of its own: a gates-only run before the push when no `code-reviewer` report names that commit yet
-  (`/ticket` step 8, #1319).
-  The committed `code-reviewer` agent carries
-  **`model: inherit`**, so a fresh clone reviews with the contributor's own tier; `/code-review`
-  and `/security-review` follow the session model/effort the same way. Loop-mode worker sessions
+- **Agent fan-out is budgeted; the judgment points run on a second model (#1318).** Hard cap:
+  **max 4 subagents in parallel**, no chained waves by default. Two committed agents are pinned to
+  **Claude Fable 5.2 at `xhigh`** (the maintainer's decision of 2026-11-10): `ticket-triage`, which
+  judges every ticket and writes its plan (`/ticket` step 2), and `code-reviewer`, which reviews
+  every diff, small ones too (`/ticket` step 7). The session that writes the code runs on its own
+  model (Opus 5.5 in the maintainer's runs), and one model has one set of blind spots. Every ticket's plan also gets the `/buddy` challenge
+  (#1306), `/code-review` stays the second pass, and the pushed commit has a gate run of its own:
+  a `gate-runner` run before the push when no `code-reviewer` or `gate-runner` report names that
+  commit yet (`/ticket` step 8, #1319). `gate-runner`, `dat-format-expert`, `/code-review` and
+  `/security-review` follow the session's model and effort. When Fable is not available (its share
+  of the weekly limit is spent, or a contributor's account has no Fable), a pinned step falls back
+  once to a `general-purpose` agent that follows the same agent file, on the model a plain subagent
+  gets (the session's, or `CLAUDE_CODE_SUBAGENT_MODEL` when it is set), and the report says so. That fallback answers the reason #643 removed an older pin: a contributor
+  without the tier still gets a triage and a review. Never pass `model` or `effort` when you spawn
+  a pinned agent (either beats the pin), and never run Fable at `max`. Loop-mode worker sessions
   take model and effort from the maintainer's machine-local policy (Opus 5.5 at **xhigh** since
   2026-09-22; without it the scripts fall back to **effort high**, the `LOOP_EFFORT` default),
   unless the prompt for that run says otherwise. This applies to interactive sessions and loop
@@ -771,8 +776,8 @@ Per-suite details (inventory, libraries, snapshots, E2E, conventions): `tests/CL
 3. **Decision before code.** A non-trivial modeling/architecture choice → **`/adr`** first.
 4. **Slice, mirror, test, review.** Branch as `/ticket` step 5 says (`gh issue develop <n> --list`
    first). Implement by mirroring the nearest sibling slice, add tests, commit and rebase on
-   `origin/main`, then run the review gate the diff picks (`/ticket` step 7: the
-   **`code-reviewer`** agent, or inline `/code-review` for a small diff; **`/security-review`** for
+   `origin/main`, then run the review gate (`/ticket` step 7: the **`code-reviewer`** agent on
+   every diff, then `/code-review` as the second pass; **`/security-review`** for
    anything touching native interop, file protection, or auth).
    **Green build + zero warnings + clean review = "done", not before.**
 5. **PR closes the ticket.** Title mirrors the ticket; body contains `Closes #<n>`. Push and open
@@ -899,8 +904,8 @@ them yourself when the request matches, without waiting for the user to type the
 - User is **settling an architecture/modeling choice** → **`/adr`** first, then implement.
 - **Any ticket's plan**, and any diagnosis resting on a **negative claim** ("not our code"), a
   **cause outside the repo**, or the ticket's own conclusion → **`/buddy`** before acting
-  (`/ticket` step 2); a better design that needs the maintainer is a question, never the old design
-  by default.
+  (`/ticket` step 2, on the `ticket-triage` agent's plan); a better design that needs the
+  maintainer is a question, never the old design by default.
 - Any **DAT binary format work** → the **`dat-format-expert`** agent.
 - User says **"kontynuuj pracę w pętli" / "continue the loop" / "work through the backlog" /
   "jazda dalej"** (any keep-grinding-tickets phrasing) → **`/backlog <numbers>`** with the tickets

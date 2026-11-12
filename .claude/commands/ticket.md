@@ -237,8 +237,9 @@ Then exactly one of three verdicts:
 ## 3. Lane — size the run before you start it
 
 - **S — small** (< ~150 changed lines, one concern): the gate **starts with inline `/code-review`**
-  instead of a review agent, and escalates to `code-reviewer` only as step 7 says. The whole run
-  should fit well under a hundred tool calls.
+  instead of a review agent, and escalates to `code-reviewer` only as step 7 says. Step 8's
+  gates-only `code-reviewer` run on the pushed commit still applies. The whole run should fit well
+  under a hundred tool calls.
 - **M — standard slice** (the default): `code-reviewer` agent at the gate; DAT binary work goes to
   the **`dat-format-expert`** agent.
 - **L — spec-worthy** (new feature with fuzzy rules, contract change, modeling decision —
@@ -518,17 +519,20 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   never start. A rebase with no conflict keeps the verdict (it changes no line of this diff, as
   ADR-0060 has it for the owner's approval). One where you resolved a conflict changed reviewed
   code: it needs a fresh `code-reviewer` round, which counts as a round.
-- **The pushed commit has a reviewer gate run of its own** (#1319). Before a push, when a
-  `code-reviewer` reviewed this diff and `HEAD` is not the commit named in its last report (Minor
-  fixes, second-pass fixes, a rebase, a CodeQL fix), spawn a fresh `code-reviewer` with "gates
-  only", the commit and your gate results on it as step 7's brief gives them, writing
-  `<scratchpad>/<n>-gates-<short SHA>.md`. It is not a review round. Its file must exist, be newer
-  than the commit and name `HEAD`; a run without such a file has stalled: spawn one fresh run, and
-  a second stall is an unproven gate (no PR, below). `GATES: RED` → fix what it found. A fix that changes code needs
-  a fresh `code-reviewer` round, which counts as a round (none left: stop as step 7's round rule
-  says); a finding with no code to fix (a gate you had not run) needs your own run of that gate
-  and a new gates-only run. The suite counts in the report's Proof come from the last reviewer
-  gate run on the pushed commit.
+- **The pushed commit has a reviewer gate run of its own, in both review paths** (#1319). Before
+  every push, unless the last `code-reviewer` report (a review round's or a gates-only run's) names
+  `HEAD`, spawn a fresh `code-reviewer` with "gates only", the commit and your gate results on it
+  as step 7's brief gives them, writing `<scratchpad>/<n>-gates-<short SHA>.md`. A small diff
+  reviewed by inline `/code-review` always needs it; after `code-reviewer` rounds it is needed
+  when `HEAD` moved after the last report (Minor fixes, second-pass fixes, a rebase, a CodeQL
+  fix). It is not a review round. Its file must exist, be newer than the commit and name `HEAD`; a
+  run without such a file has stalled: spawn one fresh run, and a second stall is an unproven
+  gate (no PR, below). `GATES: RED` → fix what it found. A fix that changes code needs one more
+  review round as step 7 allows it (a fresh `code-reviewer` round, which counts; in the small-diff
+  path, the second `/code-review` round if it is left, otherwise the escalation to
+  `code-reviewer`), and none left means stop as step 7's round rule says. A finding with no code
+  to fix (a gate you had not run) needs your own run of that gate and a new gates-only run. The
+  suite counts in the report's Proof come from the last reviewer gate run on the pushed commit.
 - **A PR ships only when nothing can be wrong.** Every gate above is already green on the pushed
   commit and no open question, TODO or unverified assumption remains. Any gate unproven (Docker
   down, a suite skipped, review verdict missing) → **push the branch, write the report (step 9) as
@@ -612,7 +616,7 @@ The PR body (or the issue comment, when there is no PR) ends with:
 ```markdown
 ## Ticket report
 **Shipped:** <what changed, behaviorally, 1-3 lines>
-**Proof:** <each gate with its actual result: build, the suite counts (from the reviewer's gate run on the pushed commit, when a `code-reviewer` ran), guards, the reviewer the diff picked with its rounds and verdict, the second-pass `/code-review` split (fixed / filed / already decided / opinion, each rejection with its reason), CodeQL (see below)>
+**Proof:** <each gate with its actual result: build, the suite counts (from the reviewer gate run on the pushed commit, step 8), guards, the reviewer the diff picked with its rounds and verdict, the second-pass `/code-review` split (fixed / filed / already decided / opinion, each rejection with its reason), CodeQL (see below)>
 **Assumptions:** <every judgment call made without the user, each with why + risk — "none" is a valid entry, silence is not>
 **Doubts:** <anything not fully verified or that smells — same rule>
 **Follow-ups:** <tickets filed, or bullets worth one>

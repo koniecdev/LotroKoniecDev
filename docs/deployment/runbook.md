@@ -1539,9 +1539,11 @@ times.
    → **Connect**, not pooled). The run prints every candidate row first. The update is one
    transaction and touches only rows that the account wrote or approved since `SINCE` and whose
    English is still what the copy holds. An approval does not change `SubmittedById`, so the filter
-   names `ApprovedById` too: an admin account that approved other people's drafts is covered. Run the last block with `END=ROLLBACK` first: it prints the list and
-   the `UPDATE` count and changes nothing. `UPDATE 0` with candidates listed means the filter is wrong, not that
-   nothing was damaged.
+   names `ApprovedById` too: an admin account that approved other people's drafts is covered. Run
+   the last block with `END=ROLLBACK` first: it prints the list and the `UPDATE` count and changes
+   nothing. `UPDATE 0` while some rows say `restore` means the filter is wrong. When every row says
+   `NOT IN THE COPY` and the copy step printed `COPY 0`, the export from the scratch database failed:
+   check `SCRATCH`.
 
    ```bash
    psql_in() { docker run --rm -i --network host postgres:18-alpine psql -v ON_ERROR_STOP=1 -X "$@"; }
@@ -1613,15 +1615,16 @@ The one case for a whole-database restore: the Neon project itself is lost.
    WHERE "NormalizedEmail" = upper('<address from the mail>');
    ```
 
+   The erasure then reaches the translation system as usual
+   ([The account events parking lot](#the-account-events-parking-lot-tmsaccount-erased-dlq)).
    `UPDATE 0` means one of two things. The account was created after the dump: nothing of it came
    back, so there is nothing to erase. Or its address changed after the dump: Brevo's log has a mail
    to the earlier address from the same days (the e-mail change mails); use that address. The old
    cancel link in that person's mailbox no longer works, because the restored row holds an older
-   security stamp. If they still want to cancel, do what the link does: set `"DeletionScheduledAt"`,
-   `"LockoutEnd"` and `"PasswordHash"` to `NULL` and `"AccessFailedCount"` to `0`, then tell them to
-   set a new password with "forgot password" (whoever asked for the deletion may know the old one). The erasure then reaches the
-   translation system as usual
-   ([The account events parking lot](#the-account-events-parking-lot-tmsaccount-erased-dlq)).
+   security stamp. If they still want to cancel, clear what the link clears: set
+   `"DeletionScheduledAt"`, `"LockoutEnd"` and `"PasswordHash"` to `NULL` and `"AccessFailedCount"`
+   to `0`. Then tell them to set a new password with "forgot password": whoever asked for the
+   deletion may know the old one.
 4. **Sign everyone out.** The auth dump brings back sign-in sessions and refresh tokens that were
    ended after the dump. Delete every row of `authsystem."SignInSessions"` and
    `authsystem."OpenIddictTokens"`; everyone signs in again.

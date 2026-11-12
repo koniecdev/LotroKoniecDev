@@ -56,8 +56,8 @@ everything that matters must be committed and pushed.
    `WIKI="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/../LotroKoniecDev.wiki"`,
    then `git -C "$WIKI" pull --ff-only` (another run may hold its lock; if the pull fails, the
    triage reads what is there). Then spawn the `ticket-triage` agent (Claude Fable 5.2, #1318) in
-   the FOREGROUND, never with `name`, `model` or `effort`, with its fallback to the session's model,
-   all as that step says. A `<!-- preflight-verdict -->` comment on the issue is input for it, never
+   the FOREGROUND, never with `name`, `model` or `effort`, with its fallback, all as that step
+   says. A `<!-- preflight-verdict -->` comment on the issue is input for it, never
    a skip. No report even from the fallback → `STATUS: BLOCKED` (category: review-unclean). Its
    verdict decides, and you never overrule it on your own judgment. A `STATUS: BLOCKED` block that
    carries its verdict names the model that wrote it, and after a fallback why the fallback ran
@@ -73,8 +73,8 @@ everything that matters must be committed and pushed.
      instead ("Scope & safety").
    - **CLARIFY** (a business question, a conflict with an owner's ruling on the same flow, or "the
      owner decides" with no answer yet) → `STATUS: BLOCKED` (category: business-questions, or
-     design-choice for a design question in the shape below) with its questions and their
-     recommended answers.
+     design-choice for a design question in the shape below, or dependency for an open dependency
+     that blocks the ticket) with its questions and their recommended answers.
    - **READY** → challenge the plan.
 
    A revision's verdict (below) is acted on in the same way: its BOUNCE and CLARIFY end the run
@@ -110,8 +110,9 @@ everything that matters must be committed and pushed.
      revised plan (its claims and assumptions), and the PR's `**Assumptions:**` says so. That run is
      the last: its NOT SOUND or another better design → `BLOCKED` (design-choice) as above.
    - Corrections → a revision folds them into the plan; they go into the PR's `**Assumptions:**`.
-     A revision that changes the verdict, or adds a claim or a design that `/buddy` has not seen,
-     gets one more `/buddy` run, the last (`/ticket` step 2).
+     A revision that adds a claim or a design that `/buddy` has not seen gets one more `/buddy`
+     run, the last. `/buddy` runs at most twice on a plan; the second run's Corrections are folded
+     in with no further run (`/ticket` step 2).
 2. **Ground it in the repo.** Read the areas the ticket touches; identify the nearest sibling
    slice in this repo to mirror (no fitting sibling → "Anatomy of a feature slice" in `CLAUDE.md`).
    DAT/update work → `docs/knowledge-base/` FIRST (vnum, translation survival, launch flow are
@@ -156,7 +157,9 @@ everything that matters must be committed and pushed.
      with the full brief and the gate results, told to write the file before it ends its turn. Never
      message the stalled one: its answer would arrive after your turn has ended. The replacement
      counts as a round; a stalled round 3 or 4 gets none (stop as below). A reviewer that ended on
-     an API error never reviewed: the same fallback is that round's reviewer. A stalled
+     an error before its file (`/ticket` step 7) never reviewed: the same fallback is that round's
+     reviewer, in any round. A fallback that ends on an error or stalls too → `STATUS: BLOCKED`
+     (category: review-unclean). A stalled
      `gate-runner` run (`/ticket` step 8) is no round: it follows step 8's own stall rule.
    - **A ticket you file from bucket 2** (a new one, or an open ticket that gets a case added) gets
      the `audit` label as well: nobody checked the case live, and the owner triages it before the

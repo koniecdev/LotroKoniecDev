@@ -4,8 +4,8 @@ description: Use this agent to review code changes against ticket acceptance cri
 tools: Read, Grep, Glob, Bash
 # Pinned to Fable on purpose (#1318, the maintainer's decision of 2026-11-10): the code comes from
 # an Opus session, and a review on the same model shares its blind spots. #643 dropped an older pin
-# because a contributor may not have the tier; /ticket step 7's fallback to the session's model
-# covers that now. With no model-policy marker, the maintainer's policy script leaves the two lines
+# because a contributor may not have the tier; the fallback in /ticket step 7 covers that now.
+# This file has no model-policy marker, so the maintainer's policy script leaves the two lines
 # below alone. Never raise effort to max: on Fable 5.2 it scores below xhigh at about 3x the cost.
 model: claude-fable-5-2
 effort: xhigh

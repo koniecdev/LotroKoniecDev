@@ -122,7 +122,9 @@ its plan, holds the gate and posts the comments.
   `name` (a named agent's report never reaches you), and never `model` or `effort`: either beats
   the pin, and Fable never runs at `max`. Its brief: the ticket number, the user's own words after
   the number in this command's arguments, quoted as theirs (a workspace name is not one), the main
-  checkout's path and the wiki clone's path written out, and the result of step 0's wiki pull. A
+  checkout's path and the wiki clone's path written out, the result of step 0's wiki pull, and the
+  worktree's state: detached at `origin/main`, or on the ticket's branch from an earlier run (then
+  the triage checks code facts against `origin/main`, not the working tree). A
   revision (below) is a fresh agent too, with the last triage report, `/buddy`'s report and the
   gate's answers in its brief: a headless session never gets the answer to a message, so the agent
   is never resumed.
@@ -201,12 +203,12 @@ The agent's checklist, in this order of authority:
   its cause or about what else the fix touches. A finding that `docs/knowledge-base/` settles is
   evidence: cite it, do not challenge it again.
   Then act on the result. A revision means a fresh `ticket-triage` with its last report and
-  `/buddy`'s report in the brief:
+  `/buddy`'s report in the brief. `/buddy` runs at most twice on a plan in this step; the second
+  run's Corrections are folded in by a revision with no further run:
   - NOT SOUND on the premise → a revision checks the premise again. NOT SOUND on the plan only → a
     revision fixes the plan, and `/buddy` runs once more (the last run); NOT SOUND again → CLARIFY.
-    Corrections → a revision folds them into the plan. A Corrections revision that changes the
-    verdict, or adds a claim or a design that `/buddy` has not seen, gets one more `/buddy` run, the
-    last.
+    Corrections → a revision folds them into the plan. A Corrections revision that adds a claim or
+    a design that `/buddy` has not seen gets one more `/buddy` run, the last.
   - `BETTER DESIGN` with `NEEDS OWNER: no` → a revision adopts it, and its plan goes through one
     more `/buddy` run (its claims and assumptions) before the verdict is posted; an adopted design can change
     the lane. That second run is the last: its NOT SOUND or another better design counts as
@@ -265,8 +267,10 @@ Then exactly one of three verdicts:
   (AskUserQuestion: the triage's questions and any choice `/buddy` handed to the maintainer, 3–5
   questions max, each with its recommended answer). Write each answer that
   rules on the design to the issue as one comment starting with `**Owner decision:**`, so a later
-  session or the loop finds it. The answers settle the triage's questions, so the run goes on as
-  READY with the triage's plan. When an answer changes the plan, a revision with the answers in its
+  session or the loop finds it. The triage's plan is written for its recommended answers, so when
+  every answer is the recommended one, the run goes on as READY with that plan. An answer to wait
+  for an open dependency stops the run, as step 1 says. Any other answer that differs from the
+  recommended one → a revision with the answers in its
   brief writes the final plan before step 3, and the READY comment carries it. That revision asks
   nothing new: its CLARIFY ends the run before the branch, with its questions in the report comment
   and "Answer in a comment that starts with `**Owner decision:**`." as the last line (step 3's
@@ -460,7 +464,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     - the second pass has not run yet in this review, and round 3's verdict came from its
       reviewer's own file, naming the commit round 3 was briefed on (after one nudge in an
       interactive session is fine; a stale file, or a reviewer spawned for a stalled round 3,
-      is a stalled round 3; the fallback for an API error is round 3's own reviewer);
+      is a stalled round 3; the fallback for a reviewer that ended on an error is round 3's own
+      reviewer);
     - round 3 returned REQUEST CHANGES with exactly one Critical or Major, and you fixed it (a
       NEEDS DISCUSSION, more than one Critical or Major, one left alone under ADR-0067, or a
       design-route Major means no round 4);
@@ -571,7 +576,9 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   `gate-runner` report names `HEAD`, spawn a fresh `gate-runner` (`.claude/agents/gate-runner.md`:
   `code-reviewer.md` Phase 0 alone, on this session's model, so a gate run spends no Fable) with
   the commit and your gate results on it as step 7's brief gives them, writing
-  `<scratchpad>/<n>-gates-<short SHA>.md`. It is needed
+  `<scratchpad>/<n>-gates-<short SHA>.md`. A session whose agent list has no `gate-runner` (it
+  started in an older checkout) spawns `general-purpose` instead, told to read
+  `.claude/agents/gate-runner.md`, to follow it and to use only the tools it lists. It is needed
   when `HEAD` moved after the last report (Minor fixes, second-pass fixes, a rebase, a CodeQL
   fix). It is not a review round. Wait for it as step 7 says for a reviewer: no edits, commits or
   test runs in this worktree while it runs. Its file must exist, be newer than the commit and name `HEAD`; a
@@ -670,7 +677,7 @@ The PR body (or the issue comment, when there is no PR) ends with:
 ```markdown
 ## Ticket report
 **Shipped:** <what changed, behaviorally, 1-3 lines>
-**Proof:** <each gate with its actual result: build, the suite counts (from the last `code-reviewer` or `gate-runner` run on the pushed commit, step 8), guards, the model the triage ran on, the `code-reviewer` rounds with their verdicts and the model each ran on (a fallback quotes its error), the second-pass `/code-review` split (fixed / filed / already decided / opinion, each rejection with its reason), CodeQL (see below)>
+**Proof:** <each gate with its actual result: build, the suite counts (from the last `code-reviewer` or `gate-runner` run on the pushed commit, step 8), guards, the model the triage ran on, the `code-reviewer` rounds with their verdicts and the model each ran on ("not named" when a report has no `Model:` line; for a fallback, why it ran in plain words, never the raw error), the second-pass `/code-review` split (fixed / filed / already decided / opinion, each rejection with its reason), CodeQL (see below)>
 **Assumptions:** <every judgment call made without the user, each with why + risk — "none" is a valid entry, silence is not>
 **Doubts:** <anything not fully verified or that smells — same rule>
 **Follow-ups:** <tickets filed, or bullets worth one>

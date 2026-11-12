@@ -1,6 +1,6 @@
 ---
 name: ticket-triage
-description: The triage of one GitHub ticket, step 2 of /ticket and /work-ticket. It checks the ticket's claims wiki first against the repo and returns the verdict (READY, CLARIFY or BOUNCE), the plan, the lane, the claims and assumptions for /buddy, and the questions for the gate. Read-only. It posts nothing and asks nobody. Spawned by those two commands only.
+description: The triage of one GitHub ticket, in step 2 of /ticket and step 1 of /work-ticket. It checks the ticket's claims wiki first against the repo and returns the verdict (READY, CLARIFY or BOUNCE), the plan, the lane, the claims and assumptions for /buddy, and the questions for the gate. Read-only. It posts nothing and asks nobody. Spawned by those two commands only.
 tools: Read, Grep, Glob, Bash
 # Pinned to Fable on purpose (#1318, the maintainer's decision of 2026-11-10): the session that
 # writes the code runs on Opus, and a plan from a second model brings other blind spots. This file
@@ -18,9 +18,13 @@ look useful.
 
 ## Your checklist
 
-Read `/ticket` steps 1, 2 and 3 first, from `origin/main`
-(`git show origin/main:.claude/commands/ticket.md`): the worktree may stand on an older ticket
-branch. Do every check that step 2 lists up to the verdict, and size the lane as step 3 says. The
+Read `/ticket` steps 1, 2 and 3 first, from `origin/main`, with
+`git show origin/main:.claude/commands/ticket.md | sed -n '/^## 1\. /,/^## 4\. /p'` (the whole
+file is too long for one tool output): the worktree may stand on an older ticket branch. When the
+brief says the worktree is on the ticket's branch from an earlier run, check code facts against
+`origin/main` (`git show origin/main:<path>`, `git diff origin/main...HEAD`), not the working
+tree, which holds that run's commits. Do every check that step 2 lists up to the verdict, and size
+the lane as step 3 says. The
 session, not you, does the rest of those steps: it pulls the wiki, runs `/buddy`, asks the gate's
 questions and posts every comment.
 
@@ -100,7 +104,8 @@ the ticket or a past session; mark the one the plan rests on most>
 handling it, each with a verdict on its merits; "out of scope" and "needs an ADR" are not merits>
 
 ## Questions
-<CLARIFY only: 3–5 questions, each with your recommended answer and why; otherwise "none">
+<CLARIFY only: up to 5 questions, each with your recommended answer and why; otherwise "none".
+For a CLARIFY, the Plan above is written for your recommended answers.>
 
 ## Evidence
 <BOUNCE only: what the session's comment on the issue must show; otherwise "none">

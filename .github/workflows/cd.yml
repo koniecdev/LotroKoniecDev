@@ -9,9 +9,10 @@ name: CD
 #                    proceeds only when CI concluded `success` on main, and pins the exact tested
 #                    commit (head_sha) for everything downstream. A manual dispatch passes through.
 #   build-and-push → builds the four OCI images ONCE per commit (ADR-0070: a commit whose `sha-<short>`
-#                    already exists is reused, never rebuilt), pushes them to GHCR, scans each with
-#                    Trivy (fail HIGH/CRITICAL), then signs + attests it (cosign + SLSA provenance/SBOM)
-#                    — the deployment unit (ADR-0008 §1/§6; supply-chain hardening, audit 0001 H9 + H1).
+#                    already exists is reused, never rebuilt), pushes them to GHCR by digest, scans
+#                    each with Trivy (fail HIGH/CRITICAL), signs + attests them (cosign + SLSA
+#                    provenance/SBOM), and only then names them `sha-<short>` — the deployment unit
+#                    (ADR-0008 §1/§6; supply-chain hardening, audit 0001 H9 + H1).
 #   deploy-staging → calls the reusable deploy.yml under environment: staging — AUTOMATIC (no gate),
 #                    active once vars.STAGING_ENABLED is on (ADR-0018).
 #   deploy-prod    → calls the SAME reusable deploy.yml under environment: production — GATED by the
@@ -43,12 +44,13 @@ name: CD
 # environment subject; the constraint is gone, the shape stays because it is still the right one.)
 #
 # Supply-chain hardening (audit 0001 H9 + the H1 image-scanning leg — the dependency/SAST legs already
-# ship as NuGetAudit + CodeQL + Dependabot). Each image is pushed, then scanned by Trivy by digest, and a
-# fixable HIGH/CRITICAL fails the job BEFORE the image is signed; only a clean image is signed keyless
-# (cosign) and carries a signed SLSA build-provenance attestation + an SPDX SBOM, all attached in GHCR.
-# An image that failed the scan stays in GHCR with no provenance. The deploy job re-verifies that
-# provenance (`gh attestation verify`) and fails closed, so only an image our own CD built, scanned and
-# attested can reach an environment through CD. No keys are stored — signing uses the job's GitHub OIDC identity (Fulcio/Rekor).
+# ship as NuGetAudit + CodeQL + Dependabot). Each image is pushed by digest, with no tag, then scanned
+# by Trivy, and a fixable HIGH/CRITICAL fails the job BEFORE the image is signed. Only a clean image
+# is signed keyless (cosign), carries a signed SLSA build-provenance attestation + an SPDX SBOM, and
+# gets its `sha-<short>` name. An image that failed stays an untagged digest that nothing deploys. The
+# deploy job re-verifies that provenance (`gh attestation verify`) and fails closed, so only an image
+# our own CD built, scanned and attested can reach an environment through CD. No keys are stored —
+# signing uses the job's GitHub OIDC identity (Fulcio/Rekor).
 #
 # CI is a hard pre-condition of deploy (audit 0001 C2): a push to main no longer triggers CD
 # directly. CD waits for the CI workflow (Release build + unit + integration) to finish, and only a
@@ -57,9 +59,10 @@ name: CD
 # CI carries `paths-ignore` for docs, a docs-only push runs no CI and therefore triggers no CD (this
 # also closes audit 0001 M2).
 #
-# Build images: CI success on main → :sha-<short> and :latest. Nothing else names an image. A release
-# is a git tag + a GitHub Release, and no workflow listens to it (ADR-0070): the images a release
-# names are the `sha-<short>` images of its commit, built once and never rebuilt.
+# Image names: `sha-<short>` for every built commit, plus `latest` on the main tip; no version names.
+# A release is a git tag + a GitHub Release, and no workflow listens to it (ADR-0070): the images a
+# release names are the `sha-<short>` images of its commit, built once and never rebuilt. When a
+# commit's images are reused, `latest` does not move.
 #
 # Deploy: every green-CI commit on main auto-deploys to STAGING (deploy-staging, no gate) and then
 # pauses at the `production` approval gate (deploy-prod) — the approval promotes the staging-verified
@@ -178,9 +181,8 @@ jobs:
       id-token: write
       attestations: write
     # Serialize builds of the SAME image for the SAME tested commit (e.g. a CI re-run while the first
-    # build runs). The later run waits, then finds the image and reuses it (ADR-0070). It must not
-    # cancel the first one: a build cancelled after its push leaves an image with no provenance, and
-    # CD never builds over it. Keyed on the tested commit (workflow_run.head_sha, else github.sha for
+    # build runs). The later run waits, then finds the named image and reuses it (ADR-0070) instead
+    # of building the same commit a second time. Keyed on the tested commit (workflow_run.head_sha, else github.sha for
     # a dispatch), NOT github.ref: under workflow_run github.ref is always refs/heads/main, so a
     # github.ref key would queue builds of *different* commits behind each other. Deploys are
     # serialized separately (deploy-prod has its own group). The group MUST include matrix.image,
@@ -228,37 +230,16 @@ jobs:
 
       # Build once per commit (ADR-0070). A second build never gives the same digest, so building a
       # commit that already has an image would move `sha-<short>` away from the bytes that passed
-      # staging, that prod runs and that a rollback pulls. Only a tag the registry reports as missing
-      # gets a build. An existing image is reused when it has our build provenance; one without it
-      # failed a check after its push, and the job stops instead of building over it.
+      # staging, that prod runs and that a rollback pulls. An existing image with our build
+      # provenance is reused, and every later step is skipped. scripts/tests/commit-image.tests.sh
+      # pins both the script and this job's shape.
       - name: Look up this commit's existing image
         id: existing
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
           IMAGE_TAG: sha-${{ needs.gate.outputs.short_sha }}
-        run: |
-          set -euo pipefail
-          ref="${IMAGE_REPO}:${IMAGE_TAG}"
-          inspect_error="$(mktemp)"
-          if digest="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}' 2>"$inspect_error")"; then
-            case "$digest" in
-              sha256:*) ;;
-              *) echo "::error::Could not read the digest of ${ref} (got '${digest:-<empty>}')"; exit 1 ;;
-            esac
-            if ! gh attestation verify "oci://${IMAGE_REPO}@${digest}" --repo "$GITHUB_REPOSITORY"; then
-              echo "::error::${ref} exists, but its build provenance did not verify. Either the check failed (re-run the job), or the first build stopped after its push (a Trivy, signing or attestation failure). CD never builds over an existing image: see the runbook, 'An image that failed its checks'."
-              exit 1
-            fi
-            printf 'exists=true\n' >> "$GITHUB_OUTPUT"
-            echo "::notice::${ref} was built before (${digest}). Nothing is built or pushed; the deploy uses that image."
-          elif grep -q ': not found$' "$inspect_error"; then
-            printf 'exists=false\n' >> "$GITHUB_OUTPUT"
-          else
-            cat "$inspect_error" >&2
-            echo "::error::Could not tell whether ${ref} exists. CD never builds over an image it cannot see; re-run the job when the registry answers."
-            exit 1
-          fi
+        run: ./scripts/ci/commit-image.sh find
 
       - name: Derive image tags & labels
         id: meta
@@ -280,15 +261,17 @@ jobs:
             type=raw,value=sha-${{ needs.gate.outputs.short_sha }}
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha == github.sha }}
 
-      - name: Build & push
+      # The image goes to GHCR by digest only, with no tag. The last step names it, after Trivy, cosign
+      # and the attestation passed (ADR-0070), so a build that stops half-way leaves only an untagged
+      # digest, and the next run builds the commit again.
+      - name: Build & push by digest
         id: build
         if: steps.existing.outputs.exists == 'false'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             BUILD_CONFIGURATION=Release
@@ -354,6 +337,17 @@ jobs:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+      # Last: only an image that passed every check above gets `sha-<short>` (and `latest` on the
+      # main tip). An existing sha tag is never moved, and every tag is read back.
+      - name: Name the checked image
+        id: name
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: ./scripts/ci/commit-image.sh name
 
   # Deploy to STAGING — AUTOMATIC (the `staging` environment has no protection rule). Calls the reusable
   # deploy.yml, which runs the full health-gated rollout under environment: staging (its own vars/secrets

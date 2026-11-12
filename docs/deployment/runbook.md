@@ -1290,7 +1290,7 @@ that context's `__EFMigrationsHistory` (the restore rewinds schema, data and his
 
 **4. Roll forward.** Fix the migration in a new commit and let the normal pipeline redeploy; the
 migrator gate re-applies from the rewound history. Once you are confident, delete the `pre-restore-*`
-safety branch (Free-plan projects allow at most 10 branches):
+safety branch (the Free plan allows at most 10 branches per project):
 
 ```bash
 curl -sf -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
@@ -1306,16 +1306,17 @@ touches the box, so before the migrator starts:
 - **Shape:** `migr04-pre-<short-sha>-<utc-ts>`, branched from the project's default branch head, with
   **no compute endpoint**: it costs no compute, only pinned history and storage.
 - **Where it is recorded:** the run summary's "DB restore point (pre-migration)" table, name + id.
-- **Why it exists next to PITR:** a branch head never expires. PITR history lasts 7 days on prod (Launch) and 6 h on staging (the Free
-  plan; the snapshot stays restorable however late the bad migration is noticed.
+- **Why it exists next to PITR:** a branch head never expires. PITR history lasts 7 days on prod
+  (Launch) and 6 h on staging (Free); the snapshot stays restorable however late the bad migration is
+  noticed.
 - **Configuration (per GitHub environment; optional):** the environment secret `NEON_API_KEY`
   (project-scoped) + the variable `NEON_PROJECT_ID`. When either is missing, the deploy logs
   `Neon snapshot skipped (not configured)` and goes on; a Neon API error logs a warning and goes on
   too. **The snapshot is a net, not a gate**: the deploy never fails because of it.
 
 **Retention: at most ONE snapshot branch per project.** Right before it creates the new snapshot, the
-deploy deletes every older `migr04-pre-*` branch: both Free-plan projects sit near the 0.5 GB storage
-cap, every branch pins history, and by the time deploy N+1 runs, deploy N's migration has proven
+deploy deletes every older `migr04-pre-*` branch: every branch pins history (billed on prod, near
+the Free plan's storage cap on staging), and by the time deploy N+1 runs, deploy N's migration has proven
 itself. So **the snapshot protects the latest deploy only**; an older bad migration falls back to
 PITR (inside the history window), the nightly dump, or the risk boundary above.
 
@@ -1471,20 +1472,28 @@ database holds the names and e-mail addresses of translators, so it never outliv
 ### Restore drill
 
 Proven on 2026-11-12, locally: Postgres 18 with the schema of every EF migration, an S3 stand-in
-(versitygw) instead of R2, the real `backup.sh`, and the copy-back block below as written. Six rows;
-after the backup one honest edit, an import that changed one row's English, and one account that
-put rubbish into four rows (into one of them as an approval over a row waiting for review). The dry
-run changed nothing; the real run restored three rows (the approved-over one back to NeedsReview with
-its old English), skipped the one whose English had changed, and left the honest edit alone. The
-auth dump restored with all 9 migrations.
+(versitygw) instead of R2, the real `backup.sh`, and the copy-back block below as written. Seven
+rows; after the backup one honest edit, an import that changed one row's English, and one account
+that put rubbish into four rows (into one of them as an approval over a row waiting for review) and
+approved someone else's draft. The dry run changed nothing; the real run restored four rows (the
+approved-over one back to NeedsReview with its old English, the approved draft back to the draft of
+the night before), skipped the one whose English had changed, and left the honest edit of an
+undamaged row alone. The auth dump restored with all 9 migrations.
 
 On the real bucket, after the wiring and then every few months: [fetch and decrypt](#fetch-and-decrypt-a-dump)
 last night's dumps, [restore them into a scratch database](#restore-into-a-scratch-database) (the
 auth dump into a second scratch database), compare
-`SELECT count(*) FROM translation."Translations"` with prod, then drop the scratch container. Decrypt
-one of them with the key from the **password manager**, typed in (`read -rs BACKUP_ENCRYPTION_KEY;
-export BACKUP_ENCRYPTION_KEY`), not with the box's copy: that proves the copy you would need after
-losing the box still works.
+`SELECT count(*) FROM translation."Translations"` with prod, then drop the scratch container. Then
+prove that the key in the **password manager** works too, since it is the copy you would need after
+losing the box. In the same folder:
+
+```bash
+read -rs PM_KEY    # paste the key from the password manager
+BACKUP_ENCRYPTION_KEY="$PM_KEY" openssl enc -d -aes-256-cbc -md sha256 -pbkdf2 -iter 600000 \
+  -pass env:BACKUP_ENCRYPTION_KEY -in translation.dump.enc | cmp - translation.dump \
+  && echo 'the password-manager key decrypts the dump'
+unset PM_KEY
+```
 
 ### Rows vandalised on Tuesday, now it is Friday
 
@@ -1494,12 +1503,14 @@ out of the file. An **admin** account can approve, so its damage can reach the f
 restore is never the answer: it would also undo every honest change since, account deletions
 included (wiki: Import do TMS). Copy back only the damaged rows.
 
-What this procedure covers: rows the account edited or approved. It does not cover an admin
-account's imports, bulk approvals of other people's drafts or game-version changes; those need
-their own look. A copy from a dump also holds the state of the night before, so another person's
-honest edit of the same row between that night and the damage is reverted too: the printed list
-shows it. `UpdatedAt` also moves when an import changes a row, so check step 2's answer against
-the import times.
+What this procedure covers: rows the account wrote, and rows it approved, other people's drafts
+included (one by one or in bulk). It does not cover an admin account's imports or game-version
+changes; those need their own look. On the dump path the copy holds the state of the night before,
+so another person's honest edit of a damaged row between that night and the damage is lost too, and
+the printed list cannot show it: it compares the copy with prod, nothing in between. A Neon branch
+taken one minute before the damage keeps such edits, so prefer it while the history window reaches.
+`UpdatedAt` also moves when an import changes a row, so check step 2's answer against the import
+times.
 
 1. **Stop the damage.** Lock the account (set `LockoutEnd` in `authsystem."Users"` to a far-future
    time). A locked account cannot sign in, and its refresh token is refused; wait out the five-minute
@@ -1509,7 +1520,8 @@ the import times.
    ```sql
    SELECT "Id" FROM translation."Translators" WHERE "IdentityId" = '<the user id>';
    SELECT min("UpdatedAt") FROM translation."Translations"
-   WHERE "SubmittedById" = '<profile id>' AND "UpdatedAt" > '<a time you trust>';
+   WHERE ("SubmittedById" = '<profile id>' OR "ApprovedById" = '<profile id>')
+     AND "UpdatedAt" > '<a time you trust>';
    ```
 
 3. **Get the state before the damage into a scratch database.**
@@ -1520,8 +1532,9 @@ the import times.
      [restore it into a scratch database](#restore-into-a-scratch-database).
 4. **Copy back.** `PROD` is the prod translation database's direct connection string (Neon console
    → **Connect**, not pooled). The run prints every candidate row first. The update is one
-   transaction and touches only rows that the account changed since `SINCE` and whose English is
-   still what the copy holds. Run the last block with `END=ROLLBACK` first: it prints the list and
+   transaction and touches only rows that the account wrote or approved since `SINCE` and whose
+   English is still what the copy holds. An approval does not change `SubmittedById`, so the filter
+   names `ApprovedById` too: an admin account that approved other people's drafts is covered. Run the last block with `END=ROLLBACK` first: it prints the list and
    the `UPDATE` count and changes nothing. `UPDATE 0` with candidates listed means the filter is wrong, not that
    nothing was damaged.
 
@@ -1531,7 +1544,7 @@ the import times.
    ACCOUNT='<profile id>'; SINCE='<start of the damage, UTC>'
    END=ROLLBACK      # the first run only prints; set END=COMMIT and run the last block again
 
-   psql_in "$PROD" -At -c "\copy (SELECT \"Id\" FROM translation.\"Translations\" WHERE \"SubmittedById\" = '$ACCOUNT' AND \"UpdatedAt\" >= '$SINCE') TO STDOUT" > damaged-ids.tsv
+   psql_in "$PROD" -At -c "\copy (SELECT \"Id\" FROM translation.\"Translations\" WHERE (\"SubmittedById\" = '$ACCOUNT' OR (\"ApprovedById\" = '$ACCOUNT' AND \"Status\" = 'Approved')) AND \"UpdatedAt\" >= '$SINCE') TO STDOUT" > damaged-ids.tsv
 
    { echo 'CREATE TEMP TABLE damaged (id uuid);'; echo '\copy damaged FROM STDIN'; cat damaged-ids.tsv; echo '\.'
      echo '\copy (SELECT t."Id", t."SourceText", t."PreviousSourceText", t."TranslatedText", t."Status", t."SubmittedById", t."ApprovedById" FROM translation."Translations" t JOIN damaged d ON d.id = t."Id") TO STDOUT'
@@ -1548,13 +1561,14 @@ the import times.
                \"SubmittedById\" = r.\"SubmittedById\", \"ApprovedById\" = r.\"ApprovedById\", \"UpdatedAt\" = now()
            FROM restore_rows r
            WHERE t.\"Id\" = r.\"Id\" AND t.\"SourceText\" = r.\"SourceText\"
-             AND t.\"SubmittedById\" = '$ACCOUNT' AND t.\"UpdatedAt\" >= '$SINCE';"
+             AND (t.\"SubmittedById\" = '$ACCOUNT' OR (t.\"ApprovedById\" = '$ACCOUNT' AND t.\"Status\" = 'Approved'))
+             AND t.\"UpdatedAt\" >= '$SINCE';"
      echo "$END;"
    } | psql_in "$PROD"
    ```
 
-   The account's own honest edits after `SINCE` are reverted too; the printed list is where you see
-   them. Rows marked `SKIP: English changed` need a person: an import changed their English after
+   The account's own honest edits after `SINCE` are reverted too; the printed list shows them.
+   Rows marked `SKIP: English changed` need a person: an import changed their English after
    the copy was made, so the old Polish may no longer fit. Fix them in the editor.
 5. **Rebuild the translation file.** A raw SQL update schedules no rebuild. Approve one row in the
    editor: any approval rebuilds the whole file for its language a few seconds later. When nothing
@@ -1586,7 +1600,11 @@ The one case for a whole-database restore: the Neon project itself is lost.
    WHERE "NormalizedEmail" = upper('<address from the mail>');
    ```
 
-   The erasure then reaches the translation system as usual
+   `UPDATE 0` means the address in the mail is newer than the dump: find the account by its
+   `UserName` instead. The old cancel link in that person's mailbox no longer works, because the
+   restored row holds an older security stamp; if they still want to cancel, set
+   `"DeletionScheduledAt"` and `"LockoutEnd"` back to `NULL` for them. The erasure then reaches the
+   translation system as usual
    ([The account events parking lot](#the-account-events-parking-lot-tmsaccount-erased-dlq)).
 4. **Sign everyone out.** The auth dump brings back sign-in sessions and refresh tokens that were
    ended after the dump. Delete every row of `authsystem."SignInSessions"` and

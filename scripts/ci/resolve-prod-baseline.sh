@@ -133,9 +133,15 @@ resolve_via_box() {
             return 2
             ;;
     esac
+    # CD publishes only `sha-<short>` images (ADR-0070). Any other tag names no single commit:
+    # `latest` moves, and a git ref of the same name would be a guess.
     case "$tag" in
         sha-*) ref="${tag#sha-}" ;;
-        *)     ref="$tag" ;;
+        *)
+            log "ERROR: the box .env pins IMAGE_TAG '${tag}', which is not a sha-<short> tag, so it names no single commit."
+            log "Refusing to guess what is serving (fail closed)."
+            return 2
+            ;;
     esac
     if sha="$(git rev-parse --verify --quiet "${ref}^{commit}")"; then
         printf '%s\n' "$sha"

@@ -389,6 +389,13 @@ run_resolve CANDIDATE_SHA="$C3" STUB_GH_FAIL=1 STUB_BOX_TAG='sha-deadbee'
 [ "$LAST_STATUS" -eq 2 ] || fail 'a box tag that is no commit must fail CLOSED' "got $LAST_STATUS"
 pass 'a box tag that resolves to no commit fails closed (exit 2)'
 
+CASE='fallback: a tag that is not sha-<short>'
+# `main` resolves in the fixture repo, so only an explicit refusal keeps it from naming a commit.
+run_resolve CANDIDATE_SHA="$C3" STUB_GH_FAIL=1 STUB_BOX_TAG='main'
+[ "$LAST_STATUS" -eq 2 ] || fail 'a box tag that is not sha-<short> must fail CLOSED' "got $LAST_STATUS"
+grep -q 'not a sha-<short> tag' <<<"$LAST_OUTPUT" || fail 'expected the not-a-sha-tag message'
+pass 'a box tag that is not sha-<short> fails closed (exit 2), even when git could resolve it'
+
 CASE='fallback: hostile tag'
 run_resolve CANDIDATE_SHA="$C3" STUB_GH_FAIL=1 STUB_BOX_TAG='sha-abc; rm -rf /'
 [ "$LAST_STATUS" -eq 2 ] || fail 'a tag outside [A-Za-z0-9._-] must be rejected' "got $LAST_STATUS"

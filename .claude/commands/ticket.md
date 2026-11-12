@@ -383,8 +383,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
       ticket or `/buddy` names: these are the session's own calls, and the reviewer checks them;
     - the wiki clone's absolute path (beside the main checkout), so it can check them against the wiki;
     - the gates you already ran on that commit: each command as you ran it
-      (`dotnet build LotroKoniecDev.slnx`, `dotnet test`, each `scripts/check-*.sh`) and its result,
-      with the result line of each test project pasted as `dotnet test` printed it, not retyped. A
+      (`dotnet build LotroKoniecDev.slnx`, `dotnet test`, each guard script listed above) and its
+      result, with the result line of each test project pasted as `dotnet test` printed it, not retyped. A
       gate red on that commit, or a test project or guard missing from your results, comes back
       as Critical;
     - "read-only: Phase 0's gate run is the one thing you run in this folder; any other probe runs

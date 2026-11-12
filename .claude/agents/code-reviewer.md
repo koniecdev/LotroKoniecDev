@@ -33,7 +33,8 @@ results. With no brief, use `HEAD` and the commands below, and skip the comparis
      folder built earlier, maybe from an older commit (`tests/Shared/E2EWorktree.cs`). Keep the
      result line of each test project. Off Windows, the two Windows-only patcher suites print
      "not run": that is expected (`needs-windows-check` covers them), not a finding.
-   - every `scripts/check-*.sh`, with no argument.
+   - every guard script `/ticket` step 7 lists under "The guard scripts CI runs", with no
+     argument (each `scripts/check-*.sh` and `scripts/claude/verify-copy.sh`).
 3. **A test project that is red in the full run:** run it again alone
    (`env -u SKIP_DOCKER_BUILD dotnet test <project>`), at most twice. Several worktrees may run
    container suites at the same time, and a container can fail to start under that load. Still red

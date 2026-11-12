@@ -7,15 +7,18 @@
 #
 #   1. scripts/ci/commit-image.sh, run with stub `docker` and `gh` first on PATH. `find` may say
 #      "build" only when the registry says the tag is missing, and stops on any answer it cannot
-#      read. `name` never moves an existing tag (except `latest`) and reads every tag back.
+#      read. `name` never moves an existing tag (except `latest`) and reads the sha tag back.
 #   2. The workflow shape. No workflow starts on a tag, a release or a created ref. In cd.yml's
 #      build-and-push job, the lookup comes first, every later step runs only when it found nothing,
 #      the build pushes no tag, and naming the image is the last step, after the attestation.
 #      Broken copies of the workflows prove that each check still fires.
 #
 # The YAML reader understands the block style the workflows use: two-space indent, one key per
-# line. A form it cannot follow (`on:` written inline, a `push:` with an inline value) fails the
-# test instead of being guessed at. CI-only (Linux runners), so no .ps1 twin.
+# line. Directly under `on:`, a form it cannot follow (`on:` written inline, a list, an odd indent,
+# a `push:` with an inline value) fails the test instead of being guessed at. Below `push:`, it
+# reads the four-space keys `branches`, `branches-ignore`, `tags` and `tags-ignore`, quoted or not,
+# with or without a space before the colon. A missing cd.yml or an empty workflow folder fails too.
+# CI-only (Linux runners), so no .ps1 twin.
 set -uo pipefail
 export LC_ALL=C
 
@@ -330,33 +333,40 @@ done
 # Prints why the workflows in $1 can start on a tag, a release or a new ref; prints nothing when
 # none can.
 tag_trigger_problems() {
-    local file
+    local file count=0
     for file in "$1"/*.yml "$1"/*.yaml; do
         [ -f "$file" ] || continue
-        # A push trigger with no branch filter runs on every tag too.
-        awk -v file="${file##*/}" '
+        count=$((count + 1))
+        # A push trigger with no branch filter runs on every tag too. Each line is read with its
+        # quotes and any space before a colon taken out, so `'tags' :` reads as `tags:`.
+        awk -v file="${file##*/}" -v q="'" '
             function close_push() {
                 if (in_push && !has_branches) print file ": push: has no branch filter, so it runs on tags"
                 in_push = 0
             }
-            /^"?on"?:/ {
+            {
+                line = $0
+                gsub("[\"" q "]", "", line)
+                gsub(/[[:space:]]+:/, ":", line)
+            }
+            line ~ /^on:/ {
                 found = 1
-                if ($0 !~ /^"?on"?:[[:space:]]*(#.*)?$/) { print file ": on: is written inline"; exit }
+                if (line !~ /^on:[[:space:]]*(#.*)?$/) { print file ": on: is written inline"; exit }
                 in_on = 1
                 next
             }
-            in_on && /^[^[:space:]#]/ { close_push(); in_on = 0 }
+            in_on && line ~ /^[^[:space:]#]/ { close_push(); in_on = 0 }
             !in_on { next }
-            /^[[:space:]]*(#.*)?$/ { next }
-            /^  "?[A-Za-z_-]+"?:/ {
+            line ~ /^[[:space:]]*(#.*)?$/ { next }
+            line ~ /^  [A-Za-z_-]+:/ {
                 close_push()
-                key = $1
+                key = line
+                sub(/^  /, "", key)
                 sub(/:.*/, "", key)
-                gsub(/"/, "", key)
                 seen_key = 1
                 if (key == "release" || key == "create") print file ": starts on " key
                 if (key == "push") {
-                    if ($0 !~ /^  "?push"?:[[:space:]]*(#.*)?$/) { print file ": push: has an inline value"; next }
+                    if (line !~ /^  push:[[:space:]]*(#.*)?$/) { print file ": push: has an inline value"; next }
                     in_push = 1
                     has_branches = 0
                 }
@@ -364,19 +374,26 @@ tag_trigger_problems() {
             }
             # Under on:, only two-space keys and the deeper lines below them are read. A list, an
             # odd indent or a key before any two-space key is a form this reader cannot follow.
-            !seen_key || $0 !~ /^    / { print file ": on: has a form this test cannot read: " $0; next }
-            in_push && /^    "?(branches|branches-ignore)"?:/ { has_branches = 1 }
-            in_push && /^    "?(tags|tags-ignore)"?:/ { print file ": push: lists tags" }
+            !seen_key || line !~ /^    / { print file ": on: has a form this test cannot read: " $0; next }
+            in_push && line ~ /^    (branches|branches-ignore):/ { has_branches = 1 }
+            in_push && line ~ /^    (tags|tags-ignore):/ { print file ": push: lists tags" }
             END {
                 close_push()
                 if (!found) print file ": has no on: section"
             }
         ' "$file"
     done
+    if [ "$count" -eq 0 ]; then
+        echo "${1}: no workflow file to read"
+    fi
 }
 
 # Prints every way cd.yml ($1) can build over an existing image or name an unchecked one.
 build_job_problems() {
+    if [ ! -r "$1" ]; then
+        echo "${1}: cannot read the file"
+        return
+    fi
     awk '
         /^  build-and-push:/ { in_job = 1; next }
         in_job && /^  [^ #]/ { in_job = 0 }
@@ -471,6 +488,26 @@ expect_trigger_problem 'no branch filter'   'push: has no branch filter'  '/^  p
 expect_trigger_problem 'a list under on:'   'a form this test cannot read' '/^on:/a\  - push'
 expect_trigger_problem 'a quoted push key'  'push: lists tags'            's/^  push:/  "push":/; /^  "push":/a\    tags: ["v*"]'
 expect_trigger_problem 'a four-space indent' 'a form this test cannot read' '/^on:/,/^[a-z]/s/^  /    /'
+expect_trigger_problem 'quoted tags'        'push: lists tags'            $'/^  push:/a\\    \'tags\': [\'v*\']'
+expect_trigger_problem 'a space before :'   'push: lists tags'            '/^  push:/a\    tags : [v*]'
+
+CASE='shape fires: an empty workflow folder'
+rm -rf "$TMP_ROOT/empty"
+mkdir -p "$TMP_ROOT/empty"
+LAST_OUTPUT="$(tag_trigger_problems "$TMP_ROOT/empty")"
+if grep -qF 'no workflow file to read' <<< "$LAST_OUTPUT"; then
+    pass 'reported: no workflow file to read'
+else
+    fail "expected 'no workflow file to read'"
+fi
+
+CASE='shape fires: no cd.yml'
+LAST_OUTPUT="$(build_job_problems "$TMP_ROOT/empty/cd.yml")"
+if grep -qF 'cannot read the file' <<< "$LAST_OUTPUT"; then
+    pass 'reported: cannot read the file'
+else
+    fail "expected 'cannot read the file'"
+fi
 
 expect_build_problem 'a lost guard'         'runs without the exists'     '0,/^        if: steps.existing.outputs.exists == .false.$/{//d;}'
 expect_build_problem 'a tagged push'        'the build step pushes tags'  's/push-by-digest=true,//; /^          outputs: /a\          push: true'

@@ -267,9 +267,10 @@ Per-ticket outcomes:
   leaves the pushed branch). Answer a design choice in a comment that starts with
   `**Owner decision:**`.
   It also stops here, pushing nothing more, when you closed its PR without a merge while the
-  session ran (`CATEGORY: pr-closed`), or when GitHub could not give the PR's state before a push
-  (`CATEGORY: pr-state-unknown`). The ticket gets the `loop-blocked` label and the exact
-  questions as an issue comment. Triage: `gh issue list --label loop-blocked` → answer in a comment
+  session ran (`CATEGORY: pr-closed`), or when it could not tell that a push is safe
+  (`CATEGORY: pr-state-unknown`): GitHub could not give the PR's state before a push, or, where
+  the repository's prompt says so, the local and the remote branch moved apart. The ticket gets
+  the `loop-blocked` label and the exact questions as an issue comment. Triage: `gh issue list --label loop-blocked` → answer in a comment
   → remove the label → the loop can pick it up again.
 - **failed / timeout**: a session error or the kill switch. Leftovers are committed on a
   `loop-salvage/<n>-<timestamp>` branch (never stashed). Two failures in a row stop new starts

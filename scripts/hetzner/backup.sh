@@ -124,14 +124,14 @@ parse_connection_string() {
     PGHOST="${PGHOST/-pooler./.}"
     PGPORT="${PGPORT:-5432}"
     case "$PGSSLMODE" in
-        verifyfull) PGSSLMODE='verify-full' ;;
-        verifyca) PGSSLMODE='verify-ca' ;;
+        # libpq checks against the image's CA store (as Npgsql uses the OS one) only with
+        # verify-full, so a VerifyCA string gets the stricter check.
+        verifyfull|verifyca) PGSSLMODE='verify-full' ;;
         disable|allow|prefer|require) ;;
         *) PGSSLMODE='require' ;;
     esac
-    # A verify mode needs a CA to check against: the image's own store, as Npgsql uses the OS one.
     case "$PGSSLMODE" in
-        verify-*) export PGSSLROOTCERT='system' ;;
+        verify-full) export PGSSLROOTCERT='system' ;;
     esac
     export PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD PGSSLMODE
 }

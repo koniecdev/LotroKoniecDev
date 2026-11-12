@@ -217,6 +217,15 @@ fi
 pass "no password, key or R2 secret reaches argv or the output"
 
 # ---------------------------------------------------------------------------------------------------
+CASE="verify-ca"
+new_stack verify-ca
+sed -i 's/SSL Mode=VerifyFull/SSL Mode=VerifyCA/' "$STACK/.env"
+run_backup
+[ "$LAST_STATUS" = 0 ] || fail "expected exit 0, got $LAST_STATUS"
+grep -q 'PGDATABASE=lotro_translation .* PGSSLMODE=verify-full PGSSLROOTCERT=system' "$STACK/env.log" \
+    || fail "VerifyCA must become verify-full against the system CA store, which libpq allows"
+pass "a VerifyCA string gets verify-full, the only mode libpq allows with the system CA store"
+
 CASE="a failed dump"
 new_stack failed-dump
 run_backup FAIL_DUMP_DB=lotro_auth

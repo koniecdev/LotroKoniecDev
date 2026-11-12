@@ -1,6 +1,6 @@
 # ADR-0012: Continuous deployment pipeline (automated ACA rollout + GitHub approval gate + IaC in CI)
 
-**Status:** Accepted — **but its rollout target is superseded by ADR-0034** (2026-07-13 / #492): the pipeline's shape (CI-success gate → build once → Trivy + cosign + attest → auto staging → gated prod promotion) stands exactly as decided here, while the last hop moved from an ACA revision rollout + `infra.yml` Terraform apply to **ssh + `docker compose`** on a Hetzner box (no revisions, no blue/green, no IaC job). Also amended: audit 0001 C2/H7/H9; §8 secrets superseded by ADR-0013 (itself now obsolete-by-platform); §4 migration wording by ADR-0023/#337; §5 R8 reversed by ADR-0027; the H7 rollout extended by ADR-0029/#407 (both now obsolete-by-platform); §5's `smoke.yml` lost its `workflow_call` entry in #1335 — see the in-body notes
+**Status:** Accepted — **but its rollout target is superseded by ADR-0034** (2026-07-13 / #492): the pipeline's shape (CI-success gate → build once → Trivy + cosign + attest → auto staging → gated prod promotion) stands exactly as decided here, while the last hop moved from an ACA revision rollout + `infra.yml` Terraform apply to **ssh + `docker compose`** on a Hetzner box (no revisions, no blue/green, no IaC job). Also amended: audit 0001 C2/H7/H9; §8 secrets superseded by ADR-0013 (itself now obsolete-by-platform); §4 migration wording by ADR-0023/#337; §5 R8 reversed by ADR-0027; the H7 rollout extended by ADR-0029/#407 (both now obsolete-by-platform); §5's `smoke.yml` lost its `workflow_call` entry in #1335; §1's semver images on `v*` and Alternative D's tag build removed by ADR-0070 (2026-11-12) — see the in-body notes
 **Date:** 2026-06-28
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0008 (cloud-agnostic deployment & environment strategy — **superseded** here on its
@@ -37,6 +37,11 @@ readiness* but *gated on a human "release now" decision*.
 rolls ACA to that immutable `:sha-<short>` via `az containerapp update`. `:latest` stays a
 human-pull convenience only — never the thing that defines what runs.
 
+**Amendment (2026-11-12, ADR-0070 / #1344).** No semver images and no `v*` trigger any more: a tag
+push rebuilt the commit and moved its `sha-<short>`. A release is a git tag + a GitHub Release, and
+CD builds each commit once (an existing `sha-<short>` is reused, never rebuilt). Also: the image is
+pushed *before* Trivy scans it; a failed scan leaves it in GHCR unsigned, which the deploy refuses.
+
 **Amendment (2026-06-30, audit 0001 H9 + H1 — supply-chain hardening of the deployment unit).** The
 immutable image is now **scanned, signed and attested** before it can be deployed, and that chain is
 **verified at deploy**. In `build-and-push`, each image is scanned by Trivy (a fixable HIGH/CRITICAL
@@ -65,7 +70,7 @@ env/scaling/ingress/secrets/storage; pipeline = which version runs.**
 A push to main builds artifacts unconditionally, then `deploy-prod` **pauses at the `production`
 GitHub Environment** (required reviewer). Approving releases it. `workflow_dispatch` deploys the tip
 of a ref (or an explicit `image_tag`) on demand, behind the same gate. A `v*` tag publishes
-artifacts only — it does not deploy. This is the "approve a release manually in GitHub" control that
+artifacts only — it does not deploy (no longer: ADR-0070 removed the tag trigger). This is the "approve a release manually in GitHub" control that
 protects in-flight QA.
 
 **Amendment (2026-06-29, audit 0001 C2 — CI success is a hard pre-condition of deploy):** the CD
@@ -83,7 +88,8 @@ artifacts unconditionally" no longer holds: a build now happens **only behind a 
 suite (Release build + unit + integration) is thus a gate *before* the deploy candidate exists, not
 a parallel race. `workflow_dispatch` and `v*`-tag pushes are deliberately **not** CI-gated (manual /
 publish-only paths) — they pass through the gate ungated — but a dispatch rollout still requires the
-same human approval, and a tag still only publishes artifacts. Because CI carries `paths-ignore` for
+same human approval, and a tag still only publishes artifacts. (ADR-0070: the `v*` path is gone, and
+a dispatch of a commit that was already built reuses its image instead of building it again.) Because CI carries `paths-ignore` for
 docs, a docs-only push runs no CI and therefore triggers no CD (incidentally closing audit 0001 M2).
 
 ### 4. Migrations are an enforced pre-rollout gate (R6 — finally live)
@@ -236,7 +242,8 @@ Rejected: redeploys under QA mid-test — the exact failure mode the maintainer 
 ### D. Tag-only releases (deploy only on `v*`)
 
 Rejected: more ceremony, fewer prod candidates; the approval gate already provides release control
-without tags. `v*` still builds immutable artifacts.
+without tags. `v*` still builds immutable artifacts. (ADR-0070: it no longer does. A rebuild is not
+the same artifact, so a release is now a git tag on a commit CD already built.)
 
 ### E. Service-principal client secret for Azure auth
 

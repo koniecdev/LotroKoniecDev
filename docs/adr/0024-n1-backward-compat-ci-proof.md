@@ -1,6 +1,6 @@
 # ADR-0024: N-1 backward-compatibility proof — the previous release's integration suite against the HEAD schema
 
-**Status:** Accepted
+**Status:** Accepted (Decision 1 revisited 2026-11-12 by ADR-0070 when release tags arrived: unchanged — see the in-body notes)
 **Date:** 2026-07-05
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0023 (the N-1 contract this job proves; its "asserted by rule + lint, not proven
@@ -58,6 +58,10 @@ older revision was already proven by its own PR's run, transitively). On a `work
 run from `main`, `HEAD^1` is the previous squash commit — the release before the current one.
 One expression, correct in both contexts, no tag infrastructure invented for the purpose. If the
 repo ever adopts release tags, this definition is the single line to revisit.
+
+**Revisited 2026-11-12 (ADR-0070 §4): unchanged.** Release tags now exist, but a tag is a bookmark on
+a commit, not a deploy unit. The proof needs the release that runs while a migration lands, which is
+still the commit deployed before it.
 
 ### 2. The vehicle is the old checkout's own integration suites, discovered by the old checkout's own convention
 
@@ -186,6 +190,8 @@ path-filtered keeps the signal where it matters.
 
 Rejected for now. No tags exist and CD ships every `main` commit; a tag scheme would be invented
 solely to serve this job. Decision 1 names the single line to revisit if tags ever arrive.
+(2026-11-12: tags arrived with ADR-0070 and this stays rejected. Prod promotion runs many times
+between two tags, so the previous tag is not the release that is running.)
 
 ## Implementation Notes
 
@@ -246,10 +252,9 @@ ssh transport configured one step earlier):
   `IMAGE_TAG` last and only on success, and a rollback re-runs it with the previous tag, so the box
   cannot claim a *newer* commit than what serves — it is the more truthful signal, and the widening
   cross-check above already gives it the final say whenever the two differ. What it cannot do is
-  answer reliably in every legal case: a version-tag deploy pins an image tag git cannot resolve on
-  its own (`cd.yml` publishes `{{version}}`, so `v1.2.3` → `1.2.3`; the resolver retries with the `v`
-  put back, but the class of such gaps is open), and it can go silent when a `.env` is restored or
-  reprovisioned without the line. A source that hard-fails or goes quiet on a legal deploy must not
+  answer reliably in every legal case: a version-tag deploy pinned an image tag git cannot resolve
+  on its own (gone since ADR-0070: CD publishes no version images, and the resolver's `v` retry was
+  removed), and it can go silent when a `.env` is restored or reprovisioned without the line. A source that hard-fails or goes quiet on a legal deploy must not
   be the one every promotion depends on — so it decides, but it does not lead.
 - **Bootstrap is the only fail-open verdict, so it takes TWO agreeing signals:** the API positively
   establishing that no deployment here ever reached `success`, **and** a box pinning no `IMAGE_TAG`.

@@ -394,7 +394,7 @@ jobs:
           # shellcheck disable=SC2029
           ssh box "
             set -e
-            mkdir -p ${STACK_DIR}/.docker/hetzner ${STACK_DIR}/.previous/.docker/hetzner
+            mkdir -p ${STACK_DIR}/.docker/hetzner ${STACK_DIR}/.previous/.docker/hetzner ${STACK_DIR}/backups/metrics
             cd ${STACK_DIR}
             for f in compose.hetzner.yaml .docker/hetzner/Caddyfile deploy.sh; do
               [ -f \"\$f\" ] && cp -p \"\$f\" \".previous/\$f\" || true
@@ -403,8 +403,12 @@ jobs:
           scp compose.hetzner.yaml "box:${STACK_DIR}/compose.hetzner.yaml"
           scp .docker/hetzner/Caddyfile "box:${STACK_DIR}/.docker/hetzner/Caddyfile"
           scp scripts/hetzner/deploy.sh "box:${STACK_DIR}/deploy.sh"
+          # The nightly backup (#688, ADR-0070) is not part of the rollback unit: it never touches the
+          # running stack. Every box gets it and the metrics folder the agent reads, but only a box
+          # whose crontab runs it (prod) writes anything there.
+          scp scripts/hetzner/backup.sh "box:${STACK_DIR}/backup.sh"
           # shellcheck disable=SC2029
-          ssh box "chmod 755 ${STACK_DIR}/deploy.sh"
+          ssh box "chmod 755 ${STACK_DIR}/deploy.sh ${STACK_DIR}/backup.sh"
 
       # The rollout itself (scripts/hetzner/deploy.sh, on the box): pull → assert the pulled digests are
       # the attested ones → the one-shot migrator as a gate → `up -d` → reload Caddy → set the e-mail

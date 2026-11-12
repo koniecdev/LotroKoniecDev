@@ -525,7 +525,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   as step 7's brief gives them, writing `<scratchpad>/<n>-gates-<short SHA>.md`. A small diff
   reviewed by inline `/code-review` always needs it; after `code-reviewer` rounds it is needed
   when `HEAD` moved after the last report (Minor fixes, second-pass fixes, a rebase, a CodeQL
-  fix). It is not a review round. Its file must exist, be newer than the commit and name `HEAD`; a
+  fix). It is not a review round. Wait for it as step 7 says for a reviewer: no edits, commits or
+  test runs in this worktree while it runs. Its file must exist, be newer than the commit and name `HEAD`; a
   run without such a file has stalled: spawn one fresh run, and a second stall is an unproven
   gate (no PR, below). `GATES: RED` → fix what it found. A fix that changes code needs one more
   review round as step 7 allows it (a fresh `code-reviewer` round, which counts; in the small-diff

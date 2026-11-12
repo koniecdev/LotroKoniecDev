@@ -52,12 +52,14 @@ results. With no brief, use `HEAD` and the commands below, and skip the comparis
    green project whose counts differ from the author's is Minor; the report takes your counts.
 5. **After the run**, check `git rev-parse HEAD` and `git status --porcelain` again. A new `HEAD`
    or a new file is Critical, with the paths: either the tree changed during the run, so the
-   results prove nothing, or a test writes into the repo. Leave the files where they are.
+   results prove nothing, or a test writes into the repo. Leave the files where they are; the
+   finding's action says to fix the cause and remove them, so the next run finds a clean tree.
 
 A red gate does not end the review: go on with Phase 1, so the author gets every finding in one
 round. Phase 0 comes first so that the other phases keep their numbers (ADR-0067 cites them).
 
-**Gates only.** When the brief says "gates only", run Phase 0 and nothing else. The report is the
+**Gates only.** When the brief says "gates only", run Phase 0 and nothing else; to sort a test
+for step 3, read only `git diff --name-only origin/main...HEAD` and the test. The report is the
 gates table (Output Format) with its findings, and a last line `GATES: GREEN` when Phase 0 found
 no Critical and no Major, otherwise `GATES: RED`. It is not a review round (`/ticket` step 8).
 

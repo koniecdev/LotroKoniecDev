@@ -49,18 +49,27 @@ Nothing reads version image tags. Deploy, rollback, the image scan and the runbo
 
 ### 2. CD builds each commit once
 
-Before it builds, `build-and-push` looks up the commit's `sha-<short>`:
+**The tag comes last.** The build pushes the image by digest only, with no tag. Trivy, cosign and
+the attestation work on that digest, and only then does the last step add `sha-<short>` (and
+`latest` on the main tip). So a tag CD wrote always names a checked image. A build that stops half
+way (a Trivy finding, a signing or attestation error, a cancel, a timeout) leaves only an untagged
+digest, and the next run builds the commit again. The naming step never moves an existing
+`sha-<short>` and reads it back afterwards. It copies the index with `--prefer-index=false`, so the
+tag names the very digest that was signed.
 
-- The registry reports it as not found: build, push, scan, sign and attest, as before.
+**Before it builds**, `build-and-push` looks up the commit's `sha-<short>`:
+
+- The registry reports it as not found: build, push, scan, sign, attest and name it.
 - It exists and carries this repo's build provenance: reuse it. Nothing is built or pushed, and the
   deploy takes that image.
-- It exists without provenance: stop the job. Its first build failed after the push (Trivy, signing
-  or attestation), or the check itself failed. CD never builds over an existing image.
-- Any other registry answer: stop the job.
+- It exists without provenance: stop the job. Either the check failed for a moment, or the tag was
+  written before this ADR (older images have no provenance) or by hand. CD never builds over a tag.
+- Any other registry answer, a refusal included: stop the job. A token refused for a moment may still
+  be able to write, and a write could move a tag.
 
-Builds of the same commit and image wait for each other instead of cancelling each other, because a
-build cancelled after its push leaves an image with no provenance. The runbook says how to get past a
-commit whose image failed after its push.
+Both decisions live in `scripts/ci/commit-image.sh`, and `scripts/tests/commit-image.tests.sh` tests
+them with stubs and pins the job's shape. Builds of the same commit and image wait for each other
+instead of cancelling each other, so the second run reuses the first one's image.
 
 ### 3. Only the server images
 
@@ -88,12 +97,17 @@ rules, and the backup (#688) protects the translators' data.
   rollback run the same image.
 - Cutting a release cannot break a deploy, because it touches no image.
 - A CI re-run or a dispatch of a commit that was already built costs no build.
+- A build that fails half way leaves nothing to clean up: only an untagged digest stays behind.
 
 ### Negative / Accepted Trade-offs
 
-- An image that failed after its push blocks its commit until someone deletes that package version
-  in GHCR or merges a new commit. Before, a re-run built it again. This needs a Trivy, signing or
-  attestation failure, and a Trivy failure on a new CVE usually needs a new commit anyway (#1328).
+- A commit whose `sha-<short>` was written before this ADR, or by hand, without provenance, cannot be
+  built again until someone deletes that package version in GHCR or merges a new commit. This only
+  matters for re-running CD on such a commit.
+- `sha-<short>` (seven hex digits) is now the key for "already built". If two commits shared those
+  seven digits, the second would reuse the first one's image. The odds are about one in a million per
+  commit at today's size; before, the second commit would have moved the first one's tag instead.
+- When a commit's images are reused, `latest` does not move. It is only a convenience for people.
 - GHCR shows no `:0.1.0`. To find the images of a release, look up the tag's commit first.
 - A tag push runs the `cd.yml` of the tagged commit. A tag on a commit from before this change still
   builds again, so a release tag goes only on a commit that contains this change.
@@ -123,11 +137,22 @@ the box tests all work by tag. Rule 2 removes every way our own pipeline moves a
 Rejected: inside the job, "this image has no provenance" looks the same as "the provenance check
 failed for a moment", and building over a good image is the bug this ADR removes.
 
+### E. Keep the tagged push, and only reuse a tag that exists
+
+The first version of this change. The tag then sits on the image while Trivy, cosign and the
+attestation still run, so any failure after the push left a tag on an unchecked image, and the commit
+stayed blocked until someone deleted it by hand. The rollback and a hand-run `deploy.sh` check no
+provenance, so they would also run such an image. Naming the image last removes both.
+
 ## Implementation Notes
 
 - `cd.yml`: no `push: tags` trigger and no `type=semver` tags. `build-and-push` starts with the step
-  "Look up this commit's existing image"; every build, scan, sign and attest step runs only when it
-  reports `exists=false`. Its concurrency group no longer cancels a running build.
+  "Look up this commit's existing image" (`commit-image.sh find`); every later step runs only when it
+  reports `exists=false`. The build pushes by digest (`push-by-digest=true`, no `tags`), and the last
+  step, "Name the checked image" (`commit-image.sh name`), adds the tags. Its concurrency group no
+  longer cancels a running build.
+- `scripts/tests/commit-image.tests.sh` runs in pr-verify (guards), ci and actionlint. Besides the
+  script, it checks that no workflow starts on a tag, a release or a new ref.
 - `scripts/ci/resolve-prod-baseline.sh` no longer tries `v<tag>` for a box-pinned tag, because the
   box can only pin `sha-<short>`.
 - Runbook: "Cutting a release" and "An image that failed its checks".
@@ -136,4 +161,8 @@ failed for a moment", and building over a good image is the bug this ADR removes
 
 - #1344 (the bug and both owner decisions), epic #1346, wiki page `Wersje-systemu`
 - ADR-0012 §1, ADR-0008 §6, ADR-0024 Decision 1, ADR-0023
-- [docker buildx imagetools](https://docs.docker.com/reference/cli/docker/buildx/imagetools/inspect/)
+- [docker buildx imagetools create](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/)
+  ("If only one source is specified and that source is a manifest list or image index, create
+  performs a carbon copy")
+- [Image and registry exporters](https://docs.docker.com/build/exporters/image-registry/)
+  (`push-by-digest`)

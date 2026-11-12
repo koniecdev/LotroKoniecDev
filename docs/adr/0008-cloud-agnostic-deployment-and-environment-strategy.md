@@ -1,6 +1,6 @@
 # ADR-0008: Cloud-agnostic deployment & environment strategy (staging + production)
 
-**Status:** Accepted (its "no IaC / human-driven first deploy / provider undecided" stance superseded by ADR-0012, 2026-06-28; §6 migration wording amended 2026-07-05 by ADR-0023/#337 — see the in-body note; §3 amended 2026-10-11 by ADR-0067 with the bar for a startup check — see the in-body note)
+**Status:** Accepted (its "no IaC / human-driven first deploy / provider undecided" stance superseded by ADR-0012, 2026-06-28; §6 migration wording amended 2026-07-05 by ADR-0023/#337 — see the in-body note; §3 amended 2026-10-11 by ADR-0067 with the bar for a startup check; §6 image tags amended 2026-11-12 by ADR-0070 — see the in-body notes)
 **Date:** 2026-06-19
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0002 (TMS pivot + KittySaver 1:1 lift), ADR-0005 (Frontend Data Protection key
@@ -133,7 +133,8 @@ change. No HA/backup topology is committed now — that belongs to the deferred 
 
 ### 6. Images are published to GHCR; migrations run as a pre-deploy job
 
-CD builds and pushes the four images to **GHCR**, tagged by commit SHA + semver (M6-09). Schema
+CD builds and pushes the four images to **GHCR**, tagged by commit SHA + semver (M6-09). (Amended
+2026-11-12 by ADR-0070: commit SHA only, built once per commit; a release is a git tag.) Schema
 changes apply via `dotnet ef migrations bundle` executed as a pre-deploy job / init step that the
 APIs depend on; a failed migration blocks API startup, so there is never half-migrated serving
 (M6-10). The dev compose migrator is kept as-is.

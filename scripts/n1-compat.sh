@@ -12,8 +12,8 @@
 #      --idempotent) for both contexts — ApplicationWriteDbContext and AuthDbContext — using the
 #      same project/startup pairs as Dockerfile.migrator.
 #   2. Check out the previous release (default: HEAD^1 — on a PR merge commit that is the main
-#      tip being merged into, i.e. the deployed release; the repo has no version tags and CD
-#      ships every main commit) into a temporary git worktree.
+#      tip being merged into, i.e. the deployed release; a version tag marks a release, not a
+#      deploy (ADR-0070), and CD ships every main commit) into a temporary git worktree.
 #   3. Restore and build every *.Tests.Integration.csproj the OLD checkout discovers (the same
 #      convention pr-verify.yml gates on — no silent narrowing), THEN run it with
 #      N1_COMPAT_SCHEMA_SCRIPTS_DIR pointing at the generated scripts. Each old test fixture

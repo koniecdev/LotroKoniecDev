@@ -65,7 +65,7 @@ touches the running stack. For each database, auth first, it:
 
 1. runs `pg_dump --format=custom` in a `postgres:18-alpine` container against the direct host
    (a pooled `-pooler` host is turned into the direct one);
-2. runs `pg_restore --list` on the dump, so a file that is not a readable archive never counts;
+2. has `pg_restore` read the whole dump, so a file that is not a complete archive never counts;
 3. encrypts it with `openssl enc -aes-256-cbc -pbkdf2 -iter 600000` under `BACKUP_ENCRYPTION_KEY`,
    then decrypts it again and compares the bytes;
 4. uploads it with `curl --aws-sigv4`, then reads the object's size and ETag (the MD5 of a
@@ -84,8 +84,10 @@ installing anything.
 ### 3. A dedicated R2 bucket per environment, with its own token
 
 The dumps go to Cloudflare R2, EU jurisdiction, in a bucket that holds nothing but dumps
-(`lotro-backups-prod`), with an API token that can read and write that bucket only. A third vendor
-means that losing the Neon account or the Hetzner account does not take the backups with it.
+(`lotro-backups-prod`), with an API token that can read and write that bucket only. A bucket lock
+keeps every object for 29 days, so that token cannot delete a recent dump: whoever takes over the
+box cannot wipe the backups along with the database. A third vendor means that losing the Neon
+account or the Hetzner account does not take the backups with it.
 
 ### 4. Every object is ciphertext; the key lives on the box and in the password manager
 
@@ -107,8 +109,9 @@ at the minute before it while the 7-day history reaches; otherwise the last dump
 decrypted and restored into a scratch database), then copy back only the damaged translation rows
 whose English text has not changed since, then rebuild the translation file. The scratch database
 is dropped afterwards. `Translators` and every auth table stay as they are, so no erasure is undone.
-A whole-database restore is for one case only, the loss of the Neon project, and then every
-erasure done after the dump is done again before the site opens (runbook → Database backups).
+A whole-database restore is for one case only, the loss of the Neon project. Then every erasure
+done after the dump is done again, and every sign-in session is ended, before the site opens
+(runbook → Database backups).
 
 ### 7. The alert reads the metric through the agent that is already there
 

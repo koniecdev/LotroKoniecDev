@@ -1241,13 +1241,13 @@ The history window is 7 days only once the production projects are on Launch
 
 Scenario: the migrator gate ran a migration that runs fine but is *logically* wrong: it dropped or
 corrupted data, or broke the serving release beyond what N-1 compatibility (ADR-0023) guarantees.
-Time matters: **the restore point must still be inside the 6 h retention window**, unless you have
+Time matters: **the restore point must still be inside the history window** (7 days on prod, 6 h on staging), unless you have
 the auto-snapshot, which never expires.
 
 **0. Find the restore point.** The deploy run's step summary prints a **"DB restore point
 (pre-migration)"** table: the UTC timestamp captured just *before* the migrator ran, the target
 migration per context, and the **auto-snapshot branch**. When it names one, prefer
-[Restore from the auto-snapshot](#restore-from-the-auto-snapshot-migr-04): no timestamp math, no 6 h
+[Restore from the auto-snapshot](#restore-from-the-auto-snapshot-migr-04): no timestamp math, no window
 pressure.
 
 **1. Put the last good release back first.** After the restore the schema is pre-migration again, and
@@ -1306,7 +1306,7 @@ touches the box, so before the migrator starts:
 - **Shape:** `migr04-pre-<short-sha>-<utc-ts>`, branched from the project's default branch head, with
   **no compute endpoint**: it costs no compute, only pinned history and storage.
 - **Where it is recorded:** the run summary's "DB restore point (pre-migration)" table, name + id.
-- **Why it exists next to PITR:** a branch head never expires. PITR history lasts 6 h on the Free
+- **Why it exists next to PITR:** a branch head never expires. PITR history lasts 7 days on prod (Launch) and 6 h on staging (the Free
   plan; the snapshot stays restorable however late the bad migration is noticed.
 - **Configuration (per GitHub environment; optional):** the environment secret `NEON_API_KEY`
   (project-scoped) + the variable `NEON_PROJECT_ID`. When either is missing, the deploy logs
@@ -1317,7 +1317,7 @@ touches the box, so before the migrator starts:
 deploy deletes every older `migr04-pre-*` branch: both Free-plan projects sit near the 0.5 GB storage
 cap, every branch pins history, and by the time deploy N+1 runs, deploy N's migration has proven
 itself. So **the snapshot protects the latest deploy only**; an older bad migration falls back to
-PITR (≤ 6 h) or the risk boundary above.
+PITR (inside the history window), the nightly dump, or the risk boundary above.
 
 **Restore procedure**: the same as the [PITR procedure](#procedure) except step 2. Restore the
 default branch **from the snapshot branch's head** instead of from its own history. With
@@ -1355,7 +1355,7 @@ disposable, and a nightly dump would use up its free plan's 5 GB of transfer.
 
 `/opt/lotro/backup.sh` (from `scripts/hetzner/backup.sh`; CD copies it to every box) runs from the
 `deploy` user's crontab on **lotro-prod** at 01:00 UTC. Per database, auth first: `pg_dump` in a
-`postgres:18-alpine` container against the direct host → `pg_restore --list` → AES-256 → upload →
+`postgres:18-alpine` container against the direct host → `pg_restore` reads the whole dump → AES-256 → upload →
 read back size and MD5. Only when both landed does it write
 `/opt/lotro/backups/metrics/lotro_backup.prom`, which the agent exports and the alert
 "LOTRO — the nightly database backup did not land" reads (26 hours). Its header comment is the
@@ -1393,6 +1393,9 @@ Do the Neon plan first: the first dump already counts against the transfer allow
 2. Bucket → **Settings** → **Object lifecycle rules** → add "delete objects **30 days** after upload",
    for **all** objects (no prefix). Read the rule list back: one delete rule, 30 days, no prefix.
    Nothing in the code can see this setting.
+   Then **Bucket lock rules** → add a rule for all objects that keeps each one for **29 days**. The
+   box's token can then upload but cannot delete a recent dump, so someone who takes over the box
+   cannot wipe the backups along with the database. The lifecycle rule still deletes on day 30.
 3. R2 → **Manage API tokens** → **Create API token**: **Object Read & Write**, applied to
    `lotro-backups-prod` only. Note the access key id and the secret (shown once).
 4. Make the key on your own machine: `openssl rand -base64 32`. Put it in the password manager
@@ -1402,12 +1405,13 @@ Do the Neon plan first: the first dump already counts against the transfer allow
    five keys from `.env.hetzner.example`: `BACKUP_ENCRYPTION_KEY`, `BACKUP_R2_ACCOUNT_ID`,
    `BACKUP_R2_BUCKET=lotro-backups-prod`, `BACKUP_R2_ACCESS_KEY_ID`, `BACKUP_R2_SECRET_ACCESS_KEY`.
 6. The first run by hand, then the crontab line. The crontab belongs to the `deploy` user, which the
-   guest stack uses too: **append, never replace**.
+   guest stack uses too, with a backup line of its own: **append, never replace**, and match on the
+   full path.
 
    ```bash
    ssh deploy@lotro-prod
    bash /opt/lotro/backup.sh            # must end with: every database landed in lotro-backups-prod
-   crontab -l 2>/dev/null | grep -F backup.sh \
+   crontab -l 2>/dev/null | grep -F '/opt/lotro/backup.sh' \
      || ( crontab -l 2>/dev/null; echo '0 1 * * * bash /opt/lotro/backup.sh 2>&1 | logger -t lotro-backup' ) | crontab -
    crontab -l
    ```
@@ -1420,8 +1424,9 @@ Do the Neon plan first: the first dump already counts against the transfer allow
 8. Run the [restore drill](#restore-drill) once on a real dump.
 
 Day to day: `journalctl -t lotro-backup --since yesterday` on the box shows the last runs, and
-`cat /opt/lotro/backups/metrics/lotro_backup.prom` the last good one with the object sizes. The size
-of the translation dump times 30 is about the month's transfer it costs.
+`cat /opt/lotro/backups/metrics/lotro_backup.prom` the last good one with the object sizes. The objects
+are compressed and the transfer Neon counts is not, so read the month's transfer from the Neon
+project's **Usage** page, not from these sizes.
 
 ### Fetch and decrypt a dump
 
@@ -1429,6 +1434,7 @@ On the prod box as `deploy`, in a folder on disk (`/tmp` is RAM there). Nothing 
 secret: every value goes from `.env` into a variable or a pipe.
 
 ```bash
+umask 077    # a decrypted dump holds personal data: readable by deploy only
 mkdir -p /opt/lotro/backups/restore && cd /opt/lotro/backups/restore
 env_value() { sed -n "s/^$1=//p" /opt/lotro/.env | head -1; }
 s3() { printf 'user = "%s:%s"\n' "$(env_value BACKUP_R2_ACCESS_KEY_ID)" "$(env_value BACKUP_R2_SECRET_ACCESS_KEY)" \
@@ -1465,15 +1471,20 @@ database holds the names and e-mail addresses of translators, so it never outliv
 ### Restore drill
 
 Proven on 2026-11-12, locally: Postgres 18 with the schema of every EF migration, an S3 stand-in
-(versitygw) instead of R2, the real `backup.sh`. Six rows; four vandalised after the backup by one
-account; one honest edit after the backup. The copy-back below restored three rows, skipped the one
-whose English an import had changed, and left the honest edit alone. The auth dump restored with all
-9 migrations.
+(versitygw) instead of R2, the real `backup.sh`, and the copy-back block below as written. Six rows;
+after the backup one honest edit, an import that changed one row's English, and one account that
+put rubbish into four rows (into one of them as an approval over a row waiting for review). The dry
+run changed nothing; the real run restored three rows (the approved-over one back to NeedsReview with
+its old English), skipped the one whose English had changed, and left the honest edit alone. The
+auth dump restored with all 9 migrations.
 
 On the real bucket, after the wiring and then every few months: [fetch and decrypt](#fetch-and-decrypt-a-dump)
 last night's dumps, [restore them into a scratch database](#restore-into-a-scratch-database) (the
 auth dump into a second scratch database), compare
-`SELECT count(*) FROM translation."Translations"` with prod, then drop the scratch container.
+`SELECT count(*) FROM translation."Translations"` with prod, then drop the scratch container. Decrypt
+one of them with the key from the **password manager**, typed in (`read -rs BACKUP_ENCRYPTION_KEY;
+export BACKUP_ENCRYPTION_KEY`), not with the box's copy: that proves the copy you would need after
+losing the box still works.
 
 ### Rows vandalised on Tuesday, now it is Friday
 
@@ -1482,6 +1493,13 @@ file. Its damage is rubbish in drafts, and every approved row it edits falls bac
 out of the file. An **admin** account can approve, so its damage can reach the file. A whole-database
 restore is never the answer: it would also undo every honest change since, account deletions
 included (wiki: Import do TMS). Copy back only the damaged rows.
+
+What this procedure covers: rows the account edited or approved. It does not cover an admin
+account's imports, bulk approvals of other people's drafts or game-version changes; those need
+their own look. A copy from a dump also holds the state of the night before, so another person's
+honest edit of the same row between that night and the damage is reverted too: the printed list
+shows it. `UpdatedAt` also moves when an import changes a row, so check step 2's answer against
+the import times.
 
 1. **Stop the damage.** Lock the account (set `LockoutEnd` in `authsystem."Users"` to a far-future
    time). A locked account cannot sign in, and its refresh token is refused; wait out the five-minute
@@ -1503,32 +1521,35 @@ included (wiki: Import do TMS). Copy back only the damaged rows.
 4. **Copy back.** `PROD` is the prod translation database's direct connection string (Neon console
    → **Connect**, not pooled). The run prints every candidate row first. The update is one
    transaction and touches only rows that the account changed since `SINCE` and whose English is
-   still what the copy holds. `UPDATE 0` with candidates listed means the filter is wrong, not that
+   still what the copy holds. Run the last block with `END=ROLLBACK` first: it prints the list and
+   the `UPDATE` count and changes nothing. `UPDATE 0` with candidates listed means the filter is wrong, not that
    nothing was damaged.
 
    ```bash
    psql_in() { docker run --rm -i --network host postgres:18-alpine psql -v ON_ERROR_STOP=1 -X "$@"; }
+   read -rs PROD     # paste it: not echoed, not in the shell history
    ACCOUNT='<profile id>'; SINCE='<start of the damage, UTC>'
+   END=ROLLBACK      # the first run only prints; set END=COMMIT and run the last block again
 
    psql_in "$PROD" -At -c "\copy (SELECT \"Id\" FROM translation.\"Translations\" WHERE \"SubmittedById\" = '$ACCOUNT' AND \"UpdatedAt\" >= '$SINCE') TO STDOUT" > damaged-ids.tsv
 
    { echo 'CREATE TEMP TABLE damaged (id uuid);'; echo '\copy damaged FROM STDIN'; cat damaged-ids.tsv; echo '\.'
-     echo '\copy (SELECT t."Id", t."SourceText", t."TranslatedText", t."Status", t."SubmittedById", t."ApprovedById" FROM translation."Translations" t JOIN damaged d ON d.id = t."Id") TO STDOUT'
+     echo '\copy (SELECT t."Id", t."SourceText", t."PreviousSourceText", t."TranslatedText", t."Status", t."SubmittedById", t."ApprovedById" FROM translation."Translations" t JOIN damaged d ON d.id = t."Id") TO STDOUT'
    } | psql_in "$SCRATCH" -q -At > before.tsv
 
    { echo 'BEGIN;'
-     echo 'CREATE TEMP TABLE restore_rows ("Id" uuid PRIMARY KEY, "SourceText" text, "TranslatedText" text, "Status" varchar(100), "SubmittedById" uuid, "ApprovedById" uuid);'
+     echo 'CREATE TEMP TABLE restore_rows ("Id" uuid PRIMARY KEY, "SourceText" text, "PreviousSourceText" text, "TranslatedText" text, "Status" varchar(100), "SubmittedById" uuid, "ApprovedById" uuid);'
      echo '\copy restore_rows FROM STDIN'; cat before.tsv; echo '\.'
      echo "SELECT t.\"FileId\", t.\"GossipId\", t.\"TranslatedText\" AS now, r.\"TranslatedText\" AS restore_to,
              CASE WHEN t.\"SourceText\" = r.\"SourceText\" THEN 'restore' ELSE 'SKIP: English changed' END AS action
            FROM translation.\"Translations\" t JOIN restore_rows r ON r.\"Id\" = t.\"Id\" ORDER BY 1, 2;"
      echo "UPDATE translation.\"Translations\" t
-           SET \"TranslatedText\" = r.\"TranslatedText\", \"Status\" = r.\"Status\", \"SubmittedById\" = r.\"SubmittedById\",
-               \"ApprovedById\" = r.\"ApprovedById\", \"UpdatedAt\" = now()
+           SET \"TranslatedText\" = r.\"TranslatedText\", \"PreviousSourceText\" = r.\"PreviousSourceText\", \"Status\" = r.\"Status\",
+               \"SubmittedById\" = r.\"SubmittedById\", \"ApprovedById\" = r.\"ApprovedById\", \"UpdatedAt\" = now()
            FROM restore_rows r
            WHERE t.\"Id\" = r.\"Id\" AND t.\"SourceText\" = r.\"SourceText\"
              AND t.\"SubmittedById\" = '$ACCOUNT' AND t.\"UpdatedAt\" >= '$SINCE';"
-     echo 'COMMIT;'
+     echo "$END;"
    } | psql_in "$PROD"
    ```
 
@@ -1555,13 +1576,25 @@ The one case for a whole-database restore: the Neon project itself is lost.
    for before the dump comes back still waiting, and the finalizer erases it again on its next run.
    A deletion asked for after the dump is gone with the old database: Brevo's log of the deletion
    mails sent since the dump time (the ones with the link that cancels the deletion) names those
-   accounts; delete them again by hand. The auth system never sends an erasure to the translation
-   system twice, so check those profiles' names in `translation."Translators"` too
+   accounts and the time of each request. Schedule each one again the way the request does, then
+   the finalizer erases it once 14 days from the original request are over (on its next run, when
+   they already are):
+
+   ```sql
+   UPDATE authsystem."Users"
+   SET "DeletionScheduledAt" = '<time of the original request, UTC>', "LockoutEnabled" = true, "LockoutEnd" = 'infinity'
+   WHERE "NormalizedEmail" = upper('<address from the mail>');
+   ```
+
+   The erasure then reaches the translation system as usual
    ([The account events parking lot](#the-account-events-parking-lot-tmsaccount-erased-dlq)).
-4. As `deploy`, put the new host and password into both `ConnectionStrings__*` lines of
+4. **Sign everyone out.** The auth dump brings back sign-in sessions and refresh tokens that were
+   ended after the dump. Delete every row of `authsystem."SignInSessions"` and
+   `authsystem."OpenIddictTokens"`; everyone signs in again.
+5. As `deploy`, put the new host and password into both `ConnectionStrings__*` lines of
    `/opt/lotro/.env`, then `docker compose -f compose.hetzner.yaml --env-file .env up -d --no-deps
    --force-recreate auth-api tms-api` and the [smoke test](#post-deploy-smoke-test).
-5. Point the `production` environment's `NEON_PROJECT_ID` variable and `NEON_API_KEY` secret at the
+6. Point the `production` environment's `NEON_PROJECT_ID` variable and `NEON_API_KEY` secret at the
    new project (MIGR-04).
 
 Everything written after that dump is lost: at most one day of work.

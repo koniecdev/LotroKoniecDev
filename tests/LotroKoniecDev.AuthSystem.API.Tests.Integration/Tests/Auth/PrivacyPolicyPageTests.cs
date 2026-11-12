@@ -18,6 +18,7 @@ public sealed class PrivacyPolicyPageTests : EndpointsTestBase
     [InlineData("<strong>Cloudflare, Inc.</strong> — przechowywanie zaszyfrowanych kopii zapasowych bazy danych w usłudze R2")]
     [InlineData("przechowujemy poza dostawcą bazy przez <strong>30 dni</strong> od jej utworzenia")]
     [InlineData("dane kont usuniętych po jej utworzeniu usuwamy ponownie, zanim wrócą do serwisu")]
+    [InlineData("wyłącznie do odtworzenia danych po awarii lub nadużyciu oraz do okresowego sprawdzenia, że da się je odtworzyć")]
     public async Task PrivacyPolicyPage_ShouldStateTheOwnersRuling_WhenAccessed(string statement)
     {
         // Act

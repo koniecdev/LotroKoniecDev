@@ -347,20 +347,26 @@ tag_trigger_problems() {
             }
             in_on && /^[^[:space:]#]/ { close_push(); in_on = 0 }
             !in_on { next }
-            /^  [A-Za-z_-]+:/ {
+            /^[[:space:]]*(#.*)?$/ { next }
+            /^  "?[A-Za-z_-]+"?:/ {
                 close_push()
                 key = $1
                 sub(/:.*/, "", key)
+                gsub(/"/, "", key)
+                seen_key = 1
                 if (key == "release" || key == "create") print file ": starts on " key
                 if (key == "push") {
-                    if ($0 !~ /^  push:[[:space:]]*(#.*)?$/) { print file ": push: has an inline value"; next }
+                    if ($0 !~ /^  "?push"?:[[:space:]]*(#.*)?$/) { print file ": push: has an inline value"; next }
                     in_push = 1
                     has_branches = 0
                 }
                 next
             }
-            in_push && /^    (branches|branches-ignore):/ { has_branches = 1 }
-            in_push && /^    (tags|tags-ignore):/ { print file ": push: lists tags" }
+            # Under on:, only two-space keys and the deeper lines below them are read. A list, an
+            # odd indent or a key before any two-space key is a form this reader cannot follow.
+            !seen_key || $0 !~ /^    / { print file ": on: has a form this test cannot read: " $0; next }
+            in_push && /^    "?(branches|branches-ignore)"?:/ { has_branches = 1 }
+            in_push && /^    "?(tags|tags-ignore)"?:/ { print file ": push: lists tags" }
             END {
                 close_push()
                 if (!found) print file ": has no on: section"
@@ -462,6 +468,9 @@ expect_trigger_problem 'a tag filter'       'push: lists tags'            '/^  p
 expect_trigger_problem 'a release trigger'  'starts on release'           '/^on:/a\  release:\n    types: [published]'
 expect_trigger_problem 'an inline on:'      'on: is written inline'       's/^on:.*/on: [push, pull_request]/'
 expect_trigger_problem 'no branch filter'   'push: has no branch filter'  '/^  push:/,/^  [a-z_]*:/{/^    branches:/d;}'
+expect_trigger_problem 'a list under on:'   'a form this test cannot read' '/^on:/a\  - push'
+expect_trigger_problem 'a quoted push key'  'push: lists tags'            's/^  push:/  "push":/; /^  "push":/a\    tags: ["v*"]'
+expect_trigger_problem 'a four-space indent' 'a form this test cannot read' '/^on:/,/^[a-z]/s/^  /    /'
 
 expect_build_problem 'a lost guard'         'runs without the exists'     '0,/^        if: steps.existing.outputs.exists == .false.$/{//d;}'
 expect_build_problem 'a tagged push'        'the build step pushes tags'  's/push-by-digest=true,//; /^          outputs: /a\          push: true'

@@ -200,9 +200,9 @@ jobs:
 
       # CD builds each commit once (ADR-0070, #1344). cd.yml cannot run on a PR, so its registry
       # decisions and its build job's shape are pinned here: no workflow starts on a tag, and no
-      # step can build over or rename an existing `sha-<short>` image.
+      # step can build over or rename an existing `sha-<short>` image. It takes a second and a tag
+      # trigger can come with a change to any workflow, so it runs on every PR.
       - name: Build-once self-test
-        if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/commit-image.tests.sh
 
       # The verdict mapping is its own gate: n1-compat.sh's exit 1 (schema proven incompatible) and

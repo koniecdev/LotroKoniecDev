@@ -210,9 +210,6 @@ expect 'code=false guards=true images=false' 'the promotion gate verdict mapping
 expect 'code=false guards=true images=false' 'the verdict-mapping self-test'              'scripts/tests/n1-promotion-gate.tests.sh'
 expect 'code=false guards=true images=false' 'the N-1 proof the gate calls'               'scripts/n1-compat.sh'
 expect 'code=false guards=true images=false' 'the N-1 proof classification self-test'     'scripts/tests/n1-compat.tests.sh'
-expect 'code=false guards=true images=false' 'the build-once registry decisions'          'scripts/ci/commit-image.sh'
-expect 'code=false guards=true images=false' 'the build-once self-test'                   'scripts/tests/commit-image.tests.sh'
-expect 'code=false guards=true images=false' 'cd.yml, whose build job shape it pins'      '.github/workflows/cd.yml'
 
 echo
 echo '── read by an integration test: the .NET gate runs too (#1163) ──────────────────────────────'

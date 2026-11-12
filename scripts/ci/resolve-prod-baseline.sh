@@ -22,15 +22,12 @@
 #      `success` and is skipped; the in-flight run's own record is `in_progress` and is skipped
 #      too, so re-promoting a sha that already served resolves to itself (empty span, fast skip).
 #   2. The box — the IMAGE_TAG scripts/hetzner/deploy.sh pins in the box .env (`sha-<short>` →
-#      commit, a version tag → commit). Consulted when the API cannot name a baseline, AND as a
+#      commit). Consulted when the API cannot name a baseline, AND as a
 #      cross-check when it can (step 3). deploy.sh writes that line LAST and only on success, and a
 #      rollback re-runs deploy.sh with the previous tag, so the file describes what is really
 #      running: the box cannot claim a NEWER commit than what serves. What it can do is go silent (a
 #      .env restored or reprovisioned without the line) — which is why its silence alone is not
-#      allowed to bootstrap, see below. It is the fallback rather than the primary source because a
-#      version-tag deploy pins an image tag git cannot resolve on its own (cd.yml publishes
-#      {{version}}, i.e. v1.2.3 → 1.2.3), and a source that hard-fails on a legal deploy must not be
-#      the one every promotion depends on.
+#      allowed to bootstrap, see below.
 #   3. Cross-check. A deployment record carries the sha of the workflow RUN, not of the artifact
 #      that was rolled: a `workflow_dispatch` with an explicit image_tag rolls one commit while its
 #      record (and its `success`) names another. The box .env is the ground truth, so when the two
@@ -140,16 +137,11 @@ resolve_via_box() {
         sha-*) ref="${tag#sha-}" ;;
         *)     ref="$tag" ;;
     esac
-    # `v$ref` too: cd.yml publishes version images through `type=semver,pattern={{version}}`, which
-    # strips the leading v (git tag v1.2.3 → image 1.2.3), so the tag a version deploy pins is not
-    # a ref git can see until the v goes back on.
-    for candidate in "$ref" "v${ref}"; do
-        if sha="$(git rev-parse --verify --quiet "${candidate}^{commit}")"; then
-            printf '%s\n' "$sha"
-            return 0
-        fi
-    done
-    log "ERROR: cannot resolve the box-pinned IMAGE_TAG '${tag}' to a commit (tried '${ref}' and 'v${ref}')."
+    if sha="$(git rev-parse --verify --quiet "${ref}^{commit}")"; then
+        printf '%s\n' "$sha"
+        return 0
+    fi
+    log "ERROR: cannot resolve the box-pinned IMAGE_TAG '${tag}' to a commit (tried '${ref}')."
     log "Refusing to guess what is serving (fail closed)."
     return 2
 }

@@ -152,6 +152,12 @@ prometheus.exporter.unix "host" {
   filesystem {
     fs_types_exclude = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$"
   }
+
+  // The nightly backup's success metric (scripts/hetzner/backup.sh, #688). The path is the host's,
+  // seen through the read-only root mount. CD creates the folder on every box, so it never errors.
+  textfile {
+    directory = "/host/root/opt/lotro/backups/metrics"
+  }
 }
 
 prometheus.exporter.cadvisor "containers" {

@@ -217,6 +217,55 @@ groups:
         noDataState: OK
         execErrState: Error
 
+      # The nightly database backup (#688, ADR-0070). backup.sh on the prod box writes the metric
+      # only after every database landed in the bucket, and the agent's host exporter reads it.
+      - uid: lotro-backup-missing
+        title: LOTRO — the nightly database backup did not land
+        condition: C
+        for: 5m
+        labels:
+          project: lotrokoniecdev
+          severity: page
+        annotations:
+          summary: 'No good database backup from {{ $labels.box }} in the last 26 hours'
+          description: >-
+            The last run of /opt/lotro/backup.sh that landed every database is more than 26 hours
+            old, or its metric is gone. Until a run succeeds, nothing older than Neon's history
+            window can be restored. Read the last runs with `journalctl -t lotro-backup` on the
+            prod box, then run `bash /opt/lotro/backup.sh` there by hand (runbook → Database
+            backups). If "a box has gone silent" fires for the prod box too, this one only repeats it.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              # Self-arming, like the silent-box rule: the metric starts to count after the first
+              # good run, which the wiring does by hand, so the rule can ship before the bucket.
+              expr: >-
+                (
+                  time() - max(lotro_backup_last_success_timestamp_seconds{box="lotro-prod"}) > 26 * 3600
+                ) or (
+                  absent_over_time(lotro_backup_last_success_timestamp_seconds{box="lotro-prod"}[30m])
+                  and on() count(count_over_time(lotro_backup_last_success_timestamp_seconds{box="lotro-prod"}[7d])) > 0
+                )
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: OK
+        execErrState: Error
+
   # A 24-hour query is heavier than the one-minute group needs, and a total over a day does not
   # change much in five minutes.
   - orgId: 1

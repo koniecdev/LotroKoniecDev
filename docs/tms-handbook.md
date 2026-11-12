@@ -109,8 +109,10 @@ parsers always agree.
 - The system **deploys automatically to Hetzner servers** (staging first, then production after a
   human approves). The public site is `https://lotro-translator.pl`. Hosting moved off Azure in
   2026-07 (ADR-0034).
-- There are **no production users yet**. Breaking changes are still cheap, and several cost/risk
-  decisions (Part 11) are made for a zero-user world on purpose.
+- Since 2026-11-11 the first **outside translator** works on prod, so prod data cannot be re-created
+  by hand. Breaking changes in the API and code are still cheap in 0.x (ADR-0070), but several
+  cost/risk decisions (Part 11) were made for a zero-user world; the backup posture is the first to
+  change (#688).
 
 ### 1.4 One inspiration and one starting point
 

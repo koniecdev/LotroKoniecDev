@@ -28,13 +28,14 @@ forbidden. Never add them back.
 
 ## Project status — deployed, versions 0.x, first real users
 
-Active development, released as **0.x**; 1.0 is the release for players (the wiki page
-`Wersje-systemu` defines both, epic #1346). What is done and what is open is in "Roadmap" below.
-Since 2026-11-11 an outside translator works on prod, so **prod data cannot be re-created by
-hand**. **API/code breaking changes stay free in 0.x** (owner decision, #1344), because every
-client ships from this repo and deploys with it: no back-compat shims, no deprecation windows. A
-release is a git tag + a GitHub Release on the commit prod runs, and CD builds each commit once
-(ADR-0070; runbook → "Releases"). The one exception is the **database schema**: the stack is deployed with zero-downtime CD, so migrations
+Active development, numbered **0.x** (v0.1.0 comes once the daily backup, #688, ships); 1.0 is
+the release for players. The wiki page `Wersje-systemu` defines both, and epic #1346 tracks 1.0.
+What is done and what is open is in "Roadmap" below. Since 2026-11-11 an outside translator works
+on prod, so **prod data cannot be re-created by hand**. **API/code breaking changes stay free in
+0.x** (owner decision, #1344), because every client ships from this repo and deploys with it: no
+back-compat shims, no deprecation windows. A release is a git tag + a GitHub Release on the commit
+prod runs, and CD builds each commit once (ADR-0070; runbook → "Releases"). The one exception is
+the **database schema**: the stack is deployed with zero-downtime CD, so migrations
 follow ADR-0023 (forward-only, N-1 backward-compatible, expand→backfill→contract) whatever the user
 count. Live backlog: `gh issue list`. Where an issue body conflicts with this file, **this file
 wins**: align the ticket before coding.

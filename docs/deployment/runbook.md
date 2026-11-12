@@ -1147,8 +1147,9 @@ fails half way leaves only an untagged digest, and re-running the job builds the
 is nothing to clean up.
 
 A CD run stops at *Look up this commit's existing image* with "its build provenance did not verify"
-only when the tag exists without provenance: an image from before ADR-0070, a tag pushed by hand, or
-a provenance check that failed for a moment. CD never builds over a tag, because a second build is
+only when the tag exists without provenance: a tag pushed by hand, one from before ADR-0070 whose
+build came before signing began or failed after its push, or a provenance check that failed for a
+moment. CD never builds over a tag, because a second build is
 not the same image.
 
 1. Re-run the failed job once. The provenance check itself may have failed for a moment.
@@ -1156,6 +1157,10 @@ not the same image.
 3. Or delete that image version and re-run: on GitHub, open the package (`lotrokoniecdev-<image>`
    under the owner's Packages), **View and manage all versions**, then **Delete version** on the
    one tagged `sha-<short>`. Delete only an image without provenance: CD never deployed it.
+
+**Never re-run the build jobs of a CD run that started before ADR-0070 merged** (GitHub allows a
+re-run for 30 days). A re-run uses the `cd.yml` of the original run, which builds the commit again
+and moves its tag. To deploy that commit again, run CD by hand from `main` with its `image_tag`.
 
 ## Database migrations
 

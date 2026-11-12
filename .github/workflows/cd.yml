@@ -290,8 +290,6 @@ jobs:
           # OCI referrer manifests, so the push is an image INDEX — the linux/amd64 runtime manifest
           # plus an `unknown/unknown` attestation manifest. The box's Docker engine platform-matches
           # the amd64 entry and ignores the attestation manifest, so the rollout pull is unchanged.
-          # The naming step relies on the index: one index copied with --prefer-index=false keeps
-          # its digest.
           provenance: true
           sbom: true
 
@@ -341,7 +339,7 @@ jobs:
           push-to-registry: true
 
       # Last: only an image that passed every check above gets `sha-<short>` (and `latest` on the
-      # main tip). An existing sha tag is never moved, and every tag is read back.
+      # main tip). An existing sha tag is never moved, and the sha tag is read back.
       - name: Name the checked image
         id: name
         if: steps.existing.outputs.exists == 'false'

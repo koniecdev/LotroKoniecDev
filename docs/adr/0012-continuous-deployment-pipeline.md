@@ -39,8 +39,9 @@ human-pull convenience only — never the thing that defines what runs.
 
 **Amendment (2026-11-12, ADR-0070 / #1344).** No semver images and no `v*` trigger any more: a tag
 push rebuilt the commit and moved its `sha-<short>`. A release is a git tag + a GitHub Release, and
-CD builds each commit once (an existing `sha-<short>` is reused, never rebuilt). Also: the image is
-pushed *before* Trivy scans it; a failed scan leaves it in GHCR unsigned, which the deploy refuses.
+CD builds each commit once (an existing `sha-<short>` is reused, never rebuilt). The image is now
+pushed by digest and gets its `sha-<short>` name only after Trivy, cosign and the attestation passed,
+so a failed scan leaves an untagged digest that nothing deploys.
 
 **Amendment (2026-06-30, audit 0001 H9 + H1 — supply-chain hardening of the deployment unit).** The
 immutable image is now **scanned, signed and attested** before it can be deployed, and that chain is

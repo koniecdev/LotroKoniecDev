@@ -54,8 +54,8 @@ the attestation work on that digest, and only then does the last step add `sha-<
 `latest` on the main tip). So a tag CD wrote always names a checked image. A build that stops half
 way (a Trivy finding, a signing or attestation error, a cancel, a timeout) leaves only an untagged
 digest, and the next run builds the commit again. The naming step never moves an existing
-`sha-<short>` and reads it back afterwards. It copies the index with `--prefer-index=false`, so the
-tag names the very digest that was signed.
+`sha-<short>` and reads it back afterwards. `--prefer-index=false` makes the copy keep the digest, so
+the tag names the very digest that was signed.
 
 **Before it builds**, `build-and-push` looks up the commit's `sha-<short>`:
 
@@ -63,7 +63,8 @@ tag names the very digest that was signed.
 - It exists and carries this repo's build provenance: reuse it. Nothing is built or pushed, and the
   deploy takes that image.
 - It exists without provenance: stop the job. Either the check failed for a moment, or the tag was
-  written before this ADR (older images have no provenance) or by hand. CD never builds over a tag.
+  written by hand, or before this ADR by a build that came before signing began or failed after its
+  push. CD never builds over a tag.
 - Any other registry answer, a refusal included: stop the job. A token refused for a moment may still
   be able to write, and a write could move a tag.
 
@@ -101,12 +102,14 @@ rules, and the backup (#688) protects the translators' data.
 
 ### Negative / Accepted Trade-offs
 
-- A commit whose `sha-<short>` was written before this ADR, or by hand, without provenance, cannot be
-  built again until someone deletes that package version in GHCR or merges a new commit. This only
-  matters for re-running CD on such a commit.
+- A commit whose `sha-<short>` has no provenance (written by hand, or before this ADR by a build that
+  came before signing began or failed after its push) cannot be built again until someone deletes
+  that package version in GHCR or merges a new commit. This only matters for re-running CD on such a
+  commit.
 - `sha-<short>` (seven hex digits) is now the key for "already built". If two commits shared those
-  seven digits, the second would reuse the first one's image. The odds are about one in a million per
-  commit at today's size; before, the second commit would have moved the first one's tag instead.
+  seven digits, the second would reuse the first one's image. The odds are about one in 400,000 per
+  commit at today's size, and they grow slowly with the history; before, the second commit would have
+  moved the first one's tag instead.
 - When a commit's images are reused, `latest` does not move. It is only a convenience for people.
 - GHCR shows no `:0.1.0`. To find the images of a release, look up the tag's commit first.
 - A tag push runs the `cd.yml` of the tagged commit. A tag on a commit from before this change still

@@ -315,8 +315,8 @@ jobs:
       # restore point and cut the durable Neon snapshot branch FIRST. ADR-0023 recovery is roll-forward
       # or restore — never Down() — and Neon's history window is finite (7 days on prod, 6 h on
       # staging), so a branch (whose head never expires) is what makes a late-noticed bad migration
-      # recoverable. This is a safety NET, not a
-      # gate: an unconfigured environment skips it cleanly and no Neon API hiccup may fail the deploy.
+      # recoverable. This is a safety NET, not a gate: an unconfigured environment skips it cleanly
+      # and no Neon API hiccup may fail the deploy.
       - name: Publish the pre-migration restore point (Neon snapshot)
         env:
           SHORT_SHA: ${{ inputs.short_sha }}

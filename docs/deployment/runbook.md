@@ -1241,8 +1241,8 @@ The history window is 7 days only once the production projects are on Launch
 
 Scenario: the migrator gate ran a migration that runs fine but is *logically* wrong: it dropped or
 corrupted data, or broke the serving release beyond what N-1 compatibility (ADR-0023) guarantees.
-Time matters: **the restore point must still be inside the history window** (7 days on prod, 6 h on staging), unless you have
-the auto-snapshot, which never expires.
+Time matters: **the restore point must still be inside the history window** (7 days on prod, 6 h
+on staging), unless you have the auto-snapshot, which never expires.
 
 **0. Find the restore point.** The deploy run's step summary prints a **"DB restore point
 (pre-migration)"** table: the UTC timestamp captured just *before* the migrator ran, the target
@@ -1472,20 +1472,22 @@ database holds the names and e-mail addresses of translators, so it never outliv
 ### Restore drill
 
 Proven on 2026-11-12, locally: Postgres 18 with the schema of every EF migration, an S3 stand-in
-(versitygw) instead of R2, the real `backup.sh`, and the copy-back block below as written. Seven
-rows; after the backup one honest edit, an import that changed one row's English, and one account
-that put rubbish into four rows (into one of them as an approval over a row waiting for review) and
-approved someone else's draft. The dry run changed nothing; the real run restored four rows (the
-approved-over one back to NeedsReview with its old English, the approved draft back to the draft of
-the night before), skipped the one whose English had changed, and left the honest edit of an
-undamaged row alone. The auth dump restored with all 9 migrations.
+(versitygw) instead of R2, the real `backup.sh`, and the copy-back block below as written. Eight
+rows. After the backup: two honest edits (one of a row that stays undamaged, one of a draft), an
+import that changed one row's English and one that added a row, and one account that put rubbish
+into five rows (two of them as approvals, one over a row waiting for review and one over the added
+row) and approved the edited draft. The dry run changed nothing. The real run restored four rows
+(the approved-over one back to NeedsReview with its old English; the approved draft back to the
+draft of the night before, with the newer text shown in the list), skipped the one whose English had
+changed, listed the added row as `NOT IN THE COPY`, and left the undamaged row's edit alone. The auth
+dump restored with all 9 migrations.
 
 On the real bucket, after the wiring and then every few months: [fetch and decrypt](#fetch-and-decrypt-a-dump)
 last night's dumps, [restore them into a scratch database](#restore-into-a-scratch-database) (the
 auth dump into a second scratch database), compare
-`SELECT count(*) FROM translation."Translations"` with prod, then drop the scratch container. Then
-prove that the key in the **password manager** works too, since it is the copy you would need after
-losing the box. In the same folder:
+`SELECT count(*) FROM translation."Translations"` with prod. Before you clean up, prove that the key
+in the **password manager** works too, since it is the copy you would need after losing the box. In
+the same folder:
 
 ```bash
 read -rs PM_KEY    # paste the key from the password manager
@@ -1493,6 +1495,7 @@ BACKUP_ENCRYPTION_KEY="$PM_KEY" openssl enc -d -aes-256-cbc -md sha256 -pbkdf2 -
   -pass env:BACKUP_ENCRYPTION_KEY -in translation.dump.enc | cmp - translation.dump \
   && echo 'the password-manager key decrypts the dump'
 unset PM_KEY
+docker rm -f restore-scratch && rm -rf /opt/lotro/backups/restore    # no plain dump stays behind
 ```
 
 ### Rows vandalised on Tuesday, now it is Friday
@@ -1506,8 +1509,10 @@ included (wiki: Import do TMS). Copy back only the damaged rows.
 What this procedure covers: rows the account wrote, and rows it approved, other people's drafts
 included (one by one or in bulk). It does not cover an admin account's imports or game-version
 changes; those need their own look. On the dump path the copy holds the state of the night before,
-so another person's honest edit of a damaged row between that night and the damage is lost too, and
-the printed list cannot show it: it compares the copy with prod, nothing in between. A Neon branch
+so another person's honest edit of a damaged row between that night and the damage is lost too. When
+the account wrote over that edit, the printed list cannot show it: it compares the copy with prod,
+nothing in between. When the account only approved it, the edit is the `now` text in the list, and
+the copy-back puts the older draft back; type the newer text in again if it was good. A Neon branch
 taken one minute before the damage keeps such edits, so prefer it while the history window reaches.
 `UpdatedAt` also moves when an import changes a row, so check step 2's answer against the import
 times.
@@ -1520,7 +1525,7 @@ times.
    ```sql
    SELECT "Id" FROM translation."Translators" WHERE "IdentityId" = '<the user id>';
    SELECT min("UpdatedAt") FROM translation."Translations"
-   WHERE ("SubmittedById" = '<profile id>' OR "ApprovedById" = '<profile id>')
+   WHERE ("SubmittedById" = '<profile id>' OR ("ApprovedById" = '<profile id>' AND "Status" = 'Approved'))
      AND "UpdatedAt" > '<a time you trust>';
    ```
 
@@ -1551,11 +1556,16 @@ times.
    } | psql_in "$SCRATCH" -q -At > before.tsv
 
    { echo 'BEGIN;'
+     echo 'CREATE TEMP TABLE damaged (id uuid PRIMARY KEY);'
+     echo '\copy damaged FROM STDIN'; cat damaged-ids.tsv; echo '\.'
      echo 'CREATE TEMP TABLE restore_rows ("Id" uuid PRIMARY KEY, "SourceText" text, "PreviousSourceText" text, "TranslatedText" text, "Status" varchar(100), "SubmittedById" uuid, "ApprovedById" uuid);'
      echo '\copy restore_rows FROM STDIN'; cat before.tsv; echo '\.'
      echo "SELECT t.\"FileId\", t.\"GossipId\", t.\"TranslatedText\" AS now, r.\"TranslatedText\" AS restore_to,
-             CASE WHEN t.\"SourceText\" = r.\"SourceText\" THEN 'restore' ELSE 'SKIP: English changed' END AS action
-           FROM translation.\"Translations\" t JOIN restore_rows r ON r.\"Id\" = t.\"Id\" ORDER BY 1, 2;"
+             CASE WHEN r.\"Id\" IS NULL THEN 'NOT IN THE COPY: fix in the editor'
+                  WHEN t.\"SourceText\" = r.\"SourceText\" THEN 'restore'
+                  ELSE 'SKIP: English changed' END AS action
+           FROM damaged d JOIN translation.\"Translations\" t ON t.\"Id\" = d.id
+           LEFT JOIN restore_rows r ON r.\"Id\" = t.\"Id\" ORDER BY 1, 2;"
      echo "UPDATE translation.\"Translations\" t
            SET \"TranslatedText\" = r.\"TranslatedText\", \"PreviousSourceText\" = r.\"PreviousSourceText\", \"Status\" = r.\"Status\",
                \"SubmittedById\" = r.\"SubmittedById\", \"ApprovedById\" = r.\"ApprovedById\", \"UpdatedAt\" = now()
@@ -1569,7 +1579,10 @@ times.
 
    The account's own honest edits after `SINCE` are reverted too; the printed list shows them.
    Rows marked `SKIP: English changed` need a person: an import changed their English after
-   the copy was made, so the old Polish may no longer fit. Fix them in the editor.
+   the copy was made, so the old Polish may no longer fit. Rows marked `NOT IN THE COPY` were added
+   by an import after the copy was made, so there is no earlier state to put back. Fix both kinds in
+   the editor, and an approved one at once: editing an approved row turns it back into a draft,
+   which leaves the game file.
 5. **Rebuild the translation file.** A raw SQL update schedules no rebuild. Approve one row in the
    editor: any approval rebuilds the whole file for its language a few seconds later. When nothing
    waits for approval, open a restored row, save it unchanged (it becomes a draft) and approve it.
@@ -1600,10 +1613,13 @@ The one case for a whole-database restore: the Neon project itself is lost.
    WHERE "NormalizedEmail" = upper('<address from the mail>');
    ```
 
-   `UPDATE 0` means the address in the mail is newer than the dump: find the account by its
-   `UserName` instead. The old cancel link in that person's mailbox no longer works, because the
-   restored row holds an older security stamp; if they still want to cancel, set
-   `"DeletionScheduledAt"` and `"LockoutEnd"` back to `NULL` for them. The erasure then reaches the
+   `UPDATE 0` means one of two things. The account was created after the dump: nothing of it came
+   back, so there is nothing to erase. Or its address changed after the dump: Brevo's log has a mail
+   to the earlier address from the same days (the e-mail change mails); use that address. The old
+   cancel link in that person's mailbox no longer works, because the restored row holds an older
+   security stamp. If they still want to cancel, do what the link does: set `"DeletionScheduledAt"`,
+   `"LockoutEnd"` and `"PasswordHash"` to `NULL` and `"AccessFailedCount"` to `0`, then tell them to
+   set a new password with "forgot password" (whoever asked for the deletion may know the old one). The erasure then reaches the
    translation system as usual
    ([The account events parking lot](#the-account-events-parking-lot-tmsaccount-erased-dlq)).
 4. **Sign everyone out.** The auth dump brings back sign-in sessions and refresh tokens that were

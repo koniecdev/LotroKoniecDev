@@ -220,6 +220,7 @@ pass "no password, key or R2 secret reaches argv or the output"
 CASE="verify-ca"
 new_stack verify-ca
 sed -i 's/SSL Mode=VerifyFull/SSL Mode=VerifyCA/' "$STACK/.env"
+grep -q 'SSL Mode=VerifyCA' "$STACK/.env" || fail "the case must start from a VerifyCA string"
 run_backup
 [ "$LAST_STATUS" = 0 ] || fail "expected exit 0, got $LAST_STATUS"
 grep -q 'PGDATABASE=lotro_translation .* PGSSLMODE=verify-full PGSSLROOTCERT=system' "$STACK/env.log" \

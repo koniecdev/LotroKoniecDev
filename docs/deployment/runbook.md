@@ -925,7 +925,9 @@ CI green on main → cd.yml gate (pins the tested commit)
 **The two-stage promotion model.** Every merge to main with a green CI builds once and
 **automatically deploys to staging**. The same `sha-<short>` then **waits at the `production`
 environment** for a human. Clicking *Approve* (GitHub → the run → *Review deployments*) **is** the
-staging→prod promotion: production receives the same image that passed staging.
+staging→prod promotion: production receives the same image that passed staging. The one other run
+that waits at this gate is a hand-started `Smoke test` against production; approving it deploys
+nothing ([Post-deploy smoke test](#post-deploy-smoke-test) → "In CI").
 
 **The switches** (repo Variables): `CD_ENABLED=true` arms the deploy jobs at all; `STAGING_ENABLED=true`
 arms the staging leg and makes prod wait on it (ADR-0018).
@@ -1040,8 +1042,12 @@ CD fails closed with a "not wired for ssh deploys" error until each environment 
 > pull, the migration gate passes, the containers come up, and then smoke's `client_credentials` leg
 > gets **401**, CD judges the rollout red and **rolls it back automatically**. The log blames the
 > release; the fault is the secret. Whenever you rotate `OpenIddict__ApiClientSecret`, set this again
-> at the same time, and set it **per environment**: an environment with no `SMOKE_CLIENT_SECRET`
-> silently falls back to the repository-level one.
+> at the same time, **per environment**, and check it with the hand-started smoke
+> ([Post-deploy smoke test](#post-deploy-smoke-test) → "In CI") before the next deploy. There is no
+> repository-level copy (#1335), so an environment without its own `SMOKE_CLIENT_SECRET` stops CD at
+> the "not wired for ssh deploys" check, before anything touches the box. **Never set it without
+> `--env`:** a workflow cannot tell a repository copy from an environment one, so a repository copy
+> would again fill in, unseen, for an environment that has none.
 
 **Mint a CD deploy key per box**: one key per environment, so a staging compromise cannot touch prod.
 It is the `deploy` user's key, never `root`'s:
@@ -1554,8 +1560,25 @@ fails leg 6, a frontend image older than #670 fails leg 2. So a deliberate CD de
 on.
 
 **In CI:** `deploy.yml` runs it against the environment's public origins after `up -d`; a red smoke
-triggers the automatic rollback. The [`Smoke test`](../../.github/workflows/smoke.yml) workflow can
-also run **on demand** (`workflow_dispatch`: enter the three URLs).
+triggers the automatic rollback. The [`Smoke test`](../../.github/workflows/smoke.yml) workflow runs
+the same check **on demand** against one environment, with that environment's own URLs and
+`SMOKE_CLIENT_SECRET`, the values CD uses:
+
+```bash
+gh workflow run smoke.yml -f environment=staging       # or production
+```
+
+It creates **no deployment record** (`deployment: false`), so `image-scan.yml` and the N-1 promotion
+gate still see the last real deploy. Do not start it while a deploy runs on that box: `up -d`
+recreates the containers, and a red result in those seconds says nothing about the release.
+
+A `production` run waits at the same reviewer gate as a promotion: approving it (*Review
+deployments*) runs only the smoke and deploys nothing. Check first that the run is on `main`: a run
+started from another branch runs that branch's `smoke.yml` and `smoke.sh` with every production
+secret, the deploy key included (#1336). To drop one, choose *Reject* in the same dialog. The janitor clears only `cd.yml` runs, so a run nobody approves or rejects stays `waiting`;
+*Cancel* does not work on a gated run (see
+[Continuous deployment](#continuous-deployment-cd-over-ssh)), so end it with
+`gh api -X POST repos/koniecdev/LotroKoniecDev/actions/runs/<run-id>/force-cancel`.
 
 > **`GET / -> 200` never proves the frontend works.** A `[StreamRendering]` page returns 200 with its
 > spinner frame before it fetches anything. Leg 2's **fingerprint** check is the signature of a

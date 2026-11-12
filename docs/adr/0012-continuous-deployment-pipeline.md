@@ -1,6 +1,6 @@
 # ADR-0012: Continuous deployment pipeline (automated ACA rollout + GitHub approval gate + IaC in CI)
 
-**Status:** Accepted — **but its rollout target is superseded by ADR-0034** (2026-07-13 / #492): the pipeline's shape (CI-success gate → build once → Trivy + cosign + attest → auto staging → gated prod promotion) stands exactly as decided here, while the last hop moved from an ACA revision rollout + `infra.yml` Terraform apply to **ssh + `docker compose`** on a Hetzner box (no revisions, no blue/green, no IaC job). Also amended: audit 0001 C2/H7/H9; §8 secrets superseded by ADR-0013 (itself now obsolete-by-platform); §4 migration wording by ADR-0023/#337; §5 R8 reversed by ADR-0027; the H7 rollout extended by ADR-0029/#407 (both now obsolete-by-platform) — see the in-body notes
+**Status:** Accepted — **but its rollout target is superseded by ADR-0034** (2026-07-13 / #492): the pipeline's shape (CI-success gate → build once → Trivy + cosign + attest → auto staging → gated prod promotion) stands exactly as decided here, while the last hop moved from an ACA revision rollout + `infra.yml` Terraform apply to **ssh + `docker compose`** on a Hetzner box (no revisions, no blue/green, no IaC job). Also amended: audit 0001 C2/H7/H9; §8 secrets superseded by ADR-0013 (itself now obsolete-by-platform); §4 migration wording by ADR-0023/#337; §5 R8 reversed by ADR-0027; the H7 rollout extended by ADR-0029/#407 (both now obsolete-by-platform); §5's `smoke.yml` lost its `workflow_call` entry in #1335 — see the in-body notes
 **Date:** 2026-06-28
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0008 (cloud-agnostic deployment & environment strategy — **superseded** here on its
@@ -105,6 +105,11 @@ branch snapshot (MIGR-04 #339).
 `smoke.yml` becomes `workflow_call`-able; `deploy-prod` invokes it after a cold-start-tolerant
 readiness wait. A failed smoke marks the release failed and visible (the documented "call the smoke
 job at the end of the deploy workflow").
+
+> **Amended by #1335 (2026-11-12):** `smoke.yml` has no `workflow_call` entry any more. `deploy.yml`
+> runs `scripts/smoke.sh` inside its own rollout job, so nothing called it. `smoke.yml` is now only
+> the smoke started by hand against one environment, with that environment's secret and URLs and
+> `deployment: false`, so it writes no deployment record.
 
 **Amendment (2026-06-30, audit 0001 H7 — health-gated rollout, supersedes the single-revision
 rollout below).** The rollout is no longer "`az containerapp update` → 100% of traffic onto the new

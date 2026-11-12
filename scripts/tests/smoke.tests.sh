@@ -118,11 +118,12 @@ function global:Invoke-WebRequest {
 exit $LASTEXITCODE
 STUB
 
-# The discovery roots answer this status, and the smoke is given these two API URLs. A leg-7 case
-# may change them for one run.
+# The discovery roots answer this status, and the smoke is given these two API URLs and this client
+# secret. A usage or leg-7 case may change them for one run.
 ROOT_CODE=200
 CONFIGURED_TMS_URL=https://tms.invalid
 CONFIGURED_AUTH_URL=https://auth.invalid
+CONFIGURED_CLIENT_SECRET=stub-secret
 : > "$TMP_ROOT/tms-root"
 : > "$TMP_ROOT/auth-root"
 printf '{"name":"plain"}' > "$TMP_ROOT/plain-root"
@@ -179,7 +180,7 @@ run_smoke() {
             STUB_AUTH_CSS_CODE="$AUTH_CSS_CODE" \
             SMOKE_SCRIPT="$SCRIPTS_DIR/smoke.ps1" SMOKE_REQUIRE_CSP="$require_csp" \
             SMOKE_AUTH_URL="$CONFIGURED_AUTH_URL" SMOKE_TMS_URL="$CONFIGURED_TMS_URL" \
-            SMOKE_FRONTEND_URL=https://fe.invalid SMOKE_CLIENT_SECRET=stub-secret SMOKE_TIMEOUT=1 \
+            SMOKE_FRONTEND_URL=https://fe.invalid SMOKE_CLIENT_SECRET="$CONFIGURED_CLIENT_SECRET" SMOKE_TIMEOUT=1 \
             pwsh -NoProfile -File "$STUB_DIR/smoke-stub.ps1" 2>&1
         return
     fi
@@ -191,7 +192,7 @@ run_smoke() {
         STUB_AUTH_CSS_CODE="$AUTH_CSS_CODE" \
         bash "$SCRIPTS_DIR/smoke.sh" \
             --auth-url "$CONFIGURED_AUTH_URL" --tms-url "$CONFIGURED_TMS_URL" \
-            --frontend-url https://fe.invalid --client-secret stub-secret \
+            --frontend-url https://fe.invalid --client-secret "$CONFIGURED_CLIENT_SECRET" \
             --timeout 1 "$@" 2>&1
 }
 
@@ -537,13 +538,25 @@ run_suite() {
         "$(discovery_doc 'https://evil.invalid\\@tms.invalid/')" "$AUTH_OK"
     expect_line "tms / sends 1 of 1 link(s) outside https://tms.invalid:443, first (not an absolute address)"
 
-    # 34. A configured URL leg 7 cannot read, such as a typo in the on-demand workflow, is a usage
-    # problem: exit 2 before any leg runs, so the leg can never skip itself.
+    # 34. A configured URL leg 7 cannot read, such as a typo in an environment's URL variable, is a
+    # usage problem: exit 2 before any leg runs, so the leg can never skip itself.
     run_usage_case "a TMS URL with no scheme exits 2" tms.invalid https://auth.invalid
     expect_line "'tms.invalid' is not an absolute URL with a plain host name"
     reject_line "[1/7]"
     run_usage_case "an auth URL with a second @ exits 2" https://tms.invalid 'https://a@b@auth.invalid'
     expect_line "'https://a@b@auth.invalid' is not an absolute URL with a plain host name"
+
+    # 35. An environment with no smoke secret has no repository copy to fall back to (#1335): the
+    # run must stop as a usage problem and name the value, never try a token request without it.
+    CONFIGURED_CLIENT_SECRET=""
+    run_usage_case "an empty client secret exits 2" https://tms.invalid https://auth.invalid
+    CONFIGURED_CLIENT_SECRET=stub-secret
+    if [ "$TWIN" = "ps1" ]; then
+        expect_line "missing required value(s): -ClientSecret"
+    else
+        expect_line "missing required value(s): --client-secret"
+    fi
+    reject_line "[1/7]"
 }
 
 TWIN="sh"

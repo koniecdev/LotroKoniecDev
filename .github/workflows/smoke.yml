@@ -1,65 +1,40 @@
 name: Smoke test
 
-# Post-deploy smoke test (M6-13). Two entry points:
-#   * workflow_call    — kept for future callers; the CD rollout does NOT call it — deploy.yml runs
-#                        scripts/smoke.sh INLINE so the smoke shares the rollout job's approved
-#                        environment (and can therefore roll the box back on a red result — see
-#                        cd.yml's "one job per environment" note).
-#   * workflow_dispatch — manual on-demand run against any environment (enter the three URLs).
+# The smoke test (M6-13) started by hand against staging or production; scripts/smoke.sh lists what
+# it checks. CD does not call this file: deploy.yml runs scripts/smoke.sh inside its own rollout
+# job, so a red result can roll the box back.
 #
-# It gives a green/red signal that auth-api + tms-api + frontend came up correctly: health, an OIDC
-# token round-trip, that tms accepts the token, and the public translation-file distribution.
-#
-# Prerequisite: the repository secret SMOKE_CLIENT_SECRET = the auth server's OpenIddict API client
-# secret (OpenIddict__ApiClientSecret — the same value auth-api runs with).
+# The job reads the environment's own SMOKE_CLIENT_SECRET and AUTH_URL / TMS_URL / FRONTEND_URL,
+# the same values CD uses, so the two runs cannot drift apart (#1335). `deployment: false` keeps it
+# out of the deployment history: image-scan.yml and the N-1 promotion gate (#534) read the newest
+# successful deployment to learn what runs on a box. A production run still waits at the
+# `production` reviewer gate. Runbook: "Post-deploy smoke test" → "In CI".
 on:
-  workflow_call:
-    inputs:
-      auth_url:
-        description: 'auth-api base URL'
-        required: true
-        type: string
-      tms_url:
-        description: 'tms-api base URL'
-        required: true
-        type: string
-      frontend_url:
-        description: 'frontend base URL'
-        required: true
-        type: string
-      client_id:
-        description: 'OIDC client id (client-credentials)'
-        required: false
-        type: string
-        default: 'lotrokoniecdev-api'
-    secrets:
-      SMOKE_CLIENT_SECRET:
-        description: 'OpenIddict API client secret (OpenIddict__ApiClientSecret)'
-        required: false
   workflow_dispatch:
     inputs:
-      auth_url:
-        description: 'auth-api base URL (e.g. https://auth.lotro-translator.pl)'
+      environment:
+        description: 'Environment to smoke'
         required: true
-      tms_url:
-        description: 'tms-api base URL (e.g. https://tms.lotro-translator.pl)'
-        required: true
-      frontend_url:
-        description: 'frontend base URL (e.g. https://lotro-translator.pl)'
-        required: true
-      client_id:
-        description: 'OIDC client id (client-credentials)'
-        required: false
-        default: 'lotrokoniecdev-api'
+        type: choice
+        options:
+          - staging
+          - production
 
 permissions:
   contents: read
 
 jobs:
   smoke:
-    name: Post-deploy smoke test
+    name: Smoke test (${{ inputs.environment }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # smoke.sh makes about 16 requests of up to SMOKE_TIMEOUT each. Against a box that hangs, this
+    # still lets it print its own result.
+    timeout-minutes: 10
+    # No concurrency group: a pending job in deploy.yml's `*-mutation` group would cancel another
+    # pending one, so a smoke there could push out a queued deploy.
+    environment:
+      name: ${{ inputs.environment }}
+      deployment: false
 
     steps:
       - name: Checkout
@@ -67,17 +42,17 @@ jobs:
         with:
           persist-credentials: false
 
-      # Inputs/secret are passed through the environment (never interpolated into the run: script)
-      # so an input value cannot inject shell, and the secret never reaches a log line. smoke.sh
-      # reads each SMOKE_* variable as its fallback for the matching flag.
+      # Every value goes through the environment, never into the run: script, so the secret never
+      # reaches argv or a log line. smoke.sh reads each SMOKE_* variable as its fallback for the flag.
       - name: Run smoke test
         env:
-          SMOKE_AUTH_URL: ${{ inputs.auth_url }}
-          SMOKE_TMS_URL: ${{ inputs.tms_url }}
-          SMOKE_FRONTEND_URL: ${{ inputs.frontend_url }}
-          SMOKE_CLIENT_ID: ${{ inputs.client_id }}
+          SMOKE_AUTH_URL: ${{ vars.AUTH_URL }}
+          SMOKE_TMS_URL: ${{ vars.TMS_URL }}
+          SMOKE_FRONTEND_URL: ${{ vars.FRONTEND_URL }}
           SMOKE_CLIENT_SECRET: ${{ secrets.SMOKE_CLIENT_SECRET }}
-          # Same strictness as CD: this workflow only ever targets a deployed environment,
-          # and only a Development stack legitimately serves no CSP (#670).
+          # Only a Development stack serves no CSP on purpose (#670), and this targets deployed ones.
           SMOKE_REQUIRE_CSP: '1'
+          # The same per-request limit as deploy.yml's smoke: a frontend just restarted is a cold
+          # .NET app.
+          SMOKE_TIMEOUT: '30'
         run: ./scripts/smoke.sh

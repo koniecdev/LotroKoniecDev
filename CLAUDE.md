@@ -384,8 +384,8 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   commit yet (`/ticket` step 8, #1319). `gate-runner`, `dat-format-expert`, `/code-review` and
   `/security-review` follow the session's model and effort. When Fable is not available (its share
   of the weekly limit is spent, or a contributor's account has no Fable), a pinned step falls back
-  once to a `general-purpose` agent on the session's model that follows the same agent file, and
-  the report says so. That fallback answers the reason #643 removed an older pin: a contributor
+  once to a `general-purpose` agent that follows the same agent file, on the model a plain subagent
+  gets (the session's, or `CLAUDE_CODE_SUBAGENT_MODEL` when it is set), and the report says so. That fallback answers the reason #643 removed an older pin: a contributor
   without the tier still gets a triage and a review. Never pass `model` or `effort` when you spawn
   a pinned agent (either beats the pin), and never run Fable at `max`. Loop-mode worker sessions
   take model and effort from the maintainer's machine-local policy (Opus 5.5 at **xhigh** since

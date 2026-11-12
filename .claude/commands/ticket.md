@@ -120,27 +120,32 @@ its plan, holds the gate and posts the comments.
 
 - **Spawn the triage, on every ticket.** One fresh `ticket-triage`, in the foreground. Never pass
   `name` (a named agent's report never reaches you), and never `model` or `effort`: either beats
-  the pin, and Fable never runs at `max`. Its brief: the ticket number, the main checkout's path and
-  the wiki clone's path written out, and the result of step 0's wiki pull. A revision (below) is a
-  fresh agent too, with the last triage report, `/buddy`'s report and the gate's answers in its
-  brief: a headless session never gets the answer to a message, so the agent is never resumed.
-- **Fallback to the session's model, once.** The agent ends with `Agent terminated early due to an
-  API error`, or its report has no `VERDICT:` line: spawn the same brief once as `general-purpose`,
-  told to read `.claude/agents/ticket-triage.md` and follow it as its instructions. The cause may be
-  Fable's share of the weekly limit running out, or an account with no Fable. No report from the
-  fallback either → stop and report it: the triage did not run, and no ticket skips it.
+  the pin, and Fable never runs at `max`. Its brief: the ticket number, the user's own words after
+  the number in this command's arguments, quoted as theirs (a workspace name is not one), the main
+  checkout's path and the wiki clone's path written out, and the result of step 0's wiki pull. A
+  revision (below) is a fresh agent too, with the last triage report, `/buddy`'s report and the
+  gate's answers in its brief: a headless session never gets the answer to a message, so the agent
+  is never resumed.
+- **Fallback, once.** The agent ends on an error (such as `Agent terminated early due to an API
+  error`, a usage-limit or credits message, or an unknown agent type), or its report has no
+  `VERDICT:` line: spawn the same brief once as `general-purpose`, told to read the agent file from
+  `origin/main` (`git show origin/main:.claude/agents/ticket-triage.md`; the worktree may stand on
+  an older branch), to follow it as its instructions, and to use only the tools its frontmatter
+  lists. That agent runs on the model a plain subagent gets: the session's, or
+  `CLAUDE_CODE_SUBAGENT_MODEL` when it is set. The cause may be Fable's share of the weekly limit
+  running out, or an account with no Fable. No report from the fallback either → stop and report
+  it: the triage did not run, and no ticket skips it.
 - **Every comment that carries the triage's verdict names its model** (the READY comment, the
   gate's questions, a BOUNCE comment), and so does the report: the `Model:` line of the report the
-  verdict came from. After a fallback, add why it ran: the quoted error, or that the agent's report
-  had no `VERDICT:` line.
+  verdict came from. After a fallback, add why it ran in a few plain words ("Fable unavailable: an
+  API error", "no `VERDICT:` line"). Never paste the raw error into a comment: this repo is public,
+  and a limit or credits message can carry account details.
 - **The triage's verdict and plan are binding.** Do not redo its checks and do not overrule it on
   your own judgment. The verdict changes only by the rules on `/buddy`'s result and the gate below,
   and every change to the plan in this step is a revision, written by a fresh `ticket-triage`,
-  never by this session. The last triage report is the binding one. A revision that carries the
-  gate's answers asks nothing new: its CLARIFY ends the run before the branch, with its questions in
-  the report comment and "Answer in a comment that starts with `**Owner decision:**`." as the last
-  line (step 3's route for a late design question). Step 3's design-bet run and step 8's late
-  route stay this session's: they judge drafts this session wrote after the plan.
+  never by this session. The last triage report is the binding one, and a revision's verdict is
+  acted on exactly as the first one's. Step 3's design-bet run and step 8's late route stay this
+  session's: they judge drafts this session wrote after the plan.
 
 The agent's checklist, in this order of authority:
 
@@ -199,7 +204,9 @@ The agent's checklist, in this order of authority:
   `/buddy`'s report in the brief:
   - NOT SOUND on the premise → a revision checks the premise again. NOT SOUND on the plan only → a
     revision fixes the plan, and `/buddy` runs once more (the last run); NOT SOUND again → CLARIFY.
-    Corrections → a revision folds them into the plan.
+    Corrections → a revision folds them into the plan. A Corrections revision that changes the
+    verdict, or adds a claim or a design that `/buddy` has not seen, gets one more `/buddy` run, the
+    last.
   - `BETTER DESIGN` with `NEEDS OWNER: no` → a revision adopts it, and its plan goes through one
     more `/buddy` run (its claims and assumptions) before the verdict is posted; an adopted design can change
     the lane. That second run is the last: its NOT SOUND or another better design counts as
@@ -258,8 +265,12 @@ Then exactly one of three verdicts:
   (AskUserQuestion: the triage's questions and any choice `/buddy` handed to the maintainer, 3–5
   questions max, each with its recommended answer). Write each answer that
   rules on the design to the issue as one comment starting with `**Owner decision:**`, so a later
-  session or the loop finds it. When an answer changes the plan, a revision with the answers in its
-  brief writes the final plan before step 3, and the READY comment carries it. This is the ONLY
+  session or the loop finds it. The answers settle the triage's questions, so the run goes on as
+  READY with the triage's plan. When an answer changes the plan, a revision with the answers in its
+  brief writes the final plan before step 3, and the READY comment carries it. That revision asks
+  nothing new: its CLARIFY ends the run before the branch, with its questions in the report comment
+  and "Answer in a comment that starts with `**Owner decision:**`." as the last line (step 3's
+  route for a late design question), and its BOUNCE is a BOUNCE. This is the ONLY
   moment in the run where asking is allowed — the context is
   still tiny, so even an answer hours later re-primes cheaply. **After this gate: zero questions.**
   Anything that surfaces later is either empirically answerable (answer it from the wiki, the
@@ -421,16 +432,19 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     images (`tests/CLAUDE.md`). A Phase 0 Critical with no code to fix (a test project missing from your
     results but green there) is fixed by running that gate yourself; the next round still counts.
 
-    **Fallback to the session's model.** A reviewer that ends with `Agent terminated early due to
-    an API error` never reviewed: spawn the same brief once as `general-purpose`, told to read
-    `.claude/agents/code-reviewer.md` and follow it as its instructions, and it is that round's
-    reviewer. A reviewer that stalled (no file with a `VERDICT:` line, below) gets the same
-    `general-purpose` agent as its replacement, under the stall rules below. The cause may be
-    Fable's share of the weekly limit running out, or an account with no Fable. The fallback runs
-    once per round: when it too ends on an API error or with no file with a `VERDICT:` line, the
-    round has no verdict, so stop as step 8 says for an unproven gate (`/work-ticket`: `BLOCKED`,
-    review-unclean). The report's Proof names the model of each round (its report's `Model:` line)
-    and, for a fallback, why it ran: the quoted error, or the missing `VERDICT:` line.
+    **Fallback.** A reviewer that ends on an error before it wrote its file (such as `Agent
+    terminated early due to an API error`, a usage-limit or credits message, or an unknown agent
+    type) never reviewed: spawn the same brief once as `general-purpose`, told to read
+    `.claude/agents/code-reviewer.md`, to follow it as its instructions and to use only the tools
+    its frontmatter lists, and it is that round's reviewer, in any round. It runs on the model a
+    plain subagent gets (step 2's triage fallback). A reviewer that stalled (no file with a
+    `VERDICT:` line, below) gets the same `general-purpose` agent as its replacement, under the
+    stall rules below. The cause may be Fable's share of the weekly limit running out, or an account
+    with no Fable. The fallback runs once per round: when it too ends on an error, or stalls and the
+    one message below does not fix it, the round has no verdict, so stop as step 8 says for an
+    unproven gate (`/work-ticket`: `BLOCKED`, review-unclean). The report's Proof names the model of
+    each round (its report's `Model:` line) and, for a fallback, why it ran in a few plain words,
+    never the raw error (step 2).
 
     A Major for a false assumption that decided the design takes step 8's design route instead. Fix
     every Critical/Major, commit, re-run the gates, then **spawn a fresh `code-reviewer`** for the

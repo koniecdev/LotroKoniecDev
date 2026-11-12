@@ -68,12 +68,17 @@ everything that matters must be committed and pushed.
      false-premise) with its evidence — a wrong ticket is not implemented because it exists. The
      ADR-0067 ground is never anything ADR-0067 §7 lists: our own part being down, slow or failing;
      the one clean path for an answer the code cannot use; a guard on where a secret goes; a
-     resource server's check of a token it receives; input from outside our trust boundary.
+     resource server's check of a token it receives; input from outside our trust boundary. A
+     BOUNCE because the ticket asks for a hand edit inside `scripts/claude/` is `mis-scope`
+     instead ("Scope & safety").
    - **CLARIFY** (a business question, a conflict with an owner's ruling on the same flow, or "the
      owner decides" with no answer yet) → `STATUS: BLOCKED` (category: business-questions, or
      design-choice for a design question in the shape below) with its questions and their
      recommended answers.
    - **READY** → challenge the plan.
+
+   A revision's verdict (below) is acted on in the same way: its BOUNCE and CLARIFY end the run
+   with these blocks, and only its READY goes on.
 
    **Challenge the plan before the branch — every ticket.** Apply `/ticket` step 2 → "Challenge the
    plan" as written: the same brief (the triage's report with its claims, assumptions and ADRs, and
@@ -105,6 +110,8 @@ everything that matters must be committed and pushed.
      revised plan (its claims and assumptions), and the PR's `**Assumptions:**` says so. That run is
      the last: its NOT SOUND or another better design → `BLOCKED` (design-choice) as above.
    - Corrections → a revision folds them into the plan; they go into the PR's `**Assumptions:**`.
+     A revision that changes the verdict, or adds a claim or a design that `/buddy` has not seen,
+     gets one more `/buddy` run, the last (`/ticket` step 2).
 2. **Ground it in the repo.** Read the areas the ticket touches; identify the nearest sibling
    slice in this repo to mirror (no fitting sibling → "Anatomy of a feature slice" in `CLAUDE.md`).
    DAT/update work → `docs/knowledge-base/` FIRST (vnum, translation survival, launch flow are
@@ -139,8 +146,11 @@ everything that matters must be committed and pushed.
      runs off, and a command that reaches its timeout is stopped. A call with no timeout gets ten
      minutes; name a longer one for anything slower (a CodeQL wait).
    - **Every agent runs in the foreground, and none gets a `name`:** a background or named agent
-     never hands its report back. A `/code-review` that still ends up in the background → run a
-     foreground `code-reviewer` instead.
+     never hands its report back. A second-pass `/code-review` that still ends up in the background
+     → run it as a foreground `general-purpose` agent instead, on the model a plain subagent gets, with only the
+     order to find correctness bugs in `git diff origin/main...HEAD` and the code around it: no
+     plan, no ticket and no earlier review, so it stays blind. Never a `code-reviewer`, which runs
+     on Fable with the full brief (#1318).
    - **A reviewer that ends with no verdict file has stalled:** its replacement is `/ticket` step
      7's fallback (a `general-purpose` agent told to follow `.claude/agents/code-reviewer.md`),
      with the full brief and the gate results, told to write the file before it ends its turn. Never

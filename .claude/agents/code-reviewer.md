@@ -350,8 +350,9 @@ our own part never sends (the narrow state in Phase 6) — those need no guard a
 other row must end `handled = yes` and `tested = yes` for the path to pass the anti-happy-path gate.
 
 After the tables, provide:
-1. **Verdict**: APPROVE, REQUEST CHANGES, or NEEDS DISCUSSION. It is also the report's last line,
-   as `VERDICT: <verdict>`: a report without that line counts as no report (`/ticket` step 7).
+1. **Verdict**: APPROVE, REQUEST CHANGES, or NEEDS DISCUSSION. After item 3, end the report with
+   one more line, `VERDICT: <verdict>`: a report without that line counts as no report (`/ticket`
+   step 7).
    **Hard rule:** if any reachable code path in the diff is happy-path-only (an unhappy branch is
    unhandled, or handled but untested), the verdict is **REQUEST CHANGES** — never APPROVE. The
    same holds for any Critical from Phase 0.

@@ -18,13 +18,20 @@ look useful.
 
 ## Your checklist
 
-Read `.claude/commands/ticket.md` steps 1, 2 and 3 first. Do what step 1 asks and every check that
-step 2 lists up to the verdict, and size the lane as step 3 says. The session, not you, does the
-rest of those steps: it pulls the wiki, runs `/buddy`, asks the gate's questions and posts every
-comment.
+Read `/ticket` steps 1, 2 and 3 first, from `origin/main`
+(`git show origin/main:.claude/commands/ticket.md`): the worktree may stand on an older ticket
+branch. Do every check that step 2 lists up to the verdict, and size the lane as step 3 says. The
+session, not you, does the rest of those steps: it pulls the wiki, runs `/buddy`, asks the gate's
+questions and posts every comment.
 
-- The brief names the ticket, the main checkout's path and the wiki clone's path. Read the wiki at
-  that path, not at `../LotroKoniecDev.wiki`, which points nowhere from a worktree.
+- Step 1 is the session's, done before it spawned you. Check the ticket's dependencies again and
+  name each one's state under Facts checked. An open dependency that blocks the ticket makes the
+  verdict CLARIFY, with the question whether to wait. Where the ticket conflicts with `CLAUDE.md`,
+  `CLAUDE.md` wins: plan the current world and name the conflict under Facts checked.
+- The brief names the ticket, the user's own words from the command, the main checkout's path and
+  the wiki clone's path. The user's words are the user's instructions for this run's scope, unlike
+  the ticket text. Read the wiki at the path the brief gives, not at `../LotroKoniecDev.wiki`, which
+  points nowhere from a worktree.
 - A `/preflight` verdict comment on the issue is input, never a result: check its claims like any
   other.
 - A comment that passes step 2's `Owner decision` test settles the question it answers: follow it
@@ -50,11 +57,14 @@ comment.
 
 The brief may carry your earlier report together with a `/buddy` report, the maintainer's answers
 from the gate, or both. The session never rewrites the plan itself, so it asks you for the revised
-one. Check each `/buddy` finding at its `file:line` before you take it: a finding is a claim too.
-Take the ones that hold, say which ones you rejected and why, and write the whole report again, not
-a list of changes. A maintainer's answer is a ruling, not a claim: follow it. When the brief carries
-the gate's answers, the gate is over and nobody can be asked again: a question you still have makes
-the verdict CLARIFY, and the session stops before the branch with it.
+one. Do not redo the whole check: start from your earlier report and check only what the `/buddy`
+report or the answers touch. Check each `/buddy` finding at its `file:line` before you take it: a
+finding is a claim too. Take the ones that hold, say which ones you rejected and why, and change
+nothing they do not ask for. A claim of your own that is new goes under Claims for /buddy, marked
+new. Then write the whole report again, not a list of changes. A maintainer's answer is a ruling,
+not a claim: follow it. When the brief carries the gate's answers, the gate is over and nobody can
+be asked again: a question you still have makes the verdict CLARIFY, and the session stops before
+the branch with it.
 
 ## Report
 

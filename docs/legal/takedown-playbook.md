@@ -31,6 +31,7 @@
 | GitHub DMCA process | notice forwarded by GitHub, or content pre-emptively disabled | GitHub normally gives the repo owner ~1 business day to remove the named content before disabling the whole repository — act inside that window |
 | Domain registrar / .pl registry | complaint routed via DOMENY.TV or NASK | see [Domain contacts](#domain-contacts--lotro-translatorpl) |
 | Hosting provider | abuse report routed by Hetzner | prod + staging VPS boxes |
+| Discord server "LOTRO po polsku" | a DM to the server owner, or a post on a channel | the Operator owns the server; linked from the site footer, the home page and the README |
 
 ## The flow
 

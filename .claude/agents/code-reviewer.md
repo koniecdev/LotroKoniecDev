@@ -18,25 +18,28 @@ review, before you read the diff. The brief names that commit, the commands and 
 results. With no brief, use `HEAD` and the commands below, and skip the comparison.
 
 1. **The tree must be the commit.** `git rev-parse HEAD` prints the SHA the brief names, and
-   `git status --porcelain` prints nothing. Then run `git status --porcelain --ignored`. Ignored
-   build and test output (`bin/`, `obj/`, `TestResults/`, `*.received.*`) and folders under
-   `.claude/` are fine. An ignored file that a build, a test or a guard reads is not: an
-   `appsettings.Local.json`, a `*.props` or `*.targets` file. If a check fails, run nothing:
-   report a Critical with what you saw, and go on to Phase 1 (in gates-only mode, to the report).
+   `git status --porcelain` prints nothing. Then run `git status --porcelain --ignored`: only an
+   ignored `appsettings.Local.json` (the auth host loads it in every environment) or an ignored
+   `*.props`, `*.targets` or `.editorconfig` outside `bin/` and `obj/` fails this check; any other
+   ignored file is fine. `printenv SKIP_DOCKER_BUILD` must not print `true`: that value reuses E2E
+   images this folder built earlier, maybe from an older commit (`tests/Shared/E2EWorktree.cs`). If
+   a check fails, run nothing: report a Critical with what you saw, and go on to Phase 1 (in
+   gates-only mode, to the report).
 2. **Run each command in the foreground**, with the longest Bash timeout the tool allows (one hour
    in the backlog loop). Send its output to a log file next to the report file the brief names
    (with no brief, under `/tmp`), in the form `<command> > <log> 2>&1 && echo GREEN || echo RED`,
-   then read the log. Never pipe a gate to `tail` or `grep`: the pipe hides its exit code.
+   then read the log. Never pipe a gate to `tail` or `grep`: the pipe hides its exit code. A call
+   that ends at its timeout with neither word printed proves nothing: run `dotnet test <project>`
+   for each test project under `tests/` instead, one call each.
    - `dotnet build LotroKoniecDev.slnx`: green with zero warnings. If it is red, the suite counts
      as not run; go on to the guards.
-   - `env -u SKIP_DOCKER_BUILD dotnet test`, with no filter. That variable reuses E2E images this
-     folder built earlier, maybe from an older commit (`tests/Shared/E2EWorktree.cs`). Keep the
-     result line of each test project. Off Windows, the two Windows-only patcher suites print
-     "not run": that is expected (`needs-windows-check` covers them), not a finding.
+   - `dotnet test`, with no filter. Keep the result line of each test project. Off Windows, the two
+     Windows-only patcher suites print "not run": that is expected (`needs-windows-check` covers
+     them), not a finding.
    - every guard script `/ticket` step 7 lists under "The guard scripts CI runs", with no
      argument (each `scripts/check-*.sh` and `scripts/claude/verify-copy.sh`).
 3. **A test project that is red in the full run:** run it again alone
-   (`env -u SKIP_DOCKER_BUILD dotnet test <project>`), at most twice. Several worktrees may run
+   (`dotnet test <project>`), at most twice. Several worktrees may run
    container suites at the same time, and a container can fail to start under that load. Still red
    → the gate is red. Green on a re-run → the gate is green, but name every test that failed in
    the full run, with its first error line:
@@ -44,7 +47,8 @@ results. With no brief, use `HEAD` and the commands below, and skip the comparis
      Note;
    - an assertion failure in a test or code this diff adds or changes: Major at least, because a
      test that fails under load is a defect (#1040);
-   - an assertion failure anywhere else: Note, so the caller files it as an older defect.
+   - an assertion failure anywhere else: Minor, with the action "file it as an older defect"
+     (`/ticket` step 7, second pass, bucket 2).
 4. **Compare with the author's results** in the brief. A red gate is Critical in every case; write
    "red on this commit", because it is not always the author's fault (a new NuGet advisory can
    turn the build red overnight). A test project or a guard that ran here but is missing from the

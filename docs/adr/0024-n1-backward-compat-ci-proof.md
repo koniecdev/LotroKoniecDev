@@ -253,9 +253,10 @@ ssh transport configured one step earlier):
   cannot claim a *newer* commit than what serves — it is the more truthful signal, and the widening
   cross-check above already gives it the final say whenever the two differ. What it cannot do is
   answer reliably in every legal case: a version-tag deploy pinned an image tag git cannot resolve
-  on its own (gone since ADR-0070: CD publishes no version images, and the resolver's `v` retry was
-  removed), and it can go silent when a `.env` is restored or reprovisioned without the line. A source that hard-fails or goes quiet on a legal deploy must not
-  be the one every promotion depends on — so it decides, but it does not lead.
+  on its own (gone since ADR-0070: CD publishes no version images, and the resolver refuses any tag
+  that is not `sha-<short>`), and it can go silent when a `.env` is restored or reprovisioned
+  without the line. A source that hard-fails or goes quiet on a legal deploy must not be the one
+  every promotion depends on — so it decides, but it does not lead.
 - **Bootstrap is the only fail-open verdict, so it takes TWO agreeing signals:** the API positively
   establishing that no deployment here ever reached `success`, **and** a box pinning no `IMAGE_TAG`.
   Neither alone is enough. A window that lists deployments *without* a `success` is what a promotion

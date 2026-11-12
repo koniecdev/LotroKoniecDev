@@ -70,8 +70,8 @@ env/scaling/ingress/secrets/storage; pipeline = which version runs.**
 A push to main builds artifacts unconditionally, then `deploy-prod` **pauses at the `production`
 GitHub Environment** (required reviewer). Approving releases it. `workflow_dispatch` deploys the tip
 of a ref (or an explicit `image_tag`) on demand, behind the same gate. A `v*` tag publishes
-artifacts only — it does not deploy (no longer: ADR-0070 removed the tag trigger). This is the "approve a release manually in GitHub" control that
-protects in-flight QA.
+artifacts only — it does not deploy (no longer: ADR-0070 removed the tag trigger). This is the
+"approve a release manually in GitHub" control that protects in-flight QA.
 
 **Amendment (2026-06-29, audit 0001 C2 — CI success is a hard pre-condition of deploy):** the CD
 trigger changed from `on: push: main` to `on: workflow_run` of the **CI** workflow (`types:
@@ -89,8 +89,9 @@ suite (Release build + unit + integration) is thus a gate *before* the deploy ca
 a parallel race. `workflow_dispatch` and `v*`-tag pushes are deliberately **not** CI-gated (manual /
 publish-only paths) — they pass through the gate ungated — but a dispatch rollout still requires the
 same human approval, and a tag still only publishes artifacts. (ADR-0070: the `v*` path is gone, and
-a dispatch of a commit that was already built reuses its image instead of building it again.) Because CI carries `paths-ignore` for
-docs, a docs-only push runs no CI and therefore triggers no CD (incidentally closing audit 0001 M2).
+a dispatch of a commit that was already built reuses its image instead of building it again.)
+Because CI carries `paths-ignore` for docs, a docs-only push runs no CI and therefore triggers no CD
+(incidentally closing audit 0001 M2).
 
 ### 4. Migrations are an enforced pre-rollout gate (R6 — finally live)
 

@@ -86,14 +86,21 @@ case "${3-}" in
     create)
         shift 3
         tags=()
-        while [ "${1-}" = '--tag' ]; do
-            tags+=("$2")
-            shift 2
+        while [ "$#" -gt 1 ]; do
+            case "$1" in
+                --tag) tags+=("$2"); shift 2 ;;
+                --*) shift ;;
+                *) break ;;
+            esac
         done
         digest="${STUB_CREATE_DIGEST:-${1##*@}}"
         for tag in "${tags[@]}"; do
             printf '%s\n' "$digest" > "$(tag_file "$tag")"
         done
+        # Another commit's run moving `latest` right after this one wrote it.
+        if [ -n "${STUB_LATEST_AFTER_CREATE:-}" ]; then
+            printf '%s\n' "$STUB_LATEST_AFTER_CREATE" > "$(tag_file "${1%@*}:latest")"
+        fi
         ;;
     *)
         echo "stub docker: unexpected call: $*" >&2
@@ -194,26 +201,15 @@ fi
 for answer in \
     'ERROR: failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token: 403 Forbidden' \
     'ERROR: unexpected status from HEAD request to https://ghcr.io/v2/owner/app/manifests/sha-abc1234: 401 Unauthorized' \
-    'ERROR: denied: requested access to the resource is denied'; do
-    CASE="find: the registry will not tell (${answer: -24})"
-    reset_state
-    run_find STUB_INSPECT_ERROR="$answer"
-    if [ "$LAST_STATUS" -eq 0 ] && [ "$(cat "$STATE/out")" = 'exists=false' ]; then
-        pass 'a refused read counts as missing: the same token could not write the tag either'
-    else
-        fail "expected exit 0 and exists=false, got exit $LAST_STATUS and '$(cat "$STATE/out")'"
-    fi
-done
-
-for answer in \
+    'ERROR: denied: requested access to the resource is denied' \
     'ERROR: unexpected status from HEAD request to https://ghcr.io/v2/owner/app/manifests/sha-abc1234: 503 Service Unavailable' \
     'ERROR: dial tcp: lookup ghcr.io on 127.0.0.53:53: no such host' \
     'ERROR: context deadline exceeded'; do
-    CASE="find: the registry does not answer (${answer: -24})"
+    CASE="find: no clear answer (${answer: -24})"
     reset_state
     run_find STUB_INSPECT_ERROR="$answer"
     if [ "$LAST_STATUS" -ne 0 ] && [ ! -s "$STATE/out" ]; then
-        pass 'an unreadable answer stops the job instead of building over a tag it cannot see'
+        pass 'anything but "not found" stops the job instead of building over a tag it cannot see'
     else
         fail "expected a stop with no output, got exit $LAST_STATUS and '$(cat "$STATE/out")'"
     fi
@@ -244,10 +240,30 @@ CASE='name: a new commit on the main tip'
 reset_state
 run_name TAGS=$'ghcr.io/owner/app:sha-abc1234\nghcr.io/owner/app:latest'
 if [ "$LAST_STATUS" -eq 0 ] && [ "$(tag_names "$REPO:sha-abc1234")" = "$D1" ] \
-    && [ "$(tag_names "$REPO:latest")" = "$D1" ]; then
-    pass 'both tags name the checked digest'
+    && [ "$(tag_names "$REPO:latest")" = "$D1" ] \
+    && grep -q 'imagetools create --prefer-index=false ' "$STATE/docker.calls"; then
+    pass 'both tags name the checked digest, copied with --prefer-index=false'
 else
-    fail "expected both tags on $D1, got exit $LAST_STATUS"
+    fail "expected both tags on $D1 and --prefer-index=false, got exit $LAST_STATUS"
+fi
+
+CASE='name: latest moves on before the read-back'
+reset_state
+run_name TAGS=$'ghcr.io/owner/app:sha-abc1234\nghcr.io/owner/app:latest' STUB_LATEST_AFTER_CREATE="$D2"
+if [ "$LAST_STATUS" -eq 0 ] && [ "$(tag_names "$REPO:sha-abc1234")" = "$D1" ]; then
+    pass 'a newer commit moving latest does not fail a correctly named image'
+else
+    fail "expected exit 0, got $LAST_STATUS"
+fi
+
+CASE='name: the read before tagging is refused'
+reset_state
+has_tag "$REPO:sha-abc1234" "$D2"
+run_name TAGS='ghcr.io/owner/app:sha-abc1234' STUB_INSPECT_ERROR='ERROR: denied: denied'
+if [ "$LAST_STATUS" -ne 0 ] && ! created && [ "$(tag_names "$REPO:sha-abc1234")" = "$D2" ]; then
+    pass 'a refused read stops the job: a refusal is not "not found", so no tag is written'
+else
+    fail "expected a stop with no retag, got exit $LAST_STATUS"
 fi
 
 CASE='name: the tag already names this digest'

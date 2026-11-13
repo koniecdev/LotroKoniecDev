@@ -258,6 +258,11 @@ both boxes run `ASPNETCORE_ENVIRONMENT=Production`.
 | `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | The same key and rules as auth-api's `HealthCheck__Key` (ADR-0058); here the full `/health` runs the database check. |
 | `RabbitMq__Host` / `RabbitMq__Username` / `RabbitMq__Password` | `localhost` / `rabbitmq` / `changeme` (appsettings.Development) | `rabbitmq` / `rabbitmq` / from `RABBITMQ_PASSWORD` | ✅ all | **secret** (Password) | The broker and the user auth-api uses: tms-api consumes the `AccountErased` events of ADR-0065 from its own queue `tms.account-erased`. Validated at start, but tms-api **boots and serves with the broker down**: the consumer retries its connection, and the AuthSystem's outbox keeps the event until it is delivered. |
 | `TranslationFileDiskCache__Directory` | — (unset → a private folder per process in the temp folder) | `/tmp/lotro-translation-files` (set in `compose.hetzner.yaml`) | optional | plain | Where full downloads of the translation file are served from (ADR-0064). Fixed in the containers, so a crash restart reuses and sweeps the one copy (about 82 MB at full size) instead of leaving one behind. It must belong to this one process; an empty value stops the boot. |
+| `TranslationSaveBudget__SaveLimit` | — (default `1000`) | from `TMS_SAVE_LIMIT`, default `1000` | optional | plain | Saves one non-admin account may make in the window (ADR-0072, #687). Past it the save is refused with 429. At least 1, or tms-api stops at boot. |
+| `TranslationSaveBudget__SaveAlertThreshold` | — (default `500`) | from `TMS_SAVE_ALERT_THRESHOLD`, default `500` | optional | plain | From this save on, every save logs the Warning that the `lotro-translation-save-budget` alert mails. Between 1 and `SaveLimit`. |
+| `TranslationSaveBudget__OverwriteLimit` | — (default `100`) | from `TMS_OVERWRITE_LIMIT`, default `100` | optional | plain | Saves on a row that already has Polish, counted inside the save budget. Past it only such saves are refused; rows with no Polish still save. Raise it for the days after a large game update, when translators correct many rows. At least 1. |
+| `TranslationSaveBudget__OverwriteAlertThreshold` | — (default `50`) | from `TMS_OVERWRITE_ALERT_THRESHOLD`, default `50` | optional | plain | The overwrite Warning, as for saves. Between 1 and `OverwriteLimit`. |
+| `TranslationSaveBudget__WindowHours` | — (default `24`) | from `TMS_SAVE_BUDGET_WINDOW_HOURS`, default `24` | optional | plain | The rolling window both budgets count in. 1 to 720 (30 days, the privacy policy's limit for technical data). The counts are kept in the `TranslationSaves` table, so a deploy or a restart does not reset them. Rows older than the window are deleted on the next save by a non-admin. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings) | `http://10.60.0.1:4317` | optional | plain | See the auth-api row. |
 
 ### frontend
@@ -1680,16 +1685,42 @@ the rule: that chain is a second wall, not the first. Loki, Prometheus and Tempo
 joins `default` or `tks`: the agent reads the Docker socket, containerd and `/proc`, so it never needs
 a route to an app container and does not have one (ADR-0050 §3).
 
-**Alerts (#713).** Three are project-scoped (crash loop, 5xx rate, error-log spike; TheKittySaver
-ships its own set) and eight are fleet-scoped, because box saturation belongs to neither project.
-This repo ships eleven; TheKittySaver's rules live in its own repo. All of them deliver to **one**
+**Alerts (#713).** Five are project-scoped (crash loop, 5xx rate, error-log spike, and the two
+translation save rules of #687; TheKittySaver ships its own set) and eight are fleet-scoped, because
+box saturation belongs to neither project. This repo ships thirteen; TheKittySaver's rules live in its
+own repo. All of them deliver to **one**
 contact point, `owner-email`, over the Brevo relay the apps already use. There is no second channel.
 
 | Folder | Rules |
 |---|---|
-| LotroKoniecDev | crash loop · 5xx above 5% · error-level log spike |
+| LotroKoniecDev | crash loop · 5xx above 5% · error-level log spike · a translator account reached its save budget · more than 100 translations overwritten in 24 hours |
 | Fleet | memory > 85% · swapping hard or waiting for memory · swap > 70% full · CPU > 85% · disk < 20% · disk < 10% · a box has gone silent · a container above 85% of its own `mem_limit` |
 | TheKittySaver | its own set (that repo's #511 and later additions) |
+
+**The two translation save rules (#687, ADR-0072).** Both read tms-api's log lines, so they work only
+while the box ships its logs to Loki, and only after `/opt/obs` is synced (above). Each matches the
+template text in the JSON line (`"@mt":"Translation save budget:` and `"@mt":"Translation
+overwritten:`), never the bare text, because a caller's header or request path also lands in tms-api's
+log lines. A unit test (`TranslationSaveBudgetLogRuleTests`) ties the rule file to the C# text; when the
+text changes, the rule file changes with it and needs the sync too.
+
+- **A translator account reached its save budget** (`lotro-translation-save-budget`, warning): one alert
+  per account, budget (`Saves` or `Overwrites`) and outcome (`AlertThreshold` or `Refused`). The first
+  mail comes within about 90 seconds, or up to 5 minutes when another of its alerts already fired. A
+  "resolved" mail follows about an hour after the account's last budget line. That does not mean the
+  account is under its limit again: the budget window is 24 hours by default. A new mail follows when it
+  saves above the threshold again. The thresholds and limits are the `TranslationSaveBudget__*`
+  settings in the tms-api table above. The mail names the account by its translator id; its name is
+  `SELECT "DisplayName", "Email" FROM translation."Translators" WHERE "Id" = '<the id>';` on the TMS
+  database.
+- **More than 100 translations overwritten in 24 hours** (`lotro-translation-overwrites-total`,
+  warning): saves that replaced Polish already on a row, from all accounts together, admins included.
+  It blocks nothing. One mail when the total passes 100, a repeat every 6 hours while it stays above,
+  and a resolved mail when it drops. The 100 and the 24 hours are in the rule file, not in `.env`.
+
+Both are best effort: tms-api logs every request before its rate limiter, so a flood of requests can
+delay or drop lines on the way to Loki. The block itself is in the database and does not depend on the
+log.
 
 **What the two swap rules measure (#1084).** How full swap is says little on its own. Linux moves
 memory that nothing has used for a while into swap and leaves it there until something reads it

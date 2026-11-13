@@ -95,11 +95,14 @@ GUARD_INPUTS='^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/tests/check-ssr-puri
 #   * the two workflows that DEFINE the .NET gate;
 #   * scripts/hetzner/deploy.sh, because DeadLetterExpiryTests (AuthSystem.API.Tests.Integration)
 #     reads its dead-letter expiry policy and sets it on a real RabbitMQ broker (#1163). Its bash
-#     self-test pins the policy call only as text, so it cannot tell whether a broker accepts it.
+#     self-test pins the policy call only as text, so it cannot tell whether a broker accepts it;
+#   * the LotroKoniecDev Grafana alert rules, because TranslationSystem.API.Tests.Unit copies them
+#     into its output and TranslationSaveBudgetLogRuleTests checks that they still match the log text
+#     tms-api writes (#687). A rule edit that broke that tie would otherwise skip the test.
 # When a unit or integration test reads a file that an INERT rule matches (a script under scripts/,
 # say), that file goes here. The E2E suites read Dockerfiles and scripts too, but they are not on
 # the PR gate, so their reads need no entry.
-CODE_INPUTS='^\.github/workflows/(pr-verify|ci)\.yml$|^scripts/hetzner/deploy\.sh$'
+CODE_INPUTS='^\.github/workflows/(pr-verify|ci)\.yml$|^scripts/hetzner/deploy\.sh$|^\.docker/observability/grafana/provisioning/alerting/lotrokoniecdev-alerts\.yaml$'
 
 # Image-build inputs: ANY Dockerfile flavor (a dev-only flavor costs a redundant image build, never
 # a false skip), the build-context filter, and pr-verify.yml — the image job must validate its own

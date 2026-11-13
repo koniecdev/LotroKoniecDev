@@ -3,6 +3,7 @@
 # ADR-0034 §Consequences named exactly what the Azure migration deleted: "the Azure Monitor alert
 # rules (replica restart, 5xx spike, memory/CPU saturation, log-error spike)". Three of the four are
 # project-scoped and live here; box saturation is not ours alone and lives in fleet-alerts.yaml.
+# The two translation save rules at the end come from #687 (ADR-0072).
 #
 # Both projects run on the same boxes, so every rule here is scoped to `lotrokoniecdev` — by
 # `service_namespace` for app metrics and `project` for logs and container metrics. TheKittySaver
@@ -156,6 +157,114 @@ groups:
               expression: A
               conditions:
                 - evaluator: { type: gt, params: [1] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: OK
+        execErrState: Error
+
+      # The per-account save budget of ADR-0072 (#687). One alert instance per account, budget and
+      # outcome, so a second account, or a refusal after the threshold mail, sends a mail of its own.
+      - uid: lotro-translation-save-budget
+        title: LOTRO — a translator account reached its save budget
+        condition: C
+        for: 0s
+        labels:
+          project: lotrokoniecdev
+          severity: warning
+        annotations:
+          summary: 'Translator {{ $labels.TranslatorId }}: {{ $labels.Budget }} budget, {{ $labels.Outcome }}, on {{ $labels.environment }}'
+          description: >-
+            A non-admin account made many translation saves (Budget Saves) or replaced existing Polish
+            many times (Budget Overwrites) in the budget window. AlertThreshold means it passed the
+            alert threshold and can still save; Refused means tms-api refused a save with 429. A
+            hijacked account or a script looks like this; so does an honest translator after a large
+            game update. The mail names the account by its translator id; the runbook (Observability,
+            "The two translation save rules") shows how to turn it into a name. The first mail comes within
+            about 90 seconds, or up to 5 minutes when another instance of this rule already fired. A
+            "resolved" mail follows about an hour after the account's last budget line, which does
+            not mean the account is back under its limit: the budget window is 24 hours by default.
+            A new mail follows when the account saves above the threshold again, and a repeat every
+            6 hours only while it keeps saving every hour.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              instant: true
+              queryType: instant
+              editorMode: code
+              # Anchored on the template key, not the bare text: tms-api writes a caller's
+              # X-Correlation-ID header and request path into its log lines, and a bare-text filter
+              # would let any anonymous request fire this rule. The text comes from
+              # TranslationSaveBudgetLogText, and a unit test ties the two together.
+              expr: >-
+                sum by (environment, TranslatorId, Budget, Outcome) (count_over_time({project="lotrokoniecdev", container=~".*tms-api.*"} |= `"@mt":"Translation save budget:` | json TranslatorId="TranslatorId", Budget="Budget", Outcome="Outcome" [1h]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: OK
+        execErrState: Error
+
+  # A 24-hour query is heavier than the one-minute group needs, and a total over a day does not
+  # change much in five minutes.
+  - orgId: 1
+    name: lotrokoniecdev-daily
+    folder: LotroKoniecDev
+    interval: 5m
+    rules:
+
+      # The owner's total alert on #687: overwrites from all accounts together, admins included, so
+      # several accounts that each stay under their own budget still show up. It never blocks a
+      # save. The threshold (100 in 24 hours) is set here, not in the box .env: change it in this
+      # file and sync /opt/obs.
+      - uid: lotro-translation-overwrites-total
+        title: LOTRO — more than 100 translations overwritten in 24 hours
+        condition: C
+        for: 0s
+        labels:
+          project: lotrokoniecdev
+          severity: warning
+        annotations:
+          summary: 'More than 100 saves replaced existing Polish in 24 hours on {{ $labels.environment }}'
+          description: >-
+            Saves that replaced Polish text already on a row, from all accounts together, admins
+            included, passed 100 in the last 24 hours. One account, several accounts or an admin's
+            own corrections can cause it; the per-account budget rule names an account when one
+            passes its own threshold. Look at the "Translation overwritten:" lines of tms-api in
+            Grafana to see who saved what. This sends one mail when the total passes 100, a repeat
+            every 6 hours while the 24-hour total stays above it, and a resolved mail when it drops.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 86400, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              instant: true
+              queryType: instant
+              editorMode: code
+              # Anchored on the template key for the same reason as the budget rule above.
+              expr: >-
+                sum by (environment) (count_over_time({project="lotrokoniecdev", container=~".*tms-api.*"} |= `"@mt":"Translation overwritten:` [24h]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [100] }
                   operator: { type: and }
                   query: { params: [C] }
                   reducer: { type: last, params: [] }

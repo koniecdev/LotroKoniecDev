@@ -5,6 +5,7 @@ using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.API.Auth;
+using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
 using LotroKoniecDev.TranslationSystem.API.Auth.Provisioning;
 using LotroKoniecDev.TranslationSystem.API.Common;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
@@ -16,18 +17,21 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Va
 using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
+using LotroKoniecDev.TranslationSystem.Persistence.SaveBudget;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
 /// <summary>
 /// Stores the translator's Polish on an imported row (spec 0001). It never creates a row: an unknown
-/// fragment is a 404. Placeholders are stored as they are; the frontend editor checks them.
+/// fragment is a 404. Placeholders are stored as they are; the frontend editor checks them. A non-admin
+/// spends the per-account save budget of ADR-0072 first.
 /// </summary>
-internal sealed class UpsertTranslation : IEndpoint
+internal sealed partial class UpsertTranslation : IEndpoint
 {
     internal sealed record Command(int FileId, long GossipId, string TranslatedText)
         : ICommand<Result<TranslationDetailResponse>>;
@@ -50,7 +54,7 @@ internal sealed class UpsertTranslation : IEndpoint
         }
     }
 
-    internal sealed class Handler : ICommandHandler<Command, Result<TranslationDetailResponse>>
+    internal sealed partial class Handler : ICommandHandler<Command, Result<TranslationDetailResponse>>
     {
         private readonly IValidator<Command> _validator;
         private readonly ITranslationRepository _translationRepository;
@@ -59,6 +63,10 @@ internal sealed class UpsertTranslation : IEndpoint
         private readonly IApplicationReadDbContext _readDbContext;
         private readonly TimeProvider _timeProvider;
         private readonly ITranslationFileRebuildScheduler _rebuildScheduler;
+        private readonly ICurrentUserAccessor _currentUserAccessor;
+        private readonly ITranslationSaveLedger _saveLedger;
+        private readonly IOptions<TranslationSaveBudgetSettings> _saveBudgetSettings;
+        private readonly ILogger<Handler> _logger;
 
         public Handler(
             IValidator<Command> validator,
@@ -67,7 +75,11 @@ internal sealed class UpsertTranslation : IEndpoint
             ITranslatorProvisioner translatorProvisioner,
             IApplicationReadDbContext readDbContext,
             TimeProvider timeProvider,
-            ITranslationFileRebuildScheduler rebuildScheduler)
+            ITranslationFileRebuildScheduler rebuildScheduler,
+            ICurrentUserAccessor currentUserAccessor,
+            ITranslationSaveLedger saveLedger,
+            IOptions<TranslationSaveBudgetSettings> saveBudgetSettings,
+            ILogger<Handler> logger)
         {
             _validator = validator;
             _translationRepository = translationRepository;
@@ -76,6 +88,10 @@ internal sealed class UpsertTranslation : IEndpoint
             _readDbContext = readDbContext;
             _timeProvider = timeProvider;
             _rebuildScheduler = rebuildScheduler;
+            _currentUserAccessor = currentUserAccessor;
+            _saveLedger = saveLedger;
+            _saveBudgetSettings = saveBudgetSettings;
+            _logger = logger;
         }
 
         public async ValueTask<Result<TranslationDetailResponse>> Handle(Command command, CancellationToken cancellationToken)
@@ -114,12 +130,35 @@ internal sealed class UpsertTranslation : IEndpoint
                 return Result.Failure<TranslationDetailResponse>(provisionResult.Error);
             }
 
-            // Only an approved row leaves the distributed set, so only then is a rebuild needed.
-            bool wasApproved = translation.Status is TranslationStatus.Approved;
+            TranslatorId translatorId = provisionResult.Value;
+            TranslationStatus previousStatus = translation.Status;
 
-            translation.ProvideTranslation(command.TranslatedText, provisionResult.Value, _timeProvider.GetUtcNow());
+            // Only an approved row leaves the distributed set, so only then is a rebuild needed.
+            bool wasApproved = previousStatus is TranslationStatus.Approved;
+            bool replacesPolish = translation.TranslatedText is not null;
+            bool isBudgeted = _currentUserAccessor.HasOnlyRegularUserPrivileges();
+            DateTimeOffset now = _timeProvider.GetUtcNow();
+
+            if (isBudgeted)
+            {
+                Result budgetResult = await SpendSaveBudgetAsync(translatorId, replacesPolish, now, cancellationToken);
+                if (budgetResult.IsFailure)
+                {
+                    return Result.Failure<TranslationDetailResponse>(budgetResult.Error);
+                }
+            }
+
+            translation.ProvideTranslation(command.TranslatedText, translatorId, now);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // Only after the commit, so a refused or conflicting save never counts toward the owner's
+            // total alert (ADR-0072).
+            if (replacesPolish)
+            {
+                LogTranslationOverwritten(
+                    _logger, translatorId.Value, command.FileId, command.GossipId, previousStatus, isBudgeted);
+            }
 
             if (wasApproved)
             {
@@ -137,6 +176,71 @@ internal sealed class UpsertTranslation : IEndpoint
                 ? Result.Failure<TranslationDetailResponse>(DomainErrors.TranslationEntity.NotFound(command.FileId, command.GossipId))
                 : Result.Success(response);
         }
+
+        private async Task<Result> SpendSaveBudgetAsync(
+            TranslatorId translatorId,
+            bool replacesPolish,
+            DateTimeOffset now,
+            CancellationToken cancellationToken)
+        {
+            TranslationSaveBudgetSettings settings = _saveBudgetSettings.Value;
+            Guid saveId = Guid.CreateVersion7(now);
+
+            TranslationSaveCounts counts = await _saveLedger.RecordAsync(
+                saveId, translatorId, replacesPolish, now, TimeSpan.FromHours(settings.WindowHours), cancellationToken);
+
+            TranslationSaveBudgetVerdict verdict = TranslationSaveBudget.Judge(counts, replacesPolish, settings);
+
+            if (verdict.RefusedBy is TranslationSaveBudgetKind refusedBy)
+            {
+                (int count, int limit, Error error) = refusedBy is TranslationSaveBudgetKind.Saves
+                    ? (counts.Saves, settings.SaveLimit,
+                        TranslationSaveBudgetErrors.SaveBudgetExhausted(settings.SaveLimit, settings.WindowHours))
+                    : (counts.Overwrites, settings.OverwriteLimit,
+                        TranslationSaveBudgetErrors.OverwriteBudgetExhausted(settings.OverwriteLimit, settings.WindowHours));
+
+                // Not the request's token: a client that leaves now must not keep a refused permit.
+                await _saveLedger.RemoveAsync(saveId, CancellationToken.None);
+                LogSaveBudget(
+                    _logger, translatorId.Value, refusedBy, TranslationSaveBudgetOutcome.Refused,
+                    count, limit, settings.WindowHours);
+                return Result.Failure(error);
+            }
+
+            // Every save at or above a threshold, not only the crossing one: two parallel saves can both
+            // skip the exact number, and the alert looks back one hour.
+            if (verdict.SavesAtAlertThreshold)
+            {
+                LogSaveBudget(
+                    _logger, translatorId.Value, TranslationSaveBudgetKind.Saves, TranslationSaveBudgetOutcome.AlertThreshold,
+                    counts.Saves, settings.SaveLimit, settings.WindowHours);
+            }
+
+            if (verdict.OverwritesAtAlertThreshold)
+            {
+                LogSaveBudget(
+                    _logger, translatorId.Value, TranslationSaveBudgetKind.Overwrites, TranslationSaveBudgetOutcome.AlertThreshold,
+                    counts.Overwrites, settings.OverwriteLimit, settings.WindowHours);
+            }
+
+            return Result.Success();
+        }
+
+        [LoggerMessage(EventId = EventIds.TranslationOverwritten, Level = LogLevel.Information,
+            Message = TranslationSaveBudgetLogText.OverwrittenTemplate)]
+        private static partial void LogTranslationOverwritten(
+            ILogger logger, Guid translatorId, int fileId, long gossipId, TranslationStatus previousStatus, bool budgeted);
+
+        [LoggerMessage(EventId = EventIds.TranslationSaveBudgetWarning, Level = LogLevel.Warning,
+            Message = TranslationSaveBudgetLogText.BudgetTemplate)]
+        private static partial void LogSaveBudget(
+            ILogger logger,
+            Guid translatorId,
+            TranslationSaveBudgetKind budget,
+            TranslationSaveBudgetOutcome outcome,
+            int count,
+            int limit,
+            int windowHours);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
@@ -161,6 +265,7 @@ internal sealed class UpsertTranslation : IEndpoint
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
     }
 }

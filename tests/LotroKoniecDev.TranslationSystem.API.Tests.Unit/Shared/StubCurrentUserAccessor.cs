@@ -1,3 +1,4 @@
+using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
@@ -9,14 +10,18 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Shared;
 /// </summary>
 internal sealed class StubCurrentUserAccessor : ICurrentUserAccessor
 {
+    private readonly bool _isAdmin;
+
     public StubCurrentUserAccessor(
         ValueMaybe<IdentityId> identityId,
         string? username = null,
-        string? email = null)
+        string? email = null,
+        bool isAdmin = false)
     {
         MaybeIdentityId = identityId;
         Username = username;
         Email = email;
+        _isAdmin = isAdmin;
     }
 
     public ValueMaybe<IdentityId> MaybeIdentityId { get; }
@@ -24,6 +29,6 @@ internal sealed class StubCurrentUserAccessor : ICurrentUserAccessor
     public string? Username { get; }
     public IEnumerable<string> Roles => [];
     public bool IsAuthenticated => MaybeIdentityId.HasValue;
-    public bool IsInRole(string role) => false;
-    public bool HasOnlyRegularUserPrivileges() => true;
+    public bool IsInRole(string role) => _isAdmin && role == AuthConstants.Roles.Admin;
+    public bool HasOnlyRegularUserPrivileges() => !_isAdmin;
 }

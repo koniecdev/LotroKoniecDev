@@ -9,6 +9,7 @@ using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Persistence.DomainRepositories;
 using LotroKoniecDev.TranslationSystem.Persistence.Projections;
+using LotroKoniecDev.TranslationSystem.Persistence.SaveBudget;
 using LotroKoniecDev.TranslationSystem.Persistence.Settings;
 using LotroKoniecDev.TranslationSystem.Projections;
 using Microsoft.EntityFrameworkCore;
@@ -63,6 +64,7 @@ public static class PersistenceDependencyInjection
             services.AddScoped<IBulkTranslationInserter, BulkTranslationInserter>();
             services.AddScoped<IPrecomputedTranslationFileStore, PrecomputedTranslationFileStore>();
             services.AddScoped<ITranslatorRepository, TranslatorRepository>();
+            services.AddScoped<ITranslationSaveLedger, TranslationSaveLedger>();
 
             return services;
         }

@@ -217,6 +217,14 @@ services:
       # container's disk, so a fixed folder is reused and swept instead of leaving a copy behind per
       # crash. Only this process runs in the container, so no other user can place a file there.
       TranslationFileDiskCache__Directory: /tmp/lotro-translation-files
+      # The per-account save budget (ADR-0072, #687). Each value can change in the box .env without a
+      # release; the defaults here repeat the ones in TranslationSaveBudgetSettings. Never write an
+      # empty default for one of them: the app cannot read an empty number and stops at boot.
+      TranslationSaveBudget__SaveLimit: ${TMS_SAVE_LIMIT:-1000}
+      TranslationSaveBudget__SaveAlertThreshold: ${TMS_SAVE_ALERT_THRESHOLD:-500}
+      TranslationSaveBudget__OverwriteLimit: ${TMS_OVERWRITE_LIMIT:-100}
+      TranslationSaveBudget__OverwriteAlertThreshold: ${TMS_OVERWRITE_ALERT_THRESHOLD:-50}
+      TranslationSaveBudget__WindowHours: ${TMS_SAVE_BUDGET_WINDOW_HOURS:-24}
     volumes:
       - ./translations:/app/translations:ro
       # Local-parity TLS trust: the entrypoint installs this CA into the OS store so .NET trusts the

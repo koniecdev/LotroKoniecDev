@@ -31,6 +31,11 @@
 
     <ItemGroup>
         <Content Include="TestData\**\*.txt" CopyToOutputDirectory="PreserveNewest" />
+        <!-- The Grafana rules that count tms-api's log lines (#687). TranslationSaveBudgetLogRuleTests
+             checks them against the log text; classify-changes.sh lists the file as a code input. -->
+        <Content Include="..\..\.docker\observability\grafana\provisioning\alerting\lotrokoniecdev-alerts.yaml"
+                 Link="TestData\lotrokoniecdev-alerts.yaml"
+                 CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
     <ItemGroup>

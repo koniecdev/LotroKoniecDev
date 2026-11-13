@@ -46,4 +46,8 @@ internal static class EventIds
     public const int AccountConsumerTeardownWarning = 1707;
     public const int AccountConsumerDetached = 1708;
     public const int AccountConsumerRefused = 1709;
+
+    // Translation save budget (1800-1899)
+    public const int TranslationOverwritten = 1800;
+    public const int TranslationSaveBudgetWarning = 1801;
 }

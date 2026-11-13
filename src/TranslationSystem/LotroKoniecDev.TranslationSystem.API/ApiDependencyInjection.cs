@@ -132,6 +132,10 @@ internal static class ApiDependencyInjection
                 IQueryHandler<ListSameSourceTextTranslations.Query, Result<SameSourceTextTranslationsResponse>>,
                 ListSameSourceTextTranslations.Handler>();
 
+            // The per-account save budget (ADR-0072).
+            services.AddSingleton<IValidator<TranslationSaveBudgetSettings>, TranslationSaveBudgetSettingsValidator>();
+            services.AddOptionsWithFluentValidation<TranslationSaveBudgetSettings>(TranslationSaveBudgetSettings.ConfigurationSection);
+
             services.AddScoped<IValidator<UpsertTranslation.Command>, UpsertTranslation.Validator>();
             services.AddScoped<
                 ICommandHandler<UpsertTranslation.Command, Result<TranslationDetailResponse>>,

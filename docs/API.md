@@ -165,15 +165,19 @@ who rotates IP addresses gets a fresh IP budget every time (ADR-0055). It is key
 | E-mail change | 3 / 15 min per inbox of the **new** address, whichever account asks | before the link is queued | 429 `Auth.EmailChangeRecipientThrottled` |
 | Current-password confirmation | 10 / 15 min per account (change password, change e-mail, delete, GDPR export) | before the password check | 429 `Auth.PasswordConfirmationThrottled` |
 | Account deletion schedule | 3 / h per account (#811) | last check before the schedule is saved | 429 `Auth.DeletionScheduleThrottled` |
+| Translation save (`tms-api`, non-admins only) | 1,000 saves per account per rolling 24 h; of those, 100 on a row that already has Polish (ADR-0072) | after the row is loaded, before the text changes | 429 `Translations.SaveBudgetExhausted`, or `Translations.OverwriteBudgetExhausted` when only the second budget is spent |
 
 A silent refusal keeps the neutral "if the account exists" answer, so it cannot reveal a recent
-request. These budgets live in process memory, so two running containers would mean two budgets — the
-same trade-off the IP policies make.
+request. The `auth-api` budgets live in process memory, so two running containers would mean two
+budgets — the same trade-off the IP policies make. The translation save budget is the exception: its
+window is a day, longer than the time between two deploys, so it is kept in the database (ADR-0072).
+All its numbers are settings (`TranslationSaveBudget__*`, runbook).
 
 Every 429 from a limiter policy carries `Retry-After` (the window length, so an upper bound — #892),
 and a browser gets a Polish page instead of the bare status text. The 429s from the handler budgets
 carry no `Retry-After`; their window is fixed (one hour for the deletion schedule, 15 minutes for the
-rest).
+rest). The translation save budget's window is rolling, so it has no single moment to name, and its
+429 carries no `Retry-After` either.
 
 ---
 
@@ -404,7 +408,7 @@ number (#624). Otherwise **422** (`GameVersionEntity.ProcessedCannotBeDeleted` /
 | `GET` | `/api/v1/translations/stats` | `RequireTranslatorRole` | **200** `TranslationStatsResponse` |
 | `GET` | `/api/v1/translations/{id:guid}` | `RequireTranslatorRole` | **200** `TranslationDetailResponse` · **404** |
 | `GET` | `/api/v1/translations/{id:guid}/same-source-text` | `RequireTranslatorRole` | **200** `SameSourceTextTranslationsResponse` · **404** (unknown or soft-removed row) — see below |
-| `PUT` | `/api/v1/translations` | `RequireTranslatorRole` | **200** `TranslationDetailResponse` · **400** · **403** · **404** · **422** |
+| `PUT` | `/api/v1/translations` | `RequireTranslatorRole` | **200** `TranslationDetailResponse` · **400** · **403** · **404** · **422** · **429** |
 | `POST` | `/api/v1/translations/{id:guid}/approve` | `RequireAdminRole` | **204** · **400** · **403** · **404** · **422** |
 | `POST` | `/api/v1/translations/approve` | `RequireAdminRole` | **200** `BulkApproveTranslationsResponse` · **400** · **403** — see below |
 
@@ -429,7 +433,11 @@ exist (it comes from an import). `translatedText` must not be empty and must be 
 characters, the most the DAT can hold (ADR-0043). The translator is taken from the **token**, never
 the body. Editing an `Approved` row moves it to `Draft`, which takes it out of the file until someone
 approves it again. A soft-removed row → **422** (`TranslationEntity.CannotEditRemoved`); unknown
-fragment → **404**. Placeholders (`<--DO_NOT_TOUCH!-->`) are stored as they are.
+fragment → **404**. Placeholders (`<--DO_NOT_TOUCH!-->`) are stored as they are. A caller who is not an
+admin spends the per-account save budget (§2.4, ADR-0072): past it → **429**
+(`Translations.SaveBudgetExhausted`; `Translations.OverwriteBudgetExhausted` when only the budget for
+rows that already have Polish is spent, so a row with no Polish still saves). A refused save changes
+nothing and spends nothing.
 
 **`POST /translations/{id}/approve`** (reviewer only): a row with no Polish → **422**
 (`CannotApproveWithoutTranslation`), a soft-removed row → **422** (`CannotApproveRemoved`), unknown id

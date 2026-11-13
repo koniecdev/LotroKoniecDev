@@ -12,7 +12,7 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregat
 /// <see cref="Value"/> is canonical: trailing zero segments are dropped, so <c>48</c>, <c>48.0</c> and
 /// <c>48.0.0</c> are the same version, while a middle zero (<c>47.0.1</c>) is kept (ADR-0003).
 /// </remarks>
-public sealed class LotroNotationVersion : ValueObject
+public sealed class LotroNotationVersion : ValueObject, IComparable<LotroNotationVersion>
 {
     /// <summary>
     /// Three segments of three digits plus two separators (<c>123.456.789</c>; ADR-0003, amendment
@@ -29,6 +29,48 @@ public sealed class LotroNotationVersion : ValueObject
     private const char SegmentSeparator = '.';
 
     public string Value { get; }
+
+    /// <summary>
+    /// Compares the version numbers segment by segment, so <c>48.10</c> is higher than <c>48.9</c>,
+    /// and a missing segment counts as <c>0</c>. This is the number order only: the registry still
+    /// orders versions by registration date (wiki "Wersja gry", ADR-0003 amendment 2026-11-13).
+    /// </summary>
+    public int CompareTo(LotroNotationVersion? other)
+    {
+        if (other is null)
+        {
+            return 1;
+        }
+
+        string[] segments = Value.Split(SegmentSeparator);
+        string[] otherSegments = other.Value.Split(SegmentSeparator);
+        int segmentsCount = Math.Max(segments.Length, otherSegments.Length);
+
+        for (int i = 0; i < segmentsCount; i++)
+        {
+            int comparison = CompareSegments(SegmentAt(segments, i), SegmentAt(otherSegments, i));
+            if (comparison is not 0)
+            {
+                return comparison;
+            }
+        }
+
+        return 0;
+    }
+
+    public static bool operator <(LotroNotationVersion? left, LotroNotationVersion? right) =>
+        Comparer<LotroNotationVersion>.Default.Compare(left, right) is < 0;
+
+    public static bool operator <=(LotroNotationVersion? left, LotroNotationVersion? right) =>
+        Comparer<LotroNotationVersion>.Default.Compare(left, right) is <= 0;
+
+    public static bool operator >(LotroNotationVersion? left, LotroNotationVersion? right) =>
+        Comparer<LotroNotationVersion>.Default.Compare(left, right) is > 0;
+
+    public static bool operator >=(LotroNotationVersion? left, LotroNotationVersion? right) =>
+        Comparer<LotroNotationVersion>.Default.Compare(left, right) is >= 0;
+
+    public override string ToString() => Value;
 
     public static Result<LotroNotationVersion> Create(string value)
     {
@@ -67,8 +109,6 @@ public sealed class LotroNotationVersion : ValueObject
     {
         Value = value;
     }
-
-    public override string ToString() => Value;
 
     protected override IEnumerable<object> GetAtomicValues()
     {
@@ -109,6 +149,17 @@ public sealed class LotroNotationVersion : ValueObject
 
         return trimmed.Length is 0 ? "0" : trimmed;
     }
+
+    private static string SegmentAt(string[] segments, int index) =>
+        index < segments.Length ? segments[index] : "0";
+
+    /// <summary>
+    /// A canonical segment has no leading zeros, so the longer run of digits is the higher number.
+    /// </summary>
+    private static int CompareSegments(string segment, string otherSegment) =>
+        segment.Length != otherSegment.Length
+            ? segment.Length.CompareTo(otherSegment.Length)
+            : string.CompareOrdinal(segment, otherSegment);
 
     private static bool IsAsciiDigits(string segment)
     {

@@ -172,6 +172,12 @@ fi
 # thing.
 export IMAGE_TAG
 
+# Every image is public, but Docker still sends a stored login, and one the registry refuses (an
+# expired token) fails the pull (#1330). So no docker call reads the user's Docker config or
+# DOCKER_AUTH_CONFIG. Only root can create /nonexistent. Limits: the runbook, "Gotchas".
+export DOCKER_CONFIG=/nonexistent
+unset DOCKER_AUTH_CONFIG
+
 # An array as well as a function: `timeout` below cannot run a shell function, and both must stay one
 # definition.
 COMPOSE=(docker compose -f "$COMPOSE_FILE")

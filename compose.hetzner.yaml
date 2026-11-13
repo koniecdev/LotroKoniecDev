@@ -21,10 +21,9 @@
 # observability project (ADR-0050 §2); Caddy sits on it too, unpinned, only so the ingest vhost can
 # reach the backend containers (#755). See the `networks:` block at the bottom.
 #
-# Bring-up on a box (as the deploy user, files in /opt/lotro; scripts/hetzner/bootstrap.sh has
-# already done the one-time `docker login ghcr.io` as deploy with a read:packages PAT):
-#   docker compose -f compose.hetzner.yaml pull
-#   docker compose -f compose.hetzner.yaml up -d
+# Bring-up on a box (as the deploy user, files in /opt/lotro): through deploy.sh, the rollout CD
+# runs, never a bare `up -d` (docs/deployment/runbook.md, "(Re)provisioning a box"):
+#   IMAGE_TAG=sha-<short sha> bash /opt/lotro/deploy.sh
 #   docker compose -f compose.hetzner.yaml logs -f migrator caddy
 
 # Caddy's image, shared by the proxy and by the `caddy-validate` gate below, so the gate always checks

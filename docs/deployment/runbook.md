@@ -48,7 +48,7 @@ staging.
 | Firewall | ufw: deny incoming except **22/80/443**, allow outgoing · **`DOCKER-USER`**: from the public interface only **80/443** reach a container, everything else published is dropped. ufw cannot filter a published port (Docker's DNAT runs first), this chain can (#808). Rules script `/usr/local/sbin/docker-user-firewall`, re-applied by `docker-user-firewall.service` whenever Docker starts, both laid down by `bootstrap.sh` |
 | Intrusion / patching | fail2ban (sshd jail, systemd backend) · unattended-upgrades, plus a reboot on the nights an update needs one: **staging 01:30 UTC, prod 02:30 UTC** (#1327, see [Gotchas](#gotchas)) |
 | Container runtime | Docker Engine + compose plugin (the box's own — bootstrap **adopts** it, never swaps it: see [Gotchas](#gotchas)) |
-| Registry | `deploy` is `docker login`-ed to **ghcr.io** with a **read-only** (`read:packages`) PAT |
+| Registry | Our four images on **ghcr.io**, Caddy and RabbitMQ on Docker Hub: all **public**, pulled without a login. `bootstrap.sh` stores no registry login, and `deploy.sh` ignores `deploy`'s Docker config (#1330, see [Gotchas](#gotchas)) |
 | DB | none on the box — **Neon** is the database for prod AND staging (ADR-0034 §2) |
 | Ingress | **Caddy**, one vhost per app, automatic Let's Encrypt certificates |
 | Networks | **Two segregated Docker networks per box** (#506): `${project}_default` (`10.60.0.0/24`, our stack) and `${project}_tks` (`10.61.0.0/24`, the guest TheKittySaver stack). **Caddy is the only container on both** (static IPs `10.60.0.100` / `10.61.0.100`). The apps trust `X-Forwarded-*` from Caddy's `10.60.0.100/32` only, so keep that /32 in step with Caddy's `ipv4_address`. A third network, `${project}_obs`, carries the hand-deployed observability project (ADR-0050 §2): Caddy is on it too, with no pinned address, only so the ingest vhost can reach the backend containers (#755) |
@@ -347,7 +347,6 @@ volumes and not bind mounts.
 | `HEALTH_CHECK_KEY` (→ auth-api and tms-api `HealthCheck__Key`) | auth-api, tms-api, **and on the prod box the daily health ping** | **box-local**: `openssl rand -base64 32`, one per environment (not one per API) | Opens the full `/health` (ADR-0058); without it both APIs answer 404 there and run no check. **Required**, with the same format rules as `FRONTEND_CALLER_KEY`. **Prod only: the same value is the `PROD_HEALTH_CHECK_KEY` repository secret** the daily health ping sends. Set or rotate it without the value reaching argv or the screen: `ssh deploy@<prod-box> "grep '^HEALTH_CHECK_KEY=' /opt/lotro/.env \| cut -d= -f2-" \| tr -d '"\r\n' \| gh secret set PROD_HEALTH_CHECK_KEY` (gh reads stdin when there is no `--body`; **never `--body -`**). The command copies the raw `.env` line, so write the value **unquoted**: `tr` drops double quotes, but single quotes would reach the secret and turn the ping red. Rotate: new value into the prod `.env` → redeploy → that command. Between the two steps the ping gets 404 and goes red, so rotate outside its 06:40 UTC slot. A leaked key lets its holder run the database, SMTP and broker checks at will, and nothing more: rotate it. |
 | `OBS_PUSH_PASSWORD` (prod `/opt/obs/.env`) ↔ `OBS_PUSH_PASSWORD_HASH` (staging `/opt/lotro/.env`) | the prod agent (Alloy, `ship.agent.alloy`) ↔ the staging Caddy's ingest vhost | **box-local**: `openssl rand -base64 24`; hash it with `docker run --rm -it caddy:2-alpine caddy hash-password` (it prompts, never on argv) | One password in two forms; the plaintext exists on the prod box only. Rotate hash first: new hash into the staging `.env` → `deploy.sh` (reloads Caddy) → new password into the prod `.env` → `docker compose -f compose.observability.yaml up -d` in `/opt/obs`. **Telemetry sent in between is lost, not delayed**: all three writers treat a 401 as permanent and drop the batch. So pick a window you accept a hole in, or give the vhost a second `basic_auth` account first so the two credentials overlap. **Single-quote the hash in `.env`**: see [Bringing up the prod agent](#bringing-up-the-prod-agent-the-agent-only-role) step 3, which also has the probe that proves it landed. |
 | `SMOKE_CLIENT_SECRET` *(GitHub secret, per environment — **not** a box variable)* | `scripts/smoke.sh`, CD | == `OpenIddict__ApiClientSecret` of that environment | `gh secret set SMOKE_CLIENT_SECRET --env <staging\|production> --body "$VALUE"`. **Never `--body -`**: gh takes `-` literally and the smoke then gets 401. |
-| GHCR pull token *(not an env var — `docker login` state in `/home/deploy/.docker/config.json`)* | `docker compose pull` | **GitHub PAT**, scope `read:packages` **only** | Re-run `scripts/hetzner/bootstrap.sh` with `GHCR_USER` and `GHCR_TOKEN` set (the command and its shell-history caveat: [(Re)provisioning a box](#reprovisioning-a-box) step 3). Its login prompt runs only when `deploy` is not logged in yet, so a re-run without them keeps the old token. Today the images are public and pull without a login, so this matters only for a private package. |
 | `HETZNER_SSH_KEY` *(GitHub secret, per environment — **not** a box variable)* | CD over ssh (`deploy.yml`) | generated for CD, one key per box | The `deploy` user's key, never `root`'s. Mint + install + pin the host key: [One-time setup per environment](#one-time-setup-per-environment). |
 
 ### OpenIddict production keys (auth-api)
@@ -797,26 +796,21 @@ against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://
 2. **DNS first** (ACME needs it to resolve before certificates can issue): registrar panel → A
    records for every public hostname → the new IP, TTL 300. The hostnames are in the
    [env matrix](#environment-variable-matrix): prod trio → prod IP, staging trio → staging IP.
-3. **Bootstrap** (idempotent: a re-run changes nothing). Preferred form (`-t` gives the GHCR prompt
-   a TTY, so the PAT is typed at a hidden prompt and never lands in shell history):
+3. **Bootstrap** (idempotent: a re-run changes nothing). It asks nothing, so it needs no `ssh -t`:
 
    ```bash
    scp scripts/hetzner/bootstrap.sh root@<ip>:/root/
-   ssh -t root@<ip> REBOOT_TIME=02:30 bash /root/bootstrap.sh    # prod; prompts for GHCR user + read-only PAT
-   ssh -t root@<ip> REBOOT_TIME=01:30 bash /root/bootstrap.sh    # staging: reboots an hour before prod
+   ssh root@<ip> REBOOT_TIME=02:30 bash /root/bootstrap.sh    # prod
+   ssh root@<ip> REBOOT_TIME=01:30 bash /root/bootstrap.sh    # staging: reboots an hour before prod
    ```
 
    A box's first run needs `REBOOT_TIME` and stops before any change without it. A later re-run
    without it keeps the time the box has ([Gotchas](#gotchas)).
 
-   The PAT is a GitHub token with **only `read:packages`**. For automation you *can* pass it via env
-   (`ssh root@<ip> 'REBOOT_TIME=<01:30 staging | 02:30 prod> GHCR_USER=<u> GHCR_TOKEN=<pat> bash -s' < scripts/hetzner/bootstrap.sh`), but the
-   inline assignment **lands in your local shell history**, so prefer the prompt for hand runs.
-   Without env vars and without a TTY, the script skips the GHCR login with a warning and the rest
-   still completes.
-
-   **The GHCR login is optional today**: the four images are **public** packages, so `deploy` pulls
-   them anonymously. It stays in the script because a *private* package would need it.
+   **Bootstrap stores no registry login for `deploy`** (#1330). Every image of our stack is public, so
+   it pulls without one, and `deploy.sh` ignores `deploy`'s Docker config anyway ([Gotchas](#gotchas)).
+   Our images must stay public for that reason. Another stack with private images sets up its own
+   login. Bootstrap never touches a login that is already there.
 
    **Bootstrap overwrites `/etc/ssh/sshd_config.d/00-hardening.conf`, `/etc/fail2ban/jail.local`,
    `/usr/local/sbin/docker-user-firewall` and `/etc/systemd/system/docker-user-firewall.service`**
@@ -1089,9 +1083,10 @@ was live before the last deploy sits in `/opt/lotro/.previous/`: restore those t
 you are undoing a compose or Caddyfile change, not just an image change.
 
 Two edges worth knowing. `deploy.sh` prunes unused images older than 14 days
-(`PRUNE_UNUSED_OLDER_THAN`), so an older tag may need a fresh `docker pull` on the box; GHCR still
-has it. And re-running CD for a commit (**Actions → CD → Run workflow**, optionally with an explicit
-`image_tag`) still goes through the staging→prod gate.
+(`PRUNE_UNUSED_OLDER_THAN`), so an older tag may need a fresh pull on the box; GHCR still has it.
+`deploy.sh` pulls it for you. A pull by hand needs `DOCKER_CONFIG=/nonexistent` in front, or a stored
+login that has expired fails it ([Gotchas](#gotchas)). And re-running CD for a commit (**Actions → CD
+→ Run workflow**, optionally with an explicit `image_tag`) still goes through the staging→prod gate.
 
 ## Database migrations
 
@@ -1132,11 +1127,13 @@ databases must already exist (see [Databases](#databases)).
 
 ### Running migrations
 
-**On a box**: CD does this for you (the migration gate). By hand, as `deploy`:
+**On a box**: CD does this for you (the migration gate). By hand, as `deploy` (with
+`DOCKER_CONFIG=/nonexistent`, so a stored login that has expired cannot fail the pull of a missing
+image: [Gotchas](#gotchas)):
 
 ```bash
 cd /opt/lotro
-docker compose -f compose.hetzner.yaml run --rm --no-deps migrator
+DOCKER_CONFIG=/nonexistent docker compose -f compose.hetzner.yaml run --rm --no-deps migrator
 ```
 
 **Local production-parity stack (`compose.prod.yaml`)**: automatic. The `migrator` service runs to
@@ -1958,6 +1955,33 @@ works for `up` too. It does not.
   it, *both* stacks (`/opt/lotro` **and** `/opt/tks`). So `bootstrap.sh` checks for `docker` +
   `docker compose` and installs `docker-ce` only when the box has no engine at all (#502). Do not
   "simplify" that guard away: the engine's vendor does not matter to us, its presence does.
+- **`denied` on a pull of a public image means a stored login was refused (#1330).** Docker sends
+  the login it has stored for a registry even when the image is public. When the registry refuses
+  that login (an expired token), Docker does not try again without it. On 2026-11-11 an expired token
+  in `deploy`'s Docker config failed the staging rollout with `migrator Error error from registry:
+  denied`, and the automatic rollback failed the same way.
+  - `deploy.sh` runs every docker call with `DOCKER_CONFIG=/nonexistent` and without
+    `DOCKER_AUTH_CONFIG`, so it ignores the logins in the Docker config of the user that runs it. A
+    folder that does not exist gives Docker an empty config, and only root can create `/nonexistent`.
+  - So every image the stack pulls must be public, ours on ghcr.io included. A private image fails
+    every deploy at the pull. After the first push of a new image, check that its package is public.
+  - The rest of that Docker config is ignored too: a compose plugin under `~/.docker/cli-plugins`, a
+    docker context and proxy settings. Compose must be installed for the whole system (Ubuntu's
+    `docker-compose-v2` or Docker's `docker-compose-plugin`, both in
+    `/usr/libexec/docker/cli-plugins`). Bootstrap and CD check `docker compose version` the same way,
+    with `DOCKER_CONFIG=/nonexistent`, so a box that breaks this fails there first.
+  - A credential helper installed on the box is still used, even with no config folder. When `pass`
+    is installed, Docker uses `docker-credential-pass` if it is there. When `pass` is not installed,
+    Docker uses `docker-credential-secretservice` if it is there. Both come with the
+    `golang-docker-credential-helpers` package. A helper that cannot run (a desktop keyring on a
+    server) fails every pull with `error getting credentials`. Bootstrap installs none. To check, as
+    `deploy`: `command -v pass docker-credential-pass docker-credential-secretservice` must print
+    nothing.
+  - A docker command you type by hand still reads the stored logins. Put `DOCKER_CONFIG=/nonexistent`
+    in front of any hand command that may pull one of our images, for example
+    `DOCKER_CONFIG=/nonexistent docker pull ghcr.io/koniecdev/lotrokoniecdev-migrator:<tag>`.
+  - Never run `docker logout` as `deploy` to fix this: the other stack on the box may need the login
+    stored there.
 - **Two segregated networks per box; Caddy is the only shared component (#506).** Our stack lives
   alone on `${project}_default` (`10.60.0.0/24`); the guest TheKittySaver stack lives alone on
   `${project}_tks` (`10.61.0.0/24`), which our `compose.hetzner.yaml` defines and TKS joins as

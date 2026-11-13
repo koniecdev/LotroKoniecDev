@@ -4,11 +4,8 @@
 # ticket #487). Safe to re-run at any time — including on the Phase-0 boxes that were hardened by
 # hand: a pass on an already-bootstrapped box converges it and changes nothing on the second run.
 #
-# Runs ON the server as root. REBOOT_TIME is 01:30 on staging and 02:30 on prod (#1327). Preferred
-# invocation (the -t gives the GHCR prompt its TTY, so the PAT never touches shell history or argv):
-#   scp scripts/hetzner/bootstrap.sh root@<ip>:/root/ && ssh -t root@<ip> REBOOT_TIME=<time> bash /root/bootstrap.sh
-# Non-interactive/automation form — NOTE: the inline env assignments land in YOUR shell history:
-#   ssh root@<ip> 'REBOOT_TIME=<time> GHCR_USER=<user> GHCR_TOKEN=<pat> bash -s' < scripts/hetzner/bootstrap.sh
+# Runs ON the server as root. REBOOT_TIME is 01:30 on staging and 02:30 on prod (#1327):
+#   scp scripts/hetzner/bootstrap.sh root@<ip>:/root/ && ssh root@<ip> REBOOT_TIME=<time> bash /root/bootstrap.sh
 #
 # What it sets up:
 #   * a 2 GiB /swapfile, persisted in /etc/fstab, + vm.swappiness=10 — the Hetzner images ship with
@@ -25,8 +22,10 @@
 #     password; owns /opt/lotro and /opt/tks (the two compose stacks — ADR-0034 §5)
 #   * sshd hardening: PasswordAuthentication no (root stays key-only via Ubuntu's default
 #     prohibit-password)
-#   * `docker login ghcr.io` as deploy with a READ-ONLY (read:packages) PAT taken from
-#     GHCR_USER/GHCR_TOKEN env or an interactive prompt — never stored in this script or the repo
+#
+# It writes no registry login for `deploy`: every image of our stack is public, and deploy.sh ignores
+# the user's Docker config (#1330), so our images must stay public. Another stack with private images
+# sets up its own login.
 #
 # Deliberately NO .ps1 twin: the script-twins rule covers cross-platform dev machines; this runs
 # only on the Linux server. Operator docs: docs/deployment/runbook.md.
@@ -469,33 +468,9 @@ EOF
 ensure_unattended_reboot
 systemctl enable --now unattended-upgrades
 
-log "GHCR login as deploy (read-only PAT)"
-ghcr_logged_in() {
-    grep -q '"ghcr.io"' /home/deploy/.docker/config.json 2> /dev/null
-}
-ghcr_login() {
-    export GHCR_USER
-    # Single quotes on purpose (SC2016): $GHCR_USER must expand inside deploy's login shell,
-    # where su's -w whitelist delivers it — the token itself only ever travels via stdin.
-    # shellcheck disable=SC2016
-    printf '%s' "$GHCR_TOKEN" | su - deploy -w GHCR_USER -c 'docker login ghcr.io -u "$GHCR_USER" --password-stdin'
-}
-if [ -n "${GHCR_USER:-}" ] && [ -n "${GHCR_TOKEN:-}" ]; then
-    ghcr_login
-elif ghcr_logged_in; then
-    echo "deploy is already logged in to ghcr.io — skipping (set GHCR_USER/GHCR_TOKEN to refresh)."
-elif [ -t 0 ]; then
-    read -rp "GitHub username for ghcr.io: " GHCR_USER
-    read -rsp "GHCR read-only PAT (read:packages): " GHCR_TOKEN
-    echo
-    ghcr_login
-else
-    echo "WARNING: no GHCR_USER/GHCR_TOKEN in env, no TTY, and deploy is not logged in to ghcr.io yet." >&2
-    echo "         Re-run with: GHCR_USER=<user> GHCR_TOKEN=<read-only pat> bash bootstrap.sh" >&2
-fi
-
 log "verification"
-su - deploy -c 'docker compose version'
+# deploy.sh runs docker without the user's Docker config, so compose must work without it too (#1330).
+su - deploy -c 'DOCKER_CONFIG=/nonexistent docker compose version'
 # Proves the docker-group membership end-to-end, not just that the CLI binary exists.
 su - deploy -c 'docker ps > /dev/null'
 echo "deploy can reach the Docker daemon"

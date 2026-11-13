@@ -178,7 +178,8 @@ jobs:
             echo "  ServerAliveInterval 30"
           } > ~/.ssh/config
           chmod 600 ~/.ssh/config
-          ssh box 'echo "ssh OK as $(id -un) on $(hostname)"; docker compose version'
+          # deploy.sh runs docker without the user's Docker config (#1330), so check compose the same way.
+          ssh box 'echo "ssh OK as $(id -un) on $(hostname)"; DOCKER_CONFIG=/nonexistent docker compose version'
 
       # ── Prod N-1 promotion gate (#534) — after the approval, before anything touches the box ──
       # Batched promotion breaks "previous merge == previous deploy": the PR-time proof

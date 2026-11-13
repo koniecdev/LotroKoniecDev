@@ -215,10 +215,11 @@ path and/or an explicit `DAT` path. A `.backup` of the `DAT` is written next to 
 revert, copy it back over `client_local_English.dat`.
 
 To patch a file you edited yourself, use `patch <name>` or `launch <name> --skip-sync`: neither of
-them downloads anything or replaces the file. A plain `launch <name>` replaces it with the server's
-file. If you edit a copy under another name, your edits land only on rows that still hold English:
-a row the server's translation already patched is skipped and reported as `source moved` (see
-`source_digest` below).
+them downloads anything or replaces the file. A plain `launch <name>` may replace it with the
+server's file. Do not switch between a copy under another name and the server's file: each
+translation file keeps its own record of what it wrote (`<file>.ledger`). So edits from a copy land
+only on rows that still hold English, and a row you patched from the copy later refuses the
+server's translation as `source moved` (see `source_digest` below).
 
 ### Translation file format (the inter-context contract)
 

@@ -80,6 +80,12 @@ and delete a still-unprocessed version they registered by mistake.
 - Failed list fetch → surface the error; the register form / delete buttons cannot show (rels can't
   be read), mirroring import/export.
 - After a successful register or delete, **refresh the list** so it reflects the new state.
+  *(Amendment 2026-11-13, #549: a delete asks first. "Usuń" is a link that opens a question naming
+  the version ("Na pewno usunąć wersję 48.0?"), with "Tak, usuń" and "Anuluj"; only "Tak, usuń" posts
+  the delete. The question gets its own row under the version, and "Usuń" stays in its place,
+  inactive, so a double click on it cannot reach "Tak, usuń". A successful delete redirects to `/game-versions?deleted=true`, and that GET is the
+  refresh, so a reload cannot send the delete again. The register on the same page still answers in
+  place, without a redirect, on purpose: it is outside #549.)*
 - Version input is trimmed; the field carries the same `maxlength` as
   `LotroNotationVersion.VersionMaxLength` (11). Real format validation is server-side (ADR-0003 grammar
   plus the three-segment cap of its 2026-08-28 amendment).
@@ -114,6 +120,9 @@ and delete a still-unprocessed version they registered by mistake.
 - [ ] A non-admin translator sees the list but **no register form and no delete buttons**.
 - [ ] An admin sees the register form; submitting a valid version POSTs and the new row appears.
 - [ ] An admin sees a delete button on every row except **Processed** ones; deleting removes the row.
+      *(Amendment 2026-11-13, #549: the button opens a question that names the version, only "Tak, usuń"
+      deletes, "Anuluj" deletes nothing, and a successful delete redirects to the list with its
+      confirmation; see the business rule on refreshing the list.)*
 - [ ] `DELETE` on a Processed version ⇒ conflict; on an unknown id ⇒ 404; on a referenced version ⇒
       conflict — each surfaced as `ProblemDetails`, list preserved.
 - [ ] A duplicate/invalid register surfaces the API `ProblemDetails` without losing the list.

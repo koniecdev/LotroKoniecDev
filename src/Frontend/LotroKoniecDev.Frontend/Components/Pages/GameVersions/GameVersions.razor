@@ -3,6 +3,7 @@
 @using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Mvc
+@using LotroKoniecDev.Frontend.Infrastructure.Forms
 @using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
 @using LotroKoniecDev.TranslationSystem.Contracts.Common
@@ -12,6 +13,7 @@
 @using LotroKoniecDev.Frontend.Infrastructure.Errors
 @using LotroKoniecDev.Frontend.Infrastructure.Formatting
 @inject GameVersionsLoader Loader
+@inject NavigationManager Navigation
 
 <PageTitle>Wersje gry — lotro-translator.pl</PageTitle>
 
@@ -134,11 +136,25 @@
                                 @* Sent only to an admin, for a version no import has run against (#624). *@
                                 @if (version.Links.FindLink(Rels.Delete) is { } deleteLink)
                                 {
-                                    <form method="post" @formname="@DeleteFormName(version.Id)"
-                                          @onsubmit="() => DeleteAsync(deleteLink.Href)">
-                                        <AntiforgeryToken/>
-                                        <button type="submit" class="btn btn-ghost btn-sm">Usuń</button>
-                                    </form>
+                                    @if (IsConfirmingDeleteOf(version.Id))
+                                    {
+                                        @* "Anuluj" comes last, so the danger button never takes the place of "Usuń"
+                                           and the second click of a double click cannot confirm (#549). The form has
+                                           no action: it posts to this address, which draws it again (#1122). *@
+                                        <div class="version-delete-confirm">
+                                            <span>Na pewno usunąć wersję @(version.Version)?</span>
+                                            <form method="post" @formname="@DeleteFormName(version.Id)"
+                                                  @onsubmit="() => DeleteAsync(deleteLink.Href)">
+                                                <AntiforgeryToken/>
+                                                <button type="submit" class="btn btn-danger btn-sm">Tak, usuń</button>
+                                            </form>
+                                            <a class="btn btn-ghost btn-sm" href="@PageUri">Anuluj</a>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <a class="btn btn-ghost btn-sm" href="@ConfirmDeleteUri(version.Id)">Usuń</a>
+                                    }
                                 }
                             </td>
                         </tr>
@@ -160,8 +176,10 @@
     private const string RegisterFormName = "register-version";
     private const string DeleteFormNamePrefix = "delete-";
 
-    [SupplyParameterFromForm(FormName = RegisterFormName)]
-    private RegisterFormModel? RegisterInput { get; set; }
+    private const string PageUri = "/game-versions";
+    private const string ConfirmDeleteParameter = "confirm-delete";
+    private const string DeletedParameter = "deleted";
+    private const string DeletedUri = $"{PageUri}?{DeletedParameter}=true";
 
     private IReadOnlyList<GameVersionResponse>? _versions;
     private ProblemDetails? _versionsProblem;
@@ -173,12 +191,38 @@
     /// </summary>
     private string? _registerHref;
 
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromForm(FormName = RegisterFormName)]
+    private RegisterFormModel? RegisterInput { get; set; }
+
+    /// <summary>
+    /// The row whose delete waits for the second click (#549). Read as text, so a value that is not an id
+    /// only hides the question instead of failing the page (#1356).
+    /// </summary>
+    [SupplyParameterFromQuery(Name = ConfirmDeleteParameter)]
+    private string? ConfirmDelete { get; set; }
+
+    /// <summary>
+    /// Set by the redirect after a delete, so the confirmation needs no per-user state on the server. A
+    /// manual reload shows it again, which is harmless.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = DeletedParameter)]
+    private string? Deleted { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         // A property initializer is rejected for a [SupplyParameterFromForm] model (BL0008).
         RegisterInput ??= new RegisterFormModel();
 
-        // The register form and the delete buttons follow the admin-only rels, never a role check (#158).
+        // A post keeps the flag only because the address still has it, so it shows none (#1122).
+        if (PostedForm.NameOf(HttpContext) is null && bool.TryParse(Deleted, out bool deleted) && deleted)
+        {
+            _actionMessage = "Usunięto wersję gry.";
+        }
+
+        // The register form and the delete links follow the admin-only rels, never a role check (#158).
         await LoadVersionsAsync();
     }
 
@@ -240,15 +284,21 @@
         ApiResult result = await Loader.DeleteGameVersionAsync(deleteHref, CancellationToken.None);
         if (result.IsSuccess)
         {
-            _actionMessage = "Usunięto wersję gry.";
-        }
-        else
-        {
-            _actionProblem = result.ProblemDetails;
+            // Redirect after post: a reload is a plain GET and cannot send the delete again. A failure does
+            // not redirect, so the error and the question stay on screen.
+            Navigation.NavigateTo(DeletedUri);
+            return;
         }
 
+        _actionProblem = result.ProblemDetails;
         await LoadVersionsAsync();
     }
+
+    private bool IsConfirmingDeleteOf(GameVersionId id) =>
+        Guid.TryParse(ConfirmDelete, out Guid confirmedId) && confirmedId == id.Value;
+
+    private static string ConfirmDeleteUri(GameVersionId id) =>
+        string.Create(CultureInfo.InvariantCulture, $"{PageUri}?{ConfirmDeleteParameter}={id.Value}");
 
     /// <summary>
     /// A form name per row: static SSR sends the post to the matching <c>@@formname</c> and rebuilds that

@@ -1126,6 +1126,13 @@ code {
     text-align: right;
 }
 
+/* The question and its two controls stay on one line, in markup order: "Anuluj" last (#549). */
+.version-delete-confirm {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .col-text {
     max-width: 360px;
     word-break: break-word;

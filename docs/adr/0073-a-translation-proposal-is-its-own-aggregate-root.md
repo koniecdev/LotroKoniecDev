@@ -96,7 +96,10 @@ model.
 ### 5. Bulk paths insert new proposal rows and never load a history
 
 The bulk paths of #1372 and #1373 insert proposals as new rows, set-based (`COPY` or a batched
-`INSERT`, their choice). They never load the history of a row to add to it.
+`INSERT`, their choice). They never load the history of a row to add to it. In the same
+transaction they set `WaitingProposalId` and mark a replaced proposal, either through `Translation`
+in chunks or with set-based SQL that keeps the same rules; the partial unique index is the
+backstop.
 
 ## Consequences
 
@@ -113,8 +116,9 @@ The bulk paths of #1372 and #1373 insert proposals as new rows, set-based (`COPY
 - Today `TranslatedText` also holds drafts nobody approved. Under this model it holds only the live
   text, so the migration must keep the previous app revision working while the meaning moves
   (ADR-0023 expand → backfill → contract). The N-1 run of ADR-0024 runs the old tests against the
-  new schema, but it cannot see rows the old revision writes during the deploy; the contract step
-  (#1388) runs the backfill again for them.
+  new schema, but it cannot see rows the old revision writes during the deploy or after a rollback;
+  spec 0014 ("Files touched") sets the rules for that window, and the contract step (#1388)
+  reconciles those rows by their state.
 - A row in "Do ponownego sprawdzenia" keeps that status through saves, rejects and withdraws until
   an approval, so stale Polish never returns under changed English (ADR-0047).
 - ADR-0072 counts a save that replaces Polish as an overwrite. A save no longer replaces anything,

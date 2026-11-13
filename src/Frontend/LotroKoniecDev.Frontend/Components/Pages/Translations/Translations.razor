@@ -313,8 +313,12 @@
     [SupplyParameterFromQuery]
     private int? PageSize { get; set; }
 
+    /// <summary>
+    /// A string, so a link with a value that is not a bool (<c>on</c>, <c>1</c>) still shows the list. A typed
+    /// bool parameter throws while it binds, and the page becomes the layout's error page.
+    /// </summary>
     [SupplyParameterFromQuery]
-    private bool ConflictsOnly { get; set; }
+    private string? ConflictsOnly { get; set; }
 
     /// <summary>
     /// Set by the redirect after a bulk approve, so the confirmation needs no per-user state on the server
@@ -338,7 +342,7 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        _query = TranslationListQuery.From(Search, Status, Page, PageSize, ConflictsOnly);
+        _query = TranslationListQuery.From(Search, Status, Page, PageSize, TranslationListQuery.ParseConflictsOnly(ConflictsOnly));
         _result = await Loader.LoadAsync(_query, CancellationToken.None);
     }
 

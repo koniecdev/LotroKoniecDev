@@ -367,6 +367,27 @@ public sealed class TranslationsTests : BunitContext
         component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
     }
 
+    [Theory]
+    [InlineData("conflictsOnly=true", true)]
+    [InlineData("conflictsOnly=True", true)]
+    [InlineData("conflictsOnly=false", false)]
+    [InlineData("conflictsOnly=on", false)]
+    [InlineData("conflictsOnly=1", false)]
+    [InlineData("conflictsOnly=", false)]
+    [InlineData("conflictsOnly", false)]
+    [InlineData("conflictsOnly=abc", false)]
+    public void Render_WithAnyConflictsOnlyValueInTheUrl_ShowsTheListAndReadsOnlyTrueAsOn(string query, bool expectedOn)
+    {
+        // A hand-typed or old link must never break the page; any value but "true" means off.
+        StubPage(SinglePageOf(Row(canEdit: true)));
+        Navigation().NavigateTo($"/translations?{query}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
+        component.Find("form.filter input#conflictsOnly").HasAttribute("checked").ShouldBe(expectedOn);
+    }
+
     private IRenderedComponent<TranslationsComponent> RenderPage() =>
         Render<TranslationsComponent>();
 

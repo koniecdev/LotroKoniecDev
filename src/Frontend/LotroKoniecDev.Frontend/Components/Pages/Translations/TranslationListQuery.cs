@@ -48,6 +48,13 @@ internal sealed record TranslationListQuery
     public bool ConflictsOnly { get; }
 
     /// <summary>
+    /// Only <c>true</c>, in any case, turns the filter on. Any other value means off, as an unknown status
+    /// means "all".
+    /// </summary>
+    public static bool ParseConflictsOnly(string? conflictsOnly) =>
+        bool.TryParse(conflictsOnly, out bool isOn) && isOn;
+
+    /// <summary>
     /// An unknown status or <see cref="TranslationStatus.Unset"/> means "all".
     /// </summary>
     public static TranslationListQuery From(

@@ -269,6 +269,20 @@ public sealed class TranslationListQueryTests
         query.ToPageRelativeUriWithApprovalResult(approved: 1, skipped: 0).ShouldNotContain("pageSize=");
     }
 
+    [Theory]
+    [InlineData("true", true)]
+    [InlineData("True", true)]
+    [InlineData("TRUE", true)]
+    [InlineData("false", false)]
+    [InlineData("on", false)]
+    [InlineData("1", false)]
+    [InlineData("", false)]
+    [InlineData(" ", false)]
+    [InlineData("abc", false)]
+    [InlineData(null, false)]
+    public void ParseConflictsOnly_ReadsOnlyTrueAsOn(string? value, bool expected)
+        => TranslationListQuery.ParseConflictsOnly(value).ShouldBe(expected);
+
     [Fact]
     public void From_WithConflictsOnly_AsksTheApiForConflicts()
     {

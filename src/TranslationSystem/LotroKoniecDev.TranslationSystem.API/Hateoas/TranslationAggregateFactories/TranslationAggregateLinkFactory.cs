@@ -60,6 +60,12 @@ internal sealed class TranslationAggregateLinkFactory : ITranslationAggregateLin
                 values: new { id = id.Value }));
         }
 
+        links.AddIfPresent(await _linkFactory.CreateAsync(
+            endpoint: nameof(ListSameSourceTextTranslations),
+            rel: Rels.SameSourceText,
+            method: HttpMethods.Get,
+            values: new { id = id.Value }));
+
         return links;
     }
 

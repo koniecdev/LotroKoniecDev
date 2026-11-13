@@ -26,6 +26,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 /// The editor's list (spec 0001), without soft-removed rows; <c>status=NeedsReview</c> is the "needs
 /// retranslation" view. Anyone may read it (#309), because game texts and their translations are public
 /// by nature; every action still needs a login, so other callers get no action links.
+/// <c>conflictsOnly</c> keeps the translated rows whose identical English has two or more different
+/// Polish texts (#1347).
 /// </summary>
 internal sealed class ListTranslations : IEndpoint
 {
@@ -37,7 +39,8 @@ internal sealed class ListTranslations : IEndpoint
         TranslationStatus? Status,
         int Page = 1,
         int PageSize = 50,
-        string? Sort = null)
+        string? Sort = null,
+        bool ConflictsOnly = false)
         : IQuery<Result<PaginationResponse<TranslationListItemResponse>>>, IPaginationable, ISortable
     {
         public int Page { get; } = Math.Max(Page, 1);
@@ -84,6 +87,11 @@ internal sealed class ListTranslations : IEndpoint
                        && EF.Functions.ILike(translation.TranslatedText, pattern, LikeEscapeCharacter));
             }
 
+            if (query.ConflictsOnly)
+            {
+                filtered = WhereTheIdenticalEnglishHasDifferentPolish(filtered);
+            }
+
             int totalCount = await filtered.CountAsync(cancellationToken);
 
             IQueryable<TranslationReadModel> ordered = string.IsNullOrWhiteSpace(query.Sort)
@@ -124,6 +132,26 @@ internal sealed class ListTranslations : IEndpoint
                 _ => translation => translation.FileId
             };
 
+        /// <summary>
+        /// One grouped subquery over the whole live table, so status and search never hide half of a group;
+        /// a per-row "another row differs" check took 9 s on the production table (#1347). Untranslated
+        /// rows are left out on both sides: they have nothing to fix and are never a different Polish.
+        /// On top of one pass over the table, the cost grows with the number of translated rows.
+        /// </summary>
+        private IQueryable<TranslationReadModel> WhereTheIdenticalEnglishHasDifferentPolish(
+            IQueryable<TranslationReadModel> filtered)
+        {
+            IQueryable<string> conflictingSourceTexts = _readDbContext.Translations
+                .Where(translation => translation.RemovedInVersion == null && translation.TranslatedText != null)
+                .GroupBy(translation => translation.SourceText)
+                .Where(group => group.Select(translation => translation.TranslatedText).Distinct().Count() > 1)
+                .Select(group => group.Key);
+
+            return filtered.Where(translation =>
+                translation.TranslatedText != null
+                && conflictingSourceTexts.Contains(translation.SourceText));
+        }
+
         private const string LikeEscapeCharacter = "\\";
 
         private static string EscapeLike(string term)
@@ -146,9 +174,10 @@ internal sealed class ListTranslations : IEndpoint
                 [FromQuery] TranslationStatus? status = null,
                 [FromQuery] int page = 1,
                 [FromQuery] int pageSize = 50,
-                [FromQuery] string? sort = null) =>
+                [FromQuery] string? sort = null,
+                [FromQuery] bool conflictsOnly = false) =>
             {
-                Query query = new(lang, search, status, page, pageSize, sort);
+                Query query = new(lang, search, status, page, pageSize, sort, conflictsOnly);
 
                 Result<PaginationResponse<TranslationListItemResponse>> result = await handler.Handle(query, cancellationToken);
 
@@ -172,7 +201,9 @@ internal sealed class ListTranslations : IEndpoint
                     paged.Links =
                     [
                         .. await paginationLinkFactory.CreatePaginationLinksAsync(
-                            nameof(ListTranslations), paged, new { lang, search, status, sort }),
+                            nameof(ListTranslations),
+                            paged,
+                            new { lang, search, status, sort, conflictsOnly = conflictsOnly ? true : (bool?)null }),
                         .. await translationLinkFactory.CreateCollectionLinksAsync(callerIsAdmin)
                     ];
                 });

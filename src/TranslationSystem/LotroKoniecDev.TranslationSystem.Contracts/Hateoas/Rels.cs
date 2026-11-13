@@ -24,6 +24,12 @@ public static class Rels
     public const string Upsert = "upsert";
     public const string Approve = "approve";
 
+    /// <summary>
+    /// The other live rows with exactly the same English text (#1347). "Text", because a translation's
+    /// source also covers its args columns, and a later copy feature (TP-01) may need that full match.
+    /// </summary>
+    public const string SameSourceText = "same-source-text";
+
     // Translation collection actions
     public const string BulkApprove = "bulk-approve";
 

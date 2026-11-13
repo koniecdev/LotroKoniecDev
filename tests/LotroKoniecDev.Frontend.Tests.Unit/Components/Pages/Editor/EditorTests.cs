@@ -9,8 +9,10 @@ using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using EditorComponent = LotroKoniecDev.Frontend.Components.Pages.Editor.Editor;
@@ -26,6 +28,11 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Editor;
 public sealed class EditorTests : BunitContext
 {
     private const string Token = "<--DO_NOT_TOUCH!-->";
+
+    // Distinctive hrefs, so a test can prove the editor follows the link.
+    private const string SaveHref = "https://tms.example/hateoas/translations";
+    private const string ApproveHref = "https://tms.example/hateoas/translations/abc/approve";
+    private const string SameSourceTextHref = "https://tms.example/hateoas/translations/abc/same-source-text";
 
     private readonly ITranslationSystemClient _client = Substitute.For<ITranslationSystemClient>();
 
@@ -457,6 +464,214 @@ public sealed class EditorTests : BunitContext
         component.Find(".status-message.status-success").TextContent.ShouldContain("Tłumaczenie zatwierdzono");
     }
 
+    [Fact]
+    public void Render_WhenOtherRowsShareTheEnglishWithOtherPolish_ListsThemWithStatusAndSaverUnderAWarning()
+    {
+        // #1347: the ticket's example, opened on the approved row.
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
+        TranslationId draftId = TranslationId.Create(Guid.NewGuid());
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [
+                Other(draftId, 127768437, "Krzepki Topornik", TranslationStatus.Draft, "Gimli"),
+                Other(TranslationId.Create(Guid.NewGuid()), 204170133, "Wytrzymały topór", TranslationStatus.Draft, "Elrohir")
+            ],
+            TotalCount: 2,
+            HasConflictingTranslations: true));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        IElement panel = component.Find("section.same-source");
+        panel.QuerySelector("h2")!.TextContent.ShouldBe("Inne wiersze z tym samym tekstem");
+        panel.QuerySelector(".same-source-conflict")!.TextContent.ShouldContain("różne tłumaczenia polskie");
+        IHtmlCollection<IElement> rows = panel.QuerySelectorAll("tbody tr");
+        rows.Length.ShouldBe(2);
+        rows[0].TextContent.ShouldContain("127768437");
+        rows[0].TextContent.ShouldContain("Krzepki Topornik");
+        rows[0].TextContent.ShouldContain("Wersja robocza");
+        rows[0].TextContent.ShouldContain("Gimli");
+        rows[0].QuerySelector("a")!.GetAttribute("href").ShouldBe($"/editor/{draftId.Value}");
+        rows[1].TextContent.ShouldContain("Wytrzymały topór");
+        rows[1].TextContent.ShouldContain("Elrohir");
+        panel.QuerySelectorAll(".same-source-capped").Length.ShouldBe(0);
+    }
+
+    [Fact]
+    public void Render_WhenTheOtherRowsAgree_ListsThemWithoutTheWarning()
+    {
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Topór wojenny", TranslationStatus.Approved, "Gimli")],
+            TotalCount: 1,
+            HasConflictingTranslations: false));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.Find("section.same-source tbody tr").TextContent.ShouldContain("Topór wojenny");
+        component.FindAll(".same-source-conflict").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_WhenAnotherRowIsUntranslated_ShowsADashForItsPolishAndItsSaver()
+    {
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [new SameSourceTextItemResponse(
+                TranslationId.Create(Guid.NewGuid()), 620756996, 2, null, TranslationStatus.Untranslated, null)],
+            TotalCount: 1,
+            HasConflictingTranslations: false));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        IHtmlCollection<IElement> cells = component.Find("section.same-source tbody tr").QuerySelectorAll("td");
+        cells[2].TextContent.Trim().ShouldBe("—");
+        cells[4].TextContent.Trim().ShouldBe("—");
+    }
+
+    [Fact]
+    public void Render_WhenNoOtherRowSharesTheEnglish_DrawsNoPanelAndNoNotice()
+    {
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse([], TotalCount: 0, HasConflictingTranslations: false));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.FindAll("section.same-source").ShouldBeEmpty();
+        component.FindAll(".same-source-unavailable").ShouldBeEmpty();
+        component.FindAll(".editor-grid").Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void Render_WhenThePanelFailsToLoad_KeepsTheEditorAndShowsAShortNotice()
+    {
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", canEdit: true, hasSameSourceText: true));
+        _client
+            .GetApiResultAsync<SameSourceTextTranslationsResponse>(SameSourceTextHref, Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<SameSourceTextTranslationsResponse>(new() { Title = "Błąd serwera." }));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.Find(".same-source-unavailable").TextContent.ShouldContain("Nie udało się wczytać innych wierszy");
+        component.FindAll("textarea#translated").Count.ShouldBe(1);
+        component.FindAll(".error-message").ShouldBeEmpty();
+        component.FindAll("section.same-source").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_WhenTheRowLacksTheSameSourceTextRel_NeverAsksForThePanel()
+    {
+        // The server leaves the rel out for a removed row, so no request may be built without it.
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny"));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.FindAll("section.same-source").ShouldBeEmpty();
+        _client.DidNotReceive().GetApiResultAsync<SameSourceTextTranslationsResponse>(
+            Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void Render_OnAPost_DoesNotAskForThePanel()
+    {
+        // A good save or approve redirects to a GET that loads the panel, so a post must not pay for it.
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Krzepki Topornik", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 1,
+            HasConflictingTranslations: true));
+        DefaultHttpContext post = new();
+        post.Request.Method = HttpMethods.Post;
+
+        IRenderedComponent<EditorComponent> component = Render<EditorComponent>(parameters => parameters
+            .AddCascadingValue<HttpContext>(post)
+            .Add(editor => editor.Id, Guid.NewGuid()));
+
+        component.FindAll("section.same-source").ShouldBeEmpty();
+        _client.DidNotReceive().GetApiResultAsync<SameSourceTextTranslationsResponse>(
+            Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void Render_WhenThePanelIsCappedAndThePolishDiffers_LinksToTheConflictListSearchingForTheEnglish()
+    {
+        StubLoad(BuildDetail(sourceText: "Interrupted!", translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 60,
+            HasConflictingTranslations: true));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        IElement capped = component.Find(".same-source-capped");
+        capped.TextContent.ShouldContain("Pokazano 1 z 60");
+        capped.QuerySelector("a")!.GetAttribute("href")
+            .ShouldBe("/translations?page=1&search=Interrupted!&conflictsOnly=true");
+    }
+
+    [Fact]
+    public void Render_WhenThePanelIsCappedAndTheEnglishIsExactlyTheLimit_StillSearchesForIt()
+    {
+        string limitText = new('a', 200);
+        StubLoad(BuildDetail(sourceText: limitText, translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 60,
+            HasConflictingTranslations: true));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.Find(".same-source-capped a").GetAttribute("href")
+            .ShouldBe($"/translations?page=1&search={limitText}&conflictsOnly=true");
+    }
+
+    [Fact]
+    public void Render_WhenThePanelIsCappedAndTheEnglishIsLong_LinksToTheWholeConflictList()
+    {
+        string longText = new('a', 201);
+        StubLoad(BuildDetail(sourceText: longText, translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 60,
+            HasConflictingTranslations: true));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.Find(".same-source-capped a").GetAttribute("href").ShouldBe("/translations?page=1&conflictsOnly=true");
+    }
+
+    [Theory]
+    [InlineData("Line one\nline two")]
+    [InlineData("Line one\r\nline two")]
+    public void Render_WhenThePanelIsCappedAndTheEnglishHasALineBreak_LinksToTheWholeConflictList(string sourceText)
+    {
+        // The list's search box drops line breaks, so a search for this text would match nothing on the
+        // next submit.
+        StubLoad(BuildDetail(sourceText: sourceText, translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 60,
+            HasConflictingTranslations: true));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.Find(".same-source-capped a").GetAttribute("href").ShouldBe("/translations?page=1&conflictsOnly=true");
+    }
+
+    [Fact]
+    public void Render_WhenThePanelIsCappedButThePolishAgrees_ShowsTheCountWithoutAListLink()
+    {
+        StubLoad(BuildDetail(sourceText: "Interrupted!", translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 60,
+            HasConflictingTranslations: false));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        IElement capped = component.Find(".same-source-capped");
+        capped.TextContent.ShouldContain("Pokazano 1 z 60");
+        capped.QuerySelectorAll("a").Length.ShouldBe(0);
+    }
+
     private BunitNavigationManager Navigation() =>
         (BunitNavigationManager)Services.GetRequiredService<NavigationManager>();
 
@@ -473,16 +688,29 @@ public sealed class EditorTests : BunitContext
             .Returns(ApiResult.Success(detail));
     }
 
-    // Distinctive hrefs, so a test can prove the editor follows the link.
-    private const string SaveHref = "https://tms.example/hateoas/translations";
-    private const string ApproveHref = "https://tms.example/hateoas/translations/abc/approve";
+    /// <summary>Only the row's own href answers, so a rendered panel proves the editor followed it.</summary>
+    private void StubSameSourceText(SameSourceTextTranslationsResponse response)
+    {
+        _client
+            .GetApiResultAsync<SameSourceTextTranslationsResponse>(SameSourceTextHref, Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(response));
+    }
+
+    private static SameSourceTextItemResponse Other(
+        TranslationId id,
+        long gossipId,
+        string polish,
+        TranslationStatus status,
+        string saver) =>
+        new(id, 620756996, gossipId, polish, status, new TranslatorSummaryResponse(TranslatorId.Create(), saver));
 
     private static TranslationDetailResponse BuildDetail(
         string sourceText,
         string? translatedText,
         string? previousSourceText = null,
         bool canEdit = true,
-        bool canApprove = false)
+        bool canApprove = false,
+        bool hasSameSourceText = false)
     {
         List<LinkDto> links = [];
         if (canEdit)
@@ -493,6 +721,11 @@ public sealed class EditorTests : BunitContext
         if (canApprove)
         {
             links.Add(new LinkDto(ApproveHref, Rels.Approve, "POST"));
+        }
+
+        if (hasSameSourceText)
+        {
+            links.Add(new LinkDto(SameSourceTextHref, Rels.SameSourceText, "GET"));
         }
 
         return new TranslationDetailResponse(

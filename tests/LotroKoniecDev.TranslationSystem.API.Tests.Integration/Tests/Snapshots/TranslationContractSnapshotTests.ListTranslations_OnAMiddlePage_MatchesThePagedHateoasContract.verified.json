@@ -19,6 +19,11 @@
           "href": "http://localhost/api/v1/translations",
           "rel": "upsert",
           "method": "PUT"
+        },
+        {
+          "href": "http://localhost/api/v1/translations/Guid_1/same-source-text",
+          "rel": "same-source-text",
+          "method": "GET"
         }
       ]
     }

@@ -171,7 +171,7 @@ public sealed class TranslationsTests : BunitContext
         IRenderedComponent<TranslationsComponent> component = RenderPage();
 
         component.FindAll("th.col-check").Count.ShouldBe(1);
-        component.FindAll("input[type=checkbox]").Count.ShouldBe(1);
+        component.FindAll("td.col-check input[type=checkbox]").Count.ShouldBe(1);
         component.FindAll("button[type=submit]").ShouldContain(button => button.TextContent.Contains("Zatwierdź zaznaczone"));
     }
 
@@ -184,7 +184,7 @@ public sealed class TranslationsTests : BunitContext
         IRenderedComponent<TranslationsComponent> component = RenderPage();
 
         component.FindAll("th.col-check").ShouldBeEmpty();
-        component.FindAll("input[type=checkbox]").ShouldBeEmpty();
+        component.FindAll("td.col-check input[type=checkbox]").ShouldBeEmpty();
         component.FindAll("button[type=submit]").Where(button => button.TextContent.Contains("Zatwierdź")).ShouldBeEmpty();
     }
 
@@ -196,7 +196,7 @@ public sealed class TranslationsTests : BunitContext
         IRenderedComponent<TranslationsComponent> component = RenderPage();
 
         component.FindAll("th.col-check").Count.ShouldBe(1);
-        component.FindAll("input[type=checkbox]").ShouldBeEmpty();
+        component.FindAll("td.col-check input[type=checkbox]").ShouldBeEmpty();
         component.FindAll("button[type=submit]").Where(button => button.TextContent.Contains("Zatwierdź")).ShouldBeEmpty();
     }
 
@@ -210,7 +210,7 @@ public sealed class TranslationsTests : BunitContext
 
         IRenderedComponent<TranslationsComponent> component = RenderPage();
 
-        component.Find("input[type=checkbox]").GetAttribute("name").ShouldBe($"SelectedRows[{row.Id.Value}]");
+        component.Find("td.col-check input[type=checkbox]").GetAttribute("name").ShouldBe($"SelectedRows[{row.Id.Value}]");
     }
 
     [Fact]
@@ -333,6 +333,59 @@ public sealed class TranslationsTests : BunitContext
         component.FindAll("#pageSize option[value=\"7\"]").ShouldBeEmpty();
         component.Find($"#pageSize option[value=\"{TranslationListQuery.DefaultPageSize}\"]")
             .HasAttribute("selected").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Render_ConflictsOnlyCheckbox_SendsTrueSoTheFilterTurnsOn()
+    {
+        StubPage(SinglePageOf(Row(canEdit: true)));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        IElement checkbox = component.Find("form.filter input#conflictsOnly");
+        checkbox.GetAttribute("type").ShouldBe("checkbox");
+        checkbox.GetAttribute("name").ShouldBe("conflictsOnly");
+        checkbox.GetAttribute("value").ShouldBe("true");
+        checkbox.HasAttribute("checked").ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Render_WhenConflictsOnlyIsInTheQuery_ChecksTheBoxAndAsksTheApiForConflicts()
+    {
+        // #1347: the admin's view of identical English texts with different Polish. Only a call that
+        // carries the filter gets the page, so a rendered row proves the filter reached the API.
+        _client
+            .GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(
+                Arg.Is<string>(uri => uri.Contains("conflictsOnly=true")),
+                Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(SinglePageOf(Row(canEdit: true))));
+        Navigation().NavigateTo("/translations?conflictsOnly=true");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find("form.filter input#conflictsOnly").HasAttribute("checked").ShouldBeTrue();
+        component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("conflictsOnly=true", true)]
+    [InlineData("conflictsOnly=True", true)]
+    [InlineData("conflictsOnly=false", false)]
+    [InlineData("conflictsOnly=on", false)]
+    [InlineData("conflictsOnly=1", false)]
+    [InlineData("conflictsOnly=", false)]
+    [InlineData("conflictsOnly", false)]
+    [InlineData("conflictsOnly=abc", false)]
+    public void Render_WithAnyConflictsOnlyValueInTheUrl_ShowsTheListAndReadsOnlyTrueAsOn(string query, bool expectedOn)
+    {
+        // A hand-typed or old link must never break the page; any value but "true" means off.
+        StubPage(SinglePageOf(Row(canEdit: true)));
+        Navigation().NavigateTo($"/translations?{query}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
+        component.Find("form.filter input#conflictsOnly").HasAttribute("checked").ShouldBe(expectedOn);
     }
 
     private IRenderedComponent<TranslationsComponent> RenderPage() =>

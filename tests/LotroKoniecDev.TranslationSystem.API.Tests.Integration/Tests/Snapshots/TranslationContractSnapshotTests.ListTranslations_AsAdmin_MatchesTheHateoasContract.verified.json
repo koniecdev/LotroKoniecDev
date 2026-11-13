@@ -27,6 +27,11 @@
           "href": "http://localhost/api/v1/translations/Guid_1/approve",
           "rel": "approve",
           "method": "POST"
+        },
+        {
+          "href": "http://localhost/api/v1/translations/Guid_1/same-source-text",
+          "rel": "same-source-text",
+          "method": "GET"
         }
       ]
     },
@@ -49,6 +54,11 @@
           "href": "http://localhost/api/v1/translations",
           "rel": "upsert",
           "method": "PUT"
+        },
+        {
+          "href": "http://localhost/api/v1/translations/Guid_3/same-source-text",
+          "rel": "same-source-text",
+          "method": "GET"
         }
       ]
     },
@@ -71,6 +81,11 @@
           "href": "http://localhost/api/v1/translations",
           "rel": "upsert",
           "method": "PUT"
+        },
+        {
+          "href": "http://localhost/api/v1/translations/Guid_4/same-source-text",
+          "rel": "same-source-text",
+          "method": "GET"
         }
       ]
     }

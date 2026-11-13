@@ -403,6 +403,7 @@ number (#624). Otherwise **422** (`GameVersionEntity.ProcessedCannotBeDeleted` /
 | `GET` | `/api/v1/translations` | **anonymous** (read-only browse, #309) | **200** `PaginationResponse<TranslationListItemResponse>` · **400** (unsupported lang) |
 | `GET` | `/api/v1/translations/stats` | `RequireTranslatorRole` | **200** `TranslationStatsResponse` |
 | `GET` | `/api/v1/translations/{id:guid}` | `RequireTranslatorRole` | **200** `TranslationDetailResponse` · **404** |
+| `GET` | `/api/v1/translations/{id:guid}/same-source-text` | `RequireTranslatorRole` | **200** `SameSourceTextTranslationsResponse` · **404** (unknown or soft-removed row) — see below |
 | `PUT` | `/api/v1/translations` | `RequireTranslatorRole` | **200** `TranslationDetailResponse` · **400** · **403** · **404** · **422** |
 | `POST` | `/api/v1/translations/{id:guid}/approve` | `RequireAdminRole` | **204** · **400** · **403** · **404** · **422** |
 | `POST` | `/api/v1/translations/approve` | `RequireAdminRole` | **200** `BulkApproveTranslationsResponse` · **400** · **403** — see below |
@@ -417,6 +418,7 @@ number (#624). Otherwise **422** (`GameVersionEntity.ProcessedCannotBeDeleted` /
 | `page` | int | `1` | at least 1 |
 | `pageSize` | int | `50` | clamped to 1–100 |
 | `sort` | string? | — | multi-field sort, §6 (`fileId`, `gossipId`, `status`, `submittedAt`) |
+| `conflictsOnly` | bool | `false` | only rows with Polish whose **exactly identical** English text has two or more different Polish texts among the live rows (#1347). Untranslated rows never count as a difference and are not listed. Status and search narrow the listed rows; the conflict is judged on the whole live group. The pager links keep it |
 
 Soft-removed rows are always left out. Default order `(FileId, GossipId)`. Anonymous callers get the
 items without any links.
@@ -462,6 +464,25 @@ approved.
 `TranslationListItemResponse` is the lighter `{ id, fileId, gossipId, sourceText, translatedText,
 status, submitter, updatedAt }`. `previousSourceText` is the **old English** kept for review after a
 game update invalidated the row; it is set from the invalidation until the row is approved again.
+
+**`GET /translations/{id}/same-source-text`** (#1347) — the editor's "other rows with the same text"
+panel. It returns the other live rows whose `SourceText` is exactly the row's (the args columns do not
+matter here): rows with Polish first, then `(FileId, GossipId)`, at most **50**. `totalCount` counts
+all of them; `hasConflictingTranslations` is `true` when the live group, this row included, has two
+or more different non-null Polish texts. Nothing is written. Clients follow the `same-source-text`
+rel on the translation rather than build the URL.
+
+```json
+{
+  "items": [
+    { "id": "0190...", "fileId": 620756996, "gossipId": 127768437,
+      "translatedText": "Krzepki Topornik", "status": "Draft",
+      "submitter": { "id": "0190...", "displayName": "Gimli" } }
+  ],
+  "totalCount": 2,
+  "hasConflictingTranslations": true
+}
+```
 
 `TranslationStatsResponse` (mini dashboard): `{ total, translated, approved, remaining }` over the
 active (non-removed) catalog. `translated` = rows with Polish (Draft + Approved + NeedsReview),
@@ -614,6 +635,7 @@ Rels on resources and collections:
 | `self` | GET | the resource / list page | always — except on a translation for a caller who is not a translator (every link there needs a login) |
 | `upsert` | PUT | `/api/v1/translations` | caller is `Translator`/`Admin`, translation not soft-removed |
 | `approve` | POST | `/api/v1/translations/{id}/approve` | caller is `Admin` **and** status is Draft or NeedsReview, not removed |
+| `same-source-text` | GET | `/api/v1/translations/{id}/same-source-text` | caller is `Translator`/`Admin`, translation not soft-removed (#1347) |
 | `bulk-approve` | POST | `/api/v1/translations/approve` | on the translations collection, caller is `Admin` |
 | `register` | POST | `/api/v1/game-versions` | on the game-versions collection, caller is `Admin` |
 | `delete` | DELETE | `/api/v1/game-versions/{id}` | caller is `Admin` **and** the version is not `Processed` (#624) |

@@ -57,6 +57,18 @@
                     <span class="select-chev" aria-hidden="true">▾</span>
                 </div>
             </div>
+            <div class="field-static field-conflicts">
+                @* value="true", because the browser sends "on" for a bare checkbox, and only "true" turns the filter on. *@
+                <label class="checkbox" title="Ten sam tekst angielski ma w różnych wierszach różne tłumaczenia polskie">
+                    <input id="conflictsOnly" name="conflictsOnly" type="checkbox" value="true" checked="@_query.ConflictsOnly"/>
+                    <span class="box">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 6 9 17l-5-5"/>
+                        </svg>
+                    </span>
+                    <span>Tylko rozbieżne tłumaczenia</span>
+                </label>
+            </div>
             <div class="filter-actions">
                 <a class="btn btn-ghost" href="/translations">Wyczyść</a>
                 <button type="submit" class="btn btn-primary">Filtruj</button>
@@ -302,6 +314,13 @@
     private int? PageSize { get; set; }
 
     /// <summary>
+    /// A string, so a link with a value that is not a bool (<c>on</c>, <c>1</c>) still shows the list. A typed
+    /// bool parameter throws while it binds, and the page becomes the layout's error page.
+    /// </summary>
+    [SupplyParameterFromQuery]
+    private string? ConflictsOnly { get; set; }
+
+    /// <summary>
     /// Set by the redirect after a bulk approve, so the confirmation needs no per-user state on the server
     /// (#322). Null on a plain GET. A manual reload shows the message again, which is harmless.
     /// </summary>
@@ -323,7 +342,7 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        _query = TranslationListQuery.From(Search, Status, Page, PageSize);
+        _query = TranslationListQuery.From(Search, Status, Page, PageSize, TranslationListQuery.ParseConflictsOnly(ConflictsOnly));
         _result = await Loader.LoadAsync(_query, CancellationToken.None);
     }
 

@@ -308,10 +308,14 @@ code {
     border-radius: var(--radius);
     padding: 18px;
     display: grid;
-    grid-template-columns: 1fr 1fr auto auto;
+    grid-template-columns: 1fr 1fr auto auto auto;
     gap: 14px;
     align-items: end;
     box-shadow: var(--shadow);
+}
+
+.field-conflicts .checkbox {
+    padding: 12px 0;
 }
 
 .field-page-size .select-wrap select {
@@ -1310,6 +1314,20 @@ code {
     gap: 22px;
     align-items: start;
     padding-bottom: 8px;
+}
+
+/* The editor's "other rows with the same text" panel (#1347). pre-wrap, so two Polish texts that differ
+   only in spaces do not look the same. */
+.panel.same-source {
+    margin-top: 22px;
+}
+
+.same-source .col-text {
+    white-space: pre-wrap;
+}
+
+.same-source-capped {
+    margin: 12px 0 0;
 }
 
 .editor-source {

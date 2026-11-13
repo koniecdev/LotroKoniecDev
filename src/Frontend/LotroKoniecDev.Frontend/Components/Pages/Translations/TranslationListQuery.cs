@@ -25,12 +25,13 @@ internal sealed record TranslationListQuery
 
     private const string PagePath = "/translations";
 
-    private TranslationListQuery(string? search, TranslationStatus? status, int page, int pageSize)
+    private TranslationListQuery(string? search, TranslationStatus? status, int page, int pageSize, bool conflictsOnly)
     {
         Search = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
         Status = status;
         Page = Math.Max(page, 1);
         PageSize = PageSizeOptions.Contains(pageSize) ? pageSize : DefaultPageSize;
+        ConflictsOnly = conflictsOnly;
     }
 
     public string? Search { get; }
@@ -42,11 +43,28 @@ internal sealed record TranslationListQuery
     public int PageSize { get; }
 
     /// <summary>
+    /// Only translated rows whose identical English has two or more different Polish texts (#1347).
+    /// </summary>
+    public bool ConflictsOnly { get; }
+
+    /// <summary>
+    /// Only <c>true</c>, in any case, turns the filter on. Any other value means off, as an unknown status
+    /// means "all".
+    /// </summary>
+    public static bool ParseConflictsOnly(string? conflictsOnly) =>
+        bool.TryParse(conflictsOnly, out bool isOn) && isOn;
+
+    /// <summary>
     /// An unknown status or <see cref="TranslationStatus.Unset"/> means "all".
     /// </summary>
-    public static TranslationListQuery From(string? search, string? status, int page, int? pageSize = null)
+    public static TranslationListQuery From(
+        string? search,
+        string? status,
+        int page,
+        int? pageSize = null,
+        bool conflictsOnly = false)
     {
-        return new TranslationListQuery(search, ParseStatus(status), page, pageSize ?? DefaultPageSize);
+        return new TranslationListQuery(search, ParseStatus(status), page, pageSize ?? DefaultPageSize, conflictsOnly);
     }
 
     public string ToApiUri(string collectionHref)
@@ -103,6 +121,11 @@ internal sealed record TranslationListQuery
         if (Status is { } status)
         {
             parameters["status"] = status.ToString();
+        }
+
+        if (ConflictsOnly)
+        {
+            parameters["conflictsOnly"] = "true";
         }
     }
 

@@ -42,4 +42,15 @@ internal static class TranslationProjections
                 ? null
                 : new TranslatorSummaryResponse(translation.SubmittedBy.Id, translation.SubmittedBy.DisplayName),
             translation.UpdatedAt);
+
+    public static readonly Expression<Func<TranslationReadModel, SameSourceTextItemResponse>> ToSameSourceTextItem =
+        translation => new SameSourceTextItemResponse(
+            translation.Id,
+            translation.FileId,
+            translation.GossipId,
+            translation.TranslatedText,
+            translation.Status,
+            translation.SubmittedBy == null
+                ? null
+                : new TranslatorSummaryResponse(translation.SubmittedBy.Id, translation.SubmittedBy.DisplayName));
 }

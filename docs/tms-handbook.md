@@ -792,13 +792,22 @@ read twice over the network.
 
 **Browsing.** `GET /api/v1/translations` — the public, paginated list. Filters: text search
 (case-insensitive, over both English and Polish, with SQL wildcard characters escaped so a
-literal `%` in game text matches itself), status filter, page size 1–100 (default 50). Sorting
+literal `%` in game text matches itself), status filter, a "conflicts only" filter (#1347: rows
+whose exactly identical English has two or more different Polish texts, found with one grouped
+subquery). It needs no extra index at today's share of translated rows: about 135 ms on the
+production table on 2026-11-13, with about 535 rows translated. On top of one pass over the table,
+its cost grows with the number of translated rows (about 1.5 s per request with every row
+translated, measured on 800,000 rows), so look at it again when about 100,000 rows have Polish. Page size 1–100 (default 50). Sorting
 always ends with a unique key, so pages never repeat or lose rows. Search is fast thanks to
 trigram indexes (Part 6.2).
 
 **Editing.** The editor page loads one row (`GET /api/v1/translations/{id}` — this one needs a
 login) and shows English and Polish side by side, with every `<--DO_NOT_TOUCH!-->` placeholder
-highlighted. For a NeedsReview row it also shows `PreviousSourceText`. Saving sends
+highlighted. For a NeedsReview row it also shows `PreviousSourceText`. Below the editor, the "Inne
+wiersze z tym samym tekstem" panel follows the row's `same-source-text` rel
+(`GET /api/v1/translations/{id}/same-source-text`, #1347): the other live rows with exactly the same
+English, their Polish, status and last saver, with a warning when their Polish texts differ. It only
+shows; nothing is copied. Saving sends
 `PUT /api/v1/translations` with `(FileId, GossipId, TranslatedText)`. The handler:
 
 1. loads the row by fragment key — unknown key → 404 (rows are *born from imports*, never from
@@ -1074,8 +1083,8 @@ Frontend's CSP would block (#670). Wanting interactivity means writing an ADR fi
 | Route | Who | What it does |
 |---|---|---|
 | `/` | public | Landing page with a progress meter (approved / awaiting / total; from a 30 s server-side snapshot — AUDIT-EF-04) and download links |
-| `/translations` | public | Searchable, filterable, paginated list; per-row Edit link; admin sees bulk-approve checkboxes |
-| `/editor/{id}` | logged in | Side-by-side editor: English (and previous English for NeedsReview) vs Polish; placeholder highlighting and mismatch warning; Save + Approve |
+| `/translations` | public | Searchable, filterable, paginated list with a "Tylko rozbieżne tłumaczenia" filter; per-row Edit link; admin sees bulk-approve checkboxes |
+| `/editor/{id}` | logged in | Side-by-side editor: English (and previous English for NeedsReview) vs Polish; placeholder highlighting and mismatch warning; Save + Approve; the other rows with the same English and a warning when their Polish differs |
 | `/dashboard` | logged in | Progress tiles: total / translated / approved / remaining |
 | `/game-versions` | logged in | Version list; admin-only register form and guarded per-row delete |
 | `/import-export` | logged in | Download `polish.txt`; admin-only upload of `exported.txt` with an import summary |

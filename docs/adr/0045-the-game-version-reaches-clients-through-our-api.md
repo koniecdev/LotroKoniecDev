@@ -179,6 +179,10 @@ only degrade to a cheap 304 when a cached ETag happens to exist. So the prefligh
 anonymous entry point, `GET /api/v1/game-versions/current`, advertised under a new rel
 `current-game-version` (#626) and consumed by #627, which also puts `--tms-url` on `patch`.
 
+> **Note (#1281, 2026-11-13):** `GlobalSettings.DefaultTmsBaseUrl` is gone. `launch` now defaults
+> to the production root (`TmsConstants.DefaultBaseUrl`). `patch` still holds no server address, so
+> the reasoning above stands.
+
 The two channels answer different questions and must not be collapsed into one. The header verdict
 is response-scoped and counts only `Unprocessed` versions (§3). The endpoint answers "what is the
 newest version the TMS knows", every status included — to an admin standing in front of a DAT a

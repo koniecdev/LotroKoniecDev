@@ -244,12 +244,15 @@ groups:
               editorMode: code
               # Self-arming, like the silent-box rule: the metric starts to count after the first
               # good run, which the wiring does by hand, so the rule can ship before the bucket.
+              # A metric that disappears keeps paging for 14 days, as far back as Prometheus keeps
+              # samples (15d, compose.observability.yaml); then the rule goes quiet (ADR-0071 §7).
+              # `by (box)` keeps the label the summary prints.
               expr: >-
                 (
-                  time() - max(lotro_backup_last_success_timestamp_seconds{box="lotro-prod"}) > 26 * 3600
+                  time() - max by (box) (lotro_backup_last_success_timestamp_seconds{box="lotro-prod"}) > 26 * 3600
                 ) or (
                   absent_over_time(lotro_backup_last_success_timestamp_seconds{box="lotro-prod"}[30m])
-                  and on() count(count_over_time(lotro_backup_last_success_timestamp_seconds{box="lotro-prod"}[7d])) > 0
+                  and on() count(count_over_time(lotro_backup_last_success_timestamp_seconds{box="lotro-prod"}[14d])) > 0
                 )
           - refId: C
             datasourceUid: __expr__

@@ -1365,7 +1365,8 @@ reference; its suite is `scripts/tests/hetzner-backup.tests.sh`.
 
 **Do not approve a prod deploy between 01:00 and 01:30 UTC.** The dump holds a shared lock on every
 table until it ends. A migration that needs an exclusive lock waits for it, and every query on that
-table then waits behind the migration, so the site stalls until the dump is done.
+table then waits behind the migration, so the site stalls until the dump is done. #1357 gives the
+migrator a lock limit, and then this rule goes.
 
 ### Neon plan (once, owner)
 

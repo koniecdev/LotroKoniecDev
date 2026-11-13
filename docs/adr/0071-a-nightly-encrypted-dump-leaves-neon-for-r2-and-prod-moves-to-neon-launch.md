@@ -150,7 +150,7 @@ for 14 days, as far back as Prometheus keeps samples, and then goes quiet.
   table until it ends, so a migration that needs an exclusive lock waits for it, and every query on
   that table waits behind the migration. The dump runs at 01:00 UTC and takes minutes; the runbook
   says not to approve a prod deploy in that window. A migration that waits for a lock without a
-  limit is older than this ADR and has its own ticket.
+  limit is older than this ADR; #1357 gives it a limit and then removes this window.
 - **When the staging box is down, nothing alerts**, this rule included. That gap is the runbook's
   "Not done yet" item, not new.
 - **Retention is a dashboard setting** nothing in the code can see. The wiring step reads it back.

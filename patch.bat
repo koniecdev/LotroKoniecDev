@@ -5,8 +5,10 @@ cd /d "%~dp0"
 
 rem AUDIT-SEC-06: the relaunch as administrator must never make an elevated shell parse the
 rem arguments. An elevated process does not get this window's variables (#658), so the
-rem arguments and this script's path cross as Base64 text, and the elevated PowerShell
-rem decodes them. Delayed expansion below inserts the arguments after cmd parsing.
+rem arguments and this script's path cross as Base64 text. The elevated PowerShell decodes
+rem them and clears the variable first, so a saved user variable is never used. Inside its
+rem quotes, the relaunch line must have no double quote, percent sign or exclamation mark,
+rem and only single spaces. Delayed expansion below inserts the arguments after cmd parsing.
 if not "%~1"=="--elevated" set "LOTRO_WRAPPER_ARGS=%*"
 
 net session >nul 2>&1

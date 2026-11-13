@@ -5,6 +5,7 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.En
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Persistence.Converters;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
+using LotroKoniecDev.TranslationSystem.Persistence.SaveBudget;
 using LotroKoniecDev.TranslationSystem.Projections;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -24,6 +25,8 @@ internal sealed class ApplicationWriteDbContext : DbContext, IUnitOfWork
     public DbSet<PrecomputedTranslationFile> PrecomputedTranslationFiles => Set<PrecomputedTranslationFile>();
 
     public DbSet<Translator> Translators => Set<Translator>();
+
+    public DbSet<TranslationSave> TranslationSaves => Set<TranslationSave>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {

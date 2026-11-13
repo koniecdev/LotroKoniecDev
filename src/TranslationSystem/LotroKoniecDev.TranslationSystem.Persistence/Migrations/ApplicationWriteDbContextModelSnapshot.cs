@@ -19,7 +19,7 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("translation")
-                .HasAnnotation("ProductVersion", "10.0.11")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "pg_trgm");
@@ -154,6 +154,28 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Translators", "translation");
+                });
+
+            modelBuilder.Entity("LotroKoniecDev.TranslationSystem.Persistence.SaveBudget.TranslationSave", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("ReplacedPolish")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("SavedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TranslatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("TranslatorId");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TranslatorId", "SavedAt");
+
+                    b.ToTable("TranslationSaves", "translation");
                 });
 
             modelBuilder.Entity("LotroKoniecDev.TranslationSystem.Projections.PrecomputedTranslationFile", b =>
@@ -301,6 +323,15 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Source")
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("LotroKoniecDev.TranslationSystem.Persistence.SaveBudget.TranslationSave", b =>
+                {
+                    b.HasOne("LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities.Translator", null)
+                        .WithMany()
+                        .HasForeignKey("TranslatorId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 #pragma warning restore 612, 618

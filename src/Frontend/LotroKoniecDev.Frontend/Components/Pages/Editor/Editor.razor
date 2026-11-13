@@ -438,7 +438,7 @@
 
     /// <summary>
     /// Its own state, so a failed panel never hides the row (#1347). Skipped on a post: a good save or
-    /// approve redirects to a GET that loads it, so a post would pay for the lookup twice.
+    /// approve redirects to a GET that loads it. After a failed post the page has no panel until the next GET.
     /// </summary>
     private async Task LoadSameSourceTextAsync(TranslationDetailResponse detail)
     {

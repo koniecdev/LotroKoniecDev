@@ -795,9 +795,9 @@ read twice over the network.
 literal `%` in game text matches itself), status filter, a "conflicts only" filter (#1347: rows
 whose exactly identical English has two or more different Polish texts, found with one grouped
 subquery). It needs no extra index at today's share of translated rows: about 135 ms on the
-production table on 2026-11-13, with about 535 rows translated. Its cost grows with the number of
-translated rows, not with the table (about 1.5 s per request with every row translated, measured on
-800,000 rows), so look at it again when about 100,000 rows have Polish. Page size 1–100 (default 50). Sorting
+production table on 2026-11-13, with about 535 rows translated. On top of one pass over the table,
+its cost grows with the number of translated rows (about 1.5 s per request with every row
+translated, measured on 800,000 rows), so look at it again when about 100,000 rows have Polish. Page size 1–100 (default 50). Sorting
 always ends with a unique key, so pages never repeat or lose rows. Search is fast thanks to
 trigram indexes (Part 6.2).
 

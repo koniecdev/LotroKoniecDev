@@ -100,8 +100,8 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
     [InlineData("abc")]
     public async Task Get_TranslationsWithAConflictsOnlyValueThatIsNotABool_ShowsTheListPage(string value)
     {
-        // #1347: the real query binding on the Production host. A value the page cannot read must not
-        // end in the layout's error page; the list's own load error shows instead.
+        // Arrange: #1347, the real query binding on the Production host. A value the page cannot read must
+        // not end in the layout's error page; the list's own load error shows instead.
         StubTranslationSystem translationSystem = new();
         StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
         using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);

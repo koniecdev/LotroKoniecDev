@@ -89,6 +89,27 @@ public sealed class ListSameSourceTextTranslationsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Get_ShouldPutRowsWithPolishFirstThenOrderByGossipId()
+    {
+        // Arrange: the untranslated rows have the lower GossipIds, so plain key order would put them first.
+        Translation row = Row(10, SourceText, "Topór wojenny");
+        await SeedAsync(
+            row,
+            Row(2, SourceText, polish: null),
+            Row(4, SourceText, polish: null),
+            Row(3, SourceText, "Topór wojenny"),
+            Row(5, SourceText, "Krzepki Topornik"));
+
+        // Act
+        HttpResponseMessage response = await TranslatorClient().GetAsync(SameSourceTextUri(row.Id));
+
+        // Assert
+        SameSourceTextTranslationsResponse body =
+            (await response.Content.ReadFromJsonAsync<SameSourceTextTranslationsResponse>(JsonOptions))!;
+        body.Items.Select(item => item.GossipId).ShouldBe([3L, 5L, 2L, 4L]);
+    }
+
+    [Fact]
     public async Task Get_WhenTheEnglishIsUnique_ShouldReturnAnEmptyList()
     {
         // Arrange: a text that differs only in its grammar tag is another text.

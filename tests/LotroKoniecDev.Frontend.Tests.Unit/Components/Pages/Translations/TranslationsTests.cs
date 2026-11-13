@@ -336,7 +336,7 @@ public sealed class TranslationsTests : BunitContext
     }
 
     [Fact]
-    public void Render_ConflictsOnlyCheckbox_PostsTrueSoItBindsToTheBoolQueryParameter()
+    public void Render_ConflictsOnlyCheckbox_SendsTrueSoTheFilterTurnsOn()
     {
         StubPage(SinglePageOf(Row(canEdit: true)));
 

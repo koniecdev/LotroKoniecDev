@@ -58,7 +58,7 @@
                 </div>
             </div>
             <div class="field-static field-conflicts">
-                @* value="true", because the browser sends "on" for a bare checkbox and that does not bind to a bool. *@
+                @* value="true", because the browser sends "on" for a bare checkbox, and only "true" turns the filter on. *@
                 <label class="checkbox" title="Ten sam tekst angielski ma w różnych wierszach różne tłumaczenia polskie">
                     <input id="conflictsOnly" name="conflictsOnly" type="checkbox" value="true" checked="@_query.ConflictsOnly"/>
                     <span class="box">

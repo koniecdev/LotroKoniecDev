@@ -58,8 +58,8 @@ large update.
 `TranslationSaveBudget:SaveLimit`, `SaveAlertThreshold`, `OverwriteLimit`, `OverwriteAlertThreshold`
 and `WindowHours` are app settings, passed through both production compose files with their defaults,
 so the owner can change them in the box `.env` without a release. A startup check stops the boot when
-a limit is below 1, an alert threshold is outside 1 to its limit, or the window is outside 1 to 744
-hours. Each of those would switch the guard or its alert off without any sign (ADR-0008 §3).
+a limit is below 1, an alert threshold is outside 1 to its limit, or the window is outside 1 to 720
+hours (30 days, the privacy policy's limit for technical data). Each of those would switch the guard or its alert off without any sign (ADR-0008 §3).
 
 ### 3. The count is kept in the database, not in memory
 

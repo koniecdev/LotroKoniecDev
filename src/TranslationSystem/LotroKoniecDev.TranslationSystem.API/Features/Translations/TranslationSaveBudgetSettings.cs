@@ -9,9 +9,10 @@ internal sealed class TranslationSaveBudgetSettings
     public const string ConfigurationSection = "TranslationSaveBudget";
 
     /// <summary>
-    /// A longer window would turn the budget table into a change history, which is #50's job.
+    /// A longer window would turn the budget table into a change history, which is #50's job, and keep
+    /// the rows past the 30 days the privacy policy names for technical data.
     /// </summary>
-    public const int MaxWindowHours = 24 * 31;
+    public const int MaxWindowHours = 24 * 30;
 
     public int SaveLimit { get; init; } = 1_000;
     public int SaveAlertThreshold { get; init; } = 500;

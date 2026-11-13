@@ -262,7 +262,7 @@ both boxes run `ASPNETCORE_ENVIRONMENT=Production`.
 | `TranslationSaveBudget__SaveAlertThreshold` | — (default `500`) | from `TMS_SAVE_ALERT_THRESHOLD`, default `500` | optional | plain | From this save on, every save logs the Warning that the `lotro-translation-save-budget` alert mails. Between 1 and `SaveLimit`. |
 | `TranslationSaveBudget__OverwriteLimit` | — (default `100`) | from `TMS_OVERWRITE_LIMIT`, default `100` | optional | plain | Saves on a row that already has Polish, counted inside the save budget. Past it only such saves are refused; rows with no Polish still save. Raise it for the days after a large game update, when translators correct many rows. At least 1. |
 | `TranslationSaveBudget__OverwriteAlertThreshold` | — (default `50`) | from `TMS_OVERWRITE_ALERT_THRESHOLD`, default `50` | optional | plain | The overwrite Warning, as for saves. Between 1 and `OverwriteLimit`. |
-| `TranslationSaveBudget__WindowHours` | — (default `24`) | from `TMS_SAVE_BUDGET_WINDOW_HOURS`, default `24` | optional | plain | The rolling window both budgets count in. 1 to 744 (31 days). The counts are kept in the `TranslationSaves` table, so a deploy or a restart does not reset them. |
+| `TranslationSaveBudget__WindowHours` | — (default `24`) | from `TMS_SAVE_BUDGET_WINDOW_HOURS`, default `24` | optional | plain | The rolling window both budgets count in. 1 to 720 (30 days, the privacy policy's limit for technical data). The counts are kept in the `TranslationSaves` table, so a deploy or a restart does not reset them. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings) | `http://10.60.0.1:4317` | optional | plain | See the auth-api row. |
 
 ### frontend

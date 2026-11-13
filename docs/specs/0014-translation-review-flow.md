@@ -2,7 +2,7 @@
 
 - **Status:** Draft
 - **Date:** 2026-11-12, updated 2026-11-13 (owner decisions in #1345, #1368, #1369, #1372, #1373,
-  and the domain model)
+  the domain model, and the owner's answers to Q1, Q3, Q4, Q5, Q7, Q8 and Q9 (a))
 - **Author:** koniecdev
 - **Ticket:** covers #49 (TP-14 review workflow), #50 (TP-15 history), #1345 (rejection with a
   reason, which holds this part's place in v1.0) and the points of #1332. Implementation tickets
@@ -41,8 +41,8 @@ On 2026-11-13 the owner decided more of the flow:
 
 A translator can propose a text and later see whether it was approved or rejected, and why. The
 text players get changes only when a reviewer or the admin, who is not its author, approves a new
-one. Every version of every text is kept, with its author, its source and its outcome, and an
-older version can be put back (who may do that: Q9).
+one. Every version of every text is kept, with its author, its source and its outcome, and a
+reviewer or the admin can put an older version back.
 
 ## In scope
 
@@ -54,30 +54,36 @@ older version can be put back (who may do that: Q9).
   specific proposal (the one on their screen). It becomes the live text and the file is rebuilt.
 - **Reject a proposal with a reason.** A reviewer or the admin who is not the proposal's author
   rejects one specific proposal and writes why. The reason is required. The translator sees the
-  reason in the editor and can find their rejected proposals on the list.
+  reason in the editor and can find their rejected proposals on the list. There is no e-mail (Q3).
+- **Withdraw.** The author of a waiting proposal withdraws it, for example after saving by
+  mistake (Q7). It goes to the history as "withdrawn", and the row has no waiting proposal any more.
 - **History.** The editor shows every proposal of a row: text, author, time, source (a person's
   save, a pattern save, "szkic AI z wgrania nr N", the backfill) and outcome (waiting, approved,
-  rejected with the reason, replaced).
-- **Restore.** An older approved proposal is approved again. It becomes the live text and the file
-  is rebuilt. This is the undo path #50 asks for. Who may restore, and whether the author rule
-  applies to it, is Q9.
+  rejected with the reason, replaced, withdrawn). Every translator sees the history of every row
+  (Q5).
+- **Restore.** A reviewer or the admin approves an older approved proposal again (Q9 (a)). It
+  becomes the live text and the file is rebuilt. This is the undo path #50 asks for. Whether
+  someone may restore a version they wrote is Q9 (b).
 - **Bulk approve (spec 0007)** approves the waiting proposal of each selected row, named by its id.
   It skips a proposal the caller wrote and counts it in its summary (#1368).
 - **Bulk sources.** A pattern save (#1372) and an AI upload (#1373) add one proposal per row, each
   marked with its source and the save or upload it came from.
 - **List and counters.** New labels and filters for "waiting for review", "change waiting" (live
-  text plus a newer proposal) and "rejected". Editing an approved text no longer lowers the
-  approved counter.
+  text plus a newer proposal) and "rejected". A row with no live text whose last proposal was
+  rejected shows "Odrzucone" until the next save (Q8). Editing an approved text no longer lowers
+  the approved counter.
 - **Backfill.** Every existing row with Polish gets its current text as its first proposal, with
   the source "backfill", so the history starts with what is there today.
 
 ## Out of scope
 
 - Glossary (#1369).
-- E-mail or other push notifications (unless Q3 says otherwise).
+- E-mail or other push notifications. The translator learns about a rejection in the app only
+  (Q3).
 - Discussion threads. A rejection carries one reason; there are no replies.
 - Bulk reject.
-- A preview file with waiting proposals for testing in the game (unless Q4 picks option C).
+- A "Sprawdzone w grze" mark, and a preview file with waiting proposals for testing in the game
+  (Q4 chose option A).
 - The pattern save and the AI upload themselves (#1372, #1373). This spec gives them the proposal
   they write.
 - AI review (#51), per-language roles (#48).
@@ -85,8 +91,10 @@ older version can be put back (who may do that: Q9).
 
 ## Business rules & edge cases
 
-- **A save never changes what players get.** Only an approve does: of a new proposal, of an older
-  one (restore), or of the live text again after the English changed.
+- **A save never changes what players get (Q1).** Only an approve does: of a new proposal, of an
+  older one (restore), or of the live text again after the English changed. This reverses the
+  wiki rule in `Mechanizm-diff` ("Kiedy tłumacz zapisze poprawkę, wiersz wraca do statusu Wersja
+  robocza"), so the wiki changes first, before any code.
 - **Approve and reject name the proposal.** The request carries the proposal id the reviewer saw.
   If that proposal is no longer the one waiting (a newer save replaced it, or someone else already
   decided), the request fails with a conflict and nothing changes. So nobody approves a text they
@@ -94,8 +102,11 @@ older version can be put back (who may do that: Q9).
 - **Nobody decides on their own proposal.** The author of a proposal may not approve or reject it,
   the admin included (#1368, #1345). "Author" is the proposal's author; this replaces the
   `Translation.SubmittedById` check that #1368 starts with. A single approve or reject refuses it
-  with its own error. Bulk approve skips it and counts it. Restore and re-approving the live text:
-  Q9.
+  with its own error. Bulk approve skips it and counts it. Restoring a version you wrote, and
+  approving again a live text you wrote: Q9 (b).
+- **Withdraw names the proposal too.** Only its author may withdraw it. If it is no longer the one
+  waiting, the request fails with a conflict and nothing changes. A withdrawn proposal is never
+  approved later; restore takes only proposals that were approved before.
 - **The English changes (import, spec 0001).** Unchanged rule: the row becomes "Do ponownego
   sprawdzenia" and its live text leaves `polish.txt` (ADR-0047). A waiting proposal stays waiting.
   A reviewer or the admin can approve the waiting proposal, or approve the live text again ("the
@@ -108,14 +119,20 @@ older version can be put back (who may do that: Q9).
   becomes "Usunięte konto". The data export of a translator includes their proposals.
 - **Dates** in the history and on rejections are shown in Polish time, like every other date.
 - **Who may do what.**
-  - A translator proposes.
-  - A reviewer proposes, and approves or rejects other people's proposals.
+  - A translator proposes, withdraws their own waiting proposal, and reads the history of every
+    row.
+  - A reviewer does what a translator does, approves or rejects other people's proposals, and
+    restores older versions.
   - The admin does what a reviewer does, and grants or removes the Reviewer role (#1368).
-  - Nobody approves or rejects their own proposal. Restore: Q9.
+  - Nobody approves or rejects their own proposal. Restoring your own version: Q9 (b).
+  - Owner principle (2026-11-13), the reason reviewers restore too: the admin is never the only
+    person who can do a routine step. In the owner's words: "Generalnie nie powinienem jako admin
+    bottleneckować czegokolwiek co relatywnie mało istotne."
   - Links follow ADR-0040: `approve` and `reject` appear only on a proposal that is waiting (or on
     the live text of a row in "Do ponownego sprawdzenia"), only for a caller the policy allows, and
-    never for the proposal's author. The role rule lives in the policy; the author rule is a state
-    rule (the proposal's author is the caller), so it lives in the link factory (#1368).
+    never for the proposal's author. `withdraw` appears only on a waiting proposal, and only for
+    its author. The role rule lives in the policy; the author rules are state rules (the
+    proposal's author is or is not the caller), so they live in the link factory (#1368).
 - **Length.** A proposal keeps the current limit (32767, ADR-0043). A rejection reason has its own
   limit (proposed: 1000 characters).
 
@@ -133,8 +150,13 @@ older version can be put back (who may do that: Q9).
   (`RejectTranslationProposal.Command`, rel `reject`, Reviewer or Admin, never the proposal's
   author). 204; 400 for an empty or too long reason; 403 for a plain translator; the author error
   when the caller wrote the proposal; 409 when the proposal is not the one waiting.
+- **Withdraw (new):** `POST /api/v1/translations/{id}/withdraw`, body `{ proposalId }`
+  (`WithdrawTranslationProposal.Command`, rel `withdraw`, the proposal's author only). 204; 403
+  when the caller is not the author; 409 when the proposal is not the one waiting; 422 as for
+  approve (removed row).
 - **History (new):** `GET /api/v1/translations/{id}/proposals` (`ListTranslationProposals.Query`,
-  rel `history`), newest first. Restore is the `approve` rel on an older approved proposal.
+  rel `history`, every signed-in translator), newest first. Restore is the `approve` rel on an
+  older approved proposal, for a reviewer or the admin.
 - **Bulk approve:** `POST /api/v1/translations/approve`, body `{ items: [{ id, proposalId }] }`,
   summary `{ requested, approved, skipped }` as today; a stale proposal id is skipped, and so is a
   proposal the caller wrote (counted on its own, #1368).
@@ -143,11 +165,12 @@ older version can be put back (who may do that: Q9).
   - `TranslationProposal`: text, author, created at, source (a person's save, a pattern save, an
     AI draft, the backfill) with a link to the pattern save (#1372) or the AI upload (#1373) where
     there is one, outcome, decided by, decided at, rejection reason. Proposals are only appended:
-    the text never changes, and the outcome is set once (waiting → approved, rejected or
-    replaced).
+    the text never changes, and the outcome is set once (waiting → approved, rejected, replaced
+    or withdrawn).
   - `Translation` keeps the live text (as today) and `WaitingProposalId` as plain columns. It
-    enforces "at most one waiting proposal" and "approve names the waiting proposal, otherwise
-    409" itself, on its own `xmin`.
+    enforces "at most one waiting proposal" and "approve, reject and withdraw name the waiting
+    proposal, otherwise 409" itself, on its own `xmin`. `WaitingProposalId` is cleared when the
+    waiting proposal is approved, rejected or withdrawn.
   - Why: `Translation` stays small and is always fully loaded. The import (`ApplySourceChange`,
     `MarkRemoved`, `Restore` through `GetByIdsAsync` in chunks of `ApplyChunkSize`) and
     `BulkApproveTranslations` load `Translation` through EF. A child collection would mean either
@@ -155,8 +178,8 @@ older version can be put back (who may do that: Q9).
     silently passes the rules. The bulk paths of #1372 and #1373 add proposals and check exactly
     those rules, and every later collection would add to that cost. Only new rows go through
     `COPY`.
-  - The trade-off, on purpose: save, approve and reject change two aggregates in one PostgreSQL
-    transaction (one `DbContext`). The ADR records this as deliberate, so that no later session
+  - The trade-off, on purpose: save, approve, reject and withdraw change two aggregates in one
+    PostgreSQL transaction (one `DbContext`). The ADR records this as deliberate, so that no later session
     "fixes" it with events and eventual consistency.
   - Database guards: a foreign key from `WaitingProposalId` to the proposal, and a partial unique
     index "at most one waiting proposal per translation". The `COPY` column list in
@@ -175,12 +198,17 @@ older version can be put back (who may do that: Q9).
 - [ ] Neither a reviewer nor the admin can approve or reject their own proposal: the button is not
       shown, and a direct call is refused. A plain translator gets 403 on approve and reject.
 - [ ] Rejecting needs a reason; the translator sees the reason in the editor, with the rejected text
-      ready to edit, and finds the row with the "rejected" filter.
+      ready to edit, and finds the row with the "rejected" filter. No e-mail is sent.
+- [ ] A row with no live text whose last proposal was rejected shows "Odrzucone" on the list until
+      the next save.
+- [ ] The author withdraws their waiting proposal: it shows as "withdrawn" in the history, the row
+      has no waiting proposal, and nobody else can withdraw it.
 - [ ] Every save adds a proposal; no proposal is ever changed except for its outcome.
 - [ ] The database refuses a second waiting proposal for one translation.
-- [ ] The editor shows the full history of a row with author, source, Polish time and outcome.
-- [ ] An older approved proposal is restored in one action and `polish.txt` reflects it (who may
-      do it: Q9).
+- [ ] The editor shows the full history of a row with author, source, Polish time and outcome, to
+      every signed-in translator.
+- [ ] A reviewer or the admin restores an older approved proposal in one action and `polish.txt`
+      reflects it.
 - [ ] An import that changes English adds no proposals; the row goes to "Do ponownego sprawdzenia",
       its live text leaves `polish.txt`, and approving the live text again puts it back.
 - [ ] Bulk approve approves only the proposals named in the request, and skips and counts the
@@ -190,41 +218,40 @@ older version can be put back (who may do that: Q9).
 - [ ] Account erasure leaves proposals in place under "Usunięte konto"; the data export lists the
       translator's proposals.
 - [ ] Integration tests against PostgreSQL cover save, approve, reject, restore, the conflict, the
-      author rule, the import path and the backfill.
+      withdraw, the author rule, the import path and the backfill.
 
 ## Open questions
 
 ### Business decisions (owner)
 
-- **Q1. A save never changes the game file.** The live text stays in `polish.txt` until a new
-  proposal is approved. This reverses the wiki rule "Kiedy tłumacz zapisze poprawkę, wiersz wraca
-  do statusu Wersja robocza" (`Mechanizm-diff`). Agree?
 - **Q2. Several proposals.** When a second save arrives while one proposal waits: (a) the new one
   replaces it, and the old one goes to history as "replaced"; or (b) both wait side by side and a
   reviewer picks one. This happens more often now: AI drafts (#1373) put a waiting proposal on many
   rows at once, a pattern save (#1372) fills a whole group, and more translators are coming. The
   domain model chosen on 2026-11-13 keeps at most one waiting proposal per row, which is (a).
   Choosing (b) changes that model (several waiting proposals, no unique index).
-- **Q3. How the translator learns about a rejection.** Only in the app (editor + "rejected"
-  filter), or by e-mail too? (The reason itself is required: see the answered list.)
-- **Q4. What "Zatwierdzone" means.** (A) reviewed by a reviewer or the admin who is not the author,
-  as the wiki says today (`Wersje-systemu`, criterion 4); (B) as (A), plus an optional "Sprawdzone
-  w grze" mark that does not affect the file; (C) approval requires an in-game check, which needs a
-  preview file with waiting proposals for the reviewer's own game (new artifact and a CLI option, a
-  large addition).
-- **Q5. Who sees the history.** Every translator, or only reviewers, the admin and the author?
-- **Q7. Withdraw.** May a translator withdraw their own waiting proposal? (A new save already
-  replaces it under Q2 (a).)
-- **Q8. Rejected with nothing live.** On the list, does such a row show "Odrzucone" until the next
-  save, or go back to "Nieprzetłumaczone"?
-- **Q9. Restore and the author rule.** Restore means approving an older proposal, and after an
-  English change a row's live text can be approved again. (a) Who may restore: reviewers and the
-  admin, or only the admin? (b) May someone restore a version they wrote themselves, or approve
-  again the live text they wrote? #1368 says the rule has no exception. On the other side, such a
-  version was already in the game and brings in no new text.
+- **Q9 (b). Restoring your own version.** Restore means approving an older proposal, and after an
+  English change a row's live text can be approved again. May someone restore a version they wrote
+  themselves, or approve again the live text they wrote? #1368 says the rule has no exception. On
+  the other side, such a version was already in the game and brings in no new text.
 
 ### Business decisions (answered)
 
+All answers below are the owner's, given on 2026-11-13.
+
+- **Q1. A save never changes the game file.** Yes. The live text stays in `polish.txt` until a new
+  proposal is approved. The wiki rule in `Mechanizm-diff` flips first, before any code.
+- **Q3. How the translator learns about a rejection.** In the app only: the editor and the
+  "rejected" filter. No e-mail for now.
+- **Q4. What "Zatwierdzone" means.** Option (A): reviewed by a reviewer or the admin who is not the
+  author, as the wiki says (`Wersje-systemu`, criterion 4). No "Sprawdzone w grze" mark and no
+  preview file.
+- **Q5. Who sees the history.** Every translator sees the history of every row.
+- **Q7. Withdraw.** Yes. The author may withdraw their own waiting proposal, for example after a
+  save by mistake. The proposal gets the outcome "withdrawn", and `WaitingProposalId` is cleared.
+- **Q8. Rejected with nothing live.** The row shows "Odrzucone" on the list until the next save.
+- **Q9 (a). Who may restore.** Reviewers and the admin, not only the admin. The reason is the
+  owner's principle: the admin is never the only person who can do a routine step.
 - **Who may reject.** A reviewer or the admin, never the author of the text (owner decision in
   #1345, 2026-11-13; wiki `Wersje-systemu`, criterion 4).
 - **Is the reason required.** Yes: a send-back needs a reason (#1345; the wiki: "odsyła je z
@@ -257,5 +284,5 @@ older version can be put back (who may do that: Q9).
   are written for three roles; each ticket applies the roles that exist when it lands.
 - Proposal rows are small (most texts are short). The growth per 1000 saves is measured once during
   implementation and written down (#50 task).
-- The wiki is updated with the verdicts before any code (wiki-first rule), and an ADR records the
-  model.
+- The wiki is updated with the verdicts before any code (wiki-first rule), starting with the
+  `Mechanizm-diff` rule that Q1 flips, and an ADR records the model.

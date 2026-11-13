@@ -90,10 +90,11 @@ public sealed partial class GameVersionsDeleteConfirmationTests : IClassFixture<
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         DeleteForm deleteForm = await ReadDeleteFormAsync(browser);
+        string antiforgeryToken = deleteForm.AntiforgeryToken.ShouldNotBeNull();
 
         // Act
         using HttpResponseMessage posted = await browser.SendAsync(
-            FormPost(deleteForm.Action, DeleteFormName, deleteForm.AntiforgeryToken));
+            FormPost(deleteForm.Action, DeleteFormName, antiforgeryToken));
 
         // Assert
         new Uri(new Uri($"https://localhost{ConfirmDeleteUri}"), deleteForm.Action).PathAndQuery
@@ -112,7 +113,7 @@ public sealed partial class GameVersionsDeleteConfirmationTests : IClassFixture<
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         DeleteForm deleteForm = await ReadDeleteFormAsync(browser);
         using HttpResponseMessage posted = await browser.SendAsync(
-            FormPost(deleteForm.Action, DeleteFormName, deleteForm.AntiforgeryToken));
+            FormPost(deleteForm.Action, DeleteFormName, deleteForm.AntiforgeryToken.ShouldNotBeNull()));
         Uri redirectedTo = posted.Headers.Location
             ?? throw new InvalidOperationException($"The delete answered {posted.StatusCode} with no redirect.");
 
@@ -246,7 +247,10 @@ public sealed partial class GameVersionsDeleteConfirmationTests : IClassFixture<
     [GeneratedRegex("""name="__RequestVerificationToken" value="(?<token>[^"]+)""")]
     private static partial Regex AntiforgeryTokenInput();
 
-    /// <summary>The delete form as the browser gets it at the confirm address.</summary>
+    /// <summary>
+    /// The delete form as the browser gets it at the confirm address. With no <c>action</c> a browser posts
+    /// to the address it is on.
+    /// </summary>
     private static async Task<DeleteForm> ReadDeleteFormAsync(CookieJarBrowser browser)
     {
         using HttpResponseMessage response = await browser.GetAsync(ConfirmDeleteUri);
@@ -260,9 +264,7 @@ public sealed partial class GameVersionsDeleteConfirmationTests : IClassFixture<
 
         return new DeleteForm(
             action.Success ? WebUtility.HtmlDecode(action.Groups["action"].Value) : ConfirmDeleteUri,
-            antiforgeryToken.Success
-                ? antiforgeryToken.Groups["token"].Value
-                : throw new InvalidOperationException("The delete form carries no antiforgery token."));
+            antiforgeryToken.Success ? antiforgeryToken.Groups["token"].Value : null);
     }
 
     private WebApplicationFactory<Program> CreateHost(StubTranslationSystem translationSystem) =>
@@ -291,7 +293,7 @@ public sealed partial class GameVersionsDeleteConfirmationTests : IClassFixture<
         return new HttpRequestMessage(HttpMethod.Post, pathAndQuery) { Content = new FormUrlEncodedContent(form) };
     }
 
-    private sealed record DeleteForm(string Action, string AntiforgeryToken);
+    private sealed record DeleteForm(string Action, string? AntiforgeryToken);
 
     /// <summary>
     /// An admin's list: one row the admin may delete and one Processed row without the delete rel. A delete

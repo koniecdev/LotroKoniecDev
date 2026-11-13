@@ -113,7 +113,7 @@ public sealed class GameVersionsTests : BunitContext
 
         IRenderedComponent<GameVersionsComponent> component = RenderPage();
 
-        component.FindAll(".col-actions a, .col-actions button, .col-actions form").ShouldBeEmpty();
+        component.FindAll("table.data-table tbody .col-actions *").ShouldBeEmpty();
     }
 
     [Fact]
@@ -128,7 +128,7 @@ public sealed class GameVersionsTests : BunitContext
         IElement deleteLink = component.Find(".col-actions a");
         deleteLink.TextContent.ShouldBe("Usuń");
         deleteLink.GetAttribute("href").ShouldBe(ConfirmDeleteUri(version));
-        component.FindAll(".col-actions form").ShouldBeEmpty();
+        component.FindAll("table.data-table form").ShouldBeEmpty();
     }
 
     [Theory]
@@ -143,17 +143,18 @@ public sealed class GameVersionsTests : BunitContext
 
         IRenderedComponent<GameVersionsComponent> component = RenderPage();
 
-        IElement cell = component.Find(".col-actions .version-delete-confirm");
-        cell.TextContent.ShouldContain("Na pewno usunąć wersję 48.0?");
-        cell.QuerySelector("form button[type=submit]").ShouldNotBeNull().TextContent.ShouldBe("Tak, usuń");
-        cell.QuerySelector("a").ShouldNotBeNull().GetAttribute("href").ShouldBe("/game-versions");
+        IElement question = component.Find(".version-delete-confirm");
+        question.TextContent.ShouldContain("Na pewno usunąć wersję 48.0?");
+        question.QuerySelector("form button[type=submit]").ShouldNotBeNull().TextContent.ShouldBe("Tak, usuń");
+        question.QuerySelector("a").ShouldNotBeNull().GetAttribute("href").ShouldBe("/game-versions");
     }
 
     [Fact]
-    public void Render_WhenAskingToConfirmADelete_PutsCancelLastAndTheDangerButtonRightBeforeIt()
+    public void Render_WhenAskingToConfirmADelete_KeepsAnInertUsuńInTheRowAndPutsTheQuestionInTheRowBelow()
     {
-        // The cell is right-aligned, so its last control sits where "Usuń" was. A double click on "Usuń"
-        // must never land on the button that deletes (#549).
+        // An inert copy with the link's classes keeps the link's place, and the question cannot widen the
+        // table from its own row. So the second click of a double click on "Usuń" lands on the copy, never on
+        // "Tak, usuń", at any width (#549).
         AuthorizeAs("Sam");
         GameVersionResponse version = Version("48.0", GameVersionStatus.Unprocessed, canDelete: true);
         StubVersions(version);
@@ -161,7 +162,29 @@ public sealed class GameVersionsTests : BunitContext
 
         IRenderedComponent<GameVersionsComponent> component = RenderPage();
 
-        IElement[] controls = [.. component.FindAll(".col-actions a, .col-actions button")];
+        IElement[] rows = [.. component.FindAll("table.data-table tbody tr")];
+        rows.Length.ShouldBe(2);
+        IElement actionsCell = rows[0].QuerySelector(".col-actions").ShouldNotBeNull();
+        IElement inertDelete = actionsCell.Children.ShouldHaveSingleItem();
+        inertDelete.TagName.ShouldBe("SPAN");
+        inertDelete.TextContent.ShouldBe("Usuń");
+        inertDelete.GetAttribute("aria-disabled").ShouldBe("true");
+        inertDelete.ClassList.ShouldBe(["btn", "btn-ghost", "btn-sm", "is-disabled"], ignoreOrder: true);
+        rows[1].QuerySelector("td").ShouldNotBeNull().GetAttribute("colspan").ShouldBe("4");
+        rows[1].QuerySelector(".version-delete-confirm").ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void Render_WhenAskingToConfirmADelete_PutsCancelLastAndTheDangerButtonRightBeforeIt()
+    {
+        AuthorizeAs("Sam");
+        GameVersionResponse version = Version("48.0", GameVersionStatus.Unprocessed, canDelete: true);
+        StubVersions(version);
+        Navigation().NavigateTo(ConfirmDeleteUri(version));
+
+        IRenderedComponent<GameVersionsComponent> component = RenderPage();
+
+        IElement[] controls = [.. component.FindAll(".version-delete-confirm a, .version-delete-confirm button")];
         controls.Length.ShouldBe(2);
         controls[0].TagName.ShouldBe("BUTTON");
         controls[0].ClassList.ShouldContain("btn-danger");
@@ -180,7 +203,7 @@ public sealed class GameVersionsTests : BunitContext
 
         IRenderedComponent<GameVersionsComponent> component = RenderPage();
 
-        component.FindAll(".col-actions form").Count.ShouldBe(1);
+        component.FindAll("table.data-table form").Count.ShouldBe(1);
         component.Find(".version-delete-confirm").TextContent.ShouldContain("48.1");
         component.FindAll(".col-actions a")
             .Select(link => link.GetAttribute("href"))
@@ -199,7 +222,7 @@ public sealed class GameVersionsTests : BunitContext
 
         IRenderedComponent<GameVersionsComponent> component = RenderPage();
 
-        component.FindAll(".col-actions form").ShouldBeEmpty();
+        component.FindAll("table.data-table form, .version-delete-confirm").ShouldBeEmpty();
         component.Find(".col-actions a").TextContent.ShouldBe("Usuń");
     }
 
@@ -214,7 +237,8 @@ public sealed class GameVersionsTests : BunitContext
 
         IRenderedComponent<GameVersionsComponent> component = RenderPage();
 
-        component.FindAll(".col-actions a, .col-actions button, .col-actions form").ShouldBeEmpty();
+        component.FindAll("table.data-table a, table.data-table button, table.data-table form, table.data-table .btn")
+            .ShouldBeEmpty();
     }
 
     [Fact]
@@ -289,7 +313,7 @@ public sealed class GameVersionsTests : BunitContext
         navigation.NavigateTo(ConfirmDeleteUri(version));
         IRenderedComponent<GameVersionsComponent> component = RenderPage();
 
-        await component.Find(".col-actions form").SubmitAsync();
+        await component.Find("table.data-table form").SubmitAsync();
 
         // Only a DELETE to the row's own href is stubbed to succeed, so the redirect proves it was followed.
         navigation.Uri.ShouldEndWith("/game-versions?deleted=true");
@@ -307,7 +331,7 @@ public sealed class GameVersionsTests : BunitContext
         navigation.NavigateTo(ConfirmDeleteUri(version));
         IRenderedComponent<GameVersionsComponent> component = RenderPage();
 
-        await component.Find(".col-actions form").SubmitAsync();
+        await component.Find("table.data-table form").SubmitAsync();
 
         component.Find(".status-message.status-error").TextContent.ShouldContain("Nie można usunąć");
         // A refused delete must not wipe the list, and it does not redirect.
@@ -333,7 +357,7 @@ public sealed class GameVersionsTests : BunitContext
         Navigation().NavigateTo(ConfirmDeleteUri(version));
         IRenderedComponent<GameVersionsComponent> component = RenderPage();
 
-        await component.Find(".col-actions form").SubmitAsync();
+        await component.Find("table.data-table form").SubmitAsync();
 
         IElement error = component.Find(".status-message.status-error");
         error.QuerySelector(".problem-headline")!.TextContent

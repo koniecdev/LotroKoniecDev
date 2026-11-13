@@ -6,6 +6,7 @@
 @using LotroKoniecDev.Frontend.Infrastructure.Forms
 @using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
+@using LotroKoniecDev.Hateoas.Abstractions
 @using LotroKoniecDev.TranslationSystem.Contracts.Common
 @using LotroKoniecDev.TranslationSystem.Contracts.GameVersions
 @using LotroKoniecDev.TranslationSystem.Contracts.Hateoas
@@ -124,7 +125,10 @@
                 <tbody>
                     @foreach (GameVersionResponse version in _versions)
                     {
-                        <tr>
+                        @* Sent only to an admin, for a version no import has run against (#624). *@
+                        LinkDto? deleteLink = version.Links.FindLink(Rels.Delete);
+                        bool asksToDelete = deleteLink is not null && IsConfirmingDeleteOf(version.Id);
+                        <tr class="@(asksToDelete ? "has-delete-question" : null)">
                             <td class="mono">@version.Version</td>
                             <td>@version.DetectedAt.ToPolandTimeText()</td>
                             <td class="col-status">
@@ -133,31 +137,36 @@
                                 </span>
                             </td>
                             <td class="col-actions">
-                                @* Sent only to an admin, for a version no import has run against (#624). *@
-                                @if (version.Links.FindLink(Rels.Delete) is { } deleteLink)
+                                @if (asksToDelete)
                                 {
-                                    @if (IsConfirmingDeleteOf(version.Id))
-                                    {
-                                        @* "Anuluj" comes last, so the danger button never takes the place of "Usuń"
-                                           and the second click of a double click cannot confirm (#549). The form has
-                                           no action: it posts to this address, which draws it again (#1122). *@
-                                        <div class="version-delete-confirm">
-                                            <span>Na pewno usunąć wersję @(version.Version)?</span>
-                                            <form method="post" @formname="@DeleteFormName(version.Id)"
-                                                  @onsubmit="() => DeleteAsync(deleteLink.Href)">
-                                                <AntiforgeryToken/>
-                                                <button type="submit" class="btn btn-danger btn-sm">Tak, usuń</button>
-                                            </form>
-                                            <a class="btn btn-ghost btn-sm" href="@PageUri">Anuluj</a>
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <a class="btn btn-ghost btn-sm" href="@ConfirmDeleteUri(version.Id)">Usuń</a>
-                                    }
+                                    @* Inert, with the link's classes, so it keeps the link's place: the second
+                                       click of a double click on "Usuń" lands here (#549). *@
+                                    <span class="btn btn-ghost btn-sm is-disabled" aria-disabled="true">Usuń</span>
+                                }
+                                else if (deleteLink is not null)
+                                {
+                                    <a class="btn btn-ghost btn-sm" href="@ConfirmDeleteUri(version.Id)">Usuń</a>
                                 }
                             </td>
                         </tr>
+                        @if (asksToDelete && deleteLink is { } confirmedDeleteLink)
+                        {
+                            @* A row of its own, so the question never widens the table or moves "Usuń" (#549).
+                               The form has no action: it posts to this address, which draws it again (#1122). *@
+                            <tr class="version-delete-question">
+                                <td colspan="4">
+                                    <div class="version-delete-confirm">
+                                        <span role="status">Na pewno usunąć wersję @(version.Version)?</span>
+                                        <form method="post" @formname="@DeleteFormName(version.Id)"
+                                              @onsubmit="() => DeleteAsync(confirmedDeleteLink.Href)">
+                                            <AntiforgeryToken/>
+                                            <button type="submit" class="btn btn-danger btn-sm">Tak, usuń</button>
+                                        </form>
+                                        <a class="btn btn-ghost btn-sm" href="@PageUri">Anuluj</a>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
                     }
                 </tbody>
             </table>

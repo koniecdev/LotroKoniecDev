@@ -1126,10 +1126,21 @@ code {
     text-align: right;
 }
 
-/* The question and its two controls stay on one line, in markup order: "Anuluj" last (#549). */
+/* The delete question sits in its own row under the version (#549). It wraps instead of widening the
+   table, and its controls end at the right edge, beside the actions column. */
+.data-table tbody tr.has-delete-question td {
+    border-bottom: none;
+}
+
+.data-table tbody tr.version-delete-question td {
+    padding-top: 0;
+}
+
 .version-delete-confirm {
-    display: inline-flex;
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
+    justify-content: flex-end;
     gap: 8px;
 }
 

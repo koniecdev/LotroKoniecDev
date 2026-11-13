@@ -11,7 +11,12 @@ namespace LotroKoniecDev.Tests.Shared;
 /// </summary>
 internal sealed class TimerWatchingTimeProvider : FakeTimeProvider
 {
-    private static readonly TimeSpan WaitTimeout = TimeSpan.FromSeconds(5);
+    /// <summary>
+    /// Real time, not fake time. A job's first EF Core query of the process can fall inside this wait (the
+    /// outbox relay's does), and on a busy machine that takes seconds (#1299). The limit makes a job that
+    /// never starts its timer fail the test instead of hanging it, so it sits well above a slow start.
+    /// </summary>
+    private static readonly TimeSpan WaitTimeout = TimeSpan.FromSeconds(30);
 
     private readonly Channel<bool> _startedTimers = Channel.CreateUnbounded<bool>();
     private int _wakeUps;

@@ -150,7 +150,7 @@ public sealed class GameVersionsTests : BunitContext
     }
 
     [Fact]
-    public void Render_WhenAskingToConfirmADelete_KeepsAnInertUsuńInTheRowAndPutsTheQuestionInTheRowBelow()
+    public void Render_WhenAskingToConfirmADelete_KeepsAnInertDeleteControlInTheRowAndPutsTheQuestionInTheRowBelow()
     {
         // An inert copy with the link's classes keeps the link's place, and the question cannot widen the
         // table from its own row. So the second click of a double click on "Usuń" lands on the copy, never on
@@ -168,6 +168,7 @@ public sealed class GameVersionsTests : BunitContext
         IElement inertDelete = actionsCell.Children.ShouldHaveSingleItem();
         inertDelete.TagName.ShouldBe("SPAN");
         inertDelete.TextContent.ShouldBe("Usuń");
+        inertDelete.GetAttribute("role").ShouldBe("link");
         inertDelete.GetAttribute("aria-disabled").ShouldBe("true");
         inertDelete.ClassList.ShouldBe(["btn", "btn-ghost", "btn-sm", "is-disabled"], ignoreOrder: true);
         rows[1].QuerySelector("td").ShouldNotBeNull().GetAttribute("colspan").ShouldBe("4");

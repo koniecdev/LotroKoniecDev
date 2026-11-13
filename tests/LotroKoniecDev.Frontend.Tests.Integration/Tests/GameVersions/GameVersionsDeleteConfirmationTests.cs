@@ -82,23 +82,37 @@ public sealed partial class GameVersionsDeleteConfirmationTests : IClassFixture<
     }
 
     [Fact]
-    public async Task Post_TheConfirmFormToTheAddressItNames_DeletesOnceThroughTheAdvertisedHrefAndRedirects()
+    public async Task Get_TheConfirmAddress_DrawsTheDeleteFormPostingBackToThatAddressWithItsToken()
     {
-        // Arrange: the form has no action of its own, so Blazor writes the address it was drawn at. Only
-        // that address draws the form again on the post; anything else gets Blazor's blank 400.
+        // Arrange: the form sets no action, so Blazor writes the address it was drawn at. Only that address
+        // draws the form again on the post; anything else gets Blazor's blank 400.
         StubTranslationSystem translationSystem = new();
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
-        DeleteForm deleteForm = await ReadDeleteFormAsync(browser);
-        string antiforgeryToken = deleteForm.AntiforgeryToken.ShouldNotBeNull();
 
         // Act
-        using HttpResponseMessage posted = await browser.SendAsync(
-            FormPost(deleteForm.Action, DeleteFormName, antiforgeryToken));
+        DeleteForm deleteForm = await ReadDeleteFormAsync(browser);
 
         // Assert
         new Uri(new Uri($"https://localhost{ConfirmDeleteUri}"), deleteForm.Action).PathAndQuery
             .ShouldBe(ConfirmDeleteUri);
+        deleteForm.AntiforgeryToken.ShouldNotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task Post_TheConfirmFormToTheAddressItPostsTo_DeletesOnceThroughTheAdvertisedHrefAndRedirects()
+    {
+        // Arrange
+        StubTranslationSystem translationSystem = new();
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        DeleteForm deleteForm = await ReadDeleteFormAsync(browser);
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(
+            FormPost(deleteForm.Action, DeleteFormName, deleteForm.AntiforgeryToken.ShouldNotBeNull()));
+
+        // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         posted.Headers.Location.ShouldNotBeNull().OriginalString.ShouldEndWith("/game-versions?deleted=true");
         translationSystem.Deletes.ShouldBe([DeleteHref]);

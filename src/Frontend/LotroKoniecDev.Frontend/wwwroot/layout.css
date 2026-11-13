@@ -1136,6 +1136,12 @@ code {
     padding-top: 0;
 }
 
+/* The version row and its question light up together, as one row. */
+.data-table tbody tr.has-delete-question:hover + tr.version-delete-question,
+.data-table tbody tr.has-delete-question:has(+ tr.version-delete-question:hover) {
+    background: var(--surface-hi);
+}
+
 .version-delete-confirm {
     display: flex;
     flex-wrap: wrap;

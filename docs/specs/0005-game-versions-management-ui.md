@@ -120,6 +120,9 @@ and delete a still-unprocessed version they registered by mistake.
 - [ ] A non-admin translator sees the list but **no register form and no delete buttons**.
 - [ ] An admin sees the register form; submitting a valid version POSTs and the new row appears.
 - [ ] An admin sees a delete button on every row except **Processed** ones; deleting removes the row.
+      *(Amendment 2026-11-13, #549: the button opens a question that names the version, only "Tak, usuń"
+      deletes, "Anuluj" deletes nothing, and a successful delete redirects to the list with its
+      confirmation; see the business rule on refreshing the list.)*
 - [ ] `DELETE` on a Processed version ⇒ conflict; on an unknown id ⇒ 404; on a referenced version ⇒
       conflict — each surfaced as `ProblemDetails`, list preserved.
 - [ ] A duplicate/invalid register surfaces the API `ProblemDetails` without losing the list.

@@ -127,8 +127,8 @@
                     {
                         @* Sent only to an admin, for a version no import has run against (#624). *@
                         LinkDto? deleteLink = version.Links.FindLink(Rels.Delete);
-                        bool asksToDelete = deleteLink is not null && IsConfirmingDeleteOf(version.Id);
-                        <tr class="@(asksToDelete ? "has-delete-question" : null)">
+                        LinkDto? confirmedDeleteLink = IsConfirmingDeleteOf(version.Id) ? deleteLink : null;
+                        <tr class="@(confirmedDeleteLink is not null ? "has-delete-question" : null)">
                             <td class="mono">@version.Version</td>
                             <td>@version.DetectedAt.ToPolandTimeText()</td>
                             <td class="col-status">
@@ -137,11 +137,11 @@
                                 </span>
                             </td>
                             <td class="col-actions">
-                                @if (asksToDelete)
+                                @if (confirmedDeleteLink is not null)
                                 {
                                     @* Inert, with the link's classes, so it keeps the link's place: the second
                                        click of a double click on "Usuń" lands here (#549). *@
-                                    <span class="btn btn-ghost btn-sm is-disabled" aria-disabled="true">Usuń</span>
+                                    <span class="btn btn-ghost btn-sm is-disabled" role="link" aria-disabled="true">Usuń</span>
                                 }
                                 else if (deleteLink is not null)
                                 {
@@ -149,7 +149,7 @@
                                 }
                             </td>
                         </tr>
-                        @if (asksToDelete && deleteLink is { } confirmedDeleteLink)
+                        @if (confirmedDeleteLink is not null)
                         {
                             @* A row of its own, so the question never widens the table or moves "Usuń" (#549).
                                The form sets no action, so Blazor writes this address, which draws the form

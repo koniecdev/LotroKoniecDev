@@ -1,16 +1,18 @@
 @echo off
 setlocal
+set "LOTRO_WRAPPER_SELF=%~f0"
 cd /d "%~dp0"
 
-rem AUDIT-SEC-06: user arguments must never be re-parsed by an elevated shell. They cross
-rem the elevation boundary as an environment variable (inherited by the elevated instance),
-rem and delayed expansion below inserts them after cmd parsing, so metacharacters stay literal.
+rem AUDIT-SEC-06: the relaunch as administrator must never make an elevated shell parse the
+rem arguments. An elevated process does not get this window's variables (#658), so the
+rem arguments and this script's path cross as Base64 text, and the elevated PowerShell
+rem decodes them. Delayed expansion below inserts the arguments after cmd parsing.
 if not "%~1"=="--elevated" set "LOTRO_WRAPPER_ARGS=%*"
 
 net session >nul 2>&1
 if errorlevel 1 (
     echo Requesting administrator privileges...
-    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '--elevated' -Verb RunAs"
+    powershell -NoProfile -Command "$u=[Text.Encoding]::UTF8;$b={param($s)[Convert]::ToBase64String($u.GetBytes([string]$s))};$inner='$u=[Text.Encoding]::UTF8;$d={param($s)$u.GetString([Convert]::FromBase64String($s))};$a=(& $d '''+(& $b $env:LOTRO_WRAPPER_ARGS)+''');$env:LOTRO_WRAPPER_ARGS=$null;if($a){$env:LOTRO_WRAPPER_ARGS=$a};& (& $d '''+(& $b $env:LOTRO_WRAPPER_SELF)+''') --elevated';Start-Process -FilePath powershell -ArgumentList ('-NoProfile -Command '+$inner) -Verb RunAs"
     exit /b
 )
 

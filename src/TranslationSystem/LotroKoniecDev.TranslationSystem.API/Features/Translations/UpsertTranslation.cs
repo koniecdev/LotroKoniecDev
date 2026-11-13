@@ -191,23 +191,20 @@ internal sealed partial class UpsertTranslation : IEndpoint
 
             TranslationSaveBudgetVerdict verdict = TranslationSaveBudget.Judge(counts, replacesPolish, settings);
 
-            switch (verdict.RefusedBy)
+            if (verdict.RefusedBy is TranslationSaveBudgetKind refusedBy)
             {
-                case TranslationSaveBudgetKind.Saves:
-                    await _saveLedger.RemoveAsync(saveId, cancellationToken);
-                    LogSaveBudget(
-                        _logger, translatorId.Value, TranslationSaveBudgetKind.Saves, TranslationSaveBudgetOutcome.Refused,
-                        counts.Saves, settings.SaveLimit, settings.WindowHours);
-                    return Result.Failure(
-                        TranslationSaveBudgetErrors.SaveBudgetExhausted(settings.SaveLimit, settings.WindowHours));
-
-                case TranslationSaveBudgetKind.Overwrites:
-                    await _saveLedger.RemoveAsync(saveId, cancellationToken);
-                    LogSaveBudget(
-                        _logger, translatorId.Value, TranslationSaveBudgetKind.Overwrites, TranslationSaveBudgetOutcome.Refused,
-                        counts.Overwrites, settings.OverwriteLimit, settings.WindowHours);
-                    return Result.Failure(
+                (int count, int limit, Error error) = refusedBy is TranslationSaveBudgetKind.Saves
+                    ? (counts.Saves, settings.SaveLimit,
+                        TranslationSaveBudgetErrors.SaveBudgetExhausted(settings.SaveLimit, settings.WindowHours))
+                    : (counts.Overwrites, settings.OverwriteLimit,
                         TranslationSaveBudgetErrors.OverwriteBudgetExhausted(settings.OverwriteLimit, settings.WindowHours));
+
+                // Not the request's token: a client that leaves now must not keep a refused permit.
+                await _saveLedger.RemoveAsync(saveId, CancellationToken.None);
+                LogSaveBudget(
+                    _logger, translatorId.Value, refusedBy, TranslationSaveBudgetOutcome.Refused,
+                    count, limit, settings.WindowHours);
+                return Result.Failure(error);
             }
 
             // Every save at or above a threshold, not only the crossing one: two parallel saves can both

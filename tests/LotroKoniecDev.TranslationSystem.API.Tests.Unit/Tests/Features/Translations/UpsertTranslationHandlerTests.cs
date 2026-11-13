@@ -417,6 +417,24 @@ public sealed class UpsertTranslationHandlerTests
         BudgetEntries().ShouldHaveSingleItem().Message.ShouldContain("budget Overwrites, outcome Refused");
     }
 
+    [Fact]
+    public async Task Handle_WhenTheClientLeavesAfterThePermitIsTaken_ShouldStillHandTheRefusedPermitBack()
+    {
+        // Arrange: the request is cancelled right after the permit is recorded.
+        _budgetSettings = SmallBudget(saveLimit: 2, overwriteLimit: 2);
+        _saveLedger.Seed(CurrentTranslator, saves: 2, overwrites: 0);
+        GivenStoredRow(Untranslated());
+        using CancellationTokenSource request = new();
+        _saveLedger.CancelAfterRecord = request;
+
+        // Act
+        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, "Witaj"), request.Token);
+
+        // Assert
+        result.Error.Code.ShouldBe("Translations.SaveBudgetExhausted");
+        _saveLedger.CountFor(CurrentTranslator).ShouldBe(new TranslationSaveCounts(2, 0));
+    }
+
     [Theory]
     [InlineData(RejectedBeforeTheSave.InvalidText)]
     [InlineData(RejectedBeforeTheSave.UnknownRow)]
@@ -660,6 +678,11 @@ public sealed class UpsertTranslationHandlerTests
 
         public int RecordCalls { get; private set; }
 
+        /// <summary>
+        /// Cancels the request right after the permit is recorded, as a client that leaves would.
+        /// </summary>
+        public CancellationTokenSource? CancelAfterRecord { get; set; }
+
         public void Seed(TranslatorId translatorId, int saves, int overwrites)
         {
             for (int index = 0; index < saves; index++)
@@ -683,11 +706,14 @@ public sealed class UpsertTranslationHandlerTests
         {
             RecordCalls++;
             _saves.Add((saveId, translatorId, replacedPolish));
+            CancelAfterRecord?.Cancel();
             return Task.FromResult(CountFor(translatorId));
         }
 
         public Task RemoveAsync(Guid saveId, CancellationToken cancellationToken)
         {
+            // Like EF Core, a cancelled token stops the delete.
+            cancellationToken.ThrowIfCancellationRequested();
             _saves.RemoveAll(save => save.Id == saveId);
             return Task.CompletedTask;
         }

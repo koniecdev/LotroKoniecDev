@@ -87,10 +87,13 @@ The handler loads the row, provisions the translator, and then, before the text 
    statements, and `ON CONFLICT` makes a retry after a lost commit answer add nothing,
 3. counts the account's saves and overwrites in the window, this one included.
 
-Over a limit, it deletes its own row and answers 429. None of this runs in a transaction. The insert is
-committed before the count, so the last of any parallel requests always sees all the others, and
-parallel requests can never pass more saves than the limit. Counting first and inserting after would
-let every parallel request through, and a script can run as many in parallel as it likes.
+Over a limit, it deletes its own row and answers 429. That delete does not use the request's
+cancellation, so a client that leaves at that moment does not keep a refused permit. None of this runs
+in a transaction. The insert is committed before the count, so the last of any parallel requests always
+sees all the others, and parallel requests can never pass more saves than the limit. Counting first and
+inserting after would let every parallel request through, and a script can run as many in parallel as it
+likes. The price is on the safe side: in a burst near the limit, parallel requests can count each
+other's rows before those are handed back, so fewer saves than the limit allows may pass.
 
 ADR-0053 §2 keeps a spent permit because a fixed window cannot hand one back. This table can, and
 does on a refusal. A permit taken before a save that then fails (a 409 conflict, a database error, a

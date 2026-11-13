@@ -29,7 +29,7 @@
             @* Readers use this date to see if the policy changed since they last read it. When you change
                the text a reader sees, set it to that day. Leave it as it is when you only change markup
                or styles (#1037). *@
-            <p class="updated">Ostatnia aktualizacja: 12 października 2026</p>
+            <p class="updated">Ostatnia aktualizacja: 12 listopada 2026</p>
 
             <p>Niniejsza polityka opisuje, w jaki sposób serwis <strong>lotro-translator.pl</strong> przetwarza dane osobowe użytkowników zgodnie z Rozporządzeniem Parlamentu Europejskiego i Rady (UE) 2016/679 (RODO). Korzystając z serwisu, akceptujesz zasady opisane poniżej.</p>
 
@@ -52,6 +52,7 @@
             <ul>
                 <li><strong>Hetzner Online GmbH (Niemcy)</strong> — hosting aplikacji serwisu oraz logów technicznych; centrum danych w Norymberdze (UE).</li>
                 <li><strong>Neon Inc.</strong> — zarządzana baza danych PostgreSQL, w której przechowujemy dane konta i wkład tłumaczeniowy; serwery we Frankfurcie (UE). Dostawca ma siedzibę w USA — transfer zabezpieczają standardowe klauzule umowne.</li>
+                <li><strong>Cloudflare, Inc.</strong> — przechowywanie zaszyfrowanych kopii zapasowych bazy danych w usłudze R2, w jurysdykcji UE; dostawca otrzymuje wyłącznie zaszyfrowane pliki, a klucz do ich odczytu pozostaje u nas. Dostawca ma siedzibę w USA — transfer zabezpieczają standardowe klauzule umowne.</li>
                 <li><strong>Brevo (Sendinblue SAS, Francja)</strong> — wysyłka wiadomości transakcyjnych (np. potwierdzenie adresu e-mail, link anulowania usunięcia konta); przetwarza adres e-mail odbiorcy i treść wiadomości.</li>
                 <li><strong>Google Ireland Limited (Irlandia)</strong> — skrzynka Gmail, przez którą prowadzimy korespondencję w sprawach ochrony danych i na którą trafiają odpowiedzi na wiadomości z serwisu; przetwarza adres e-mail nadawcy i treść korespondencji.</li>
             </ul>
@@ -81,7 +82,7 @@
             <p>Dane konta przechowujemy przez czas jego istnienia. Żądanie usunięcia konta uruchamia 14-dniowy okres ochronny, w którym konto jest zablokowane, a usunięcie można anulować linkiem z wiadomości e-mail; po jego upływie dane osobowe są anonimizowane, a wkład tłumaczeniowy pozostaje w serwisie wyłącznie z nieprzypisywalnym identyfikatorem.</p>
             <ul>
                 <li><strong>Logi techniczne</strong> (w tym adresy IP) — przechowywane do <strong>30 dni</strong>.</li>
-                <li><strong>Kopie odzyskiwania bazy danych</strong> — mechanizm odtwarzania punktu w czasie obejmuje okres do <strong>6 godzin</strong> wstecz; dodatkowa migawka bazy tworzona przed wdrożeniem nowej wersji serwisu jest przechowywana najdłużej do kolejnego wdrożenia. Po upływie tych okien dane usunięte z bazy znikają również z kopii.</li>
+                <li><strong>Kopie zapasowe bazy danych</strong> — mechanizm odtwarzania punktu w czasie obejmuje okres do <strong>7 dni</strong> wstecz, a dodatkowa migawka bazy tworzona przed wdrożeniem nowej wersji serwisu jest przechowywana najdłużej do kolejnego wdrożenia. Raz na dobę tworzymy też zaszyfrowaną kopię bazy, którą przechowujemy poza dostawcą bazy przez <strong>30 dni</strong> od jej utworzenia; potem dostawca usuwa ją automatycznie, zwykle w ciągu kolejnej doby. Kopii używamy wyłącznie do odtworzenia danych po awarii lub nadużyciu oraz do okresowego sprawdzenia, że da się je odtworzyć. Po upływie tych okresów dane usunięte z bazy znikają również z kopii, a gdy kopię trzeba odtworzyć, dane kont usuniętych po jej utworzeniu usuwamy ponownie, zanim wrócą do serwisu.</li>
             </ul>
 
             <h2><span class="sec-num">08</span> Kontakt</h2>

@@ -188,6 +188,13 @@ jobs:
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/hetzner-bootstrap-reboot.tests.sh
 
+      # The nightly database backup (#688, ADR-0071) runs on the prod box from cron. The suite stubs
+      # pg_dump and the bucket, and pins that the success metric the alert reads is written only when
+      # every database landed, and that no secret reaches argv or the output.
+      - name: Hetzner backup self-test
+        if: steps.diff.outputs.guards != 'false'
+        run: ./scripts/tests/hetzner-backup.tests.sh
+
       # The prod-promotion N-1 gate (#534) runs inside CD's prod leg, where its real inputs (the
       # deployments API, the box .env, a schema) exist nowhere in CI — so both halves get a stubbed
       # suite here. The resolver's cases pin the properties the safety story rests on: an

@@ -313,9 +313,10 @@ jobs:
 
       # MIGR-01 (#336) + MIGR-04 (#339): the migrator runs inside the `up -d` below, so publish the
       # restore point and cut the durable Neon snapshot branch FIRST. ADR-0023 recovery is roll-forward
-      # or restore — never Down() — and Neon Free keeps only 6 h of PITR, so a branch (whose head never
-      # expires) is what makes a late-noticed bad migration recoverable. This is a safety NET, not a
-      # gate: an unconfigured environment skips it cleanly and no Neon API hiccup may fail the deploy.
+      # or restore — never Down() — and Neon's history window is finite (7 days on prod, 6 h on
+      # staging), so a branch (whose head never expires) is what makes a late-noticed bad migration
+      # recoverable. This is a safety NET, not a gate: an unconfigured environment skips it cleanly
+      # and no Neon API hiccup may fail the deploy.
       - name: Publish the pre-migration restore point (Neon snapshot)
         env:
           SHORT_SHA: ${{ inputs.short_sha }}
@@ -328,9 +329,9 @@ jobs:
           }
           tms_target=$(latest_migration src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/Migrations || true)
           auth_target=$(latest_migration src/AuthSystem/LotroKoniecDev.AuthSystem.Persistence/Migrations || true)
-          # Retention: max ONE snapshot branch per project (both Free-plan projects sit near the storage
-          # cap, and the previous deploy's snapshot guards a migration that already proved good), so the
-          # old migr04-pre-* branches go BEFORE the new one is cut.
+          # Retention: max ONE snapshot branch per project (every branch pins history, billed on prod and
+          # near the Free plan's storage cap on staging, and the previous deploy's snapshot guards a
+          # migration that already proved good), so the old migr04-pre-* branches go BEFORE the new one.
           neon_api="https://console.neon.tech/api/v2"
           snapshot_row="skipped (not configured)"
           if [ -n "${NEON_API_KEY:-}" ] && [ -n "${NEON_PROJECT_ID:-}" ]; then
@@ -359,7 +360,7 @@ jobs:
               echo "Neon: created pre-migration snapshot branch ${snapshot_name} (${snapshot_id})"
             else
               snapshot_row="creation failed (non-blocking — see the deploy log)"
-              echo "::warning::Neon: snapshot branch creation failed (non-blocking — the ambient 6 h PITR window still applies)"
+              echo "::warning::Neon: snapshot branch creation failed (non-blocking — the PITR history window still applies: 7 days on prod, 6 h on staging)"
             fi
           else
             echo "Neon snapshot skipped (not configured)"
@@ -375,7 +376,7 @@ jobs:
             echo "| Target migration — translation | \`${tms_target:-unknown}\` |"
             echo "| Target migration — auth | \`${auth_target:-unknown}\` |"
             echo ""
-            echo "Bad migration? Runbook → \"Restore from the auto-snapshot\" (works past the 6 h window when the snapshot row above is a branch) or \"Recover from a bad migration (Neon PITR)\" (restore to the timestamp above, 6 h retention)."
+            echo "Bad migration? Runbook → \"Restore from the auto-snapshot\" (works past the history window when the snapshot row above is a branch) or \"Recover from a bad migration (Neon PITR)\" (restore to the timestamp above, inside the history window: 7 days on prod, 6 h on staging)."
           } >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
 
       # The box's config must BE the deployed commit — otherwise a Caddyfile or compose change would
@@ -394,7 +395,7 @@ jobs:
           # shellcheck disable=SC2029
           ssh box "
             set -e
-            mkdir -p ${STACK_DIR}/.docker/hetzner ${STACK_DIR}/.previous/.docker/hetzner
+            mkdir -p ${STACK_DIR}/.docker/hetzner ${STACK_DIR}/.previous/.docker/hetzner ${STACK_DIR}/backups/metrics
             cd ${STACK_DIR}
             for f in compose.hetzner.yaml .docker/hetzner/Caddyfile deploy.sh; do
               [ -f \"\$f\" ] && cp -p \"\$f\" \".previous/\$f\" || true
@@ -403,8 +404,13 @@ jobs:
           scp compose.hetzner.yaml "box:${STACK_DIR}/compose.hetzner.yaml"
           scp .docker/hetzner/Caddyfile "box:${STACK_DIR}/.docker/hetzner/Caddyfile"
           scp scripts/hetzner/deploy.sh "box:${STACK_DIR}/deploy.sh"
+          # The nightly backup (#688, ADR-0071) is not part of the rollback unit: it never touches the
+          # running stack. Every box gets it and the metrics folder the agent reads, but only a box
+          # whose crontab runs it (prod) writes anything there. It lands under a new name and is then
+          # renamed: bash reads a script while it runs, so a copy over a running backup would break it.
+          scp scripts/hetzner/backup.sh "box:${STACK_DIR}/backup.sh.new"
           # shellcheck disable=SC2029
-          ssh box "chmod 755 ${STACK_DIR}/deploy.sh"
+          ssh box "chmod 755 ${STACK_DIR}/deploy.sh ${STACK_DIR}/backup.sh.new && mv -f ${STACK_DIR}/backup.sh.new ${STACK_DIR}/backup.sh"
 
       # The rollout itself (scripts/hetzner/deploy.sh, on the box): pull → assert the pulled digests are
       # the attested ones → the one-shot migrator as a gate → `up -d` → reload Caddy → set the e-mail

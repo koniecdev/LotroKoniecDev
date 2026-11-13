@@ -63,18 +63,23 @@ is a few dollars. The 7-day history becomes the first step of every restore that
 copies it next to `deploy.sh` on every deploy, but it is not part of the rollback unit: it never
 touches the running stack. For each database, auth first, it:
 
-1. runs `pg_dump --format=custom` in a `postgres:18-alpine` container against the direct host
-   (a pooled `-pooler` host is turned into the direct one);
-2. has `pg_restore` read the whole dump, so a file that is not a complete archive never counts;
-3. encrypts it with `openssl enc -aes-256-cbc -pbkdf2 -iter 600000` under `BACKUP_ENCRYPTION_KEY`,
+1. checks that a table which is never empty on prod has rows (`authsystem."Users"`,
+   `translation."Translations"`), so a connection string that names an empty database fails
+   instead of filling the bucket with empty dumps;
+2. runs `pg_dump --format=custom` in a `postgres` container pinned by digest (it gets the prod
+   password) against the direct host (a pooled `-pooler` host is turned into the direct one);
+3. has `pg_restore` read the whole dump, so a file that is not a complete archive never counts;
+4. encrypts it with `openssl enc -aes-256-cbc -pbkdf2 -iter 600000` under `BACKUP_ENCRYPTION_KEY`,
    then decrypts it again and compares the bytes;
-4. uploads it with `curl --aws-sigv4`, then reads the object's size and ETag (the MD5 of a
-   single-part upload) back.
+5. uploads it with `curl --aws-sigv4`, then reads the object's size and ETag (the MD5 of a
+   single-part upload) back. The read-back decides, not the upload's exit code: a retry after a
+   lost answer is refused by the bucket lock (§3) even though the object landed.
 
 Only when every database landed does it write `lotro_backup_last_success_timestamp_seconds` into
-a Prometheus text file. Auth goes first: an account erased between the two dumps is then still
-present in the translation dump, never missing from the auth dump, and the erasure can be done
-again (§6).
+a Prometheus text file. Auth goes first, so the auth dump is never newer than the translation dump.
+An account erased between the two dumps is then still present in the auth dump, still waiting for
+its deletion, and the erasure is done again after a restore (§6). The other order could restore an
+erased account's translator profile with nothing left in auth to erase it again.
 
 Why the box and not a scheduled GitHub workflow: the box already holds the connection strings, a
 workflow would need a second copy of prod secrets in GitHub, and the `production` environment asks
@@ -107,7 +112,8 @@ An erased account's data therefore stays in encrypted dumps for up to 30 days af
 Recovering from damage is: find the state before the damage in a scratch database (a Neon branch
 at the minute before it while the 7-day history reaches; otherwise the last dump before it,
 decrypted and restored into a scratch database), then copy back only the damaged translation rows
-whose English text has not changed since, then rebuild the translation file. The scratch database
+whose source has not changed since (the English text and its argument columns, everything an
+import compares), then rebuild the translation file. The scratch database
 is dropped afterwards. `Translators` and every auth table stay as they are, so no erasure is undone.
 A whole-database restore is for one case only, the loss of the Neon project. Then every erasure
 done after the dump is done again, and every sign-in session is ended, before the site opens
@@ -118,7 +124,8 @@ done after the dump is done again, and every sign-in session is ended, before th
 The agent on each box exports `*.prom` files from `/opt/lotro/backups/metrics` through the
 read-only root mount it already has. A Grafana rule pages when the last good run is older than
 26 hours. It arms itself on the first good run, like the silent-box rule, so it can ship before
-the bucket exists.
+the bucket exists. When the metric disappears (the agent stops reading the folder), the rule pages
+for 14 days, as far back as Prometheus keeps samples, and then goes quiet.
 
 ## Consequences
 
@@ -137,6 +144,13 @@ the bucket exists.
   keeps the database awake all the time. The spending notification only warns; it does not stop
   anything.
 - **A night with the box down is a night without a backup.** The silent-box alert already fires.
+- **A metric that disappears pages for two weeks, not for ever.** Arming that outlives Prometheus'
+  15 days would need state outside Prometheus. Two weeks of pages is long enough to be seen.
+- **A prod deploy during the dump can stall the site.** `pg_dump` holds a shared lock on every
+  table until it ends, so a migration that needs an exclusive lock waits for it, and every query on
+  that table waits behind the migration. The dump runs at 01:00 UTC and takes minutes; the runbook
+  says not to approve a prod deploy in that window. A migration that waits for a lock without a
+  limit is older than this ADR and has its own ticket.
 - **When the staging box is down, nothing alerts**, this rule included. That gap is the runbook's
   "Not done yet" item, not new.
 - **Retention is a dashboard setting** nothing in the code can see. The wiring step reads it back.

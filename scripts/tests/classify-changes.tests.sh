@@ -206,6 +206,7 @@ expect 'code=false guards=true images=false' 'the bootstrap DOCKER-USER self-tes
 expect 'code=false guards=true images=false' 'the bootstrap reboot self-test'             'scripts/tests/hetzner-bootstrap-reboot.tests.sh'
 expect 'code=false guards=true images=false' 'the nightly backup script'                 'scripts/hetzner/backup.sh'
 expect 'code=false guards=true images=false' 'the nightly backup self-test'               'scripts/tests/hetzner-backup.tests.sh'
+expect 'code=false guards=true images=false' 'the runbook the backup self-test reads'     'docs/deployment/runbook.md'
 expect 'code=false guards=true images=false' 'the prod N-1 promotion gate resolver'       'scripts/ci/resolve-prod-baseline.sh'
 expect 'code=false guards=true images=false' 'the resolver self-test'                     'scripts/tests/resolve-prod-baseline.tests.sh'
 expect 'code=false guards=true images=false' 'the promotion gate verdict mapping'         'scripts/ci/n1-promotion-gate.sh'

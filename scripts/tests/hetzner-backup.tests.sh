@@ -238,6 +238,21 @@ grep -Eq ' postgres:[^ ]+@sha256:[0-9a-f]{64} pg_dump ' "$STACK/calls.log" \
     || fail "the container that gets the prod password must run an image pinned by digest"
 pass "pg_dump runs in an image pinned by digest"
 
+# The runbook's restore procedures read the pinned image out of backup.sh with this line.
+runbook_line="$(grep -m1 '^PG_IMAGE=' "$SCRIPTS_DIR/../docs/deployment/runbook.md")"
+[ -n "$runbook_line" ] || fail "the runbook must define PG_IMAGE in its shell helpers"
+runbook_image="$(eval "${runbook_line//\/opt\/lotro\/backup.sh/$BACKUP_SH}" >/dev/null; printf '%s' "${PG_IMAGE:-}")"
+[[ "$runbook_image" =~ ^postgres:[^\ ]+@sha256:[0-9a-f]{64}$ ]] \
+    || fail "the runbook's lookup must find the pinned image in backup.sh, got '$runbook_image'"
+pass "the runbook's restore procedures find the same pinned image"
+
+# A key the runbook reads differently from backup.sh would decrypt nothing.
+value_rule() { grep -m1 -o "sed -e 's/\\\\r\$//'.*" "$1" | sed 's/; }$//'; }
+backup_rule="$(value_rule "$BACKUP_SH")"
+[ -n "$backup_rule" ] && [ "$backup_rule" = "$(value_rule "$SCRIPTS_DIR/../docs/deployment/runbook.md")" ] \
+    || fail "the runbook's env_value must read values exactly as backup.sh does"
+pass "the runbook's env_value reads values exactly as backup.sh does"
+
 # ---------------------------------------------------------------------------------------------------
 CASE="the R2 endpoint"
 new_stack r2-endpoint

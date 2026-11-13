@@ -109,6 +109,11 @@ internal static partial class ApiProblemCopy
                 "Tłumaczenie nie może być puste i nie może przekraczać dozwolonej długości.",
             ["Translations.UnsupportedLanguage"] =
                 "Ten język nie jest obsługiwany — dostępny jest wyłącznie polski.",
+            ["Translations.SaveBudgetExhausted"] =
+                "Wykorzystano limit zapisów tłumaczeń. Spróbuj ponownie później.",
+            ["Translations.OverwriteBudgetExhausted"] =
+                "Wykorzystano limit poprawek istniejących tłumaczeń. Spróbuj ponownie później. "
+                + "Teksty bez tłumaczenia możesz tłumaczyć dalej.",
 
             // ── TMS · translation file ─────────────────────────────────────────────────────────
             ["TranslationFiles.NotFound"] =

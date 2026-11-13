@@ -601,8 +601,9 @@ uses to detect a token that never reached the API — see the warning on `Rels.C
 1. `GET /api/v1/translations?status=Draft` (or `NeedsReview`).
 2. `POST /api/v1/translations/{id}/approve` (Admin) → **204** — or select up to 100 rows and send
    `POST /api/v1/translations/approve { ids }`. A background rebuild of the file follows.
-3. The CLI `launch` flow does `GET /api/v1/translation-files/polish` with `If-None-Match` and patches
-   only when the ETag changed (and checks the body against the ETag hash).
+3. The CLI `launch` flow does `GET /api/v1/translation-files/pl` with `If-None-Match`, saves the
+   file when the server sends a new one (after it checks the body against the ETag hash), and
+   re-patches only when the local file's hash changed or a game update replaced subfiles.
 
 ### 9.3 A game update lands
 
@@ -626,7 +627,7 @@ Entry points in the discovery document `GET /` (each shown only to a caller who 
 | rel | Method | Target |
 |---|---|---|
 | `self` | GET | `/` |
-| `translation-file` | GET | `/api/v1/translation-files/polish` |
+| `translation-file` | GET | `/api/v1/translation-files/pl` |
 | `progress` | GET | `/api/v1/progress` |
 | `translations` | GET | `/api/v1/translations` |
 | `upsert` | PUT | `/api/v1/translations` |

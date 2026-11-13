@@ -158,7 +158,7 @@ dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 # Run the CLI (Windows; needs LOTRO. `export` only reads and needs NO admin — #629; DAT writes do)
 dotnet run --project src/Patcher/LotroKoniecDev.Cli -- export                 # DAT → data/exported.txt
 dotnet run --project src/Patcher/LotroKoniecDev.Cli -- patch polish           # translations/polish.txt → DAT
-dotnet run --project src/Patcher/LotroKoniecDev.Cli -- launch polish          # hash-check → patch if changed → launch
+dotnet run --project src/Patcher/LotroKoniecDev.Cli -- launch polish          # download (may overwrite translations/polish.txt) → patch if changed → launch; --skip-sync = no download
 # or the .bat wrappers: export.bat (no elevation) / patch.bat, lotro.bat (self-elevate)
 dotnet run --project src/Player/LotroKoniecDev.DesktopApp                     # desktop app LotroPoPolsku.exe (Windows; M4, ADR-0033)
 

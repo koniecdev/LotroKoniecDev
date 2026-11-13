@@ -647,7 +647,7 @@ Three applications and one database run together. In development they all run on
    (Blazor SSR)─────────► tms-api :5002 ──► PostgreSQL :5432 (2 databases:
         bearer token          ▲                lotro_translation + lotro_auth)
                               │
-   patcher CLI (player) ──────┘  GET /api/v1/translation-files/polish  (anonymous, ETag-cached)
+   patcher CLI (player) ──────┘  GET /api/v1/translation-files/pl  (anonymous, ETag-cached)
 ```
 
 - **auth-api** — the identity provider. Login and register pages, token endpoint, user database.
@@ -862,7 +862,7 @@ API instance** (written down as a blocker to revisit before scaling out).
 
 ### 5.7 Distribution — how players get the file
 
-`GET /api/v1/translation-files/polish` — anonymous, and deliberately boring:
+`GET /api/v1/translation-files/pl` — anonymous, and deliberately boring:
 
 - The response is the pre-built file with an **ETag** header equal to the content hash. A full
   download streams a copy from the API's own disk, written once per content hash (ADR-0064).
@@ -880,7 +880,8 @@ file and compare with the last patched hash; **re-patch only if it changed**; st
 official launcher and exit. Two hardening rules on the sync (AUDIT-SEC-01): the TMS URL must be
 **HTTPS** (plain HTTP only for loopback), and the downloaded content's SHA-256 must **match the
 ETag**, or the download is rejected and the cached file is used. The CLI's default TMS URL is
-empty until the public URL is final, so sync runs only when `--tms-url` is passed.
+the production root `https://tms.lotro-translator.pl/`, so a plain `launch` syncs; `--tms-url`
+points it at staging or a local server, and `--skip-sync` turns the sync off.
 
 The frontend also serves the same file at `/download/polish.txt` for people who want it from the
 website.

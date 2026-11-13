@@ -808,8 +808,9 @@ against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://
    without it keeps the time the box has ([Gotchas](#gotchas)).
 
    **Bootstrap stores no registry login for `deploy`** (#1330). Every image of our stack is public, so
-   it pulls without one, and `deploy.sh` ignores `deploy`'s Docker config anyway ([Gotchas](#gotchas)). A stack
-   with private images sets up its own login. Bootstrap never touches a login that is already there.
+   it pulls without one, and `deploy.sh` ignores `deploy`'s Docker config anyway ([Gotchas](#gotchas)).
+   Our images must stay public for that reason. Another stack with private images sets up its own
+   login. Bootstrap never touches a login that is already there.
 
    **Bootstrap overwrites `/etc/ssh/sshd_config.d/00-hardening.conf`, `/etc/fail2ban/jail.local`,
    `/usr/local/sbin/docker-user-firewall` and `/etc/systemd/system/docker-user-firewall.service`**
@@ -1082,8 +1083,9 @@ was live before the last deploy sits in `/opt/lotro/.previous/`: restore those t
 you are undoing a compose or Caddyfile change, not just an image change.
 
 Two edges worth knowing. `deploy.sh` prunes unused images older than 14 days
-(`PRUNE_UNUSED_OLDER_THAN`), so an older tag may need a fresh `docker pull` on the box; GHCR still
-has it. And re-running CD for a commit (**Actions → CD → Run workflow**, optionally with an explicit
+(`PRUNE_UNUSED_OLDER_THAN`), so an older tag may need a fresh pull on the box; GHCR still has it.
+`deploy.sh` pulls it for you. A pull by hand needs `DOCKER_CONFIG=/nonexistent` in front, or a stored
+login that has expired fails it ([Gotchas](#gotchas)). And re-running CD for a commit (**Actions → CD → Run workflow**, optionally with an explicit
 `image_tag`) still goes through the staging→prod gate.
 
 ## Database migrations
@@ -1125,11 +1127,13 @@ databases must already exist (see [Databases](#databases)).
 
 ### Running migrations
 
-**On a box**: CD does this for you (the migration gate). By hand, as `deploy`:
+**On a box**: CD does this for you (the migration gate). By hand, as `deploy` (with
+`DOCKER_CONFIG=/nonexistent`, so a stored login that has expired cannot fail the pull of a missing
+image: [Gotchas](#gotchas)):
 
 ```bash
 cd /opt/lotro
-docker compose -f compose.hetzner.yaml run --rm --no-deps migrator
+DOCKER_CONFIG=/nonexistent docker compose -f compose.hetzner.yaml run --rm --no-deps migrator
 ```
 
 **Local production-parity stack (`compose.prod.yaml`)**: automatic. The `migrator` service runs to
@@ -1957,14 +1961,24 @@ works for `up` too. It does not.
   in `deploy`'s Docker config failed the staging rollout with `migrator Error error from registry:
   denied`, and the automatic rollback failed the same way.
   - `deploy.sh` runs every docker call with `DOCKER_CONFIG=/nonexistent` and without
-    `DOCKER_AUTH_CONFIG`, so it ignores the logins stored for the user that runs it. A folder that
-    does not exist gives Docker an empty config, and only root can create `/nonexistent`.
-  - A credential helper installed on the box is still used, even with no config folder: Docker picks
-    `docker-credential-pass` when `pass` is installed too, otherwise `docker-credential-secretservice`
-    (both come with the `golang-docker-credential-helpers` package). One that cannot run (a desktop
-    keyring on a server) fails every pull. Bootstrap installs none. To check, as `deploy`:
-    `command -v pass docker-credential-pass docker-credential-secretservice` must print nothing.
-  - A docker command you type by hand still reads the stored logins. Pull by hand like this:
+    `DOCKER_AUTH_CONFIG`, so it ignores the logins in the Docker config of the user that runs it. A
+    folder that does not exist gives Docker an empty config, and only root can create `/nonexistent`.
+  - So every image the stack pulls must be public, ours on ghcr.io included. A private image fails
+    every deploy at the pull. After the first push of a new image, check that its package is public.
+  - The rest of that Docker config is ignored too: a compose plugin under `~/.docker/cli-plugins`, a
+    docker context and proxy settings. Compose must be installed for the whole system (Ubuntu's
+    `docker-compose-v2` or Docker's `docker-compose-plugin`, both in
+    `/usr/libexec/docker/cli-plugins`). Bootstrap and CD check `docker compose version` the same way,
+    with `DOCKER_CONFIG=/nonexistent`, so a box that breaks this fails there first.
+  - A credential helper installed on the box is still used, even with no config folder. When `pass`
+    is installed, Docker uses `docker-credential-pass` if it is there. When `pass` is not installed,
+    Docker uses `docker-credential-secretservice` if it is there. Both come with the
+    `golang-docker-credential-helpers` package. A helper that cannot run (a desktop keyring on a
+    server) fails every pull with `error getting credentials`. Bootstrap installs none. To check, as
+    `deploy`: `command -v pass docker-credential-pass docker-credential-secretservice` must print
+    nothing.
+  - A docker command you type by hand still reads the stored logins. Put `DOCKER_CONFIG=/nonexistent`
+    in front of any hand command that may pull one of our images, for example
     `DOCKER_CONFIG=/nonexistent docker pull ghcr.io/koniecdev/lotrokoniecdev-migrator:<tag>`.
   - Never run `docker logout` as `deploy` to fix this: the other stack on the box may need the login
     stored there.

@@ -107,6 +107,12 @@ that cannot be minted again, because without it every dump is unreadable.
 that holds only dumps there is no prefix filter to get wrong. The privacy policy states the period.
 An erased account's data therefore stays in encrypted dumps for up to 30 days after its erasure.
 
+The terms keep their sentence that personal data are anonymised for good once an account is
+deleted (owner, 2026-11-13). That holds in the service. The privacy policy, which the terms point
+to, describes the encrypted copies, their 30 days, and the erasure a restore does again. So the
+terms do not change, and their § 9 notice 14 days ahead does not apply. Users hear about the
+privacy policy change in one e-mail, sent after the new policy is live and before the first dump.
+
 ### 6. Restore copies rows back; it never replaces the prod database
 
 Recovering from damage is: find the state before the damage in a scratch database (a Neon branch

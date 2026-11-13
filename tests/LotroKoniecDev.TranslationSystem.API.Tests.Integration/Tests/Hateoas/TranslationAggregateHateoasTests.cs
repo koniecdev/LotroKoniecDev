@@ -78,10 +78,11 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
             AdminClient(), $"/api/v1/translations/{row.Id.Value}");
 
         // Assert
-        response.Links.Count.ShouldBe(3);
+        response.Links.Count.ShouldBe(4);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.Upsert && l.Method == "PUT");
         response.Links.ShouldContain(l => l.Rel == Rels.Approve && l.Method == "POST");
+        response.Links.ShouldContain(l => l.Rel == Rels.SameSourceText && l.Method == "GET");
 
         LinkDto selfLink = response.Links.First(l => l.Rel == Rels.Self);
         selfLink.Href.ShouldContain($"/api/v1/translations/{row.Id.Value}");
@@ -89,6 +90,9 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
 
         LinkDto approveLink = response.Links.First(l => l.Rel == Rels.Approve);
         approveLink.Href.ShouldContain($"/api/v1/translations/{row.Id.Value}/approve");
+
+        LinkDto sameSourceTextLink = response.Links.First(l => l.Rel == Rels.SameSourceText);
+        sameSourceTextLink.Href.ShouldContain($"/api/v1/translations/{row.Id.Value}/same-source-text");
     }
 
     [Fact]
@@ -101,10 +105,11 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         TranslationDetailResponse response = await GetHateoasAsync<TranslationDetailResponse>(
             TranslatorClient(), $"/api/v1/translations/{row.Id.Value}");
 
-        // Assert
-        response.Links.Count.ShouldBe(2);
+        // Assert: every translator may open the same-text panel (#1347).
+        response.Links.Count.ShouldBe(3);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.Upsert && l.Method == "PUT");
+        response.Links.ShouldContain(l => l.Rel == Rels.SameSourceText && l.Method == "GET");
         response.Links.ShouldNotContain(l => l.Rel == Rels.Approve);
     }
 
@@ -141,6 +146,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldNotContain(l => l.Rel == Rels.Upsert);
         response.Links.ShouldNotContain(l => l.Rel == Rels.Approve);
+        response.Links.ShouldNotContain(l => l.Rel == Rels.SameSourceText);
     }
 
     [Fact]
@@ -172,12 +178,13 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
             await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
                 AdminClient(), "/api/v1/translations?page=1&pageSize=50");
 
-        // Assert: per-item links (Draft + admin → self, upsert, approve)
+        // Assert: per-item links (Draft + admin → self, upsert, approve, same-source-text)
         TranslationListItemResponse item = response.Items.First(i => i.Id == row.Id);
-        item.Links.Count.ShouldBe(3);
+        item.Links.Count.ShouldBe(4);
         item.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         item.Links.ShouldContain(l => l.Rel == Rels.Upsert && l.Method == "PUT");
         item.Links.ShouldContain(l => l.Rel == Rels.Approve && l.Method == "POST");
+        item.Links.ShouldContain(l => l.Rel == Rels.SameSourceText && l.Method == "GET");
 
         // Assert: one page, so no boundary rel (#545).
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
@@ -327,6 +334,44 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ListTranslations_PaginationLinks_PreserveTheConflictsOnlyFilter()
+    {
+        // Arrange: three rows of one English text with three Polish texts, one per page (#1347).
+        await SeedAsync(
+            Row(1, "Stout-axe[D]", TranslationStatus.Draft, polish: "Topór wojenny"),
+            Row(2, "Stout-axe[D]", TranslationStatus.Draft, polish: "Krzepki Topornik"),
+            Row(3, "Stout-axe[D]", TranslationStatus.Draft, polish: "Wytrzymały topór"),
+            Row(4, "Dwarf[D]", TranslationStatus.Draft));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> response =
+            await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
+                AdminClient(), "/api/v1/translations?conflictsOnly=true&page=2&pageSize=1");
+
+        // Assert
+        response.TotalCount.ShouldBe(3);
+        foreach (string rel in new[] { Rels.Self, Rels.FirstPage, Rels.LastPage, Rels.PreviousPage, Rels.NextPage })
+        {
+            response.Links.First(l => l.Rel == rel).Href.ShouldContain("conflictsOnly=true", Case.Insensitive);
+        }
+    }
+
+    [Fact]
+    public async Task ListTranslations_PaginationLinks_LeaveOutTheConflictsOnlyFilterWhenItIsOff()
+    {
+        // Arrange
+        await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> response =
+            await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
+                AdminClient(), "/api/v1/translations?conflictsOnly=false&page=2&pageSize=1");
+
+        // Assert
+        response.Links.ShouldAllBe(link => !link.Href.Contains("conflictsOnly", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task ListTranslations_PaginationLinks_PreserveTheActiveSort()
     {
         // Arrange: three rows, one per page, so page 2 carries every page link.
@@ -402,7 +447,8 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         int gossipId,
         string source,
         TranslationStatus status = TranslationStatus.Untranslated,
-        bool removed = false)
+        bool removed = false,
+        string polish = "Polski tekst")
     {
         Translation row = Translation.CreateUntranslated(
             FragmentKey.Create(FileId, gossipId).Value,
@@ -413,14 +459,14 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         switch (status)
         {
             case TranslationStatus.Draft:
-                row.ProvideTranslation("Polski tekst", _seederId, Now);
+                row.ProvideTranslation(polish, _seederId, Now);
                 break;
             case TranslationStatus.NeedsReview:
-                row.ProvideTranslation("Polski tekst", _seederId, Now);
+                row.ProvideTranslation(polish, _seederId, Now);
                 row.ApplySourceChange(TranslationSource.Create($"{source} (reworded)", null, null).Value, _versionId, Now);
                 break;
             case TranslationStatus.Approved:
-                row.ProvideTranslation("Polski tekst", _seederId, Now);
+                row.ProvideTranslation(polish, _seederId, Now);
                 row.Approve(_seederId, Now);
                 break;
         }

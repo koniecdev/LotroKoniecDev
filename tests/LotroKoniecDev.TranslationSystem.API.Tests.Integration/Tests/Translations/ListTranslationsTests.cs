@@ -338,6 +338,116 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         page.Items.ShouldHaveSingleItem().GossipId.ShouldBe(1);
     }
 
+    [Fact]
+    public async Task List_WithConflictsOnly_ShouldListTheTranslatedRowsOfEveryGroupWithDifferentPolish()
+    {
+        // Arrange: the example of #1347, an agreeing group, an untranslated twin and a unique row.
+        await SeedAsync(
+            Translated(49821557, "Stout-axe[D]", "Topór wojenny", approve: true),
+            Translated(127768437, "Stout-axe[D]", "Krzepki Topornik"),
+            Translated(204170133, "Stout-axe[D]", "Wytrzymały topór"),
+            Row(300000000, "Stout-axe[D]"),
+            Translated(1, "Dwarf[D]", "Krasnolud"),
+            Translated(2, "Dwarf[D]", "Krasnolud", approve: true),
+            Translated(3, "High Elf[L]", "Wysoki elf"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync("?conflictsOnly=true");
+
+        // Assert
+        page.TotalCount.ShouldBe(3);
+        page.Items.Select(item => item.GossipId).ShouldBe([49821557L, 127768437L, 204170133L]);
+    }
+
+    [Fact]
+    public async Task List_WithConflictsOnly_ShouldNotCountAnUntranslatedOrARemovedTwinAsADifference()
+    {
+        // Arrange
+        await SeedAsync(
+            Translated(1, "Dwarf[D]", "Krasnolud"),
+            Row(2, "Dwarf[D]"),
+            Translated(3, "Beorning[B]", "Beorning"),
+            Translated(4, "Beorning[B]", "Niedźwiedziołak", removed: true));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync("?conflictsOnly=true");
+
+        // Assert
+        page.TotalCount.ShouldBe(0);
+        page.Items.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task List_WithConflictsOnlyAndStatus_ShouldJudgeTheConflictOnTheWholeGroup()
+    {
+        // Arrange: the status narrows the listed rows, never the rows the conflict is judged on.
+        await SeedAsync(
+            Translated(1, "Stout-axe[D]", "Topór wojenny", approve: true),
+            Translated(2, "Stout-axe[D]", "Krzepki Topornik"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync("?conflictsOnly=true&status=Draft");
+
+        // Assert
+        TranslationListItemResponse item = page.Items.ShouldHaveSingleItem();
+        item.GossipId.ShouldBe(2);
+        item.Status.ShouldBe(TranslationStatus.Draft);
+    }
+
+    [Fact]
+    public async Task List_WithConflictsOnlyAndSearch_ShouldListOnlyTheMatchingGroup()
+    {
+        // Arrange
+        await SeedAsync(
+            Translated(1, "Stout-axe[D]", "Topór wojenny"),
+            Translated(2, "Stout-axe[D]", "Krzepki Topornik"),
+            Translated(3, "Dwarf[D]", "Krasnolud"),
+            Translated(4, "Dwarf[D]", "Krasnoludek"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync("?conflictsOnly=true&search=Stout");
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L]);
+    }
+
+    [Fact]
+    public async Task List_WithConflictsOnly_ShouldPage()
+    {
+        // Arrange
+        await SeedAsync(
+            Translated(1, "Stout-axe[D]", "Topór wojenny"),
+            Translated(2, "Stout-axe[D]", "Krzepki Topornik"),
+            Translated(3, "Stout-axe[D]", "Wytrzymały topór"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync("?conflictsOnly=true&page=2&pageSize=2");
+
+        // Assert
+        page.TotalCount.ShouldBe(3);
+        page.Items.ShouldHaveSingleItem().GossipId.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task List_WithoutToken_ShouldSupportTheConflictsOnlyFilter()
+    {
+        // Arrange: the public list keeps every filter (#309).
+        await SeedAsync(
+            Translated(1, "Stout-axe[D]", "Topór wojenny"),
+            Translated(2, "Stout-axe[D]", "Krzepki Topornik"),
+            Translated(3, "Dwarf[D]", "Krasnolud"));
+
+        // Act
+        HttpResponseMessage response = await _factory.CreateClient()
+            .GetAsync("/api/v1/translations?conflictsOnly=true");
+        PaginationResponse<TranslationListItemResponse> page =
+            (await response.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L]);
+    }
+
     private async Task<PaginationResponse<TranslationListItemResponse>> ListAsync(string queryString)
     {
         HttpResponseMessage response = await TranslatorClient().GetAsync($"/api/v1/translations{queryString}");
@@ -383,6 +493,33 @@ public sealed class ListTranslationsTests : IAsyncLifetime
                 row.ProvideTranslation("Polski tekst", _seederId, Now);
                 row.ApplySourceChange(TranslationSource.Create($"{source} (reworded)", null, null).Value, _versionId, Now);
                 break;
+        }
+
+        if (removed)
+        {
+            row.MarkRemoved(_versionId, Now);
+        }
+
+        return row;
+    }
+
+    private Translation Translated(
+        long gossipId,
+        string source,
+        string polish,
+        bool approve = false,
+        bool removed = false)
+    {
+        Translation row = Translation.CreateUntranslated(
+            FragmentKey.Create(FileId, gossipId).Value,
+            TranslationSource.Create(source, null, null).Value,
+            _versionId,
+            Now).Value;
+        row.ProvideTranslation(polish, _seederId, Now);
+
+        if (approve)
+        {
+            row.Approve(_seederId, Now);
         }
 
         if (removed)

@@ -886,7 +886,8 @@ file and compare with the last patched hash; **re-patch only if it changed**; st
 official launcher and exit. Two hardening rules on the sync (AUDIT-SEC-01): the TMS URL must be
 **HTTPS** (plain HTTP only for loopback), and the downloaded content's SHA-256 must **match the
 ETag**, or the download is rejected and the cached file is used. The CLI's default TMS URL is
-empty until the public URL is final, so sync runs only when `--tms-url` is passed.
+the production root `https://tms.lotro-translator.pl/`, so a plain `launch` syncs; `--tms-url`
+points it at staging or a local server, and `--skip-sync` turns the sync off.
 
 The frontend also serves the same file at `/download/polish.txt` for people who want it from the
 website.

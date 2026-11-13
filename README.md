@@ -183,8 +183,12 @@ is the bridge between the game on a player's machine and the translation file th
   replace whole text subfiles now and then, and the Polish in them goes with them. So when the file
   is unchanged, `launch` also compares the DAT with the iteration snapshot saved after the last
   patch, and re-patches from the local file when an update replaced anything (spec 0012 Tier 0).
-- The CLI can **auto-download** the latest approved file from the TMS (`ETag`-cached), so players
-  always get the current translation without manual steps.
+- **`launch`** first **auto-downloads** the latest approved file from the production translation
+  server (`https://tms.lotro-translator.pl/`, `ETag`-cached), so players always get the current
+  translation without manual steps. Whenever the server has a newer file, it **replaces the file you
+  name** (`translations/<name>.txt`, or the path you pass) before it patches. If the server cannot
+  be reached, `launch` goes on with the file already on disk. `--tms-url <root>` points it at
+  staging or a local server instead, and `--skip-sync` turns the download off.
 
 It also **auto-discovers** the LOTRO install (default Standing Stone Games path, Steam, the Windows
 registry, then a disk scan), and maps failures to clear exit codes. Before they touch the `DAT`,
@@ -200,13 +204,20 @@ it cannot write to the game folder, and it keeps a `.backup` of the `DAT`.
 ```bash
 export.bat                 # game DAT  → data/exported.txt (reads only — no elevation)
 patch.bat polish           # translations/polish.txt → game DAT (self-elevates)
-lotro.bat polish           # launch: hash-check → patch if changed or an update replaced subfiles → start the game
+lotro.bat polish           # launch: download the newest file → hash-check → patch if changed or an update replaced subfiles → start the game
+lotro.bat polish --skip-sync   # the same, without the download
 # equivalent: dotnet run --project src/Patcher/LotroKoniecDev.Cli -- launch polish
 ```
 
 `patch.bat <name>` resolves `translations/<name>.txt`; you can also pass an explicit translation
 path and/or an explicit `DAT` path. A `.backup` of the `DAT` is written next to the original — to
 revert, copy it back over `client_local_English.dat`.
+
+To patch a file you edited yourself, use `patch <name>` or `launch <name> --skip-sync`: neither of
+them downloads anything or replaces the file. A plain `launch <name>` later replaces it again
+whenever the server has a newer one. If you edit a copy under another name, your edits land only on
+rows that still hold English: a row the server's translation already patched is skipped and
+reported as `source moved` (see `source_digest` below).
 
 ### Translation file format (the inter-context contract)
 

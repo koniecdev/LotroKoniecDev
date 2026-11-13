@@ -269,6 +269,16 @@ helper_image="$(eval "$helpers"; printf '%s' "${PG_IMAGE:-}")"
 grep -qF " $helper_image pg_dump " "$TMP_ROOT/happy/calls.log" || fail "the helpers' image must be the one pg_dump runs in"
 pass "--helpers gives the runbook backup.sh's own reader and pinned image, and prints no secret"
 
+new_stack unknown-argument
+set +e
+LAST_OUTPUT="$(env PATH="$STACK/bin:$PATH" STUB_STATE="$STACK" STACK_DIR="$STACK" bash "$BACKUP_SH" --helper 2>&1)"
+LAST_STATUS=$?
+set -e
+[ "$LAST_STATUS" = 2 ] || fail "a mistyped argument must exit 2, got $LAST_STATUS"
+[ ! -s "$STACK/calls.log" ] || fail "a mistyped argument must not start a backup"
+printf '%s' "$LAST_OUTPUT" | grep -q "unknown argument '--helper'" || fail "the output must name the argument"
+pass "a mistyped argument stops before any dump instead of starting a real backup"
+
 # ---------------------------------------------------------------------------------------------------
 CASE="the R2 endpoint"
 new_stack r2-endpoint

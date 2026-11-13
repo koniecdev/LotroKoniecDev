@@ -58,11 +58,18 @@ env_value() {
 
 # The runbook's restore steps load this reader and the pinned image from here, so a key read there
 # is the key the dumps were encrypted with: eval "$(bash /opt/lotro/backup.sh --helpers)".
-if [ "${1:-}" = --helpers ]; then
-    printf 'ENV_FILE=%q\nPG_IMAGE=%q\n' "$ENV_FILE" "$POSTGRES_IMAGE"
-    declare -f env_value
-    exit 0
-fi
+case "${1:-}" in
+    '') ;;
+    --helpers)
+        printf 'ENV_FILE=%q\nPG_IMAGE=%q\n' "$ENV_FILE" "$POSTGRES_IMAGE"
+        declare -f env_value
+        exit 0
+        ;;
+    *)
+        fail "unknown argument '$1'; the only one is --helpers. Nothing was dumped."
+        exit 2
+        ;;
+esac
 
 if [ ! -f "$ENV_FILE" ]; then
     fail "$ENV_FILE is missing."

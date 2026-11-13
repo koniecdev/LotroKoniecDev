@@ -468,14 +468,14 @@
 
     /// <summary>
     /// The list's conflict filter is the uncapped view of these rows. The English goes in as the search term
-    /// while it is short. The list's search is a substring match over English and Polish, and only very
-    /// common texts fill the panel, so the list can show many conflict rows of other texts too; for an
-    /// empty text it shows the whole conflict list.
+    /// while it is short and has no line break, which the list's search box would drop on the next submit.
+    /// The search is a substring match over English and Polish, and only very common texts fill the panel,
+    /// so the list can show many conflict rows of other texts too.
     /// </summary>
     private static string ConflictListHref(string sourceText) =>
         TranslationListQuery
             .From(
-                sourceText.Length <= MaxConflictSearchLength ? sourceText : null,
+                sourceText.Length <= MaxConflictSearchLength && sourceText.IndexOfAny(['\r', '\n']) < 0 ? sourceText : null,
                 status: null,
                 page: 1,
                 conflictsOnly: true)

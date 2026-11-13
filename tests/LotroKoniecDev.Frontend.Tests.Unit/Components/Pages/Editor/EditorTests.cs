@@ -638,6 +638,24 @@ public sealed class EditorTests : BunitContext
         component.Find(".same-source-capped a").GetAttribute("href").ShouldBe("/translations?page=1&conflictsOnly=true");
     }
 
+    [Theory]
+    [InlineData("Line one\nline two")]
+    [InlineData("Line one\r\nline two")]
+    public void Render_WhenThePanelIsCappedAndTheEnglishHasALineBreak_LinksToTheWholeConflictList(string sourceText)
+    {
+        // The list's search box drops line breaks, so a search for this text would match nothing on the
+        // next submit.
+        StubLoad(BuildDetail(sourceText: sourceText, translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Harrond")],
+            TotalCount: 60,
+            HasConflictingTranslations: true));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.Find(".same-source-capped a").GetAttribute("href").ShouldBe("/translations?page=1&conflictsOnly=true");
+    }
+
     [Fact]
     public void Render_WhenThePanelIsCappedButThePolishAgrees_ShowsTheCountWithoutAListLink()
     {

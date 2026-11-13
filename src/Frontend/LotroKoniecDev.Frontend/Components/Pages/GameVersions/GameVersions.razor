@@ -152,7 +152,8 @@
                         @if (asksToDelete && deleteLink is { } confirmedDeleteLink)
                         {
                             @* A row of its own, so the question never widens the table or moves "Usuń" (#549).
-                               The form has no action: it posts to this address, which draws it again (#1122). *@
+                               The form sets no action, so Blazor writes this address, which draws the form
+                               again on the post (#1122). *@
                             <tr class="version-delete-question">
                                 <td colspan="4">
                                     <div class="version-delete-confirm">

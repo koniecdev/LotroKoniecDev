@@ -1127,7 +1127,7 @@ code {
 }
 
 /* The delete question sits in its own row under the version (#549). It wraps instead of widening the
-   table, and its controls end at the right edge, beside the actions column. */
+   table, and its controls end at the right edge, under the actions column. */
 .data-table tbody tr.has-delete-question td {
     border-bottom: none;
 }

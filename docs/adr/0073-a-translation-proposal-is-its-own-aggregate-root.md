@@ -1,4 +1,4 @@
-# ADR-0073: A translation proposal is its own aggregate root, and a save changes two aggregates in one transaction
+# ADR-0073: A translation proposal is its own aggregate root
 
 **Status:** Accepted
 **Date:** 2026-11-13
@@ -37,14 +37,19 @@ Code facts that decide it:
 ### 1. `TranslationProposal` is its own aggregate root
 
 A proposal lives in its own table and has its own repository. It holds: text, author, created at,
-source (a person's save, a pattern save, an AI draft, the backfill, a restore, an approval again
+origin (a person's save, a pattern save, an AI draft, the backfill, a restore, an approval again
 after an English change) with a link to the pattern save, the AI upload or the restored proposal
 where there is one, outcome, decided by, decided at, and the rejection reason.
 
+Names in code: the origin is not called "source", because `TranslationSource` and
+`Translation.Source` already mean the English text. The restore step is not called `Restore`,
+because `Translation.Restore` already undoes a soft removal.
+
 Proposals are only appended. The text never changes, and the outcome is set once: waiting →
 approved, rejected, replaced or withdrawn. A restore, and an approval of the live text again after an
-English change, add a new proposal that is approved at once. So every approval is one row in the
-history, and the live text is always the last approved proposal.
+English change, add a new proposal that is approved at once. Its author is the author of the copied
+proposal, and it is decided by the person who approved it. So every approval is one row in the
+history, and the live text is always the approved proposal with the latest decision time.
 
 ### 2. `Translation` keeps the live text and the waiting proposal's id as plain columns
 
@@ -54,6 +59,8 @@ its own rules on its own `xmin`:
 - at most one waiting proposal (a new save replaces the waiting one, spec 0014 Q2);
 - approve, reject and withdraw name a proposal they may take, otherwise the request fails with 409.
 
+`Translation` cannot tell an older approved proposal from the live one by itself, so the handler
+loads the named proposal and the live one and passes them in; `Translation` decides.
 `WaitingProposalId` is cleared when the waiting proposal is approved, rejected or withdrawn.
 
 Reason: `Translation` stays small and is always fully loaded. A child collection would mean either
@@ -77,13 +84,15 @@ new ADR first.
 
 - A foreign key from `Translation.WaitingProposalId` to the proposal.
 - A partial unique index on the proposal table: at most one waiting proposal per translation.
-- The `COPY` column list in `BulkTranslationInserter` gets the new column. The import integration
-  tests catch a list that drifts.
 
-### 5. Only new rows go through `COPY`
+The `COPY` column list in `BulkTranslationInserter` (new `Translation` rows from an import) also
+gets the new column. That list is not a guard; the import integration tests catch it when it
+drifts.
 
-The bulk paths of #1372 and #1373 insert proposals as new rows. They never load the history of a
-row to add to it.
+### 5. Bulk paths insert new proposal rows and never load a history
+
+The bulk paths of #1372 and #1373 insert proposals as new rows, set-based (`COPY` or a batched
+`INSERT`, their choice). They never load the history of a row to add to it.
 
 ## Consequences
 
@@ -102,7 +111,11 @@ row to add to it.
   (ADR-0023 expand → backfill → contract, proved by the N-1 run of ADR-0024).
 - ADR-0072 counts a save that replaces Polish as an overwrite. A save no longer replaces anything,
   so the first implementation ticket keeps that budget's effect: a save on a row that already has
-  Polish, live or waiting, still counts as an overwrite.
+  Polish, live or waiting, still counts as an overwrite. ADR-0072 allows deleting the overwrite
+  budget once the review flow ships; that is a separate decision.
+- The backfill maps a row in "Do ponownego sprawdzenia" to a waiting proposal, because today's
+  data cannot tell whether its text was ever approved (an edit after an approval keeps
+  `ApprovedById`).
 - A restore or an approval again adds a row instead of reusing the old one. Those rows are few, and
   they are the record #1345 asks for ("every approve goes into the history").
 

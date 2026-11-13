@@ -48,7 +48,7 @@ staging.
 | Firewall | ufw: deny incoming except **22/80/443**, allow outgoing · **`DOCKER-USER`**: from the public interface only **80/443** reach a container, everything else published is dropped. ufw cannot filter a published port (Docker's DNAT runs first), this chain can (#808). Rules script `/usr/local/sbin/docker-user-firewall`, re-applied by `docker-user-firewall.service` whenever Docker starts, both laid down by `bootstrap.sh` |
 | Intrusion / patching | fail2ban (sshd jail, systemd backend) · unattended-upgrades, plus a reboot on the nights an update needs one: **staging 01:30 UTC, prod 02:30 UTC** (#1327, see [Gotchas](#gotchas)) |
 | Container runtime | Docker Engine + compose plugin (the box's own — bootstrap **adopts** it, never swaps it: see [Gotchas](#gotchas)) |
-| Registry | Our four images on **ghcr.io**, Caddy and RabbitMQ on Docker Hub: all **public**, pulled without a login. `bootstrap.sh` stores no registry login, and `deploy.sh` ignores `deploy`'s stored logins (#1330, see [Gotchas](#gotchas)) |
+| Registry | Our four images on **ghcr.io**, Caddy and RabbitMQ on Docker Hub: all **public**, pulled without a login. `bootstrap.sh` stores no registry login, and `deploy.sh` ignores `deploy`'s Docker config (#1330, see [Gotchas](#gotchas)) |
 | DB | none on the box — **Neon** is the database for prod AND staging (ADR-0034 §2) |
 | Ingress | **Caddy**, one vhost per app, automatic Let's Encrypt certificates |
 | Networks | **Two segregated Docker networks per box** (#506): `${project}_default` (`10.60.0.0/24`, our stack) and `${project}_tks` (`10.61.0.0/24`, the guest TheKittySaver stack). **Caddy is the only container on both** (static IPs `10.60.0.100` / `10.61.0.100`). The apps trust `X-Forwarded-*` from Caddy's `10.60.0.100/32` only, so keep that /32 in step with Caddy's `ipv4_address`. A third network, `${project}_obs`, carries the hand-deployed observability project (ADR-0050 §2): Caddy is on it too, with no pinned address, only so the ingest vhost can reach the backend containers (#755) |
@@ -808,7 +808,7 @@ against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://
    without it keeps the time the box has ([Gotchas](#gotchas)).
 
    **Bootstrap stores no registry login for `deploy`** (#1330). Every image of our stack is public, so
-   it pulls without one, and `deploy.sh` ignores stored logins anyway ([Gotchas](#gotchas)). A stack
+   it pulls without one, and `deploy.sh` ignores `deploy`'s Docker config anyway ([Gotchas](#gotchas)). A stack
    with private images sets up its own login. Bootstrap never touches a login that is already there.
 
    **Bootstrap overwrites `/etc/ssh/sshd_config.d/00-hardening.conf`, `/etc/fail2ban/jail.local`,
@@ -1959,11 +1959,11 @@ works for `up` too. It does not.
   - `deploy.sh` runs every docker call with `DOCKER_CONFIG=/nonexistent` and without
     `DOCKER_AUTH_CONFIG`, so it ignores the logins stored for the user that runs it. A folder that
     does not exist gives Docker an empty config, and only root can create `/nonexistent`.
-  - A credential helper installed on the box is still used, even with no config folder: `pass`, or a
-    `docker-credential-*` program such as the `golang-docker-credential-helpers` package. One that
-    cannot run (a desktop keyring on a server) fails every pull. Bootstrap installs none. To check, as
-    `deploy`: `command -v pass docker-credential-pass docker-credential-secretservice` must print
-    nothing.
+  - A credential helper installed on the box is still used, even with no config folder: Docker picks
+    `docker-credential-pass` when `pass` is installed too, otherwise `docker-credential-secretservice`
+    (both come with the `golang-docker-credential-helpers` package). One that cannot run (a desktop
+    keyring on a server) fails every pull. Bootstrap installs none. To check, as `deploy`:
+    `command -v pass docker-credential-pass docker-credential-secretservice` must print nothing.
   - A docker command you type by hand still reads the stored logins. Pull by hand like this:
     `DOCKER_CONFIG=/nonexistent docker pull ghcr.io/koniecdev/lotrokoniecdev-migrator:<tag>`.
   - Never run `docker logout` as `deploy` to fix this: the other stack on the box may need the login

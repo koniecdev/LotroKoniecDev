@@ -1710,7 +1710,9 @@ text changes, the rule file changes with it and needs the sync too.
   "resolved" mail follows about an hour after the account's last budget line. That does not mean the
   account is under its limit again: the budget window is 24 hours by default. A new mail follows when it
   saves above the threshold again. The thresholds and limits are the `TranslationSaveBudget__*`
-  settings in the tms-api table above.
+  settings in the tms-api table above. The mail names the account by its translator id; its name is
+  `SELECT "DisplayName", "Email" FROM translation."Translators" WHERE "Id" = '<the id>';` on the TMS
+  database.
 - **More than 100 translations overwritten in 24 hours** (`lotro-translation-overwrites-total`,
   warning): saves that replaced Polish already on a row, from all accounts together, admins included.
   It blocks nothing. One mail when the total passes 100, a repeat every 6 hours while it stays above,

@@ -180,7 +180,8 @@ groups:
             many times (Budget Overwrites) in the budget window. AlertThreshold means it passed the
             alert threshold and can still save; Refused means tms-api refused a save with 429. A
             hijacked account or a script looks like this; so does an honest translator after a large
-            game update. Check the account's recent saves in the editor. The first mail comes within
+            game update. The mail names the account by its translator id; the runbook (Observability,
+            "The two translation save rules") shows how to turn it into a name. The first mail comes within
             about 90 seconds, or up to 5 minutes when another instance of this rule already fired. A
             "resolved" mail follows about an hour after the account's last budget line, which does
             not mean the account is back under its limit: the budget window is 24 hours by default.

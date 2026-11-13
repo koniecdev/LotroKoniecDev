@@ -468,7 +468,8 @@ ensure_unattended_reboot
 systemctl enable --now unattended-upgrades
 
 log "verification"
-su - deploy -c 'docker compose version'
+# deploy.sh runs docker without the user's Docker config, so compose must work without it too (#1330).
+su - deploy -c 'DOCKER_CONFIG=/nonexistent docker compose version'
 # Proves the docker-group membership end-to-end, not just that the CLI binary exists.
 su - deploy -c 'docker ps > /dev/null'
 echo "deploy can reach the Docker daemon"

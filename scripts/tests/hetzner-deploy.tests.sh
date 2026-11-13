@@ -214,7 +214,6 @@ expected_digests() {
 env_tag() { sed -n 's/^IMAGE_TAG=//p' "$1/.env" | head -1; }
 policy_tries() { grep -c 'set_operator_policy' "$TMP_ROOT/calls.log" || true; }
 called() { grep -qF -- "$1" "$TMP_ROOT/calls.log"; }
-
 # Line number of the first docker call containing $1 (0 = never called).
 call_line() { grep -nF -- "$1" "$TMP_ROOT/calls.log" | head -1 | cut -d: -f1; }
 

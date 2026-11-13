@@ -7,7 +7,8 @@
 # encryption and the lock are tested as they run on the box.
 #
 # What the alert depends on: the success metric is written only when every database landed, and
-# never after a failed dump, a dump that is not an archive, a failed upload or a wrong read-back.
+# never after an empty database, a failed dump, a dump that is not an archive, a failed upload or a
+# wrong read-back.
 
 set -euo pipefail
 
@@ -47,15 +48,24 @@ make_stubs() {
     local bin="$1"
     mkdir -p "$bin"
 
-    # docker run … <image> pg_dump|pg_restore …: the last words decide what it plays.
+    # docker run … <image> psql|pg_dump|pg_restore …: the last words decide what it plays.
     cat > "$bin/docker" <<'STUB'
 #!/usr/bin/env bash
 printf 'docker %s\n' "$*" >> "$STUB_STATE/calls.log"
 case " $* " in
+    *" psql "*)
+        printf 'rows-check %s: %s\n' "$PGDATABASE" "${*: -1}" >> "$STUB_STATE/env.log"
+        if [ "${MISSING_TABLE_DB:-}" = "$PGDATABASE" ]; then
+            echo 'ERROR:  relation does not exist' >&2
+            exit 1
+        fi
+        if [ "${EMPTY_DB:-}" = "$PGDATABASE" ]; then echo f; else echo t; fi
+        ;;
     *" pg_dump "*)
         printf 'PGHOST=%s PGPORT=%s PGDATABASE=%s PGUSER=%s PGSSLMODE=%s PGSSLROOTCERT=%s\n' \
             "$PGHOST" "$PGPORT" "$PGDATABASE" "$PGUSER" "$PGSSLMODE" "${PGSSLROOTCERT-<unset>}" >> "$STUB_STATE/env.log"
         [ -n "$PGPASSWORD" ] && echo "password-set $PGDATABASE" >> "$STUB_STATE/env.log"
+        [ "$PGPASSWORD" = "${EXPECTED_PGPASSWORD:-<none>}" ] && echo "password-matches $PGDATABASE" >> "$STUB_STATE/env.log"
         if [ "${FAIL_DUMP_DB:-}" = "$PGDATABASE" ]; then
             echo "pg_dump: error: connection failed" >&2
             exit 1
@@ -102,6 +112,9 @@ if [ -n "$upload" ]; then
     esac
     mkdir -p "$(dirname "$object")"
     cp "$upload" "$object"
+    case "$url" in
+        *"${STORE_THEN_FAIL_UPLOAD_DB:-<none>}"*) echo "curl: (28) Operation timed out" >&2; exit 28 ;;
+    esac
     exit 0
 fi
 if [ "$head" = 1 ]; then
@@ -216,6 +229,75 @@ if grep -F -e "$DB_PASSWORD" -e "$ENCRYPTION_KEY" -e "$R2_SECRET" "$STACK/calls.
 fi
 pass "no password, key or R2 secret reaches argv or the output"
 
+grep -qF 'rows-check lotro_auth: SELECT EXISTS (SELECT 1 FROM authsystem."Users")' "$STACK/env.log" \
+    && grep -qF 'rows-check lotro_translation: SELECT EXISTS (SELECT 1 FROM translation."Translations")' "$STACK/env.log" \
+    || fail "each database must be checked for rows in its own never-empty table"
+pass "each database is checked for rows before it is dumped"
+
+grep -Eq ' postgres:[^ ]+@sha256:[0-9a-f]{64} pg_dump ' "$STACK/calls.log" \
+    || fail "the container that gets the prod password must run an image pinned by digest"
+pass "pg_dump runs in an image pinned by digest"
+
+# ---------------------------------------------------------------------------------------------------
+CASE="the R2 endpoint"
+new_stack r2-endpoint
+run_backup BACKUP_S3_ENDPOINT=
+[ "$LAST_STATUS" = 0 ] || fail "expected exit 0, got $LAST_STATUS"
+grep -Eq ' https://0123456789abcdef0123456789abcdef\.eu\.r2\.cloudflarestorage\.com/lotro-backups-prod/lotro_auth/lotro_auth-[0-9]{8}T[0-9]{6}Z\.dump\.enc$' "$STACK/calls.log" \
+    || fail "the upload must go to the bucket on the account's EU-jurisdiction R2 host"
+pass "without an endpoint override the upload goes to the account's EU R2 host"
+
+# ---------------------------------------------------------------------------------------------------
+CASE="values as compose reads them"
+new_stack quoted
+sed -i "s/^BACKUP_ENCRYPTION_KEY=.*/BACKUP_ENCRYPTION_KEY='${ENCRYPTION_KEY}'  /; s/^BACKUP_R2_BUCKET=.*/BACKUP_R2_BUCKET=\"lotro-backups-prod\"/" "$STACK/.env"
+sed -i 's/$/\r/' "$STACK/.env"
+grep -q "^BACKUP_ENCRYPTION_KEY='" "$STACK/.env" || fail "the case must start from a quoted key"
+run_backup
+[ "$LAST_STATUS" = 0 ] || fail "expected exit 0, got $LAST_STATUS"
+translation_object="$(object_for lotro_translation)"
+[ -n "$translation_object" ] || fail "the quoted bucket name must name the bucket without its quotes"
+decrypted="$(BACKUP_ENCRYPTION_KEY="$ENCRYPTION_KEY" openssl enc -d -aes-256-cbc -md sha256 -pbkdf2 -iter 600000 \
+    -pass env:BACKUP_ENCRYPTION_KEY -in "$translation_object" 2>/dev/null)" || true
+[ "$decrypted" = 'PGDMP-archive-of-lotro_translation-zażółć gęślą jaźń' ] \
+    || fail "a quoted key in a CRLF file must encrypt under the key without its quotes"
+pass "quotes, trailing spaces and CRLF line ends are not part of a value, as in compose"
+
+CASE="a connection string Npgsql accepts"
+new_stack npgsql-forms
+quoted_password='p;w"x'
+sed -i '/^ConnectionStrings__TranslationDatabase=/d' "$STACK/.env"
+echo 'ConnectionStrings__TranslationDatabase=Host = ep-calm-1.eu-central-1.aws.neon.tech ; Database = lotro_translation ;User Id=neondb_owner;Password="p;w""x";SSL Mode=Require' >> "$STACK/.env"
+run_backup EXPECTED_PGPASSWORD="$quoted_password"
+[ "$LAST_STATUS" = 0 ] || fail "expected exit 0, got $LAST_STATUS"
+grep -q 'PGHOST=ep-calm-1.eu-central-1.aws.neon.tech PGPORT=5432 PGDATABASE=lotro_translation PGUSER=neondb_owner PGSSLMODE=require ' "$STACK/env.log" \
+    || fail "spaces around a plain value must not reach libpq"
+grep -q 'password-matches lotro_translation' "$STACK/env.log" \
+    || fail "a quoted password must keep its ';' and turn a doubled quote into one"
+[ -n "$(object_for lotro_translation)" ] || fail "the object key must hold no space"
+pass "spaced plain values are trimmed, and a quoted value keeps its ';' and doubled quotes"
+
+# ---------------------------------------------------------------------------------------------------
+CASE="an empty database"
+new_stack empty-db
+run_backup EMPTY_DB=lotro_translation
+[ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
+[ -n "$(object_for lotro_auth)" ] || fail "the other database must still be backed up"
+[ -z "$(object_for lotro_translation)" ] || fail "an empty database must not be uploaded"
+grep -q 'PGDATABASE=lotro_translation' "$STACK/env.log" && fail "an empty database must not be dumped"
+metric_untouched || fail "the metric must keep the last good run"
+printf '%s' "$LAST_OUTPUT" | grep -qF 'lotro_translation: translation."Translations" is missing or empty' \
+    || fail "the output must name the table"
+pass "an empty database is never dumped, and the metric keeps the last good run"
+
+new_stack missing-table
+run_backup MISSING_TABLE_DB=lotro_auth
+[ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
+[ -z "$(object_for lotro_auth)" ] || fail "a database without the table must not be uploaded"
+metric_untouched || fail "the metric must keep the last good run"
+printf '%s' "$LAST_OUTPUT" | grep -qF 'lotro_auth: authsystem."Users" is missing or empty' || fail "the output must name the table"
+pass "a database without its never-empty table fails the run"
+
 # ---------------------------------------------------------------------------------------------------
 CASE="verify-ca"
 new_stack verify-ca
@@ -271,6 +353,15 @@ run_backup FAIL_UPLOAD_DB=lotro_translation
 metric_untouched || fail "the metric must keep the last good run"
 printf '%s' "$LAST_OUTPUT" | grep -q 'lotro_translation: the upload failed' || fail "the output must name the step"
 pass "a refused upload fails the run"
+
+CASE="a PUT that landed but lost its answer"
+new_stack landed-answer-lost
+run_backup STORE_THEN_FAIL_UPLOAD_DB=lotro_translation
+[ "$LAST_STATUS" = 0 ] || fail "expected exit 0, got $LAST_STATUS"
+grep -Eq '^lotro_backup_last_success_timestamp_seconds [0-9]{10}$' "$STACK/backups/metrics/lotro_backup.prom" \
+    || fail "an object that landed and reads back right must count"
+printf '%s' "$LAST_OUTPUT" | grep -q 'checking whether the object landed' || fail "the output must say why it went on"
+pass "a PUT whose answer was lost counts when the read-back shows the object"
 
 CASE="a wrong read-back"
 new_stack wrong-etag

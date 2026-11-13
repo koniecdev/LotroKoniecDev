@@ -6,10 +6,11 @@
 #   bash /opt/lotro/backup.sh
 #
 # For each database, auth first (so an erasure is never newer in the auth dump than in the other):
-#   1. pg_dump --format=custom in a postgres container, against the direct host (never the pooler);
-#   2. pg_restore reads the whole dump, so a file that is not a complete archive never counts;
-#   3. AES-256 encryption under BACKUP_ENCRYPTION_KEY, and a decrypt that must give the same bytes;
-#   4. a PUT to the bucket, then a HEAD that must show the same size and MD5 (the ETag).
+#   1. a table that is never empty on prod must have rows, so an empty database never counts;
+#   2. pg_dump --format=custom in a postgres container, against the direct host (never the pooler);
+#   3. pg_restore reads the whole dump, so a file that is not a complete archive never counts;
+#   4. AES-256 encryption under BACKUP_ENCRYPTION_KEY, and a decrypt that must give the same bytes;
+#   5. a PUT to the bucket, then a HEAD that must show the same size and MD5 (the ETag).
 # Only when every database landed does it write the success metric that the agent on the box
 # exports and the "backup did not land" alert reads. A failed database does not stop the next one.
 #
@@ -26,8 +27,10 @@ ENV_FILE="${ENV_FILE:-$STACK_DIR/.env}"
 BACKUP_DIR="${BACKUP_DIR:-$STACK_DIR/backups}"
 # The agent's host exporter reads *.prom files here (.docker/observability/alloy/config.alloy).
 METRICS_DIR="${METRICS_DIR:-$BACKUP_DIR/metrics}"
-# Must be the Neon server's major or newer: pg_dump refuses a newer server.
-POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:18-alpine}"
+# Must be the Neon server's major or newer: pg_dump refuses a newer server. Pinned by digest, because
+# the container gets the prod password every night. No Dependabot entry reads this file: bump by
+# hand with `docker buildx imagetools inspect postgres:18.<n>-alpine`. The runbook reads it from here.
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:18.7-alpine@sha256:75dcac3dfb1cd01ca3536910bbc84128759362f8b118bf8c55b38a94f68f3b73}"
 DATABASE_KEYS="${DATABASE_KEYS:-ConnectionStrings__AuthDatabase ConnectionStrings__TranslationDatabase}"
 # Only the restore drill and the tests set these three; a box derives the EU endpoint of R2.
 # An `Ssl Mode` the connection string does not name, or one libpq does not know, becomes `require`.
@@ -38,9 +41,14 @@ BACKUP_DOCKER_NETWORK="${BACKUP_DOCKER_NETWORK:-}"
 log() { printf '==> %s\n' "$*"; }
 fail() { printf 'backup.sh: %s\n' "$*" >&2; }
 
-# One value out of the box .env. The file is never sourced: its connection strings hold spaces and
-# semicolons.
-env_value() { sed -n "s/^$1=//p" "$ENV_FILE" | head -1; }
+# One value out of the box .env, read as compose reads it: a trailing CR, trailing spaces and one
+# pair of surrounding quotes are not part of the value. Otherwise a quoted key would encrypt under
+# other bytes than the password-manager copy. The runbook's helper is the same sed. The file is
+# never sourced: its connection strings hold spaces and semicolons.
+env_value() {
+    sed -n "s/^$1=//p" "$ENV_FILE" | head -1 \
+        | sed -e 's/\r$//' -e 's/[[:space:]]*$//' -e "s/^'\(.*\)'\$/\1/" -e 's/^"\(.*\)"$/\1/'
+}
 
 if [ ! -f "$ENV_FILE" ]; then
     fail "$ENV_FILE is missing."
@@ -99,18 +107,63 @@ rm -rf "$WORK_DIR"
 mkdir -m 700 "$WORK_DIR"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
+trim() {
+    local text="$1"
+    text="${text#"${text%%[![:space:]]*}"}"
+    printf '%s' "${text%"${text##*[![:space:]]}"}"
+}
+
 # Npgsql keyword form (`Host=…;Database=…;Username=…;Password=…;Ssl Mode=Require`) into libpq's
-# variables. Key names are case-insensitive and may hold spaces; a value runs to the next `;`.
+# variables, read as Npgsql reads it: key names are case-insensitive and may hold spaces, a plain
+# value is trimmed and runs to the next `;`, and a value in single or double quotes may hold `;`,
+# with a doubled quote standing for one.
 parse_connection_string() {
-    local connection_string="$1" part name value
+    local connection_string="$1" length="${#1}" position=0 char quote name value
     PGHOST='' PGPORT='' PGDATABASE='' PGUSER='' PGPASSWORD='' PGSSLMODE=''
     # Unset, not empty: `docker run -e NAME` then leaves it out of the container.
     unset PGSSLROOTCERT
-    IFS=';' read -ra parts <<< "$connection_string"
-    for part in "${parts[@]}"; do
-        [ -n "$part" ] || continue
-        name="$(printf '%s' "${part%%=*}" | tr -d ' ' | tr '[:upper:]' '[:lower:]')"
-        value="${part#*=}"
+    while [ "$position" -lt "$length" ]; do
+        name=''
+        while [ "$position" -lt "$length" ] && [ "${connection_string:position:1}" != '=' ] \
+                && [ "${connection_string:position:1}" != ';' ]; do
+            name+="${connection_string:position:1}"
+            position=$((position + 1))
+        done
+        if [ "${connection_string:position:1}" = ';' ] || [ "$position" -ge "$length" ]; then
+            position=$((position + 1))
+            continue
+        fi
+        position=$((position + 1))
+        while [ "$position" -lt "$length" ] && [[ "${connection_string:position:1}" == [[:space:]] ]]; do
+            position=$((position + 1))
+        done
+        value=''
+        quote="${connection_string:position:1}"
+        if [ "$quote" = '"' ] || [ "$quote" = "'" ]; then
+            position=$((position + 1))
+            while [ "$position" -lt "$length" ]; do
+                char="${connection_string:position:1}"
+                position=$((position + 1))
+                if [ "$char" = "$quote" ]; then
+                    if [ "${connection_string:position:1}" != "$quote" ]; then
+                        break
+                    fi
+                    position=$((position + 1))
+                fi
+                value+="$char"
+            done
+            while [ "$position" -lt "$length" ] && [ "${connection_string:position:1}" != ';' ]; do
+                position=$((position + 1))
+            done
+        else
+            while [ "$position" -lt "$length" ] && [ "${connection_string:position:1}" != ';' ]; do
+                value+="${connection_string:position:1}"
+                position=$((position + 1))
+            done
+            value="$(trim "$value")"
+        fi
+        position=$((position + 1))
+        name="$(printf '%s' "$name" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
         case "$name" in
             host|server) PGHOST="$value" ;;
             port) PGPORT="$value" ;;
@@ -154,10 +207,21 @@ postgres_container() {
         "$POSTGRES_IMAGE" "$@"
 }
 
+# A table that has rows in every real database of that kind: the seeded admin in auth, the imported
+# texts in translation.
+required_table() {
+    case "$1" in
+        ConnectionStrings__AuthDatabase) printf '%s' 'authsystem."Users"' ;;
+        ConnectionStrings__TranslationDatabase) printf '%s' 'translation."Translations"' ;;
+        *) return 1 ;;
+    esac
+}
+
 metric_lines=''
 
 backup_database() {
-    local env_key="$1" connection_string dump enc object_key size etag_expected head_response etag_actual size_actual
+    local env_key="$1" connection_string table has_rows dump enc object_key object_url upload_failed size \
+        etag_expected head_response etag_actual size_actual
     connection_string="$(env_value "$env_key")"
     if [ -z "$connection_string" ]; then
         fail "$ENV_FILE has no value for $env_key."
@@ -169,9 +233,23 @@ backup_database() {
         return 1
     fi
 
+    if ! table="$(required_table "$env_key")"; then
+        fail "$env_key names no table that must have rows."
+        return 1
+    fi
+
     dump="$WORK_DIR/$PGDATABASE.dump"
     enc="$dump.enc"
     object_key="$PGDATABASE/$PGDATABASE-$(date -u +%Y%m%dT%H%M%SZ).dump.enc"
+    object_url="${BACKUP_S3_ENDPOINT}/${bucket}/${object_key}"
+
+    # An empty database dumps into a valid archive too. Counted as good every night, it would let
+    # the 30-day lifecycle rule remove every real dump.
+    if ! has_rows="$(postgres_container psql -X -At -v ON_ERROR_STOP=1 \
+            -c "SELECT EXISTS (SELECT 1 FROM $table)" < /dev/null)" || [ "$has_rows" != t ]; then
+        fail "$PGDATABASE: $table is missing or empty, so $env_key does not name the real database."
+        return 1
+    fi
 
     log "$PGDATABASE: dumping"
     if ! postgres_container pg_dump --format=custom < /dev/null > "$dump"; then
@@ -201,13 +279,20 @@ backup_database() {
     etag_expected="$(openssl dgst -md5 -r "$enc" | cut -d' ' -f1)"
 
     log "$PGDATABASE: uploading $object_key ($size bytes)"
-    if ! s3_curl -T "$enc" -o /dev/null "${BACKUP_S3_ENDPOINT}/${bucket}/${object_key}"; then
-        fail "$PGDATABASE: the upload failed."
-        return 1
+    # The read-back decides, not curl's exit code: when a PUT landed but its answer was lost, curl's
+    # retry is refused by the bucket lock, and the object is still good.
+    upload_failed=''
+    if ! s3_curl -T "$enc" -o /dev/null "$object_url"; then
+        upload_failed=1
+        log "$PGDATABASE: the upload reported an error; checking whether the object landed"
     fi
     # A single-part PUT's ETag is the MD5 of the body, on R2 as on S3.
-    if ! head_response="$(s3_curl -I "${BACKUP_S3_ENDPOINT}/${bucket}/${object_key}")"; then
-        fail "$PGDATABASE: the uploaded object cannot be read back."
+    if ! head_response="$(s3_curl -I "$object_url")"; then
+        if [ -n "$upload_failed" ]; then
+            fail "$PGDATABASE: the upload failed."
+        else
+            fail "$PGDATABASE: the uploaded object cannot be read back."
+        fi
         return 1
     fi
     head_response="$(printf '%s' "$head_response" | tr -d '\r')"

@@ -28,7 +28,12 @@ internal sealed class TranslationSaveBudgetSettingsValidator : AbstractValidator
             .GreaterThanOrEqualTo(1)
             .WithMessage(ThresholdMessage(nameof(TranslationSaveBudgetSettings.OverwriteAlertThreshold), nameof(TranslationSaveBudgetSettings.OverwriteLimit)))
             .LessThanOrEqualTo(settings => settings.OverwriteLimit)
-            .WithMessage(ThresholdMessage(nameof(TranslationSaveBudgetSettings.OverwriteAlertThreshold), nameof(TranslationSaveBudgetSettings.OverwriteLimit)));
+            .WithMessage(ThresholdMessage(nameof(TranslationSaveBudgetSettings.OverwriteAlertThreshold), nameof(TranslationSaveBudgetSettings.OverwriteLimit)))
+            // Every overwrite is also a save, so the overwrite count never passes the save limit.
+            .LessThanOrEqualTo(settings => settings.SaveLimit)
+            .WithMessage(
+                $"{KeyPath(nameof(TranslationSaveBudgetSettings.OverwriteAlertThreshold))} must not be above "
+                + $"{KeyPath(nameof(TranslationSaveBudgetSettings.SaveLimit))}: an overwrite is also a save, so the alert could never fire.");
 
         RuleFor(settings => settings.WindowHours)
             .InclusiveBetween(1, TranslationSaveBudgetSettings.MaxWindowHours)

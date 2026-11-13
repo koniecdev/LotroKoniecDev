@@ -44,6 +44,7 @@ public sealed class TranslationSaveBudgetSettingsValidatorTests
     [InlineData(1_000, 500, 0, 1, 24, "TranslationSaveBudget:OverwriteLimit")]
     [InlineData(1_000, 500, 100, 0, 24, "TranslationSaveBudget:OverwriteAlertThreshold")]
     [InlineData(1_000, 500, 100, 101, 24, "TranslationSaveBudget:OverwriteAlertThreshold")]
+    [InlineData(40, 20, 100, 50, 24, "TranslationSaveBudget:OverwriteAlertThreshold must not be above")]
     [InlineData(1_000, 500, 100, 50, 0, "TranslationSaveBudget:WindowHours")]
     [InlineData(1_000, 500, 100, 50, 721, "TranslationSaveBudget:WindowHours")]
     public void Validate_AValueThatSwitchesTheGuardOrItsAlertOff_ShouldFailNamingTheKey(

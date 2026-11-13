@@ -79,8 +79,9 @@ saver, and nothing records an overwrite.
 The handler loads the row, provisions the translator, and then, before the text changes:
 
 1. deletes every row older than the window,
-2. inserts this save (a raw `INSERT … ON CONFLICT DO NOTHING`, committed at once, so a retry after a
-   lost answer cannot add a second row),
+2. inserts this save (a raw `INSERT … ON CONFLICT DO NOTHING`, committed at once). EF Core does not
+   retry raw SQL by itself, so the insert runs through the execution strategy like the other two
+   statements, and `ON CONFLICT` makes a retry after a lost commit answer add nothing,
 3. counts the account's saves and overwrites in the window, this one included.
 
 Over a limit, it deletes its own row and answers 429. None of this runs in a transaction. The insert is

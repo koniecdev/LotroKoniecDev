@@ -8,8 +8,8 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.SaveBudget;
 
 internal sealed class TranslationSaveLedger : ITranslationSaveLedger
 {
-    // ON CONFLICT makes a retried insert harmless: EnableRetryOnFailure may run it again after a
-    // commit whose answer was lost.
+    // Raw SQL skips the execution strategy, so RecordAsync runs it through one, like the purge and the
+    // count. ON CONFLICT then makes a retry after a lost commit answer harmless.
     private static readonly string InsertSql =
         $"""
          INSERT INTO "{DatabaseSchemas.Translation}"."{TranslationSaveConfiguration.TableName}"
@@ -19,11 +19,6 @@ internal sealed class TranslationSaveLedger : ITranslationSaveLedger
          """;
 
     private readonly ApplicationWriteDbContext _dbContext;
-
-    public TranslationSaveLedger(ApplicationWriteDbContext dbContext)
-    {
-        _dbContext = dbContext;
-    }
 
     public async Task<TranslationSaveCounts> RecordAsync(
         Guid saveId,
@@ -39,14 +34,17 @@ internal sealed class TranslationSaveLedger : ITranslationSaveLedger
             .Where(translationSave => translationSave.SavedAt <= windowStart)
             .ExecuteDeleteAsync(cancellationToken);
 
-        await _dbContext.Database.ExecuteSqlRawAsync(
-            InsertSql,
-            [
-                new NpgsqlParameter("id", saveId),
-                new NpgsqlParameter("translatorId", translatorId.Value),
-                new NpgsqlParameter("savedAt", savedAt),
-                new NpgsqlParameter("replacedPolish", replacedPolish)
-            ],
+        // A parameter object belongs to one command, so each attempt builds its own.
+        await _dbContext.Database.CreateExecutionStrategy().ExecuteAsync(
+            async retryCancellationToken => await _dbContext.Database.ExecuteSqlRawAsync(
+                InsertSql,
+                [
+                    new NpgsqlParameter("id", saveId),
+                    new NpgsqlParameter("translatorId", translatorId.Value),
+                    new NpgsqlParameter("savedAt", savedAt),
+                    new NpgsqlParameter("replacedPolish", replacedPolish)
+                ],
+                retryCancellationToken),
             cancellationToken);
 
         TranslationSaveCounts? counts = await _dbContext.TranslationSaves
@@ -65,5 +63,10 @@ internal sealed class TranslationSaveLedger : ITranslationSaveLedger
         await _dbContext.TranslationSaves
             .Where(translationSave => translationSave.Id == saveId)
             .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    public TranslationSaveLedger(ApplicationWriteDbContext dbContext)
+    {
+        _dbContext = dbContext;
     }
 }

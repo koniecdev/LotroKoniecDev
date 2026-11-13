@@ -26,10 +26,6 @@ internal sealed class TranslationSaveConfiguration : IEntityTypeConfiguration<Tr
             .HasForeignKey(translationSave => translationSave.TranslatorId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        builder.Property(translationSave => translationSave.SavedAt);
-
-        builder.Property(translationSave => translationSave.ReplacedPolish);
-
         // Serves the per-account count of the window.
         builder.HasIndex(translationSave => new { translationSave.TranslatorId, translationSave.SavedAt });
     }

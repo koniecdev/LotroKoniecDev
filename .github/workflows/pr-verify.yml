@@ -188,7 +188,7 @@ jobs:
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/hetzner-bootstrap-reboot.tests.sh
 
-      # The nightly database backup (#688, ADR-0070) runs on the prod box from cron. The suite stubs
+      # The nightly database backup (#688, ADR-0071) runs on the prod box from cron. The suite stubs
       # pg_dump and the bucket, and pins that the success metric the alert reads is written only when
       # every database landed, and that no secret reaches argv or the output.
       - name: Hetzner backup self-test

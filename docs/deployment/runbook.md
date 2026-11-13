@@ -22,7 +22,7 @@
 - [Bringing the stack up](#bringing-the-stack-up) — dev, prod-parity, (re)provisioning a box, and the one-time network cutover
 - [Continuous deployment (CD over ssh)](#continuous-deployment-cd-over-ssh) — build once → automatic staging → gated prod promotion
 - [Database migrations](#database-migrations) — strategy, running them, and recovering from a bad migration (Neon PITR + the MIGR-04 auto-snapshot)
-- [Database backups](#database-backups) — the Neon plan, the nightly encrypted dump to R2, and how to get damaged rows back (ADR-0070)
+- [Database backups](#database-backups) — the Neon plan, the nightly encrypted dump to R2, and how to get damaged rows back (ADR-0071)
 - [Message broker (RabbitMQ)](#message-broker-rabbitmq) — the in-stack broker, the dead-letter parking lots, replay and rotation traps
 - [Post-deploy smoke test](#post-deploy-smoke-test) — one command checks a deployed environment end to end
 - [Observability & monitoring](#observability--monitoring) — the Grafana stack, its alerts, and the prod agent
@@ -1198,7 +1198,7 @@ a branch to any moment inside the retention window.
 
 | Environment | Neon project | Branch (single, default) | History retention |
 |---|---|---|---|
-| production | `lotro-translator-prod` | `production` | **7 days** (604800 s) on Launch (ADR-0070); 6 h before the switch |
+| production | `lotro-translator-prod` | `production` | **7 days** (604800 s) on Launch (ADR-0071); 6 h before the switch |
 | staging | `lotro-translator-staging` | `production` | **6 h** (21600 s) |
 
 - **Look the ids up live**; they change when a project is re-created. The project id is the
@@ -1224,7 +1224,7 @@ a branch to any moment inside the retention window.
 #### Risk boundary — what can be undone, and how far back (MIGR-01, revised by #688)
 
 The first outside translator started on prod on 2026-11-11, so the data can no longer be re-created
-by hand. Since ADR-0070 the layers are:
+by hand. Since ADR-0071 the layers are:
 
 | How far back | What | Granularity |
 |---|---|---|
@@ -1349,7 +1349,7 @@ staging: the restore drops connections and rewinds anything written after the re
 
 ## Database backups
 
-ADR-0070 (#688). Three layers stand between a mistake and lost work: Neon's point-in-time restore
+ADR-0071 (#688). Three layers stand between a mistake and lost work: Neon's point-in-time restore
 (7 days on the Launch plan), the MIGR-04 snapshot of the latest deploy, and a nightly encrypted
 dump of both prod databases in Cloudflare R2, kept 30 days. Staging has the first two only: it is
 disposable, and a nightly dump would use up its free plan's 5 GB of transfer.

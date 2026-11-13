@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Nightly encrypted dump of both Neon databases to the environment's R2 bucket (ADR-0070, #688).
+# Nightly encrypted dump of both Neon databases to the environment's R2 bucket (ADR-0071, #688).
 # Runs ON the prod box as the `deploy` user, from its crontab. CD copies it next to deploy.sh, and an
 # operator runs the same command by hand to prove the wiring:
 #

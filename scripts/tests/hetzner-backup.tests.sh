@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test suite for the nightly database backup (scripts/hetzner/backup.sh, ADR-0070, #688).
+# Test suite for the nightly database backup (scripts/hetzner/backup.sh, ADR-0071, #688).
 #
 # Its real inputs (Neon, R2) exist nowhere in CI, so each case builds a throwaway stack dir and puts
 # stub `docker` and `curl` commands first on PATH. The docker stub plays pg_dump and pg_restore, the

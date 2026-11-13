@@ -1,4 +1,4 @@
-# ADR-0070: A nightly encrypted dump leaves Neon for R2, and prod moves to Neon Launch
+# ADR-0071: A nightly encrypted dump leaves Neon for R2, and prod moves to Neon Launch
 
 **Status:** Accepted
 **Date:** 2026-11-12

@@ -217,7 +217,7 @@ groups:
         noDataState: OK
         execErrState: Error
 
-      # The nightly database backup (#688, ADR-0070). backup.sh on the prod box writes the metric
+      # The nightly database backup (#688, ADR-0071). backup.sh on the prod box writes the metric
       # only after every database landed in the bucket, and the agent's host exporter reads it.
       - uid: lotro-backup-missing
         title: LOTRO — the nightly database backup did not land

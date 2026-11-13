@@ -404,7 +404,7 @@ jobs:
           scp compose.hetzner.yaml "box:${STACK_DIR}/compose.hetzner.yaml"
           scp .docker/hetzner/Caddyfile "box:${STACK_DIR}/.docker/hetzner/Caddyfile"
           scp scripts/hetzner/deploy.sh "box:${STACK_DIR}/deploy.sh"
-          # The nightly backup (#688, ADR-0070) is not part of the rollback unit: it never touches the
+          # The nightly backup (#688, ADR-0071) is not part of the rollback unit: it never touches the
           # running stack. Every box gets it and the metrics folder the agent reads, but only a box
           # whose crontab runs it (prod) writes anything there. It lands under a new name and is then
           # renamed: bash reads a script while it runs, so a copy over a running backup would break it.

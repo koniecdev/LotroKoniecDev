@@ -119,8 +119,10 @@ Recovering from damage is: find the state before the damage in a scratch databas
 at the minute before it while the 7-day history reaches; otherwise the last dump before it,
 decrypted and restored into a scratch database), then copy back only the damaged translation rows
 whose source has not changed since (the English text and its argument columns, everything an
-import compares), then rebuild the translation file. The scratch database
-is dropped afterwards. `Translators` and every auth table stay as they are, so no erasure is undone.
+import compares), then rebuild the translation file. A row the damaging account only approved keeps
+its text and its author and loses only the approval, so honest work done after the copy survives.
+The scratch database is removed afterwards, with its data volume. `Translators` and every auth
+table stay as they are, so no erasure is undone.
 A whole-database restore is for one case only, the loss of the Neon project. Then every erasure
 done after the dump is done again, and every sign-in session is ended, before the site opens
 (runbook → Database backups).

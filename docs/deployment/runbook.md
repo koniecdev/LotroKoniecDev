@@ -1437,18 +1437,18 @@ project's **Usage** page, not from these sizes.
 
 ### Shell helpers (paste first)
 
-Every procedure below runs on the prod box as `deploy` and starts with these lines. `env_value`
-reads a value exactly as `backup.sh` does (quotes and a trailing CR are not part of it), so a key
-read here is the key the dumps were encrypted with. `PG_IMAGE` is the digest-pinned image from
-`backup.sh`. `psql_in` hands the password to the container as `PGPASSWORD`, never in argv, where
-`ps` on the box would show it. Every connection string below is the keyword form without a password.
+Every procedure below runs on the prod box as `deploy` and starts with these lines. The `eval` line
+takes `env_value` and `PG_IMAGE` from `backup.sh` itself: the same reader of `.env` values, so a key
+read here is the key the dumps were encrypted with, and the same digest-pinned image. `psql_in` hands
+the password to the container as `PGPASSWORD`, never in argv, where `ps` on the box would show it.
+`DOCKER_CONFIG` keeps a registry login stored for `deploy` out of the image pulls, as in `deploy.sh`.
+Every connection string below is the keyword form without a password.
 
 ```bash
 umask 077    # a decrypted dump holds personal data: readable by deploy only
+export DOCKER_CONFIG=/nonexistent
 mkdir -p /opt/lotro/backups/restore && cd /opt/lotro/backups/restore
-env_value() { sed -n "s/^$1=//p" /opt/lotro/.env | head -1 \
-  | sed -e 's/\r$//' -e 's/[[:space:]]*$//' -e "s/^'\(.*\)'\$/\1/" -e 's/^"\(.*\)"$/\1/'; }
-PG_IMAGE="$(sed -n 's/^POSTGRES_IMAGE="\${POSTGRES_IMAGE:-\(.*\)}"$/\1/p' /opt/lotro/backup.sh)"; echo "$PG_IMAGE"
+eval "$(bash /opt/lotro/backup.sh --helpers)"; echo "$PG_IMAGE"
 psql_in() { docker run --rm -i --network host -e PGPASSWORD "$PG_IMAGE" psql -v ON_ERROR_STOP=1 -X "$@"; }
 ```
 
@@ -1477,7 +1477,10 @@ On the prod box, after the [shell helpers](#shell-helpers-paste-first), so the d
 providers the privacy policy names; never on a laptop.
 
 ```bash
+# The data files go into a named volume, so the clean-up below can remove them by name. The limit
+# and the OOM score make the kernel stop this restore, not the product, when the box runs short.
 docker run -d --name restore-scratch -p 127.0.0.1:5433:5432 -e POSTGRES_PASSWORD=scratch \
+  --memory 1g --oom-score-adj 500 -v restore-scratch-data:/var/lib/postgresql \
   -v /opt/lotro/backups/restore:/restore:ro "$PG_IMAGE"
 # pg_isready does not wait, so loop. Over TCP, not the socket: the image's first-start server
 # listens on the socket only, then restarts.
@@ -1489,8 +1492,14 @@ SCRATCH='host=127.0.0.1 port=5433 dbname=scratch user=postgres password=scratch'
 ```
 
 `--no-owner --no-privileges` belong here, on `pg_restore`: `pg_dump` ignores them for an archive.
-When you are done: `docker rm -f restore-scratch && rm -rf /opt/lotro/backups/restore`. The scratch
-database holds the names and e-mail addresses of translators, so it never outlives the job.
+The scratch database holds the names and e-mail addresses of translators, so neither it nor its
+data files outlive the job. `docker rm -f` alone keeps the volume, and with it a plain copy of the
+database on the box. When you are done:
+
+```bash
+docker rm -f restore-scratch && docker volume rm restore-scratch-data && rm -rf /opt/lotro/backups/restore
+docker volume ls -q -f name=restore-scratch-data    # must print nothing
+```
 
 ### Restore drill
 
@@ -1503,11 +1512,14 @@ row) and approved the edited draft. The dry run changed nothing. The real run re
 (the approved-over one back to NeedsReview with its old English; the approved draft back to the
 draft of the night before, with the newer text shown in the list), skipped the one whose English had
 changed, listed the added row as `NOT IN THE COPY`, and left the undamaged row's edit alone. The auth
-dump restored with all 9 migrations. On 2026-11-13 the scratch restore and the copy-back as they
-stand now (the [shell helpers](#shell-helpers-paste-first), the password only in `PGPASSWORD`, the
-source check over the argument columns) ran again, locally against the migrated schema: a row whose
-import changed only its arguments was listed `SKIP: source changed` and kept, the dry run changed
-nothing, and the real run restored the one row it should.
+dump restored with all 9 migrations. On 2026-11-13 the shell helpers, the scratch restore, the
+copy-back and the clean-up as they stand now ran again as written, locally against the migrated
+schema, on seven rows. The account's own rubbish went back to the copy. A row whose import changed
+only its arguments was listed `SKIP: source changed` and kept, and the row an import added was
+listed `NOT IN THE COPY`. Three rows the account only approved kept their author's text
+(`undo approval, keep text`): a new translation and a rework went back to Draft, and an unchanged
+NeedsReview row went back to NeedsReview with its old English. The dry run changed nothing, the
+scratch container ran with its memory limit, and the clean-up left no container and no volume.
 
 On the real bucket, after the wiring and then every few months: [fetch and decrypt](#fetch-and-decrypt-a-dump)
 last night's dumps, [restore them into a scratch database](#restore-into-a-scratch-database) (the
@@ -1522,8 +1534,9 @@ BACKUP_ENCRYPTION_KEY="$PM_KEY" openssl enc -d -aes-256-cbc -md sha256 -pbkdf2 -
   -pass env:BACKUP_ENCRYPTION_KEY -in translation.dump.enc | cmp - translation.dump \
   && echo 'the password-manager key decrypts the dump'
 unset PM_KEY
-docker rm -f restore-scratch && rm -rf /opt/lotro/backups/restore    # no plain dump stays behind
 ```
+
+Then [clean up](#restore-into-a-scratch-database): no plain copy stays behind.
 
 ### Rows vandalised on Tuesday, now it is Friday
 
@@ -1534,12 +1547,13 @@ restore is never the answer: it would also undo every honest change since, accou
 included (wiki: Import do TMS). Copy back only the damaged rows.
 
 What this procedure covers: rows the account wrote, and rows it approved, other people's drafts
-included (one by one or in bulk). It does not cover an admin account's imports or game-version
-changes; those need their own look. On the dump path the copy holds the state of the night before,
-so another person's honest edit of a damaged row between that night and the damage is lost too. When
-the account wrote over that edit, the printed list cannot show it: it compares the copy with prod,
-nothing in between. When the account only approved it, the edit is the `now` text in the list, and
-the copy-back puts the older draft back; type the newer text in again if it was good. A Neon branch
+included (one by one or in bulk). A row the account wrote goes back to the copy. A row it only
+approved keeps its text and its author and loses only the approval: it goes back to the copy's
+status when its text is still the copy's, and to Draft when someone wrote newer text, as an edit
+leaves a row. It does not cover an admin account's imports or game-version changes; those need their
+own look. On the dump path the copy holds the state of the night before, so when the account wrote
+over another person's honest edit made between that night and the damage, that edit is lost too, and
+the printed list cannot show it: it compares the copy with prod, nothing in between. A Neon branch
 taken one minute before the damage keeps such edits, so prefer it while the history window reaches.
 `UpdatedAt` also moves when an import changes a row, so check step 2's answer against the import
 times.
@@ -1580,7 +1594,8 @@ times.
    transaction and touches only rows that the account wrote or approved since `SINCE` and whose
    source is still what the copy holds: the English text and both argument columns, everything an
    import compares. An approval does not change `SubmittedById`, so the filter
-   names `ApprovedById` too: an admin account that approved other people's drafts is covered. Run
+   names `ApprovedById` too: an admin account that approved other people's drafts is covered, and
+   the list marks such a row `undo approval, keep text`. Run
    the last block with `END=ROLLBACK` first: it prints the list and the `UPDATE` count and changes
    nothing. `UPDATE 0` while some rows say `restore` means the filter is wrong. When every row says
    `NOT IN THE COPY` and the copy step printed `COPY 0`, the export from the scratch database failed:
@@ -1603,16 +1618,21 @@ times.
      echo '\copy damaged FROM STDIN'; cat damaged-ids.tsv; echo '\.'
      echo 'CREATE TEMP TABLE restore_rows ("Id" uuid PRIMARY KEY, "SourceText" text, "ArgsOrder" text, "ArgsId" text, "PreviousSourceText" text, "TranslatedText" text, "Status" varchar(100), "SubmittedById" uuid, "ApprovedById" uuid);'
      echo '\copy restore_rows FROM STDIN'; cat before.tsv; echo '\.'
-     echo "SELECT t.\"FileId\", t.\"GossipId\", t.\"TranslatedText\" AS now, r.\"TranslatedText\" AS restore_to,
+     echo "SELECT t.\"FileId\", t.\"GossipId\", t.\"TranslatedText\" AS now, r.\"TranslatedText\" AS in_the_copy,
              CASE WHEN r.\"Id\" IS NULL THEN 'NOT IN THE COPY: fix in the editor'
                   WHEN t.\"SourceText\" = r.\"SourceText\" AND t.\"ArgsOrder\" IS NOT DISTINCT FROM r.\"ArgsOrder\"
-                       AND t.\"ArgsId\" IS NOT DISTINCT FROM r.\"ArgsId\" THEN 'restore'
+                       AND t.\"ArgsId\" IS NOT DISTINCT FROM r.\"ArgsId\"
+                  THEN CASE WHEN t.\"SubmittedById\" = '$ACCOUNT' THEN 'restore' ELSE 'undo approval, keep text' END
                   ELSE 'SKIP: source changed' END AS action
            FROM damaged d JOIN translation.\"Translations\" t ON t.\"Id\" = d.id
            LEFT JOIN restore_rows r ON r.\"Id\" = t.\"Id\" ORDER BY 1, 2;"
+     # Every SET expression reads the row as it was before this UPDATE.
      echo "UPDATE translation.\"Translations\" t
-           SET \"TranslatedText\" = r.\"TranslatedText\", \"PreviousSourceText\" = r.\"PreviousSourceText\", \"Status\" = r.\"Status\",
-               \"SubmittedById\" = r.\"SubmittedById\", \"ApprovedById\" = r.\"ApprovedById\", \"UpdatedAt\" = now()
+           SET \"TranslatedText\" = CASE WHEN t.\"SubmittedById\" = '$ACCOUNT' THEN r.\"TranslatedText\" ELSE t.\"TranslatedText\" END,
+               \"SubmittedById\" = CASE WHEN t.\"SubmittedById\" = '$ACCOUNT' THEN r.\"SubmittedById\" ELSE t.\"SubmittedById\" END,
+               \"Status\" = CASE WHEN t.\"SubmittedById\" = '$ACCOUNT' OR t.\"TranslatedText\" IS NOT DISTINCT FROM r.\"TranslatedText\"
+                               THEN r.\"Status\" ELSE 'Draft' END,
+               \"PreviousSourceText\" = r.\"PreviousSourceText\", \"ApprovedById\" = r.\"ApprovedById\", \"UpdatedAt\" = now()
            FROM restore_rows r
            WHERE t.\"Id\" = r.\"Id\" AND t.\"SourceText\" = r.\"SourceText\"
              AND t.\"ArgsOrder\" IS NOT DISTINCT FROM r.\"ArgsOrder\" AND t.\"ArgsId\" IS NOT DISTINCT FROM r.\"ArgsId\"
@@ -1623,7 +1643,8 @@ times.
    ```
 
    The account's own honest edits after `SINCE` are reverted too; the printed list shows them.
-   Rows marked `SKIP: source changed` need a person: an import changed their English or its
+   Rows marked `undo approval, keep text` keep what their author wrote; read them and approve the
+   good ones again. Rows marked `SKIP: source changed` need a person: an import changed their English or its
    arguments after the copy was made, so the old Polish may no longer fit. Rows marked `NOT IN THE COPY` were added
    by an import after the copy was made, so there is no earlier state to put back. Fix both kinds in
    the editor, and an approved one at once: editing an approved row turns it back into a draft,
@@ -1631,8 +1652,9 @@ times.
 5. **Rebuild the translation file.** A raw SQL update schedules no rebuild. Approve one row in the
    editor: any approval rebuilds the whole file for its language a few seconds later. When nothing
    waits for approval, open a restored row, save it unchanged (it becomes a draft) and approve it.
-6. **Clean up:** drop the scratch database or branch, `rm -f damaged-ids.tsv before.tsv`, and unlock
-   the account only once its owner has a new password.
+6. **Clean up:** `unset PGPASSWORD`, `rm -f damaged-ids.tsv before.tsv`, then delete the branch or
+   [remove the scratch container and its volume](#restore-into-a-scratch-database). Unlock the
+   account only once its owner has a new password.
 
 ### Neon is gone (whole-database restore)
 

@@ -1,5 +1,7 @@
 @echo off
-setlocal
+setlocal DisableDelayedExpansion
+rem Delayed expansion stays off, even when the registry turns it on, so the arguments and this
+rem path keep every exclamation mark and caret. Read the path before the cd, which can change it.
 set "LOTRO_WRAPPER_SELF=%~f0"
 cd /d "%~dp0"
 

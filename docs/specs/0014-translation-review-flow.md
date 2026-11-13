@@ -88,7 +88,9 @@ back.
   row's `ApprovedById`. Its created at, and for an approved one its decided at, are the row's
   `UpdatedAt`. That time can be later than the save (an import, an approval or a removal also
   moves it), so the history marks backfill times as approximate. The backfill keeps every row's
-  status.
+  status. One cost of the safe mapping: a "Do ponownego sprawdzenia" text that was live before the
+  migration is not covered by the Q9 (b) exception, so its author cannot approve it again alone.
+  On 2026-11-13 prod had no such rows.
 
 ## Out of scope
 
@@ -142,7 +144,9 @@ back.
 - **Import writes no proposals.** An import changes the English only, so the history does not grow
   with imports. (#50 feared 780k history rows per import; that cannot happen in this model.)
 - **Account erasure (ADR-0065).** Proposals and rejection reasons stay, credited to the profile that
-  becomes "Usunięte konto". The data export of a translator includes their proposals.
+  becomes "Usunięte konto". The data export of a translator includes their proposals and their own
+  decisions: the proposals they approved or rejected, with the reasons they wrote (today's export
+  already lists the rows they approved).
 - **The daily save budget (ADR-0072) stays.** A save on a row that already has Polish, live or
   waiting, still counts as an overwrite. ADR-0072 allows deleting the overwrite budget once the
   review flow ships; that is a separate decision.
@@ -152,11 +156,10 @@ back.
     rejects and withdraws, until an approval clears it. So stale Polish never goes back into
     `polish.txt` under changed English (ADR-0047). This replaces spec 0001's rule that a save on
     `NeedsReview` gives `Draft`.
-  - Any other row takes its status from the proposals: no live text and a waiting proposal is
-    `Draft` ("waiting for review"); a live text and a waiting proposal is `Approved` with "change
-    waiting"; no live text, nothing waiting and a rejected last proposal is `Untranslated`, shown
-    as "Odrzucone" until the next save; a row whose only proposals were withdrawn is
-    `Untranslated`.
+  - Any other row takes its status from the proposals: a live text is `Approved`, shown with
+    "change waiting" while a proposal waits; no live text and a waiting proposal is `Draft`
+    ("waiting for review"); no live text and nothing waiting is `Untranslated`, shown as
+    "Odrzucone" while its latest proposal is rejected.
 - **Dates** in the history and on rejections are shown in Polish time, like every other date.
 - **Who may do what.**
   - A translator proposes, withdraws their own waiting proposal, and reads the history of every
@@ -189,7 +192,8 @@ back.
   Admin). The id names the waiting proposal, an approved proposal other than the live one (restore),
   or the live one of a row in "Do ponownego sprawdzenia" (approve again). 204; 403 for a plain
   translator; 403 with the error code `TranslationProposal.OwnProposal` when the caller wrote the
-  waiting proposal; 409 for any other id; 422 as today (removed row).
+  waiting proposal; 409 for any other id, a proposal of another row included; 404 for an unknown
+  translation and 422 for a removed row, as today.
 - **Reject (new):** `POST /api/v1/translations/{id}/reject`, body `{ proposalId, reason }`
   (`RejectTranslationProposal.Command`, rel `reject`, Reviewer or Admin, never the proposal's
   author). 204; 400 for an empty reason or one over 1000 characters; 403 for a plain translator;
@@ -243,11 +247,20 @@ back.
   `polish.txt` artifact keeps its format; it is built from live texts. Today `TranslatedText` also
   holds a draft that nobody approved, so the migration plan must keep the previous app revision
   working while the column's meaning moves to "live text only" (ADR-0023, expand → backfill →
-  contract). During the deploy the previous revision still saves straight into `TranslatedText`
-  and sets `Draft`, with no proposal. One plan that works: until the contract step,
-  `TranslatedText` keeps today's meaning (the live text, or the waiting text on a row with no live
-  text), and the contract step (#1388) runs the backfill again for rows whose text has no matching
-  proposal. #1384's plan says which plan it takes.
+  contract). During the deploy, and after a rollback, the previous revision still saves straight
+  into `TranslatedText` and sets `Draft` with no proposal, and its approve sets `Approved` with no
+  approved proposal. The rules for that window:
+  - Until the contract step, `TranslatedText` keeps today's meaning: the live text, or the waiting
+    text on a row with no live text. Every ticket that writes before the contract step keeps it
+    that way.
+  - Until the contract step, the new revision refuses (409) to approve a waiting proposal whose
+    text differs from `TranslatedText` on a row with no live text, because the previous revision
+    saved a newer text there.
+  - The contract step (#1388) reconciles each row by its state. On a row with no live text it
+    compares `TranslatedText` with the waiting proposal's text; otherwise with the latest approved
+    proposal's text. On a mismatch it marks a stale waiting proposal "replaced" before it inserts
+    the new one. An approval by the previous revision becomes an approved proposal, and
+    `WaitingProposalId` is cleared.
 
 ## Acceptance criteria
 

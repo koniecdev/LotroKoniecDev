@@ -172,6 +172,14 @@ fi
 # thing.
 export IMAGE_TAG
 
+# Every image of the stack is public, so the rollout needs no registry login. Docker still sends a
+# stored login, and one the registry refuses (an expired token) fails the pull of a public image
+# (#1330). So no docker call here reads the user's Docker config or DOCKER_AUTH_CONFIG. A missing
+# folder gives Docker an empty config, and only root can create /nonexistent. A credential helper
+# installed on the box is still used: see the runbook, "Gotchas".
+export DOCKER_CONFIG=/nonexistent
+unset DOCKER_AUTH_CONFIG
+
 # An array as well as a function: `timeout` below cannot run a shell function, and both must stay one
 # definition.
 COMPOSE=(docker compose -f "$COMPOSE_FILE")

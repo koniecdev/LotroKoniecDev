@@ -83,13 +83,15 @@ new_stack() {
 #   STUB_BROKER_HANGS — the stub `timeout` lets the call start, then stops it with 124, as it does on
 #     a broker that never answers
 # Every call is appended to $STUB_LOG *in order*, so a case can assert what ran, what did NOT, and
-# crucially in which sequence.
+# crucially in which sequence. The Docker client config each call sees goes to $STUB_ENV_LOG, one line
+# per call, never to $STUB_LOG: some cases count its lines or need two calls next to each other.
 install_stub_docker() {
     local bin="$TMP_ROOT/bin"
     mkdir -p "$bin"
     cat > "$bin/docker" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$STUB_LOG"
+printf 'config=%s auth=%s\n' "${DOCKER_CONFIG-<unset>}" "${DOCKER_AUTH_CONFIG+set}" >> "$STUB_ENV_LOG"
 
 if [ "$1" = compose ]; then
     # docker compose [global flags] <verb> … — walk past `compose` and any global flag (`-f <file>`,
@@ -191,6 +193,9 @@ run_deploy() {
     STUB_LOG="$TMP_ROOT/calls.log"
     : > "$STUB_LOG"
     export STUB_LOG
+    STUB_ENV_LOG="$TMP_ROOT/docker-env.log"
+    : > "$STUB_ENV_LOG"
+    export STUB_ENV_LOG
     LAST_STATUS=0
     # No pause between broker tries, so a broker that never answers costs no wall-clock time here. The
     # marker on stdin stands in for an operator's terminal (see the stub's policy branch).
@@ -209,6 +214,22 @@ expected_digests() {
 env_tag() { sed -n 's/^IMAGE_TAG=//p' "$1/.env" | head -1; }
 policy_tries() { grep -c 'set_operator_policy' "$TMP_ROOT/calls.log" || true; }
 called() { grep -qF -- "$1" "$TMP_ROOT/calls.log"; }
+
+# The registry login stored on the box may be expired, and it belongs to another stack (#1330). Every
+# docker call must run with DOCKER_CONFIG=/nonexistent and without DOCKER_AUTH_CONFIG, and deploy.sh
+# must never log in or out.
+assert_no_stored_login() {
+    local docker_calls recorded wrong
+    docker_calls="$(grep -vc '^timeout ' "$TMP_ROOT/calls.log" || true)"
+    recorded="$(wc -l < "$STUB_ENV_LOG" | tr -d ' ')"
+    [ "$docker_calls" -gt 0 ] || fail 'no docker call ran'
+    [ "$recorded" -eq "$docker_calls" ] \
+        || fail 'the stub did not record the client config of every docker call' "$recorded of $docker_calls"
+    wrong="$(grep -vxF 'config=/nonexistent auth=' "$STUB_ENV_LOG" || true)"
+    [ -z "$wrong" ] || fail 'a docker call could read a stored registry login' "$wrong"
+    grep -qwE 'login|logout' "$TMP_ROOT/calls.log" && fail 'deploy.sh logged in or out of a registry'
+    return 0
+}
 # Line number of the first docker call containing $1 (0 = never called).
 call_line() { grep -nF -- "$1" "$TMP_ROOT/calls.log" | head -1 | cut -d: -f1; }
 
@@ -800,5 +821,26 @@ grep -q 'did not answer within 20 s' <<<"$LAST_OUTPUT" || fail 'the time-out was
 grep -q '::warning::.*emails-send-dlq-ttl' <<<"$LAST_OUTPUT" || fail 'the missing policy was not reported as a warning'
 [ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'the apps rolled, so the new tag must still be pinned' "$(env_tag "$stack")"
 pass 'a broker that holds the call past the time limit stops the step after one try, with a warning'
+
+# --- No stored registry login reaches a docker call (#1330) ---------------------------------------
+
+CASE='stored login ignored'
+stack="$(new_stack nologin)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" \
+    DOCKER_CONFIG="$TMP_ROOT/caller-docker-config" DOCKER_AUTH_CONFIG='marker-not-a-login'
+[ "$LAST_STATUS" -eq 0 ] || fail 'a clean roll should exit 0' "status $LAST_STATUS"
+called 'pull' || fail 'images were never pulled'
+grep -qF "$POLICY_CALL" "$TMP_ROOT/calls.log" || fail 'the broker policy call under timeout never ran'
+assert_no_stored_login
+pass "no docker call of a clean roll sees the caller's Docker config or DOCKER_AUTH_CONFIG"
+
+CASE='stored login ignored, failed pull'
+stack="$(new_stack nologinfail)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" STUB_PULL_FAIL=1 \
+    DOCKER_CONFIG="$TMP_ROOT/caller-docker-config" DOCKER_AUTH_CONFIG='marker-not-a-login'
+[ "$LAST_STATUS" -ne 0 ] || fail 'a failed pull must fail the script'
+called 'logs' || fail 'the failure trap did not dump the container logs'
+assert_no_stored_login
+pass "the failure trap's docker calls do not see the caller's Docker config or DOCKER_AUTH_CONFIG either"
 
 printf '\nAll %d hetzner deploy.sh case(s) passed.\n' "$cases"

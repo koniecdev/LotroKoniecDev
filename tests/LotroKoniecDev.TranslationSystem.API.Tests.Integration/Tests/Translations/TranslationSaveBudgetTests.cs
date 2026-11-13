@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -20,9 +21,11 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Translations;
 
@@ -208,6 +211,25 @@ public sealed class TranslationSaveBudgetTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Upsert_WhenTheBudgetInsertCommitsButItsAnswerIsLost_ShouldRetryAndCountTheSaveOnce()
+    {
+        // Arrange: EF Core does not retry raw SQL by itself, and a retry without ON CONFLICT would hit
+        // the primary key of the row the first attempt already committed (ADR-0072 §4).
+        await SeedUntranslatedAsync(1);
+        LoseTheFirstBudgetInsertAnswer interceptor = new();
+        await using WebApplicationFactory<Program> host = CreateHost(saveLimit: 10, overwriteLimit: 10, interceptor: interceptor);
+        using HttpClient client = TranslatorClient(host, Guid.NewGuid());
+
+        // Act
+        HttpResponseMessage response = await SaveAsync(client, 1);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        interceptor.InsertAttempts.ShouldBe(2);
+        (await CountLedgerRowsAsync()).ShouldBe(1);
+    }
+
+    [Fact]
     public async Task Upsert_WhenRefused_ShouldLeaveNoBudgetRowBehind()
     {
         // Arrange
@@ -322,7 +344,8 @@ public sealed class TranslationSaveBudgetTests : IAsyncLifetime
         int saveLimit,
         int overwriteLimit,
         int? saveAlertThreshold = null,
-        int windowHours = 24)
+        int windowHours = 24,
+        DbCommandInterceptor? interceptor = null)
     {
         return _factory.WithWebHostBuilder(builder =>
         {
@@ -338,7 +361,19 @@ public sealed class TranslationSaveBudgetTests : IAsyncLifetime
                 });
             });
 
-            builder.ConfigureTestServices(services => services.AddSingleton<ILoggerFactory>(_loggerFactory));
+            builder.ConfigureTestServices(services =>
+            {
+                services.AddSingleton<ILoggerFactory>(_loggerFactory);
+
+                // AddDbContext calls add up since EF Core 9, as the factory's own SQL recorder relies on.
+                if (interceptor is not null)
+                {
+                    services.AddDbContext<ApplicationWriteDbContext>(
+                        options => options.AddInterceptors(interceptor),
+                        contextLifetime: ServiceLifetime.Scoped,
+                        optionsLifetime: ServiceLifetime.Singleton);
+                }
+            });
         });
     }
 
@@ -450,5 +485,31 @@ public sealed class TranslationSaveBudgetTests : IAsyncLifetime
             .AsNoTracking()
             .SingleAsync(candidate => candidate.IdentityId == IdentityId.FromValue(subject));
         return translator.Id;
+    }
+
+    /// <summary>
+    /// Lets the first budget insert commit, then throws the transient error a lost answer gives, so the
+    /// execution strategy runs the insert a second time.
+    /// </summary>
+    private sealed class LoseTheFirstBudgetInsertAnswer : DbCommandInterceptor
+    {
+        private int _insertAttempts;
+
+        public int InsertAttempts => _insertAttempts;
+
+        public override ValueTask<int> NonQueryExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            int result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("INSERT INTO \"translation\".\"TranslationSaves\"", StringComparison.Ordinal)
+                && Interlocked.Increment(ref _insertAttempts) == 1)
+            {
+                throw new NpgsqlException("The answer to the committed insert was lost.", new TimeoutException());
+            }
+
+            return base.NonQueryExecutedAsync(command, eventData, result, cancellationToken);
+        }
     }
 }

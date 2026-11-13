@@ -20,14 +20,14 @@ public sealed class TranslationSaveBudgetSettingsValidatorTests
     [Fact]
     public void Validate_EveryThresholdEqualToItsLimitAndTheLongestWindow_ShouldPass()
     {
-        // Arrange
+        // Arrange: 720 hours as a literal, because it is the privacy policy's 30 days, not a free choice.
         TranslationSaveBudgetSettings settings = new()
         {
             SaveLimit = 1,
             SaveAlertThreshold = 1,
             OverwriteLimit = 1,
             OverwriteAlertThreshold = 1,
-            WindowHours = TranslationSaveBudgetSettings.MaxWindowHours
+            WindowHours = 720
         };
 
         // Act
@@ -45,7 +45,7 @@ public sealed class TranslationSaveBudgetSettingsValidatorTests
     [InlineData(1_000, 500, 100, 0, 24, "TranslationSaveBudget:OverwriteAlertThreshold")]
     [InlineData(1_000, 500, 100, 101, 24, "TranslationSaveBudget:OverwriteAlertThreshold")]
     [InlineData(1_000, 500, 100, 50, 0, "TranslationSaveBudget:WindowHours")]
-    [InlineData(1_000, 500, 100, 50, TranslationSaveBudgetSettings.MaxWindowHours + 1, "TranslationSaveBudget:WindowHours")]
+    [InlineData(1_000, 500, 100, 50, 721, "TranslationSaveBudget:WindowHours")]
     public void Validate_AValueThatSwitchesTheGuardOrItsAlertOff_ShouldFailNamingTheKey(
         int saveLimit,
         int saveAlertThreshold,

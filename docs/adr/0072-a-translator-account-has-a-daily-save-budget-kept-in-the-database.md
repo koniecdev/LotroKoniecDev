@@ -58,15 +58,18 @@ large update.
 `TranslationSaveBudget:SaveLimit`, `SaveAlertThreshold`, `OverwriteLimit`, `OverwriteAlertThreshold`
 and `WindowHours` are app settings, passed through both production compose files with their defaults,
 so the owner can change them in the box `.env` without a release. A startup check stops the boot when
-a limit is below 1, an alert threshold is outside 1 to its limit, or the window is outside 1 to 720
-hours (30 days, the privacy policy's limit for technical data). Each of those would switch the guard or its alert off without any sign (ADR-0008 §3).
+a limit is below 1, an alert threshold is outside 1 to its limit, or the window is below 1 hour. Each
+of those would switch the guard or its alert off without any sign (ADR-0008 §3). The window also has an
+upper bound of 720 hours: 30 days is what the privacy policy names for technical data, and a longer
+window would make the table a history.
 
 ### 3. The count is kept in the database, not in memory
 
 Each budgeted save writes one row to a new table, `TranslationSaves` (the account, the time, and
 whether it replaced Polish). The budget counts the account's rows in the window. Rows older than the
 window are deleted on the next budgeted save, so the table is not a history (#50 is) and holds nothing
-for the GDPR export.
+for the GDPR export. When no budgeted save comes for longer than the window, the old rows wait for the
+next one. They hold only an account id, a time and a flag, and nothing reads them.
 
 ADR-0053 keeps its per-account budget in memory and accepts that a restart empties it. That is fine for
 15 minutes. Here the window is a day, and every deploy recreates the container (no blue/green), so an

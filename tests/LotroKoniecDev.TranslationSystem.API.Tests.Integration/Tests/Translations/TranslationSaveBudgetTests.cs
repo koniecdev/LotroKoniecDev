@@ -125,6 +125,10 @@ public sealed class TranslationSaveBudgetTests : IAsyncLifetime
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
         (await ReadErrorCodeAsync(response)).ShouldBe("Translations.SaveBudgetExhausted");
+        BudgetEntries()
+            .Where(entry => entry.Message.Contains("outcome Refused", StringComparison.Ordinal))
+            .ShouldHaveSingleItem()
+            .Message.ShouldContain("budget Saves, outcome Refused");
     }
 
     [Fact]
@@ -148,7 +152,7 @@ public sealed class TranslationSaveBudgetTests : IAsyncLifetime
     [Fact]
     public async Task Upsert_WhenTheEarlierSavesAreOlderThanTheWindow_ShouldNotCountThemAndShouldDeleteThem()
     {
-        // Arrange: the budget lives in the database, so a restart keeps it; only time empties it.
+        // Arrange: only time empties the budget.
         await SeedUntranslatedAsync(1, 2);
         await using WebApplicationFactory<Program> host = CreateHost(saveLimit: 1, overwriteLimit: 1);
         using HttpClient client = TranslatorClient(host, Guid.NewGuid());
@@ -161,6 +165,46 @@ public sealed class TranslationSaveBudgetTests : IAsyncLifetime
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await CountLedgerRowsAsync()).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Upsert_WithALongerWindowSetting_ShouldStillCountASaveOlderThan24Hours()
+    {
+        // Arrange: the same 25-hour-old save as above, but the owner set a 48-hour window.
+        await SeedUntranslatedAsync(1, 2);
+        await using WebApplicationFactory<Program> host = CreateHost(saveLimit: 1, overwriteLimit: 1, windowHours: 48);
+        using HttpClient client = TranslatorClient(host, Guid.NewGuid());
+        (await SaveAsync(client, 1)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await ExecuteSqlAsync("UPDATE translation.\"TranslationSaves\" SET \"SavedAt\" = \"SavedAt\" - interval '25 hours';");
+
+        // Act
+        HttpResponseMessage response = await SaveAsync(client, 2);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        (await ReadErrorCodeAsync(response)).ShouldBe("Translations.SaveBudgetExhausted");
+    }
+
+    [Fact]
+    public async Task Upsert_AfterARestart_ShouldStillCountTheSavesMadeBeforeIt()
+    {
+        // Arrange: every deploy recreates the container, so an in-memory count would start at zero.
+        await SeedUntranslatedAsync(1, 2);
+        Guid subject = Guid.NewGuid();
+        await using (WebApplicationFactory<Program> firstHost = CreateHost(saveLimit: 1, overwriteLimit: 1))
+        {
+            using HttpClient firstClient = TranslatorClient(firstHost, subject);
+            (await SaveAsync(firstClient, 1)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+
+        await using WebApplicationFactory<Program> secondHost = CreateHost(saveLimit: 1, overwriteLimit: 1);
+        using HttpClient secondClient = TranslatorClient(secondHost, subject);
+
+        // Act
+        HttpResponseMessage response = await SaveAsync(secondClient, 2);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
     }
 
     [Fact]
@@ -274,7 +318,11 @@ public sealed class TranslationSaveBudgetTests : IAsyncLifetime
         _factory = factory;
     }
 
-    private WebApplicationFactory<Program> CreateHost(int saveLimit, int overwriteLimit, int? saveAlertThreshold = null)
+    private WebApplicationFactory<Program> CreateHost(
+        int saveLimit,
+        int overwriteLimit,
+        int? saveAlertThreshold = null,
+        int windowHours = 24)
     {
         return _factory.WithWebHostBuilder(builder =>
         {
@@ -285,7 +333,8 @@ public sealed class TranslationSaveBudgetTests : IAsyncLifetime
                     { "TranslationSaveBudget:SaveLimit", saveLimit.ToString(CultureInfo.InvariantCulture) },
                     { "TranslationSaveBudget:SaveAlertThreshold", (saveAlertThreshold ?? saveLimit).ToString(CultureInfo.InvariantCulture) },
                     { "TranslationSaveBudget:OverwriteLimit", overwriteLimit.ToString(CultureInfo.InvariantCulture) },
-                    { "TranslationSaveBudget:OverwriteAlertThreshold", overwriteLimit.ToString(CultureInfo.InvariantCulture) }
+                    { "TranslationSaveBudget:OverwriteAlertThreshold", overwriteLimit.ToString(CultureInfo.InvariantCulture) },
+                    { "TranslationSaveBudget:WindowHours", windowHours.ToString(CultureInfo.InvariantCulture) }
                 });
             });
 

@@ -418,6 +418,57 @@ public sealed class UpsertTranslationHandlerTests
     }
 
     [Theory]
+    [InlineData(RejectedBeforeTheSave.InvalidText)]
+    [InlineData(RejectedBeforeTheSave.UnknownRow)]
+    [InlineData(RejectedBeforeTheSave.RemovedRow)]
+    public async Task Handle_WhenTheRequestIsRejectedBeforeTheSave_ShouldSpendNoPermit(RejectedBeforeTheSave reason)
+    {
+        // Arrange
+        string text = "Polski";
+        switch (reason)
+        {
+            case RejectedBeforeTheSave.InvalidText:
+                GivenStoredRow(Untranslated());
+                text = "   ";
+                break;
+            case RejectedBeforeTheSave.UnknownRow:
+                _translationRepository.GetByFragmentKeyAsync(Arg.Any<FragmentKey>(), Arg.Any<CancellationToken>())
+                    .Returns(Maybe<Translation>.None);
+                break;
+            case RejectedBeforeTheSave.RemovedRow:
+                Translation removed = Translated(TranslationSeed.Draft);
+                removed.MarkRemoved(VersionId, Now);
+                GivenStoredRow(removed);
+                break;
+        }
+
+        // Act
+        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, text), CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        _saveLedger.RecordCalls.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Handle_WhenTheSaveFailsAfterThePermit_ShouldKeepThePermitAndLogNoOverwrite()
+    {
+        // Arrange: a failed save changed no text, and handing the permit back could not run when the
+        // database is what failed (ADR-0072 §4).
+        GivenStoredRow(Translated(TranslationSeed.Draft));
+        _unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<int>(new InvalidOperationException("database down")));
+
+        // Act
+        await Should.ThrowAsync<InvalidOperationException>(
+            async () => await CreateHandler().Handle(Command(1, "Nowy polski"), CancellationToken.None));
+
+        // Assert
+        _saveLedger.CountFor(CurrentTranslator).ShouldBe(new TranslationSaveCounts(1, 1));
+        OverwriteEntries().ShouldBeEmpty();
+    }
+
+    [Theory]
     [InlineData(2)]
     [InlineData(3)]
     public async Task Handle_AtOrAboveTheSaveAlertThreshold_ShouldLogOneWarningPerSave(int earlierSaves)
@@ -591,6 +642,13 @@ public sealed class UpsertTranslationHandlerTests
     {
         Draft,
         Approved
+    }
+
+    public enum RejectedBeforeTheSave
+    {
+        InvalidText,
+        UnknownRow,
+        RemovedRow
     }
 
     /// <summary>

@@ -1287,11 +1287,13 @@ The operations manual is `docs/deployment/runbook.md`; this is the overview.
   Azure → Hetzner move a matter of re-pointing images and env vars, with **no application-code
   changes**.
 - **Secrets** live in the box's `/opt/lotro/.env` (`chmod 600`, owner `deploy`), never in git.
-  The move off Azure proved that no secret in this system is irreplaceable: none could be read back
-  from the disabled Key Vault, and every one was created again.
-- **Databases on Neon** (serverless Postgres): scale to zero when idle, 6-hour point-in-time
-  restore on the free plan, plus the pre-migration snapshot branch every deploy cuts. Accepted risk
-  (zero users): no off-platform backups yet; the revisit trigger is the first real translators.
+  The move off Azure proved that every secret could be created again: none could be read back from
+  the disabled Key Vault. The backup encryption key came later and is the exception: the dumps
+  already in the bucket need it, so it is kept in the owner's password manager too (ADR-0071).
+- **Databases on Neon** (serverless Postgres): scale to zero when idle. Prod is on the Launch plan,
+  with 7 days of point-in-time restore, plus the pre-migration snapshot branch every deploy cuts and
+  a nightly encrypted dump of both prod databases in Cloudflare R2 (EU), kept 30 days (ADR-0071).
+  Staging stays on the free plan with 6 hours of history and no dump.
 - **Observability** (ADR-0050, ADR-0051): Grafana, Loki, Prometheus and Tempo run on the
   **staging** box, so a production outage does not take the evidence with it. An Alloy agent on
   each box collects the apps' OpenTelemetry data, and the production agent pushes it to staging over
@@ -1428,8 +1430,8 @@ measure before building.)*
 **18. What are the known limits, and when do they bite?**
 Accepted on purpose, each with a written trigger: a single API instance (in-process rebuild queue)
 — bites at horizontal scale; no blue/green, so a deploy costs seconds of downtime — fine with no
-users (ADR-0034); no off-platform database backups beyond Neon PITR + snapshot branches — revisit
-at the first real users; Neon scales to zero, so the first request after a quiet period waits for
+users (ADR-0034); a restore from the nightly dump loses up to a day of work, and a dump older than
+30 days is gone (ADR-0071); Neon scales to zero, so the first request after a quiet period waits for
 the database to wake up; version registration and the export upload stay manual (ADR-0030).
 Knowing *where the cliff is* is part of the design.
 

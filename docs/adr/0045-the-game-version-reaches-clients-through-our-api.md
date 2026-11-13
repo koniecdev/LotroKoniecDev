@@ -331,6 +331,9 @@ only by wrong detections.
   exists" (§3). Needs a comparator on `LotroNotationVersion` — none exists today; it must be
   segment-wise numeric over the canonical form, because ordinal string comparison puts `49.10`
   below `49.9` and `100` below `49`.
+
+  > **Done in #721 (2026-11-13).** `LotroNotationVersion` implements
+  > `IComparable<LotroNotationVersion>` in this shape (ADR-0003, amendment 2026-11-13).
 - TMS — the verdict's source (#85/M2-18): hosted watcher in `TranslationSystem.API` creating
   `Unprocessed` rows through the existing aggregate, with provenance + dismissal per §5/§6, the
   ADR-0030 §2 e-mail alert, and a liveness signal.
@@ -340,6 +343,10 @@ only by wrong detections.
   returning the numerically newest known version with its status, plus the `current-game-version`
   rel in `Rels` and `DiscoveryLinkFactory`. It orders by the same `LotroNotationVersion` comparator
   #562 introduces — `DetectedAt` would let a late registration of a lower number win.
+
+  > **Note (2026-11-13).** #721 shipped the comparator, not #562. Ordering the registry by number
+  > disagrees with the wiki page "Wersja gry" (line 33: the registration date decides), so the
+  > owner rules on it first, in #1361.
 - Patcher — the whole de-scrape is #627, and it depends on #626 and #611 being on the wire first.
 - Patcher — remove: `Application/Abstractions/IForumPageFetcher.cs`,
   `Infrastructure/Network/ForumPageFetcher.cs`, the regex in

@@ -49,7 +49,7 @@ public sealed class LotroNotationVersion : ValueObject, IComparable<LotroNotatio
         for (int i = 0; i < segmentsCount; i++)
         {
             int comparison = CompareSegments(SegmentAt(segments, i), SegmentAt(otherSegments, i));
-            if (comparison != 0)
+            if (comparison is not 0)
             {
                 return comparison;
             }
@@ -59,16 +59,16 @@ public sealed class LotroNotationVersion : ValueObject, IComparable<LotroNotatio
     }
 
     public static bool operator <(LotroNotationVersion? left, LotroNotationVersion? right) =>
-        Comparer<LotroNotationVersion>.Default.Compare(left, right) < 0;
+        Comparer<LotroNotationVersion>.Default.Compare(left, right) is < 0;
 
     public static bool operator <=(LotroNotationVersion? left, LotroNotationVersion? right) =>
-        Comparer<LotroNotationVersion>.Default.Compare(left, right) <= 0;
+        Comparer<LotroNotationVersion>.Default.Compare(left, right) is <= 0;
 
     public static bool operator >(LotroNotationVersion? left, LotroNotationVersion? right) =>
-        Comparer<LotroNotationVersion>.Default.Compare(left, right) > 0;
+        Comparer<LotroNotationVersion>.Default.Compare(left, right) is > 0;
 
     public static bool operator >=(LotroNotationVersion? left, LotroNotationVersion? right) =>
-        Comparer<LotroNotationVersion>.Default.Compare(left, right) >= 0;
+        Comparer<LotroNotationVersion>.Default.Compare(left, right) is >= 0;
 
     public override string ToString() => Value;
 

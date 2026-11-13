@@ -1,6 +1,7 @@
 # ADR-0003: Canonical form for `LotroNotationVersion` — collapse trailing-zero segments
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-08-28, #728: at most three segments; amended 2026-11-13, #721:
+the version is comparable by number; see the amendments below)
 **Date:** 2026-06-14
 **Decision-makers:** Solo maintainer
 **Related:** `TranslationSystem.Domain` GameVersion aggregate, ticket #132 (M2-21), spec 0001
@@ -190,11 +191,13 @@ belongs in the value object, once.
 - The canonical form, the equality semantics and the `digits(.digits)*` grammar.
 - The registry still orders versions by registration date (`DetectedAt`). The wiki page "Wersja
   gry" says so in plain words: "starsza wersja" means "entered earlier", not "with a lower number".
-  Spec 0001 says the same. The new comparison is the number order only, and it never decides
-  which version is older in the registry.
+  Spec 0001 says the same. The new comparison is the number order only. Nothing uses it for the
+  registry's order.
 - `GET /api/v1/game-versions?sort=version` still sorts by the stored text in SQL (`ListGameVersions`,
   INV-9.4). It reads the read model's string, not this value object.
-- No caller uses the comparison yet. #626 and #722 are the first planned callers.
+- No caller uses the comparison yet. #626 and #722 are the first planned callers, and both would
+  order the registry by number, against the wiki. The owner rules on that first, in #1361, and the
+  ruling goes into the wiki (`CLAUDE.md` → "Source of truth").
 
 **Alternatives considered.**
 

@@ -20,7 +20,7 @@ public sealed class ListSameSourceTextTranslationsHandlerTests
     private static readonly GameVersionId VersionId = GameVersionId.Create();
 
     private static readonly TranslatorReadModel Saver = new(
-        TranslatorId.Create(), IdentityId.Create(), "Harrond", Email: null, Now);
+        TranslatorId.Create(), IdentityId.Create(), "Gimli", Email: null, Now);
 
     private readonly List<TranslationReadModel> _readModels = [];
 
@@ -97,7 +97,7 @@ public sealed class ListSameSourceTextTranslationsHandlerTests
         response.Items.Select(item => item.GossipId).ShouldBe([127768437L, 204170133L]);
         response.Items.Select(item => item.TranslatedText).ShouldBe(["Krzepki Topornik", "Wytrzymały topór"]);
         response.Items.ShouldAllBe(item => item.Status == TranslationStatus.Draft);
-        response.Items.ShouldAllBe(item => item.Submitter != null && item.Submitter.DisplayName == "Harrond");
+        response.Items.ShouldAllBe(item => item.Submitter != null && item.Submitter.DisplayName == "Gimli");
     }
 
     [Fact]

@@ -472,7 +472,7 @@ public sealed class EditorTests : BunitContext
         TranslationId draftId = TranslationId.Create(Guid.NewGuid());
         StubSameSourceText(new SameSourceTextTranslationsResponse(
             [
-                Other(draftId, 127768437, "Krzepki Topornik", TranslationStatus.Draft, "Harrond"),
+                Other(draftId, 127768437, "Krzepki Topornik", TranslationStatus.Draft, "Gimli"),
                 Other(TranslationId.Create(Guid.NewGuid()), 204170133, "Wytrzymały topór", TranslationStatus.Draft, "Elrohir")
             ],
             TotalCount: 2,
@@ -488,7 +488,7 @@ public sealed class EditorTests : BunitContext
         rows[0].TextContent.ShouldContain("127768437");
         rows[0].TextContent.ShouldContain("Krzepki Topornik");
         rows[0].TextContent.ShouldContain("Wersja robocza");
-        rows[0].TextContent.ShouldContain("Harrond");
+        rows[0].TextContent.ShouldContain("Gimli");
         rows[0].QuerySelector("a")!.GetAttribute("href").ShouldBe($"/editor/{draftId.Value}");
         rows[1].TextContent.ShouldContain("Wytrzymały topór");
         rows[1].TextContent.ShouldContain("Elrohir");
@@ -500,7 +500,7 @@ public sealed class EditorTests : BunitContext
     {
         StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
         StubSameSourceText(new SameSourceTextTranslationsResponse(
-            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Topór wojenny", TranslationStatus.Approved, "Harrond")],
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Topór wojenny", TranslationStatus.Approved, "Gimli")],
             TotalCount: 1,
             HasConflictingTranslations: false));
 
@@ -575,7 +575,7 @@ public sealed class EditorTests : BunitContext
         // A good save or approve redirects to a GET that loads the panel, so a post must not pay for it.
         StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
         StubSameSourceText(new SameSourceTextTranslationsResponse(
-            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Krzepki Topornik", TranslationStatus.Draft, "Harrond")],
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Krzepki Topornik", TranslationStatus.Draft, "Gimli")],
             TotalCount: 1,
             HasConflictingTranslations: true));
         DefaultHttpContext post = new();
@@ -595,7 +595,7 @@ public sealed class EditorTests : BunitContext
     {
         StubLoad(BuildDetail(sourceText: "Interrupted!", translatedText: "Przerwano!", hasSameSourceText: true));
         StubSameSourceText(new SameSourceTextTranslationsResponse(
-            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Harrond")],
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
             TotalCount: 60,
             HasConflictingTranslations: true));
 
@@ -613,7 +613,7 @@ public sealed class EditorTests : BunitContext
         string limitText = new('a', 200);
         StubLoad(BuildDetail(sourceText: limitText, translatedText: "Przerwano!", hasSameSourceText: true));
         StubSameSourceText(new SameSourceTextTranslationsResponse(
-            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Harrond")],
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
             TotalCount: 60,
             HasConflictingTranslations: true));
 
@@ -629,7 +629,7 @@ public sealed class EditorTests : BunitContext
         string longText = new('a', 201);
         StubLoad(BuildDetail(sourceText: longText, translatedText: "Przerwano!", hasSameSourceText: true));
         StubSameSourceText(new SameSourceTextTranslationsResponse(
-            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Harrond")],
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
             TotalCount: 60,
             HasConflictingTranslations: true));
 
@@ -647,7 +647,7 @@ public sealed class EditorTests : BunitContext
         // next submit.
         StubLoad(BuildDetail(sourceText: sourceText, translatedText: "Przerwano!", hasSameSourceText: true));
         StubSameSourceText(new SameSourceTextTranslationsResponse(
-            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Harrond")],
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
             TotalCount: 60,
             HasConflictingTranslations: true));
 
@@ -661,7 +661,7 @@ public sealed class EditorTests : BunitContext
     {
         StubLoad(BuildDetail(sourceText: "Interrupted!", translatedText: "Przerwano!", hasSameSourceText: true));
         StubSameSourceText(new SameSourceTextTranslationsResponse(
-            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Harrond")],
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
             TotalCount: 60,
             HasConflictingTranslations: false));
 

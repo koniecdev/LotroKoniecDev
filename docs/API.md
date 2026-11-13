@@ -477,7 +477,7 @@ rel on the translation rather than build the URL.
   "items": [
     { "id": "0190...", "fileId": 620756996, "gossipId": 127768437,
       "translatedText": "Krzepki Topornik", "status": "Draft",
-      "submitter": { "id": "0190...", "displayName": "Harrond" } }
+      "submitter": { "id": "0190...", "displayName": "Gimli" } }
   ],
   "totalCount": 2,
   "hasConflictingTranslations": true

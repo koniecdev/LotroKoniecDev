@@ -7,7 +7,7 @@
 `TranslationSystem.Persistence/Bulk/BulkTranslationInserter.cs`,
 `TranslationSystem.API/Features/Import/ImportExportedTexts.cs`,
 `TranslationSystem.API/Features/Translations/{UpsertTranslation,ApproveTranslation,BulkApproveTranslations}.cs`;
-tickets #50, #1345, #1368, #1372, #1373; ADR-0023, ADR-0024, ADR-0040, ADR-0047, ADR-0065, ADR-0072
+tickets #1384, #1388, #50, #1345, #1385, #1368, #1372, #1373; ADR-0023, ADR-0024, ADR-0040, ADR-0047, ADR-0065, ADR-0072
 
 ## Context
 
@@ -60,7 +60,10 @@ its own rules on its own `xmin`:
 - approve, reject and withdraw name a proposal they may take, otherwise the request fails with 409.
 
 `Translation` cannot tell an older approved proposal from the live one by itself, so the handler
-loads the named proposal and the live one and passes them in; `Translation` decides.
+loads the named proposal and the live one and passes them in; `Translation` decides. The author
+rule of #1368 lives here too: given the proposal's author and whether that text was ever live,
+`Translation` refuses an author who approves or rejects their own text that has never been live.
+The link factory mirrors the same rule (ADR-0040).
 `WaitingProposalId` is cleared when the waiting proposal is approved, rejected or withdrawn.
 
 Reason: `Translation` stays small and is always fully loaded. A child collection would mean either
@@ -86,8 +89,9 @@ new ADR first.
 - A partial unique index on the proposal table: at most one waiting proposal per translation.
 
 The `COPY` column list in `BulkTranslationInserter` (new `Translation` rows from an import) also
-gets the new column. That list is not a guard; the import integration tests catch it when it
-drifts.
+gets the new column. That list is not a guard, and the column is nullable, so a list that misses
+it silently writes NULL; the first implementation ticket adds a test that the list matches the
+model.
 
 ### 5. Bulk paths insert new proposal rows and never load a history
 
@@ -100,7 +104,7 @@ The bulk paths of #1372 and #1373 insert proposals as new rows, set-based (`COPY
 
 - The import and bulk approve keep loading the same small `Translation` they load today.
 - The history can grow without limit and never slows the paths that do not read it.
-- The rules live in one place (`Translation`) and are backed by the database.
+- The rules live in one place (`Translation`), and the database also enforces the one-waiting rule.
 - An approval is never lost from the history, because it is a row.
 
 ### Negative / Accepted Trade-offs
@@ -108,7 +112,11 @@ The bulk paths of #1372 and #1373 insert proposals as new rows, set-based (`COPY
 - Two aggregates change in one transaction (decision 3). This is accepted and must not be "fixed".
 - Today `TranslatedText` also holds drafts nobody approved. Under this model it holds only the live
   text, so the migration must keep the previous app revision working while the meaning moves
-  (ADR-0023 expand → backfill → contract, proved by the N-1 run of ADR-0024).
+  (ADR-0023 expand → backfill → contract). The N-1 run of ADR-0024 runs the old tests against the
+  new schema, but it cannot see rows the old revision writes during the deploy; the contract step
+  (#1388) runs the backfill again for them.
+- A row in "Do ponownego sprawdzenia" keeps that status through saves, rejects and withdraws until
+  an approval, so stale Polish never returns under changed English (ADR-0047).
 - ADR-0072 counts a save that replaces Polish as an overwrite. A save no longer replaces anything,
   so the first implementation ticket keeps that budget's effect: a save on a row that already has
   Polish, live or waiting, still counts as an overwrite. ADR-0072 allows deleting the overwrite
@@ -155,4 +163,4 @@ Chosen. See the Decision.
 - Spec 0014: translation review flow.
 - ADR-0023 (forward-only migrations), ADR-0024 (N-1 proof), ADR-0040 (authorization-aware links),
   ADR-0047 (source digest), ADR-0065 (account erasure), ADR-0072 (daily save budget).
-- Tickets #50, #1345, #1368, #1372, #1373.
+- Tickets #1384, #1388, #50, #1345, #1385, #1368, #1372, #1373.

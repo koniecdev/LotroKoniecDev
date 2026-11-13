@@ -5,17 +5,16 @@
   the domain model, and the owner's answers to Q1–Q9)
 - **Author:** koniecdev
 - **Ticket:** covers #49 (TP-14 review workflow), #50 (TP-15 history), #1345 (rejection with a
-  reason) and the points of #1332. Implementation tickets: #1384 (every save is a proposal) first;
-  then #50 (history and restore), #1345 (rejection with a reason) and #1385 (withdraw); #1368
-  (Reviewer role, the author rule) after #50 and #1345. #1386 removes the wiki's "coming" mark once #1384
-  runs on prod.
+  reason) and the review points of #1332. Implementation tickets: #1384 (every save is a proposal)
+  first; then #50 (history and restore), #1345 (rejection with a reason) and #1385 (withdraw);
+  #1368 (Reviewer role, the author rule) after #50 and #1345. Once #1384 runs on prod, #1388
+  (its contract step) and #1386 (the wiki's "coming" mark) follow.
 - **Related:** spec 0001 (status model, approve = publish), spec 0007 (bulk approve), ADR-0040
   (authorization-aware links), ADR-0047 (source digest), ADR-0065 (account erasure), ADR-0023
   (forward-only migrations), ADR-0072 (daily save budget), #687 (SEC-09, one hijacked translator
-  account), #1368 (Reviewer role,
-  nobody approves their own text), #1369 (glossary), #1372 (pattern saves), #1373 (AI draft
-  uploads), wiki `Wersje-systemu` (1.0 criterion 4), `Mechanizm-diff` and `Import-do-TMS`.
-  ADR-0073 records the domain model.
+  account), #1368 (Reviewer role, nobody approves their own text), #1369 (glossary), #1372
+  (pattern saves), #1373 (AI draft uploads), wiki `Wersje-systemu` (1.0 criterion 4),
+  `Mechanizm-diff` and `Import-do-TMS`. ADR-0073 records the domain model.
 
 ## Business context
 
@@ -56,6 +55,7 @@ back.
   proposal. `polish.txt` is built from live texts. A new proposal does not change the file.
 - **Approve a proposal.** A reviewer or the admin who is not the proposal's author approves one
   specific proposal (the one on their screen). It becomes the live text and the file is rebuilt.
+  For a text that was already live, see the exception under Business rules.
 - **Reject a proposal with a reason.** A reviewer or the admin who is not the proposal's author
   rejects one specific proposal and writes why. The reason is required. The translator sees the
   reason in the editor and can find their rejected proposals on the list. There is no e-mail (Q3).
@@ -84,8 +84,11 @@ back.
   becomes an approved proposal and stays live. A `Draft` row's text becomes the waiting proposal.
   A "Do ponownego sprawdzenia" row's text becomes the waiting proposal too: today's data cannot
   tell whether that text was ever approved, because an edit after an approval keeps the approver.
-  A backfill proposal's author is the row's `SubmittedById`, its time the row's `UpdatedAt`, and
-  an approved one is decided by the row's `ApprovedById`.
+  A backfill proposal's author is the row's `SubmittedById`; an approved one is decided by the
+  row's `ApprovedById`. Its created at, and for an approved one its decided at, are the row's
+  `UpdatedAt`. That time can be later than the save (an import, an approval or a removal also
+  moves it), so the history marks backfill times as approximate. The backfill keeps every row's
+  status.
 
 ## Out of scope
 
@@ -144,11 +147,16 @@ back.
   waiting, still counts as an overwrite. ADR-0072 allows deleting the overwrite budget once the
   review flow ships; that is a separate decision.
 - **The status keeps its four values.** A new `TranslationStatus` value would break the previous
-  app revision, which reads the status as a string (ADR-0023). The new labels come from the
-  proposals: no live text and a waiting proposal is `Draft` ("waiting for review"); a live text
-  and a waiting proposal is `Approved` with "change waiting"; no live text, nothing waiting and a
-  rejected last proposal is `Untranslated`, shown as "Odrzucone" until the next save; a row whose
-  only proposals were withdrawn is `Untranslated`.
+  app revision, which reads the status as a string (ADR-0023).
+  - **`NeedsReview` wins.** A row in "Do ponownego sprawdzenia" keeps that status through saves,
+    rejects and withdraws, until an approval clears it. So stale Polish never goes back into
+    `polish.txt` under changed English (ADR-0047). This replaces spec 0001's rule that a save on
+    `NeedsReview` gives `Draft`.
+  - Any other row takes its status from the proposals: no live text and a waiting proposal is
+    `Draft` ("waiting for review"); a live text and a waiting proposal is `Approved` with "change
+    waiting"; no live text, nothing waiting and a rejected last proposal is `Untranslated`, shown
+    as "Odrzucone" until the next save; a row whose only proposals were withdrawn is
+    `Untranslated`.
 - **Dates** in the history and on rejections are shown in Polish time, like every other date.
 - **Who may do what.**
   - A translator proposes, withdraws their own waiting proposal, and reads the history of every
@@ -166,8 +174,7 @@ back.
     "Do ponownego sprawdzenia", only for a caller the policy allows. On a waiting proposal they
     never appear for its author. `withdraw` appears only on a waiting proposal, and only for its
     author. The role rule lives in the policy; the author rules are state rules (the proposal's
-    author is or is
-    not the caller), so they live in the link factory (#1368).
+    author is or is not the caller), so they live in the link factory (#1368).
 - **Length.** A proposal keeps the current limit (32767, ADR-0043). A rejection reason has its own
   limit: 1000 characters.
 
@@ -187,8 +194,8 @@ back.
   (`RejectTranslationProposal.Command`, rel `reject`, Reviewer or Admin, never the proposal's
   author). 204; 400 for an empty reason or one over 1000 characters; 403 for a plain translator;
   403 with `TranslationProposal.OwnProposal` when the caller wrote the proposal; 409 when the
-  proposal is not the one waiting; 422 for a removed row. Whichever of #1345 and #1368 lands first
-  adds that error code; the other reuses it.
+  proposal is not the one waiting; 422 for a removed row. #1345 adds that error code, and #1368,
+  which depends on #1345, reuses it.
 - **Withdraw (new):** `POST /api/v1/translations/{id}/withdraw`, body `{ proposalId }`
   (`WithdrawTranslationProposal.Command`, rel `withdraw`, the proposal's author only). 204; 403
   when the caller is not the author; 409 when the proposal is not the one waiting; 422 as for
@@ -200,7 +207,8 @@ back.
   where each id names the waiting proposal or the live one of a row in "Do ponownego sprawdzenia".
   Summary `{ requested, approved, skipped, skippedOwn }`: `skipped` stays the total, so
   `approved + skipped = requested` still holds (INV-8.12), and `skippedOwn` is the part of it the
-  caller wrote (#1368). A stale proposal id is skipped.
+  caller wrote (#1368). Any other id (a stale one, or an approved proposal that is not the live
+  one) is skipped.
 - **Domain (owner decision, 2026-11-13): `TranslationProposal` is its own aggregate root, not a
   child of `Translation`.** ADR-0073 records it.
   - `TranslationProposal`: text, author, created at, origin (a person's save, a pattern save, an
@@ -228,13 +236,18 @@ back.
     session "fixes" it with events and eventual consistency.
   - Database guards: a foreign key from `WaitingProposalId` to the proposal, and a partial unique
     index "at most one waiting proposal per translation".
-  - The `COPY` column list in `BulkTranslationInserter` gets the new column; the import integration
-    tests catch a list that drifts.
+  - The `COPY` column list in `BulkTranslationInserter` gets the new column. The column is
+    nullable, so a list that misses it silently writes NULL; #1384 adds a test that the list
+    matches the model.
 - **Files touched:** TMS database (new table, expand migration plus backfill, ADR-0023). The
   `polish.txt` artifact keeps its format; it is built from live texts. Today `TranslatedText` also
   holds a draft that nobody approved, so the migration plan must keep the previous app revision
   working while the column's meaning moves to "live text only" (ADR-0023, expand → backfill →
-  contract).
+  contract). During the deploy the previous revision still saves straight into `TranslatedText`
+  and sets `Draft`, with no proposal. One plan that works: until the contract step,
+  `TranslatedText` keeps today's meaning (the live text, or the waiting text on a row with no live
+  text), and the contract step (#1388) runs the backfill again for rows whose text has no matching
+  proposal. #1384's plan says which plan it takes.
 
 ## Acceptance criteria
 
@@ -272,6 +285,10 @@ back.
       proposals.
 - [ ] After the backfill, every row that had Polish has exactly one proposal with that text and the
       origin "backfill", and `polish.txt` is byte-identical to the one before the migration.
+- [ ] A save on a row in "Do ponownego sprawdzenia" keeps the row in that status and its old Polish
+      out of `polish.txt` until an approval.
+- [ ] A text the previous revision saved during the deploy has a proposal after the contract step
+      (#1388).
 - [ ] The previous app revision keeps working against the migrated schema (the N-1 proof,
       ADR-0024).
 - [ ] Account erasure leaves proposals in place under "Usunięte konto"; the data export lists the

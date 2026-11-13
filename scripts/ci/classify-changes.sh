@@ -96,8 +96,8 @@ GUARD_INPUTS='^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/tests/check-ssr-puri
 #   * scripts/hetzner/deploy.sh, because DeadLetterExpiryTests (AuthSystem.API.Tests.Integration)
 #     reads its dead-letter expiry policy and sets it on a real RabbitMQ broker (#1163). Its bash
 #     self-test pins the policy call only as text, so it cannot tell whether a broker accepts it;
-#   * the LotroKoniecDev Grafana alert rules, because TranslationSaveBudgetLogRuleTests
-#     (TranslationSystem.API.Tests.Unit) reads them to check that the rules still match the log text
+#   * the LotroKoniecDev Grafana alert rules, because TranslationSystem.API.Tests.Unit copies them
+#     into its output and TranslationSaveBudgetLogRuleTests checks that they still match the log text
 #     tms-api writes (#687). A rule edit that broke that tie would otherwise skip the test.
 # When a unit or integration test reads a file that an INERT rule matches (a script under scripts/,
 # say), that file goes here. The E2E suites read Dockerfiles and scripts too, but they are not on

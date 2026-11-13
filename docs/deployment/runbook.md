@@ -1506,19 +1506,20 @@ docker volume ls -q -f name=restore-scratch-data    # must print nothing
 ### Restore drill
 
 Proven on 2026-11-12, locally: Postgres 18 with the schema of every EF migration, an S3 stand-in
-(versitygw) instead of R2, the real `backup.sh`, and the copy-back block below as written. Eight
+(versitygw) instead of R2, the real `backup.sh`, and the copy-back block as it was then. Eight
 rows. After the backup: two honest edits (one of a row that stays undamaged, one of a draft), an
 import that changed one row's English and one that added a row, and one account that put rubbish
 into five rows (two of them as approvals, one over a row waiting for review and one over the added
 row) and approved the edited draft. The dry run changed nothing. The real run restored four rows
 (the approved-over one back to NeedsReview with its old English; the approved draft back to the
-draft of the night before, with the newer text shown in the list), skipped the one whose English had
+draft of the night before, where the block now keeps the newer text), skipped the one whose English had
 changed, listed the added row as `NOT IN THE COPY`, and left the undamaged row's edit alone. The auth
 dump restored with all 9 migrations. On 2026-11-13 the shell helpers, the scratch restore, the
 copy-back and the clean-up as they stand now ran again as written, locally against the migrated
-schema, on seven rows. The account's own rubbish went back to the copy. A row whose import changed
+schema, on eight rows. The account's own rubbish went back to the copy. A row whose import changed
 only its arguments was listed `SKIP: source changed` and kept, and the row an import added was
-listed `NOT IN THE COPY`. Three rows the account only approved kept their author's text
+listed `NOT IN THE COPY`. A row the account approved after an import changed its English was listed
+`SKIP: source changed, still approved by the account` and kept. Three rows the account only approved kept their author's text
 (`undo approval, keep text`): a new translation and a rework went back to Draft, and an unchanged
 NeedsReview row went back to NeedsReview with its old English. The dry run changed nothing, the
 scratch container ran with its memory limit, and the clean-up left no container and no volume.
@@ -1625,7 +1626,8 @@ times.
                   WHEN t.\"SourceText\" = r.\"SourceText\" AND t.\"ArgsOrder\" IS NOT DISTINCT FROM r.\"ArgsOrder\"
                        AND t.\"ArgsId\" IS NOT DISTINCT FROM r.\"ArgsId\"
                   THEN CASE WHEN t.\"SubmittedById\" = '$ACCOUNT' THEN 'restore' ELSE 'undo approval, keep text' END
-                  ELSE 'SKIP: source changed' END AS action
+                  WHEN t.\"SubmittedById\" = '$ACCOUNT' THEN 'SKIP: source changed'
+                  ELSE 'SKIP: source changed, still approved by the account' END AS action
            FROM damaged d JOIN translation.\"Translations\" t ON t.\"Id\" = d.id
            LEFT JOIN restore_rows r ON r.\"Id\" = t.\"Id\" ORDER BY 1, 2;"
      # Every SET expression reads the row as it was before this UPDATE.
@@ -1647,7 +1649,10 @@ times.
    The account's own honest edits after `SINCE` are reverted too; the printed list shows them.
    Rows marked `undo approval, keep text` keep what their author wrote; read them and approve the
    good ones again. Rows marked `SKIP: source changed` need a person: an import changed their English or its
-   arguments after the copy was made, so the old Polish may no longer fit. Rows marked `NOT IN THE COPY` were added
+   arguments after the copy was made, so the old Polish may no longer fit. A row marked
+   `SKIP: source changed, still approved by the account` holds someone else's text that the account
+   approved after the import, so it is still in the game file under that approval: check it against
+   the new English, then approve it yourself or save it unchanged to take it out. Rows marked `NOT IN THE COPY` were added
    by an import after the copy was made, so there is no earlier state to put back. Fix both kinds in
    the editor, and an approved one at once: editing an approved row turns it back into a draft,
    which leaves the game file.
@@ -1675,6 +1680,17 @@ The one case for a whole-database restore: the Neon project itself is lost.
    ```
 
    and the same for `lotro_translation` with `translation.dump`.
+
+   Then, as `deploy`, put the new host and password into both `ConnectionStrings__*` lines of
+   `/opt/lotro/.env` and run the migrator, before the SQL of steps 3 and 4: when a migration was
+   deployed after the dump, the restored schema is older than the running code, and the migrator
+   brings it up to date (with nothing pending it does nothing). The migrator starts no app, so the
+   finalizer stays off until step 5; do not deploy before then.
+
+   ```bash
+   cd /opt/lotro && export DOCKER_CONFIG=/nonexistent
+   docker compose -f compose.hetzner.yaml --env-file .env run --rm --no-deps migrator
+   ```
 3. **Do every erasure again, and undo every later cancellation.** Do it before step 5: the finalizer
    runs as soon as auth-api starts on the new database. The dump is older than the loss. An account whose deletion was asked
    for before the dump comes back still waiting, and the finalizer erases it again on its next run.
@@ -1721,14 +1737,10 @@ The one case for a whole-database restore: the Neon project itself is lost.
 4. **Sign everyone out.** The auth dump brings back sign-in sessions and refresh tokens that were
    ended after the dump. Delete every row of `authsystem."SignInSessions"` and
    `authsystem."OpenIddictTokens"`; everyone signs in again.
-5. As `deploy`, put the new host and password into both `ConnectionStrings__*` lines of
-   `/opt/lotro/.env`. Run the migrator before the APIs: when a migration was deployed after the
-   dump, the restored schema is older than the running code, and the migrator brings it up to date
-   (with nothing pending it does nothing). Then run the [smoke test](#post-deploy-smoke-test).
+5. Start the APIs on the new database, then run the [smoke test](#post-deploy-smoke-test):
 
    ```bash
    cd /opt/lotro && export DOCKER_CONFIG=/nonexistent
-   docker compose -f compose.hetzner.yaml --env-file .env run --rm --no-deps migrator
    docker compose -f compose.hetzner.yaml --env-file .env up -d --no-deps --force-recreate auth-api tms-api
    ```
 6. Point the `production` environment's `NEON_PROJECT_ID` variable and `NEON_API_KEY` secret at the

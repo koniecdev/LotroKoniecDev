@@ -223,6 +223,82 @@
                 </div>
             </section>
         </div>
+
+        @if (_sameSourceTextFailed)
+        {
+            <div class="status-message status-warning same-source-unavailable" role="status">
+                <p>Nie udało się wczytać innych wierszy z tym samym tekstem angielskim. Odśwież stronę, aby spróbować ponownie.</p>
+            </div>
+        }
+        else if (_sameSourceText is { TotalCount: > 0 } sameSourceText)
+        {
+            <section class="panel same-source" aria-labelledby="same-source-title">
+                <header class="panel-head">
+                    <h2 id="same-source-title">Inne wiersze z tym samym tekstem</h2>
+                    <span class="panel-aside">@sameSourceText.TotalCount</span>
+                </header>
+                <div class="panel-body">
+                    @if (sameSourceText.HasConflictingTranslations)
+                    {
+                        <div class="status-message status-warning same-source-conflict" role="alert">
+                            <p>Ten sam tekst angielski ma w różnych wierszach różne tłumaczenia polskie. Sprawdź, czy tak ma być.</p>
+                        </div>
+                    }
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col" class="col-num">FileId</th>
+                                    <th scope="col" class="col-num">GossipId</th>
+                                    <th scope="col">Tłumaczenie polskie</th>
+                                    <th scope="col" class="col-status">Status</th>
+                                    <th scope="col">Zapisane przez</th>
+                                    <th scope="col" class="col-actions"><span class="visually-hidden">Akcje</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (SameSourceTextTranslationResponse other in sameSourceText.Items)
+                                {
+                                    <tr>
+                                        <td class="col-num mono">@other.FileId</td>
+                                        <td class="col-num mono">@other.GossipId</td>
+                                        <td class="col-text">
+                                            @if (string.IsNullOrEmpty(other.TranslatedText))
+                                            {
+                                                <span class="text-dim">—</span>
+                                            }
+                                            else
+                                            {
+                                                @other.TranslatedText
+                                            }
+                                        </td>
+                                        <td class="col-status">
+                                            <span class="badge @TranslationStatusDisplay.BadgeClass(other.Status)">
+                                                <span class="dot"></span>@TranslationStatusDisplay.Label(other.Status)
+                                            </span>
+                                        </td>
+                                        <td>@(other.Submitter?.DisplayName ?? "—")</td>
+                                        <td class="col-actions">
+                                            <a class="btn btn-ghost btn-sm" href="@OtherRowHref(other.Id)">Otwórz</a>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    @if (sameSourceText.Items.Count < sameSourceText.TotalCount)
+                    {
+                        <p class="text-dim same-source-capped">
+                            Pokazano @sameSourceText.Items.Count z @sameSourceText.TotalCount.
+                            @if (sameSourceText.HasConflictingTranslations)
+                            {
+                                <a href="@ConflictListHref(detail.SourceText)">Pokaż rozbieżne tłumaczenia na liście</a>
+                            }
+                        </p>
+                    }
+                </div>
+            </section>
+        }
     }
 </section>
 
@@ -231,7 +307,15 @@
     private const string SaveFormName = "save-translation";
     private const string ApproveFormName = "approve-translation";
 
+    /// <summary>
+    /// The capped panel's list link searches for the English only up to this length, so the URL stays short.
+    /// A longer text links to the whole conflict list.
+    /// </summary>
+    private const int MaxConflictSearchLength = 200;
+
     private TranslationDetailResponse? _detail;
+    private SameSourceTextTranslationsResponse? _sameSourceText;
+    private bool _sameSourceTextFailed;
     private ProblemDetails? _loadProblem;
     private ProblemDetails? _saveProblem;
     private ProblemDetails? _approveProblem;
@@ -272,11 +356,14 @@
         {
             _detail = result.Value;
             _loadProblem = null;
+            await LoadSameSourceTextAsync(result.Value);
         }
         else
         {
             _detail = null;
             _loadProblem = result.ProblemDetails;
+            _sameSourceText = null;
+            _sameSourceTextFailed = false;
 
             // A save sent while the row cannot be loaded keeps its text, which draws the recovery form.
             if (_postedFormName == SaveFormName)
@@ -348,6 +435,49 @@
     /// </summary>
     private string EditorUriWithFlag(string successFlag) =>
         string.Create(CultureInfo.InvariantCulture, $"/editor/{Id}?{successFlag}=true");
+
+    /// <summary>
+    /// Its own state, so a failed panel never hides the row (#1347). Skipped on a post: a good save or
+    /// approve redirects to a GET that loads it, so a post would pay for the lookup twice.
+    /// </summary>
+    private async Task LoadSameSourceTextAsync(TranslationDetailResponse detail)
+    {
+        _sameSourceText = null;
+        _sameSourceTextFailed = false;
+
+        string? sameSourceTextHref = detail.Links.FindLink(Rels.SameSourceText)?.Href;
+        if (sameSourceTextHref is null || HttpContext is not null && HttpMethods.IsPost(HttpContext.Request.Method))
+        {
+            return;
+        }
+
+        ApiResult<SameSourceTextTranslationsResponse> result =
+            await Loader.LoadSameSourceTextAsync(sameSourceTextHref, CancellationToken.None);
+        if (result.IsSuccess)
+        {
+            _sameSourceText = result.Value;
+        }
+        else
+        {
+            _sameSourceTextFailed = true;
+        }
+    }
+
+    private static string OtherRowHref(TranslationId id) =>
+        string.Create(CultureInfo.InvariantCulture, $"/editor/{id.Value}");
+
+    /// <summary>
+    /// The list's conflict filter is the uncapped view of the same rows. The English goes in as the search
+    /// term while it is short; the search is a substring match, so a few rows of longer texts may show too.
+    /// </summary>
+    private static string ConflictListHref(string sourceText) =>
+        TranslationListQuery
+            .From(
+                sourceText.Length <= MaxConflictSearchLength ? sourceText : null,
+                status: null,
+                page: 1,
+                conflictsOnly: true)
+            .ToPageRelativeUri(1);
 
     private static RenderFragment RenderHighlighted(string text) => builder =>
     {

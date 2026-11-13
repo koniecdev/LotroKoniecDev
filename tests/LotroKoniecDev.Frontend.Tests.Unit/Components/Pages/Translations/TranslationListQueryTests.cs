@@ -268,4 +268,39 @@ public sealed class TranslationListQueryTests
 
         query.ToPageRelativeUriWithApprovalResult(approved: 1, skipped: 0).ShouldNotContain("pageSize=");
     }
+
+    [Fact]
+    public void From_WithConflictsOnly_AsksTheApiForConflicts()
+    {
+        TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1, conflictsOnly: true);
+
+        query.ConflictsOnly.ShouldBeTrue();
+        query.ToApiUri(CollectionHref).ShouldContain("conflictsOnly=true");
+    }
+
+    [Fact]
+    public void From_WithoutConflictsOnly_LeavesTheParameterOutOfEveryUri()
+    {
+        TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1);
+
+        query.ToApiUri(CollectionHref).ShouldNotContain("conflictsOnly");
+        query.ToPageRelativeUri(2).ShouldNotContain("conflictsOnly");
+        query.ToPageRelativeUriWithApprovalResult(approved: 1, skipped: 0).ShouldNotContain("conflictsOnly");
+    }
+
+    [Fact]
+    public void ToPageRelativeUri_WithConflictsOnly_KeepsItAcrossPaging()
+    {
+        TranslationListQuery query = TranslationListQuery.From(search: "axe", status: null, page: 1, conflictsOnly: true);
+
+        query.ToPageRelativeUri(2).ShouldBe("/translations?page=2&search=axe&conflictsOnly=true");
+    }
+
+    [Fact]
+    public void ToPageRelativeUriWithApprovalResult_WithConflictsOnly_KeepsItSoTheAdminStaysOnTheConflictList()
+    {
+        TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1, conflictsOnly: true);
+
+        query.ToPageRelativeUriWithApprovalResult(approved: 2, skipped: 0).ShouldContain("conflictsOnly=true");
+    }
 }

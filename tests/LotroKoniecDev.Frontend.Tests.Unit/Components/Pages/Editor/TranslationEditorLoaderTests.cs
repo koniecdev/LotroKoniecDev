@@ -142,6 +142,41 @@ public sealed class TranslationEditorLoaderTests
     }
 
     [Fact]
+    public async Task LoadSameSourceTextAsync_GetsTheProvidedHrefAndDeserializesThePanel()
+    {
+        const string sameSourceTextHref = "https://tms.example/hateoas/translations/abc/same-source-text";
+        SameSourceTextTranslationsResponse panel = new(
+            [
+                new SameSourceTextTranslationResponse(
+                    TranslationId.Create(TranslationGuid),
+                    620756996,
+                    127768437,
+                    "Krzepki Topornik",
+                    TranslationStatus.Draft,
+                    new TranslatorSummaryResponse(TranslatorId.Create(), "Frodo"))
+            ],
+            TotalCount: 2,
+            HasConflictingTranslations: true);
+        TranslationEditorLoader loader = CreateLoader(
+            HttpStatusCode.OK,
+            JsonSerializer.Serialize(panel, ApiJsonOptions),
+            out StubHttpMessageHandler handler);
+
+        ApiResult<SameSourceTextTranslationsResponse> result = await loader.LoadSameSourceTextAsync(sameSourceTextHref);
+
+        handler.LastRequest.ShouldNotBeNull();
+        handler.LastRequest!.Method.ShouldBe(HttpMethod.Get);
+        handler.LastRequest.RequestUri!.ToString().ShouldBe(sameSourceTextHref);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.TotalCount.ShouldBe(2);
+        result.Value.HasConflictingTranslations.ShouldBeTrue();
+        SameSourceTextTranslationResponse item = result.Value.Items.ShouldHaveSingleItem();
+        item.TranslatedText.ShouldBe("Krzepki Topornik");
+        item.Status.ShouldBe(TranslationStatus.Draft);
+        item.Submitter!.DisplayName.ShouldBe("Frodo");
+    }
+
+    [Fact]
     public async Task ApproveAsync_PostsToTheProvidedApproveHref()
     {
         TranslationEditorLoader loader = CreateLoader(HttpStatusCode.NoContent, string.Empty, out StubHttpMessageHandler handler);

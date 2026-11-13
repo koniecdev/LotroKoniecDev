@@ -9,8 +9,8 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregat
 namespace LotroKoniecDev.Frontend.Components.Pages.Editor;
 
 /// <summary>
-/// The editor's calls to the TMS. Save and approve follow the <c>upsert</c> and <c>approve</c> hrefs the
-/// loaded row offers, so the server alone decides who may do what (spec 0002). A thin class, so a bUnit
+/// The editor's calls to the TMS. Save, approve and the same-text panel follow the hrefs the loaded row
+/// offers, so the server alone decides who may do what (spec 0002). A thin class, so a bUnit
 /// test can drive the editor through a substituted loader.
 /// </summary>
 internal sealed class TranslationEditorLoader
@@ -42,6 +42,16 @@ internal sealed class TranslationEditorLoader
         return await _client.GetApiResultAsync<TranslationDetailResponse>(
             DetailUri(collectionHref.Value, id),
             cancellationToken);
+    }
+
+    /// <summary>Follows the row's <c>same-source-text</c> href (#1347).</summary>
+    public Task<ApiResult<SameSourceTextTranslationsResponse>> LoadSameSourceTextAsync(
+        string sameSourceTextHref,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sameSourceTextHref);
+
+        return _client.GetApiResultAsync<SameSourceTextTranslationsResponse>(sameSourceTextHref, cancellationToken);
     }
 
     /// <summary>

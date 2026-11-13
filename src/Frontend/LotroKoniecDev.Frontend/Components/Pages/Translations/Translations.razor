@@ -57,6 +57,18 @@
                     <span class="select-chev" aria-hidden="true">▾</span>
                 </div>
             </div>
+            <div class="field-static field-conflicts">
+                @* value="true", because the browser sends "on" for a bare checkbox and that does not bind to a bool. *@
+                <label class="checkbox" title="Ten sam tekst angielski ma w różnych wierszach różne tłumaczenia polskie">
+                    <input id="conflictsOnly" name="conflictsOnly" type="checkbox" value="true" checked="@_query.ConflictsOnly"/>
+                    <span class="box">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 6 9 17l-5-5"/>
+                        </svg>
+                    </span>
+                    <span>Tylko rozbieżne tłumaczenia</span>
+                </label>
+            </div>
             <div class="filter-actions">
                 <a class="btn btn-ghost" href="/translations">Wyczyść</a>
                 <button type="submit" class="btn btn-primary">Filtruj</button>
@@ -301,6 +313,9 @@
     [SupplyParameterFromQuery]
     private int? PageSize { get; set; }
 
+    [SupplyParameterFromQuery]
+    private bool ConflictsOnly { get; set; }
+
     /// <summary>
     /// Set by the redirect after a bulk approve, so the confirmation needs no per-user state on the server
     /// (#322). Null on a plain GET. A manual reload shows the message again, which is harmless.
@@ -323,7 +338,7 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        _query = TranslationListQuery.From(Search, Status, Page, PageSize);
+        _query = TranslationListQuery.From(Search, Status, Page, PageSize, ConflictsOnly);
         _result = await Loader.LoadAsync(_query, CancellationToken.None);
     }
 

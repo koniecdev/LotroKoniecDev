@@ -172,11 +172,9 @@ fi
 # thing.
 export IMAGE_TAG
 
-# Every image of the stack is public, so the rollout needs no registry login. Docker still sends a
-# stored login, and one the registry refuses (an expired token) fails the pull of a public image
-# (#1330). So no docker call here reads the user's Docker config or DOCKER_AUTH_CONFIG. A missing
-# folder gives Docker an empty config, and only root can create /nonexistent. A credential helper
-# installed on the box is still used: see the runbook, "Gotchas".
+# Every image is public, but Docker still sends a stored login, and one the registry refuses (an
+# expired token) fails the pull (#1330). So no docker call reads the user's Docker config or
+# DOCKER_AUTH_CONFIG. Only root can create /nonexistent. Limits: the runbook, "Gotchas".
 export DOCKER_CONFIG=/nonexistent
 unset DOCKER_AUTH_CONFIG
 

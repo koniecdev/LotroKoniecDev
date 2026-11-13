@@ -215,21 +215,6 @@ env_tag() { sed -n 's/^IMAGE_TAG=//p' "$1/.env" | head -1; }
 policy_tries() { grep -c 'set_operator_policy' "$TMP_ROOT/calls.log" || true; }
 called() { grep -qF -- "$1" "$TMP_ROOT/calls.log"; }
 
-# The registry login stored on the box may be expired, and it belongs to another stack (#1330). Every
-# docker call must run with DOCKER_CONFIG=/nonexistent and without DOCKER_AUTH_CONFIG, and deploy.sh
-# must never log in or out.
-assert_no_stored_login() {
-    local docker_calls recorded wrong
-    docker_calls="$(grep -vc '^timeout ' "$TMP_ROOT/calls.log" || true)"
-    recorded="$(wc -l < "$STUB_ENV_LOG" | tr -d ' ')"
-    [ "$docker_calls" -gt 0 ] || fail 'no docker call ran'
-    [ "$recorded" -eq "$docker_calls" ] \
-        || fail 'the stub did not record the client config of every docker call' "$recorded of $docker_calls"
-    wrong="$(grep -vxF 'config=/nonexistent auth=' "$STUB_ENV_LOG" || true)"
-    [ -z "$wrong" ] || fail 'a docker call could read a stored registry login' "$wrong"
-    grep -qwE 'login|logout' "$TMP_ROOT/calls.log" && fail 'deploy.sh logged in or out of a registry'
-    return 0
-}
 # Line number of the first docker call containing $1 (0 = never called).
 call_line() { grep -nF -- "$1" "$TMP_ROOT/calls.log" | head -1 | cut -d: -f1; }
 
@@ -823,16 +808,36 @@ grep -q '::warning::.*emails-send-dlq-ttl' <<<"$LAST_OUTPUT" || fail 'the missin
 pass 'a broker that holds the call past the time limit stops the step after one try, with a warning'
 
 # --- No stored registry login reaches a docker call (#1330) ---------------------------------------
+# The login stored on a box may be expired, and it may belong to another stack. Every docker call must
+# see DOCKER_CONFIG=/nonexistent and no DOCKER_AUTH_CONFIG, and deploy.sh must never log in or out.
 
 CASE='stored login ignored'
+# CD's ssh session sets neither variable. Then only `export` makes the value reach docker, so a plain
+# assignment would pass the cases below, which set both. Unset here, so a runner that sets them cannot
+# hide that.
+unset DOCKER_CONFIG DOCKER_AUTH_CONFIG
 stack="$(new_stack nologin)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 EXPECTED_DIGESTS="$(expected_digests "$GOOD_DIGEST")" \
+    STUB_DIGEST="$GOOD_DIGEST"
+[ "$LAST_STATUS" -eq 0 ] || fail 'a clean roll should exit 0' "status $LAST_STATUS"
+called 'image inspect' || fail 'the digest check never ran'
+grep -qF "$POLICY_CALL" "$TMP_ROOT/calls.log" || fail 'the broker policy call under timeout never ran'
+[ -s "$STUB_ENV_LOG" ] || fail 'the stub recorded no docker call'
+leaks="$(grep -vxF 'config=/nonexistent auth=' "$STUB_ENV_LOG" || true)"
+[ -z "$leaks" ] || fail 'a docker call could read a stored registry login' "$leaks"
+grep -qwE 'login|logout' "$TMP_ROOT/calls.log" && fail 'deploy.sh logged in or out of a registry'
+pass 'every docker call of a CD-shaped roll sees DOCKER_CONFIG=/nonexistent, and nothing logs in or out'
+
+CASE='stored login ignored, caller config'
+stack="$(new_stack nologincaller)"
 run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" \
     DOCKER_CONFIG="$TMP_ROOT/caller-docker-config" DOCKER_AUTH_CONFIG='marker-not-a-login'
 [ "$LAST_STATUS" -eq 0 ] || fail 'a clean roll should exit 0' "status $LAST_STATUS"
-called 'pull' || fail 'images were never pulled'
-grep -qF "$POLICY_CALL" "$TMP_ROOT/calls.log" || fail 'the broker policy call under timeout never ran'
-assert_no_stored_login
-pass "no docker call of a clean roll sees the caller's Docker config or DOCKER_AUTH_CONFIG"
+[ -s "$STUB_ENV_LOG" ] || fail 'the stub recorded no docker call'
+leaks="$(grep -vxF 'config=/nonexistent auth=' "$STUB_ENV_LOG" || true)"
+[ -z "$leaks" ] || fail 'a docker call could read a stored registry login' "$leaks"
+grep -qwE 'login|logout' "$TMP_ROOT/calls.log" && fail 'deploy.sh logged in or out of a registry'
+pass "no docker call sees the caller's DOCKER_CONFIG or DOCKER_AUTH_CONFIG"
 
 CASE='stored login ignored, failed pull'
 stack="$(new_stack nologinfail)"
@@ -840,7 +845,10 @@ run_deploy "$stack" IMAGE_TAG=sha-abc1234 STUB_DIGEST="$GOOD_DIGEST" STUB_PULL_F
     DOCKER_CONFIG="$TMP_ROOT/caller-docker-config" DOCKER_AUTH_CONFIG='marker-not-a-login'
 [ "$LAST_STATUS" -ne 0 ] || fail 'a failed pull must fail the script'
 called 'logs' || fail 'the failure trap did not dump the container logs'
-assert_no_stored_login
-pass "the failure trap's docker calls do not see the caller's Docker config or DOCKER_AUTH_CONFIG either"
+[ -s "$STUB_ENV_LOG" ] || fail 'the stub recorded no docker call'
+leaks="$(grep -vxF 'config=/nonexistent auth=' "$STUB_ENV_LOG" || true)"
+[ -z "$leaks" ] || fail 'a docker call could read a stored registry login' "$leaks"
+grep -qwE 'login|logout' "$TMP_ROOT/calls.log" && fail 'deploy.sh logged in or out of a registry'
+pass "the failure trap's docker calls do not see the caller's config either"
 
 printf '\nAll %d hetzner deploy.sh case(s) passed.\n' "$cases"

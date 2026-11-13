@@ -7,7 +7,7 @@ namespace LotroKoniecDev.TranslationSystem.Contracts.Translations;
 /// One row of <see cref="SameSourceTextTranslationsResponse"/>. The English is left out, because it is the
 /// asked row's text. <see cref="Submitter"/> is <c>null</c> while the row is untranslated.
 /// </summary>
-public sealed record SameSourceTextTranslationResponse(
+public sealed record SameSourceTextItemResponse(
     TranslationId Id,
     int FileId,
     long GossipId,

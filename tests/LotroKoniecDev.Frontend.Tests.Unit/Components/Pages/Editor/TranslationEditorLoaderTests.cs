@@ -147,7 +147,7 @@ public sealed class TranslationEditorLoaderTests
         const string sameSourceTextHref = "https://tms.example/hateoas/translations/abc/same-source-text";
         SameSourceTextTranslationsResponse panel = new(
             [
-                new SameSourceTextTranslationResponse(
+                new SameSourceTextItemResponse(
                     TranslationId.Create(TranslationGuid),
                     620756996,
                     127768437,
@@ -170,7 +170,7 @@ public sealed class TranslationEditorLoaderTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalCount.ShouldBe(2);
         result.Value.HasConflictingTranslations.ShouldBeTrue();
-        SameSourceTextTranslationResponse item = result.Value.Items.ShouldHaveSingleItem();
+        SameSourceTextItemResponse item = result.Value.Items.ShouldHaveSingleItem();
         item.TranslatedText.ShouldBe("Krzepki Topornik");
         item.Status.ShouldBe(TranslationStatus.Draft);
         item.Submitter!.DisplayName.ShouldBe("Frodo");

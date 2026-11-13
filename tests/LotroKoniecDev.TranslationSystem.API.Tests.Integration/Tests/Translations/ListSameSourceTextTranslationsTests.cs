@@ -37,11 +37,6 @@ public sealed class ListSameSourceTextTranslationsTests : IAsyncLifetime
     private GameVersionId _versionId;
     private TranslatorId _seederId;
 
-    public ListSameSourceTextTranslationsTests(TranslationSystemApiFactory factory)
-    {
-        _factory = factory;
-    }
-
     public async Task InitializeAsync()
     {
         await _factory.ResetDatabaseAsync(
@@ -131,6 +126,42 @@ public sealed class ListSameSourceTextTranslationsTests : IAsyncLifetime
         body.Items.Last().Status.ShouldBe(TranslationStatus.Untranslated);
     }
 
+    [Theory]
+    [InlineData("topór wojenny")]
+    [InlineData("Topór wojenny ")]
+    public async Task Get_WhenTheTwinsPolishDiffersOnlyInCaseOrATrailingSpace_ShouldWarn(string twinPolish)
+    {
+        // Arrange: Polish is compared exactly, as the game file would differ too.
+        Translation row = Row(1, SourceText, "Topór wojenny");
+        await SeedAsync(row, Row(2, SourceText, twinPolish));
+
+        // Act
+        HttpResponseMessage response = await TranslatorClient().GetAsync(SameSourceTextUri(row.Id));
+
+        // Assert
+        SameSourceTextTranslationsResponse body =
+            (await response.Content.ReadFromJsonAsync<SameSourceTextTranslationsResponse>(JsonOptions))!;
+        body.TotalCount.ShouldBe(1);
+        body.HasConflictingTranslations.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Get_WhenTheEnglishDiffersOnlyInCase_ShouldNotCountItAsATwin()
+    {
+        // Arrange
+        Translation row = Row(1, SourceText, "Topór wojenny");
+        await SeedAsync(row, Row(2, SourceText.ToLowerInvariant(), "Krzepki Topornik"));
+
+        // Act
+        HttpResponseMessage response = await TranslatorClient().GetAsync(SameSourceTextUri(row.Id));
+
+        // Assert
+        SameSourceTextTranslationsResponse body =
+            (await response.Content.ReadFromJsonAsync<SameSourceTextTranslationsResponse>(JsonOptions))!;
+        body.TotalCount.ShouldBe(0);
+        body.HasConflictingTranslations.ShouldBeFalse();
+    }
+
     [Fact]
     public async Task Get_WhenTheDifferingTwinIsRemoved_ShouldLeaveItOut()
     {
@@ -203,6 +234,11 @@ public sealed class ListSameSourceTextTranslationsTests : IAsyncLifetime
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    public ListSameSourceTextTranslationsTests(TranslationSystemApiFactory factory)
+    {
+        _factory = factory;
     }
 
     private static string SameSourceTextUri(TranslationId id) =>

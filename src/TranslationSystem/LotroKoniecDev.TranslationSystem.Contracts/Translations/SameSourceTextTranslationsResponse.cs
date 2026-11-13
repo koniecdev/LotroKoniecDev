@@ -6,6 +6,6 @@ namespace LotroKoniecDev.TranslationSystem.Contracts.Translations;
 /// <see cref="HasConflictingTranslations"/> covers the whole live group, the asked row included.
 /// </summary>
 public sealed record SameSourceTextTranslationsResponse(
-    IReadOnlyCollection<SameSourceTextTranslationResponse> Items,
+    IReadOnlyCollection<SameSourceTextItemResponse> Items,
     int TotalCount,
     bool HasConflictingTranslations);

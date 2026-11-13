@@ -9,10 +9,10 @@ using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Http;
-using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using EditorComponent = LotroKoniecDev.Frontend.Components.Pages.Editor.Editor;
@@ -515,7 +515,7 @@ public sealed class EditorTests : BunitContext
     {
         StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
         StubSameSourceText(new SameSourceTextTranslationsResponse(
-            [new SameSourceTextTranslationResponse(
+            [new SameSourceTextItemResponse(
                 TranslationId.Create(Guid.NewGuid()), 620756996, 2, null, TranslationStatus.Untranslated, null)],
             TotalCount: 1,
             HasConflictingTranslations: false));
@@ -608,6 +608,22 @@ public sealed class EditorTests : BunitContext
     }
 
     [Fact]
+    public void Render_WhenThePanelIsCappedAndTheEnglishIsExactlyTheLimit_StillSearchesForIt()
+    {
+        string limitText = new('a', 200);
+        StubLoad(BuildDetail(sourceText: limitText, translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Harrond")],
+            TotalCount: 60,
+            HasConflictingTranslations: true));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.Find(".same-source-capped a").GetAttribute("href")
+            .ShouldBe($"/translations?page=1&search={limitText}&conflictsOnly=true");
+    }
+
+    [Fact]
     public void Render_WhenThePanelIsCappedAndTheEnglishIsLong_LinksToTheWholeConflictList()
     {
         string longText = new('a', 201);
@@ -662,7 +678,7 @@ public sealed class EditorTests : BunitContext
             .Returns(ApiResult.Success(response));
     }
 
-    private static SameSourceTextTranslationResponse Other(
+    private static SameSourceTextItemResponse Other(
         TranslationId id,
         long gossipId,
         string polish,

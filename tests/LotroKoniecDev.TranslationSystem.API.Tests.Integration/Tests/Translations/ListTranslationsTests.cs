@@ -429,6 +429,54 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task List_WithConflictsOnlyAndSort_ShouldSortTheConflictRows()
+    {
+        // Arrange
+        await SeedAsync(
+            Translated(1, "Stout-axe[D]", "Topór wojenny"),
+            Translated(2, "Stout-axe[D]", "Krzepki Topornik"),
+            Translated(3, "Stout-axe[D]", "Wytrzymały topór"),
+            Translated(4, "Dwarf[D]", "Krasnolud"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync("?conflictsOnly=true&sort=gossipId:desc");
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([3L, 2L, 1L]);
+    }
+
+    [Theory]
+    [InlineData("Topór wojenny", "topór wojenny")]
+    [InlineData("Topór wojenny", "Topór wojenny ")]
+    [InlineData("Topór wojenny", "Topór  wojenny")]
+    public async Task List_WithConflictsOnly_ShouldTreatPolishThatDiffersOnlyInCaseOrSpacesAsAConflict(
+        string first,
+        string second)
+    {
+        // Arrange: Polish is compared exactly, as the game file would differ too.
+        await SeedAsync(Translated(1, "Stout-axe[D]", first), Translated(2, "Stout-axe[D]", second));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync("?conflictsOnly=true");
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L]);
+    }
+
+    [Fact]
+    public async Task List_WithConflictsOnly_ShouldNotGroupEnglishThatDiffersOnlyInCase()
+    {
+        // Arrange
+        await SeedAsync(Translated(1, "Stout-axe[D]", "Topór wojenny"), Translated(2, "stout-axe[D]", "Krzepki Topornik"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync("?conflictsOnly=true");
+
+        // Assert
+        page.Items.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task List_WithoutToken_ShouldSupportTheConflictsOnlyFilter()
     {
         // Arrange: the public list keeps every filter (#309).

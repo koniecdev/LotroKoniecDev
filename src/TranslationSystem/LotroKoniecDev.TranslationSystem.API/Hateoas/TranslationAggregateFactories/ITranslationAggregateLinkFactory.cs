@@ -10,7 +10,7 @@ namespace LotroKoniecDev.TranslationSystem.API.Hateoas.TranslationAggregateFacto
 /// </summary>
 internal interface ITranslationAggregateLinkFactory
 {
-    /// <param name="id">Used in the <c>self</c> and <c>approve</c> hrefs.</param>
+    /// <param name="id">Used in the <c>self</c>, <c>approve</c> and <c>same-source-text</c> hrefs.</param>
     /// <param name="status">Decides whether <c>approve</c> makes sense.</param>
     /// <param name="isRemoved">A removed row gets only <c>self</c>.</param>
     /// <param name="callerIsTranslator">A translator or an admin. Anonymous readers get no links.</param>

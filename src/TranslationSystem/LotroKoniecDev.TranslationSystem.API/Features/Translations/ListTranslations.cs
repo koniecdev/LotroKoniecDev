@@ -135,8 +135,9 @@ internal sealed class ListTranslations : IEndpoint
         /// <summary>
         /// One grouped subquery over the whole live table, so status and search never hide half of a group
         /// from the test. A per-row "another row differs" check took 9 s on the production table (#1347).
-        /// Only rows with Polish are kept: an untranslated twin has nothing to fix. The explicit null checks
-        /// keep the unit fake, where null counts as a value, in step with SQL.
+        /// Only rows with Polish are kept: an untranslated twin has nothing to fix. The null check inside
+        /// cuts the grouped set to translated rows before the sort, which is most of the cost; its time
+        /// grows with the number of translated rows, not with the table.
         /// </summary>
         private IQueryable<TranslationReadModel> WhereTheIdenticalEnglishHasDifferentPolish(
             IQueryable<TranslationReadModel> filtered)

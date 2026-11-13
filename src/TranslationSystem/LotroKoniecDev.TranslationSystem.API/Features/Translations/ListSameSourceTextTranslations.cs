@@ -28,11 +28,6 @@ internal sealed class ListSameSourceTextTranslations : IEndpoint
     {
         private readonly IApplicationReadDbContext _readDbContext;
 
-        public Handler(IApplicationReadDbContext readDbContext)
-        {
-            _readDbContext = readDbContext;
-        }
-
         public async ValueTask<Result<SameSourceTextTranslationsResponse>> Handle(
             Query query,
             CancellationToken cancellationToken)
@@ -56,7 +51,7 @@ internal sealed class ListSameSourceTextTranslations : IEndpoint
             IQueryable<TranslationReadModel> liveGroup = _readDbContext.Translations
                 .Where(translation => translation.RemovedInVersion == null && translation.SourceText == sourceText);
 
-            List<SameSourceTextTranslationResponse> items = await liveGroup
+            List<SameSourceTextItemResponse> items = await liveGroup
                 .Where(translation => translation.Id != query.Id)
                 .OrderBy(translation => translation.TranslatedText == null)
                 .ThenBy(translation => translation.FileId)
@@ -82,6 +77,11 @@ internal sealed class ListSameSourceTextTranslations : IEndpoint
                 items,
                 summary?.OtherRows ?? 0,
                 summary?.DistinctTranslations > 1));
+        }
+
+        public Handler(IApplicationReadDbContext readDbContext)
+        {
+            _readDbContext = readDbContext;
         }
 
         private sealed record GroupSummary(int OtherRows, int DistinctTranslations);

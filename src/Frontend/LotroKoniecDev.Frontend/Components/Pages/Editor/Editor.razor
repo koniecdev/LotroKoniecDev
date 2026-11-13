@@ -257,7 +257,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (SameSourceTextTranslationResponse other in sameSourceText.Items)
+                                @foreach (SameSourceTextItemResponse other in sameSourceText.Items)
                                 {
                                     <tr>
                                         <td class="col-num mono">@other.FileId</td>
@@ -467,8 +467,10 @@
         string.Create(CultureInfo.InvariantCulture, $"/editor/{id.Value}");
 
     /// <summary>
-    /// The list's conflict filter is the uncapped view of the same rows. The English goes in as the search
-    /// term while it is short; the search is a substring match, so a few rows of longer texts may show too.
+    /// The list's conflict filter is the uncapped view of these rows. The English goes in as the search term
+    /// while it is short. The list's search is a substring match over English and Polish, and only very
+    /// common texts fill the panel, so the list can show many conflict rows of other texts too; for an
+    /// empty text it shows the whole conflict list.
     /// </summary>
     private static string ConflictListHref(string sourceText) =>
         TranslationListQuery

@@ -142,7 +142,7 @@ public sealed class ListSameSourceTextTranslationsHandlerTests
 
         // Assert
         response.HasConflictingTranslations.ShouldBeFalse();
-        SameSourceTextTranslationResponse twin = response.Items.ShouldHaveSingleItem();
+        SameSourceTextItemResponse twin = response.Items.ShouldHaveSingleItem();
         twin.TranslatedText.ShouldBeNull();
         twin.Status.ShouldBe(TranslationStatus.Untranslated);
         twin.Submitter.ShouldBeNull();

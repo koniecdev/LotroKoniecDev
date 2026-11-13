@@ -22,6 +22,11 @@
 
 set -euo pipefail
 
+# As in deploy.sh (#1330): the image is public, and a registry login stored for `deploy` must not
+# fail its pull.
+export DOCKER_CONFIG=/nonexistent
+unset DOCKER_AUTH_CONFIG
+
 STACK_DIR="${STACK_DIR:-/opt/lotro}"
 ENV_FILE="${ENV_FILE:-$STACK_DIR/.env}"
 BACKUP_DIR="${BACKUP_DIR:-$STACK_DIR/backups}"
@@ -29,11 +34,11 @@ BACKUP_DIR="${BACKUP_DIR:-$STACK_DIR/backups}"
 METRICS_DIR="${METRICS_DIR:-$BACKUP_DIR/metrics}"
 # Must be the Neon server's major or newer: pg_dump refuses a newer server. Pinned by digest, because
 # the container gets the prod password every night. No Dependabot entry reads this file: bump by
-# hand with `docker buildx imagetools inspect postgres:18.<n>-alpine`. The runbook reads it from here.
+# hand with `docker buildx imagetools inspect postgres:18.<n>-alpine`. deploy.sh prunes it two weeks
+# after its build date, and the next run pulls it again.
 POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:18.7-alpine@sha256:75dcac3dfb1cd01ca3536910bbc84128759362f8b118bf8c55b38a94f68f3b73}"
 DATABASE_KEYS="${DATABASE_KEYS:-ConnectionStrings__AuthDatabase ConnectionStrings__TranslationDatabase}"
 # Only the restore drill and the tests set these three; a box derives the EU endpoint of R2.
-# An `Ssl Mode` the connection string does not name, or one libpq does not know, becomes `require`.
 BACKUP_S3_ENDPOINT="${BACKUP_S3_ENDPOINT:-}"
 BACKUP_S3_REGION="${BACKUP_S3_REGION:-auto}"
 BACKUP_DOCKER_NETWORK="${BACKUP_DOCKER_NETWORK:-}"
@@ -41,14 +46,23 @@ BACKUP_DOCKER_NETWORK="${BACKUP_DOCKER_NETWORK:-}"
 log() { printf '==> %s\n' "$*"; }
 fail() { printf 'backup.sh: %s\n' "$*" >&2; }
 
-# One value out of the box .env, read as compose reads it: a trailing CR, trailing spaces and one
-# pair of surrounding quotes are not part of the value. Otherwise a quoted key would encrypt under
-# other bytes than the password-manager copy. The runbook's helper is the same sed. The file is
-# never sourced: its connection strings hold spaces and semicolons.
+# One value out of the box .env. As in compose, a trailing CR, trailing spaces and one pair of
+# surrounding quotes are not part of the value, so a quoted key encrypts under the same bytes as the
+# password-manager copy. Unlike compose, only a key's first line counts, and an `export ` prefix or
+# an inline `# comment` is not understood: write each key once, plainly. The file is never sourced:
+# its connection strings hold spaces and semicolons.
 env_value() {
     sed -n "s/^$1=//p" "$ENV_FILE" | head -1 \
         | sed -e 's/\r$//' -e 's/[[:space:]]*$//' -e "s/^'\(.*\)'\$/\1/" -e 's/^"\(.*\)"$/\1/'
 }
+
+# The runbook's restore steps load this reader and the pinned image from here, so a key read there
+# is the key the dumps were encrypted with: eval "$(bash /opt/lotro/backup.sh --helpers)".
+if [ "${1:-}" = --helpers ]; then
+    printf 'ENV_FILE=%q\nPG_IMAGE=%q\n' "$ENV_FILE" "$POSTGRES_IMAGE"
+    declare -f env_value
+    exit 0
+fi
 
 if [ ! -f "$ENV_FILE" ]; then
     fail "$ENV_FILE is missing."
@@ -114,9 +128,12 @@ trim() {
 }
 
 # Npgsql keyword form (`Host=…;Database=…;Username=…;Password=…;Ssl Mode=Require`) into libpq's
-# variables, read as Npgsql reads it: key names are case-insensitive and may hold spaces, a plain
-# value is trimmed and runs to the next `;`, and a value in single or double quotes may hold `;`,
-# with a doubled quote standing for one.
+# variables. As in Npgsql, key names are case-insensitive and may hold spaces, a plain value is
+# trimmed and runs to the next `;`, and a value in single or double quotes may hold `;`, with a
+# doubled quote standing for one. Only the names in the `case` below are read, so a string that
+# spells the user or password another way (`UID`, `PSW`) is refused. An `Ssl Mode` the string does
+# not name, or one libpq does not know, becomes `require`, never libpq's default `prefer`, which
+# may fall back to plain text.
 parse_connection_string() {
     local connection_string="$1" length="${#1}" position=0 char quote name value
     PGHOST='' PGPORT='' PGDATABASE='' PGUSER='' PGPASSWORD='' PGSSLMODE=''
@@ -196,6 +213,12 @@ s3_curl() {
             -K - --aws-sigv4 "aws:amz:${BACKUP_S3_REGION}:s3" "$@"
 }
 
+# With --retry, `curl -I` prints the headers of every attempt, a 503 included: only the last block is
+# the answer that counted. R2 answers over HTTP/2, so the names come in lower case.
+last_header() {
+    awk -v name="$1" '$1 ~ /^HTTP\// { value = "" } tolower($1) == name { value = $2 } END { print value }'
+}
+
 postgres_container() {
     local network_args=()
     if [ -n "$BACKUP_DOCKER_NETWORK" ]; then
@@ -246,8 +269,12 @@ backup_database() {
     # An empty database dumps into a valid archive too. Counted as good every night, it would let
     # the 30-day lifecycle rule remove every real dump.
     if ! has_rows="$(postgres_container psql -X -At -v ON_ERROR_STOP=1 \
-            -c "SELECT EXISTS (SELECT 1 FROM $table)" < /dev/null)" || [ "$has_rows" != t ]; then
-        fail "$PGDATABASE: $table is missing or empty, so $env_key does not name the real database."
+            -c "SELECT EXISTS (SELECT 1 FROM $table)" < /dev/null)"; then
+        fail "$PGDATABASE: cannot read $table (psql's error is above: the image, the connection, or a database without that table)."
+        return 1
+    fi
+    if [ "$has_rows" != t ]; then
+        fail "$PGDATABASE: $table is empty, so $env_key does not name the real database."
         return 1
     fi
 
@@ -296,8 +323,8 @@ backup_database() {
         return 1
     fi
     head_response="$(printf '%s' "$head_response" | tr -d '\r')"
-    etag_actual="$(printf '%s\n' "$head_response" | awk 'tolower($1) == "etag:" { gsub(/"/, "", $2); print $2; exit }')"
-    size_actual="$(printf '%s\n' "$head_response" | awk 'tolower($1) == "content-length:" { print $2; exit }')"
+    etag_actual="$(printf '%s\n' "$head_response" | last_header etag: | tr -d '"')"
+    size_actual="$(printf '%s\n' "$head_response" | last_header content-length:)"
     if [ "$etag_actual" != "$etag_expected" ] || [ "$size_actual" != "$size" ]; then
         fail "$PGDATABASE: the object in the bucket is not what was sent (ETag ${etag_actual:-none} vs $etag_expected, size ${size_actual:-none} vs $size)."
         return 1

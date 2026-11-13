@@ -124,7 +124,16 @@ if [ "$head" = 1 ]; then
     size="$(stat -c %s "$object")"
     [ -n "${WRONG_ETAG:-}" ] && etag='00000000000000000000000000000000'
     [ -n "${WRONG_SIZE:-}" ] && size=$((size + 1))
-    printf 'HTTP/1.1 200 OK\r\nETag: "%s"\r\nContent-Length: %s\r\n\r\n' "$etag" "$size"
+    # With --retry, curl prints the failed attempt's block before the one that counted.
+    if [ -n "${RETRIED_HEAD:-}" ]; then
+        printf 'HTTP/2 503\r\netag: "ffffffffffffffffffffffffffffffff"\r\ncontent-length: 55\r\n\r\n'
+    fi
+    if [ -n "${HTTP1_HEAD:-}" ]; then
+        printf 'HTTP/1.1 200 OK\r\nETag: "%s"\r\nContent-Length: %s\r\n\r\n' "$etag" "$size"
+    else
+        # What R2 sends: HTTP/2, lower-case header names.
+        printf 'HTTP/2 200\r\netag: "%s"\r\ncontent-length: %s\r\n\r\n' "$etag" "$size"
+    fi
     exit 0
 fi
 echo "unexpected curl call" >&2
@@ -238,20 +247,27 @@ grep -Eq ' postgres:[^ ]+@sha256:[0-9a-f]{64} pg_dump ' "$STACK/calls.log" \
     || fail "the container that gets the prod password must run an image pinned by digest"
 pass "pg_dump runs in an image pinned by digest"
 
-# The runbook's restore procedures read the pinned image out of backup.sh with this line.
-runbook_line="$(grep -m1 '^PG_IMAGE=' "$SCRIPTS_DIR/../docs/deployment/runbook.md")"
-[ -n "$runbook_line" ] || fail "the runbook must define PG_IMAGE in its shell helpers"
-runbook_image="$(eval "${runbook_line//\/opt\/lotro\/backup.sh/$BACKUP_SH}" >/dev/null; printf '%s' "${PG_IMAGE:-}")"
-[[ "$runbook_image" =~ ^postgres:[^\ ]+@sha256:[0-9a-f]{64}$ ]] \
-    || fail "the runbook's lookup must find the pinned image in backup.sh, got '$runbook_image'"
-pass "the runbook's restore procedures find the same pinned image"
-
-# A key the runbook reads differently from backup.sh would decrypt nothing.
-value_rule() { grep -m1 -o "sed -e 's/\\\\r\$//'.*" "$1" | sed 's/; }$//'; }
-backup_rule="$(value_rule "$BACKUP_SH")"
-[ -n "$backup_rule" ] && [ "$backup_rule" = "$(value_rule "$SCRIPTS_DIR/../docs/deployment/runbook.md")" ] \
-    || fail "the runbook's env_value must read values exactly as backup.sh does"
-pass "the runbook's env_value reads values exactly as backup.sh does"
+# ---------------------------------------------------------------------------------------------------
+# The runbook's restore steps run: eval "$(bash /opt/lotro/backup.sh --helpers)".
+CASE="the runbook's helpers"
+new_stack helpers
+sed -i "s/^BACKUP_ENCRYPTION_KEY=.*/BACKUP_ENCRYPTION_KEY=\"${ENCRYPTION_KEY}\"  /" "$STACK/.env"
+sed -i 's/$/\r/' "$STACK/.env"
+set +e
+helpers="$(env PATH="$STACK/bin:$PATH" STUB_STATE="$STACK" STACK_DIR="$STACK" bash "$BACKUP_SH" --helpers 2>&1)"
+helpers_status=$?
+set -e
+LAST_OUTPUT="$helpers"
+[ "$helpers_status" = 0 ] || fail "--helpers must exit 0, got $helpers_status"
+[ ! -s "$STACK/calls.log" ] || fail "--helpers must run nothing"
+printf '%s' "$helpers" | grep -F -e "$DB_PASSWORD" -e "$ENCRYPTION_KEY" -e "$R2_SECRET" >/dev/null \
+    && fail "--helpers must print no value of the .env"
+helper_key="$(eval "$helpers"; env_value BACKUP_ENCRYPTION_KEY)"
+[ "$helper_key" = "$ENCRYPTION_KEY" ] || fail "the helpers' env_value must read a quoted CRLF key as backup.sh does"
+helper_image="$(eval "$helpers"; printf '%s' "${PG_IMAGE:-}")"
+[[ "$helper_image" =~ ^postgres:[^\ ]+@sha256:[0-9a-f]{64}$ ]] || fail "the helpers must give the pinned image, got '$helper_image'"
+grep -qF " $helper_image pg_dump " "$TMP_ROOT/happy/calls.log" || fail "the helpers' image must be the one pg_dump runs in"
+pass "--helpers gives the runbook backup.sh's own reader and pinned image, and prints no secret"
 
 # ---------------------------------------------------------------------------------------------------
 CASE="the R2 endpoint"
@@ -301,7 +317,7 @@ run_backup EMPTY_DB=lotro_translation
 [ -z "$(object_for lotro_translation)" ] || fail "an empty database must not be uploaded"
 grep -q 'PGDATABASE=lotro_translation' "$STACK/env.log" && fail "an empty database must not be dumped"
 metric_untouched || fail "the metric must keep the last good run"
-printf '%s' "$LAST_OUTPUT" | grep -qF 'lotro_translation: translation."Translations" is missing or empty' \
+printf '%s' "$LAST_OUTPUT" | grep -qF 'lotro_translation: translation."Translations" is empty' \
     || fail "the output must name the table"
 pass "an empty database is never dumped, and the metric keeps the last good run"
 
@@ -310,8 +326,9 @@ run_backup MISSING_TABLE_DB=lotro_auth
 [ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
 [ -z "$(object_for lotro_auth)" ] || fail "a database without the table must not be uploaded"
 metric_untouched || fail "the metric must keep the last good run"
-printf '%s' "$LAST_OUTPUT" | grep -qF 'lotro_auth: authsystem."Users" is missing or empty' || fail "the output must name the table"
-pass "a database without its never-empty table fails the run"
+printf '%s' "$LAST_OUTPUT" | grep -qF 'lotro_auth: cannot read authsystem."Users"' || fail "the output must name the table"
+printf '%s' "$LAST_OUTPUT" | grep -q 'is empty' && fail "a failed query must not be reported as an empty table"
+pass "a database whose never-empty table cannot be read fails the run, and says it could not read it"
 
 # ---------------------------------------------------------------------------------------------------
 CASE="verify-ca"
@@ -323,6 +340,26 @@ run_backup
 grep -q 'PGDATABASE=lotro_translation .* PGSSLMODE=verify-full PGSSLROOTCERT=system' "$STACK/env.log" \
     || fail "VerifyCA must become verify-full against the system CA store, which libpq allows"
 pass "a VerifyCA string gets verify-full, the only mode libpq allows with the system CA store"
+
+CASE="the SSL mode libpq gets"
+# The password goes over this connection: an unnamed or unknown mode must never reach libpq, whose
+# default `prefer` may fall back to plain text. A mode libpq knows passes through as written.
+for ssl_case in 'none:require' 'Bogus:require' 'Disable:disable' 'Prefer:prefer'; do
+    ssl_written="${ssl_case%%:*}" ssl_expected="${ssl_case#*:}"
+    new_stack "ssl-$ssl_written"
+    if [ "$ssl_written" = none ]; then
+        sed -i 's/;SSL Mode=VerifyFull//' "$STACK/.env"
+        grep -qi 'ssl mode' <(grep '^ConnectionStrings__TranslationDatabase=' "$STACK/.env") \
+            && fail "the case must start from a string without an SSL mode"
+    else
+        sed -i "s/SSL Mode=VerifyFull/SSL Mode=$ssl_written/" "$STACK/.env"
+    fi
+    run_backup
+    [ "$LAST_STATUS" = 0 ] || fail "SSL mode '$ssl_written': expected exit 0, got $LAST_STATUS"
+    grep -q "PGDATABASE=lotro_translation PGUSER=neondb_owner PGSSLMODE=$ssl_expected PGSSLROOTCERT=<unset>" "$STACK/env.log" \
+        || fail "SSL mode '$ssl_written' must reach libpq as $ssl_expected, with no root certificate"
+done
+pass "no SSL mode or an unknown one becomes require; disable and prefer pass through as written"
 
 CASE="a failed dump"
 new_stack failed-dump
@@ -401,6 +438,26 @@ metric_untouched || fail "the metric must keep the last good run"
 printf '%s' "$LAST_OUTPUT" | grep -q 'cannot be read back' || fail "the output must say why"
 pass "an upload that cannot be read back does not count"
 
+CASE="a read-back that needed a retry"
+new_stack head-retried
+run_backup RETRIED_HEAD=1
+[ "$LAST_STATUS" = 0 ] || fail "expected exit 0, got $LAST_STATUS"
+grep -Eq '^lotro_backup_last_success_timestamp_seconds [0-9]{10}$' "$STACK/backups/metrics/lotro_backup.prom" \
+    || fail "a good object read back on curl's retry must count"
+pass "a HEAD that succeeds on curl's retry is judged by its last answer, not the failed one"
+
+new_stack head-retried-wrong
+run_backup RETRIED_HEAD=1 WRONG_SIZE=1
+[ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
+metric_untouched || fail "the metric must keep the last good run"
+pass "after a retried HEAD, a wrong size in the last answer still fails the run"
+
+CASE="an S3 store that answers over HTTP/1.1"
+new_stack head-http1
+run_backup HTTP1_HEAD=1
+[ "$LAST_STATUS" = 0 ] || fail "expected exit 0, got $LAST_STATUS"
+pass "mixed-case HTTP/1.1 header names (the drill's S3 stand-in) are read as well"
+
 # ---------------------------------------------------------------------------------------------------
 CASE="missing settings"
 new_stack missing
@@ -437,6 +494,18 @@ run_backup
 metric_untouched || fail "the metric must keep the last good run"
 printf '%s' "$LAST_OUTPUT" | grep -q 'has no value for ConnectionStrings__AuthDatabase' || fail "the output must name the key"
 pass "a missing connection string fails the run and names the key"
+
+CASE="a database key with no never-empty table"
+new_stack unknown-key
+echo "ConnectionStrings__OtherDatabase=Host=ep-calm-1.eu-central-1.aws.neon.tech;Database=lotro_other;Username=neondb_owner;Password=${DB_PASSWORD}" >> "$STACK/.env"
+run_backup DATABASE_KEYS='ConnectionStrings__OtherDatabase ConnectionStrings__AuthDatabase'
+[ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
+[ -n "$(object_for lotro_auth)" ] || fail "the other database must still be backed up"
+grep -q 'lotro_other' "$STACK/calls.log" "$STACK/env.log" && fail "nothing may run against a database with no row check"
+metric_untouched || fail "the metric must keep the last good run"
+printf '%s' "$LAST_OUTPUT" | grep -q 'ConnectionStrings__OtherDatabase names no table that must have rows' \
+    || fail "the output must name the key"
+pass "a database key with no never-empty table is refused before anything runs against it"
 
 CASE="no .env"
 new_stack no-env

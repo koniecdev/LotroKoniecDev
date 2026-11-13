@@ -24,7 +24,8 @@
 #     prohibit-password)
 #
 # It writes no registry login for `deploy`: every image of our stack is public, and deploy.sh ignores
-# the user's Docker config (#1330). A stack with private images sets up its own login.
+# the user's Docker config (#1330), so our images must stay public. Another stack with private images
+# sets up its own login.
 #
 # Deliberately NO .ps1 twin: the script-twins rule covers cross-platform dev machines; this runs
 # only on the Linux server. Operator docs: docs/deployment/runbook.md.

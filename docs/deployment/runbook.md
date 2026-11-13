@@ -1085,8 +1085,8 @@ you are undoing a compose or Caddyfile change, not just an image change.
 Two edges worth knowing. `deploy.sh` prunes unused images older than 14 days
 (`PRUNE_UNUSED_OLDER_THAN`), so an older tag may need a fresh pull on the box; GHCR still has it.
 `deploy.sh` pulls it for you. A pull by hand needs `DOCKER_CONFIG=/nonexistent` in front, or a stored
-login that has expired fails it ([Gotchas](#gotchas)). And re-running CD for a commit (**Actions → CD → Run workflow**, optionally with an explicit
-`image_tag`) still goes through the staging→prod gate.
+login that has expired fails it ([Gotchas](#gotchas)). And re-running CD for a commit (**Actions → CD
+→ Run workflow**, optionally with an explicit `image_tag`) still goes through the staging→prod gate.
 
 ## Database migrations
 

@@ -183,12 +183,13 @@ is the bridge between the game on a player's machine and the translation file th
   replace whole text subfiles now and then, and the Polish in them goes with them. So when the file
   is unchanged, `launch` also compares the DAT with the iteration snapshot saved after the last
   patch, and re-patches from the local file when an update replaced anything (spec 0012 Tier 0).
-- **`launch`** first **auto-downloads** the latest approved file from the production translation
-  server (`https://tms.lotro-translator.pl/`, `ETag`-cached), so players always get the current
-  translation without manual steps. Whenever the server has a newer file, it **replaces the file you
-  name** (`translations/<name>.txt`, or the path you pass) before it patches. If the server cannot
-  be reached, `launch` goes on with the file already on disk. `--tms-url <root>` points it at
-  staging or a local server instead, and `--skip-sync` turns the download off.
+- **Auto-download:** before all that, `launch` downloads the latest approved file from the
+  production translation server (`https://tms.lotro-translator.pl/`, `ETag`-cached), so players
+  always get the current translation without manual steps. It **replaces the file you name**
+  (`translations/<name>.txt`, or the path you pass) with the server's file, unless the server says
+  it has not changed since the last download. If the server cannot be reached, `launch` goes on
+  with the file already on disk. `--tms-url <root>` points it at staging or a local server instead,
+  and `--skip-sync` turns the download off.
 
 It also **auto-discovers** the LOTRO install (default Standing Stone Games path, Steam, the Windows
 registry, then a disk scan), and maps failures to clear exit codes. Before they touch the `DAT`,
@@ -214,10 +215,10 @@ path and/or an explicit `DAT` path. A `.backup` of the `DAT` is written next to 
 revert, copy it back over `client_local_English.dat`.
 
 To patch a file you edited yourself, use `patch <name>` or `launch <name> --skip-sync`: neither of
-them downloads anything or replaces the file. A plain `launch <name>` later replaces it again
-whenever the server has a newer one. If you edit a copy under another name, your edits land only on
-rows that still hold English: a row the server's translation already patched is skipped and
-reported as `source moved` (see `source_digest` below).
+them downloads anything or replaces the file. A plain `launch <name>` replaces it with the server's
+file. If you edit a copy under another name, your edits land only on rows that still hold English:
+a row the server's translation already patched is skipped and reported as `source moved` (see
+`source_digest` below).
 
 ### Translation file format (the inter-context contract)
 

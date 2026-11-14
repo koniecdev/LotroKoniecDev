@@ -102,12 +102,9 @@ jobs:
   # candidate may proceed AND pins the exact commit CI tested (head_sha) for build + rollout — so the
   # image content, its `sha-<short>` tag and the containers that end up running are all the same tested commit,
   # never main's tip if it raced ahead (which would otherwise re-open C2 under a push race). Manual
-  # dispatch / v* tag publishes pass through ungated. The decision lives in scripts/ci/cd-gate.sh,
-  # which has its own test. The trigger's `branches: [main]` matches only the branch NAME, and a fork's
-  # branch or a pushed TAG can also be called `main`; such a run has ref main, so neither the
-  # environments' branch rule nor the deploy's provenance pin would stop it. So the script also needs a
-  # push in this repository and a tested commit that is on main (#1336). workflow_run fields reach it
-  # only through env, never interpolated into run:.
+  # dispatch / v* tag publishes pass through ungated. The decision, and why it also needs a push in
+  # this repository and a commit on main, lives in scripts/ci/cd-gate.sh (#1336). workflow_run fields
+  # reach it only through env, never interpolated into run:.
   gate:
     name: CI gate (deploy candidate)
     runs-on: ubuntu-24.04

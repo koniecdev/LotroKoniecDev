@@ -60,7 +60,8 @@ the rollout pull is unchanged.
 > `--signer-workflow <repo>/.github/workflows/cd.yml` and `--source-ref` = the deploy run's own ref,
 > which is always `main` (§3 note). The check lives in `scripts/ci/resolve-verified-digests.sh`, and
 > the automatic rollback runs it on the tag it rolls back to. An image built from a `v*` tag or a
-> branch can never deploy.
+> branch never deploys, except a branch's own images while the owner proves a workflow change with a
+> temporary `staging` branch rule (runbook).
 
 ### 2. Terraform owns infra shape; the pipeline owns the running image
 

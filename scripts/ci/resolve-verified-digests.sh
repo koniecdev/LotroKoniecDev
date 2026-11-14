@@ -18,7 +18,8 @@
 #         (GH_TOKEN in CI) and `docker` a GHCR login when the packages are private.
 # Exit:   0 = verified, 1 = an image did not resolve or did not pass the check, 2 = usage error.
 #
-# CI-only (Linux runners), so it has no .ps1 twin.
+# Bash only, so it has no .ps1 twin: CI runs it on Linux, and on Windows the hand rollback runs it
+# from Git Bash.
 set -euo pipefail
 export LC_ALL=C
 

@@ -784,8 +784,9 @@ Details that make this flow production-grade:
   an out-of-memory kill, because four full copies of the file's data were alive at once. The fix
   was this two-pass streaming design: nothing may hold the whole file or the whole catalog.
 
-Performance: a full baseline import (~790k rows) finishes in seconds against a real PostgreSQL in
-the integration tests (budget < 10 s). On the live database it takes minutes, because the file is
+Performance: new rows go in with one bulk COPY, and an integration test checks that none of them
+goes in through an EF INSERT. No test measures the import time, because time depends on machine
+load (#891). On the live database a full baseline (~790k rows) takes minutes, because the file is
 read twice over the network.
 
 ### 5.5 Translating and approving

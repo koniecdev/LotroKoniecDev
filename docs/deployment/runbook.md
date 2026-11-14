@@ -919,7 +919,7 @@ CI green on main → cd.yml gate (pins the tested commit)
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `cd.yml` → `gate` | CI finishing on main (`workflow_run`), `v*` tag, dispatch | the **CI-success gate**: CD fires when CI completes, goes on only after a green CI run that a **push to `main` in this repository** started (a fork's branch can also be called `main`), and pins the exact tested commit (`head_sha`) for build + rollout. Docs-only pushes run no CI, so they trigger no CD. A dispatch from another branch still builds, but its deploy jobs are refused (below). |
+| `cd.yml` → `gate` | CI finishing on main (`workflow_run`), `v*` tag, dispatch | the **CI-success gate**: CD fires when CI completes, goes on only after a green CI run that a **push in this repository** started, for a commit that **is on `main`** (a fork's branch or a pushed tag can also be called `main`; `scripts/ci/cd-gate.sh`), and pins the exact tested commit (`head_sha`) for build + rollout. Docs-only pushes run no CI, so they trigger no CD. A dispatch from another branch still builds, but its deploy jobs are refused (below). |
 | `cd.yml` → `build-and-push` | after a passing `gate` | builds the 4 images, **scans each with Trivy** (fails on a fixable HIGH/CRITICAL), then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)**: `:sha-<short>`, `:latest` on main, semver on tags. A `v*` tag only publishes; it does not deploy, and an image built from a tag or a branch can **never** deploy: the deploy accepts only images built from `main`. **Push no `v*` tag until #1344 lands:** it builds the commit again under the same `:sha-<short>`, from the tag, so that commit can then no longer be deployed or rolled back to |
 | `cd.yml` → `deploy-staging` | after `build-and-push`, `STAGING_ENABLED == true`, **automatic** | calls the reusable [`deploy.yml`](../../.github/workflows/deploy.yml) under `environment: staging` |
 | `cd.yml` → `deploy-prod` | after `deploy-staging`, **behind the `production` approval gate** | the SAME reusable `deploy.yml` under `environment: production` |
@@ -1015,9 +1015,11 @@ the Caddyfile and `scripts/hetzner/deploy.sh` into `/opt/lotro`, and runs the sc
 
 Finally the runner waits for the public origins to answer, then smokes them. A red smoke rolls the
 box back automatically, **images and config** (from `.previous/`), and the job fails. The previous
-tag gets the same provenance check first, and its digests go to the box. If it fails the check, only
-the config is restored, the run summary says **Not rolled back**, and the box keeps the release that
-just failed: roll back by hand ([Deploy or roll back by hand](#deploy-or-roll-back-by-hand)).
+tag gets the same provenance check first, and its digests go to the box
+(`scripts/ci/rollback-to-previous-tag.sh`). If the tag cannot be verified (the check refuses it, or
+its digests cannot be looked up), only the config is restored, the run summary says **Not rolled
+back**, and the box keeps the release that just failed: roll back by hand
+([Deploy or roll back by hand](#deploy-or-roll-back-by-hand)).
 
 > ⚠️ **Never fold the migration gate back into `up -d`.** `compose.hetzner.yaml` declares
 > `depends_on: { migrator: { condition: service_completed_successfully } }`, and it is tempting to let

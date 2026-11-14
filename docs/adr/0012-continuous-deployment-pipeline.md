@@ -1,6 +1,6 @@
 # ADR-0012: Continuous deployment pipeline (automated ACA rollout + GitHub approval gate + IaC in CI)
 
-**Status:** Accepted — **but its rollout target is superseded by ADR-0034** (2026-07-13 / #492): the pipeline's shape (CI-success gate → build once → Trivy + cosign + attest → auto staging → gated prod promotion) stands exactly as decided here, while the last hop moved from an ACA revision rollout + `infra.yml` Terraform apply to **ssh + `docker compose`** on a Hetzner box (no revisions, no blue/green, no IaC job). Also amended: audit 0001 C2/H7/H9; §8 secrets superseded by ADR-0013 (itself now obsolete-by-platform); §4 migration wording by ADR-0023/#337; §5 R8 reversed by ADR-0027; the H7 rollout extended by ADR-0029/#407 (both now obsolete-by-platform); §5's `smoke.yml` lost its `workflow_call` entry in #1335; only `main` may deploy, the verify gate pins the signer workflow and the source ref, and the CI gate needs a push in this repository (#1336) — see the in-body notes
+**Status:** Accepted — **but its rollout target is superseded by ADR-0034** (2026-07-13 / #492): the pipeline's shape (CI-success gate → build once → Trivy + cosign + attest → auto staging → gated prod promotion) stands exactly as decided here, while the last hop moved from an ACA revision rollout + `infra.yml` Terraform apply to **ssh + `docker compose`** on a Hetzner box (no revisions, no blue/green, no IaC job). Also amended: audit 0001 C2/H7/H9; §8 secrets superseded by ADR-0013 (itself now obsolete-by-platform); §4 migration wording by ADR-0023/#337; §5 R8 reversed by ADR-0027; the H7 rollout extended by ADR-0029/#407 (both now obsolete-by-platform); §5's `smoke.yml` lost its `workflow_call` entry in #1335; only `main` may deploy, the verify gate pins the signer workflow and the source ref, and the CI gate needs a push in this repository for a commit on `main` (#1336) — see the in-body notes
 **Date:** 2026-06-28
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0008 (cloud-agnostic deployment & environment strategy — **superseded** here on its
@@ -101,10 +101,12 @@ publish-only paths) — they pass through the gate ungated — but a dispatch ro
 same human approval, and a tag still only publishes artifacts. Because CI carries `paths-ignore` for
 docs, a docs-only push runs no CI and therefore triggers no CD (incidentally closing audit 0001 M2).
 
-> **Amended by #1336 (2026-11-14):** `branches: [main]` matches only the branch name, and a fork's
-> branch can be called `main` too. A fork PR that edits `ci.yml` to run on `pull_request` would start
-> CD with ref `main`, which neither the branch rule nor the verify gate sees. So the gate also needs a
-> CI run started by a `push` in this repository (`workflow_run.event`, `head_repository`).
+> **Amended by #1336 (2026-11-14):** `branches: [main]` matches only the branch name, and both a
+> fork's branch and a pushed tag can be called `main` too. A fork PR that edits `ci.yml` to run on
+> `pull_request`, or a writer's tag `main` on an unmerged commit whose `ci.yml` runs on that tag, would
+> start CD with ref `main`, which neither the branch rule nor the verify gate sees. So the gate
+> (`scripts/ci/cd-gate.sh`) also needs a CI run started by a `push` in this repository, for a tested
+> commit that is on `main` (the branches and compare APIs; an API failure skips the deploy).
 
 ### 4. Migrations are an enforced pre-rollout gate (R6 — finally live)
 

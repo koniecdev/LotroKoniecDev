@@ -16,6 +16,9 @@ public sealed class TranslationFileDownloadRateLimitingTests
     /// <summary>Must match the translation-file-download policy in Program.cs.</summary>
     private const int Budget = 5;
 
+    /// <summary>Must match the fixed-by-ip policy in Program.cs.</summary>
+    private const int SharedBucket = 100;
+
     private const string FrontendAddress = "10.60.0.7";
     private const string ForwardedForHeader = "X-Forwarded-For";
     private const string DiscoveryPath = "/";
@@ -60,6 +63,32 @@ public sealed class TranslationFileDownloadRateLimitingTests
 
         // Assert: the download budget is a bucket of its own, not a cut of fixed-by-ip
         discovery.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Download_WhenTheSharedBucketIsSpent_ShouldStillAnswer()
+    {
+        // Arrange: the caller spends fixed-by-ip on the discovery root
+        using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
+        using HttpClient client = limitedHost.CreateClient();
+        Caller caller = Caller.Direct("203.0.113.96");
+        for (int i = 0; i < SharedBucket; i++)
+        {
+            using HttpResponseMessage discovery = await GetAsync(client, DiscoveryPath, caller);
+        }
+
+        using HttpResponseMessage probe = await GetAsync(client, DiscoveryPath, caller);
+        if (probe.StatusCode is not HttpStatusCode.TooManyRequests)
+        {
+            throw new InvalidOperationException(
+                $"fixed-by-ip did not fill after {SharedBucket} calls from {caller.ConnectionAddress} (the probe answered {probe.StatusCode}).");
+        }
+
+        // Act
+        using HttpResponseMessage download = await GetAsync(client, UnsupportedLanguagePath, caller);
+
+        // Assert: the route's own policy replaces fixed-by-ip, it is not chained to it
+        download.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -130,7 +159,7 @@ public sealed class TranslationFileDownloadRateLimitingTests
             using HttpResponseMessage response = await GetAsync(client, UnsupportedLanguagePath, caller);
 
             // Throws, not asserts: a refusal inside the budget would make the test prove nothing.
-            if (response.StatusCode != HttpStatusCode.BadRequest)
+            if (response.StatusCode is not HttpStatusCode.BadRequest)
             {
                 throw new InvalidOperationException(
                     $"Call {i + 1} from {caller.ConnectionAddress} answered {response.StatusCode}, not {HttpStatusCode.BadRequest}.");

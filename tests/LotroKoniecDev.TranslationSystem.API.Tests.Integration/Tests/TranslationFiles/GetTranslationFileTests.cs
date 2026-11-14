@@ -594,7 +594,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
             InstrumentPublished = (instrument, meterListener) =>
             {
                 if (ReferenceEquals(instrument.Meter.Scope, meterFactory)
-                    && instrument.Meter.Name == TranslationFileDownloadMetrics.MeterName)
+                    && instrument.Meter.Name is TranslationFileDownloadMetrics.MeterName)
                 {
                     meterListener.EnableMeasurementEvents(instrument);
                 }

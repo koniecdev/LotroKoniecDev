@@ -12,8 +12,10 @@
 #
 # The baseline is the newest `production` deployment that ever reached `success`, the rule of
 # resolve_via_api in resolve-prod-baseline.sh, read with --paginate as image-scan.yml does. There
-# is no box cross-check: this job has no `production` environment, so it has no ssh. A deploy by
-# hand on the box leaves no record, so the baseline can be older than what prod runs.
+# is no box cross-check: this job has no `production` environment, so it has no ssh. So two
+# cases make the baseline wrong: a deploy or rollback by hand on the box leaves no record, and a
+# cd.yml dispatch with an explicit image_tag (a rollback) records the run's commit, not the image
+# it rolled. That run's own notice says "cannot tell"; the next one diffs against the wrong commit.
 #
 # Advisory only: it always exits 0. When it cannot tell, it says so and asks for a walk to be safe.
 #
@@ -127,7 +129,7 @@ changed="$(git -c core.quotePath=false diff --no-renames --name-only "$baseline"
     || cannot_tell "git could not diff prod's release \`${baseline}\` against the candidate." "$baseline"
 ui_files="$(grep -E "$UI_PATTERN" <<< "$changed")"
 
-source_line="Prod runs commit \`${baseline}\` (the newest successful \`${environment}\` deployment record, not checked against the box)."
+source_line="Prod runs commit \`${baseline}\` (the newest successful \`${environment}\` deployment record, not checked against the box: after a deploy by hand or a dispatch with an explicit image tag, it can be wrong)."
 timing_line="Worked out when this run started. If another promotion was approved since, run \`CANDIDATE_SHA=${candidate} scripts/ci/promotion-ui-notice.sh\` locally for the current answer."
 candidate_line="Candidate: commit \`${candidate}\`."
 

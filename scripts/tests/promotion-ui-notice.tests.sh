@@ -300,6 +300,24 @@ pages '{"message": "Bad credentials"}'
 run_notice CANDIDATE_SHA="$FRONTEND"
 expect_unknown 'did not answer' 'an answer that is not a list: cannot tell'
 
+CASE='statuses call fails'
+# The list reads fine, but the newest record's statuses cannot be read. Skipping that record would
+# take an older success as prod's release, so this must be "cannot tell", not a baseline.
+pages "[{\"id\": 7, \"sha\": \"$API_ONLY\"}, {\"id\": 1, \"sha\": \"$BASE\"}]"
+rm -f "$TMP_ROOT/statuses/7.json"
+statuses 1 '[{"state": "success"}]'
+run_notice CANDIDATE_SHA="$API_ONLY"
+expect_unknown 'did not answer' 'a statuses call that fails: cannot tell, never an older success'
+has_line 'baseline=' || fail 'expected an empty baseline'
+
+CASE='garbled statuses answer'
+pages "[{\"id\": 8, \"sha\": \"$API_ONLY\"}, {\"id\": 1, \"sha\": \"$BASE\"}]"
+statuses 8 '{"message": "Not Found"}'
+statuses 1 '[{"state": "success"}]'
+run_notice CANDIDATE_SHA="$API_ONLY"
+expect_unknown 'did not answer' 'a statuses answer that is not a list: cannot tell'
+has_line 'baseline=' || fail 'expected an empty baseline'
+
 CASE='baseline outside history'
 prod_runs 1111111111111111111111111111111111111111 "$FRONTEND"
 run_notice CANDIDATE_SHA="$FRONTEND"

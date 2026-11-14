@@ -680,17 +680,22 @@ Most "works locally, 401 or redirect error on staging" failures are one of these
    never `http://auth-api:8080`; (b) that host must be reachable from inside the container, with a
    certificate the container's OS store trusts. On the boxes it is a real Let's Encrypt certificate;
    only the local parity stack needs the CA shim.
-   One more coupling: the frontend's `AuthSystem__BaseUrl` must share the issuer's origin. The
-   refresh-token revoke goes to the `revocation_endpoint` from discovery, which OpenIddict builds from
-   `OpenIddict__Issuer`, and the frontend refuses an endpoint off `AuthSystem__BaseUrl`'s origin. A
-   mismatch shows only as two warnings per sign-out ("Refused an API request to …" and "Refresh token
-   revocation threw an exception."), and the session is then revoked only if the browser reaches
-   `connect/logout` (#964). The same warnings appear, once per token, when the website ends a session
-   on its own, and then the refresh token stays valid until it expires (#1027).
+   One more coupling: the frontend's `AuthSystem__BaseUrl` must share the origin of
+   `AuthSystem__Authority`, and so the issuer's. The frontend reads every sign-in server address it
+   calls from the discovery document, which OpenIddict builds from `OpenIddict__Issuer`: the
+   `token_endpoint` for the renewal, the `revocation_endpoint` for the revoke (#964, #1027) and the
+   `end_session_endpoint` for the sign-out redirect (#1114). It sends the renewal and the revoke only
+   to `AuthSystem__BaseUrl`'s origin, so on two origins every renewal would fail and every session
+   would end when its first access token runs out. The frontend therefore refuses to start when
+   `AuthSystem__BaseUrl` and `AuthSystem__Authority` have different origins (scheme, host and port).
+   The end-session redirect is used only when it is on `AuthSystem__Authority`'s origin; otherwise,
+   and whenever the frontend cannot read the discovery document, the sign-out ends on the home page
+   with a warning in the log.
 
 3. **Frontend redirect URIs must be registered at the auth server.** The frontend sends
-   `redirect_uri = <its public origin> + AuthSystem__CallbackPath` (and post-logout = origin +
-   `SignedOutCallbackPath`). Those exact absolute URLs must appear in auth's
+   `redirect_uri = <its public origin> + AuthSystem__CallbackPath`, and as the post-logout address
+   its bare public origin (no path: the sign-out does not go through the OIDC handler's
+   `SignedOutCallbackPath`, #1114). Those exact absolute URLs must appear in auth's
    `OpenIddict__WebClient__RedirectUris` / `…PostLogoutRedirectUris`. Any difference (scheme, host,
    trailing slash) → OIDC `invalid redirect_uri` at login. `AuthSystem__ClientId` must equal the
    registered web-client id (`lotrokoniecdev-web`). ⚠️ These URIs are written to the DB **only when

@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
@@ -475,6 +477,44 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task Get_FullDownload_ShouldCountItsUncompressedSize()
+    {
+        // Arrange
+        await SeedAsync(gossipId: 1, polish: "Zażółć gęślą jaźń", status: SeedStatus.Approved);
+        await RebuildAsync();
+        ConcurrentQueue<long> countedSizes = new();
+        using MeterListener listener = ListenToDownloadSizes(countedSizes);
+
+        // Act: no Accept-Encoding, so the body on the wire is the uncompressed file
+        HttpResponseMessage response = await _factory.CreateClient().GetAsync(Route);
+        byte[] body = await response.Content.ReadAsByteArrayAsync();
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        countedSizes.ShouldBe([body.LongLength]);
+    }
+
+    [Fact]
+    public async Task Get_WithMatchingIfNoneMatch_ShouldCountNoBytes()
+    {
+        // Arrange
+        await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
+        await RebuildAsync();
+        EntityTagHeaderValue etag = (await _factory.CreateClient().GetAsync(Route)).Headers.ETag!;
+        ConcurrentQueue<long> countedSizes = new();
+        using MeterListener listener = ListenToDownloadSizes(countedSizes);
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.IfNoneMatch.Add(etag);
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync(Route);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.NotModified);
+        countedSizes.ShouldBeEmpty();
+    }
+
     private enum SeedStatus
     {
         Approved,
@@ -541,6 +581,28 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", TranslationSystemApiFactory.CreateAccessToken(AuthConstants.Roles.Admin));
         return client;
+    }
+
+    /// <summary>
+    /// Listens only to this host's meter: other hosts in the run have their own meter factories.
+    /// </summary>
+    private MeterListener ListenToDownloadSizes(ConcurrentQueue<long> countedSizes)
+    {
+        IMeterFactory meterFactory = _factory.Services.GetRequiredService<IMeterFactory>();
+        MeterListener listener = new()
+        {
+            InstrumentPublished = (instrument, meterListener) =>
+            {
+                if (ReferenceEquals(instrument.Meter.Scope, meterFactory)
+                    && instrument.Meter.Name is TranslationFileDownloadMetrics.MeterName)
+                {
+                    meterListener.EnableMeasurementEvents(instrument);
+                }
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((_, measurement, _, _) => countedSizes.Enqueue(measurement));
+        listener.Start();
+        return listener;
     }
 
     private static MultipartFormDataContent ExportContent(params string[] lines)

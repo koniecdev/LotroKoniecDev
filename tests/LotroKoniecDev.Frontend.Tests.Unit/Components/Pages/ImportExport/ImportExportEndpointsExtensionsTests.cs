@@ -146,6 +146,21 @@ public sealed class ImportExportEndpointsExtensionsTests
         problem.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.TechnicalDetailExtensionKey);
     }
 
+    [Fact]
+    public async Task DownloadTranslationFileAsync_WhenTheDownloadBudgetIsSpent_ServesThePolishStatusCopy()
+    {
+        // #697: the TMS limiter's refusal is the problem UseStatusCodePages writes, with no error code.
+        ImportExportLoader loader = CreateLoader(
+            HttpStatusCode.TooManyRequests,
+            """{ "title": "Too Many Requests", "status": 429, "traceId": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01" }""");
+
+        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, new DefaultHttpContext(), CancellationToken.None);
+
+        ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
+        problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status429TooManyRequests);
+        problem.ProblemDetails.Title.ShouldBe("Zbyt wiele żądań. Odczekaj chwilę i spróbuj ponownie.");
+    }
+
     /// <summary>Like a body off the network: forward only, with no length of its own.</summary>
     private sealed class NonSeekableStream : Stream
     {

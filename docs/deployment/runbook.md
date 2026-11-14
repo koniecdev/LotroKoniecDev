@@ -1912,7 +1912,7 @@ base URLs + the OpenIddict API client secret and runs the seven legs that actual
 | 2 | **Frontend assets + CSP** | `GET {frontend}/` references a fingerprinted `_framework/blazor.web.<hash>.js` that serves 200, and the page has no inline `<script>` its own `script-src` would block (#414, #670) |
 | 3 | **OIDC token** | `POST {auth}/connect/token` (client_credentials) = 200 + an `access_token` |
 | 4 | **Token accepted by tms** | anonymous `GET {tms}/api/v1/game-versions` = **401**; the same call **with** the bearer token is **200 or 403** (401 = token rejected) |
-| 5 | **File distribution** | `GET {tms}/api/v1/translation-files/{lang}` = 200 + `ETag`, then a re-GET with `If-None-Match` = 304 |
+| 5 | **File distribution** | `GET {tms}/api/v1/translation-files/{lang}` = 200 + `ETag`, then a re-GET with `If-None-Match` = 304. These are two of the 5 download calls an address may make in a minute (#697), so a third run inside one minute fails this check on a 429 |
 | 6 | **Auth pages: headers + CSP** | `GET {auth}/Account/Login` (a form) and `/Account/ConfirmEmail` (no form) each send `X-Frame-Options: DENY` with `frame-ancestors 'none'`, `nosniff` and a `Referrer-Policy` of `no-referrer`, `same-origin`, `strict-origin` or `strict-origin-when-cross-origin`; `style-src` admits `'self'`, no inline `<style>` (the styles live in `/account.css`), no inline `<script>`, no `'unsafe-inline'`; `GET {auth}/account.css` and `/error-page.css` = 200 `text/css` (#693, #833) |
 | 7 | **Discovery links** | `GET {tms}/` and `GET {auth}/` with the HATEOAS `Accept` header (`application/vnd.dev-lotrokoniecdev.hateoas.json`) = 200 with at least one link, and every `href` has the scheme, host and port of the configured URL (#898) |
 

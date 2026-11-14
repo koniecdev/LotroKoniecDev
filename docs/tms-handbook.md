@@ -647,7 +647,7 @@ Three applications and one database run together. In development they all run on
    (Blazor SSR)─────────► tms-api :5002 ──► PostgreSQL :5432 (2 databases:
         bearer token          ▲                lotro_translation + lotro_auth)
                               │
-   patcher CLI (player) ──────┘  GET /api/v1/translation-files/polish  (anonymous, ETag-cached)
+   patcher CLI (player) ──────┘  GET /api/v1/translation-files/pl  (anonymous, ETag-cached)
 ```
 
 - **auth-api** — the identity provider. Login and register pages, token endpoint, user database.
@@ -862,7 +862,7 @@ API instance** (written down as a blocker to revisit before scaling out).
 
 ### 5.7 Distribution — how players get the file
 
-`GET /api/v1/translation-files/polish` — anonymous, and deliberately boring:
+`GET /api/v1/translation-files/pl` — anonymous, and deliberately boring:
 
 - The response is the pre-built file with an **ETag** header equal to the content hash. A full
   download streams a copy from the API's own disk, written once per content hash (ADR-0064).
@@ -871,6 +871,9 @@ API instance** (written down as a blocker to revisit before scaling out).
   body. The 304 decision reads only the hash column, never the multi-MB content.
 - The endpoint does **no work per request** — no query over translations, no serialization. A
   thousand players hitting it on patch day read one small row (spec 0001).
+- It is the one anonymous answer that costs real bandwidth, so it has its own limit: **5 calls a
+  minute per address**, a 304 included (#697, ADR-0064). The 6th gets **429**, which the patcher
+  treats like a network outage: it keeps the cached file and the launch goes on.
 
 **The player's `launch` flow** ties it together: find the download URL in the TMS discovery
 document by its rel name, never by a hard-coded path (#611); sync the file (**304 → use the

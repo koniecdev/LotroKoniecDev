@@ -291,6 +291,8 @@ if ($token) {
 Write-Host ""
 
 Write-Host "[5/7] Translation-file distribution (ETag / 304)"
+# Two of the 5 download calls an address may make in a minute (#697): a third run inside one minute
+# fails this leg on a 429.
 $fileCode = 0
 $etag = $null
 try {

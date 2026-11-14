@@ -111,8 +111,9 @@ The box has 3.7 GiB with 1.7 GiB available alongside both application stacks, pl
 > `max by (box) (max_over_time(container_memory_working_set_bytes{name="obs-alloy"}[7d]))`. #779
 > holds the other queries.
 >
-> - **The agent-only box is not lighter.** Its working set matches the backend box's (median
->   332.5 MiB against 328.2 MiB, peak 495.3 MiB against 492.3 MiB). Only its peak RSS is lower.
+> - **The agent-only box is not lighter.** Its median and peak working set match the backend box's
+>   (332.5 MiB against 328.2 MiB, and 495.3 MiB against 492.3 MiB). Its peak RSS and peak swap are
+>   lower. Its p99 and its time above 85% are higher.
 > - **Alloy's own headroom:** at the median Alloy uses 64 to 65% of its limit. At the week's peak it
 >   was 19.7 MiB (staging) and 16.7 MiB (prod) under the limit.
 > - **Working set and RSS are different numbers.** The working set is memory use minus inactive file
@@ -121,19 +122,22 @@ The box has 3.7 GiB with 1.7 GiB available alongside both application stacks, pl
 >   not RAM plus swap, because the compose file sets no `memswap_limit`. At the limit the kernel drops
 >   file cache and swaps out the process's memory, and it kills only when that is not enough.
 > - **No kernel OOM kill was counted on either box.** The host counter `node_vmstat_oom_kill` did not
->   rise in the 15 days Prometheus keeps. Alloy's CPU counter reset only at the two host reboots per
->   box. The host counter starts at 0 on every boot, so a kill in the seconds before a reboot would be
->   lost. And `resets()` cannot tell apart two restarts closer than one scrape.
+>   rise in the 15 days Prometheus keeps. On staging it stood at 9 at the start of the kept data,
+>   counted since its boot on 2026-07-27, and what those kills were is not known. It went to 0 at the
+>   2026-11-11 reboot. On prod it was 0 throughout. Alloy's CPU counter reset only at the two host
+>   reboots per box. The host counter starts at 0 on every boot, so a kill in the seconds before a
+>   reboot would be lost. And `resets()` cannot tell apart two restarts closer than one scrape.
 > - **Both peaks came minutes after a host reboot**, the manual reboots of 2026-11-11 (#1327). In the
 >   data kept from before them, no 6-hour maximum on either box went above 374 MiB. After one reboot
->   of four so far (prod, 2026-11-13, at the configured reboot time), the working set stayed near the
->   limit for two 6-hour blocks in a row. The cause of the climb after a reboot was not looked for.
-> - **This qualifies the #782 amendment above.** Its "the only signal that saw it" is true of the
->   container-level signals looked at then: `container_oom_events_total` and
->   `container_memory_failcnt`. The host counter `node_vmstat_oom_kill` was not looked at then. It
->   also counts a kill inside a container limit (the kernel's `__oom_kill_process` counts every OOM
->   kill), and Alloy already collects it from the host's `/proc`. Whether it moved on 2026-09-09
->   cannot be checked, because that day is past retention.
+>   of four so far (prod, 2026-11-13, at the configured reboot time), the 6-hour maximum was near the
+>   limit in two blocks in a row (487.4 and 490.5 MiB). The fourth reboot (staging, 2026-11-14) had
+>   only 3 h 16 min of data at the read. The cause of the climb after a reboot was not looked for.
+> - **This qualifies the #782 amendment above.** Its "the only signal that saw it" is true among the
+>   container-level signals looked at then: the working-set ratio, and the two counters that stayed
+>   at 0. #782 and PR #784 do not name the host counter `node_vmstat_oom_kill`. By the kernel source,
+>   it also counts a kill inside a container limit (`__oom_kill_process` counts every OOM kill). No
+>   real kill on a box has proven that yet. Alloy already collects it from the host's `/proc`.
+>   Whether it moved on 2026-09-09 cannot be checked, because that day is past retention.
 >
 > The ceiling stays 512 MiB, and nothing is decided here. Not measured: the week of 2026-09-09 that
 > #779 first asked for (past retention), the cause of the climb after a reboot, whether the 85% rule

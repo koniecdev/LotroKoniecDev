@@ -221,7 +221,9 @@ address may ask, which is a different question.
   590 GB a day (about 55 Mbit/s) at the full size of about 82 MB. That is far from full speed, but it
   is not small. A longer window would be stricter, but the buckets live in memory and every deploy
   starts with empty ones, so a window of a day would reset several times a day (the argument of
-  ADR-0072 §3).
+  ADR-0072 §3). A token bucket of 5, refilled by one a minute, would cut the ceiling to 1,440 a day,
+  but after the first burst a shared address would get only one launch a minute, and the ticket asks
+  for "a handful per minute".
 - **A leaked frontend key** lets its holder pick a fresh download bucket for each address they
   invent, as it already does on `fixed-by-ip`. Rotating the key ends it (ADR-0054, the TMS
   amendment).

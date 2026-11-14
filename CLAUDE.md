@@ -131,6 +131,7 @@ validator.
 | Re-investigate update behaviour, vnum, translation survival, launch flow | **don't**: empirically settled in `docs/knowledge-base/` (start at its README) |
 | Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot + freeze/unfreeze amendments), 0008 (cloud-agnostic deployment + env strategy), 0009 (browser E2E via Testcontainers + Playwright) |
 | Deploy/operate the stack, or set env vars per environment | `docs/deployment/runbook.md`: env-var matrix, secret generation, the issuer/redirect/authority/CORS gotchas, bring-up sequence, DB migrations. Ingress: ADR-0034 (Caddy) + **ADR-0041** (no gateway behind it) |
+| Merge or promote a batch that changes the UI | propose **`/staging-walk "<goal>"`** before the prod click (#1377): a walk of staging as a first-time user. Whether the batch changes the UI: the prod leg's `UI change notice` job, or locally `CANDIDATE_SHA=origin/main scripts/ci/promotion-ui-notice.sh`, the one place the UI paths are defined |
 | Add a proxy/gateway, expose a new service, or wire a client to an API path | **ADR-0041**: no API gateway. Clients resolve endpoints by **rel name** (ADR-0040's vocabulary), never by hardcoded path |
 | Touch the update lifecycle (GameVersion, import diff, invalidation, distribution, CLI sync) | `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` |
 | Touch update-day behaviour on the client (sentinel, orchestrator, any new DAT write path) | `docs/specs/0012-update-resilience.md` (Tier 0/1 rules as amended 2026-08-17) + **ADR-0047**: every write goes through the per-row source guard; the no-masking invariant has no path exceptions |
@@ -907,6 +908,9 @@ them yourself when the request matches, without waiting for the user to type the
   (`/ticket` step 2, on the `ticket-triage` agent's plan); a better design that needs the
   maintainer is a question, never the old design by default.
 - Any **DAT binary format work** → the **`dat-format-expert`** agent.
+- A session that **merges or promotes a batch that changes the UI** → it proposes **`/staging-walk`**
+  itself, before the prod click, and asks for it: the two built-in goals plus one goal for the
+  screen the batch changed. Never on every PR (#1377).
 - User says **"kontynuuj pracę w pętli" / "continue the loop" / "work through the backlog" /
   "jazda dalej"** (any keep-grinding-tickets phrasing) → **`/backlog <numbers>`** with the tickets
   the owner names (ask once which ones when none are named: `/backlog` with no arguments only

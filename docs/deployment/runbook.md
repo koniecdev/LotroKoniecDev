@@ -931,6 +931,16 @@ staging→prod promotion: production receives the same image that passed staging
 that waits at this gate is a hand-started `Smoke test` against production; approving it deploys
 nothing ([Post-deploy smoke test](#post-deploy-smoke-test) → "In CI").
 
+**Before you approve a batch that changes the UI** (#1377). Automated tests do not notice a confusing
+screen, so the prod leg starts a job `Deploy to prod / UI change notice (sha-<short>)` before the
+click. When the batch since the release prod runs touches the UI, its summary and an annotation say
+so and list the files. Then ask a Claude Code session for `/staging-walk "<goal>"`: it walks staging
+as a first-time user and reports PASSED or where it got stuck. The notice takes prod's release from
+the newest successful `production` deployment record, not from the box, and "cannot tell" also asks
+for a walk. Prod rollouts queue: the run waiting at the gate is the oldest unapproved one, so it can
+be older than what staging runs. The walk report says whether the two match; when they do not,
+cancel the waiting run (below) so the newest candidate takes the gate.
+
 **The switches** (repo Variables): `CD_ENABLED=true` arms the deploy jobs at all; `STAGING_ENABLED=true`
 arms the staging leg and makes prod wait on it (ADR-0018).
 

@@ -1,37 +1,38 @@
 using System.Text;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
+using LotroKoniecDev.TranslationSystem.API.Tests.Unit.Shared;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
 
 public sealed class TranslationExportParserTests
 {
-    private static async Task<ParsedExport> ParseAsync(string content)
+    private static async Task<CollectedLines> ParseTextAsync(string content)
     {
         using MemoryStream stream = new(Encoding.UTF8.GetBytes(content));
-        return await new TranslationExportParser().ParseAsync(stream, CancellationToken.None);
+        return await new TranslationExportParser().ParseLinesAsync(stream, CancellationToken.None).CollectAsync();
     }
 
-    private static async Task<ParsedExport> ParseFixtureAsync(string fileName)
+    private static async Task<CollectedLines> ParseFixtureAsync(string fileName)
     {
         string path = Path.Combine(AppContext.BaseDirectory, "TestData", fileName);
         await using FileStream stream = File.OpenRead(path);
-        return await new TranslationExportParser().ParseAsync(stream, CancellationToken.None);
+        return await new TranslationExportParser().ParseLinesAsync(stream, CancellationToken.None).CollectAsync();
     }
 
-    private static async Task<ParsedExport> ParseBytesAsync(byte[] content)
+    private static async Task<CollectedLines> ParseBytesAsync(byte[] content)
     {
         using MemoryStream stream = new(content);
-        return await new TranslationExportParser().ParseAsync(stream, CancellationToken.None);
+        return await new TranslationExportParser().ParseLinesAsync(stream, CancellationToken.None).CollectAsync();
     }
 
     [Fact]
-    public async Task ParseAsync_WithGoldenFixture_ShouldParseEveryRowWithoutErrors()
+    public async Task ParseLinesAsync_WithGoldenFixture_ShouldParseEveryRowWithoutErrors()
     {
         // Act
-        ParsedExport result = await ParseFixtureAsync("exported-sample.txt");
+        CollectedLines result = await ParseFixtureAsync("exported-sample.txt");
 
         // Assert: the comments and the blank line are skipped, nine rows remain.
-        result.HasErrors.ShouldBeFalse();
+        result.Errors.ShouldBeEmpty();
         result.Rows.Count.ShouldBe(9);
         result.Rows[0].FileId.ShouldBe(620756992);
         result.Rows[0].GossipId.ShouldBe(1001);
@@ -40,10 +41,10 @@ public sealed class TranslationExportParserTests
     }
 
     [Fact]
-    public async Task ParseAsync_WithGoldenFixture_ShouldUnfoldTheEscapeIntoRawText()
+    public async Task ParseLinesAsync_WithGoldenFixture_ShouldUnfoldTheEscapeIntoRawText()
     {
         // Act
-        ParsedExport result = await ParseFixtureAsync("exported-sample.txt");
+        CollectedLines result = await ParseFixtureAsync("exported-sample.txt");
 
         // Assert: raw text (ADR-0039). The backslash row proves injectivity: it must not become a
         // newline.
@@ -54,10 +55,10 @@ public sealed class TranslationExportParserTests
     }
 
     [Fact]
-    public async Task ParseAsync_WithGoldenFixture_ShouldKeepTrailingPipesOutOfTheArgsColumns()
+    public async Task ParseLinesAsync_WithGoldenFixture_ShouldKeepTrailingPipesOutOfTheArgsColumns()
     {
         // Act
-        ParsedExport result = await ParseFixtureAsync("exported-sample.txt");
+        CollectedLines result = await ParseFixtureAsync("exported-sample.txt");
 
         // Assert: scanning backward, a run's last two pipes are the separator (ADR-0042).
         ParsedExportRow singlePipe = result.Rows.Single(row => row.GossipId == 1008);
@@ -71,13 +72,13 @@ public sealed class TranslationExportParserTests
     }
 
     [Fact]
-    public async Task ParseAsync_WithSeparatorInsideContent_ShouldAnchorBothEndsAndReconstructContent()
+    public async Task ParseLinesAsync_WithSeparatorInsideContent_ShouldAnchorBothEndsAndReconstructContent()
     {
         // Act
-        ParsedExport result = await ParseAsync("620756992||1003||Line with || inside the content||NULL||NULL||1");
+        CollectedLines result = await ParseTextAsync("620756992||1003||Line with || inside the content||NULL||NULL||1");
 
         // Assert
-        result.HasErrors.ShouldBeFalse();
+        result.Errors.ShouldBeEmpty();
         result.Rows.Count.ShouldBe(1);
         result.Rows[0].Content.ShouldBe("Line with || inside the content");
         result.Rows[0].ArgsOrder.ShouldBe("NULL");
@@ -85,10 +86,10 @@ public sealed class TranslationExportParserTests
     }
 
     [Fact]
-    public async Task ParseAsync_WithSeparatorInContentAndArguments_ShouldAnchorTrailingFields()
+    public async Task ParseLinesAsync_WithSeparatorInContentAndArguments_ShouldAnchorTrailingFields()
     {
         // Act
-        ParsedExport result = await ParseAsync("620756992||1004||Multi||arg||content||1-2||1-2||1");
+        CollectedLines result = await ParseTextAsync("620756992||1004||Multi||arg||content||1-2||1-2||1");
 
         // Assert
         result.Rows.Count.ShouldBe(1);
@@ -98,24 +99,23 @@ public sealed class TranslationExportParserTests
     }
 
     [Fact]
-    public async Task ParseAsync_WithCommentAndBlankLines_ShouldSkipThem()
+    public async Task ParseLinesAsync_WithCommentAndBlankLines_ShouldSkipThem()
     {
         // Act
-        ParsedExport result = await ParseAsync("# a comment\n\n620756992||1001||Text||NULL||NULL||1\n   \n");
+        CollectedLines result = await ParseTextAsync("# a comment\n\n620756992||1001||Text||NULL||NULL||1\n   \n");
 
         // Assert
-        result.HasErrors.ShouldBeFalse();
+        result.Errors.ShouldBeEmpty();
         result.Rows.Count.ShouldBe(1);
     }
 
     [Fact]
-    public async Task ParseAsync_WithTruncatedFixture_ShouldReportEveryUnparseableLine()
+    public async Task ParseLinesAsync_WithTruncatedFixture_ShouldReportEveryUnparseableLine()
     {
         // Act
-        ParsedExport result = await ParseFixtureAsync("exported-truncated.txt");
+        CollectedLines result = await ParseFixtureAsync("exported-truncated.txt");
 
         // Assert: one good line, two failures (too few fields, non-numeric file id).
-        result.HasErrors.ShouldBeTrue();
         result.Rows.Count.ShouldBe(1);
         result.Errors.Count.ShouldBe(2);
         result.Errors[0].LineNumber.ShouldBe(2);
@@ -123,55 +123,55 @@ public sealed class TranslationExportParserTests
     }
 
     [Fact]
-    public async Task ParseAsync_WithTooFewFields_ShouldReportError()
+    public async Task ParseLinesAsync_WithTooFewFields_ShouldReportError()
     {
         // Act
-        ParsedExport result = await ParseAsync("620756992||1001||only three fields");
+        CollectedLines result = await ParseTextAsync("620756992||1001||only three fields");
 
         // Assert
-        result.HasErrors.ShouldBeTrue();
+        result.Errors.ShouldHaveSingleItem();
         result.Rows.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task ParseAsync_WithNonNumericGossipId_ShouldReportError()
+    public async Task ParseLinesAsync_WithNonNumericGossipId_ShouldReportError()
     {
         // Act
-        ParsedExport result = await ParseAsync("620756992||notanumber||Text||NULL||NULL||1");
+        CollectedLines result = await ParseTextAsync("620756992||notanumber||Text||NULL||NULL||1");
 
         // Assert
-        result.HasErrors.ShouldBeTrue();
+        result.Errors.ShouldHaveSingleItem();
         result.Rows.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task ParseAsync_WithPolishDiacritics_ShouldPreserveContent()
+    public async Task ParseLinesAsync_WithPolishDiacritics_ShouldPreserveContent()
     {
         // Act
-        ParsedExport result = await ParseAsync("620756992||1001||Zazolc gesla jazn: Zażółć gęślą jaźń||NULL||NULL||1");
+        CollectedLines result = await ParseTextAsync("620756992||1001||Zazolc gesla jazn: Zażółć gęślą jaźń||NULL||NULL||1");
 
         // Assert
-        result.HasErrors.ShouldBeFalse();
+        result.Errors.ShouldBeEmpty();
         result.Rows[0].Content.ShouldBe("Zazolc gesla jazn: Zażółć gęślą jaźń");
     }
 
     [Fact]
-    public async Task ParseAsync_WithUtf8Bom_ShouldStripItAndParseTheFirstRow()
+    public async Task ParseLinesAsync_WithUtf8Bom_ShouldStripItAndParseTheFirstRow()
     {
         // Arrange: the patcher writes UTF-8, which can carry a BOM; it must not corrupt the file id.
         byte[] content = [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes("620756992||1001||Witaj||NULL||NULL||1")];
 
         // Act
-        ParsedExport result = await ParseBytesAsync(content);
+        CollectedLines result = await ParseBytesAsync(content);
 
         // Assert
-        result.HasErrors.ShouldBeFalse();
+        result.Errors.ShouldBeEmpty();
         result.Rows.Count.ShouldBe(1);
         result.Rows[0].FileId.ShouldBe(620756992);
     }
 
     [Fact]
-    public async Task ParseAsync_WithInvalidUtf8Bytes_ShouldRejectTheUpload()
+    public async Task ParseLinesAsync_WithInvalidUtf8Bytes_ShouldRejectTheUpload()
     {
         // Arrange: a stray 0xFF is never valid UTF-8. Mis-decoded, it would read as a mass source change.
         byte[] content =
@@ -182,10 +182,10 @@ public sealed class TranslationExportParserTests
         ];
 
         // Act
-        ParsedExport result = await ParseBytesAsync(content);
+        CollectedLines result = await ParseBytesAsync(content);
 
         // Assert
-        result.HasErrors.ShouldBeTrue();
+        result.Errors.ShouldHaveSingleItem();
         result.Rows.ShouldBeEmpty();
     }
 
@@ -253,11 +253,11 @@ public sealed class TranslationExportParserTests
     }
 
     [Fact]
-    public async Task ParseAsync_WithTheSevenColumnGoldenFixture_ShouldParseEveryRowAndKeepItsDigest()
+    public async Task ParseLinesAsync_WithTheSevenColumnGoldenFixture_ShouldParseEveryRowAndKeepItsDigest()
     {
         // Act: the digests were computed outside both implementations, so passing means agreement with
         // the contract, not just with itself (ADR-0047).
-        ParsedExport parsed = await ParseFixtureAsync("exported-sample-digested.txt");
+        CollectedLines parsed = await ParseFixtureAsync("exported-sample-digested.txt");
 
         // Assert
         parsed.Errors.ShouldBeEmpty();
@@ -268,11 +268,11 @@ public sealed class TranslationExportParserTests
     }
 
     [Fact]
-    public async Task ParseAsync_BothGoldenFixtures_ShouldAgreeOnEveryContentField()
+    public async Task ParseLinesAsync_BothGoldenFixtures_ShouldAgreeOnEveryContentField()
     {
         // Act: the same rows at both widths.
-        ParsedExport sixColumn = await ParseFixtureAsync("exported-sample.txt");
-        ParsedExport sevenColumn = await ParseFixtureAsync("exported-sample-digested.txt");
+        CollectedLines sixColumn = await ParseFixtureAsync("exported-sample.txt");
+        CollectedLines sevenColumn = await ParseFixtureAsync("exported-sample-digested.txt");
 
         // Assert
         sevenColumn.Rows.Select(row => row.Content).ShouldBe(sixColumn.Rows.Select(row => row.Content));
@@ -283,10 +283,10 @@ public sealed class TranslationExportParserTests
     }
 
     [Fact]
-    public async Task ParseAsync_SixColumnUpload_ShouldStillImportWithoutADigest()
+    public async Task ParseLinesAsync_SixColumnUpload_ShouldStillImportWithoutADigest()
     {
         // Act: refusing a six-column row would break every existing exported.txt.
-        ParsedExport parsed = await ParseAsync("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1\r\n");
+        CollectedLines parsed = await ParseTextAsync("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1\r\n");
 
         // Assert
         parsed.Errors.ShouldBeEmpty();
@@ -297,10 +297,10 @@ public sealed class TranslationExportParserTests
     [InlineData("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||0000000000000000")]
     [InlineData("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||eacc6a53f9a2ae91")]
     [InlineData("620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1||a37cc1683216cd32")]
-    public async Task ParseAsync_SevenColumnUploadWhoseDigestDoesNotMatchTheRow_ShouldRejectThatRow(string line)
+    public async Task ParseLinesAsync_SevenColumnUploadWhoseDigestDoesNotMatchTheRow_ShouldRejectThatRow(string line)
     {
         // Act: it must fail here, not as "source moved" on every player's machine (ADR-0047 §2).
-        ParsedExport parsed = await ParseAsync($"{line}\r\n");
+        CollectedLines parsed = await ParseTextAsync($"{line}\r\n");
 
         // Assert
         parsed.Rows.ShouldBeEmpty();
@@ -310,10 +310,10 @@ public sealed class TranslationExportParserTests
     [Theory]
     [InlineData("a37cc1683216cd32")]
     [InlineData("A37CC1683216CD32")]
-    public async Task ParseAsync_SevenColumnUploadWithAMatchingDigest_ShouldAcceptItInEitherCase(string digest)
+    public async Task ParseLinesAsync_SevenColumnUploadWithAMatchingDigest_ShouldAcceptItInEitherCase(string digest)
     {
         // Act: a hand-edited upper-case digest is still the same digest.
-        ParsedExport parsed = await ParseAsync($"620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||{digest}\r\n");
+        CollectedLines parsed = await ParseTextAsync($"620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||{digest}\r\n");
 
         // Assert
         parsed.Errors.ShouldBeEmpty();
@@ -321,11 +321,11 @@ public sealed class TranslationExportParserTests
     }
 
     [Fact]
-    public async Task ParseAsync_SevenColumnRowWhoseArgsColumnsAreBlankRatherThanNull_ShouldStillVerify()
+    public async Task ParseLinesAsync_SevenColumnRowWhoseArgsColumnsAreBlankRatherThanNull_ShouldStillVerify()
     {
         // Act: the check hashes the row the way the catalog stores it, so blank and NULL are both
         // absent.
-        ParsedExport parsed = await ParseAsync("620756992||1001||Witaj w Srodziemiu!||||||1||a37cc1683216cd32\r\n");
+        CollectedLines parsed = await ParseTextAsync("620756992||1001||Witaj w Srodziemiu!||||||1||a37cc1683216cd32\r\n");
 
         // Assert
         parsed.Errors.ShouldBeEmpty();

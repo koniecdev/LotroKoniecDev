@@ -275,6 +275,9 @@ the layer the in-process `*.Tests.Integration` suites fake with forged tokens.
 - `CoreLoopE2ETests`: register version → import → list → upsert → approve → download (+ ETag/304).
 - `UpdateCycleE2ETests`: a later import rewords an approved row's source, so the row is invalidated
   and dropped from the file.
+- `E2EWorktreeTests`: how `tests/Shared/E2EWorktree.cs` moves the worktree tag, on a tiny probe
+  image (`Probes/tag-probe.dockerfile`). It joins no collection and starts no stack, but needs
+  Docker.
 
 ## Frontend Browser E2E Tests (LotroKoniecDev.Frontend.E2E.Tests)
 
@@ -308,9 +311,12 @@ an element has no stable accessible name (`Infrastructure/Locators.cs`).
   worktree (`<repository>:<suite>-<folder>-<8 hex of the solution path>`, label
   `lotrokoniecdev.e2e`), so `SKIP_DOCKER_BUILD=true` reuses this worktree's images. Never start a
   container from a tag, and never give a fixture its own copy of the build loop.
-- **One run of a suite per worktree at a time.** A second run in the same worktree takes the tag,
-  Docker's containerd store deletes the first run's image, and that run fails with
-  `pull access denied for sha256` (#889).
+- **The build never takes the tag (#889).** On Docker's containerd store, `docker build -t`
+  deletes the image that loses the tag, so a second run of a suite in the same worktree broke the
+  first one. The build has no `-t`; a separate `docker tag`, under the lock file
+  `tests/obj/<tag>.lock`, moves the tag and keeps the replaced image untagged, and a later run
+  removes it once it is an hour old. So two runs of a suite in one worktree can run at the same
+  time. Never add `-t` back, and never move the tag outside that lock.
 
 ## N-1 schema seam (integration factories — ADR-0024)
 

@@ -432,8 +432,7 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
       `<scratchpad>/<n>-review-r<round>.md`, and end your turn only after the file exists".
 
     Wait for the reviewer: while it runs, do not edit, commit or run tests in this worktree. Its gate
-    run reads this folder, and two runs of a suite at the same time in one worktree break the E2E
-    images (`tests/CLAUDE.md`). A Phase 0 Critical with no code to fix (a test project missing from your
+    run reads this folder. A Phase 0 Critical with no code to fix (a test project missing from your
     results but green there) is fixed by running that gate yourself; the next round still counts.
 
     **Fallback.** A reviewer that ends on an error before it wrote its file (such as `Agent

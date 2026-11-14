@@ -38,7 +38,7 @@ results. With no brief, use `HEAD` and the commands below, and skip the comparis
    then read the log. Never pipe a gate to `tail` or `grep`: the pipe hides its exit code. A call
    that reaches its timeout proves nothing yet. If the tool moved it to the background (an
    interactive session does that), wait for it to end and use its GREEN or RED; never start a
-   second `dotnet test` in this folder while one still runs (`tests/CLAUDE.md`, #889). If the tool
+   second `dotnet test` in this folder while one still runs. If the tool
    stopped it, run `dotnet test <project>` for each test project under `tests/` instead, one call
    each.
    - `dotnet build LotroKoniecDev.slnx`: green with zero warnings. If it is red, the suite counts

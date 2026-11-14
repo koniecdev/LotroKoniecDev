@@ -46,7 +46,7 @@ the engine version of the copy. A one-run environment variable can override some
 | `require_private` | `off` | The repository is public; the gate above protects it instead. |
 | `red_main_workflow` | empty | The worker's own gates stop on a red build; `ci.yml` going red on `main` does not stop a run. |
 | `code_scanning` | `on` | CodeQL runs on every PR, and `/merge-train` refuses a PR with an open alert, so the table shows the alerts. |
-| `e2e_image_label` | `lotrokoniecdev.e2e` | The E2E suites tag their images per worktree (`tests/Shared/E2EWorktree.cs`), so the worker removes them with the worktree. |
+| `e2e_image_label` | `lotrokoniecdev.e2e` | The E2E suites tag their images per worktree (`tests/Shared/E2EWorktree.cs`), so the worker removes the tagged ones with the worktree. The untagged sets a rebuild replaced go with a later E2E run, once they are an hour old. |
 | `skip_labels` | `loop-blocked,epic,question,wontfix,invalid,duplicate,audit,post-mvp` | Not decided work, a tracking parent, an audit finding a human triages first (ADR-0026 §4; name the ticket to work it), and work cut from the MVP. |
 | `skip_titles` | `^M4-` | The desktop app milestone (ADR-0033) targets the Windows patcher runtime, and its E2E criterion cannot run off Windows. |
 | `skip_issues` | `85` | The forum watcher, cut to post-MVP (ADR-0030); work it only by naming it. |

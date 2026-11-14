@@ -121,10 +121,6 @@ public sealed class ConfirmEmailChangeHandlerTests
         result.Error.Code.ShouldBe("Auth.UserAlreadyExistsByEmail");
     }
 
-    /// <summary>
-    /// The user validator refuses an address held for another account's undo (#905), and the visitor gets
-    /// the taken-address answer.
-    /// </summary>
     [Fact]
     public async Task Handle_TheSaveIsRefusedForAReservedAddress_RefusesAsTaken()
     {
@@ -140,9 +136,6 @@ public sealed class ConfirmEmailChangeHandlerTests
         result.Error.Code.ShouldBe("Auth.UserAlreadyExistsByEmail");
     }
 
-    /// <summary>
-    /// The reservation wins when Identity refuses for another reason too (ADR-0048 rule 4).
-    /// </summary>
     [Fact]
     public async Task Handle_TheSaveIsRefusedForAReservedAddressAndAnotherReason_RefusesAsTaken()
     {

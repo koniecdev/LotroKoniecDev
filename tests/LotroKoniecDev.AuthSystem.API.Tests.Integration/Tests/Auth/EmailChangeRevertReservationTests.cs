@@ -385,6 +385,26 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         (await LoadUserByIdAsync(otherUserId)).Email.ShouldBe(other.Email);
     }
 
+    /// <summary>
+    /// Identity's uniqueness lookup must run before the reservation lookup. Then an address that its holder
+    /// leaves and arms at the same moment is caught by one of the two, whatever the timing (ADR-0048 rule 4).
+    /// No race test can hold a request between the two lookups in both orders, so the order is pinned here.
+    /// </summary>
+    [Fact]
+    public async Task UserManager_ShouldRunTheReservationValidatorAfterIdentitysOwnValidator()
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        List<Type> validatorTypes = userManager.UserValidators.Select(validator => validator.GetType()).ToList();
+
+        validatorTypes.ShouldContain(typeof(UserValidator<ApplicationUser>));
+        validatorTypes.ShouldContain(typeof(EmailChangeRevertReservationValidator));
+        validatorTypes.IndexOf(typeof(UserValidator<ApplicationUser>))
+            .ShouldBeLessThan(validatorTypes.IndexOf(typeof(EmailChangeRevertReservationValidator)));
+    }
+
     [Fact]
     public async Task UserManagerCreate_ShouldRefuseAnAccountOnAnotherAccountsRevertTarget()
     {

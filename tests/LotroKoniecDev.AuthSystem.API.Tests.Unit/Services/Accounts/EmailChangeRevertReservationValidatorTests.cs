@@ -13,7 +13,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.Accounts;
 /// The real normalizer is used: a substituted one returns null on both sides and every comparison passes
 /// blindly (ADR-0048).
 /// </summary>
-public sealed class EmailChangeRevertReservationValidatorTests
+public sealed class EmailChangeRevertReservationValidatorTests : IDisposable
 {
     private const string StoredEmail = "frodo@shire.me";
     private const string ReservedEmail = "frodo@rivendell.me";
@@ -283,6 +283,12 @@ public sealed class EmailChangeRevertReservationValidatorTests
         // Assert: read without detecting changes, so the read itself cannot mark the entry
         _db.ChangeTracker.AutoDetectChangesEnabled = false;
         _db.Entry(user).State.ShouldBe(EntityState.Unchanged);
+    }
+
+    public void Dispose()
+    {
+        _db.Dispose();
+        _userManager.Dispose();
     }
 
     private void StubEveryAddressAsReserved() =>

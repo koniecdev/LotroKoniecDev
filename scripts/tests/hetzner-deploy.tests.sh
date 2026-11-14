@@ -678,6 +678,8 @@ CASE='attested digest first in a long digest list'
 stack="$(new_stack longdigests)"
 run_deploy "$stack" IMAGE_TAG=sha-abc1234 EXPECTED_DIGESTS="$(expected_digests "$GOOD_DIGEST")" \
     STUB_DIGEST="$GOOD_DIGEST" STUB_DIGEST_FILLER=1
+# A failure prints the output, and a mismatch report lists every pulled digest: keep the filler short.
+LAST_OUTPUT="$(cut -c 1-200 <<< "$LAST_OUTPUT")"
 [ "$LAST_STATUS" -eq 0 ] || fail 'an attested digest followed by other lines must still roll' "status $LAST_STATUS"
 grep -q 'Digest mismatch' <<<"$LAST_OUTPUT" && fail 'a matching digest was reported as a mismatch'
 called 'up -d --remove-orphans' || fail 'containers were never rolled'

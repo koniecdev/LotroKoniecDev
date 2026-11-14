@@ -233,7 +233,7 @@ grep -q 'credentials-on-stdin' "$STACK/curl-config.log" || fail "curl must get t
 pass "no dump is left on disk, and curl gets its key pair on stdin"
 
 if grep -F -e "$DB_PASSWORD" -e "$ENCRYPTION_KEY" -e "$R2_SECRET" "$STACK/calls.log" >/dev/null \
-    || printf '%s' "$LAST_OUTPUT" | grep -F -e "$DB_PASSWORD" -e "$ENCRYPTION_KEY" -e "$R2_SECRET" >/dev/null; then
+    || grep -F -e "$DB_PASSWORD" -e "$ENCRYPTION_KEY" -e "$R2_SECRET" >/dev/null <<< "$LAST_OUTPUT"; then
     fail "a secret reached argv or the output"
 fi
 pass "no password, key or R2 secret reaches argv or the output"
@@ -260,7 +260,7 @@ set -e
 LAST_OUTPUT="$helpers"
 [ "$helpers_status" = 0 ] || fail "--helpers must exit 0, got $helpers_status"
 [ ! -s "$STACK/calls.log" ] || fail "--helpers must run nothing"
-printf '%s' "$helpers" | grep -F -e "$DB_PASSWORD" -e "$ENCRYPTION_KEY" -e "$R2_SECRET" >/dev/null \
+grep -F -e "$DB_PASSWORD" -e "$ENCRYPTION_KEY" -e "$R2_SECRET" >/dev/null <<< "$helpers" \
     && fail "--helpers must print no value of the .env"
 helper_key="$(eval "$helpers"; env_value BACKUP_ENCRYPTION_KEY)"
 [ "$helper_key" = "$ENCRYPTION_KEY" ] || fail "the helpers' env_value must read a quoted CRLF key as backup.sh does"

@@ -71,7 +71,7 @@ EOF
 #!/usr/bin/env bash
 echo "ip $*" >> "$BOX/calls.log"
 [ "$*" = '-o route show default' ] || exit 1
-while IFS= read -r route; do
+while IFS= read -r route || [ -n "$route" ]; do
     printf '%s\n' "$route" || exit
 done < "$BOX/default-route"
 EOF

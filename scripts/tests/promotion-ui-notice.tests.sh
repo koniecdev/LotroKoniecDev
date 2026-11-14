@@ -71,7 +71,8 @@ AUTH_TEMPLATE="$(commit_file "$AUTH/Services/Emails/Templates/EmailTemplateRende
 AUTH_SENDER="$(commit_file "$AUTH/Services/Emails/AccountConfirmationEmailSender.cs")"
 AUTH_PROCESSOR="$(commit_file "$AUTH/Services/Emails/EmailDeliveryProcessor.cs")"
 AUTH_ERROR_PAGE="$(commit_file "$AUTH/Middleware/TooManyRequestsPage.cs")"
-AUTH_MIDDLEWARE="$(commit_file "$AUTH/Middleware/SecurityHeadersMiddleware.cs")"
+AUTH_MIDDLEWARE="$(commit_file "$AUTH/Middleware/RequestContextLoggingMiddleware.cs")"
+AUTH_CSP="$(commit_file "$AUTH/Middleware/SecurityHeadersMiddleware.cs")"
 UI_LIKE_TEST="$(commit_file tests/LotroKoniecDev.Frontend.Tests.Unit/src/Frontend/Pages/HomeTests.cs)"
 FRONTEND_X="$(commit_file src/FrontendX/Thing.cs)"
 mkdir -p "$FIXTURE/docs"
@@ -86,12 +87,21 @@ printf 'x\n' > "$FIXTURE/src/Frontend/LotroKoniecDev.Frontend/wwwroot/100%.css"
 git -C "$FIXTURE" add -A
 git -C "$FIXTURE" -c user.name=test -c user.email=test@test.invalid commit --quiet -m 'many UI files'
 MANY="$(git -C "$FIXTURE" rev-parse HEAD)"
+mkdir -p "$FIXTURE/src/Frontend/LotroKoniecDev.Frontend/Components/Twenty"
+for i in $(seq -w 1 20); do
+    printf 'x\n' > "$FIXTURE/src/Frontend/LotroKoniecDev.Frontend/Components/Twenty/part-$i.razor"
+done
+git -C "$FIXTURE" add -A
+git -C "$FIXTURE" -c user.name=test -c user.email=test@test.invalid commit --quiet -m 'exactly twenty UI files'
+TWENTY="$(git -C "$FIXTURE" rev-parse HEAD)"
 UNRELATED="$(git -C "$FIXTURE" -c user.name=test -c user.email=test@test.invalid \
     commit-tree "$(git -C "$FIXTURE" rev-parse 'HEAD^{tree}')" -m 'unrelated root')"
 short_frontend="$(git -C "$FIXTURE" rev-parse --short=7 "$FRONTEND")"
 
 # --- Stub `gh`: serves JSON fixtures, steered by env vars ----------------------------------------
 # STUB_GH_FAIL      — every `gh` call dies
+# STUB_REPO         — what `gh repo view` answers; STUB_REPO_FAIL makes it die instead
+# STUB_CALLS        — every `gh api` URL is appended here
 # STUB_PAGE1/PAGE2  — the deployments list; PAGE2 is served only with --paginate, after PAGE1,
 #                     as two concatenated arrays (a resolver that forgot --paginate misses it)
 # STUB_STATUSES_DIR — <deployment-id>.json for each statuses call
@@ -100,6 +110,11 @@ mkdir -p "$BIN"
 cat > "$BIN/gh" <<'STUB'
 #!/usr/bin/env bash
 [ -z "${STUB_GH_FAIL:-}" ] || { echo 'stub: gh failed' >&2; exit 1; }
+if [ "${1:-}" = repo ] && [ "${2:-}" = view ]; then
+    [ -z "${STUB_REPO_FAIL:-}" ] || { echo 'stub: no GitHub remote' >&2; exit 1; }
+    printf '%s\n' "${STUB_REPO:-}"
+    exit 0
+fi
 url=""
 paginate=""
 for arg in "$@"; do
@@ -108,6 +123,7 @@ for arg in "$@"; do
         --paginate) paginate=1 ;;
     esac
 done
+printf '%s\n' "$url" >> "$STUB_CALLS"
 case "$url" in
     */deployments/*/statuses*)
         id="${url#*/deployments/}"
@@ -148,6 +164,7 @@ prod_runs() {
 run_notice() {
     : > "$SUMMARY"
     : > "$GH_OUT"
+    : > "$TMP_ROOT/calls"
     LAST_STATUS=0
     local err="$TMP_ROOT/stderr"
     LAST_STDOUT="$( (cd "$FIXTURE" && env \
@@ -158,6 +175,7 @@ run_notice() {
         STUB_PAGE1="$TMP_ROOT/page1.json" \
         STUB_PAGE2="$TMP_ROOT/page2.json" \
         STUB_STATUSES_DIR="$TMP_ROOT/statuses" \
+        STUB_CALLS="$TMP_ROOT/calls" \
         "$@" "$NOTICE_SH") 2>"$err" )" || LAST_STATUS=$?
     LAST_STDERR="$(cat "$err")"
 }
@@ -210,13 +228,14 @@ expect_ui 'auth static file' "$AUTH_PAGE" "$AUTH_STATIC" "$AUTH/wwwroot/account.
 expect_ui 'auth e-mail template' "$AUTH_STATIC" "$AUTH_TEMPLATE" "$AUTH/Services/Emails/Templates/EmailTemplateRenderer.cs"
 expect_ui 'auth e-mail sender' "$AUTH_TEMPLATE" "$AUTH_SENDER" "$AUTH/Services/Emails/AccountConfirmationEmailSender.cs"
 expect_ui 'auth error page' "$AUTH_PROCESSOR" "$AUTH_ERROR_PAGE" "$AUTH/Middleware/TooManyRequestsPage.cs"
+expect_ui 'auth CSP' "$AUTH_MIDDLEWARE" "$AUTH_CSP" "$AUTH/Middleware/SecurityHeadersMiddleware.cs"
 expect_ui 'moved out of a UI folder' "$FRONTEND_X" "$MOVED_OUT" 'src/Frontend/LotroKoniecDev.Frontend/Components/Pages/Home/Home.razor'
 
 expect_no_ui 'API only' "$FRONTEND" "$API_ONLY" 'stays silent for a TMS API change'
 expect_no_ui 'auth feature' "$API_ONLY" "$AUTH_FEATURE" 'stays silent for an auth API feature'
 expect_no_ui 'auth mail processor' "$AUTH_SENDER" "$AUTH_PROCESSOR" 'stays silent for an e-mail processor that writes no text'
 expect_no_ui 'auth middleware' "$AUTH_ERROR_PAGE" "$AUTH_MIDDLEWARE" 'stays silent for middleware that is not a page'
-expect_no_ui 'UI-like test path' "$AUTH_MIDDLEWARE" "$UI_LIKE_TEST" 'stays silent for a test file whose path contains src/Frontend/'
+expect_no_ui 'UI-like test path' "$AUTH_CSP" "$UI_LIKE_TEST" 'stays silent for a test file whose path contains src/Frontend/'
 expect_no_ui 'src/FrontendX' "$UI_LIKE_TEST" "$FRONTEND_X" 'stays silent for a folder that only starts with "Frontend"'
 expect_no_ui 'empty span' "$FRONTEND" "$FRONTEND" 'stays silent when prod already runs the candidate'
 
@@ -285,6 +304,7 @@ CASE='baseline outside history'
 prod_runs 1111111111111111111111111111111111111111 "$FRONTEND"
 run_notice CANDIDATE_SHA="$FRONTEND"
 expect_unknown 'is not a commit in this checkout' 'a recorded release that is not in the checkout: cannot tell'
+has_line 'baseline=1111111111111111111111111111111111111111' || fail 'the verdict must still name the recorded release'
 
 CASE='unrelated baseline'
 prod_runs "$UNRELATED" "$API_ONLY"
@@ -325,6 +345,15 @@ grep -qF '…and 5 more: see the job summary.' <<< "$annotation" || fail 'expect
 grep -q 'Not detected:' "$SUMMARY" || fail 'the step summary must name what the notice cannot see'
 pass 'one annotation, % escaped first, 20 files listed, the full list in the summary'
 
+CASE='exactly the cap'
+prod_runs "$MANY" "$TWENTY"
+run_notice CANDIDATE_SHA="$TWENTY"
+annotation="$(grep '^::warning' <<< "$LAST_STDOUT")"
+listed="$(grep -o '%0Asrc/' <<< "$annotation" | grep -c '' || true)"
+[ "$listed" -eq 20 ] || fail "expected all 20 files in the annotation, got $listed"
+grep -qF 'more: see the job summary' <<< "$annotation" && fail 'twenty files fit the cap: no "and N more" line'
+pass 'twenty files fit in the annotation with no "more" line'
+
 CASE='GITHUB_OUTPUT'
 prod_runs "$BASE" "$FRONTEND"
 run_notice CANDIDATE_SHA="$FRONTEND"
@@ -339,7 +368,7 @@ LAST_STATUS=0
 LAST_STDOUT="$( (cd "$FIXTURE" && env -u GITHUB_ACTIONS -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT \
     GITHUB_REPOSITORY='koniecdev/LotroKoniecDev' \
     STUB_PAGE1="$TMP_ROOT/page1.json" STUB_PAGE2="$TMP_ROOT/page2.json" \
-    STUB_STATUSES_DIR="$TMP_ROOT/statuses" \
+    STUB_STATUSES_DIR="$TMP_ROOT/statuses" STUB_CALLS="$TMP_ROOT/calls" \
     CANDIDATE_SHA="$FRONTEND" "$NOTICE_SH") 2>"$TMP_ROOT/stderr" )" || LAST_STATUS=$?
 LAST_STDERR="$(cat "$TMP_ROOT/stderr")"
 [ "$LAST_STATUS" -eq 0 ] || fail "expected exit 0, got $LAST_STATUS"
@@ -347,6 +376,19 @@ has_line 'ui_change=yes' || fail 'expected ui_change=yes on stdout'
 [ "$(warnings)" -eq 0 ] || fail 'a local run must not print workflow commands'
 grep -qF 'Home.razor' <<< "$LAST_STDERR" || fail 'a local run must print the file list on stderr'
 pass 'a local run prints the verdict on stdout and the details on stderr, no workflow commands'
+
+CASE='repository from gh'
+prod_runs "$BASE" "$FRONTEND"
+run_notice GITHUB_REPOSITORY= STUB_REPO='someone/fork' CANDIDATE_SHA="$FRONTEND"
+[ "$LAST_STATUS" -eq 0 ] || fail "expected exit 0, got $LAST_STATUS"
+has_line 'ui_change=yes' || fail 'expected ui_change=yes with the repository from gh repo view'
+grep -q '^repos/someone/fork/deployments?' "$TMP_ROOT/calls" || fail 'the deployments API must be asked for the repository gh repo view named'
+pass 'without GITHUB_REPOSITORY it asks gh repo view which repository this is'
+
+CASE='repository lookup fails'
+prod_runs "$BASE" "$FRONTEND"
+run_notice GITHUB_REPOSITORY= STUB_REPO_FAIL=1 CANDIDATE_SHA="$FRONTEND"
+expect_unknown 'repository could not be found' 'no repository to ask (no GitHub remote, gh not signed in): cannot tell'
 
 CASE='default candidate'
 prod_runs "$BASE" "$FRONTEND"

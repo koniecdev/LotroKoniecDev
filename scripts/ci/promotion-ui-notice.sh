@@ -30,8 +30,9 @@ set -uo pipefail
 export LC_ALL=C
 
 # Files a user sees: every Frontend file, the auth Razor Pages and static files, the e-mails the
-# auth app sends, and its error pages. A false positive costs one suggested walk.
-UI_PATTERN='^src/Frontend/|^src/AuthSystem/.*/Pages/|^src/AuthSystem/.*/wwwroot/|^src/AuthSystem/.*/Services/Emails/Templates/|^src/AuthSystem/.*/Services/Emails/[^/]*EmailSender\.cs$|^src/AuthSystem/.*/Middleware/[^/]*Page[^/]*\.cs$'
+# auth app sends, its error pages, and its CSP (it decides what an auth page may load). A false
+# positive costs one suggested walk.
+UI_PATTERN='^src/Frontend/|^src/AuthSystem/.*/Pages/|^src/AuthSystem/.*/wwwroot/|^src/AuthSystem/.*/Services/Emails/Templates/|^src/AuthSystem/.*/Services/Emails/[^/]*EmailSender\.cs$|^src/AuthSystem/.*/Middleware/([^/]*Page[^/]*|SecurityHeadersMiddleware)\.cs$'
 ANNOTATION_FILE_LIMIT=20
 ASK='ask a session for /staging-walk before you approve'
 
@@ -127,10 +128,12 @@ changed="$(git -c core.quotePath=false diff --no-renames --name-only "$baseline"
 ui_files="$(grep -E "$UI_PATTERN" <<< "$changed")"
 
 source_line="Prod runs commit \`${baseline}\` (the newest successful \`${environment}\` deployment record, not checked against the box)."
+timing_line="Worked out when this run started. If another promotion was approved since, run \`CANDIDATE_SHA=${candidate} scripts/ci/promotion-ui-notice.sh\` locally for the current answer."
 candidate_line="Candidate: commit \`${candidate}\`."
 
 if [ -z "$ui_files" ]; then
-    details '## UI change notice' '' "This promotion changes no UI file. No walk is needed." '' "$candidate_line" "$source_line"
+    details '## UI change notice' '' "This promotion changes no UI file. No walk is needed." '' \
+        "$candidate_line" "$source_line" "$timing_line"
     emit no "$baseline"
     exit 0
 fi
@@ -145,7 +148,7 @@ annotate 'This promotion changes the UI' "$message"
 
 details '## UI change notice' '' \
     "**This promotion changes the UI: ${ASK}.**" '' \
-    "$candidate_line" "$source_line" '' \
+    "$candidate_line" "$source_line" "$timing_line" '' \
     "UI files changed (${count}):" ''
 while IFS= read -r file; do
     details "- \`${file}\`"

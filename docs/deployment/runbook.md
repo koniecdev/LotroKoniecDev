@@ -937,9 +937,11 @@ click. When the batch since the release prod runs touches the UI, its summary an
 so and list the files. Then ask a Claude Code session for `/staging-walk "<goal>"`: it walks staging
 as a first-time user and reports PASSED or where it got stuck. The notice takes prod's release from
 the newest successful `production` deployment record, not from the box, and "cannot tell" also asks
-for a walk. Prod rollouts queue: the run waiting at the gate is the oldest unapproved one, so it can
-be older than what staging runs. The walk report says whether the two match; when they do not,
-cancel the waiting run (below) so the newest candidate takes the gate.
+for a walk. It is worked out when the prod leg starts: after you approve an earlier run, the notice
+of the next one is out of date, and `CANDIDATE_SHA=<its commit> scripts/ci/promotion-ui-notice.sh`
+gives the current answer. Prod rollouts queue: the run waiting at the gate is the oldest unapproved
+one, so it can be older than what staging runs. The walk report says whether the two match; when
+they do not, cancel the waiting run (below) so the newest candidate takes the gate.
 
 **The switches** (repo Variables): `CD_ENABLED=true` arms the deploy jobs at all; `STAGING_ENABLED=true`
 arms the staging leg and makes prod wait on it (ADR-0018).

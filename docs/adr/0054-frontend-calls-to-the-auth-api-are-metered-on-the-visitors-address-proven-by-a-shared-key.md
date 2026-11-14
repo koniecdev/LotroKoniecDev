@@ -52,6 +52,10 @@ shaped this decision:
   on purpose (#347: OpenIddict rejects junk `/connect/*` traffic during authentication, so a limiter
   after it would never count it), and the code exchange at `/connect/token` is anonymous anyway.
 - **The frontend has no credential of its own.** It is a public OIDC client (PKCE, no secret).
+  *(Note, 2026-11-14: since ADR-0074 the website is a confidential client with a secret of its own.
+  That secret goes only to the token and revocation endpoints and proves the caller there; it says
+  nothing about the visitor's address and reaches neither the account API nor the TMS API, so this
+  ADR's key still does the metering.)*
 - **The box already fails loudly on a missing value.** `scripts/hetzner/deploy.sh` runs
   `compose config --quiet` before it pulls, migrates or recreates anything, and `deploy.yml`'s
   rollback puts the last green compose file back and re-runs the previous tag.

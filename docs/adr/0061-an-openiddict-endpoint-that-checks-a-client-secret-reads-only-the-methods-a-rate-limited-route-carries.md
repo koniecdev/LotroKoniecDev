@@ -33,6 +33,10 @@ right secret got 200 and a wrong one got 401, with no limit at all (#900). The o
 secret is our own confidential `lotrokoniecdev-api`, and nothing calls introspection today: the TMS
 API validates tokens itself (ADR-0049).
 
+*(Note, 2026-11-14: ADR-0074 adds a second confidential client, the website's
+`lotrokoniecdev-frontend`. It has no introspection permission and sends its secret only to the token
+and revocation endpoints, which read POST alone, so this decision covers it unchanged.)*
+
 ## Decision
 
 ### 1. Every endpoint that checks a client secret reads only the methods a rate-limited route carries

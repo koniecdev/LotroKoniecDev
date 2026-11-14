@@ -133,7 +133,8 @@ Both APIs turn the limiter off in Development and Testing. Elsewhere:
 
 | API | Policy | Limit | Applies to |
 |---|---|---|---|
-| `tms-api` | `fixed-by-ip` | 100 / min | every endpoint. The limiter runs before authentication, so a call refused with 401 or 403 also spends the bucket (#829) |
+| `tms-api` | `fixed-by-ip` | 100 / min | every other endpoint. The limiter runs before authentication, so a call refused with 401 or 403 also spends the bucket (#829) |
+| `tms-api` | `translation-file-download` | 5 / min | `GET translation-files/{lang}` only, in place of `fixed-by-ip` (#697, ADR-0064). Every call counts, a 304 and a 400 included, because the limiter answers before the endpoint knows the result |
 | `auth-api` | `fixed-by-ip` | 20 / min | the `auth/*` group by default |
 | `auth-api` | `auth-endpoint-limit` | 10 / min | `connect/*`, `auth/confirm-email`, `auth/reset-password`, `auth/account/cancel-deletion`, `GET auth/account/data-export`, and the four link-landing pages (`ConfirmEmail`, `ConfirmEmailChange`, `RevertEmailChange`, `CancelDeletion`) |
 | `auth-api` | `register-limit` | 10 / min | `auth/register`, keyed on the connection's own address |
@@ -144,7 +145,7 @@ Both APIs turn the limiter off in Development and Testing. Elsewhere:
 | `auth-api` | none | — | `auth/change-password`, `auth/account/delete` and `POST auth/account/data-export` (braked per account instead, ADR-0053); the health probes; the OpenIddict discovery and JWKS documents |
 
 **Which client a bucket belongs to (ADR-0054).** Every frontend call leaves from one container. So for
-`tms-api`'s policy and the three `auth-api` policies the frontend reaches (`fixed-by-ip`,
+both `tms-api` policies and the three `auth-api` policies the frontend reaches (`fixed-by-ip`,
 `auth-endpoint-limit`, `change-email-limit`), each API's `RateLimitPartitionKeyResolver` keys on the
 visitor's address that the frontend sends in `X-LOTRO-Client-Address`, but only next to the
 environment's key in `X-LOTRO-Frontend-Key`. Without a valid key and a parseable address, the call is
@@ -537,7 +538,7 @@ Failure modes (all **422 `DataConflict`** unless noted):
 
 | Method | Route | Auth | Result |
 |---|---|---|---|
-| `GET` | `/api/v1/translation-files/{lang}` | **anonymous** | **200** `text/plain; charset=utf-8` (the `||` file) · **304** · **404** |
+| `GET` | `/api/v1/translation-files/{lang}` | **anonymous** | **200** `text/plain; charset=utf-8` (the `||` file) · **304** · **404** · **429** |
 
 The CLI and the player app download the ready-made Polish file here. A background worker rebuilds it
 after every write that changes the distributed set (PERF-04, ADR-0021). It is never built per request,
@@ -551,8 +552,12 @@ written once per content hash (ADR-0064). HTTP caching:
 - the ETag is also the **integrity hash** (AUDIT-SEC-01): the patcher computes the SHA-256 of the
   downloaded body and refuses the file on a mismatch. The hash algorithm and the strong-ETag format
   are a contract between the two contexts;
-- `lang` must be `polish` (anything else → **400**); no file built yet → **404**
-  (`TranslationFiles.NotFound`).
+- `lang` must be `pl` (anything else → **400**); no file built yet → **404**
+  (`TranslationFiles.NotFound`);
+- one address may call this endpoint **5 times a minute** (policy `translation-file-download`, §2.4).
+  The 6th call gets **429** with `Retry-After`. A 304 counts too, so a client that keeps its ETag
+  still asks only once per launch. The CLI treats a 429 like an outage: it keeps its local file and
+  the launch goes on (spec 0001 Q5).
 
 The file holds the `Approved`, non-removed rows, sorted by `FileId` then `GossipId`, byte-compatible
 with the patcher's writer (approved always `1`, CRLF line ends). `source_digest` (ADR-0047) is the

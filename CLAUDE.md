@@ -487,7 +487,8 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
 - **A per-address rate limit the frontend can reach is keyed on the visitor, never on the frontend
   container (ADR-0054, #819, #823).** Every frontend→API call arrives through Caddy from the
   frontend container, so `Connection.RemoteIpAddress` there is one address for every user.
-  - The TMS API's `fixed-by-ip` and the three auth policies that traffic reaches (`fixed-by-ip`,
+  - The TMS API's two policies (`fixed-by-ip`, and `translation-file-download` on the download, #697)
+    and the three auth policies that traffic reaches (`fixed-by-ip`,
     `auth-endpoint-limit`, `change-email-limit`) take their key from each API's own copy of
     `RateLimitPartitionKeyResolver`: the visitor's address the frontend forwards in
     `X-LOTRO-Client-Address`, honoured only next to the per-environment `X-LOTRO-Frontend-Key`

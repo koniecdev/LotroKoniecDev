@@ -1,6 +1,6 @@
 # ADR-0012: Continuous deployment pipeline (automated ACA rollout + GitHub approval gate + IaC in CI)
 
-**Status:** Accepted — **but its rollout target is superseded by ADR-0034** (2026-07-13 / #492): the pipeline's shape (CI-success gate → build once → Trivy + cosign + attest → auto staging → gated prod promotion) stands exactly as decided here, while the last hop moved from an ACA revision rollout + `infra.yml` Terraform apply to **ssh + `docker compose`** on a Hetzner box (no revisions, no blue/green, no IaC job). Also amended: audit 0001 C2/H7/H9; §8 secrets superseded by ADR-0013 (itself now obsolete-by-platform); §4 migration wording by ADR-0023/#337; §5 R8 reversed by ADR-0027; the H7 rollout extended by ADR-0029/#407 (both now obsolete-by-platform); §5's `smoke.yml` lost its `workflow_call` entry in #1335 — see the in-body notes
+**Status:** Accepted — **but its rollout target is superseded by ADR-0034** (2026-07-13 / #492): the pipeline's shape (CI-success gate → build once → Trivy + cosign + attest → auto staging → gated prod promotion) stands exactly as decided here, while the last hop moved from an ACA revision rollout + `infra.yml` Terraform apply to **ssh + `docker compose`** on a Hetzner box (no revisions, no blue/green, no IaC job). Also amended: audit 0001 C2/H7/H9; §8 secrets superseded by ADR-0013 (itself now obsolete-by-platform); §4 migration wording by ADR-0023/#337; §5 R8 reversed by ADR-0027; the H7 rollout extended by ADR-0029/#407 (both now obsolete-by-platform); §5's `smoke.yml` lost its `workflow_call` entry in #1335; only `main` may deploy, the verify gate pins the signer workflow and the source ref, and the CI gate needs a push in this repository (#1336) — see the in-body notes
 **Date:** 2026-06-28
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0008 (cloud-agnostic deployment & environment strategy — **superseded** here on its
@@ -53,6 +53,15 @@ triage, provenance for "which commit/builder produced this"). One consequence: e
 two `unknown/unknown` attestation manifests); ACA/containerd platform-match the runtime manifest, so
 the rollout pull is unchanged.
 
+> **Amended by #1336 (2026-11-14):** `--repo` alone did not keep the promise above. Any branch can run
+> its own `cd.yml`, skip Trivy, push an attested image to GHCR and move a `sha-<short>` tag, and
+> `gh attestation verify --repo` accepted that image. So `gh workflow run cd.yml --ref main -f
+> image_tag=sha-<branch build>` put branch code on staging with no review. The gate now also pins
+> `--signer-workflow <repo>/.github/workflows/cd.yml` and `--source-ref` = the deploy run's own ref,
+> which is always `main` (§3 note). The check lives in `scripts/ci/resolve-verified-digests.sh`, and
+> the automatic rollback runs it on the tag it rolls back to. An image built from a `v*` tag or a
+> branch can never deploy.
+
 ### 2. Terraform owns infra shape; the pipeline owns the running image
 
 Each ACA app + the migrator job carries `lifecycle { ignore_changes = [...container[0].image] }`
@@ -67,6 +76,12 @@ GitHub Environment** (required reviewer). Approving releases it. `workflow_dispa
 of a ref (or an explicit `image_tag`) on demand, behind the same gate. A `v*` tag publishes
 artifacts only — it does not deploy. This is the "approve a release manually in GitHub" control that
 protects in-flight QA.
+
+> **Amended by #1336 (2026-11-14):** both environments have a deployment branch rule that allows only
+> `main`. So `workflow_dispatch` deploys only from `main`: a dispatch from another ref still builds,
+> but its deploy jobs are refused before they start, and a job on any other branch never gets an
+> environment's secrets. An explicit `image_tag` must be an image built from `main` (§1 note), and
+> the run ships main's current stack files with it.
 
 **Amendment (2026-06-29, audit 0001 C2 — CI success is a hard pre-condition of deploy):** the CD
 trigger changed from `on: push: main` to `on: workflow_run` of the **CI** workflow (`types:
@@ -85,6 +100,11 @@ a parallel race. `workflow_dispatch` and `v*`-tag pushes are deliberately **not*
 publish-only paths) — they pass through the gate ungated — but a dispatch rollout still requires the
 same human approval, and a tag still only publishes artifacts. Because CI carries `paths-ignore` for
 docs, a docs-only push runs no CI and therefore triggers no CD (incidentally closing audit 0001 M2).
+
+> **Amended by #1336 (2026-11-14):** `branches: [main]` matches only the branch name, and a fork's
+> branch can be called `main` too. A fork PR that edits `ci.yml` to run on `pull_request` would start
+> CD with ref `main`, which neither the branch rule nor the verify gate sees. So the gate also needs a
+> CI run started by a `push` in this repository (`workflow_run.event`, `head_repository`).
 
 ### 4. Migrations are an enforced pre-rollout gate (R6 — finally live)
 
@@ -215,6 +235,8 @@ Terraform. `infra.yml` needs the TF inputs, so the `iac/terraform.tfvars` values
   clears (re-run later). Accepted for a pre-release — a signed-or-nothing supply chain is the point,
   and the deploy path is already human-gated. A `workflow_dispatch` of an **old** tag built before
   this change carries no attestation and fails the verify gate by design: rebuild from the commit.
+  (**#1336, 2026-11-14:** an image built from a tag or a branch fails the gate too, and so does a
+  rebuild from a dispatch on any ref but `main`; deploy a newer `main` commit instead.)
 
 ## Alternatives Considered
 

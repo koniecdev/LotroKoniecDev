@@ -919,8 +919,8 @@ CI green on main → cd.yml gate (pins the tested commit)
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `cd.yml` → `gate` | CI finishing on main (`workflow_run`), `v*` tag, dispatch | the **CI-success gate**: CD fires when CI completes, goes on only after a green CI, and pins the exact tested commit (`head_sha`) for build + rollout. Docs-only pushes run no CI, so they trigger no CD. |
-| `cd.yml` → `build-and-push` | after a passing `gate` | builds the 4 images, **scans each with Trivy** (fails on a fixable HIGH/CRITICAL), then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)**: `:sha-<short>`, `:latest` on main, semver on tags. A `v*` tag only publishes; it does not deploy |
+| `cd.yml` → `gate` | CI finishing on main (`workflow_run`), `v*` tag, dispatch | the **CI-success gate**: CD fires when CI completes, goes on only after a green CI run that a **push to `main` in this repository** started (a fork's branch can also be called `main`), and pins the exact tested commit (`head_sha`) for build + rollout. Docs-only pushes run no CI, so they trigger no CD. A dispatch from another branch still builds, but its deploy jobs are refused (below). |
+| `cd.yml` → `build-and-push` | after a passing `gate` | builds the 4 images, **scans each with Trivy** (fails on a fixable HIGH/CRITICAL), then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)**: `:sha-<short>`, `:latest` on main, semver on tags. A `v*` tag only publishes; it does not deploy, and an image built from a tag or a branch can **never** deploy: the deploy accepts only images built from `main`. **Push no `v*` tag until #1344 lands:** it builds the commit again under the same `:sha-<short>`, from the tag, so that commit can then no longer be deployed or rolled back to |
 | `cd.yml` → `deploy-staging` | after `build-and-push`, `STAGING_ENABLED == true`, **automatic** | calls the reusable [`deploy.yml`](../../.github/workflows/deploy.yml) under `environment: staging` |
 | `cd.yml` → `deploy-prod` | after `deploy-staging`, **behind the `production` approval gate** | the SAME reusable `deploy.yml` under `environment: production` |
 
@@ -934,12 +934,30 @@ nothing ([Post-deploy smoke test](#post-deploy-smoke-test) → "In CI").
 **The switches** (repo Variables): `CD_ENABLED=true` arms the deploy jobs at all; `STAGING_ENABLED=true`
 arms the staging leg and makes prod wait on it (ADR-0018).
 
+**Only `main` may deploy (#1336).** Both environments have a deployment branch rule that allows only
+`main` ([One-time setup per environment](#one-time-setup-per-environment)). A job on any other branch
+or tag that names `staging` or `production` is refused before it starts, so it never gets the
+environment's secrets: the deploy key, the Neon key and the smoke secret. The deploy also checks that
+every image was built and attested by `cd.yml` from `main` (`scripts/ci/resolve-verified-digests.sh`),
+so an image that a branch built cannot be deployed by naming it as `image_tag`, and a tag that a branch
+moved fails the check. What this does not cover:
+
+- **It adds no review.** Anyone with write access can still merge their own PR (the `main` ruleset
+  asks for no approval), and the merge deploys to staging.
+- **`PROD_HEALTH_CHECK_KEY` is still a repository secret** (#1335), so a workflow on any branch can
+  read it.
+- **Re-runs of older CD runs.** A re-run uses the workflow files of the run it repeats. A CD run that
+  started before #1336 merged checks only that the image comes from this repository, so a writer
+  could move that run's tag to a branch build and re-run its staging job, which needs no approval.
+  GitHub allows a re-run for 30 days after the run, so this ends by itself.
+
 **Stale candidates expire after 24 h.** The gate pins the tested commit, so approving a days-old
 run would deploy a days-old SHA. [`cd-janitor.yml`](../../.github/workflows/cd-janitor.yml) (#527)
 cancels any CD run left `waiting` at the `production` gate for more than 24 hours (nightly cron,
 04:25 UTC; on demand: `gh workflow run cd-janitor.yml`). Nothing is lost: every newer green-CI merge
-produces a fresh candidate, and any older commit can still be deployed through `cd.yml`'s
-`workflow_dispatch`.
+produces a fresh candidate, and any older commit built on `main` can still be deployed: dispatch
+`cd.yml` from `main` with `image_tag=sha-<short>`. That run ships main's current compose file,
+Caddyfile and `deploy.sh` with the older images.
 
 **Cancelling a `waiting` run by hand:** the UI *Cancel* button and `gh run cancel` do **not** work on
 approval-gated runs. They only file a cancellation request no runner ever picks up, so the run stays
@@ -973,8 +991,9 @@ an explicit `image_tag`. A manual `image_tag` dispatch skips the gate with a war
 that path is up to you. Note that the deployment record it leaves names the *run's* sha, not the tag
 you rolled; the box cross-check catches that on the next promotion.
 
-On the runner, the job then resolves the tag to **digests**, verifies each image's build provenance
-(fails closed), cuts the Neon pre-migration snapshot branch (MIGR-04) and publishes the restore
+On the runner, the job then resolves the tag to **digests** and checks that each image was built and
+attested by this repository's `cd.yml` from the run's own ref, which is always `main`
+(`scripts/ci/resolve-verified-digests.sh`; fails closed). Then it cuts the Neon pre-migration snapshot branch (MIGR-04) and publishes the restore
 point. Then it ssh-es to **that environment's box** (`vars.HETZNER_HOST`: one box IS one
 environment), snapshots the live config into `/opt/lotro/.previous/`, copies `compose.hetzner.yaml`,
 the Caddyfile and `scripts/hetzner/deploy.sh` into `/opt/lotro`, and runs the script:
@@ -995,7 +1014,10 @@ the Caddyfile and `scripts/hetzner/deploy.sh` into `/opt/lotro`, and runs the sc
    what is actually running.
 
 Finally the runner waits for the public origins to answer, then smokes them. A red smoke rolls the
-box back automatically, **images and config** (from `.previous/`), and the job fails.
+box back automatically, **images and config** (from `.previous/`), and the job fails. The previous
+tag gets the same provenance check first, and its digests go to the box. If it fails the check, only
+the config is restored, the run summary says **Not rolled back**, and the box keeps the release that
+just failed: roll back by hand ([Deploy or roll back by hand](#deploy-or-roll-back-by-hand)).
 
 > ⚠️ **Never fold the migration gate back into `up -d`.** `compose.hetzner.yaml` declares
 > `depends_on: { migrator: { condition: service_completed_successfully } }`, and it is tempting to let
@@ -1051,6 +1073,42 @@ CD fails closed with a "not wired for ssh deploys" error until each environment 
 > `--env`:** a workflow cannot tell a repository copy from an environment one, so a repository copy
 > would again fill in, unseen, for an environment that has none.
 
+**Allow only `main` to use the environment (#1336).** GitHub gives an environment's secrets to any
+job that names it, from any branch, unless the environment limits the branches. `staging` has no
+reviewer, so without this rule a workflow on any pushed branch would get the staging deploy key at
+once. Set it on **both** environments: Settings → Environments → `staging` (then `production`) →
+**Deployment branches and tags** → **Selected branches and tags** → **Add deployment branch or tag
+rule** → Ref type **Branch**, name pattern `main` → **Add rule**. On `production`, keep the required
+reviewer, with "Prevent self-review" off and administrator bypass on. Check it:
+
+```bash
+gh api repos/koniecdev/LotroKoniecDev/environments \
+  --jq '.environments[] | {name, deployment_branch_policy, rules: [.protection_rules[].type]}'
+# both: "deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}
+# production's rules still include "required_reviewers"
+for e in staging production; do
+  gh api "repos/koniecdev/LotroKoniecDev/environments/$e/deployment-branch-policies" \
+    --jq '[.branch_policies[] | {name, type}]'
+done
+# both: [{"name":"main","type":"branch"}]
+```
+
+- **No tag rule.** Nothing deploys from a tag, and no rule limits who may push one, so a tag rule
+  would let anyone with write access deploy any commit by tagging it.
+- **Not "Protected branches only".** `main` is guarded by a ruleset, not by a classic branch
+  protection rule. GitHub documents that option only for branch protection rules, and says that with
+  none of them every branch may deploy.
+
+**Proving a change to a job that names an environment** (`deploy.yml`, `smoke.yml`, the deploy jobs in
+`cd.yml`). A run from a branch is refused now, so prove such a change after the merge, or with a
+temporary rule: add a branch rule for that one branch on `staging` only, never on `production`, run
+the proof, and delete the rule straight after. While the rule exists, that branch can read staging's
+secrets. During the proof the production job is refused at once, and staging's automatic rollback
+cannot work in either direction: the proof run's rollback target is a `main` build, which fails the
+check against the branch, and the next `main` deploy's target is the branch build. So after you
+delete the rule, put a `main` build back on staging at once: dispatch `cd.yml` from `main` and reject
+its production step.
+
 **Mint a CD deploy key per box**: one key per environment, so a staging compromise cannot touch prod.
 It is the `deploy` user's key, never `root`'s:
 
@@ -1073,12 +1131,20 @@ again, or every deploy fails at the ssh step (that failure is the pin working, n
 
 ### Deploy or roll back by hand
 
-The same script CD runs, so a hand run and a CD run leave the box in the same state:
+The same script CD runs, so a hand run and a CD run leave the box in the same state. Check the tag
+first, on your own machine, with the check CD uses (it needs `gh` signed in and `docker buildx`; run
+`docker login ghcr.io` first if the packages are private):
 
 ```bash
+REGISTRY=ghcr.io IMAGE_NAMESPACE=koniecdev GITHUB_REPOSITORY=koniecdev/LotroKoniecDev GITHUB_REF=refs/heads/main \
+  scripts/ci/resolve-verified-digests.sh sha-1a2b3c4
+# prints EXPECTED_DIGESTS=… only when all four images were built by cd.yml from main
 ssh deploy@<box>
-IMAGE_TAG=sha-1a2b3c4 bash /opt/lotro/deploy.sh    # roll to a specific commit's images
+IMAGE_TAG=sha-1a2b3c4 EXPECTED_DIGESTS='<the value it printed>' bash /opt/lotro/deploy.sh
 ```
+
+With `EXPECTED_DIGESTS`, `deploy.sh` refuses any pulled image that is not one of the checked digests,
+so a tag moved between the check and the pull cannot slip in.
 
 Always name a `sha-<short>` tag, never `latest`: the script pins the tag in `.env`, the next
 automatic rollback returns to whatever `.env` names, and `latest` moves with every green CI run.
@@ -1086,7 +1152,8 @@ automatic rollback returns to whatever `.env` names, and `latest` moves with eve
 Rolling back = deploying the previous tag. The tag that is live now is the `IMAGE_TAG` line in
 `/opt/lotro/.env` (written only after a successful roll, so it never lies), and every CD run prints the
 one it replaced (`PREVIOUS_IMAGE_TAG=…` in the job log, plus the deployed tag in the run summary).
-GHCR keeps every `sha-<short>`, so any commit that ever built can still be deployed. The config that
+GHCR keeps every `sha-<short>`, so any commit built on `main` can still be deployed (an image built
+from a branch or a tag fails the check). The config that
 was live before the last deploy sits in `/opt/lotro/.previous/`: restore those three files first if
 you are undoing a compose or Caddyfile change, not just an image change.
 
@@ -1094,7 +1161,8 @@ Two edges worth knowing. `deploy.sh` prunes unused images older than 14 days
 (`PRUNE_UNUSED_OLDER_THAN`), so an older tag may need a fresh pull on the box; GHCR still has it.
 `deploy.sh` pulls it for you. A pull by hand needs `DOCKER_CONFIG=/nonexistent` in front, or a stored
 login that has expired fails it ([Gotchas](#gotchas)). And re-running CD for a commit (**Actions → CD
-→ Run workflow**, optionally with an explicit `image_tag`) still goes through the staging→prod gate.
+→ Run workflow**, optionally with an explicit `image_tag`) works only from `main`, the `image_tag` must
+be an image built from `main`, and the run still goes through the staging→prod gate.
 
 ## Database migrations
 
@@ -1254,11 +1322,14 @@ pressure.
 
 **1. Put the last good release back first.** After the restore the schema is pre-migration again, and
 only the previous release's code is proven against it (N-1 holds one step back; *new* code on the
-*old* schema is the combination nothing proves). Redeploy the previous tag on the box:
+*old* schema is the combination nothing proves). Check the previous tag and redeploy it on the box,
+as in [Deploy or roll back by hand](#deploy-or-roll-back-by-hand):
 
 ```bash
+REGISTRY=ghcr.io IMAGE_NAMESPACE=koniecdev GITHUB_REPOSITORY=koniecdev/LotroKoniecDev GITHUB_REF=refs/heads/main \
+  scripts/ci/resolve-verified-digests.sh <previous-good-sha>      # on your machine
 ssh deploy@<box>
-IMAGE_TAG=<previous-good-sha> bash /opt/lotro/deploy.sh
+IMAGE_TAG=<previous-good-sha> EXPECTED_DIGESTS='<the value it printed>' bash /opt/lotro/deploy.sh
 ```
 
 (When the rollout failed on its own, CD's automatic rollback already did this, and only steps 2–4
@@ -1981,9 +2052,11 @@ gate still see the last real deploy. Do not start it while a deploy runs on that
 recreates the containers, and a red result in those seconds says nothing about the release.
 
 A `production` run waits at the same reviewer gate as a promotion: approving it (*Review
-deployments*) runs only the smoke and deploys nothing. Check first that the run is on `main`: a run
-started from another branch runs that branch's `smoke.yml` and `smoke.sh` with every production
-secret, the deploy key included (#1336). To drop one, choose *Reject* in the same dialog. The janitor clears only `cd.yml` runs, so a run nobody approves or rejects stays `waiting`;
+deployments*) runs only the smoke and deploys nothing. A run started from any branch but `main` is
+refused before it starts, on both environments, because each one allows only `main` (#1336). So a
+change to `smoke.yml` is proven after the merge, or with a temporary rule on `staging`
+([One-time setup per environment](#one-time-setup-per-environment) → "Proving a change to a job that
+names an environment"). To drop a waiting run, choose *Reject* in the same dialog. The janitor clears only `cd.yml` runs, so a run nobody approves or rejects stays `waiting`;
 *Cancel* does not work on a gated run (see
 [Continuous deployment](#continuous-deployment-cd-over-ssh)), so end it with
 `gh api -X POST repos/koniecdev/LotroKoniecDev/actions/runs/<run-id>/force-cancel`.

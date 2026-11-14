@@ -1255,7 +1255,8 @@ away in real production too.
 
 1. Merge to `main` → CI green → CD builds **one immutable image per commit** (`sha-<short>`).
 2. Images are vulnerability-scanned, signed, and published with provenance — the deploy later
-   **refuses an image our own CD did not build and attest** (fail-closed supply-chain check).
+   **refuses an image our own CD did not build from `main` and attest** (fail-closed supply-chain
+   check). Only `main` may use the staging and production environments.
 3. **Staging deploys automatically.** Staging is a full, separate environment (own box, own
    database, own secrets, own domain `staging.lotro-translator.pl`).
 4. A human clicks **Approve** in GitHub → the *same images* are promoted to production. Approvals

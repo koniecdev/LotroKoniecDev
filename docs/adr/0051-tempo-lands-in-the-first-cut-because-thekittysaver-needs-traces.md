@@ -129,18 +129,19 @@ The box has 3.7 GiB with 1.7 GiB available alongside both application stacks, pl
 >   reboots per box. The host counter starts at 0 on every boot, so a kill in the seconds before a
 >   reboot would be lost. And `resets()` cannot tell apart two restarts closer than one scrape.
 > - **Staging's 9 are in the kernel log.** The boot that ended on 2026-11-11 began on 2026-07-27, and
->   its kernel log, kept from 2026-08-13, lists exactly 9 kills. One is Tempo's kill at
->   its container limit on 2026-09-09 (#782). The other eight were on 2026-10-02, outside the
->   observability stack: two kills because the whole box ran out of memory, and six at a cgroup
->   limit. None was Alloy. The two boots since then log no OOM kill.
+>   its kernel log, kept from 2026-08-13, has exactly 9 kill lines, the counter's 9. (A group kill
+>   logs one process twice, and the kernel counts each line.) One is Tempo's kill at its container
+>   limit on 2026-09-09 (#782). The other eight lines are from 2026-10-02, the night #988 records,
+>   outside the observability stack: two because the whole box ran out of memory, and six at a
+>   cgroup limit. None was Alloy. The two boots since then log no OOM kill.
 > - **Every reboot pushed Alloy close to its limit.** In the data kept from before the reboots, no
->   6-hour maximum on either box went above 374 MiB. In the 6-hour block that holds each reboot, the
->   maximum was 492.3 MiB (staging, 2026-11-11), 495.3 MiB (prod, 2026-11-11), 487.4 MiB (prod,
->   2026-11-13) and 489.0 MiB (staging, 2026-11-14). The 2026-11-11 pair are the manual reboots of
->   #1327. The other two came at the configured reboot times. Both 7-day peaks came within six
->   minutes of a reboot. Only after the prod reboot of 2026-11-13 was the next block near the limit
->   too (490.5 MiB). The staging reboot of 2026-11-14 had only 3 h 16 min of data at the read. The
->   cause of the climb after a reboot was not looked for.
+>   6-hour maximum on either box went above 374 MiB. In the first 6-hour block with data after each
+>   reboot, the maximum was 492.3 MiB (staging, 2026-11-11), 495.3 MiB (prod, 2026-11-11),
+>   487.4 MiB (prod, 2026-11-13) and 489.0 MiB (staging, 2026-11-14). The 2026-11-11 pair are the
+>   manual reboots of #1327. The other two came at the configured reboot times. Both 7-day peaks
+>   came within six minutes of a reboot. Only after the prod reboot of 2026-11-13 was the next block
+>   near the limit too (490.5 MiB). The staging reboot of 2026-11-14 had only 3 h 16 min of data at
+>   the read. The cause of the climb after a reboot was not looked for.
 > - **This corrects the #782 amendment above.** Its "the only signal that saw it" is true only among
 >   the container-level signals looked at then: the working-set ratio, and the two counters that
 >   stayed at 0. The host counter `node_vmstat_oom_kill` counted Tempo's kill too: it is one of
@@ -149,8 +150,10 @@ The box has 3.7 GiB with 1.7 GiB available alongside both application stacks, pl
 >
 > The ceiling stays 512 MiB, and nothing is decided here. Not measured: the cause of the climb after
 > a reboot, whether the 85% rule fired, the prod box's kernel log, and the other four components.
-> The week of 2026-09-09 that #779 first asked for is past Prometheus retention. For staging, the
-> kernel log above shows no Alloy OOM kill in that week.
+> The week of 2026-09-09 that #779 first asked for is past Prometheus retention, so its peak is
+> lost. For staging, the kernel log above shows no Alloy OOM kill in that week. On prod the host
+> counter was still 0 on 2026-11-11, for a boot that began on 2026-07-12, so nothing was OOM-killed
+> on prod in that week either.
 
 ## Decision
 

@@ -517,10 +517,6 @@ data/
 # Claude worktrees — throwaway checkouts the agent tooling creates per ticket
 .claude/worktrees/
 
-# /staging-walk (#1377): the operator's mailbox base and each walk's screenshots and GIF. They show
-# a private e-mail address, and this repo is public.
-.claude/staging-walk/
-
 # Claude runtime state — schedules, checkpoints, mailboxes, agent registries. Machine-local by
 # nature and worthless to anyone else. These were only ever held back by .git/info/exclude, which
 # does not travel with a clone: on any other machine one `git add -A` would publish them.

@@ -37,18 +37,21 @@ staging only; this goal names <host>.", and stop. Load no browser tool and regis
 
 ## 2. Before the walk
 
-- **Find the main checkout.** `git rev-parse --path-format=absolute --git-common-dir` prints its
-  `.git`; the main checkout is the folder that holds it. Write that path out in full in every later
-  command: a session inside a worktree may refuse a command with `$VAR` or `$(…)` in it. Every file
-  of this walk goes under `<main checkout>/.claude/staging-walk/`, which `.gitignore` covers. A
-  worktree is removed when its work ends, so its own folder would lose the files. If writing there
-  is refused, use the session's scratchpad and say where the files are.
-- **The results folder:** `<main checkout>/.claude/staging-walk/<UTC time, yyyyMMdd-HHmmss>/`.
+- **The walk folder** is `<git dir>/staging-walk/`, where `<git dir>` is what
+  `git rev-parse --path-format=absolute --git-common-dir` prints: the main checkout's `.git`, also
+  from inside a worktree. Git never tracks a file inside `.git`, on any branch, so the private files
+  below can never be committed, and they outlive the removal of a worktree. Write the path out in
+  full in every later command: a session inside a worktree may refuse a command with `$VAR` or
+  `$(…)` in it. If writing there is refused, use the session's scratchpad, outside any checkout, and
+  say where the files are.
+- **The results folder:** `<git dir>/staging-walk/<UTC time, yyyyMMdd-HHmmss>/`.
 - **The address base** (only for a goal that needs an account). Read
-  `<main checkout>/.claude/staging-walk/address-base`. It holds one e-mail address of a mailbox you
-  can read. If the file is missing, ask the user for that address once and write it there. Never
-  print it, and never write it to any other file.
+  `<git dir>/staging-walk/address-base`. It holds one e-mail address of a mailbox you can read. If
+  the file is missing, ask the user for that address once and write it there. Never print it, and
+  never write it to any other file.
 - **The walk address** is the base with a plus tag: `<local>+walk-<yyyyMMddHHmm>-<4 random hex>@<domain>`.
+  When a form asks for a user name, use the letters and digits of the tag (`walk202611141230ab12`),
+  never a name taken from the address.
 - **The password** is random for this walk only, for example from
   `python3 -c "import secrets; print(secrets.token_urlsafe(18) + 'aA1!')"`. Keep it only in this
   conversation, because "Usuń konto" asks for it again at the end. Never write it to a file or to
@@ -116,7 +119,8 @@ staging only; this goal names <host>.", and stop. Load no browser tool and regis
   up.
 - **Fallback: the mailbox open in the same browser.** It is the one origin outside staging you may
   open, read-only. Stop the GIF recording first, open it in a new tab, read the mail as text, and do
-  not take screenshots there. Close that tab after.
+  not take screenshots there. Close that tab, go back to the walk's tab, and start the recording
+  again.
 - Open the confirmation link in the walk's tab. It may pass through a redirect; it must land on a
   staging origin, or it is "LEFT STAGING".
 - No mail tool and no mailbox in the browser → STUCK at the confirmation step, with that reason.

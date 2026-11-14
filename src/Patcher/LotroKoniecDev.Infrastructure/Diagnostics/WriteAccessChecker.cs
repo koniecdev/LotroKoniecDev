@@ -36,7 +36,7 @@ public sealed class WriteAccessChecker : IWriteAccessChecker
         {
             // .NET reports the Read-only flag and a refusing ACL with the same exception, so the
             // flag is read first to tell the two apart.
-            if ((File.GetAttributes(filePath) & FileAttributes.ReadOnly) != 0)
+            if (File.GetAttributes(filePath).HasFlag(FileAttributes.ReadOnly))
             {
                 return new DatFileWriteCheck(DatFileWriteRefusal.ReadOnly);
             }
@@ -57,7 +57,7 @@ public sealed class WriteAccessChecker : IWriteAccessChecker
         {
             return new DatFileWriteCheck(DatFileWriteRefusal.AccessDenied, ex.Message);
         }
-        catch (IOException ex) when (ex.HResult == SharingViolationHResult)
+        catch (IOException ex) when (ex.HResult is SharingViolationHResult)
         {
             return new DatFileWriteCheck(DatFileWriteRefusal.InUse, ex.Message);
         }

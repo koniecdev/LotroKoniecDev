@@ -28,12 +28,20 @@ public sealed class WriteAccessCheckerTests : IDisposable
             return;
         }
 
-        foreach (string file in Directory.GetFiles(_directory))
+        // Best effort: when the ACL test could not restore its file, a throw here would hide the
+        // test's own result.
+        try
         {
-            File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
-        }
+            foreach (string file in Directory.GetFiles(_directory))
+            {
+                File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
+            }
 
-        Directory.Delete(_directory, recursive: true);
+            Directory.Delete(_directory, recursive: true);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+        }
     }
 
     [Fact]
@@ -193,8 +201,9 @@ public sealed class WriteAccessCheckerTests : IDisposable
         };
 
         process.Start();
-        await process.StandardError.ReadToEndAsync();
-        await process.StandardOutput.ReadToEndAsync();
+
+        // Read both pipes at once: reading one to its end first can block when the other fills up.
+        await Task.WhenAll(process.StandardError.ReadToEndAsync(), process.StandardOutput.ReadToEndAsync());
         await process.WaitForExitAsync();
 
         return process.ExitCode;

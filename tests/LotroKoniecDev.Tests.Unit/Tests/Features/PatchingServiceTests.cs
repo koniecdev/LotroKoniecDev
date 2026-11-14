@@ -2,6 +2,7 @@ using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Features.Patching;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
+using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
 using LotroKoniecDev.Primitives.Constants;
@@ -162,12 +163,12 @@ public sealed class PatchingServiceTests
         DatFileWriteRefusal refusal,
         string expectedCode)
     {
-        // Arrange: the native open gives no reason, so the file is asked why (#1248).
+        // Arrange: a native refusal gives no reason, so the file is asked why (#1248).
         SetupAllPassingDefaults();
         SetupTranslations(CreateTranslation());
         string datFilePath = Path.Combine(Path.GetTempPath(), "game", "client_local_English.dat");
-        Error openError = new("DatFile.CannotOpen", "CannotOpen failed for datfile", ErrorType.IoError);
-        _datFileHandler.Open(datFilePath, DatFileAccess.ReadWrite).Returns(Result.Failure<int>(openError));
+        _datFileHandler.Open(datFilePath, DatFileAccess.ReadWrite)
+            .Returns(Result.Failure<int>(DomainErrors.DatFile.CannotOpen(datFilePath)));
         _writeAccessChecker.CheckFile(datFilePath).Returns(new DatFileWriteCheck(refusal, "Access is denied."));
 
         // Act
@@ -185,12 +186,33 @@ public sealed class PatchingServiceTests
         // Arrange: a refusal the file check cannot see, such as a DAT the library cannot read.
         SetupAllPassingDefaults();
         SetupTranslations(CreateTranslation());
-        Error openError = new("DatFile.CannotOpen", "CannotOpen failed for datfile", ErrorType.IoError);
-        _datFileHandler.Open(Arg.Any<string>(), DatFileAccess.ReadWrite).Returns(Result.Failure<int>(openError));
-        _writeAccessChecker.CheckFile(Arg.Any<string>()).Returns(new DatFileWriteCheck(DatFileWriteRefusal.None));
+        const string datFilePath = "/game/client_local_English.dat";
+        Error openError = DomainErrors.DatFile.CannotOpen(datFilePath);
+        _datFileHandler.Open(datFilePath, DatFileAccess.ReadWrite).Returns(Result.Failure<int>(openError));
+        _writeAccessChecker.CheckFile(datFilePath).Returns(new DatFileWriteCheck(DatFileWriteRefusal.None));
 
         // Act
-        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", datFilePath);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(openError);
+    }
+
+    [Fact]
+    public void ApplyTranslations_DatFileOpenFailsWithItsOwnReason_ShouldKeepThatReason()
+    {
+        // Arrange: a missing datexport.dll already says what is wrong, even where the file would
+        // also refuse a write.
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation());
+        const string datFilePath = "/game/client_local_English.dat";
+        Error openError = DomainErrors.DatFile.CannotOpen($"{datFilePath}: datexport.dll not found.");
+        _datFileHandler.Open(datFilePath, DatFileAccess.ReadWrite).Returns(Result.Failure<int>(openError));
+        _writeAccessChecker.CheckFile(datFilePath).Returns(new DatFileWriteCheck(DatFileWriteRefusal.AccessDenied));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", datFilePath);
 
         // Assert
         result.IsFailure.ShouldBeTrue();

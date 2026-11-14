@@ -42,14 +42,15 @@ internal sealed class PreflightCheckQueryHandler : IQueryHandler<PreflightCheckQ
         string? directory = Path.GetDirectoryName(query.DatFilePath);
         bool hasWriteAccess = directory is not null && _writeAccessChecker.CanWriteTo(directory);
 
-        // The file check runs only when the game is closed and the folder is writable. It opens the
-        // live DAT, which the launcher writes while it runs.
+        Result<GameUpdateCheckSummary> gameUpdateCheckSummaryResult =
+            await _gameUpdateChecker.CheckForUpdateAsync(query.VersionFilePath);
+
+        // The file check runs only when the game is closed and the folder is writable, because it
+        // opens the live DAT, which the launcher writes while it runs. It comes after the network
+        // call, so its answer is as fresh as it can be when the backup starts.
         DatFileWriteCheck datFileWriteCheck = !isGameRunning && hasWriteAccess
             ? _writeAccessChecker.CheckFile(query.DatFilePath)
             : new DatFileWriteCheck(DatFileWriteRefusal.None);
-
-        Result<GameUpdateCheckSummary> gameUpdateCheckSummaryResult =
-            await _gameUpdateChecker.CheckForUpdateAsync(query.VersionFilePath);
 
         return Result.Success(new PreflightReportResponse(
             isGameRunning, hasWriteAccess, gameUpdateCheckSummaryResult, datFileWriteCheck));

@@ -179,7 +179,11 @@ public sealed class PatchE2ETests : IClassFixture<PatchedDatCopy>
         }
         finally
         {
-            File.SetAttributes(standInDatPath, File.GetAttributes(standInDatPath) & ~FileAttributes.ReadOnly);
+            // A .backup made by a regression would carry the flag too.
+            foreach (string file in Directory.GetFiles(Path.GetDirectoryName(standInDatPath)!))
+            {
+                File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
+            }
         }
     }
 

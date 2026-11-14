@@ -58,11 +58,12 @@ staging only; this goal names <host>.", and stop. Load no browser tool and regis
   the report.
 - **The builds.** Find both now; the report names them.
   - *Walked:* the newest `staging` deployment that ever reached `success`. List the records with
-    `gh api "repos/{owner}/{repo}/deployments?environment=staging&per_page=20" --jq '.[] | "\(.id) \(.sha)"'`,
+    `gh api "repos/{owner}/{repo}/deployments?environment=staging&per_page=100&page=1" --jq '.[] | "\(.id) \(.sha)"'`,
     then read each one's statuses, newest first, with
     `gh api "repos/{owner}/{repo}/deployments/<id>/statuses" --jq '.[] | "\(.state) \(.log_url)"'`
-    until one has `success`. Its commit gives the tag `sha-<first 7>`. Its `log_url` holds
-    `/actions/runs/<run id>/`: the CD run that deployed it.
+    until one has `success`. When no record on the page has, read the next page (`page=2`, …).
+    Its commit gives the tag `sha-<first 7>`. Its `log_url` holds `/actions/runs/<run id>/`: the
+    CD run that deployed it. No success at all → "Walked: unknown", and the match is unknown too.
   - *Waiting at the prod gate:* `gh run list --workflow cd.yml --status waiting --json databaseId,createdAt`.
     Take the OLDEST run. It holds the prod rollout slot while it waits for approval, and newer
     candidates queue behind it, so the approval click ships that run's build. Its tag is in the name
@@ -101,7 +102,9 @@ staging only; this goal names <host>.", and stop. Load no browser tool and regis
     the walk is PASSED with that note.
   - Otherwise the result is "LEFT STAGING at step N", which counts as stuck.
   - If a click lands off staging anyway, go back to the staging tab and record it the same way.
-- **Register** with the walk address and the random password. A page that refuses because the inbox
+- **Register only when the goal needs an account** (a translator goal does) or the screen offers no
+  other way on, and only once per walk: every sign-up spends the inbox's budget below. Register with
+  the walk address and the random password. A page that refuses because the inbox
   had too many sign-ups lately ("zbyt wiele prób rejestracji") is the known limit below: stop with
   "STOPPED: inbox limit", which is neither PASSED nor stuck.
 - **A goal that needs approval** ends at "saved, waiting for approval". A new account can never

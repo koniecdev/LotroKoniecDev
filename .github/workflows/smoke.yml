@@ -6,8 +6,8 @@ name: Smoke test
 #
 # The job reads the environment's own SMOKE_CLIENT_SECRET and AUTH_URL / TMS_URL / FRONTEND_URL,
 # the same values CD uses, so the two runs cannot drift apart (#1335). `deployment: false` keeps it
-# out of the deployment history: image-scan.yml and the N-1 promotion gate (#534) read the newest
-# successful deployment to learn what runs on a box. A production run still waits at the
+# out of the deployment history: image-scan.yml, the N-1 promotion gate (#534) and the UI change
+# notice (#1377) read the newest successful deployment to learn what runs on a box. A production run still waits at the
 # `production` reviewer gate. Runbook: "Post-deploy smoke test" → "In CI".
 on:
   workflow_dispatch:

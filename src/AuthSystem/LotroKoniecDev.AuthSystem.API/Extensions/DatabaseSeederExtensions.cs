@@ -229,14 +229,15 @@ internal static partial class DatabaseSeederExtensions
                 settings.WebClient));
         }
 
-        // An empty secret makes CreateAsync throw, so a host without one stops at boot.
+        // A missing secret makes CreateAsync throw, so a host without one stops at boot. Blank counts as
+        // missing, as on the website, which sends no secret then.
         if (await applicationManager.FindByClientIdAsync(AuthConstants.ClientIds.Frontend) is null)
         {
             await applicationManager.CreateAsync(CreateWebsiteClient(
                 AuthConstants.ClientIds.Frontend,
                 "LotroKoniecDev Website",
                 ClientTypes.Confidential,
-                settings.FrontendClientSecret,
+                string.IsNullOrWhiteSpace(settings.FrontendClientSecret) ? null : settings.FrontendClientSecret,
                 settings.WebClient));
         }
 

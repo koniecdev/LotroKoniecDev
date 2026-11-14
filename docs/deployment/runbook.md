@@ -452,7 +452,10 @@ DELETE FROM authsystem."Users" WHERE "NormalizedEmail" = upper('<admin e-mail>')
 ```
 
 ```bash
-docker compose -f compose.hetzner.yaml restart auth-api   # seeder runs at startup, recreates the rows
+# Recreated, not restarted: `restart` keeps the environment the container was created with, so a value
+# you changed in .env would not reach it, and the seeder would write the OLD one. The frontend is
+# recreated too, so it sends a new FRONTEND_CLIENT_SECRET at the same moment the row gets it.
+docker compose -f compose.hetzner.yaml up -d --force-recreate --no-deps auth-api frontend   # seeder runs at startup, recreates the rows
 ```
 
 This signs out every user (their tokens are gone): free before launch, a real outage after it.
@@ -553,8 +556,8 @@ SELECT "UserName", "Email", "PasswordHash" IS NULL AS no_password FROM authsyste
   **not** this case: a cancelled deletion or an undone e-mail change also clears the password. If
   you receive mail at that address, it is the live admin, so reset it instead. Delete the row only
   when the address is really misspelled (see the
-  [reseed traps](#reseed-traps--the-auth-seeder-is-create-if-missing)), fix the `.env` and restart
-  auth-api.
+  [reseed traps](#reseed-traps--the-auth-seeder-is-create-if-missing)), fix the `.env` and recreate
+  auth-api with the command there.
 
 **Warning `2354`: the admin address belongs to an account without the Admin role.** The seeder logs
 it on every start when `AUTH_ADMIN_EMAIL` matches an account that is not an admin, and leaves that
@@ -566,7 +569,8 @@ SELECT "Id", "UserName", "EmailConfirmed", "PasswordHash" IS NULL AS no_password
 ```
 
 **The address is not one you read** (a typo, or someone else's address): fix `AUTH_ADMIN_EMAIL` and
-restart auth-api. **Never delete that row.** It is a real person's account, and an admin seeded at
+recreate auth-api (the command under [Reseed traps](#reseed-traps--the-auth-seeder-is-create-if-missing);
+a plain `restart` keeps the old value). **Never delete that row.** It is a real person's account, and an admin seeded at
 their address would get its first password from their inbox.
 
 **It is your address.** Give the row the role by hand **only** when it is confirmed, has no password
@@ -599,7 +603,7 @@ When the INSERT refuses a row at your address, what to do depends on whose accou
 
 - **`undo_armed` is true.** An e-mail change moved someone else's account onto your address, and its
   owner can still take it back with the undo link. Do not delete it. Put another address into
-  `AUTH_ADMIN_EMAIL` and restart auth-api.
+  `AUTH_ADMIN_EMAIL` and recreate auth-api (the command under Reseed traps).
 - **`EmailConfirmed` is false.** Nobody proved they own the address. Delete the row and restart
   auth-api, so the seeder creates the admin.
 - **Your own translator account, with a password.** Delete it and restart, or put another address
@@ -629,8 +633,8 @@ SELECT "Id", "UserName", "Email", "EmailChangeRevertArmedAt" FROM authsystem."Us
   `AUTH_ADMIN_EMAIL` if the account is the admin, or ignore the warning until the 14 days are over.
 - **It is someone else's account.** Leave it alone, and never clear its `EmailChangeRevertTo` by
   hand: if the change was a hijack, that link is how the owner gets the account back. Put another
-  address into `AUTH_ADMIN_EMAIL`, or wait until 14 days after `EmailChangeRevertArmedAt` and restart
-  auth-api. If the owner uses the undo link first, the address has an account again and the seeder
+  address into `AUTH_ADMIN_EMAIL` and recreate auth-api (the command under Reseed traps), or wait
+  until 14 days after `EmailChangeRevertArmedAt` and restart auth-api. If the owner uses the undo link first, the address has an account again and the seeder
   logs `2354` instead.
 
 ### TLS certificates

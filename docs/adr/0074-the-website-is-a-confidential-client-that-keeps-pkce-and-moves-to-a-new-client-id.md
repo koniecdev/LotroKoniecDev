@@ -62,8 +62,12 @@ hand. A new id needs neither: the seeder creates it on the first start.
 
 Cost: every live session ends once. Its refresh token belongs to the old client, and OpenIddict
 refuses a token presented by another client (`invalid_grant`, which the website treats as final,
-#1062). The website's revoke at sign-out is refused for the same reason and logs a Warning; the
-browser's sign-out still ends the session on the server through the ID token hint.
+#1062). The website then revokes that token as the new client, and OpenIddict answers 200 but leaves
+it valid, because one client may not revoke another's token (RFC 7009 lets it ignore the request), so
+the website logs nothing. Such a token stays valid on the server until it expires, at most 9 hours
+later, unless an explicit sign-out ends the session through the ID token hint. A sign-in that started
+before the roll and returns after it fails once at the code exchange (its code belongs to the old
+client) and works when the user tries again.
 
 ### 3. The old public client stays for one release, then a follow-up removes it
 
@@ -103,8 +107,8 @@ and it already carries the code there (the owner's ruling on #830, recorded in A
 
 - A code or refresh token of the website's client cannot be redeemed without the box's secret, and a
   sign-in started as this client cannot be finished from another machine.
-- A wrong secret or a refresh token tried without one is refused with `invalid_client`, which the
-  sign-in server logs as a Warning.
+- A wrong secret or a refresh token tried without one is refused with `invalid_client`, and the
+  sign-in server logs the refused call as a Warning (`AuthorizationLoggingMiddleware`).
 - No migration: a client is one row the seeder writes, and an older release ignores a row it does not
   know.
 
@@ -112,8 +116,8 @@ and it already carries the code there (the owner's ruling on #830, recorded in A
 
 - Every signed-in user is signed out once when a box first runs this release, and a form posted in that
   request is not saved. The owner picks a quiet time for the prod promotion.
-- Each live session logs one refused refresh and one refused revoke on the website, plus the sign-in
-  server's refusal lines, on the day of the deploy.
+- Each live session logs one refused refresh on the website and the sign-in server's refusal line on
+  the day of the deploy. Its refresh token stays valid on the server, unused, for up to 9 hours (above).
 - The owner adds the `.env` line to each box before the merge; a session cannot write to the boxes.
 - A changed secret breaks sign-in with every gate green (above). The runbook's reseed table says so.
 - Until the follow-up, the old public client is the same gap as before.
@@ -144,7 +148,14 @@ seeded client secret needs a reseed.
 It would remove the reseed trap of decision 4. Not here: done for one field of one client, the seeder
 would have two rules, and done for every client and every address it is its own change.
 
-### E. Sender-constrained tokens: certificate-bound refresh tokens, DPoP, `private_key_jwt`
+### E. A startup check that the configured secret matches the stored one
+
+It would turn the trap of decision 4 into a failed deploy instead of a silent outage, for one
+password-hash check per start. Not taken here: #1033 keeps the create-if-missing seeder as it is, the
+same trap exists for the other seeded values, and the runbook's reseed table and the after-deploy
+sign-in check cover it. It is a question for the owner, raised in the PR.
+
+### F. Sender-constrained tokens: certificate-bound refresh tokens, DPoP, `private_key_jwt`
 
 OpenIddict 7.8.0 can bind refresh tokens to a client certificate, but TLS ends at Caddy, the
 certificate expires, and its key would sit on the same box as the secret; OpenIddict itself treats

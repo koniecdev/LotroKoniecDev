@@ -130,16 +130,19 @@ public sealed class WebClientSeedingTests : EndpointsTestBase
     /// running with a website that cannot sign in.
     /// </summary>
     [Theory]
-    [InlineData("Development")]
-    [InlineData("Testing")]
-    public async Task SeedAuthDatabase_FrontendClientMissingAndNoSecret_StopsTheSeed(string environmentName)
+    [InlineData("Development", "")]
+    [InlineData("Testing", "")]
+    [InlineData("Development", "   ")]
+    public async Task SeedAuthDatabase_FrontendClientMissingAndNoSecret_StopsTheSeed(
+        string environmentName,
+        string frontendClientSecret)
     {
         // Arrange
         await DeleteWebsiteClientsAsync();
 
         // Act & Assert
         await Should.ThrowAsync<OpenIddictExceptions.ValidationException>(() =>
-            ReseedAsync(new FakeWebHostEnvironment(environmentName), HostWebClientSettings(), frontendClientSecret: string.Empty));
+            ReseedAsync(new FakeWebHostEnvironment(environmentName), HostWebClientSettings(), frontendClientSecret));
     }
 
     public override async Task DisposeAsync()

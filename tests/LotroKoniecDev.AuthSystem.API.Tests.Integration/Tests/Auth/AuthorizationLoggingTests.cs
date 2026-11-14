@@ -172,6 +172,37 @@ public sealed class AuthorizationLoggingTests : EndpointsTestBase
         MiddlewareEntries(loggerFactory).ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// ADR-0074: a call that names the website's client with a wrong secret is warned like any other
+    /// refused client.
+    /// </summary>
+    [Fact]
+    public async Task TokenRequest_FromTheWebsitesClientWithAWrongSecret_ShouldWarnAboutTheUnauthorizedCall()
+    {
+        // Arrange
+        using CapturingLoggerFactory loggerFactory = new();
+        using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
+        using HttpClient client = host.CreateClient();
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Post, TokenPath, "203.0.113.94");
+        request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = "a-refresh-token-the-check-never-reaches",
+            ["client_id"] = AuthConstants.ClientIds.Frontend,
+            ["client_secret"] = "DefinitelyWrongSecret1!"
+        });
+
+        // Act
+        using HttpResponseMessage response = await client.SendAsync(request);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        CapturingLoggerFactory.LogEntry warning = MiddlewareEntries(loggerFactory).ShouldHaveSingleItem();
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.EventId.Id.ShouldBe(EventIds.UnauthorizedAccessAttempt);
+        warning.Message.ShouldBe($"Unauthorized access attempt: POST /{TokenPath} from 203.0.113.94 via 203.0.113.94");
+    }
+
     private static List<CapturingLoggerFactory.LogEntry> MiddlewareEntries(CapturingLoggerFactory loggerFactory) =>
         loggerFactory.Entries
             .Where(entry => entry.Category == typeof(AuthorizationLoggingMiddleware).FullName)

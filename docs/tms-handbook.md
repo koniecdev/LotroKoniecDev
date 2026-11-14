@@ -647,7 +647,7 @@ Three applications and one database run together. In development they all run on
    (Blazor SSR)─────────► tms-api :5002 ──► PostgreSQL :5432 (2 databases:
         bearer token          ▲                lotro_translation + lotro_auth)
                               │
-   patcher CLI (player) ──────┘  GET /api/v1/translation-files/polish  (anonymous, ETag-cached)
+   patcher CLI (player) ──────┘  GET /api/v1/translation-files/pl  (anonymous, ETag-cached)
 ```
 
 - **auth-api** — the identity provider. Login and register pages, token endpoint, user database.

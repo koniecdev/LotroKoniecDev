@@ -330,6 +330,8 @@ fi
 echo
 
 echo "[5/7] Translation-file distribution (ETag / 304)"
+# Two of the 5 download calls an address may make in a minute (#697): a third run inside one minute
+# fails this leg on a 429.
 : > "$HDR_FILE"
 file_code="$(curl -s -o /dev/null -D "$HDR_FILE" -w '%{http_code}' --max-time "$TIMEOUT" $TLS_FLAG "$TMS_URL/api/v1/translation-files/$LANG_CODE" 2>/dev/null)" || file_code="000"
 if [ "$file_code" = "200" ]; then

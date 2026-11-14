@@ -555,8 +555,8 @@ written once per content hash (ADR-0064). HTTP caching:
 - `lang` must be `pl` (anything else → **400**); no file built yet → **404**
   (`TranslationFiles.NotFound`);
 - one address may call this endpoint **5 times a minute** (policy `translation-file-download`, §2.4).
-  The 6th call gets **429** with `Retry-After`. A 304 counts too, so a client that keeps its ETag
-  still asks only once per launch. The CLI treats a 429 like an outage: it keeps its local file and
+  The 6th call gets **429** with `Retry-After`. A 304 counts too. A client that keeps its ETag asks
+  once per launch, so it stays far below the limit. The CLI treats a 429 like an outage: it keeps its local file and
   the launch goes on (spec 0001 Q5).
 
 The file holds the `Approved`, non-removed rows, sorted by `FileId` then `GossipId`, byte-compatible
@@ -606,7 +606,7 @@ uses to detect a token that never reached the API — see the warning on `Rels.C
 1. `GET /api/v1/translations?status=Draft` (or `NeedsReview`).
 2. `POST /api/v1/translations/{id}/approve` (Admin) → **204** — or select up to 100 rows and send
    `POST /api/v1/translations/approve { ids }`. A background rebuild of the file follows.
-3. The CLI `launch` flow does `GET /api/v1/translation-files/polish` with `If-None-Match` and patches
+3. The CLI `launch` flow does `GET /api/v1/translation-files/pl` with `If-None-Match` and patches
    only when the ETag changed (and checks the body against the ETag hash).
 
 ### 9.3 A game update lands
@@ -631,7 +631,7 @@ Entry points in the discovery document `GET /` (each shown only to a caller who 
 | rel | Method | Target |
 |---|---|---|
 | `self` | GET | `/` |
-| `translation-file` | GET | `/api/v1/translation-files/polish` |
+| `translation-file` | GET | `/api/v1/translation-files/pl` |
 | `progress` | GET | `/api/v1/progress` |
 | `translations` | GET | `/api/v1/translations` |
 | `upsert` | PUT | `/api/v1/translations` |

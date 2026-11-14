@@ -235,7 +235,8 @@ stops violating, so the list cleans itself.
 ## Infrastructure Tests (LotroKoniecDev.Tests.Infrastructure)
 
 Tests of the patcher's real infrastructure adapters: the game launcher, the `datexport.dll`
-interop, the sidecar stores (ledger, file cache, iteration snapshot), and the network adapters
+interop, the sidecar stores (ledger, file cache, iteration snapshot), the check of why the game file
+refuses a write (Read-only flag, an ACL, a file held open; #1248), and the network adapters
 (downloader, discovery client, forum fetcher). The network tests drive the
 adapters' integrity, response-size and timeout checks over an in-memory stub
 `HttpMessageHandler`, with no real network. TMS PostgreSQL/EF Core coverage lives in the

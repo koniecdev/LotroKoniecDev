@@ -2,6 +2,7 @@ using System.Text;
 using LotroKoniecDev.Application.Parsers;
 using LotroKoniecDev.Tests.Shared;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
+using LotroKoniecDev.TranslationSystem.API.Tests.Unit.Shared;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 using PatcherCarvedLine = LotroKoniecDev.Application.Parsers.CarvedTranslationLine;
 using PatcherCarver = LotroKoniecDev.Application.Parsers.TranslationLineCarver;
@@ -49,7 +50,7 @@ public sealed class ParserContractParityTests
         // Arrange: the patcher parser is per-line; the TMS parser is per-stream.
         LotroKoniecDev.Domain.Models.Translation patcher = new TranslationFileParser().ParseLine(line).Value;
 
-        ParsedExport tmsExport = await ParseAsync(line);
+        CollectedLines tmsExport = await ParseTextAsync(line);
         ParsedExportRow tms = tmsExport.Rows.ShouldHaveSingleItem();
 
         // Assert
@@ -72,7 +73,7 @@ public sealed class ParserContractParityTests
 
         LotroKoniecDev.Domain.Models.Translation patcher = new TranslationFileParser().ParseLine(line).Value;
 
-        ParsedExport tmsExport = await ParseAsync(line);
+        CollectedLines tmsExport = await ParseTextAsync(line);
         ParsedExportRow tms = tmsExport.Rows.ShouldHaveSingleItem();
 
         // Assert
@@ -98,7 +99,7 @@ public sealed class ParserContractParityTests
 
         // Act
         LotroKoniecDev.Domain.Models.Translation patcher = new TranslationFileParser().ParseLine(line).Value;
-        ParsedExportRow tms = (await ParseAsync(line)).Rows.ShouldHaveSingleItem();
+        ParsedExportRow tms = (await ParseTextAsync(line)).Rows.ShouldHaveSingleItem();
 
         // Assert
         patcher.Content.ShouldBe(rawContent);
@@ -116,7 +117,9 @@ public sealed class ParserContractParityTests
             .ToArray();
 
         await using FileStream stream = File.OpenRead(path);
-        ParsedExport tmsExport = await new TranslationExportParser().ParseAsync(stream, CancellationToken.None);
+        CollectedLines tmsExport = await new TranslationExportParser()
+            .ParseLinesAsync(stream, CancellationToken.None)
+            .CollectAsync();
 
         // Act
         TranslationFileParser patcher = new();
@@ -187,7 +190,7 @@ public sealed class ParserContractParityTests
         // Malformed on both sides (ADR-0042), never swallowed by one and stored by the other (#597).
         new TranslationFileParser().ParseLine(line).IsFailure.ShouldBeTrue();
 
-        ParsedExport tmsExport = await ParseAsync(line);
+        CollectedLines tmsExport = await ParseTextAsync(line);
         tmsExport.Rows.ShouldBeEmpty();
         tmsExport.Errors.ShouldHaveSingleItem();
     }
@@ -201,7 +204,7 @@ public sealed class ParserContractParityTests
         string line = $"620756992||1001||{escaped}||NULL||NULL||1";
 
         // Act
-        ParsedExport parsed = await ParseAsync(line);
+        CollectedLines parsed = await ParseTextAsync(line);
 
         // Assert
         parsed.Errors.ShouldBeEmpty();
@@ -222,17 +225,17 @@ public sealed class ParserContractParityTests
         string line = $"620756992||1001||{escaped}||NULL||NULL||1";
 
         // Act
-        ParsedExport parsed = await ParseAsync(line);
+        CollectedLines parsed = await ParseTextAsync(line);
 
         // Assert
         parsed.Errors.ShouldBeEmpty();
         parsed.Rows.ShouldHaveSingleItem().Content.ShouldBe(raw);
     }
 
-    private static async Task<ParsedExport> ParseAsync(string content)
+    private static async Task<CollectedLines> ParseTextAsync(string content)
     {
         using MemoryStream stream = new(Encoding.UTF8.GetBytes(content));
-        return await new TranslationExportParser().ParseAsync(stream, CancellationToken.None);
+        return await new TranslationExportParser().ParseLinesAsync(stream, CancellationToken.None).CollectAsync();
     }
 
     private static string ReconstructArgs(int[]? args)
@@ -258,7 +261,9 @@ public sealed class ParserContractParityTests
             .ToArray();
 
         await using FileStream stream = File.OpenRead(path);
-        ParsedExport tmsExport = await new TranslationExportParser().ParseAsync(stream, CancellationToken.None);
+        CollectedLines tmsExport = await new TranslationExportParser()
+            .ParseLinesAsync(stream, CancellationToken.None)
+            .CollectAsync();
 
         // Act
         TranslationFileParser patcher = new();

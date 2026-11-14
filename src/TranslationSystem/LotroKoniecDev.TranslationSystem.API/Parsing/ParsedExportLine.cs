@@ -45,22 +45,3 @@ public readonly record struct ParsedExportLine
         return new ParsedExportLine(null, error);
     }
 }
-
-/// <summary>
-/// The valid rows plus every failed line. The import streams through
-/// <see cref="ITranslationExportParser.ParseLinesAsync"/> instead, with the same rule: one failed line
-/// rejects the upload, because a skipped line looks like a removed row (spec 0001).
-/// </summary>
-public sealed class ParsedExport
-{
-    public IReadOnlyList<ParsedExportRow> Rows { get; }
-    public IReadOnlyList<ExportParseError> Errors { get; }
-
-    public bool HasErrors => Errors.Count > 0;
-
-    public ParsedExport(IReadOnlyList<ParsedExportRow> rows, IReadOnlyList<ExportParseError> errors)
-    {
-        Rows = rows;
-        Errors = errors;
-    }
-}

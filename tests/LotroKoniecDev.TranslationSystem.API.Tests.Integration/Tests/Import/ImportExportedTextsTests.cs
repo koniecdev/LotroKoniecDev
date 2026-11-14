@@ -623,6 +623,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         GameVersionId versionId = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
         using MultipartFormDataContent body = LargeExportContent(rowCount);
+        body.Headers.ContentLength.ShouldNotBeNull().ShouldBeGreaterThan(64L * 1024);
         _factory.WriteContextSqlRecorder.Clear();
         await InsertAndDeleteControlRowAsync(versionId);
 
@@ -637,8 +638,8 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         (await CountTranslationsAsync()).ShouldBe(rowCount);
         (await GetVersionStatusAsync(versionId)).ShouldBe(GameVersionStatus.Processed);
 
-        // The recorder sees only EF commands and the COPY goes around EF (ADR-0011), so the one INSERT is
-        // the control row. The UPDATE proves the recorder saw this request.
+        // The COPY goes around EF (ADR-0011), so the one INSERT is the control row. The UPDATE proves the
+        // recorder saw this request.
         IReadOnlyList<string> commands = _factory.WriteContextSqlRecorder.Commands;
         commands.ShouldContain(command => command.Contains("UPDATE translation.\"GameVersions\""));
         commands.Count(command => command.Contains("INSERT INTO translation.\"Translations\""))

@@ -41,8 +41,7 @@ a loud, non-corrupting failure the admin re-imports past idempotently.
 - A slower COPY (for example after a schema change, as with #439) shows only in the pass durations
   the import logs.
 - On the live database a full import takes minutes, not seconds: the file has about 790k rows and
-  is read twice (wiki `Import-do-TMS`). The server stops it at no time limit, so the page waits
-  until the import ends.
+  is read twice (wiki `Import-do-TMS`).
 
 The decided text below stays as it was agreed. Each statement this note changes points here.
 
@@ -151,8 +150,8 @@ The set-based write must reproduce `Translation`'s state machine exactly
 ## Acceptance criteria
 
 - [x] A baseline import of a large export (~hundreds of thousands of rows) completes in **< 10 s**
-      on the integration Postgres — the same payload that took ~3 min. *(No longer tested: see the
-      2026-11-14 amendment.)*
+      on the integration Postgres — the same payload that took ~3 min. *(Met with #276; failed on CI
+      after #439, and no longer tested: see the 2026-11-14 amendment.)*
 - [x] Every existing `ImportExportedTextsTests` integration test stays green with **assertions
       untouched** (idempotent no-op timestamp, the all-five-outcomes case, mass-removal 422 +
       state-intact, truncated/empty/duplicate 422s, auth) — proving semantics are byte-for-byte

@@ -786,8 +786,8 @@ Details that make this flow production-grade:
 
 Performance: new rows go in with one bulk COPY, and an integration test checks that none of them
 goes in through an EF INSERT. No test measures the import time, because time depends on machine
-load (#891). On the live database a full baseline (~790k rows) takes minutes, because the file is
-read twice over the network.
+load (#891). On the live database a full baseline takes minutes, because the file has about 790k
+rows and is read twice.
 
 ### 5.5 Translating and approving
 

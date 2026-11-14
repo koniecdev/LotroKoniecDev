@@ -28,11 +28,6 @@ public sealed class TranslationFileDownloadRateLimitingTests
 
     private readonly TranslationSystemApiFactory _factory;
 
-    public TranslationFileDownloadRateLimitingTests(TranslationSystemApiFactory factory)
-    {
-        _factory = factory;
-    }
-
     [Fact]
     public async Task Download_WhenTheBudgetIsSpent_ShouldAnswer429AndSayWhenToTryAgain()
     {
@@ -96,6 +91,11 @@ public sealed class TranslationFileDownloadRateLimitingTests
 
         // Assert: the bucket that filled is the first visitor's, not the container's
         bystander.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    public TranslationFileDownloadRateLimitingTests(TranslationSystemApiFactory factory)
+    {
+        _factory = factory;
     }
 
     private sealed record Caller(string ConnectionAddress, IReadOnlyCollection<string> KeyValues, IReadOnlyCollection<string> AddressValues)

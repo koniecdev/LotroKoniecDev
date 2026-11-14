@@ -1,6 +1,6 @@
 ---
 description: Walk staging in Claude in Chrome as a first-time user with one goal, and report PASSED or the step where you got stuck, with screenshots. Proposed by the session that promotes a batch that changes the UI, before the prod click. Never on every PR, never on prod.
-argument-hint: "<goal>"   (default: "as a new translator, translate one line")
+argument-hint: '"<goal>" (default: "as a new translator, translate one line")'
 ---
 
 > **Maintainer-only.** It needs Claude in Chrome, a mailbox the operator can read, and staging.

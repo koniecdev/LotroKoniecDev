@@ -82,14 +82,15 @@ cannot_tell() {
 }
 
 # rc 0 = baseline echoed; 1 = the API could not answer; 2 = no record ever reached `success`.
+# gh's own --jq, so a local run needs no jq install; gh exits 1 when the answer is not a list.
 resolve_baseline() {
     local records id sha states
-    records="$(gh api --paginate "repos/${repository}/deployments?environment=${environment}&per_page=100" 2>/dev/null \
-        | jq -r '.[] | "\(.id) \(.sha)"' 2>/dev/null)" || return 1
+    records="$(gh api --paginate "repos/${repository}/deployments?environment=${environment}&per_page=100" \
+        --jq '.[] | "\(.id) \(.sha)"' 2>/dev/null)" || return 1
     while read -r id sha; do
         [ -n "$id" ] || continue
-        states="$(gh api "repos/${repository}/deployments/${id}/statuses?per_page=100" 2>/dev/null \
-            | jq -r '.[].state' 2>/dev/null)" || return 1
+        states="$(gh api "repos/${repository}/deployments/${id}/statuses?per_page=100" \
+            --jq '.[].state' 2>/dev/null)" || return 1
         if grep -qx 'success' <<< "$states"; then
             printf '%s\n' "$sha"
             return 0

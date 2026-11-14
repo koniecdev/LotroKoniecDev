@@ -102,6 +102,7 @@ short_frontend="$(git -C "$FIXTURE" rev-parse --short=7 "$FRONTEND")"
 # STUB_GH_FAIL      — every `gh` call dies
 # STUB_REPO         — what `gh repo view` answers; STUB_REPO_FAIL makes it die instead
 # STUB_CALLS        — every `gh api` URL is appended here
+# A --jq filter is applied with jq, as gh applies it, and a filter error exits 1, as gh does.
 # STUB_PAGE1/PAGE2  — the deployments list; PAGE2 is served only with --paginate, after PAGE1,
 #                     as two concatenated arrays (a resolver that forgot --paginate misses it)
 # STUB_STATUSES_DIR — <deployment-id>.json for each statuses call
@@ -117,30 +118,42 @@ if [ "${1:-}" = repo ] && [ "${2:-}" = view ]; then
 fi
 url=""
 paginate=""
+filter=""
+previous=""
 for arg in "$@"; do
+    [ "$previous" != '--jq' ] || filter="$arg"
     case "$arg" in
         repos/*) url="$arg" ;;
         --paginate) paginate=1 ;;
     esac
+    previous="$arg"
 done
 printf '%s\n' "$url" >> "$STUB_CALLS"
-case "$url" in
-    */deployments/*/statuses*)
-        id="${url#*/deployments/}"
-        id="${id%%/*}"
-        cat "$STUB_STATUSES_DIR/$id.json"
-        ;;
-    */deployments\?environment=production*)
-        cat "$STUB_PAGE1"
-        if [ -n "$paginate" ] && [ -s "${STUB_PAGE2:-/nonexistent}" ]; then
-            cat "$STUB_PAGE2"
-        fi
-        ;;
-    *)
-        echo "stub gh: unexpected call: $*" >&2
-        exit 1
-        ;;
-esac
+body() {
+    case "$url" in
+        */deployments/*/statuses*)
+            id="${url#*/deployments/}"
+            id="${id%%/*}"
+            cat "$STUB_STATUSES_DIR/$id.json"
+            ;;
+        */deployments\?environment=production*)
+            cat "$STUB_PAGE1"
+            if [ -n "$paginate" ] && [ -s "${STUB_PAGE2:-/nonexistent}" ]; then
+                cat "$STUB_PAGE2"
+            fi
+            ;;
+        *)
+            echo "stub gh: unexpected call: $*" >&2
+            return 1
+            ;;
+    esac
+}
+if [ -z "$filter" ]; then
+    body
+    exit
+fi
+answer="$(body)" || exit 1
+jq -r "$filter" <<< "$answer" || exit 1
 STUB
 chmod +x "$BIN/gh"
 PATH="$BIN:$PATH"

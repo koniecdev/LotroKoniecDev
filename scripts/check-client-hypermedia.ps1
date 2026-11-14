@@ -10,7 +10,8 @@
     of its own - a hardcoded "/api/v1/..." silently reintroduces the coupling those tickets
     removed, and it fails at runtime (404, or worse a call the caller was never authorized to
     make) instead of at build time. The CLI is the sharper case: it ships to players' machines and
-    cannot be updated remotely, so a path baked into it is a permanent commitment.
+    cannot be updated remotely, so a path baked into it is a permanent commitment. It also stops the
+    Frontend from writing a sign-in server address of its own (#1114).
 
     CLAUDE.md and ADR-0041 state the rule in prose; this script enforces it. CI runs the .sh;
     this .ps1 is the local twin for Windows devs - keep the two in sync.
@@ -33,6 +34,12 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 # use double quotes, so one pattern covers every real occurrence; the version is matched loosely
 # so a future /api/v2 cannot slip through.
 $apiPathPattern = '"[^"]*api/v[0-9]'
+
+# A double-quoted literal containing an OAuth or OpenID Connect path of the sign-in server, such as
+# connect/token or .well-known/openid-configuration. The website reads those addresses from the
+# discovery document (#1114). The path must start the literal or follow a character that cannot be
+# part of a word, so a word such as "disconnect/" does not match.
+$authPathPattern = '"([^"]*[^"A-Za-z0-9_.-])?(connect|\.well-known)/'
 
 $script:fail = $false
 
@@ -60,6 +67,7 @@ function Find-SourceFile {
 function Test-Hypermedia {
     param(
         [Parameter(Mandatory)][string] $Client,
+        [Parameter(Mandatory)][string] $Pattern,
         [Parameter(Mandatory)][string] $Message
     )
 
@@ -85,7 +93,7 @@ function Test-Hypermedia {
     }
 
     try {
-        $hits = $files | Select-String -Pattern $apiPathPattern -CaseSensitive -ErrorAction Stop
+        $hits = $files | Select-String -Pattern $Pattern -CaseSensitive -ErrorAction Stop
     }
     catch {
         Write-Host "Hypermedia guard: could not read the files under ${dir}: $($_.Exception.Message)"
@@ -101,18 +109,21 @@ function Test-Hypermedia {
     }
 }
 
-Test-Hypermedia -Client 'Frontend' `
+Test-Hypermedia -Client 'Frontend' -Pattern $apiPathPattern `
     -Message 'A TMS API path is hardcoded in a string literal under src/Frontend. Resolve the entry point by rel instead: IDiscoveryCache.ResolveTranslationSystemHrefAsync(Rels.<Name>), or follow the href a loaded resource already advertises.'
 
-Test-Hypermedia -Client 'Patcher' `
+Test-Hypermedia -Client 'Frontend' -Pattern $authPathPattern `
+    -Message 'A sign-in server address (an OAuth or OpenID Connect path) is hardcoded in a string literal under src/Frontend. Read it from the discovery document instead, through SignInServerDiscovery (#1114).'
+
+Test-Hypermedia -Client 'Patcher' -Pattern $apiPathPattern `
     -Message 'A TMS API path is hardcoded in a string literal under src/Patcher. The CLI ships to players and cannot be updated remotely, so a baked-in path is permanent - resolve the endpoint by rel through ITranslationFileEndpointResolver instead.'
 
 if ($script:fail) {
     Write-Host "----------------------------------------------------------------------"
-    Write-Host "Hypermedia guard FAILED - API clients must not hardcode API paths."
+    Write-Host "Hypermedia guard FAILED - API clients must not hardcode API or sign-in server paths."
     Write-Host "See ADR-0041 and CLAUDE.md -> 'No API gateway'. A client takes one root URL"
     Write-Host "per service as config and resolves everything else by rel name."
     exit 1
 }
 
-Write-Host "OK Hypermedia guard passed - the Frontend and the CLI resolve their entry points by rel."
+Write-Host "OK Hypermedia guard passed - the Frontend and the CLI resolve their entry points by rel, and the Frontend writes no sign-in server path."

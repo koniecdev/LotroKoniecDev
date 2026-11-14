@@ -61,7 +61,7 @@ its own rules on its own `xmin`:
 
 `Translation` cannot tell an older approved proposal from the live one by itself, so the handler
 loads the named proposal and the live one and passes them in; `Translation` decides. The author
-rule of #1368 lives here too: given the proposal's author and whether that text was ever live,
+rule (#1345 brings it for reject, #1368 for approve) lives here too: given the proposal's author and whether that text was ever live,
 `Translation` refuses an author who approves or rejects their own text that has never been live.
 The link factory mirrors the same rule (ADR-0040).
 `WaitingProposalId` is cleared when the waiting proposal is approved, rejected or withdrawn.
@@ -96,7 +96,8 @@ model.
 ### 5. Bulk paths insert new proposal rows and never load a history
 
 The bulk paths of #1372 and #1373 insert proposals as new rows, set-based (`COPY` or a batched
-`INSERT`, their choice). They never load the history of a row to add to it. In the same
+`INSERT`, their choice). They never load the history of a row to add to it. They come after the
+contract step (#1388), so they never write in the deploy window of spec 0014. In the same
 transaction they set `WaitingProposalId` and mark a replaced proposal, either through `Translation`
 in chunks or with set-based SQL that keeps the same rules; the partial unique index is the
 backstop.
@@ -113,12 +114,12 @@ backstop.
 ### Negative / Accepted Trade-offs
 
 - Two aggregates change in one transaction (decision 3). This is accepted and must not be "fixed".
-- Today `TranslatedText` also holds drafts nobody approved. Under this model it holds only the live
-  text, so the migration must keep the previous app revision working while the meaning moves
-  (ADR-0023 expand → backfill → contract). The N-1 run of ADR-0024 runs the old tests against the
-  new schema, but it cannot see rows the old revision writes during the deploy or after a rollback;
-  spec 0014 ("Files touched") sets the rules for that window, and the contract step (#1388)
-  reconciles those rows by their state.
+- `TranslatedText` keeps today's meaning for good (the live text, or the waiting text when nothing
+  is live), so the previous app revision can read every row (ADR-0023). The N-1 run of ADR-0024
+  runs the old tests against the new schema, but it cannot see rows the old revision writes during
+  the deploy or after a rollback. Spec 0014 ("The deploy window") freezes such rows until the
+  contract step (#1388) reconciles them, and only the first implementation ticket writes in that
+  window.
 - A row in "Do ponownego sprawdzenia" keeps that status through saves, rejects and withdraws until
   an approval, so stale Polish never returns under changed English (ADR-0047).
 - ADR-0072 counts a save that replaces Polish as an overwrite. A save no longer replaces anything,

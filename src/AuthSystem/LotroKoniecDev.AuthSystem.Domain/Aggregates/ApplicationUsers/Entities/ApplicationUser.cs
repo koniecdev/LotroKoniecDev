@@ -38,9 +38,9 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     public string? NormalizedEmailChangeRevertTo { get; set; }
 
     /// <summary>
-    /// While the revert token lives, the address stays reserved against registration, another account's
-    /// e-mail change and the admin seed, so nobody can take an address the owner still has a link back
-    /// to (#684). Null means the address is not reserved.
+    /// While the revert token lives, no other account may take the address the owner still has a link
+    /// back to (#684). An Identity user validator in the API enforces it on every create and update
+    /// through <c>UserManager</c> (#905). Null means the address is not reserved.
     /// </summary>
     public DateTimeOffset? EmailChangeRevertArmedAt { get; set; }
 

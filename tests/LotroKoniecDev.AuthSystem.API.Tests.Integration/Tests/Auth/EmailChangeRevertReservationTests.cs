@@ -1,19 +1,26 @@
 using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
+using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
 using LotroKoniecDev.AuthSystem.Persistence.Outbox;
+using LotroKoniecDev.Tests.Shared;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
@@ -44,6 +51,33 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
 
         // Only the confirmation of the account the arrange registered.
         (await CountRegistrationOutboxRowsAsync()).ShouldBe(1);
+    }
+
+    /// <summary>
+    /// The operator's only sign of this refusal: the visitor gets the same 202 as on any address.
+    /// </summary>
+    [Fact]
+    public async Task Register_ShouldLogTheReservedAddressWarning_WhileTheFreedAddressIsAnArmedRevertTarget()
+    {
+        (RegisterRequest user, _, _) = await CompleteChangeAsync();
+        using CapturingLoggerFactory loggerFactory = new();
+        await using WebApplicationFactory<Program> host = Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                // A second relay on this database could take a row another test waits for.
+                AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
+
+                services.AddSingleton<ILoggerFactory>(loggerFactory);
+            }));
+        using HttpClient client = host.CreateClient();
+
+        using HttpResponseMessage response = await RegisterOnAsync(client, user.Email);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        CapturingLoggerFactory.LogEntry entry = loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.RegisterReservedAddressRefused)
+            .ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
     }
 
     [Fact]
@@ -334,6 +368,119 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     }
 
     /// <summary>
+    /// The rule sits in a user validator, so a code path with no reservation check of its own still cannot
+    /// move an account onto a reserved address (#905).
+    /// </summary>
+    [Fact]
+    public async Task UserManagerUpdate_ShouldRefuseToMoveAnAccountOntoAnotherAccountsRevertTarget()
+    {
+        (RegisterRequest owner, _, _) = await CompleteChangeAsync();
+        (RegisterRequest other, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        Guid otherUserId = await UserIdOfAsync(other.Email);
+
+        IdentityResult result = await MoveWithUserManagerAsync(otherUserId, owner.Email);
+
+        result.Errors.ShouldHaveSingleItem().Code.ShouldBe(EmailChangeRevertReservationValidator.ErrorCode);
+        (await LoadUserByIdAsync(otherUserId)).Email.ShouldBe(other.Email);
+    }
+
+    /// <summary>
+    /// Identity's uniqueness lookup must run before the reservation lookup. Then an address that its holder
+    /// leaves and arms at the same moment is caught by one of the two, whatever the timing (ADR-0048 rule 4).
+    /// No race test can hold a request between the two lookups in both orders, so the order is pinned here.
+    /// </summary>
+    [Fact]
+    public async Task UserManager_ShouldRunTheReservationValidatorAfterIdentitysOwnValidator()
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        List<Type> validatorTypes = userManager.UserValidators.Select(validator => validator.GetType()).ToList();
+
+        validatorTypes.ShouldContain(typeof(UserValidator<ApplicationUser>));
+        validatorTypes.ShouldContain(typeof(EmailChangeRevertReservationValidator));
+        validatorTypes.IndexOf(typeof(UserValidator<ApplicationUser>))
+            .ShouldBeLessThan(validatorTypes.IndexOf(typeof(EmailChangeRevertReservationValidator)));
+    }
+
+    [Fact]
+    public async Task UserManagerCreate_ShouldRefuseAnAccountOnAnotherAccountsRevertTarget()
+    {
+        (RegisterRequest owner, _, _) = await CompleteChangeAsync();
+
+        IdentityResult result = await CreateWithUserManagerAsync(owner.Email);
+
+        result.Errors.ShouldHaveSingleItem().Code.ShouldBe(EmailChangeRevertReservationValidator.ErrorCode);
+        (await CountAccountsOnAsync(owner.Email)).ShouldBe(0);
+    }
+
+    /// <summary>
+    /// Legacy data: another row reserves the address this account already sits on. A failed login saves the
+    /// account without changing its address, so the validator must not refuse it, or the counter that leads
+    /// to a lockout would never grow (#905).
+    /// </summary>
+    [Fact]
+    public async Task TokenEndpoint_ShouldCountAFailedLogin_WhenAnotherRowReservesTheAccountsOwnAddress()
+    {
+        (Guid userId, string email) = await RegisterAnAccountWhoseAddressAnotherRowReservesAsync();
+
+        using HttpResponseMessage response = await RequestPasswordGrantAsync(email, "WrongPass1!");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await LoadUserByIdAsync(userId)).AccessFailedCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ChangePassword_ShouldSucceed_WhenAnotherRowReservesTheAccountsOwnAddress()
+    {
+        const string newPassword = "NewPass99!";
+        (_, string email) = await RegisterAnAccountWhoseAddressAnotherRowReservesAsync();
+        string accessToken = await GetAccessTokenAsync(email, Password);
+
+        using HttpRequestMessage request = new(HttpMethod.Post, "auth/change-password");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Content = JsonContent.Create(new ChangePasswordRequest(Password, newPassword));
+        using HttpResponseMessage response = await ApiClient.Http.SendAsync(request);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using HttpResponseMessage login = await RequestPasswordGrantAsync(email, newPassword);
+        login.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    /// <summary>
+    /// The undo checks only its token, which outlives the reservation (ADR-0048). So another account can hold
+    /// a live undo to the same address while this link still works. Taking the address would break that
+    /// undo, so the move is refused as a taken address, and the password stays (#905).
+    /// </summary>
+    [Fact]
+    public async Task RevertPage_Post_ShouldKeepThePassword_WhenAnotherAccountHoldsALiveUndoToTheSameAddress()
+    {
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+        string revertToken = EmailChangeEmailSpy.LastRevertTokenSentTo(user.Email)!;
+
+        // This account's own hold has run out, while its link still works: the token keeps its own age.
+        await BackdateArmingAsync(userId, TimeSpan.FromDays(15));
+        (RegisterRequest other, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        await AccountStateFactory.ReserveAddressAsync(Factory.Services, other.Email, user.Email);
+
+        HttpResponseMessage response = await PostToPageAsync(
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, revertToken),
+            RevertForm(userId, user.Email, newEmail, revertToken));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("Poprzedni adres należy już do innego konta");
+
+        ApplicationUser untouched = await LoadUserByIdAsync(userId);
+        untouched.Email.ShouldBe(newEmail);
+        untouched.PasswordHash.ShouldNotBeNull();
+        (await CountAccountsOnAsync(user.Email)).ShouldBe(0);
+    }
+
+    /// <summary>
     /// The spy is reset first, for a chain that moves to the same address twice (A to B to A to B):
     /// otherwise the waits would return on the first move's mails.
     /// </summary>
@@ -349,6 +496,49 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
 
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(targetEmail);
         await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync(targetEmail);
+    }
+
+    /// <summary>
+    /// The state no current path creates: another account's row reserves the address this one sits on, as
+    /// rows armed before the reservation existed could.
+    /// </summary>
+    private async Task<(Guid UserId, string Email)> RegisterAnAccountWhoseAddressAnotherRowReservesAsync()
+    {
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        (RegisterRequest holder, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        await AccountStateFactory.ReserveAddressAsync(Factory.Services, holder.Email, user.Email);
+
+        return (await UserIdOfAsync(user.Email), user.Email);
+    }
+
+    /// <summary>A save straight through <c>UserManager</c>, with no reservation check of its own.</summary>
+    private async Task<IdentityResult> MoveWithUserManagerAsync(Guid userId, string email)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        ApplicationUser user = (await userManager.FindByIdAsync(userId.ToString()))!;
+        user.Email = email;
+
+        return await userManager.UpdateAsync(user);
+    }
+
+    private async Task<IdentityResult> CreateWithUserManagerAsync(string email)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        ApplicationUser user = new()
+        {
+            UserName = Faker.Random.AlphaNumeric(16),
+            Email = email
+        };
+
+        return await userManager.CreateAsync(user, Password);
     }
 
     private static string MixCase(string email) =>
@@ -392,8 +582,10 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
-    private async Task<HttpResponseMessage> RegisterOnAsync(string email) =>
-        await ApiClient.Http.PostAsJsonAsync(
+    private Task<HttpResponseMessage> RegisterOnAsync(string email) => RegisterOnAsync(ApiClient.Http, email);
+
+    private async Task<HttpResponseMessage> RegisterOnAsync(HttpClient client, string email) =>
+        await client.PostAsJsonAsync(
             new Uri("auth/register", UriKind.Relative),
             new RegisterRequest(
                 Faker.Random.AlphaNumeric(16),

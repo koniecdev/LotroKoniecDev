@@ -114,6 +114,11 @@ internal static class ApiDependencyInjection
             // would replace Identity's rules instead of joining them (ADR-0066).
             services.AddScoped<IPasswordValidator<ApplicationUser>, BreachedPasswordValidator>();
 
+            // After AddIdentityCore for the same reason. Running after the built-in validator matters too:
+            // its uniqueness lookup comes first, so an address its holder leaves and arms in between is caught
+            // by one of the two lookups. That covers a caller with no lookup of its own (#905).
+            services.AddScoped<IUserValidator<ApplicationUser>, EmailChangeRevertReservationValidator>();
+
             services.AddScoped<IUserSessionRevoker, UserSessionRevoker>();
             services.AddSingleton<SignInSessionTicketStore>();
             services.AddScoped<IEmailChangeRevertWindow, EmailChangeRevertWindow>();

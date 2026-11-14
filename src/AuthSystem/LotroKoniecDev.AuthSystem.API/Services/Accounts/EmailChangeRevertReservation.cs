@@ -7,9 +7,11 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Accounts;
 
 /// <inheritdoc />
 /// <remarks>
-/// One indexed lookup, which registration runs on every attempt. <see cref="IEmailChangeRevertWindow"/>
-/// decides how long the address stays held, so this and the erasure hold of #685 agree. The address-taken
-/// refusal in <c>RevertEmailChange</c> covers the moment between the window closing and the token expiring.
+/// One indexed lookup. <see cref="EmailChangeRevertReservationValidator"/> runs it on every create and
+/// address change through <c>UserManager</c> (#905), and the e-mail change dispatch runs it before it picks
+/// a mail. <see cref="IEmailChangeRevertWindow"/> decides how long the address stays held, so this and the
+/// erasure hold of #685 agree. The address-taken refusal in <c>RevertEmailChange</c> covers the moment
+/// between the window closing and the token expiring.
 /// </remarks>
 internal sealed class EmailChangeRevertReservation : IEmailChangeRevertReservation
 {

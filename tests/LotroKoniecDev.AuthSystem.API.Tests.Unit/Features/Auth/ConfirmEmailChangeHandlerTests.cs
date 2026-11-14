@@ -7,7 +7,9 @@ using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Shouldly;
 
@@ -119,6 +121,64 @@ public sealed class ConfirmEmailChangeHandlerTests
         result.Error.Code.ShouldBe("Auth.UserAlreadyExistsByEmail");
     }
 
+    [Fact]
+    public async Task Handle_TheSaveIsRefusedForAReservedAddress_RefusesAsTaken()
+    {
+        ApplicationUser user = CreateUser();
+        StubUser(user);
+        StubTheStoredRowAfterARefusedSave(user);
+        _userManager.UpdateAsync(user).Returns(ReservedAddressFailure());
+        ConfirmEmailChange.Handler sut = CreateSut();
+
+        SharedKernel.Monads.Result result = await sut.Handle(CommandFor(user.Id), CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Auth.UserAlreadyExistsByEmail");
+    }
+
+    [Fact]
+    public async Task Handle_TheSaveIsRefusedForAReservedAddressAndAnotherReason_RefusesAsTaken()
+    {
+        ApplicationUser user = CreateUser();
+        StubUser(user);
+        StubTheStoredRowAfterARefusedSave(user);
+        _userManager.UpdateAsync(user).Returns(IdentityResult.Failed(
+            new IdentityError
+            {
+                Code = nameof(IdentityErrorDescriber.InvalidUserName),
+                Description = "Username is invalid."
+            },
+            new IdentityError
+            {
+                Code = EmailChangeRevertReservationValidator.ErrorCode,
+                Description = "This e-mail address is already taken."
+            }));
+        ConfirmEmailChange.Handler sut = CreateSut();
+
+        SharedKernel.Monads.Result result = await sut.Handle(CommandFor(user.Id), CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Auth.UserAlreadyExistsByEmail");
+    }
+
+    /// <summary>The operator's only sign of a refusal the visitor sees as an ordinary taken address.</summary>
+    [Fact]
+    public async Task Handle_TheSaveIsRefusedForAReservedAddress_LogsTheReservedAddressWarning()
+    {
+        ApplicationUser user = CreateUser();
+        StubUser(user);
+        StubTheStoredRowAfterARefusedSave(user);
+        _userManager.UpdateAsync(user).Returns(ReservedAddressFailure());
+        CapturingLogger<ConfirmEmailChange.Handler> logger = new();
+        ConfirmEmailChange.Handler sut = CreateSut(logger);
+
+        await sut.Handle(CommandFor(user.Id), CancellationToken.None);
+
+        CapturingLogger<ConfirmEmailChange.Handler>.LogEntry entry = logger.Entries.ShouldHaveSingleItem();
+        entry.EventId.ShouldBe(EventIds.EmailChangeConfirmAddressReserved);
+        entry.Level.ShouldBe(LogLevel.Warning);
+    }
+
     private static ConfirmEmailChange.Command CommandFor(Guid userId) =>
         new(userId.ToString(), NewEmail, "confirm-token", "203.0.113.7", "xunit");
 
@@ -135,6 +195,20 @@ public sealed class ConfirmEmailChangeHandlerTests
         _userManager.UpdateAsync(user).Returns(IdentityResult.Success);
     }
 
+    /// <summary>
+    /// After a refused save the handler may read the account again. The store still holds the old row
+    /// then, not the instance the handler already changed in memory.
+    /// </summary>
+    private void StubTheStoredRowAfterARefusedSave(ApplicationUser user) =>
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user, CreateUser(user.Id));
+
+    private static IdentityResult ReservedAddressFailure() =>
+        IdentityResult.Failed(new IdentityError
+        {
+            Code = EmailChangeRevertReservationValidator.ErrorCode,
+            Description = "This e-mail address is already taken."
+        });
+
     private static IdentityResult ConcurrencyFailure() =>
         IdentityResult.Failed(new IdentityError
         {
@@ -142,16 +216,15 @@ public sealed class ConfirmEmailChangeHandlerTests
             Description = "Optimistic concurrency failure."
         });
 
-    private ConfirmEmailChange.Handler CreateSut() =>
+    private ConfirmEmailChange.Handler CreateSut(ILogger<ConfirmEmailChange.Handler>? logger = null) =>
         new(
             _userManager,
             _db,
             new OutboxWriter(_db, TimeProvider.System),
             _sessionRevoker,
-            Substitute.For<IEmailChangeRevertReservation>(),
             TimeProvider.System,
             new ConfirmEmailChange.CommandValidator(),
-            NullLogger<ConfirmEmailChange.Handler>.Instance);
+            logger ?? NullLogger<ConfirmEmailChange.Handler>.Instance);
 
     private static ApplicationUser CreateUser(Guid? id = null) =>
         new()

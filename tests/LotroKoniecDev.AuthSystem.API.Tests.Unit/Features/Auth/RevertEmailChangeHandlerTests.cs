@@ -3,10 +3,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Shouldly;
 
@@ -362,6 +365,47 @@ public sealed class RevertEmailChangeHandlerTests
             .ShouldBe(1);
     }
 
+    /// <summary>
+    /// Another account holds a live undo to the previous address while this link still works: the token
+    /// outlives the reservation (ADR-0048). The user validator refuses the move (#905), and the answer is
+    /// the taken-address one, which keeps the password.
+    /// </summary>
+    [Fact]
+    public async Task Handle_TheSaveIsRefusedForAReservedPreviousAddress_RefusesAsAddressTaken()
+    {
+        ApplicationUser user = CreateUser();
+        StubUser(user, tokenValid: true);
+        StubTheStoredRowAfterARefusedSave(user);
+        _userManager.UpdateAsync(user).Returns(ReservedAddressFailure());
+        RevertEmailChange.Handler sut = CreateSut();
+
+        SharedKernel.Monads.Result<RevertEmailChange.RevertedEmailChange> result = await sut.Handle(
+            CommandFor(user.Id.ToString()), CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Auth.UserAlreadyExistsByEmail");
+    }
+
+    /// <summary>
+    /// Its own line, because "lost a race" would send an operator after a race that never happened.
+    /// </summary>
+    [Fact]
+    public async Task Handle_TheSaveIsRefusedForAReservedPreviousAddress_LogsTheReservedAddressWarning()
+    {
+        ApplicationUser user = CreateUser();
+        StubUser(user, tokenValid: true);
+        StubTheStoredRowAfterARefusedSave(user);
+        _userManager.UpdateAsync(user).Returns(ReservedAddressFailure());
+        CapturingLogger<RevertEmailChange.Handler> logger = new();
+        RevertEmailChange.Handler sut = CreateSut(logger);
+
+        await sut.Handle(CommandFor(user.Id.ToString()), CancellationToken.None);
+
+        CapturingLogger<RevertEmailChange.Handler>.LogEntry entry = logger.Entries.ShouldHaveSingleItem();
+        entry.EventId.ShouldBe(EventIds.EmailChangeRevertAddressReserved);
+        entry.Level.ShouldBe(LogLevel.Warning);
+    }
+
     private static RevertEmailChange.Command CommandFor(string userId) =>
         new(userId, PreviousEmail, CurrentEmail, "revert-token", "203.0.113.7", "xunit");
 
@@ -397,14 +441,21 @@ public sealed class RevertEmailChangeHandlerTests
         return reverted;
     }
 
-    private RevertEmailChange.Handler CreateSut() =>
+    private static IdentityResult ReservedAddressFailure() =>
+        IdentityResult.Failed(new IdentityError
+        {
+            Code = EmailChangeRevertReservationValidator.ErrorCode,
+            Description = "This e-mail address is already taken."
+        });
+
+    private RevertEmailChange.Handler CreateSut(ILogger<RevertEmailChange.Handler>? logger = null) =>
         new(
             _userManager,
             _db,
             new OutboxWriter(_db, TimeProvider.System),
             _sessionRevoker,
             new RevertEmailChange.CommandValidator(),
-            NullLogger<RevertEmailChange.Handler>.Instance);
+            logger ?? NullLogger<RevertEmailChange.Handler>.Instance);
 
     private static ApplicationUser CreateUser(Guid? id = null) =>
         new()

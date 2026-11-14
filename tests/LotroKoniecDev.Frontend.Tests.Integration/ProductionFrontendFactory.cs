@@ -14,6 +14,8 @@ public class ProductionFrontendFactory : WebApplicationFactory<Program>
     // Built rather than written out, so no secret scanner mistakes test data for a key.
     private static readonly string CallerKey = new('k', 40);
 
+    private static readonly string ClientSecret = new('s', 40);
+
     private readonly string _keyRingPath = Path.Combine(
         Path.GetTempPath(),
         $"lotro-frontend-production-keyring-{Guid.NewGuid():N}");
@@ -29,6 +31,7 @@ public class ProductionFrontendFactory : WebApplicationFactory<Program>
         builder.UseSetting("AuthSystem:BaseUrl", "https://auth.staging.invalid/");
         builder.UseSetting("AuthSystem:Authority", "https://auth.staging.invalid");
         builder.UseSetting("AuthSystem:CallerKey", CallerKey);
+        builder.UseSetting("AuthSystem:ClientSecret", ClientSecret);
     }
 
     protected override IHost CreateHost(IHostBuilder builder) => HostStartOrder.BuildAndStart(builder);

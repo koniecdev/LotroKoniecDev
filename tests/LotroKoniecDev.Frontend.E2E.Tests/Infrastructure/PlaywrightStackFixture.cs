@@ -62,7 +62,8 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
 
     private const string Audience = "lotrokoniecdev-api";
     private const string ApiClientSecret = "fe-e2e-api-client-secret-min-32-characters";
-    private const string WebClientId = "lotrokoniecdev-web";
+    private const string WebClientId = "lotrokoniecdev-frontend";
+    private const string WebClientSecret = "fe-e2e-frontend-client-secret-min-32-characters";
 
     private const string AdminUsername = "fee2eadmin";
     private const string AdminEmail = "fe-e2e-admin@lotro-translator.pl";
@@ -198,6 +199,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
             .WithEnvironment("ConnectionStrings__AuthDatabase", AuthConnectionString)
             .WithEnvironment("OpenIddict__Issuer", AuthHttpsOrigin)
             .WithEnvironment("OpenIddict__ApiClientSecret", ApiClientSecret)
+            .WithEnvironment("OpenIddict__FrontendClientSecret", WebClientSecret)
             .WithEnvironment("OpenIddict__WebClient__RedirectUris__0", $"{FrontendHttpsOrigin}/callback")
             .WithEnvironment("OpenIddict__WebClient__PostLogoutRedirectUris__0", FrontendHttpsOrigin)
             .WithEnvironment("OpenIddict__WebClient__PostLogoutRedirectUris__1", $"{FrontendHttpsOrigin}/")
@@ -267,6 +269,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
             .WithEnvironment("AuthSystem__Authority", AuthHttpsOrigin)
             .WithEnvironment("AuthSystem__BaseUrl", $"{AuthHttpsOrigin}/")
             .WithEnvironment("AuthSystem__ClientId", WebClientId)
+            .WithEnvironment("AuthSystem__ClientSecret", WebClientSecret)
             .WithEnvironment("TranslationSystem__BaseUrl", $"{TmsHttpsOrigin}/")
             .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__Path", "/certs/e2e.crt")
             .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__KeyPath", "/certs/e2e.key")

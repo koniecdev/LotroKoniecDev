@@ -14,6 +14,12 @@ internal sealed class AuthSystemSettings
 
     public required string ClientId { get; init; }
 
+    /// <summary>
+    /// Sent on the code exchange, the refresh and the revoke, because this app is a confidential client
+    /// (ADR-0074). Compose feeds the auth API the same <c>FRONTEND_CLIENT_SECRET</c>.
+    /// </summary>
+    public string? ClientSecret { get; init; }
+
     public required string CallbackPath { get; init; }
 
     public required string SignedOutCallbackPath { get; init; }

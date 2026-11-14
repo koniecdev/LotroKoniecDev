@@ -1,5 +1,4 @@
 using System.Data.Common;
-using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
@@ -615,19 +614,20 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Import_LargeBaseline_ShouldBulkInsertEveryRowWithinTheBudget()
+    public async Task Import_Baseline_ShouldBulkInsertEveryRowWithoutEfInserts()
     {
-        // Arrange: every row new. The budget is 20 s: the pointer indexes and foreign keys (#439) put CI
-        // at 10.3 to 11.7 s, while row-by-row EF writes would take about 50 s here (#214, ADR-0011).
-        const int rowCount = 200_000;
+        // Arrange: every row new. 5,000 rows keep the upload above ASP.NET's 64 KB form buffer, so both
+        // passes re-read a file spooled to disk. The control row proves that the INSERT text asserted
+        // below still matches an EF insert.
+        const int rowCount = 5_000;
         GameVersionId versionId = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
         using MultipartFormDataContent body = LargeExportContent(rowCount);
+        _factory.WriteContextSqlRecorder.Clear();
+        await InsertAndDeleteControlRowAsync(versionId);
 
         // Act
-        Stopwatch stopwatch = Stopwatch.StartNew();
         HttpResponseMessage response = await client.PostAsync(ImportRoute(versionId), body);
-        stopwatch.Stop();
         ImportSummary? summary = await response.Content.ReadFromJsonAsync<ImportSummary>();
 
         // Assert
@@ -636,7 +636,14 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         summary.Added.ShouldBe(rowCount);
         (await CountTranslationsAsync()).ShouldBe(rowCount);
         (await GetVersionStatusAsync(versionId)).ShouldBe(GameVersionStatus.Processed);
-        stopwatch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(20));
+
+        // The recorder sees only EF commands and the COPY goes around EF (ADR-0011), so the one INSERT is
+        // the control row. The UPDATE proves the recorder saw this request. Commands are counted, not
+        // seconds, because time depends on machine load.
+        IReadOnlyList<string> commands = _factory.WriteContextSqlRecorder.Commands;
+        commands.ShouldContain(command => command.Contains("UPDATE translation.\"GameVersions\""));
+        commands.Count(command => command.Contains("INSERT INTO translation.\"Translations\""))
+            .ShouldBe(1, "0: the text no longer matches an EF insert; more: the import wrote rows through EF");
     }
 
     [Fact]
@@ -947,5 +954,16 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         GameVersion version = await dbContext.GameVersions.AsNoTracking().SingleAsync(row => row.Id == versionId);
         return version.Status;
+    }
+
+    private async Task InsertAndDeleteControlRowAsync(GameVersionId versionId)
+    {
+        using IServiceScope scope = _factory.Services.CreateScope();
+        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+        Translation controlRow = NewUntranslated(1, "Control row", versionId);
+        dbContext.Translations.Add(controlRow);
+        await dbContext.SaveChangesAsync();
+        dbContext.Translations.Remove(controlRow);
+        await dbContext.SaveChangesAsync();
     }
 }

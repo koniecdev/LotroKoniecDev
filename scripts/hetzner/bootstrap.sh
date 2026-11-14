@@ -200,7 +200,9 @@ ensure_docker_user_firewall() {
 # packet reaches DOCKER-USER (Docker docs, "Packet filtering and firewalls").
 set -euo pipefail
 
-ext_if="$(ip -o route show default | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')"
+# awk reads to the end: one that stopped at the first default route could kill `ip` with SIGPIPE,
+# and pipefail would then stop this script (#1365).
+ext_if="$(ip -o route show default | awk '!found { for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); found = 1; break } }')"
 if [ -z "$ext_if" ]; then
     echo "docker-user-firewall: no default route, so the public interface is unknown — nothing applied." >&2
     exit 1

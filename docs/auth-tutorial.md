@@ -384,8 +384,8 @@ zaszyfrowanym cookie sesji (`SaveTokens = true`).
 ### 8.4 CookieTokenRefresher
 `Infrastructure/Auth/TokenRefresh/CookieTokenRefresher.cs`, na `OnValidatePrincipal`. Gdy access token
 zbliża się do końca, wymienia refresh token w `token_endpoint` z discovery documentu (przez
-`ITokenEndpointClient`, #1114) i zapisuje nową sesję. Rolling refresh: stary refresh token jest unieważniony, nowy zapisany. Żywa sesja, której
-nie trzeba odnawiać, w ogóle nie woła `auth-api`.
+`ITokenEndpointClient`, #1114) i zapisuje nową sesję. Rolling refresh: stary refresh token jest
+unieważniony, nowy zapisany. Żywa sesja, której nie trzeba odnawiać, w ogóle nie woła `auth-api`.
 
 Nieudany refresh jest chwilowy albo ostateczny (ADR-0067 decyzja 3, #1062):
 - **chwilowy** (429, każdy 5xx, błąd sieci, timeout 30 s z #923, a także discovery document, którego

@@ -5,7 +5,8 @@
 # false-positive — never that it still FIRES, and never that it scanned anything at all (#1079).
 # These cases prove both directions on throwaway fixture trees: a hardcoded API path in either
 # client fails, and so does a sign-in server path in the Frontend; a comment that names a route
-# passes, and a run with no file to scan fails with exit 2. CI runs this right before the guard itself, so the gate cannot rot silently.
+# passes, and a run with no file to scan fails with exit 2. CI runs this right before the guard
+# itself, so the gate cannot rot silently.
 # When pwsh is available (it is on the ubuntu runners), the whole suite re-runs against
 # the .ps1 twin, so both twins must give the same exit code on every case.
 

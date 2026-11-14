@@ -617,9 +617,6 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// #964: RFC 7009 for a public client.
-    /// </summary>
-    /// <summary>
     /// #1114: the address comes from the discovery document, wherever the sign-in server puts it.
     /// </summary>
     [Fact]
@@ -816,6 +813,9 @@ public sealed class TokenEndpointClientTests
         result.Tokens.ShouldNotBeNull().AccessToken.ShouldBe(AccessToken);
     }
 
+    /// <summary>
+    /// #964: RFC 7009 for a public client.
+    /// </summary>
     [Fact]
     public async Task RevokeRefreshTokenAsync_Always_SendsTheTokenItsKindAndTheClientIdToTheGivenEndpoint()
     {

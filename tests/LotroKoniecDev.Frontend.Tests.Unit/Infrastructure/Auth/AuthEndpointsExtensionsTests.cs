@@ -536,6 +536,26 @@ public sealed class AuthEndpointsExtensionsTests
     }
 
     [Fact]
+    public async Task LogoutAsync_WhenTheDiscoveryDocumentNamesNoUsableEndSessionAddress_LogsOneWarning()
+    {
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken);
+
+        await AuthEndpointsExtensions.LogoutAsync(
+            context,
+            CreateSignOut(
+                StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty),
+                DiscoveryFrom(DiscoveryNaming("https://attacker.example/connect/logout")),
+                logger: loggerFactory.CreateLogger<SignInServerSignOut>()));
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldBe(
+            "The auth server's discovery document has no usable end-session endpoint on the authority's origin, so the sign-out ends on the home page.");
+    }
+
+    [Fact]
     public async Task LogoutAsync_WhenTheDefaultPortIsWrittenOut_StillRedirectsToTheEndSessionPage()
     {
         HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken);

@@ -28,7 +28,7 @@ without the deferral the version ends `Unprocessed`; with it the whole unit surv
 commit-ack-loss case (server committed, ack lost → retry re-COPYs → unique-key violation → 500) stays
 a loud, non-corrupting failure the admin re-imports past idempotently.
 
-## Amendment 2026-11-14 (#891): no test measures the import time any more
+## Amendment 2026-11-14 (#891): the import time
 
 - The Q4 budget (< 10 s) was tested on 200,000 rows, not on the ~700k rows of a full baseline.
 - After #439 added the version pointer indexes and foreign keys, CI measured 10.34 s and
@@ -40,6 +40,9 @@ a loud, non-corrupting failure the admin re-imports past idempotently.
   INSERT (ADR-0011).
 - A slower COPY (for example after a schema change, as with #439) shows only in the pass durations
   the import logs.
+- On the live database a full import takes minutes, not seconds: the file has about 790k rows and
+  is read twice (wiki `Import-do-TMS`). The server stops it at no time limit, so the page waits
+  until the import ends.
 
 The decided text below stays as it was agreed. Each statement this note changes points here.
 
@@ -59,7 +62,7 @@ progress, lost result on navigation).
 
 An admin's full-catalog import completes in **seconds, not minutes**, with the import's observable
 semantics (spec 0001) byte-for-byte unchanged — so the synchronous request stays viable and an
-async job (Oś B) is not needed.
+async job (Oś B) is not needed. *(A live import takes minutes: see the 2026-11-14 amendment.)*
 
 ## In scope — Phase 1 (inserts-only via COPY)
 

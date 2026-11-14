@@ -638,8 +638,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         (await GetVersionStatusAsync(versionId)).ShouldBe(GameVersionStatus.Processed);
 
         // The recorder sees only EF commands and the COPY goes around EF (ADR-0011), so the one INSERT is
-        // the control row. The UPDATE proves the recorder saw this request. Commands are counted, not
-        // seconds, because time depends on machine load.
+        // the control row. The UPDATE proves the recorder saw this request.
         IReadOnlyList<string> commands = _factory.WriteContextSqlRecorder.Commands;
         commands.ShouldContain(command => command.Contains("UPDATE translation.\"GameVersions\""));
         commands.Count(command => command.Contains("INSERT INTO translation.\"Translations\""))

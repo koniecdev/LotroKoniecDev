@@ -12,6 +12,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using NSubstitute;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
@@ -136,7 +138,14 @@ public sealed class FrontendCallerDelegatingHandlerTests
     {
         // The token client is wired apart from the typed account client, so it is proved apart.
         RecordingHttpMessageHandler primary = new(HttpStatusCode.OK);
-        await using ServiceProvider provider = BuildProvider(primary, services => services.AddFrontendAuthentication());
+        await using ServiceProvider provider = BuildProvider(primary, services =>
+        {
+            services.AddFrontendAuthentication();
+            services.PostConfigure<OpenIdConnectOptions>(
+                OpenIdConnectDefaults.AuthenticationScheme,
+                options => options.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(
+                    new OpenIdConnectConfiguration { TokenEndpoint = "https://auth.lotro.test/connect/token" }));
+        });
         ITokenEndpointClient client = provider.GetRequiredService<ITokenEndpointClient>();
 
         await client.RefreshAsync("the-refresh-token");

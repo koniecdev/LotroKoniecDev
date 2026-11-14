@@ -1,8 +1,10 @@
 namespace LotroKoniecDev.Frontend.Settings;
 
 /// <summary>
-/// <see cref="BaseUrl"/> is where this app calls the auth server: the account API and the token endpoint.
-/// <see cref="Authority"/> is where the OIDC metadata comes from, and the issuer in the tokens.
+/// <see cref="BaseUrl"/> is where this app calls the auth server: the account API, and the only origin its
+/// renewal and revoke may go to. <see cref="Authority"/> is where the OIDC metadata comes from, and the
+/// issuer in the tokens. The token, revoke and end-session addresses come from that metadata (#1114),
+/// so the validator requires one origin for both.
 /// </summary>
 internal sealed class AuthSystemSettings
 {

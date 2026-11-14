@@ -4,8 +4,9 @@
 # The guard only ever runs against a clean tree in CI, so "it passed" proves it did not
 # false-positive — never that it still FIRES, and never that it scanned anything at all (#1079).
 # These cases prove both directions on throwaway fixture trees: a hardcoded API path in either
-# client fails, a comment that names a route passes, and a run with no file to scan fails with
-# exit 2. CI runs this right before the guard itself, so the gate cannot rot silently.
+# client fails, and so does a sign-in server path in the Frontend; a comment that names a route
+# passes, and a run with no file to scan fails with exit 2. CI runs this right before the guard
+# itself, so the gate cannot rot silently.
 # When pwsh is available (it is on the ubuntu runners), the whole suite re-runs against
 # the .ps1 twin, so both twins must give the same exit code on every case.
 
@@ -176,6 +177,36 @@ run_suite() {
     write_file "$tree" src/Patcher/Cli/Download.cs 'var url = $"{baseUrl}/api/v2/translation-files/{lang}";'
     run_tree 1 "an API path in a Patcher string fails, whatever the version" "$tree"
     expect_in_output "under src/Patcher"
+
+    # --- the Frontend writes no sign-in server path (#1114) ---
+    tree="$(new_tree)"
+    write_file "$tree" src/Frontend/Auth/TokenClient.cs 'private static readonly Uri Token = new("connect/token", UriKind.Relative);'
+    run_tree 1 "a relative sign-in server path in a Frontend string literal fails" "$tree"
+    expect_in_output "sign-in server address"
+
+    tree="$(new_tree)"
+    write_file "$tree" src/Frontend/Auth/SignOut.cs 'string url = $"{authority}/connect/logout?post_logout_redirect_uri={origin}";'
+    run_tree 1 "a sign-in server path after an interpolated base fails" "$tree"
+
+    tree="$(new_tree)"
+    write_file "$tree" src/Frontend/Auth/Metadata.cs 'const string Discovery = "/.well-known/openid-configuration";'
+    run_tree 1 "the discovery document path in a Frontend string literal fails" "$tree"
+
+    tree="$(new_tree)"
+    write_file "$tree" src/Frontend/Auth/Revoker.cs '// The revoke posts to /connect/revoke, read from the discovery document.'
+    run_tree 0 "a comment that names a sign-in server path outside a string literal passes" "$tree"
+
+    tree="$(new_tree)"
+    write_file "$tree" src/Frontend/Pages/Status.cs 'const string Word = "disconnect/now";'
+    run_tree 0 "a word that only ends in connect/ passes" "$tree"
+
+    tree="$(new_tree)"
+    write_file "$tree" src/Frontend/Pages/Security.cs 'app.MapGet("/.well-known/security.txt", ServeSecurityTxt);'
+    run_tree 0 "a .well-known path of the website itself passes" "$tree"
+
+    tree="$(new_tree)"
+    write_file "$tree" src/Patcher/Cli/Note.cs 'const string Path = "connect/token";'
+    run_tree 0 "a sign-in server path under src/Patcher is not checked: the CLI has no sign-in" "$tree"
 }
 
 sh_runner="$TMP_ROOT/run-sh.sh"

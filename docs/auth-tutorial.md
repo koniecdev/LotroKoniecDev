@@ -372,19 +372,24 @@ zaszyfrowanym cookie sesji (`SaveTokens = true`).
   mówi „Logowanie chwilowo niedostępne" (#311). Z kopią w pamięci użytkownik idzie dalej do
   `auth-api` (#1208). Tędy przechodzi każda strona wymagająca logowania (#1153) i nieudany powrót
   z logowania (`OnRemoteFailure`).
-- **Logout**: `POST /auth/logout` → `SignOutAsync(cookie)`, potem Frontend sam unieważnia swój refresh
-  token w `connect/revoke` (serwer–serwer, `RefreshTokenRevoker`, #964), a na koniec przekierowuje na
-  `connect/logout` z `id_token_hint` i `post_logout_redirect_uri`. `auth-api` **kończy sesję tego
-  urządzenia** (§10.3); sesje na innych urządzeniach żyją dalej.
+- **Logout**: `POST /auth/logout` → `SignOutAsync(cookie)`, potem `SignInServerSignOut` czyta
+  discovery document (limit 5 s na całość), Frontend sam unieważnia swój refresh token w
+  `revocation_endpoint` (serwer–serwer, `RefreshTokenRevoker`, #964), a na koniec przekierowuje na
+  `end_session_endpoint` z `id_token_hint` i `post_logout_redirect_uri`. Oba adresy pochodzą
+  z discovery, nie z kodu (#1114). `auth-api` **kończy sesję tego urządzenia** (§10.3); sesje na
+  innych urządzeniach żyją dalej. Gdy discovery się nie wczyta albo nie ma użytecznego adresu
+  wylogowania na originie `Authority`, sesja i tak się kończy: cookie znika, a użytkownik ląduje na
+  stronie głównej (ADR-0067 decyzja 3).
 
 ### 8.4 CookieTokenRefresher
 `Infrastructure/Auth/TokenRefresh/CookieTokenRefresher.cs`, na `OnValidatePrincipal`. Gdy access token
-zbliża się do końca, wymienia refresh token w `connect/token` (przez `ITokenEndpointClient`) i zapisuje
-nową sesję. Rolling refresh: stary refresh token jest unieważniony, nowy zapisany. Żywa sesja, której
-nie trzeba odnawiać, w ogóle nie woła `auth-api`.
+zbliża się do końca, wymienia refresh token w `token_endpoint` z discovery documentu (przez
+`ITokenEndpointClient`, #1114) i zapisuje nową sesję. Rolling refresh: stary refresh token jest
+unieważniony, nowy zapisany. Żywa sesja, której nie trzeba odnawiać, w ogóle nie woła `auth-api`.
 
 Nieudany refresh jest chwilowy albo ostateczny (ADR-0067 decyzja 3, #1062):
-- **chwilowy** (429, każdy 5xx, błąd sieci, timeout 30 s z #923) nie kończy sesji, dopóki bieżący
+- **chwilowy** (429, każdy 5xx, błąd sieci, timeout 30 s z #923, a także discovery document, którego
+  nie da się wczytać w 5 s) nie kończy sesji, dopóki bieżący
   access token działa. Strona niczego nie unieważnia, nic nie pokazuje i próbuje znowu przy następnym
   żądaniu. Okno to reszta życia tokena, około minuty;
 - **ostateczny** (każda inna odmowa, np. 400 `invalid_grant`, nieczytelna odpowiedź 2xx, albo chwilowy

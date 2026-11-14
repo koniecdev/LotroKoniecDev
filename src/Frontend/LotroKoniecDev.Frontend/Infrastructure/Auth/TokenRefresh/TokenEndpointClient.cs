@@ -15,28 +15,30 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
     private const string TokenTypeHintParam = "token_type_hint";
     private const string RefreshTokenTypeHint = "refresh_token";
     private const int MaxLoggedFieldLength = 200;
-    private static readonly Uri TokenRelativeUri = new("connect/token", UriKind.Relative);
+
+    /// <summary>
+    /// Only a host with no copy of the discovery document waits for it, because a copy is refreshed in the
+    /// background. The grant itself keeps the client's 30 seconds (#923), so this limit never cuts it short.
+    /// </summary>
+    internal static readonly TimeSpan DiscoveryTimeLimit = TimeSpan.FromSeconds(5);
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _httpClient;
     private readonly IOptions<AuthSystemSettings> _authSystemOptions;
+    private readonly SignInServerDiscovery _signInServerDiscovery;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<TokenEndpointClient> _logger;
-
-    public TokenEndpointClient(
-        HttpClient httpClient,
-        IOptions<AuthSystemSettings> authSystemOptions,
-        ILogger<TokenEndpointClient> logger)
-    {
-        _httpClient = httpClient;
-        _authSystemOptions = authSystemOptions;
-        _logger = logger;
-    }
 
     public async Task<TokenRefreshResult> RefreshAsync(
         string refreshToken,
         CancellationToken cancellationToken = default)
     {
+        if (await ResolveTokenEndpointAsync(cancellationToken) is not { } tokenEndpoint)
+        {
+            return TokenRefreshResult.TemporaryFailure;
+        }
+
         using FormUrlEncodedContent content = new(
         [
             new KeyValuePair<string, string>(GrantTypeParam, RefreshTokenGrantType),
@@ -47,7 +49,7 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
         try
         {
             using HttpResponseMessage response = await _httpClient.PostAsync(
-                TokenRelativeUri, content, cancellationToken);
+                tokenEndpoint, content, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -120,6 +122,62 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
         {
             LogRevocationError(_logger, ex);
         }
+    }
+
+    public TokenEndpointClient(
+        HttpClient httpClient,
+        IOptions<AuthSystemSettings> authSystemOptions,
+        SignInServerDiscovery signInServerDiscovery,
+        TimeProvider timeProvider,
+        ILogger<TokenEndpointClient> logger)
+    {
+        _httpClient = httpClient;
+        _authSystemOptions = authSystemOptions;
+        _signInServerDiscovery = signInServerDiscovery;
+        _timeProvider = timeProvider;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// The address comes from the discovery document, never from a path in this code (#1114). A document
+    /// that cannot be read is a temporary failure (ADR-0067 decision 3): nothing is sent, and the session
+    /// keeps its access token while it works.
+    /// </summary>
+    private async Task<Uri?> ResolveTokenEndpointAsync(CancellationToken requestAborted)
+    {
+        using CancellationTokenSource timeLimit = new(DiscoveryTimeLimit, _timeProvider);
+        using CancellationTokenSource readCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(timeLimit.Token, requestAborted);
+
+        SignInServerDiscoveryResult discovery = await _signInServerDiscovery.ReadAsync(readCancellation.Token);
+
+        if (discovery.Configuration is { } configuration)
+        {
+            Uri? tokenEndpoint = SignInServerDiscovery.AsWebAddress(configuration.TokenEndpoint);
+            if (tokenEndpoint is null)
+            {
+                LogNoTokenEndpoint(_logger);
+            }
+
+            return tokenEndpoint;
+        }
+
+        if (discovery.Failure is not { } failure)
+        {
+            LogNoConfigurationManager(_logger);
+        }
+        else if (failure is OperationCanceledException && requestAborted.IsCancellationRequested)
+        {
+            // Judged by the request's own token: the linked one also fires at the time limit, and a stuck
+            // sign-in server stays a warning (#977).
+            LogRefreshAbandoned(_logger);
+        }
+        else
+        {
+            LogDiscoveryUnavailable(_logger, failure);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -213,6 +271,24 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
         Level = LogLevel.Information,
         Message = "Refresh token grant was cancelled because the request was aborted.")]
     private static partial void LogRefreshAbandoned(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 8,
+        Level = LogLevel.Warning,
+        Message = "The auth server's discovery document could not be read, so no refresh token grant was sent.")]
+    private static partial void LogDiscoveryUnavailable(ILogger logger, Exception exception);
+
+    [LoggerMessage(
+        EventId = 9,
+        Level = LogLevel.Warning,
+        Message = "The auth server's discovery document has no usable token endpoint, so no refresh token grant was sent.")]
+    private static partial void LogNoTokenEndpoint(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 10,
+        Level = LogLevel.Warning,
+        Message = "The OIDC handler has no configuration manager, so no refresh token grant was sent.")]
+    private static partial void LogNoConfigurationManager(ILogger logger);
 
     [LoggerMessage(
         EventId = 4,

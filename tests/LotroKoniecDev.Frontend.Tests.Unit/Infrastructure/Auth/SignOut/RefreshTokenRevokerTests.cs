@@ -125,7 +125,7 @@ public sealed class RefreshTokenRevokerTests
             .Returns(_ => throw new InvalidOperationException("A decorator failed."));
         RefreshTokenRevoker revoker = new(
             tokenEndpointClient,
-            OidcOptionsWith(DiscoveryNaming(RevocationEndpoint)),
+            new SignInServerDiscovery(OidcOptionsWith(DiscoveryNaming(RevocationEndpoint))),
             TimeProvider.System,
             NullLogger<RefreshTokenRevoker>.Instance);
 
@@ -248,15 +248,18 @@ public sealed class RefreshTokenRevokerTests
             .Returns(_ => throw new OptionsValidationException(
                 OpenIdConnectDefaults.AuthenticationScheme, typeof(OpenIdConnectOptions), ["The options are invalid."]));
         StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
-        using HttpClient httpClient = new(transport) { BaseAddress = new Uri(AuthBaseUrl) };
+        using HttpClient httpClient = new(transport);
         using CapturingLoggerProvider logs = new();
         using LoggerFactory loggerFactory = new([logs]);
+        SignInServerDiscovery discovery = new(optionsMonitor);
         RefreshTokenRevoker revoker = new(
             new TokenEndpointClient(
                 httpClient,
                 Microsoft.Extensions.Options.Options.Create(CreateSettings()),
+                discovery,
+                TimeProvider.System,
                 loggerFactory.CreateLogger<TokenEndpointClient>()),
-            optionsMonitor,
+            discovery,
             TimeProvider.System,
             loggerFactory.CreateLogger<RefreshTokenRevoker>());
 
@@ -368,6 +371,88 @@ public sealed class RefreshTokenRevokerTests
         primary.SendCount.ShouldBe(0);
     }
 
+    /// <summary>
+    /// #1114: the sign-out has read the document already, so the revoke must not wait on another read.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_WithADocumentAlreadyRead_RevokesAtItsEndpointWithoutReadingAgain()
+    {
+        IConfigurationManager<OpenIdConnectConfiguration> configurationManager =
+            Substitute.For<IConfigurationManager<OpenIdConnectConfiguration>>();
+        configurationManager.GetConfigurationAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<OpenIdConnectConfiguration>(new InvalidOperationException("A second read.")));
+        StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
+        RefreshTokenRevoker revoker = CreateRevoker(transport, configurationManager);
+
+        await revoker.RevokeAsync(
+            new OpenIdConnectConfiguration { RevocationEndpoint = RevocationEndpoint }, RefreshToken, CancellationToken.None);
+
+        transport.LastRequest.ShouldNotBeNull().RequestUri.ShouldBe(new Uri(RevocationEndpoint));
+        transport.LastRequestBody.ShouldNotBeNull().ShouldContain($"token={RefreshToken}");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task RevokeAsync_WithADocumentAlreadyReadAndNoRealToken_SendsNothing(string? refreshToken)
+    {
+        StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
+        RefreshTokenRevoker revoker = CreateRevoker(transport, DiscoveryNaming(RevocationEndpoint));
+
+        await revoker.RevokeAsync(
+            new OpenIdConnectConfiguration { RevocationEndpoint = RevocationEndpoint }, refreshToken, CancellationToken.None);
+
+        transport.LastRequest.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("/connect/revoke")]
+    [InlineData("ftp://auth.lotro.test/connect/revoke")]
+    public async Task RevokeAsync_WithADocumentAlreadyReadThatNamesNoUsableEndpoint_LogsOneWarningAndSendsNothing(
+        string? revocationEndpoint)
+    {
+        StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        RefreshTokenRevoker revoker = CreateRevoker(
+            transport, DiscoveryNaming(RevocationEndpoint), loggerFactory: loggerFactory);
+
+        await revoker.RevokeAsync(
+            new OpenIdConnectConfiguration { RevocationEndpoint = revocationEndpoint }, RefreshToken, CancellationToken.None);
+
+        transport.LastRequest.ShouldBeNull();
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldBe(
+            "The auth server's discovery document has no usable revocation endpoint, so no refresh token was revoked.");
+    }
+
+    /// <summary>
+    /// The sign-out owns the time limit, so the revoke ends when the sign-out's limit ends.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_WithADocumentAlreadyRead_GivesUpWhenTheGivenTimeLimitEnds()
+    {
+        HangingHttpMessageHandler transport = new();
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        RefreshTokenRevoker revoker = CreateRevoker(
+            transport, DiscoveryNaming(RevocationEndpoint), loggerFactory: loggerFactory);
+        using CancellationTokenSource timeLimit = new();
+
+        Task revoke = revoker.RevokeAsync(
+            new OpenIdConnectConfiguration { RevocationEndpoint = RevocationEndpoint }, RefreshToken, timeLimit.Token);
+        await transport.AllRequestsStarted.Task.WaitAsync(TestTimeout);
+        await timeLimit.CancelAsync();
+        await revoke.WaitAsync(TestTimeout);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Message.ShouldBe("Refresh token revocation threw an exception.");
+    }
+
     private static IConfigurationManager<OpenIdConnectConfiguration> DiscoveryNaming(string? revocationEndpoint)
     {
         IConfigurationManager<OpenIdConnectConfiguration> configurationManager =
@@ -384,14 +469,17 @@ public sealed class RefreshTokenRevokerTests
         ILoggerFactory? loggerFactory = null)
     {
         ILoggerFactory factory = loggerFactory ?? NullLoggerFactory.Instance;
+        SignInServerDiscovery discovery = new(OidcOptionsWith(configurationManager));
         TokenEndpointClient tokenEndpointClient = new(
-            new HttpClient(transport) { BaseAddress = new Uri(AuthBaseUrl) },
+            new HttpClient(transport),
             Microsoft.Extensions.Options.Options.Create(CreateSettings()),
+            discovery,
+            timeProvider ?? TimeProvider.System,
             factory.CreateLogger<TokenEndpointClient>());
 
         return new RefreshTokenRevoker(
             tokenEndpointClient,
-            OidcOptionsWith(configurationManager),
+            discovery,
             timeProvider ?? TimeProvider.System,
             factory.CreateLogger<RefreshTokenRevoker>());
     }

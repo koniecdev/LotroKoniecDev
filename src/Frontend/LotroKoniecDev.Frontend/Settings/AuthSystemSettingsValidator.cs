@@ -1,4 +1,5 @@
 using FluentValidation;
+using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 
 namespace LotroKoniecDev.Frontend.Settings;
 
@@ -24,6 +25,17 @@ internal sealed class AuthSystemSettingsValidator : AbstractValidator<AuthSystem
             .NotEmpty()
             .Must(BeAbsoluteHttpUrl)
             .WithMessage(KeyPath(nameof(AuthSystemSettings.Authority)) + " must be a non-empty absolute http(s) URL.");
+
+        // The renewal and the revoke may go only to BaseUrl's origin, and their addresses come from the
+        // discovery document at the Authority, so on two origins every renewal fails (#1114).
+        RuleFor(x => x)
+            .Must(HaveOneOrigin)
+            .When(x => BeAbsoluteHttpUrl(x.BaseUrl) && BeAbsoluteHttpUrl(x.Authority))
+            .OverridePropertyName(nameof(AuthSystemSettings.BaseUrl))
+            .WithMessage(
+                KeyPath(nameof(AuthSystemSettings.BaseUrl)) + " and " + KeyPath(nameof(AuthSystemSettings.Authority))
+                + " must have the same origin (scheme, host and port): the website calls the addresses the"
+                + " Authority's discovery document names only on BaseUrl's origin.");
 
         RuleFor(x => x.ClientId)
             .NotEmpty()
@@ -87,6 +99,9 @@ internal sealed class AuthSystemSettingsValidator : AbstractValidator<AuthSystem
         return Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
                && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
     }
+
+    private static bool HaveOneOrigin(AuthSystemSettings settings) =>
+        UriOrigin.AreSame(new Uri(settings.BaseUrl), new Uri(settings.Authority));
 
     private static bool BeRootedPath(string value)
     {

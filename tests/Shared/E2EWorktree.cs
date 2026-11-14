@@ -211,11 +211,10 @@ internal sealed class E2EWorktree
     }
 
     /// <summary>
-    /// A rebuild leaves the replaced image untagged on both stores. The one-hour age limit keeps it for a
-    /// run that still starts its containers from it, in this worktree or another one. On the containerd
-    /// store the hour counts from the moment the image lost its tag. On the classic store it counts from
-    /// the image's build time, which a cached build keeps, so there only two overlapping runs of a suite
-    /// are safe: the run that replaces an image has pruned before its build.
+    /// A rebuild leaves the replaced image untagged. The one-hour age keeps it for a run that still starts
+    /// its containers from it. On the containerd store the hour counts from the tag loss; on the classic
+    /// store from the build time, which a cached build keeps, so there such an image is safe only until
+    /// another E2E run on the machine prunes.
     /// </summary>
     private async Task RemoveOldUntaggedImagesAsync()
     {

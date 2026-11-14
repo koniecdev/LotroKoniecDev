@@ -315,8 +315,10 @@ an element has no stable accessible name (`Infrastructure/Locators.cs`).
   deletes the image that loses the tag, so a second run of a suite in the same worktree broke the
   first one. The build has no `-t`; a separate `docker tag`, under the lock file
   `tests/obj/<tag>.lock`, moves the tag and keeps the replaced image untagged, and a later run
-  removes it once it is an hour old. So two runs of a suite in one worktree can run at the same
-  time. Never add `-t` back, and never move the tag outside that lock.
+  removes it once it is an hour old (on the classic store the hour counts from the build time, so
+  there the image is safe only until another E2E run on the machine prunes). So two runs of a suite
+  in one worktree can run at the same time. Never add `-t` back, and never move the tag outside
+  that lock.
 
 ## N-1 schema seam (integration factories — ADR-0024)
 

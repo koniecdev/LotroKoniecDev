@@ -55,6 +55,7 @@ listing:
 
 ```bash
 docker image ls --filter label=lotrokoniecdev.e2e --format '{{.Repository}}:{{.Tag}}'    # all worktrees
+docker image ls --all --filter label=lotrokoniecdev.e2e --filter dangling=true          # untagged sets
 docker image ls --filter label=lotrokoniecdev.e2e --format '{{.Repository}}:{{.Tag}}' \
   | grep -F -- '-<folder>-<hash>' | xargs -r docker image rm                             # one worktree
 ```

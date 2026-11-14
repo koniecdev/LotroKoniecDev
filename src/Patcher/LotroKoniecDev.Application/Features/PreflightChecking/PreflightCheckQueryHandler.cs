@@ -1,6 +1,7 @@
 ﻿using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.Messaging;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
+using LotroKoniecDev.Primitives.Enums;
 
 namespace LotroKoniecDev.Application.Features.PreflightChecking;
 
@@ -41,9 +42,16 @@ internal sealed class PreflightCheckQueryHandler : IQueryHandler<PreflightCheckQ
         string? directory = Path.GetDirectoryName(query.DatFilePath);
         bool hasWriteAccess = directory is not null && _writeAccessChecker.CanWriteTo(directory);
 
+        // The file check opens the live DAT, so it waits until nothing earlier refuses: the launcher
+        // writes the DAT while it runs.
+        DatFileWriteCheck datFileWriteCheck = !isGameRunning && hasWriteAccess
+            ? _writeAccessChecker.CheckFile(query.DatFilePath)
+            : new DatFileWriteCheck(DatFileWriteRefusal.None);
+
         Result<GameUpdateCheckSummary> gameUpdateCheckSummaryResult =
             await _gameUpdateChecker.CheckForUpdateAsync(query.VersionFilePath);
 
-        return Result.Success(new PreflightReportResponse(isGameRunning, hasWriteAccess, gameUpdateCheckSummaryResult));
+        return Result.Success(new PreflightReportResponse(
+            isGameRunning, hasWriteAccess, gameUpdateCheckSummaryResult, datFileWriteCheck));
     }
 }

@@ -205,4 +205,43 @@ public sealed class PreflightCheckQueryHandlerTests
         // Assert
         _mockWriteAccessChecker.Received(1).CanWriteTo(Path.Combine("lotro", "data"));
     }
+
+    [Fact]
+    public async Task Handle_GameClosedAndFolderWritable_ShouldReportWhatTheDatFileCheckSaid()
+    {
+        // Arrange
+        _mockProcessDetector.IsLotroRunning().Returns(false);
+        _mockWriteAccessChecker.CanWriteTo(Arg.Any<string>()).Returns(true);
+        _mockWriteAccessChecker.CheckFile(DatFilePath)
+            .Returns(new DatFileWriteCheck(DatFileWriteRefusal.ReadOnly));
+        _mockUpdateChecker.CheckForUpdateAsync(Arg.Any<string>())
+            .Returns(Result.Success(new GameUpdateCheckSummary("40.1", StoredInfo)));
+
+        // Act
+        Result<PreflightReportResponse> result = await _sut.Handle(CreateQuery(), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.DatFileWriteCheck.Refusal.ShouldBe(DatFileWriteRefusal.ReadOnly);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public async Task Handle_GameRunningOrFolderNotWritable_ShouldNotOpenTheDatFile(
+        bool isGameRunning,
+        bool hasWriteAccess)
+    {
+        // Arrange: the check opens the live DAT, which the launcher may be writing.
+        _mockProcessDetector.IsLotroRunning().Returns(isGameRunning);
+        _mockWriteAccessChecker.CanWriteTo(Arg.Any<string>()).Returns(hasWriteAccess);
+        _mockUpdateChecker.CheckForUpdateAsync(Arg.Any<string>())
+            .Returns(Result.Success(new GameUpdateCheckSummary("40.1", StoredInfo)));
+
+        // Act
+        await _sut.Handle(CreateQuery(), CancellationToken.None);
+
+        // Assert
+        _mockWriteAccessChecker.DidNotReceive().CheckFile(Arg.Any<string>());
+    }
 }

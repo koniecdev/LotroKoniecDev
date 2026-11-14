@@ -194,6 +194,9 @@ services:
       OpenIddict__SigningKey__RsaPrivateKeyXml: ${OpenIddict__SigningKey__RsaPrivateKeyXml}
       OpenIddict__EncryptionKey__Key: ${OpenIddict__EncryptionKey__Key}
       OpenIddict__ApiClientSecret: ${OpenIddict__ApiClientSecret}
+      # The website's client secret (ADR-0074). The SAME variable feeds the frontend below. Seeded only when
+      # the client is created, so the value must not change after the first deploy (runbook, "Reseed traps").
+      OpenIddict__FrontendClientSecret: ${FRONTEND_CLIENT_SECRET:?FRONTEND_CLIENT_SECRET must be set in /opt/lotro/.env — openssl rand -base64 32, one per box (ADR-0074)}
       OpenIddict__WebClient__RedirectUris__0: "https://${DOMAIN_APP}/callback"
       OpenIddict__WebClient__PostLogoutRedirectUris__0: "https://${DOMAIN_APP}"
       Cors__AllowedOrigins__0: "https://${DOMAIN_APP}"
@@ -311,6 +314,8 @@ services:
       # Sent with the visitor's address on every auth API and TMS API call (ADR-0054, #823) — the same
       # variable as FrontendCaller__Key on auth-api and tms-api above.
       AuthSystem__CallerKey: ${FRONTEND_CALLER_KEY:?FRONTEND_CALLER_KEY must be set in /opt/lotro/.env — openssl rand -base64 32, one per box (ADR-0054)}
+      # The website's client secret (ADR-0074) — the same variable as OpenIddict__FrontendClientSecret above.
+      AuthSystem__ClientSecret: ${FRONTEND_CLIENT_SECRET:?FRONTEND_CLIENT_SECRET must be set in /opt/lotro/.env — openssl rand -base64 32, one per box (ADR-0074)}
       TranslationSystem__BaseUrl: "https://${DOMAIN_TMS}/"
       TranslationSystem__CallerKey: ${FRONTEND_CALLER_KEY:?FRONTEND_CALLER_KEY must be set in /opt/lotro/.env — openssl rand -base64 32, one per box (ADR-0054)}
       DataProtection__KeyRingPath: "/keys"

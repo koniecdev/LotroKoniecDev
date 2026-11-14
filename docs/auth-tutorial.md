@@ -110,7 +110,7 @@ Konfiguracja: `OpenIddictExtensions.cs`.
 
 | Flow | Kto | Po co |
 |---|---|---|
-| **Authorization Code + PKCE** | Frontend (`lotrokoniecdev-web`) | interaktywne logowanie w przeglądarce |
+| **Authorization Code + PKCE** | Frontend (`lotrokoniecdev-frontend`, z sekretem) | interaktywne logowanie w przeglądarce |
 | **Refresh Token** | Frontend | ciche odświeżanie access tokena (rolling, referencyjne) |
 | **Client Credentials** | usługa do usługi (`lotrokoniecdev-api`) | maszyna do maszyny, bez użytkownika |
 | **Password (ROPC)** | **tylko testy** (`lotrokoniecdev-test`) | testy integracyjne i E2E — włączony tylko w `Testing` |
@@ -159,7 +159,8 @@ Seedowani na starcie (`DatabaseSeederExtensions.cs`), id z `AuthConstants.Client
 
 | `client_id` | Typ | Grants | Sekret | Uwagi |
 |---|---|---|---|---|
-| `lotrokoniecdev-web` | public | auth code+PKCE, refresh | brak | Frontend; redirect i post-logout URI z konfiguracji |
+| `lotrokoniecdev-frontend` | confidential | auth code+PKCE, refresh | tak (`OpenIddict:FrontendClientSecret`) | Frontend (ADR-0074); redirect i post-logout URI z konfiguracji |
+| `lotrokoniecdev-web` | public | auth code+PKCE, refresh | brak | stary klient Frontendu; zostaje jedno wydanie po ADR-0074, potem znika |
 | `lotrokoniecdev-api` | confidential | client credentials | tak (`OpenIddict:ApiClientSecret`) | usługa do usługi; może wołać introspekcję |
 | `lotrokoniecdev-test` | public | password, refresh | brak | **tylko `Testing`** |
 
@@ -352,7 +353,9 @@ zaszyfrowanym cookie sesji (`SaveTokens = true`).
 
 ### 8.2 Konfiguracja OIDC
 `AuthenticationDependencyInjectionExtensions.cs`:
-- `Authority = settings.Authority` (`auth-api`), `ClientId = settings.ClientId` (`lotrokoniecdev-web`);
+- `Authority = settings.Authority` (`auth-api`), `ClientId = settings.ClientId` (`lotrokoniecdev-frontend`),
+  `ClientSecret = settings.ClientSecret` (ten sam `FRONTEND_CLIENT_SECRET`, który `auth-api` seeduje;
+  ADR-0074). Sekret idzie tylko na wymianę kodu, odświeżenie i revoke, nigdy do przeglądarki;
 - `ResponseType = code`, `ResponseMode = query`, `UsePkce = true`, `SaveTokens = true`. `query` jest
   konieczne: strona `form_post` OpenIddict wysyła się skryptem inline, który blokuje CSP `auth-api`
   (#693);
@@ -442,9 +445,13 @@ użytkownika, inaczej 403 — #966) i własne sprawdzenie w `connect/userinfo` (
 ## 10. Bezpieczeństwo — co i czemu
 
 ### 10.1 PKCE
-`RequireProofKeyForCodeExchange()`. Klient publiczny (Frontend, bez sekretu) generuje `code_verifier`,
-wysyła `code_challenge = SHA256(verifier)` przy `authorize`, a przy wymianie `code → token` pokazuje
+`RequireProofKeyForCodeExchange()`, dla każdego klienta. Frontend generuje `code_verifier`, wysyła
+`code_challenge = SHA256(verifier)` przy `authorize`, a przy wymianie `code → token` pokazuje
 `verifier`. Przechwycony kod jest wtedy bezużyteczny.
+
+Frontend jest też **klientem poufnym** (ADR-0074): przy wymianie kodu, odświeżeniu i revoke wysyła
+swój sekret. Oba sprawdzenia odpowiadają na inne pytania: sekret dowodzi, że wywołanie idzie z naszego
+serwera, a PKCE, że kod należy do tego logowania.
 
 ### 10.2 Rolling reference refresh tokens
 `UseReferenceRefreshTokens()`. Refresh tokeny są **referencyjne** (zapisane w bazie, a nie
@@ -515,7 +522,8 @@ wykonuje finalizer po oknie (usuwa też zapisane sesje cookie `auth-api` — ADR
 ### 10.8 Walidacja kluczy i ustawień
 `ConfigureOpenIddictServerSettings`: RSA min 2048 bitów, AES min 256 bitów, czytelne wyjątki przy złym
 formacie base64/XML. `OpenIddictSettingsValidator` sprawdza ustawienia w każdym środowisku poza
-Development i Testing, więc Staging też musi mieć klucze, sekret klienta API i adresy przekierowań.
+Development i Testing, więc Staging też musi mieć klucze, sekrety klientów (API i Frontendu, ADR-0074)
+i adresy przekierowań. Frontend sprawdza swój sekret tak samo (`AuthSystemSettingsValidator`).
 
 ---
 
@@ -547,9 +555,10 @@ AS / RS / RP · JWT (`header.payload.signature`) · JWKS · `sub`/`aud`/`iss`/`e
 Łatwo skalować. Koszt: trudno unieważnić access token ⇒ krótki żywot i refresh tokeny, które można
 unieważnić.
 
-**Q: Co to PKCE i czemu potrzebne?** — Klient publiczny nie ma sekretu. PKCE (`code_verifier` +
-`code_challenge`) dowodzi, że kod wymienia ten sam klient, który zaczął flow ⇒ przechwycony kod jest
-bezużyteczny.
+**Q: Co to PKCE i czemu potrzebne?** — PKCE (`code_verifier` + `code_challenge`) dowodzi, że kod
+wymienia ten sam klient, który zaczął flow ⇒ przechwycony kod jest bezużyteczny. Klient publiczny nie
+ma nic poza tym. Nasz Frontend ma też sekret (ADR-0074), ale PKCE zostaje: sekret nie mówi, czyj jest
+kod.
 
 **Q: Jak waliduje się token po stronie API?** — `JwtBearer` pobiera JWKS z
 `{authority}/.well-known/openid-configuration` i sprawdza podpis, `iss`, `aud`, `exp` (bez tolerancji

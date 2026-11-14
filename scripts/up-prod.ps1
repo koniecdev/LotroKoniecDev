@@ -13,12 +13,12 @@ Set-Location $repoRoot
 
 if (-not (Test-Path $envFile))
 {
-    # Drop the empty OpenIddict, caller-key and health-key placeholders, then append freshly generated secrets.
+    # Drop the empty OpenIddict, caller-key, health-key and client-secret placeholders, then append freshly generated secrets.
     Get-Content (Join-Path $repoRoot ".env.prod.example") |
-        Where-Object { $_ -notmatch '^(OpenIddict__(EncryptionKey__Key|SigningKey__RsaPrivateKeyXml|ApiClientSecret)|FRONTEND_CALLER_KEY|HEALTH_CHECK_KEY)=' } |
+        Where-Object { $_ -notmatch '^(OpenIddict__(EncryptionKey__Key|SigningKey__RsaPrivateKeyXml|ApiClientSecret)|FRONTEND_CALLER_KEY|HEALTH_CHECK_KEY|FRONTEND_CLIENT_SECRET)=' } |
         Set-Content $envFile
     & (Join-Path $PSScriptRoot "gen-openiddict-keys.ps1") | Add-Content $envFile
-    Write-Host ".env.prod created with generated OpenIddict secrets, the frontend caller key and the health check key. Review SMTP/admin/DB values before prod use."
+    Write-Host ".env.prod created with generated OpenIddict secrets, the frontend caller key, the health check key and the website's client secret. Review SMTP/admin/DB values before prod use."
 }
 
 if (-not (Test-Path $certPath))

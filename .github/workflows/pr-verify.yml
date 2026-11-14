@@ -222,6 +222,14 @@ jobs:
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/n1-compat.tests.sh
 
+      # The prod leg's UI change notice (#1377) runs before the approval click and tells the approver
+      # to ask for a /staging-walk. Its cases pin which files count as UI, that the baseline is the
+      # newest record that ever reached success (across pages), that "cannot tell" never reads as
+      # "no UI change", and that it always exits 0.
+      - name: Promotion UI change notice self-test
+        if: steps.diff.outputs.guards != 'false'
+        run: ./scripts/tests/promotion-ui-notice.tests.sh
+
       # Everything below is the .NET gate: it runs only when the PR can actually affect it. A PR
       # that merely edits a script CI executes (or a Dockerfile) stops here, green, in seconds.
       - name: Setup .NET

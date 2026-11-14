@@ -88,10 +88,11 @@ INERT='^[^/]*\.md$|(^|/)(README|CLAUDE)\.md$|^scripts/.*\.(md|sh|ps1)$|^scripts/
 # backup.sh because the prod box runs it every night, and its self-test is the only check that a
 # failed or half-uploaded dump never passes as a good one (#688);
 # the two scripts/ci/ halves of the N-1 promotion gate because CD's prod leg runs them (#534) and
-# their self-tests are the only pre-deploy check they face; and scripts/n1-compat.sh, the proof
+# their self-tests are the only pre-deploy check they face; scripts/n1-compat.sh, the proof
 # those halves call, whose verdict classification decides whether a blocked promotion reads as
-# "your migrations break prod" or as "the proof never ran" (#679).
-GUARD_INPUTS='^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/tests/check-ssr-purity\.tests\.sh$|^scripts/smoke\.(sh|ps1)$|^scripts/tests/smoke\.tests\.sh$|^scripts/check-client-hypermedia\.(sh|ps1)$|^scripts/tests/check-client-hypermedia\.tests\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/tests/check-dockerfile-restore-graph\.tests\.sh$|^scripts/hetzner/(deploy|bootstrap|backup)\.sh$|^scripts/tests/hetzner-(deploy|bootstrap-swap|bootstrap-docker-user|bootstrap-reboot|backup)\.tests\.sh$|^scripts/ci/(resolve-prod-baseline|n1-promotion-gate)\.sh$|^scripts/n1-compat\.sh$|^scripts/tests/(resolve-prod-baseline|n1-promotion-gate|n1-compat)\.tests\.sh$|(^|/)Dockerfile[^/]*$|^\.github/workflows/(pr-verify|ci)\.yml$'
+# "your migrations break prod" or as "the proof never ran" (#679); and the prod leg's UI change
+# notice, for the same reason as the gate's halves (#1377).
+GUARD_INPUTS='^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/tests/check-ssr-purity\.tests\.sh$|^scripts/smoke\.(sh|ps1)$|^scripts/tests/smoke\.tests\.sh$|^scripts/check-client-hypermedia\.(sh|ps1)$|^scripts/tests/check-client-hypermedia\.tests\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/tests/check-dockerfile-restore-graph\.tests\.sh$|^scripts/hetzner/(deploy|bootstrap|backup)\.sh$|^scripts/tests/hetzner-(deploy|bootstrap-swap|bootstrap-docker-user|bootstrap-reboot|backup)\.tests\.sh$|^scripts/ci/(resolve-prod-baseline|n1-promotion-gate|promotion-ui-notice)\.sh$|^scripts/n1-compat\.sh$|^scripts/tests/(resolve-prod-baseline|n1-promotion-gate|n1-compat|promotion-ui-notice)\.tests\.sh$|(^|/)Dockerfile[^/]*$|^\.github/workflows/(pr-verify|ci)\.yml$'
 
 # Build-relevant despite matching INERT:
 #   * the two workflows that DEFINE the .NET gate;

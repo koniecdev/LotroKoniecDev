@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Npgsql;
@@ -23,6 +24,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.Tests.Shared;
 using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
@@ -31,6 +33,19 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 {
     private const string PostLogoutRedirectUri = "https://localhost:5001";
+    private const string RedirectUri = "https://localhost:5001/callback";
+
+    /// <summary>
+    /// The website's confidential client (ADR-0074). Every request the website sends carries its secret.
+    /// </summary>
+    private const string WebsiteClientId = AuthConstants.ClientIds.Frontend;
+    private const string WebsiteClientSecret = AuthSystemApiFactory.TestFrontendClientSecret;
+    private const string WrongClientSecret = "a-wrong-secret-that-is-long-enough-for-the-check";
+
+    /// <summary>
+    /// The old public client stays for one release (ADR-0074) and sends no secret.
+    /// </summary>
+    private const string OldPublicClientId = AuthConstants.ClientIds.Web;
 
     protected override TestApiClient ApiClient { get; }
 
@@ -196,8 +211,9 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         {
             ["grant_type"] = "authorization_code",
             ["code"] = authorizationCode,
-            ["redirect_uri"] = "https://localhost:5001/callback",
-            ["client_id"] = "lotrokoniecdev-web",
+            ["redirect_uri"] = RedirectUri,
+            ["client_id"] = WebsiteClientId,
+            ["client_secret"] = WebsiteClientSecret,
             ["code_verifier"] = codeVerifier
         });
 
@@ -345,6 +361,10 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         html.ShouldContain("To konto nie zostało jeszcze aktywowane");
     }
 
+    /// <summary>
+    /// The right secret does not replace PKCE (ADR-0074). A missing verifier is refused before the client
+    /// is checked, so only a wrong one proves this.
+    /// </summary>
     [Fact]
     public async Task AuthorizationCodeExchange_ShouldFail_WhenCodeVerifierIsInvalid()
     {
@@ -357,8 +377,9 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         {
             ["grant_type"] = "authorization_code",
             ["code"] = authorizationCode,
-            ["redirect_uri"] = "https://localhost:5001/callback",
-            ["client_id"] = "lotrokoniecdev-web",
+            ["redirect_uri"] = RedirectUri,
+            ["client_id"] = WebsiteClientId,
+            ["client_secret"] = WebsiteClientSecret,
             ["code_verifier"] = wrongCodeVerifier
         });
 
@@ -368,6 +389,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await ReadErrorAsync(response)).ShouldBe(OpenIddictConstants.Errors.InvalidGrant);
     }
 
     [Fact]
@@ -385,8 +407,9 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         {
             ["grant_type"] = "authorization_code",
             ["code"] = authorizationCode,
-            ["redirect_uri"] = "https://localhost:5001/callback",
-            ["client_id"] = "lotrokoniecdev-web",
+            ["redirect_uri"] = RedirectUri,
+            ["client_id"] = WebsiteClientId,
+            ["client_secret"] = WebsiteClientSecret,
             ["code_verifier"] = codeVerifier
         });
 
@@ -851,6 +874,222 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData(WrongClientSecret)]
+    public async Task AuthorizationCodeExchange_ShouldRefuseTheWebsite_WhenItsSecretIsMissingOrWrong(string? clientSecret)
+    {
+        // Arrange
+        (string authorizationCode, string codeVerifier, _, _) = await ObtainAuthorizationCodeAsync();
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAuthorizationCodeAsync(
+            ApiClient.Http, authorizationCode, codeVerifier, WebsiteClientId, clientSecret);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await ReadErrorAsync(response)).ShouldBe(OpenIddictConstants.Errors.InvalidClient);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(WrongClientSecret)]
+    public async Task RefreshTokenGrant_ShouldRefuseTheWebsite_WhenItsSecretIsMissingOrWrong(string? clientSecret)
+    {
+        // Arrange
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
+
+        // Act
+        using HttpResponseMessage response = await RefreshAsync(session.RefreshToken, WebsiteClientId, clientSecret);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await ReadErrorAsync(response)).ShouldBe(OpenIddictConstants.Errors.InvalidClient);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(WrongClientSecret)]
+    public async Task Revoke_ShouldRefuseTheWebsiteAndKeepTheToken_WhenItsSecretIsMissingOrWrong(string? clientSecret)
+    {
+        // Arrange
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
+
+        // Act
+        using HttpResponseMessage response = await RevokeAsync(session.RefreshToken, WebsiteClientId, clientSecret);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await ReadErrorAsync(response)).ShouldBe(OpenIddictConstants.Errors.InvalidClient);
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, session.RefreshToken))
+            .ShouldBe(OpenIddictConstants.Statuses.Valid);
+    }
+
+    /// <summary>
+    /// Otherwise the old public client would be a way around the secret for the website's own codes.
+    /// </summary>
+    [Fact]
+    public async Task AuthorizationCodeExchange_ShouldRefuseTheWebsitesCode_WhenTheOldPublicClientPresentsIt()
+    {
+        // Arrange
+        (string authorizationCode, string codeVerifier, _, _) = await ObtainAuthorizationCodeAsync();
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAuthorizationCodeAsync(
+            ApiClient.Http, authorizationCode, codeVerifier, OldPublicClientId, clientSecret: null);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await ReadErrorAsync(response)).ShouldBe(OpenIddictConstants.Errors.InvalidGrant);
+    }
+
+    [Fact]
+    public async Task RefreshTokenGrant_ShouldRefuseTheWebsitesToken_WhenTheOldPublicClientPresentsIt()
+    {
+        // Arrange
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
+
+        // Act
+        using HttpResponseMessage response = await RefreshAsync(session.RefreshToken, OldPublicClientId, clientSecret: null);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await ReadErrorAsync(response)).ShouldBe(OpenIddictConstants.Errors.InvalidGrant);
+    }
+
+    /// <summary>
+    /// The token endpoint gives a service token to any client OpenIddict lets through, so the missing
+    /// permission is the only gate now that the website can authenticate.
+    /// </summary>
+    [Fact]
+    public async Task ClientCredentialsGrant_ShouldRefuseTheWebsite_EvenWithItsSecret()
+    {
+        // Arrange
+        using FormUrlEncodedContent request = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "client_credentials",
+            ["client_id"] = WebsiteClientId,
+            ["client_secret"] = WebsiteClientSecret,
+            ["scope"] = "api"
+        });
+
+        // Act
+        using HttpResponseMessage response = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), request);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await ReadErrorAsync(response)).ShouldBe(OpenIddictConstants.Errors.UnauthorizedClient);
+    }
+
+    /// <summary>
+    /// A website of the previous release keeps signing in while this release runs (ADR-0074).
+    /// </summary>
+    [Fact]
+    public async Task OldPublicClient_ShouldStillSignInAndRefresh_WithoutASecret()
+    {
+        // Arrange
+        const string password = "TestPass1!";
+        string email = await RegisterUserAsync(password);
+        (string authorizationCode, string codeVerifier, _) =
+            await ObtainAuthorizationCodeForAsync(Factory, email, password, OldPublicClientId);
+
+        // Act
+        using HttpResponseMessage exchangeResponse = await ExchangeAuthorizationCodeAsync(
+            ApiClient.Http, authorizationCode, codeVerifier, OldPublicClientId, clientSecret: null);
+        exchangeResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using JsonDocument tokens = JsonDocument.Parse(await exchangeResponse.Content.ReadAsStringAsync());
+        string refreshToken = tokens.RootElement.GetProperty("refresh_token").GetString()!;
+        using HttpResponseMessage refreshResponse = await RefreshAsync(refreshToken, OldPublicClientId, clientSecret: null);
+
+        // Assert
+        refreshResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    /// <summary>
+    /// Why the website needs a new client id: one registration cannot take a secret from one website and
+    /// none from another (ADR-0074).
+    /// </summary>
+    [Fact]
+    public async Task AuthorizationCodeExchange_ShouldRefuseTheOldPublicClient_WhenItSendsASecret()
+    {
+        // Arrange
+        const string password = "TestPass1!";
+        string email = await RegisterUserAsync(password);
+        (string authorizationCode, string codeVerifier, _) =
+            await ObtainAuthorizationCodeForAsync(Factory, email, password, OldPublicClientId);
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAuthorizationCodeAsync(
+            ApiClient.Http, authorizationCode, codeVerifier, OldPublicClientId, WebsiteClientSecret);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await ReadErrorAsync(response)).ShouldBe(OpenIddictConstants.Errors.InvalidClient);
+    }
+
+    /// <summary>
+    /// Every log line at every level, OpenIddict's own request logs included, across the website's three
+    /// calls and a refused one.
+    /// </summary>
+    [Fact]
+    public async Task WebsiteCalls_ShouldNeverWriteTheSecretToALogLine()
+    {
+        // Arrange
+        using CapturingLoggerFactory loggerFactory = new();
+        using WebApplicationFactory<Program> host = Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                // A second relay on this database could take a row another test waits for.
+                AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
+                services.AddSingleton<ILoggerFactory>(loggerFactory);
+            }));
+        using HttpClient client = host.CreateClient();
+        const string password = "TestPass1!";
+        string email = await RegisterUserAsync(password);
+
+        // Act
+        (string authorizationCode, string codeVerifier, _) =
+            await ObtainAuthorizationCodeForAsync(host, email, password, WebsiteClientId);
+        using HttpResponseMessage exchangeResponse = await ExchangeAuthorizationCodeAsync(
+            client, authorizationCode, codeVerifier, WebsiteClientId, WebsiteClientSecret);
+        exchangeResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using JsonDocument tokens = JsonDocument.Parse(await exchangeResponse.Content.ReadAsStringAsync());
+        string refreshToken = tokens.RootElement.GetProperty("refresh_token").GetString()!;
+        using HttpResponseMessage refused = await PostClientRequestAsync(
+            client,
+            "connect/token",
+            new Dictionary<string, string> { ["grant_type"] = "refresh_token", ["refresh_token"] = refreshToken },
+            WebsiteClientId,
+            WebsiteClientSecret + "x");
+        refused.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        using HttpResponseMessage refreshResponse = await PostClientRequestAsync(
+            client,
+            "connect/token",
+            new Dictionary<string, string> { ["grant_type"] = "refresh_token", ["refresh_token"] = refreshToken },
+            WebsiteClientId,
+            WebsiteClientSecret);
+        refreshResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using JsonDocument renewed = JsonDocument.Parse(await refreshResponse.Content.ReadAsStringAsync());
+        using HttpResponseMessage revokeResponse = await PostClientRequestAsync(
+            client,
+            "connect/revoke",
+            new Dictionary<string, string>
+            {
+                ["token"] = renewed.RootElement.GetProperty("refresh_token").GetString()!,
+                ["token_type_hint"] = "refresh_token"
+            },
+            WebsiteClientId,
+            WebsiteClientSecret);
+        revokeResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Assert: OpenIddict logs each request's parameters, so the client id shows the check can see them
+        loggerFactory.Entries.ShouldContain(entry => entry.Message.Contains(WebsiteClientId, StringComparison.Ordinal));
+        loggerFactory.Entries.ShouldAllBe(entry =>
+            !entry.Message.Contains(WebsiteClientSecret, StringComparison.Ordinal)
+            && (entry.Exception == null || !entry.Exception.ToString().Contains(WebsiteClientSecret, StringComparison.Ordinal)));
+    }
+
     private async Task<(string Code, string CodeVerifier, List<string> AuthCookies, string Email)>
         ObtainAuthorizationCodeAsync(string? password = null)
     {
@@ -868,7 +1107,11 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         ObtainAuthorizationCodeForAsync(Factory, email, password);
 
     private static async Task<(string Code, string CodeVerifier, List<string> AuthCookies)>
-        ObtainAuthorizationCodeForAsync(WebApplicationFactory<Program> host, string email, string password)
+        ObtainAuthorizationCodeForAsync(
+            WebApplicationFactory<Program> host,
+            string email,
+            string password,
+            string clientId = WebsiteClientId)
     {
         // A client of its own, like a browser on another device, so two sign-ins in one test never share
         // the antiforgery cookie that the login page hands out only once per browser
@@ -879,7 +1122,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         });
 
         (string codeVerifier, string codeChallenge) = GeneratePkce();
-        string authorizeUrl = BuildAuthorizeUrl(codeChallenge);
+        string authorizeUrl = BuildAuthorizeUrl(codeChallenge, clientId);
 
         // Step 1: Hit /connect/authorize - should redirect to login
         HttpResponseMessage authorizeResponse = await browser.GetAsync(
@@ -1029,31 +1272,55 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         return await client.SendAsync(request);
     }
 
-    private async Task<HttpResponseMessage> RefreshAsync(string refreshToken)
-    {
-        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "refresh_token",
-            ["refresh_token"] = refreshToken,
-            ["client_id"] = "lotrokoniecdev-web"
-        });
+    private Task<HttpResponseMessage> RefreshAsync(string refreshToken) =>
+        RefreshAsync(refreshToken, WebsiteClientId, WebsiteClientSecret);
 
-        return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), refreshRequest);
-    }
+    private Task<HttpResponseMessage> RefreshAsync(string refreshToken, string clientId, string? clientSecret) =>
+        PostClientRequestAsync(
+            ApiClient.Http,
+            "connect/token",
+            new Dictionary<string, string> { ["grant_type"] = "refresh_token", ["refresh_token"] = refreshToken },
+            clientId,
+            clientSecret);
 
     /// <summary>
-    /// The request the website sends: a public client names itself and sends no secret.
+    /// The request the website sends: its client id and its secret.
     /// </summary>
-    private async Task<HttpResponseMessage> RevokeAsync(string refreshToken)
-    {
-        using FormUrlEncodedContent revokeRequest = new(new Dictionary<string, string>
-        {
-            ["token"] = refreshToken,
-            ["token_type_hint"] = "refresh_token",
-            ["client_id"] = "lotrokoniecdev-web"
-        });
+    private Task<HttpResponseMessage> RevokeAsync(string refreshToken) =>
+        RevokeAsync(refreshToken, WebsiteClientId, WebsiteClientSecret);
 
-        return await ApiClient.Http.PostAsync(new Uri("connect/revoke", UriKind.Relative), revokeRequest);
+    private Task<HttpResponseMessage> RevokeAsync(string refreshToken, string clientId, string? clientSecret) =>
+        PostClientRequestAsync(
+            ApiClient.Http,
+            "connect/revoke",
+            new Dictionary<string, string> { ["token"] = refreshToken, ["token_type_hint"] = "refresh_token" },
+            clientId,
+            clientSecret);
+
+    /// <summary>
+    /// A null secret sends no <c>client_secret</c> field, as a public client does.
+    /// </summary>
+    private static async Task<HttpResponseMessage> PostClientRequestAsync(
+        HttpClient client,
+        string path,
+        Dictionary<string, string> fields,
+        string clientId,
+        string? clientSecret)
+    {
+        fields["client_id"] = clientId;
+        if (clientSecret is not null)
+        {
+            fields["client_secret"] = clientSecret;
+        }
+
+        using FormUrlEncodedContent content = new(fields);
+        return await client.PostAsync(new Uri(path, UriKind.Relative), content);
+    }
+
+    private static async Task<string?> ReadErrorAsync(HttpResponseMessage response)
+    {
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return body.RootElement.GetProperty("error").GetString();
     }
 
     /// <summary>
@@ -1070,22 +1337,30 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     private Task<HttpResponseMessage> ExchangeAuthorizationCodeAsync(string authorizationCode, string codeVerifier) =>
         ExchangeAuthorizationCodeAsync(ApiClient.Http, authorizationCode, codeVerifier);
 
-    private static async Task<HttpResponseMessage> ExchangeAuthorizationCodeAsync(
+    private static Task<HttpResponseMessage> ExchangeAuthorizationCodeAsync(
         HttpClient client,
         string authorizationCode,
-        string codeVerifier)
-    {
-        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "authorization_code",
-            ["code"] = authorizationCode,
-            ["redirect_uri"] = "https://localhost:5001/callback",
-            ["client_id"] = "lotrokoniecdev-web",
-            ["code_verifier"] = codeVerifier
-        });
+        string codeVerifier) =>
+        ExchangeAuthorizationCodeAsync(client, authorizationCode, codeVerifier, WebsiteClientId, WebsiteClientSecret);
 
-        return await client.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
-    }
+    private static Task<HttpResponseMessage> ExchangeAuthorizationCodeAsync(
+        HttpClient client,
+        string authorizationCode,
+        string codeVerifier,
+        string clientId,
+        string? clientSecret) =>
+        PostClientRequestAsync(
+            client,
+            "connect/token",
+            new Dictionary<string, string>
+            {
+                ["grant_type"] = "authorization_code",
+                ["code"] = authorizationCode,
+                ["redirect_uri"] = RedirectUri,
+                ["code_verifier"] = codeVerifier
+            },
+            clientId,
+            clientSecret);
 
     /// <summary>
     /// Issues codes that name the translation API alone, as before #1023. The code exchange, which is the
@@ -1103,10 +1378,10 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
                     AuthConstants.ClientIds.Api);
             }));
 
-    private static string BuildAuthorizeUrl(string codeChallenge) =>
+    private static string BuildAuthorizeUrl(string codeChallenge, string clientId = WebsiteClientId) =>
         $"connect/authorize?response_type=code" +
-        $"&client_id=lotrokoniecdev-web" +
-        $"&redirect_uri={Uri.EscapeDataString("https://localhost:5001/callback")}" +
+        $"&client_id={clientId}" +
+        $"&redirect_uri={Uri.EscapeDataString(RedirectUri)}" +
         $"&scope={Uri.EscapeDataString("openid email profile roles api offline_access")}" +
         $"&code_challenge={codeChallenge}" +
         $"&code_challenge_method=S256";

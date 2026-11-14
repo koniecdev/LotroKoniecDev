@@ -33,6 +33,11 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     public const string TestApiClientSecret = "integration-test-secret-32-chars!";
 
     /// <summary>
+    /// At least 32 characters: some tests boot this host in Production, where the startup check applies.
+    /// </summary>
+    public const string TestFrontendClientSecret = "integration-test-frontend-secret-32-chars";
+
+    /// <summary>
     /// Also the frontend origin the login page falls back to, so tests compare against it instead of
     /// repeating the string.
     /// </summary>
@@ -132,6 +137,7 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 { "OpenIddict:EncryptionKey:Key", "RGV2RW5jcnlwdGlvbktleTMyQnl0ZXNMb25nMTIzNDU=" },
                 { "OpenIddict:SigningKey:Key", "RGV2U2lnbmluZ0tleTMyQnl0ZXNMb25nRW5vdWdoMTI=" },
                 { "OpenIddict:ApiClientSecret", TestApiClientSecret },
+                { "OpenIddict:FrontendClientSecret", TestFrontendClientSecret },
                 { "OpenIddict:WebClient:RedirectUris:0", TestFrontendAppRoot + "/callback" },
                 { "OpenIddict:WebClient:PostLogoutRedirectUris:0", TestFrontendAppRoot },
                 { "AdminUser:Username", "seededadmin" },

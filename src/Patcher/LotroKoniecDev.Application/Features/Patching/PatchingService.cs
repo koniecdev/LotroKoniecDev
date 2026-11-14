@@ -31,17 +31,20 @@ internal sealed class PatchingService : IPatchingService
     private readonly ITranslationParser _translationParser;
     private readonly ITranslationLedger _translationLedger;
     private readonly ISubFileIterationSnapshotStore _snapshotStore;
+    private readonly IWriteAccessChecker _writeAccessChecker;
 
     public PatchingService(
         IDatFileHandler datFileHandler,
         ITranslationParser translationParser,
         ITranslationLedger translationLedger,
-        ISubFileIterationSnapshotStore snapshotStore)
+        ISubFileIterationSnapshotStore snapshotStore,
+        IWriteAccessChecker writeAccessChecker)
     {
         _datFileHandler = datFileHandler;
         _translationParser = translationParser;
         _translationLedger = translationLedger;
         _snapshotStore = snapshotStore;
+        _writeAccessChecker = writeAccessChecker;
     }
 
     public Result<PatchSummaryResponse> ApplyTranslations(
@@ -79,7 +82,12 @@ internal sealed class PatchingService : IPatchingService
 
         if (datFileOpenResult.IsFailure)
         {
-            return Result.Failure<PatchSummaryResponse>(datFileOpenResult.Error);
+            // The native open gives no reason. When the file itself refuses a write, name why
+            // (#1248); this is the one read-write open, so launch's patch and repair get it too.
+            Result fileRefusal = _writeAccessChecker.CheckFile(datFilePath).ToResult(datFilePath);
+
+            return Result.Failure<PatchSummaryResponse>(
+                fileRefusal.IsFailure ? fileRefusal.Error : datFileOpenResult.Error);
         }
 
         int datFileHandle = datFileOpenResult.Value;

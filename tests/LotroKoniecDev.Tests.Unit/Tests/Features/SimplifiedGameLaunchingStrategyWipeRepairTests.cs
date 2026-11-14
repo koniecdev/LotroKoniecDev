@@ -218,7 +218,8 @@ public sealed class SimplifiedGameLaunchingStrategyWipeRepairTests
         ledger.Read(Arg.Any<string>()).Returns(new Dictionary<LedgerKey, string>());
         ledger.Save(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<LedgerKey, string>>()).Returns(Result.Success());
 
-        _patchingService = new PatchingService(_dat, _translationParser, ledger, _snapshotStore);
+        _patchingService = new PatchingService(
+            _dat, _translationParser, ledger, _snapshotStore, Substitute.For<IWriteAccessChecker>());
 
         IFileHasher fileHasher = Substitute.For<IFileHasher>();
         fileHasher.ComputeHash(TranslationFilePath).Returns(Result.Success(TranslationHash));

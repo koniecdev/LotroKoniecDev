@@ -912,21 +912,29 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The only way onto an address the reservation of #684 holds: every HTTP route refuses it.
+    /// Moves the account onto the address through the store, the only way onto an address the reservation
+    /// of #684 holds: every HTTP route and <c>UserManager</c> itself refuse it (#905).
     /// </summary>
     private async Task SeedUserOnAsync(string email)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         UserManager<ApplicationUser> userManager =
             scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        IUserEmailStore<ApplicationUser> store =
+            (IUserEmailStore<ApplicationUser>)scope.ServiceProvider.GetRequiredService<IUserStore<ApplicationUser>>();
 
         ApplicationUser squatter = new()
         {
             UserName = Faker.Random.AlphaNumeric(16),
-            Email = email
+            Email = UserFactory.GenerateUniqueEmail(Faker)
         };
 
         (await userManager.CreateAsync(squatter, Password)).Succeeded.ShouldBeTrue();
+
+        // The store recomputes nothing, so the normalized address is set here, also for a re-spelling.
+        await store.SetEmailAsync(squatter, email, CancellationToken.None);
+        await store.SetNormalizedEmailAsync(squatter, userManager.NormalizeEmail(email), CancellationToken.None);
+        (await store.UpdateAsync(squatter, CancellationToken.None)).Succeeded.ShouldBeTrue();
     }
 
     private async Task<(RegisterRequest User, string NewEmail, string Token)> RequestChangeAsync()

@@ -6,7 +6,6 @@ using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
-using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
@@ -65,7 +64,6 @@ internal sealed partial class RegisterUser : IApiEndpoint
         private readonly ILogger<Handler> _logger;
         private readonly AuthDbContext _db;
         private readonly OutboxWriter _outboxWriter;
-        private readonly IEmailChangeRevertReservation _revertReservation;
         private readonly IRegistrationMailboxThrottle _mailboxThrottle;
         private readonly IResponseTimeFloor _responseTimeFloor;
 
@@ -76,7 +74,6 @@ internal sealed partial class RegisterUser : IApiEndpoint
             ILogger<Handler> logger,
             AuthDbContext db,
             OutboxWriter outboxWriter,
-            IEmailChangeRevertReservation revertReservation,
             IRegistrationMailboxThrottle mailboxThrottle,
             IResponseTimeFloor responseTimeFloor)
         {
@@ -86,7 +83,6 @@ internal sealed partial class RegisterUser : IApiEndpoint
             _logger = logger;
             _db = db;
             _outboxWriter = outboxWriter;
-            _revertReservation = revertReservation;
             _mailboxThrottle = mailboxThrottle;
             _responseTimeFloor = responseTimeFloor;
         }
@@ -160,20 +156,6 @@ internal sealed partial class RegisterUser : IApiEndpoint
                     return await NotifyAddressOwnerAsync(addressOwner, command, attempt, transaction, cancellationToken);
                 }
 
-                // An address held for an undo link is not free (#684): an unconfirmed account on it would
-                // break that link forever, and nothing removes unconfirmed accounts. It answers like any
-                // other address and mails nobody, but still spends a permit, so the budget reveals nothing.
-                bool reserved = await _revertReservation.IsReservedAsync(
-                    command.Email, exceptUserId: null, cancellationToken);
-
-                if (reserved)
-                {
-                    LogReservedAddressRefused(_logger, command.Email.MaskEmail());
-                    return TryTakeMailboxPermit(command, attempt)
-                        ? Result.Success()
-                        : Result.Failure(AuthErrors.RegistrationMailboxThrottled);
-                }
-
                 ApplicationUser user = NewAccount(command);
                 user.PasswordHash = passwordHash;
 
@@ -183,6 +165,18 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
                 if (!result.Succeeded)
                 {
+                    // An address held for an undo link is not free (#684): an unconfirmed account on it would
+                    // break that link forever, and nothing removes unconfirmed accounts. It answers like any
+                    // other address and mails nobody, but still spends a permit, so the budget reveals
+                    // nothing. First, so a username lost in a race behind it does not answer instead (#905).
+                    if (result.IsReservedEmail)
+                    {
+                        LogReservedAddressRefused(_logger, command.Email.MaskEmail());
+                        return TryTakeMailboxPermit(command, attempt)
+                            ? Result.Success()
+                            : Result.Failure(AuthErrors.RegistrationMailboxThrottled);
+                    }
+
                     if (result.Errors.Any(e => e.Code is nameof(IdentityErrorDescriber.DuplicateUserName)))
                     {
                         return Result.Failure(AuthErrors.UserAlreadyExistsByUsername);

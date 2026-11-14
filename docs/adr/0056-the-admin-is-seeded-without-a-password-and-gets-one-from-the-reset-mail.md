@@ -1,8 +1,8 @@
 # ADR-0056: The Admin Is Seeded Without a Password and Gets One From the Reset Mail
 
 **Status:** Accepted (amended 2026-09-24 by #839 — the account and its role are one write, and an
-existing account is never promoted — and 2026-09-27 by #849 — an address held for an undo link is
-skipped)
+existing account is never promoted — 2026-09-27 by #849 — an address held for an undo link is
+skipped — and 2026-11-14 by #905 — that check now runs inside `CreateAsync`)
 **Date:** 2026-09-23
 **Decision-makers:** Solo maintainer (ticket #696)
 **Related:** AuthSystem.API (`Extensions/DatabaseSeederExtensions.cs`, `Pages/Account/Login.cshtml.cs`),
@@ -227,6 +227,20 @@ so the operator keeps getting `2353`, which decision 5 and the runbook already e
 therefore appears only when the configured username is free, so the holder is some other account. The
 warning names no account, because the reservation only answers yes or no. The runbook's query finds
 the holder. The tests are in `AdminSeedingTests`.
+
+## Amendment (2026-11-14, #905 — SEC-32): the reservation check runs inside `CreateAsync`
+
+The seeder no longer calls the reservation check itself. An Identity user validator now runs it on
+every create and update through `UserManager` (ADR-0048 rule 4), so the seeder's `CreateAsync` is
+refused, and the seeder maps that refusal to the same warning `2355` and moves on. The username check
+still comes first, so the operator still gets `2353` when the admin moved off the address.
+
+One case changes, in Development and Testing only, where the seeder reads a configured password.
+Identity checks the password before it runs the user validators, so a configured password that a
+password rule or the breach check refuses now stops the start with "Admin user seeding failed" also on
+a reserved address, where it used to log `2355`. A refused configured password already stops the start
+on a free address, so the fix is the same: set a valid password. Staging and Production seed without a
+password and are not affected.
 
 ## References
 

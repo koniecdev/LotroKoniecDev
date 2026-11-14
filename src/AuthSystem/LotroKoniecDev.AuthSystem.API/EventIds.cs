@@ -160,6 +160,7 @@ internal static class EventIds
     public const int EmailChangeRevertRace = 2515;
     public const int EmailChangeAlreadyApplied = 2516;
     public const int EmailChangeRevertAlreadyApplied = 2517;
+    public const int EmailChangeRevertAddressReserved = 2518;
 
     // Change E-mail dispatch (2520-2529)
     public const int EmailChangeDispatchUserGone = 2520;

@@ -244,6 +244,15 @@ internal sealed partial class RevertEmailChange
             try
             {
                 IdentityResult result = await _userManager.UpdateAsync(user);
+
+                // Another account holds a live undo to this address, and this link still works because the
+                // token outlives the reservation (ADR-0048). Taking the address would break that undo (#905).
+                if (result.IsReservedEmail)
+                {
+                    LogPreviousAddressReserved(_logger, user.Id);
+                    return Result.Failure<IdentityResult>(AuthErrors.UserAlreadyExistsByEmail);
+                }
+
                 if (result.IsTakenEmail)
                 {
                     LogRevertRace(_logger, null, user.Id);
@@ -308,5 +317,8 @@ internal sealed partial class RevertEmailChange
 
         [LoggerMessage(EventId = EventIds.EmailChangeRevertRace, Level = LogLevel.Warning, Message = "Revert for user {UserId} lost a race for the previous address")]
         private static partial void LogRevertRace(ILogger logger, Exception? exception, Guid userId);
+
+        [LoggerMessage(EventId = EventIds.EmailChangeRevertAddressReserved, Level = LogLevel.Warning, Message = "Revert link for user {UserId} refused: the previous address is reserved as another account's undo target")]
+        private static partial void LogPreviousAddressReserved(ILogger logger, Guid userId);
     }
 }

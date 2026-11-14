@@ -31,6 +31,7 @@ public sealed class PatchingServiceTests
     private readonly ITranslationParser _translationParser;
     private readonly ITranslationLedger _translationLedger;
     private readonly ISubFileIterationSnapshotStore _snapshotStore;
+    private readonly IWriteAccessChecker _writeAccessChecker;
     private readonly PatchingService _sut;
 
     [Fact]
@@ -149,6 +150,50 @@ public sealed class PatchingServiceTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("DatFile.CannotOpen");
+    }
+
+    [Theory]
+    [InlineData(DatFileWriteRefusal.ReadOnly, "DatFile.ReadOnly")]
+    [InlineData(DatFileWriteRefusal.AccessDenied, "DatFile.WriteAccessDenied")]
+    [InlineData(DatFileWriteRefusal.InUse, "DatFile.InUse")]
+    [InlineData(DatFileWriteRefusal.Other, "DatFile.CannotOpenForWriting")]
+    public void ApplyTranslations_DatFileOpenFailsAndTheFileNamesWhy_ShouldReturnThatReason(
+        DatFileWriteRefusal refusal,
+        string expectedCode)
+    {
+        // Arrange: the native open gives no reason, so the file is asked why (#1248).
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation());
+        string datFilePath = Path.Combine(Path.GetTempPath(), "game", "client_local_English.dat");
+        Error openError = new("DatFile.CannotOpen", "CannotOpen failed for datfile", ErrorType.IoError);
+        _datFileHandler.Open(datFilePath, DatFileAccess.ReadWrite).Returns(Result.Failure<int>(openError));
+        _writeAccessChecker.CheckFile(datFilePath).Returns(new DatFileWriteCheck(refusal, "Access is denied."));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", datFilePath);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe(expectedCode);
+        result.Error.Message.ShouldContain(datFilePath);
+    }
+
+    [Fact]
+    public void ApplyTranslations_DatFileOpenFailsButTheFileOpensForWriting_ShouldKeepTheOpenError()
+    {
+        // Arrange: a refusal the file check cannot see, such as a DAT the library cannot read.
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation());
+        Error openError = new("DatFile.CannotOpen", "CannotOpen failed for datfile", ErrorType.IoError);
+        _datFileHandler.Open(Arg.Any<string>(), DatFileAccess.ReadWrite).Returns(Result.Failure<int>(openError));
+        _writeAccessChecker.CheckFile(Arg.Any<string>()).Returns(new DatFileWriteCheck(DatFileWriteRefusal.None));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(openError);
     }
 
     [Fact]
@@ -1131,7 +1176,10 @@ public sealed class PatchingServiceTests
         _snapshotStore = Substitute.For<ISubFileIterationSnapshotStore>();
         _snapshotStore.Save(Arg.Any<string>(), Arg.Any<SubFileIterationSnapshot>()).Returns(Result.Success());
 
-        _sut = new PatchingService(_datFileHandler, _translationParser, _translationLedger, _snapshotStore);
+        _writeAccessChecker = Substitute.For<IWriteAccessChecker>();
+
+        _sut = new PatchingService(
+            _datFileHandler, _translationParser, _translationLedger, _snapshotStore, _writeAccessChecker);
     }
 
     private void SetupAllPassingDefaults()

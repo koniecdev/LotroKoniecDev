@@ -14,11 +14,12 @@ public sealed class E2EWorktreeTests : IAsyncLifetime
 {
     private const string ProbeRepository = "lotrokoniecdev-tag-probe";
     private const string ProbeDockerfile = "tests/LotroKoniecDev.TranslationSystem.E2E.Tests/Probes/tag-probe.dockerfile";
+    private const string ProbeLabel = "lotrokoniecdev.e2e.probe";
 
     private static readonly TimeSpan DefaultTagLockTimeout = TimeSpan.FromMinutes(1);
 
     private readonly string _suite = $"selftest-{Guid.NewGuid():N}"[..17];
-    private readonly ConcurrentBag<string> _builtImageIds = [];
+    private readonly ConcurrentBag<string> _cacheBusts = [];
 
     [Fact]
     public async Task BuildImageAsync_SecondBuildUnderTheSameTag_KeepsTheFirstImage()
@@ -63,6 +64,22 @@ public sealed class E2EWorktreeTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task BuildImagesAsync_SkipBuildWhileTagLockHeld_ThrowsNamingTheLockFile()
+    {
+        await BuildProbeAsync(NewWorktree(DefaultTagLockTimeout, skipBuild: false));
+        E2EWorktree skippingRun = NewWorktree(TimeSpan.FromMilliseconds(300), skipBuild: true);
+        InvalidOperationException exception;
+
+        await using (new FileStream(skippingRun.TagLockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+        {
+            exception = await Should.ThrowAsync<InvalidOperationException>(
+                () => skippingRun.BuildImagesAsync([(ProbeRepository, ProbeDockerfile)]));
+        }
+
+        exception.Message.ShouldContain(skippingRun.TagLockFile);
+    }
+
+    [Fact]
     public async Task BuildImageAsync_RepositoryNameDockerRefusesToTag_ThrowsTheTagFailure()
     {
         E2EWorktree worktree = NewWorktree(DefaultTagLockTimeout, skipBuild: false);
@@ -89,7 +106,16 @@ public sealed class E2EWorktreeTests : IAsyncLifetime
     public async Task DisposeAsync()
     {
         E2EWorktree worktree = NewWorktree(DefaultTagLockTimeout, skipBuild: false);
-        await DockerAsync(["image", "rm", "--force", worktree.ImageName(ProbeRepository), .. _builtImageIds]);
+        List<string> imagesToRemove = [worktree.ImageName(ProbeRepository)];
+
+        // By label, because a build whose tag step threw never returned its image ID.
+        foreach (string cacheBust in _cacheBusts)
+        {
+            (_, string imageIds) = await DockerAsync("image", "ls", "--all", "--quiet", "--filter", $"label={ProbeLabel}={cacheBust}");
+            imagesToRemove.AddRange(imageIds.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+
+        await DockerAsync(["image", "rm", "--force", .. imagesToRemove]);
 
         // File.Delete throws when the folder is missing, and a test that fails before its first tag
         // move never creates it.
@@ -101,14 +127,15 @@ public sealed class E2EWorktreeTests : IAsyncLifetime
 
     private E2EWorktree NewWorktree(TimeSpan tagLockTimeout, bool skipBuild) => new(_suite, skipBuild, tagLockTimeout);
 
-    private async Task<string> BuildProbeAsync(E2EWorktree worktree)
-    {
-        string imageId = await worktree.BuildImageAsync(ProbeRepository, ProbeDockerfile, NewCacheBust());
-        _builtImageIds.Add(imageId);
-        return imageId;
-    }
+    private Task<string> BuildProbeAsync(E2EWorktree worktree) =>
+        worktree.BuildImageAsync(ProbeRepository, ProbeDockerfile, NewCacheBust());
 
-    private static string NewCacheBust() => Guid.NewGuid().ToString("N");
+    private string NewCacheBust()
+    {
+        string cacheBust = Guid.NewGuid().ToString("N");
+        _cacheBusts.Add(cacheBust);
+        return cacheBust;
+    }
 
     private static async Task<bool> ImageExistsAsync(string imageId) =>
         (await DockerAsync("image", "inspect", imageId)).ExitCode == 0;

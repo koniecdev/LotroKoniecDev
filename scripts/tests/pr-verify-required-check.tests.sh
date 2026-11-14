@@ -145,7 +145,7 @@ SAFE_KEY='^[A-Za-z0-9_-]+$'
 
 # note_unreadable <where> <key> <value>
 note_unreadable() {
-    if ! printf '%s' "$2" | grep -Eq "$SAFE_KEY"; then
+    if ! grep -Eq -- "$SAFE_KEY" <<< "$2"; then
         UNREADABLE="$UNREADABLE$1 has a key the reader cannot follow: $2"$'\n'
     fi
     case "$3" in
@@ -298,7 +298,7 @@ shape_problems() {
         fi
         [ -n "${STEP_IF[i]-}" ] || continue
         condition="$(normalize_condition "${STEP_IF[i]}")"
-        if ! printf '%s' "$condition" | grep -Eq "$FAIL_CLOSED_CONDITION"; then
+        if ! grep -Eq -- "$FAIL_CLOSED_CONDITION" <<< "$condition"; then
             echo "step '${STEP_NAME[i]-#$i}' has if: $condition — after the classification only steps.diff.outputs.<verdict> != 'false' is allowed, so a missing verdict runs the step"
             continue
         fi
@@ -325,7 +325,7 @@ shape_problems() {
 expect_shape_problem() {
     local description="$1" expected="$2" problems
     problems="$(shape_problems "$3")"
-    if printf '%s' "$problems" | grep -qF -- "$expected"; then
+    if grep -qF -- "$expected" <<< "$problems"; then
         pass "$description"
     else
         fail "$description" "expected a problem containing: $expected"$'\n'"got: ${problems:-<none>}"
@@ -624,7 +624,7 @@ unclassified_problems() {
 expect_unclassified_problem() {
     local problems
     problems="$(unclassified_problems "$3" gitleaks)"
-    if printf '%s' "$problems" | grep -qF -- "$2"; then
+    if grep -qF -- "$2" <<< "$problems"; then
         pass "$1"
     else
         fail "$1" "expected a problem containing: $2"$'\n'"got: ${problems:-<none>}"

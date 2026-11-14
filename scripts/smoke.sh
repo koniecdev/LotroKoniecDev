@@ -270,9 +270,9 @@ else
         else
             warn "frontend / sends no Content-Security-Policy header (expected only on a Development stack)"
         fi
-    elif printf '%s' "$script_src" | grep -qi "unsafe-inline"; then
+    elif grep -qi "unsafe-inline" <<< "$script_src"; then
         fail "frontend / script-src allows 'unsafe-inline' — injected script is no longer blocked (#670)"
-    elif printf '%s' "$script_src" | grep -qiE "nonce-|sha(256|384|512)-"; then
+    elif grep -qiE "nonce-|sha(256|384|512)-" <<< "$script_src"; then
         # A nonce or hash is the documented way to allow one specific inline script, so the count below
         # would prove nothing.
         pass "frontend / script-src admits inline script only by nonce or hash"

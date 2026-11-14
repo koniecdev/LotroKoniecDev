@@ -276,7 +276,7 @@ LAST_STATUS=$?
 set -e
 [ "$LAST_STATUS" = 2 ] || fail "a mistyped argument must exit 2, got $LAST_STATUS"
 [ ! -s "$STACK/calls.log" ] || fail "a mistyped argument must not start a backup"
-printf '%s' "$LAST_OUTPUT" | grep -q "unknown argument '--helper'" || fail "the output must name the argument"
+grep -q "unknown argument '--helper'" <<< "$LAST_OUTPUT" || fail "the output must name the argument"
 pass "a mistyped argument stops before any dump instead of starting a real backup"
 
 # ---------------------------------------------------------------------------------------------------
@@ -327,7 +327,7 @@ run_backup EMPTY_DB=lotro_translation
 [ -z "$(object_for lotro_translation)" ] || fail "an empty database must not be uploaded"
 grep -q 'PGDATABASE=lotro_translation' "$STACK/env.log" && fail "an empty database must not be dumped"
 metric_untouched || fail "the metric must keep the last good run"
-printf '%s' "$LAST_OUTPUT" | grep -qF 'lotro_translation: translation."Translations" is empty' \
+grep -qF 'lotro_translation: translation."Translations" is empty' <<< "$LAST_OUTPUT" \
     || fail "the output must name the table"
 pass "an empty database is never dumped, and the metric keeps the last good run"
 
@@ -336,8 +336,8 @@ run_backup MISSING_TABLE_DB=lotro_auth
 [ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
 [ -z "$(object_for lotro_auth)" ] || fail "a database without the table must not be uploaded"
 metric_untouched || fail "the metric must keep the last good run"
-printf '%s' "$LAST_OUTPUT" | grep -qF 'lotro_auth: cannot read authsystem."Users"' || fail "the output must name the table"
-printf '%s' "$LAST_OUTPUT" | grep -q 'is empty' && fail "a failed query must not be reported as an empty table"
+grep -qF 'lotro_auth: cannot read authsystem."Users"' <<< "$LAST_OUTPUT" || fail "the output must name the table"
+grep -q 'is empty' <<< "$LAST_OUTPUT" && fail "a failed query must not be reported as an empty table"
 pass "a database whose never-empty table cannot be read fails the run, and says it could not read it"
 
 # ---------------------------------------------------------------------------------------------------
@@ -378,7 +378,7 @@ run_backup FAIL_DUMP_DB=lotro_auth
 [ -n "$(object_for lotro_translation)" ] || fail "the other database must still be backed up"
 [ -z "$(object_for lotro_auth)" ] || fail "nothing may be uploaded for the failed database"
 metric_untouched || fail "a failed run must not update the success metric"
-printf '%s' "$LAST_OUTPUT" | grep -q 'lotro_auth: pg_dump failed' || fail "the output must name the failed database"
+grep -q 'lotro_auth: pg_dump failed' <<< "$LAST_OUTPUT" || fail "the output must name the failed database"
 pass "the next database is still dumped, and the metric keeps the last good run"
 
 # ---------------------------------------------------------------------------------------------------
@@ -396,7 +396,7 @@ run_backup OPENSSL_ENCRYPT_FAILS=1
 [ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
 [ ! -d "$STACK/bucket" ] || fail "nothing may be uploaded when encryption fails"
 metric_untouched || fail "the metric must keep the last good run"
-printf '%s' "$LAST_OUTPUT" | grep -q 'lotro_auth: encryption failed' || fail "the output must name the step"
+grep -q 'lotro_auth: encryption failed' <<< "$LAST_OUTPUT" || fail "the output must name the step"
 pass "a failed encryption uploads nothing"
 
 new_stack decrypt-differs
@@ -404,7 +404,7 @@ run_backup OPENSSL_DECRYPTS_WRONG=1
 [ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
 [ ! -d "$STACK/bucket" ] || fail "nothing may be uploaded when the ciphertext does not decrypt to the dump"
 metric_untouched || fail "the metric must keep the last good run"
-printf '%s' "$LAST_OUTPUT" | grep -q 'does not decrypt to the dump' || fail "the output must say why"
+grep -q 'does not decrypt to the dump' <<< "$LAST_OUTPUT" || fail "the output must say why"
 pass "ciphertext that does not decrypt to the exact dump is never uploaded"
 
 # ---------------------------------------------------------------------------------------------------
@@ -413,7 +413,7 @@ new_stack failed-upload
 run_backup FAIL_UPLOAD_DB=lotro_translation
 [ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
 metric_untouched || fail "the metric must keep the last good run"
-printf '%s' "$LAST_OUTPUT" | grep -q 'lotro_translation: the upload failed' || fail "the output must name the step"
+grep -q 'lotro_translation: the upload failed' <<< "$LAST_OUTPUT" || fail "the output must name the step"
 pass "a refused upload fails the run"
 
 CASE="a PUT that landed but lost its answer"
@@ -422,7 +422,7 @@ run_backup STORE_THEN_FAIL_UPLOAD_DB=lotro_translation
 [ "$LAST_STATUS" = 0 ] || fail "expected exit 0, got $LAST_STATUS"
 grep -Eq '^lotro_backup_last_success_timestamp_seconds [0-9]{10}$' "$STACK/backups/metrics/lotro_backup.prom" \
     || fail "an object that landed and reads back right must count"
-printf '%s' "$LAST_OUTPUT" | grep -q 'checking whether the object landed' || fail "the output must say why it went on"
+grep -q 'checking whether the object landed' <<< "$LAST_OUTPUT" || fail "the output must say why it went on"
 pass "a PUT whose answer was lost counts when the read-back shows the object"
 
 CASE="a wrong read-back"
@@ -430,7 +430,7 @@ new_stack wrong-etag
 run_backup WRONG_ETAG=1
 [ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
 metric_untouched || fail "the metric must keep the last good run"
-printf '%s' "$LAST_OUTPUT" | grep -q 'is not what was sent' || fail "the output must say the object differs"
+grep -q 'is not what was sent' <<< "$LAST_OUTPUT" || fail "the output must say the object differs"
 pass "an object whose ETag is not the MD5 of what was sent fails the run"
 
 CASE="a wrong size"
@@ -445,7 +445,7 @@ new_stack head-fails
 run_backup FAIL_HEAD=1
 [ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
 metric_untouched || fail "the metric must keep the last good run"
-printf '%s' "$LAST_OUTPUT" | grep -q 'cannot be read back' || fail "the output must say why"
+grep -q 'cannot be read back' <<< "$LAST_OUTPUT" || fail "the output must say why"
 pass "an upload that cannot be read back does not count"
 
 CASE="a read-back that needed a retry"
@@ -477,7 +477,7 @@ LAST_OUTPUT="$(env PATH="$STACK/bin:$PATH" STUB_STATE="$STACK" STACK_DIR="$STACK
 LAST_STATUS=$?
 set -e
 [ "$LAST_STATUS" = 2 ] || fail "expected exit 2, got $LAST_STATUS"
-printf '%s' "$LAST_OUTPUT" | grep -q 'BACKUP_ENCRYPTION_KEY BACKUP_R2_ACCOUNT_ID' || fail "the output must name both missing keys"
+grep -q 'BACKUP_ENCRYPTION_KEY BACKUP_R2_ACCOUNT_ID' <<< "$LAST_OUTPUT" || fail "the output must name both missing keys"
 [ ! -s "$STACK/calls.log" ] || fail "nothing may be dumped without the settings"
 metric_untouched || fail "the metric must keep the last good run"
 pass "a missing key stops the run before any dump, and names the key"
@@ -491,7 +491,7 @@ run_backup
 [ -z "$(object_for lotro_translation)" ] || fail "nothing may be dumped from an incomplete string"
 grep -q 'PGDATABASE=lotro_translation' "$STACK/env.log" && fail "pg_dump must not run for an incomplete string"
 metric_untouched || fail "the metric must keep the last good run"
-printf '%s' "$LAST_OUTPUT" | grep -q 'ConnectionStrings__TranslationDatabase needs Host, Database, Username and Password' \
+grep -q 'ConnectionStrings__TranslationDatabase needs Host, Database, Username and Password' <<< "$LAST_OUTPUT" \
     || fail "the output must name the key"
 pass "a connection string without a password is refused, and the other database is still backed up"
 
@@ -502,7 +502,7 @@ run_backup
 [ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
 [ -n "$(object_for lotro_translation)" ] || fail "the other database must still be backed up"
 metric_untouched || fail "the metric must keep the last good run"
-printf '%s' "$LAST_OUTPUT" | grep -q 'has no value for ConnectionStrings__AuthDatabase' || fail "the output must name the key"
+grep -q 'has no value for ConnectionStrings__AuthDatabase' <<< "$LAST_OUTPUT" || fail "the output must name the key"
 pass "a missing connection string fails the run and names the key"
 
 CASE="a database key with no never-empty table"
@@ -513,7 +513,7 @@ run_backup DATABASE_KEYS='ConnectionStrings__OtherDatabase ConnectionStrings__Au
 [ -n "$(object_for lotro_auth)" ] || fail "the other database must still be backed up"
 grep -q 'lotro_other' "$STACK/calls.log" "$STACK/env.log" && fail "nothing may run against a database with no row check"
 metric_untouched || fail "the metric must keep the last good run"
-printf '%s' "$LAST_OUTPUT" | grep -q 'ConnectionStrings__OtherDatabase names no table that must have rows' \
+grep -q 'ConnectionStrings__OtherDatabase names no table that must have rows' <<< "$LAST_OUTPUT" \
     || fail "the output must name the key"
 pass "a database key with no never-empty table is refused before anything runs against it"
 
@@ -534,7 +534,7 @@ else
     chmod 600 "$STACK/.env"
     [ "$LAST_STATUS" = 2 ] || fail "expected exit 2, got $LAST_STATUS"
     [ ! -s "$STACK/calls.log" ] || fail "nothing may be dumped"
-    printf '%s' "$LAST_OUTPUT" | grep -q 'is not readable by' || fail "the output must name the cause"
+    grep -q 'is not readable by' <<< "$LAST_OUTPUT" || fail "the output must name the cause"
     pass "an .env the user cannot read stops the run and says so"
 fi
 
@@ -548,7 +548,7 @@ LAST_OUTPUT="$(env PATH="$STACK/bin:$STACK/sandbox" STUB_STATE="$STACK" STACK_DI
 LAST_STATUS=$?
 set -e
 [ "$LAST_STATUS" = 2 ] || fail "expected exit 2, got $LAST_STATUS"
-printf '%s' "$LAST_OUTPUT" | grep -q "'flock' is not installed" || fail "the output must name the tool"
+grep -q "'flock' is not installed" <<< "$LAST_OUTPUT" || fail "the output must name the tool"
 [ ! -s "$STACK/calls.log" ] || fail "nothing may be dumped"
 pass "a missing tool stops the run before any dump, and names the tool"
 
@@ -561,7 +561,7 @@ run_backup
 exec 8>&-
 [ "$LAST_STATUS" = 1 ] || fail "expected exit 1, got $LAST_STATUS"
 [ ! -s "$STACK/calls.log" ] || fail "a second run must not dump anything"
-printf '%s' "$LAST_OUTPUT" | grep -q 'another run holds' || fail "the output must say why"
+grep -q 'another run holds' <<< "$LAST_OUTPUT" || fail "the output must say why"
 pass "a run that finds the lock taken does nothing"
 
 CASE="a killed run's leftovers"

@@ -327,7 +327,7 @@ SWAPON_RACE=1 EXPECT_FAILURE=1 run_swap
 SWAPON_RACE=0; EXPECT_FAILURE=0
 
 [ "$(calls_matching '^mkswap ')" -eq 0 ] || fail 'mkswap ran on an active swap area — that corrupts live pages'
-printf '%s' "$LAST_OUTPUT" | grep -q 'refusing to mkswap' || fail 'the refusal was silent' "$LAST_OUTPUT"
+grep -q 'refusing to mkswap' <<< "$LAST_OUTPUT" || fail 'the refusal was silent' "$LAST_OUTPUT"
 pass 'refuses to format it and stops'
 
 # ---------------------------------------------------------------------------------------------

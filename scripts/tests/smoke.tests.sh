@@ -260,12 +260,12 @@ discovery_doc() {
 }
 
 expect_line() {
-    printf '%s' "$LAST_OUTPUT" | grep -qF "$1" \
+    grep -qF -- "$1" <<< "$LAST_OUTPUT" \
         || fail "the leg should report '$1'" "$LAST_OUTPUT"
 }
 
 reject_line() {
-    if printf '%s' "$LAST_OUTPUT" | grep -qF "$1"; then
+    if grep -qF -- "$1" <<< "$LAST_OUTPUT"; then
         fail "the leg should NOT report '$1'" "$LAST_OUTPUT"
     fi
 }
@@ -558,6 +558,20 @@ run_suite() {
     fi
     reject_line "[1/7]"
 }
+
+# The output helpers get more output than a pipe holds, with the text on its first line. A pipe into
+# `grep -q` would stop at the match, kill the writer with SIGPIPE and turn the result around (#1365).
+TWIN="helpers"
+big_output="first line"$'\n'"$(head -c 1048576 /dev/zero | tr '\0' a | fold -w 100)"
+( LAST_OUTPUT="$big_output"; expect_line 'first line' ) > /dev/null 2>&1 \
+    || fail "expect_line missed a text on the first line of a 1 MiB output"
+cases=$((cases + 1))
+printf '✓ [%s] %s\n' "$TWIN" "expect_line finds a text on the first line of a 1 MiB output"
+if ( LAST_OUTPUT="$big_output"; reject_line 'first line' ) > /dev/null 2>&1; then
+    fail "reject_line passed although a 1 MiB output holds the text on its first line"
+fi
+cases=$((cases + 1))
+printf '✓ [%s] %s\n' "$TWIN" "reject_line fails on a text on the first line of a 1 MiB output"
 
 TWIN="sh"
 FAIL_MARK="✗"

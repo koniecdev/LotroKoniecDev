@@ -97,7 +97,7 @@ STUB_ARGV="$*"
 matches() {
     local needle="$1"
     shift
-    [ -n "$needle" ] && printf '%s\n' "$*" | grep -qF -- "$needle"
+    [ -n "$needle" ] && grep -qF -- "$needle" <<< "$*"
 }
 
 case "$phase" in

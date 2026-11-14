@@ -96,12 +96,12 @@ run_tree() {
 }
 
 expect_in_output() {
-    printf '%s' "$LAST_OUTPUT" | grep -qF "$1" \
+    grep -qF -- "$1" <<< "$LAST_OUTPUT" \
         || fail "output should contain '$1'" "$LAST_OUTPUT"
 }
 
 expect_not_in_output() {
-    if printf '%s' "$LAST_OUTPUT" | grep -qF "$1"; then
+    if grep -qF -- "$1" <<< "$LAST_OUTPUT"; then
         fail "output should not contain '$1'" "$LAST_OUTPUT"
     fi
 }
@@ -533,6 +533,20 @@ run_suite() {
     write_dockerfile "$tree" src/App/Dockerfile "$COPY_APP" 'RUN echo hi \' 'żółć' "$COPY_LIB" "$COPY_CORE" "$RESTORE_APP"
     run_tree 0 "a line of non-ASCII text inside a continuation ends the join, as in Docker" "$tree"
 }
+
+# The output helpers get more output than a pipe holds, with the text on its first line. A pipe into
+# `grep -q` would stop at the match, kill the writer with SIGPIPE and turn the result around (#1365).
+LABEL="helpers"
+big_output="first line"$'\n'"$(head -c 1048576 /dev/zero | tr '\0' a | fold -w 100)"
+( LAST_OUTPUT="$big_output"; expect_in_output 'first line' ) > /dev/null 2>&1 \
+    || fail "expect_in_output missed a text on the first line of a 1 MiB output"
+cases=$((cases + 1))
+printf '✓ [%s] %s\n' "$LABEL" "expect_in_output finds a text on the first line of a 1 MiB output"
+if ( LAST_OUTPUT="$big_output"; expect_not_in_output 'first line' ) > /dev/null 2>&1; then
+    fail "expect_not_in_output passed although a 1 MiB output holds the text on its first line"
+fi
+cases=$((cases + 1))
+printf '✓ [%s] %s\n' "$LABEL" "expect_not_in_output fails on a text on the first line of a 1 MiB output"
 
 sh_runner="$TMP_ROOT/run-sh.sh"
 printf '#!/usr/bin/env bash\nexec bash "$1/scripts/check-dockerfile-restore-graph.sh"\n' > "$sh_runner"

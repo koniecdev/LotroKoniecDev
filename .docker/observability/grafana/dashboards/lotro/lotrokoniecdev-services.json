@@ -313,7 +313,7 @@
       "id": 15,
       "type": "timeseries",
       "title": "Translation file: uncompressed bytes of full downloads started",
-      "description": "Bytes of the translation file the TMS started to send as full downloads, per hour (#697). It is not egress: the size is the uncompressed file, so a compressed or an aborted download counts in full. A 304 adds nothing. A rise here that the status panel does not explain is worth a look before the hosting bill comes. The first download after a restart is not counted, because the counter starts with it.",
+      "description": "Bytes of the translation file the TMS started to send as full downloads, per hour (#697). It is not egress: the size is the uncompressed file, so a compressed or an aborted download counts in full. A 304 adds nothing. A rise here that the status panel does not explain is worth a look before the hosting bill comes. After a restart the series starts with the first download, and Prometheus counts no rise in a new series's first value, so the downloads before the first export (up to a minute) are not counted.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

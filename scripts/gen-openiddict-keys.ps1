@@ -14,6 +14,8 @@
         FRONTEND_CALLER_KEY                       base64 of 32 random bytes
     and the key that opens the full /health on both APIs (ADR-0058):
         HEALTH_CHECK_KEY                          base64 of 32 random bytes
+    and the website's client secret (ADR-0074), which auth-api and the frontend both read:
+        FRONTEND_CLIENT_SECRET                    base64 of 32 random bytes
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -34,6 +36,10 @@ $healthBytes = [byte[]]::new(32)
 [System.Security.Cryptography.RandomNumberGenerator]::Fill($healthBytes)
 $healthKey = [Convert]::ToBase64String($healthBytes)
 
+$clientSecretBytes = [byte[]]::new(32)
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($clientSecretBytes)
+$clientSecret = [Convert]::ToBase64String($clientSecretBytes)
+
 $rsa = [System.Security.Cryptography.RSA]::Create(2048)
 $rsaXmlB64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($rsa.ToXmlString($true)))
 
@@ -43,3 +49,4 @@ Write-Output "OpenIddict__ApiClientSecret=$apiSecret"
 Write-Output "OpenIddict__SigningKey__RsaPrivateKeyXml=$rsaXmlB64"
 Write-Output "FRONTEND_CALLER_KEY=$callerKey"
 Write-Output "HEALTH_CHECK_KEY=$healthKey"
+Write-Output "FRONTEND_CLIENT_SECRET=$clientSecret"

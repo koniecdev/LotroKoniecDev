@@ -680,7 +680,8 @@ The system uses the standard web login flow. In plain words:
    username is only a display name — ADR-0022).
 3. auth-api checks the password (with brute-force protections — Part 7.4), then redirects your
    browser back to the frontend with a short-lived, one-time **authorization code**.
-4. The frontend's server exchanges that code (plus the PKCE secret) at `/connect/token` for:
+4. The frontend's server exchanges that code (plus the PKCE secret and its own client secret, ADR-0074)
+   at `/connect/token` for:
    - an **access token** — a signed JWT, valid **5 minutes**, carrying `sub` (your account ID),
      `name`, `email` and `role`. It is short on purpose: the TMS validates it locally, so this is
      also how long a revoked session keeps working (ADR-0049);

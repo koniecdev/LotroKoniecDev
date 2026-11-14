@@ -5,11 +5,13 @@ namespace LotroKoniecDev.Frontend.Settings;
 /// <summary>
 /// Stops the boot on wrong settings (ADR-0008 §3). Development and Testing run with the auth API's limiter
 /// off, so the caller key is required only outside them (ADR-0054 §6). Anywhere else a missing key would
-/// put every visitor's calls into this container's one bucket.
+/// put every visitor's calls into this container's one bucket. The client secret is required outside them
+/// too, like the auth API's own client secrets (ADR-0074).
 /// </summary>
 internal sealed class AuthSystemSettingsValidator : AbstractValidator<AuthSystemSettings>
 {
     public const int MinimumCallerKeyLength = 32;
+    public const int MinimumClientSecretLength = 32;
 
     private const string TestingEnvironmentName = "Testing";
 
@@ -28,6 +30,21 @@ internal sealed class AuthSystemSettingsValidator : AbstractValidator<AuthSystem
         RuleFor(x => x.ClientId)
             .NotEmpty()
             .WithMessage(KeyPath(nameof(AuthSystemSettings.ClientId)) + " is required.");
+
+        RuleFor(x => x.ClientSecret)
+            .NotEmpty()
+            .When(_ => !environment.IsDevelopment() && !environment.IsEnvironment(TestingEnvironmentName))
+            .WithMessage(
+                KeyPath(nameof(AuthSystemSettings.ClientSecret))
+                + " must be set outside Development and Testing (FRONTEND_CLIENT_SECRET in the box .env, ADR-0074).");
+
+        // A form field carries any character, so unlike the caller key there is no character rule.
+        RuleFor(x => x.ClientSecret!)
+            .MinimumLength(MinimumClientSecretLength)
+            .When(x => !string.IsNullOrWhiteSpace(x.ClientSecret))
+            .WithMessage(
+                KeyPath(nameof(AuthSystemSettings.ClientSecret))
+                + $" must be at least {MinimumClientSecretLength} characters (openssl rand -base64 32).");
 
         RuleFor(x => x.CallbackPath)
             .NotEmpty()

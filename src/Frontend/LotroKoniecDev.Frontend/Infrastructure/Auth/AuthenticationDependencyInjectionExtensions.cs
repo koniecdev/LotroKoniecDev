@@ -137,13 +137,17 @@ internal static partial class AuthenticationDependencyInjectionExtensions
 
         options.Authority = settings.Authority;
         options.ClientId = settings.ClientId;
+        // Sent on the code exchange only, never in the browser's sign-in address (ADR-0074). The handler
+        // skips only a null field, so a blank secret becomes null.
+        options.ClientSecret = string.IsNullOrWhiteSpace(settings.ClientSecret) ? null : settings.ClientSecret;
         options.RequireHttpsMetadata = !settings.Authority.StartsWith(
             "http://", StringComparison.OrdinalIgnoreCase);
 
         options.ResponseType = OpenIdConnectResponseType.Code;
         // Not form_post: its page submits itself with an inline script, which the auth origin's CSP
         // blocks, so sign-in would stop on a blank page (#693). It would also flash a white page. A code in
-        // the URL is the RFC 9700 baseline, and PKCE makes a stolen code useless.
+        // the URL is the RFC 9700 baseline, and PKCE makes a stolen code useless. PKCE stays next to the client
+        // secret: the secret proves the call comes from this server, PKCE that the code is this sign-in's.
         options.ResponseMode = OpenIdConnectResponseMode.Query;
         options.UsePkce = true;
         options.SaveTokens = true;

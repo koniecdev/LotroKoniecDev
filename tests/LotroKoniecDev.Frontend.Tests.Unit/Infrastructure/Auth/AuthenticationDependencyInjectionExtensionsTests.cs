@@ -43,6 +43,34 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     }
 
     /// <summary>
+    /// ADR-0074: the website is a confidential client, and PKCE stays next to the secret.
+    /// </summary>
+    [Fact]
+    public void AddFrontendAuthentication_OpenIdConnectOptions_UsesTheConfiguredClientSecretAndKeepsPkce()
+    {
+        string clientSecret = new('s', 40);
+
+        OpenIdConnectOptions options = ResolveConfiguredOidcOptions(clientSecret: clientSecret);
+
+        options.ClientSecret.ShouldBe(clientSecret);
+        options.UsePkce.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The handler sends every field that is not null, so a blank secret would still be sent.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void AddFrontendAuthentication_OpenIdConnectOptions_WithNoClientSecret_LeavesItNull(string? clientSecret)
+    {
+        OpenIdConnectOptions options = ResolveConfiguredOidcOptions(clientSecret: clientSecret);
+
+        options.ClientSecret.ShouldBeNull();
+    }
+
+    /// <summary>
     /// #1025: <c>SaveTokens</c> writes only <c>expires_at</c>. A token already dead on arrival is due at once.
     /// </summary>
     [Theory]
@@ -336,9 +364,11 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         return new TicketReceivedContext(new DefaultHttpContext(), scheme, options, ticket);
     }
 
-    private static OpenIdConnectOptions ResolveConfiguredOidcOptions(HttpMessageHandler? backchannelHandlerSetFirst = null)
+    private static OpenIdConnectOptions ResolveConfiguredOidcOptions(
+        HttpMessageHandler? backchannelHandlerSetFirst = null,
+        string? clientSecret = null)
     {
-        ServiceCollection services = CreateFrontendAuthenticationServices(backchannelHandlerSetFirst);
+        ServiceCollection services = CreateFrontendAuthenticationServices(backchannelHandlerSetFirst, clientSecret);
         using ServiceProvider provider = services.BuildServiceProvider();
 
         return provider
@@ -368,7 +398,9 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
             .Get(CookieAuthenticationDefaults.AuthenticationScheme);
     }
 
-    private static ServiceCollection CreateFrontendAuthenticationServices(HttpMessageHandler? backchannelHandlerSetFirst = null)
+    private static ServiceCollection CreateFrontendAuthenticationServices(
+        HttpMessageHandler? backchannelHandlerSetFirst = null,
+        string? clientSecret = null)
     {
         ServiceCollection services = new();
         if (backchannelHandlerSetFirst is not null)
@@ -385,6 +417,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
             BaseUrl = "https://localhost:5003",
             Authority = "https://localhost:5003",
             ClientId = "lotrokoniecdev-web",
+            ClientSecret = clientSecret,
             CallbackPath = "/callback",
             SignedOutCallbackPath = "/signout-callback-oidc",
             Scopes = ["openid", "email", "profile"],

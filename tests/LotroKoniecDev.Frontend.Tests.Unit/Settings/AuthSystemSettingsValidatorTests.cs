@@ -11,6 +11,7 @@ public sealed class AuthSystemSettingsValidatorTests
     private const string Testing = "Testing";
     private const string Staging = "Staging";
     private const string Production = "Production";
+    private const string ValidClientSecret = "a-website-client-secret-of-at-least-32-characters";
 
     private readonly AuthSystemSettingsValidator _validator = CreateValidator(Development);
 
@@ -146,6 +147,78 @@ public sealed class AuthSystemSettingsValidatorTests
     }
 
     [Theory]
+    [InlineData(Development)]
+    [InlineData(Testing)]
+    public void Validate_NonDeployedEnvironmentWithNoClientSecret_Passes(string environmentName)
+    {
+        AuthSystemSettings settings = Settings(clientSecret: null);
+
+        ValidationResult result = CreateValidator(environmentName).Validate(settings);
+
+        result.IsValid.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(Staging, null)]
+    [InlineData(Production, null)]
+    [InlineData(Production, "")]
+    [InlineData(Production, "   ")]
+    public void Validate_DeployedEnvironmentWithNoClientSecret_FailsNamingTheKey(string environmentName, string? clientSecret)
+    {
+        // ADR-0074: without it every code exchange and renewal is refused.
+        AuthSystemSettings settings = Settings(clientSecret: clientSecret);
+
+        ValidationResult result = CreateValidator(environmentName).Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        result.Errors.ShouldContain(error =>
+            error.PropertyName == nameof(AuthSystemSettings.ClientSecret)
+            && error.ErrorMessage.Contains("AuthSystem:ClientSecret", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(Development)]
+    [InlineData(Production)]
+    public void Validate_ClientSecretShorterThanTheMinimum_FailsInEveryEnvironmentWithoutTheValue(string environmentName)
+    {
+        string clientSecret = new('s', AuthSystemSettingsValidator.MinimumClientSecretLength - 1);
+        AuthSystemSettings settings = Settings(clientSecret: clientSecret);
+
+        ValidationResult result = CreateValidator(environmentName).Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        result.Errors.ShouldContain(error => error.PropertyName == nameof(AuthSystemSettings.ClientSecret));
+        result.Errors.ShouldAllBe(error => !error.ErrorMessage.Contains(clientSecret, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_ProductionWithAClientSecretOfTheMinimumLength_Passes()
+    {
+        AuthSystemSettings settings = Settings(
+            callerKey: new string('k', AuthSystemSettingsValidator.MinimumCallerKeyLength),
+            clientSecret: new string('s', AuthSystemSettingsValidator.MinimumClientSecretLength));
+
+        ValidationResult result = CreateValidator(Production).Validate(settings);
+
+        result.IsValid.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// A form field carries any character, so unlike the caller key the secret has no character rule.
+    /// </summary>
+    [Fact]
+    public void Validate_ProductionWithSpacesAndNonAsciiCharactersInTheClientSecret_Passes()
+    {
+        AuthSystemSettings settings = Settings(
+            callerKey: new string('k', AuthSystemSettingsValidator.MinimumCallerKeyLength),
+            clientSecret: " zażółć\t" + new string('s', 32) + " ");
+
+        ValidationResult result = CreateValidator(Production).Validate(settings);
+
+        result.IsValid.ShouldBeTrue();
+    }
+
+    [Theory]
     [InlineData(Development, " a-frontend-caller-key-of-at-least-32-characters")]
     [InlineData(Testing, "a-frontend-caller-key-of-at-least-32-characters ")]
     [InlineData(Production, " a-frontend-caller-key-of-at-least-32-characters")]
@@ -227,7 +300,8 @@ public sealed class AuthSystemSettingsValidatorTests
         string clientId = "lotrokoniecdev-web",
         string callbackPath = "/callback",
         IReadOnlyList<string>? scopes = null,
-        string? callerKey = null) => new()
+        string? callerKey = null,
+        string? clientSecret = ValidClientSecret) => new()
         {
             BaseUrl = baseUrl,
             Authority = authority,
@@ -235,6 +309,7 @@ public sealed class AuthSystemSettingsValidatorTests
             CallbackPath = callbackPath,
             SignedOutCallbackPath = "/signout-callback-oidc",
             Scopes = scopes ?? ["openid", "profile", "api"],
-            CallerKey = callerKey
+            CallerKey = callerKey,
+            ClientSecret = clientSecret
         };
 }

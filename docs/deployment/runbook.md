@@ -223,6 +223,7 @@ both boxes run `ASPNETCORE_ENVIRONMENT=Production`.
 | `OpenIddict__RefreshTokenLifetimeMinutes` | `540` (appsettings) | `540` (appsettings) | optional | plain | **Tied to the frontend cookie.** The frontend keeps the refresh token in its session cookie, which ends after 8 idle hours, so a longer lifetime only keeps a token valid that the website has already lost. Never lower it below 8 hours plus a margin: a token that dies before its cookie shows "session expired" to a user who was idle for just under 8 hours. Every refresh issues a new token with the full lifetime, so a user who keeps working is never signed out by it (#1014). `compose.hetzner.yaml` does not pass it, so on the boxes it changes only with a code change. |
 | `OpenIddict__EncryptionKey__Key` | — (throwaway) | base64 of a ≥32-byte key | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
 | `OpenIddict__ApiClientSecret` | `dev-api-secret-min-32-characters-long` | ≥32-char random secret | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. **Seeds a DB row**: rotating it needs the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing). Must equal that environment's `SMOKE_CLIENT_SECRET`. |
+| `OpenIddict__FrontendClientSecret` | `dev-frontend-secret-min-32-characters-long` | from `FRONTEND_CLIENT_SECRET` | ✅ non-dev | **secret** | The website's client secret (ADR-0074). ≥ 32 chars; boot fails without it outside Development/Testing, and a blank value stops the seed in every environment when the `lotrokoniecdev-frontend` row is missing. **Seeds a DB row** (only a hash): changing it needs the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing). **The same variable feeds the frontend's `AuthSystem__ClientSecret`.** |
 | `OpenIddict__WebClient__RedirectUris__0` | `https://localhost:7017/callback` | `https://lotro-translator.pl/callback` | ✅ non-dev | plain | Must equal the Frontend callback (its public origin + `AuthSystem__CallbackPath`). No user name or password (#1108). Written to the DB **only when the client is created**: see the reseed traps. |
 | `OpenIddict__WebClient__PostLogoutRedirectUris__0` | `https://localhost:7017` | `https://lotro-translator.pl` | ✅ non-dev | plain | Frontend post-logout return URL. The first entry is also the website root that the account pages and e-mails link to. No user name or password (#1108). |
 | `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. Lowercase, no default port, no path or slash. |
@@ -278,7 +279,8 @@ Production.
 | `ASPNETCORE_URLS` | `https://localhost:7017` (launchSettings) | `http://+:8080` | ✅ all | plain | Deployed it serves HTTP only (Caddy owns TLS). |
 | `AuthSystem__Authority` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ all | plain | Drives the `/authorize` redirect (front-channel) **and** discovery/token (back-channel). |
 | `AuthSystem__BaseUrl` | `https://localhost:5003/` | `https://auth.lotro-translator.pl/` | ✅ all | plain | Auth origin (trailing slash). Must be the same origin as auth's `OpenIddict__Issuer`: see [consistency rule 2](#consistency-rules-that-bite). |
-| `AuthSystem__ClientId` | `lotrokoniecdev-web` | `lotrokoniecdev-web` | ✅ all | plain | Must match the OpenIddict web-client id. |
+| `AuthSystem__ClientId` | `lotrokoniecdev-frontend` | `lotrokoniecdev-frontend` | ✅ all | plain | Must match the OpenIddict web-client id. Comes from the image's `appsettings.json`; compose does not pass it, so a rollback image keeps its own id (ADR-0074). |
+| `AuthSystem__ClientSecret` | `dev-frontend-secret-min-32-characters-long` | from `FRONTEND_CLIENT_SECRET` | ✅ non-dev | **secret** | Sent on the code exchange, the refresh and the revoke, never to the browser (ADR-0074). Must equal auth-api's `OpenIddict__FrontendClientSecret`; compose reads both from the one variable. ≥ 32 chars; boot fails without it outside Development/Testing. |
 | `AuthSystem__CallbackPath` | `/callback` | `/callback` | ✅ all | plain | Origin + this must be registered in auth `RedirectUris`. |
 | `AuthSystem__SignedOutCallbackPath` | `/signout-callback-oidc` | `/signout-callback-oidc` | ✅ all | plain | Origin + this must be in auth `PostLogoutRedirectUris`. |
 | `AuthSystem__Scopes` | `openid,email,profile,roles,api,offline_access` | same | ✅ all | plain | At least one scope. |
@@ -345,6 +347,7 @@ volumes and not bind mounts.
 | `OpenIddict__SigningKey__RsaPrivateKeyXml` | auth-api | **regenerate**: no copy exists anywhere else | Take the line from [`gen-openiddict-keys`](#openiddict-production-keys-auth-api) into the box `.env`. Pure config (never stored in the DB), so a rotation invalidates issued tokens and everyone signs in again. auth-api can also read `OpenIddict__SigningKey__PreviousRsaPrivateKeyXml` to keep old tokens valid during a rotation (`OpenIddictSettings`), but `compose.hetzner.yaml` does not pass it. |
 | `OpenIddict__EncryptionKey__Key` | auth-api | regenerate | same script, same effect. |
 | `OpenIddict__ApiClientSecret` | auth-api (**seeds** the `lotrokoniecdev-api` client row) | regenerate | same script, **but the DB row wins on restart: a rotation needs the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing).** Must stay equal to the `SMOKE_CLIENT_SECRET` GitHub secret of the same environment. |
+| `FRONTEND_CLIENT_SECRET` (→ auth-api `OpenIddict__FrontendClientSecret`, frontend `AuthSystem__ClientSecret`) | auth-api (**seeds** a hash into the `lotrokoniecdev-frontend` client row), frontend | **box-local**: `openssl rand -base64 32`, one per environment (the same script mints it) | The website's client secret (ADR-0074). **Required**: compose refuses to render without it, and both apps refuse to boot outside Development/Testing. **Never change it without the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing)**: the frontend would send the new value while the row keeps the old hash, so every sign-in and every renewal is refused, and smoke does not see it (its token leg uses `lotrokoniecdev-api`). A leaked value lets its holder redeem the website's codes and refresh tokens from outside our boxes, which PKCE and the rolling refresh tokens still limit: rotate it. |
 | `Email__Username` | auth-api | **Brevo** dashboard → SMTP & API → SMTP keys | The SMTP **login**, shaped `<id>@smtp-brevo.com`, **not** the Brevo account e-mail, which fails the handshake with `535`. |
 | `Email__Password` | auth-api | **Brevo** (the owner pastes it) | Generate a new SMTP key in Brevo. Brevo shows it **once**, so a lost key is generated again, never recovered. |
 | The admin password | the admin `Users` row | **the admin's own password manager**, never a file on the box | Not a `.env` value (ADR-0056): the seeder creates the admin without one. The first password and every rotation go through the reset mail ([Admin account](#admin-account--first-sign-in-and-rotation)). A box `.env` that still has an `AUTH_ADMIN_PASSWORD` line predates #696: follow the migration steps there. |
@@ -360,7 +363,7 @@ volumes and not bind mounts.
 ### OpenIddict production keys (auth-api)
 
 `scripts/gen-openiddict-keys.sh` (PowerShell: `scripts/gen-openiddict-keys.ps1`) prints a comment
-line and five `KEY=VALUE` lines:
+line and six `KEY=VALUE` lines:
 
 ```
 # Generated by scripts/gen-openiddict-keys.sh — keep secret, never commit.
@@ -369,12 +372,14 @@ OpenIddict__ApiClientSecret=<48 hex chars>
 OpenIddict__SigningKey__RsaPrivateKeyXml=<base64 of RSA.ToXmlString(true), 2048-bit>
 FRONTEND_CALLER_KEY=<base64 of 32 random bytes>
 HEALTH_CHECK_KEY=<base64 of 32 random bytes>
+FRONTEND_CLIENT_SECRET=<base64 of 32 random bytes>
 ```
 
 `scripts/up-prod.sh` uses it to fill a new `.env.prod`. For a box `.env`, put each value into its
 empty line from `.env.hetzner.example`. **For a rotation, copy only the line you rotate.** Never
 append the whole output to a live box `.env`: it would also change the API client secret, the caller
-key and the health check key, and each of those has its own rotation steps in the table above.
+key, the health check key and the website's client secret, and each of those has its own rotation
+steps in the table above.
 
 Manual equivalents for the two simple ones (if you cannot run the script):
 
@@ -428,8 +433,9 @@ case, and it means **editing `.env` and restarting silently changes nothing**:
 | You changed in `.env` | What silently keeps the OLD value | Symptom |
 |---|---|---|
 | `OpenIddict__ApiClientSecret` | the `lotrokoniecdev-api` client row | `client_credentials` with the new secret → **401**; smoke's token leg fails |
+| `FRONTEND_CLIENT_SECRET` | the hash in the `lotrokoniecdev-frontend` client row | every sign-in ends on the error page at the code exchange and every session ends at its next renewal (**401** `invalid_client`); **smoke stays green**, so only a real sign-in shows it |
 | `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_USERNAME` | the admin `Users` row | a new address with the same username is skipped, with warning `2353` in the auth-api log; a new address that already belongs to a non-admin account is skipped, with warning `2354` (that row may be a stranger's account: read "Warning `2354`" under [Admin account](#admin-account--first-sign-in-and-rotation) before you delete anything); a new address that an account left less than 14 days ago, and can still undo back to, is skipped, with warning `2355`; a new address **and** a new username seed a **second** admin, and the first one keeps its role |
-| `DOMAIN_APP` | the `lotrokoniecdev-web` client's redirect + post-logout URIs (written **only at creation**) | login bounces with `invalid_redirect_uri` |
+| `DOMAIN_APP` | the redirect + post-logout URIs of both website clients, `lotrokoniecdev-frontend` and the old `lotrokoniecdev-web` (written **only at creation**) | login bounces with `invalid_redirect_uri` |
 
 Fix = delete the rows and let the seeder rebuild them from the current `.env`. The schema is
 **`authsystem`**, and the Identity tables are **renamed** (`authsystem."Users"`, *not* `AspNetUsers`).
@@ -446,7 +452,10 @@ DELETE FROM authsystem."Users" WHERE "NormalizedEmail" = upper('<admin e-mail>')
 ```
 
 ```bash
-docker compose -f compose.hetzner.yaml restart auth-api   # seeder runs at startup, recreates the rows
+# Recreated, not restarted: `restart` keeps the environment the container was created with, so a value
+# you changed in .env would not reach it, and the seeder would write the OLD one. The frontend is
+# recreated too, so it sends a new FRONTEND_CLIENT_SECRET at the same moment the row gets it.
+docker compose -f compose.hetzner.yaml up -d --force-recreate --no-deps auth-api frontend   # seeder runs at startup, recreates the rows
 ```
 
 This signs out every user (their tokens are gone): free before launch, a real outage after it.
@@ -547,8 +556,8 @@ SELECT "UserName", "Email", "PasswordHash" IS NULL AS no_password FROM authsyste
   **not** this case: a cancelled deletion or an undone e-mail change also clears the password. If
   you receive mail at that address, it is the live admin, so reset it instead. Delete the row only
   when the address is really misspelled (see the
-  [reseed traps](#reseed-traps--the-auth-seeder-is-create-if-missing)), fix the `.env` and restart
-  auth-api.
+  [reseed traps](#reseed-traps--the-auth-seeder-is-create-if-missing)), fix the `.env` and recreate
+  auth-api with the command there.
 
 **Warning `2354`: the admin address belongs to an account without the Admin role.** The seeder logs
 it on every start when `AUTH_ADMIN_EMAIL` matches an account that is not an admin, and leaves that
@@ -560,7 +569,8 @@ SELECT "Id", "UserName", "EmailConfirmed", "PasswordHash" IS NULL AS no_password
 ```
 
 **The address is not one you read** (a typo, or someone else's address): fix `AUTH_ADMIN_EMAIL` and
-restart auth-api. **Never delete that row.** It is a real person's account, and an admin seeded at
+recreate auth-api (the command under [Reseed traps](#reseed-traps--the-auth-seeder-is-create-if-missing);
+a plain `restart` keeps the old value). **Never delete that row.** It is a real person's account, and an admin seeded at
 their address would get its first password from their inbox.
 
 **It is your address.** Give the row the role by hand **only** when it is confirmed, has no password
@@ -593,7 +603,7 @@ When the INSERT refuses a row at your address, what to do depends on whose accou
 
 - **`undo_armed` is true.** An e-mail change moved someone else's account onto your address, and its
   owner can still take it back with the undo link. Do not delete it. Put another address into
-  `AUTH_ADMIN_EMAIL` and restart auth-api.
+  `AUTH_ADMIN_EMAIL` and recreate auth-api (the command under Reseed traps).
 - **`EmailConfirmed` is false.** Nobody proved they own the address. Delete the row and restart
   auth-api, so the seeder creates the admin.
 - **Your own translator account, with a password.** Delete it and restart, or put another address
@@ -623,8 +633,8 @@ SELECT "Id", "UserName", "Email", "EmailChangeRevertArmedAt" FROM authsystem."Us
   `AUTH_ADMIN_EMAIL` if the account is the admin, or ignore the warning until the 14 days are over.
 - **It is someone else's account.** Leave it alone, and never clear its `EmailChangeRevertTo` by
   hand: if the change was a hijack, that link is how the owner gets the account back. Put another
-  address into `AUTH_ADMIN_EMAIL`, or wait until 14 days after `EmailChangeRevertArmedAt` and restart
-  auth-api. If the owner uses the undo link first, the address has an account again and the seeder
+  address into `AUTH_ADMIN_EMAIL` and recreate auth-api (the command under Reseed traps), or wait
+  until 14 days after `EmailChangeRevertArmedAt` and restart auth-api. If the owner uses the undo link first, the address has an account again and the seeder
   logs `2354` instead.
 
 ### TLS certificates
@@ -693,8 +703,9 @@ Most "works locally, 401 or redirect error on staging" failures are one of these
    `SignedOutCallbackPath`). Those exact absolute URLs must appear in auth's
    `OpenIddict__WebClient__RedirectUris` / `…PostLogoutRedirectUris`. Any difference (scheme, host,
    trailing slash) → OIDC `invalid redirect_uri` at login. `AuthSystem__ClientId` must equal the
-   registered web-client id (`lotrokoniecdev-web`). ⚠️ These URIs are written to the DB **only when
-   the client row is created**, so changing `DOMAIN_APP` later needs the
+   registered web-client id (`lotrokoniecdev-frontend`; the old `lotrokoniecdev-web` stays seeded for
+   one release, ADR-0074). ⚠️ These URIs are written to the DB **only when the client row is
+   created**, so changing `DOMAIN_APP` later needs the
    [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing).
 
 4. **CORS origin = the frontend's public URL, as a bare origin.** auth/tms `Cors__AllowedOrigins__0`
@@ -733,6 +744,13 @@ Most "works locally, 401 or redirect error on staging" failures are one of these
    repository secret must hold the same value, or the daily health ping goes red with HTTP 404 (the
    command is in the [secrets table](#secret-material--source-of-truth-and-how-to-rotate)).
 
+9. **The website's client secret is one value, and the database keeps its own copy.**
+   `FRONTEND_CLIENT_SECRET` in the box `.env` feeds auth-api's `OpenIddict__FrontendClientSecret` and
+   the frontend's `AuthSystem__ClientSecret` (ADR-0074). auth-api stores a hash of it only when it
+   creates the `lotrokoniecdev-frontend` row, so after the first deploy the row, not `.env`, decides
+   what the sign-in server accepts. A changed value without the reseed refuses every sign-in and
+   every renewal, and no automated gate notices: after any change, sign in on the box by hand.
+
 ## Bringing the stack up
 
 ### Locally, development (infra + host Kestrels)
@@ -768,13 +786,13 @@ same proxy shape** as the box, so prod-only breakage shows up before staging:
 scripts/up-prod.sh --build          # PowerShell: scripts/up-prod.ps1 --build
 ```
 
-It bootstraps `.env.prod` (with freshly generated OpenIddict secrets, the frontend caller key and the
-health check key), the local CA + certs and the `*.lotro.test` hosts mapping, then runs
-`docker compose -f compose.prod.yaml up`. The `.env.prod` bootstrap runs only when the file is
-missing. An older `.env.prod` without `FRONTEND_CALLER_KEY` or `HEALTH_CHECK_KEY` needs them appended
-by hand, or compose refuses to render:
+It bootstraps `.env.prod` (with freshly generated OpenIddict secrets, the frontend caller key, the
+health check key and the website's client secret), the local CA + certs and the `*.lotro.test` hosts
+mapping, then runs `docker compose -f compose.prod.yaml up`. The `.env.prod` bootstrap runs only when
+the file is missing. An older `.env.prod` without `FRONTEND_CALLER_KEY`, `HEALTH_CHECK_KEY` or
+`FRONTEND_CLIENT_SECRET` needs them appended by hand, or compose refuses to render:
 `printf 'FRONTEND_CALLER_KEY=%s\n' "$(openssl rand -base64 32)" >> .env.prod`, and the same for
-`HEALTH_CHECK_KEY`. Verify (the full `/health` needs the health check key from `.env.prod`; without it
+`HEALTH_CHECK_KEY` and `FRONTEND_CLIENT_SECRET`. Verify (the full `/health` needs the health check key from `.env.prod`; without it
 the answer is 404):
 
 ```bash

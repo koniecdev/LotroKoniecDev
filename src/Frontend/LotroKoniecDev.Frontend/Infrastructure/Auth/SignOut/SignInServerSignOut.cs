@@ -24,10 +24,9 @@ internal sealed partial class SignInServerSignOut
     private readonly ILogger<SignInServerSignOut> _logger;
 
     /// <summary>
-    /// Returns where the browser goes next. No cancellation token: a browser that drops the request is the
-    /// case the revoke exists for. With no usable end-session address the session ends on the home page
-    /// (ADR-0067 decision 3). Then the sign-in server's own cookie stays in this browser, which matters only
-    /// when the website cannot reach the sign-in server and the browser can.
+    /// No cancellation token: a browser that drops the request is the case the revoke exists for. When the
+    /// discovery document cannot be read or names no usable end-session address, the sign-out ends on the
+    /// home page (ADR-0067 decision 3). The sign-in server's own cookie then stays in this browser.
     /// </summary>
     public async Task<string> EndSessionAsync(string? idToken, string? refreshToken, string postLogoutRedirectUri)
     {

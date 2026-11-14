@@ -329,6 +329,29 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
             .ShouldNotContain(setCookie => setCookie.StartsWith($"{SignedInSession.CookieName}=;", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// #1114: with no address from the discovery document, the renewal sends nothing, not even to an
+    /// address of its own making.
+    /// </summary>
+    [Fact]
+    public async Task Get_APageWhenTheRenewalIsDueWhileTheSignInServerIsDown_SendsNoRenewal()
+    {
+        // Arrange
+        RecordingTokenClientTransport tokenClientTransport = new();
+        using WebApplicationFactory<Program> host = CreateHost(
+            new StandInSignInServer(),
+            new DashboardTranslationSystem(),
+            services => services.AddHttpClient(RecordingTokenClientTransport.ClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => tokenClientTransport));
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host, accessTokenTimeLeft: TimeSpan.FromSeconds(30));
+
+        // Act
+        using HttpResponseMessage page = await browser.GetAsync("/dashboard");
+
+        // Assert
+        tokenClientTransport.Requests.ShouldBe(0);
+    }
+
     public SignInServerDownTests(ProductionFrontendFactory factory)
     {
         _factory = factory;
@@ -363,6 +386,25 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
         Uri location = redirect.Headers.Location
             ?? throw new InvalidOperationException($"The route answered {redirect.StatusCode} with no redirect.");
         return browser.GetAsync(location.OriginalString);
+    }
+
+    /// <summary>The transport under the website's own token client. It counts the calls and answers 503.</summary>
+    private sealed class RecordingTokenClientTransport : HttpMessageHandler
+    {
+        /// <summary>The name ASP.NET Core gives the typed client, which is internal to the Frontend.</summary>
+        public const string ClientName = "ITokenEndpointClient";
+
+        private int _requests;
+
+        public int Requests => _requests;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _requests);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        }
     }
 
     /// <summary>

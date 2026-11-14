@@ -6,9 +6,9 @@
 - **Author:** koniecdev
 - **Ticket:** covers #49 (TP-14 review workflow), #50 (TP-15 history), #1345 (rejection with a
   reason) and the review points of #1332. Implementation tickets: #1384 (every save is a proposal)
-  first; then #50 (history and restore), #1345 (rejection with a reason) and #1385 (withdraw);
-  #1368 (Reviewer role, the author rule) after #50 and #1345. Once #1384 runs on prod, #1388
-  (its contract step) and #1386 (the wiki's "coming" mark) follow.
+  first. Once #1384 runs on prod: #1388 (its contract step) and #1386 (the wiki's "coming" mark).
+  After #1388: #50 (history and restore), #1345 (rejection with a reason) and #1385 (withdraw).
+  #1368 (Reviewer role, the author rule) after #50 and #1345.
 - **Related:** spec 0001 (status model, approve = publish), spec 0007 (bulk approve), ADR-0040
   (authorization-aware links), ADR-0047 (source digest), ADR-0065 (account erasure), ADR-0023
   (forward-only migrations), ADR-0072 (daily save budget), #687 (SEC-09, one hijacked translator
@@ -111,7 +111,7 @@ back.
 - **A save never changes what players get (Q1).** Only an approve does: of a new proposal, of an
   older one (restore), or of the live text again after the English changed. This reverses the
   wiki rule in `Mechanizm-diff` ("Kiedy tłumacz zapisze poprawkę, wiersz wraca do statusu Wersja
-  robocza"), so the wiki changes first, before any code.
+  robocza"). The wiki already says the new rule, marked as coming with #1384 (wiki-first rule).
 - **Approve and reject name the proposal.** The request carries the proposal id the reviewer saw.
   Reject takes only the waiting proposal. Approve takes the waiting proposal, an approved proposal
   other than the live one (restore), or the live one of a row in "Do ponownego sprawdzenia"
@@ -155,7 +155,9 @@ back.
   - **`NeedsReview` wins.** A row in "Do ponownego sprawdzenia" keeps that status through saves,
     rejects and withdraws, until an approval clears it. So stale Polish never goes back into
     `polish.txt` under changed English (ADR-0047). This replaces spec 0001's rule that a save on
-    `NeedsReview` gives `Draft`.
+    `NeedsReview` gives `Draft`. Such a row with nothing live and nothing waiting (its proposal was
+    rejected or withdrawn) stays "Do ponownego sprawdzenia", also shown as "Odrzucone" while its
+    latest proposal is rejected; the next save gives it a proposal to approve.
   - Any other row takes its status from the proposals: a live text is `Approved`, shown with
     "change waiting" while a proposal waits; no live text and a waiting proposal is `Draft`
     ("waiting for review"); no live text and nothing waiting is `Untranslated`, shown as
@@ -244,23 +246,28 @@ back.
     nullable, so a list that misses it silently writes NULL; #1384 adds a test that the list
     matches the model.
 - **Files touched:** TMS database (new table, expand migration plus backfill, ADR-0023). The
-  `polish.txt` artifact keeps its format; it is built from live texts. Today `TranslatedText` also
-  holds a draft that nobody approved, so the migration plan must keep the previous app revision
-  working while the column's meaning moves to "live text only" (ADR-0023, expand → backfill →
-  contract). During the deploy, and after a rollback, the previous revision still saves straight
-  into `TranslatedText` and sets `Draft` with no proposal, and its approve sets `Approved` with no
-  approved proposal. The rules for that window:
-  - Until the contract step, `TranslatedText` keeps today's meaning: the live text, or the waiting
-    text on a row with no live text. Every ticket that writes before the contract step keeps it
-    that way.
-  - Until the contract step, the new revision refuses (409) to approve a waiting proposal whose
-    text differs from `TranslatedText` on a row with no live text, because the previous revision
-    saved a newer text there.
+  `polish.txt` artifact keeps its format, and it is still built from `Approved` rows that are not
+  removed.
+- **`TranslatedText` keeps today's meaning, for good:** the live text, or the waiting text on a row
+  with nothing live; empty when there is neither (after a reject or a withdraw on such a row). So
+  the previous app revision can read every row, and no later step changes the column's meaning.
+- **The deploy window.** During the deploy of #1384, and after a rollback, the previous revision
+  still saves straight into `TranslatedText` and sets `Draft` with no proposal, and its approve sets
+  `Approved` with no approved proposal. The rules for that window:
+  - A row whose `TranslatedText` differs from the text its proposals give (the waiting text when
+    nothing is live, the live text otherwise) was written by the previous revision. The new
+    revision takes no write on it until #1388 has reconciled it: save, approve, restore, reject and
+    withdraw answer 409, and bulk approve skips it.
+  - A row with `PreviousSourceText` set counts as "Do ponownego sprawdzenia", whatever its status
+    says, because the previous revision's save sets `Draft` there.
+  - Only #1384 writes in this window. Every later ticket that writes proposals depends on #1388.
   - The contract step (#1388) reconciles each row by its state. On a row with no live text it
     compares `TranslatedText` with the waiting proposal's text; otherwise with the latest approved
     proposal's text. On a mismatch it marks a stale waiting proposal "replaced" before it inserts
     the new one. An approval by the previous revision becomes an approved proposal, and
-    `WaitingProposalId` is cleared.
+    `WaitingProposalId` is cleared. It leaves `TranslatedText` equal to the text the proposals give,
+    and the status as the status rules say (with `PreviousSourceText` set meaning "Do ponownego
+    sprawdzenia"). Then it removes the 409 for such rows.
 
 ## Acceptance criteria
 
@@ -300,8 +307,8 @@ back.
       origin "backfill", and `polish.txt` is byte-identical to the one before the migration.
 - [ ] A save on a row in "Do ponownego sprawdzenia" keeps the row in that status and its old Polish
       out of `polish.txt` until an approval.
-- [ ] A text the previous revision saved during the deploy has a proposal after the contract step
-      (#1388).
+- [ ] A row the previous revision wrote during the deploy takes no write from the new revision
+      until #1388 has reconciled it, and after #1388 its text has a proposal.
 - [ ] The previous app revision keeps working against the migrated schema (the N-1 proof,
       ADR-0024).
 - [ ] Account erasure leaves proposals in place under "Usunięte konto"; the data export lists the

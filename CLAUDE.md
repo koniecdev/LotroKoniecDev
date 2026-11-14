@@ -584,7 +584,9 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
     `printf '%s' "$LAST_OUTPUT" | grep -qF -- "$1"` (#1365). `grep -q` stops reading at the first
     match. Under `pipefail`, the `printf` that still has lines to write then dies of SIGPIPE (exit
     141), and the whole pipe fails although the text matched: a check that must find the text
-    fails, and one that must not find it passes. A short text of a few lines can hit this too.
+    fails, and one that must not find it passes. A short text of a few lines can hit this too. Any
+    reader that stops early (`head`, `grep -m`, `awk '… exit'`) does the same to a writer that
+    writes one line at a time, such as `printf` or `ip`.
   - `scripts/claude/verify-copy.sh` (+ `.ps1` twin), the backlog-loop copy check, is not one of
     these guards: it is part of the copy of the loop engine, whose own CI runs its tests and both
     twins. `pr-verify` runs it on every PR, with no verdict, and `ci` runs it too; there is no

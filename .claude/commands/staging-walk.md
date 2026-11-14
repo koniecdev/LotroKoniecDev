@@ -127,8 +127,13 @@ staging only; this goal names <host>.", and stop. Load no browser tool and regis
 
 ## 6. Clean-up: always, outside the budget
 
+- Clean-up is not part of the walk: here you may type staging URLs, for example to sign in again.
 - **Delete the account** with "Usuń konto" on the account page. It asks for the password again.
   The account is then locked and waits for deletion (ADR-0031), so staging keeps no active account.
+- If a confirmed account cannot be deleted (the delete page fails, or you cannot sign in), report
+  it as STILL ACTIVE. That breaks the rule of leaving no active account behind, so the user must
+  know: they can ask this session to try again while it still holds the password, or reset the
+  password through the mailbox and delete the account.
 - If the walk stopped before the e-mail was confirmed, the account cannot sign in, so it cannot
   delete itself, and nothing removes unconfirmed accounts. Name its tag in the report.
 - Stop and export the GIF with a file name you choose (`staging-walk-<time>.gif`). Find it by that
@@ -150,7 +155,7 @@ Steps:
 1. <what you did> → <what you saw> (step-01.png)
 …
 Stuck point: <what you expected, what you saw> — why: <from the code, read only now>
-Account: scheduled for deletion | left unconfirmed, tag walk-… (cannot sign in; nothing removes it)
+Account: scheduled for deletion | left unconfirmed, tag walk-… (cannot sign in; nothing removes it) | STILL ACTIVE, tag walk-…
 Files: <results folder> — they show the walk address: never post them in public
 Known limits: <the ones that applied>
 ```
@@ -167,4 +172,5 @@ Known limits: <the ones that applied>
   - Registration sends at most 3 mails per inbox in 15 minutes, and every plus tag counts as the
     same inbox (ADR-0055, ADR-0057). A walk right after other sign-ups may be refused.
   - The walked build comes from a deployment record. A deploy or rollback by hand on the box leaves
-    no record, so after one the build named here can be wrong.
+    no record, and a cd.yml dispatch with an explicit image tag records the run's commit, not the
+    image it rolled. After either, the build named here can be wrong.

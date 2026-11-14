@@ -2,10 +2,11 @@
 
 **Status:** Accepted (amended 2026-09-19 by #684 — the freed address is reserved, see rule 4 — and by
 #685 — a scheduled deletion may not outlive the undo, see rule 5 — and by #864 — only a real
-duplicate is reported as a taken address, and by #866 — so is a duplicate Identity's own check finds)
+duplicate is reported as a taken address, and by #866 — so is a duplicate Identity's own check finds —
+and on 2026-11-14 by #905 — rule 4 is enforced by one Identity user validator)
 **Date:** 2026-08-20
 **Decision-makers:** Solo maintainer (ticket #671, LEGAL-14, legal & GDPR pack #459; amendments #684, SEC-06,
-#685, SEC-07, #864 and #866)
+#685, SEC-07, #864, #866 and #905, SEC-32)
 **Related:** ADR-0031 (the same threat, answered for deletion), ADR-0038 (the one dispatch
 pipeline every e-mail here rides), ADR-0046 (what may be said behind a verified password),
 spec 0013, `Features/Auth/RequestEmailChange`, `Pages/Account/ConfirmEmailChange`,
@@ -102,10 +103,22 @@ after the same threat was found reaching the undo from a direction the token cou
    and anyone can make that true with one anonymous `POST auth/register` — `CreateAsync` writes the
    row before any confirmation, `RequireConfirmedEmail` only blocks login, and nothing ever removes
    an unconfirmed registration. Free, permanent, no mailbox needed. So arming now also stamps
-   `EmailChangeRevertArmedAt` and `NormalizedEmailChangeRevertTo`, and
-   `IEmailChangeRevertReservation` refuses that address to `RegisterUser`, `RequestEmailChange`,
-   `ConfirmEmailChange` and the admin seeder (#849, ADR-0056) for the revert token's own lifespan. It is one indexed lookup, it excludes
-   the account that armed it, and it expires with the link, so no address is blocked for good.
+   `EmailChangeRevertArmedAt` and `NormalizedEmailChangeRevertTo`, and the address is refused for
+   the revert token's own lifespan. It is one indexed lookup, it excludes the account that armed
+   it, and it expires with the link, so no address is blocked for good.
+   **Where the rule runs (amended 2026-11-14, #905).** `EmailChangeRevertReservationValidator`, an
+   Identity user validator, runs the lookup on every create and update through `UserManager`, so
+   `RegisterUser`, `ConfirmEmailChange`, `RevertEmailChange` and the admin seeder (#849, ADR-0056)
+   no longer each call `IEmailChangeRevertReservation` by hand, and a new path that saves an account
+   through `UserManager` cannot forget it. Each caller maps the validator's error code to the answer
+   and the log line it gave before. The dispatch leg of `RequestEmailChange` keeps its own call: it
+   saves no account, it only picks which mail goes out. A write straight through the context or the
+   store skips the validator. The validator asks only when the address is new: on a create, or when
+   the tracked original `Email` differs from the current one, so a failed login, a lockout or a
+   password change costs no query and never fails on the account's own address. An account the
+   context does not track counts as new. The validator runs after Identity's own one, whose
+   uniqueness lookup must come first: then an address that its holder leaves and arms at the same
+   moment is caught by one of the two lookups.
    The refusal reuses `UserAlreadyExistsByEmail`, which leaks nothing: the address really was in
    use a moment earlier.
    The reservation cannot be turned against a stranger, and that is what makes it safe to have:
@@ -223,7 +236,7 @@ revert token must do.
   which to mint a replacement. The keyring volume (M6-04 / ADR-0005) is now load-bearing for two
   weeks instead of one day.
 - **An armed address is unavailable to everyone else for 14 days** (rule 4). Registering it,
-  changing onto it and confirming a change onto it all answer "already in use", and to the person
+  changing onto it, confirming a change onto it and undoing onto it all answer "already in use", and to the person
   refused that is indistinguishable from a real account holding it. The window is bounded, it only
   ever covers an address that genuinely was in use minutes earlier, and the alternative — letting a
   stranger silently disarm somebody's only recovery path — is far worse.
@@ -235,6 +248,12 @@ revert token must do.
   the message is dead-lettered, so it cannot grow to days. `RevertEmailChange` keeps refusing when
   the armed address belongs to somebody else, with its own page message, and the password is left
   alone.
+- **The undo itself respects another account's reservation (since #905).** The undo checks only its
+  token, never its own window, so its link can still work after its reservation closed. In that
+  time another account can come to hold a live undo to the same address. The validator then
+  refuses the undo with the same "previous address taken" page and Warning `2518`, and the password
+  is left alone. Before #905 the undo took the address and broke the other account's undo. No
+  normal path creates this state: it needs the gap above, or rows armed before #684.
 - **The uniqueness check is application-level and racy.** `UserManager.UpdateAsync` validates with
   `FindByEmailAsync` *before* the write, so the unique index from `UniqueEmailIndex` is the only
   real arbiter. `UserStore.UpdateAsync` catches only `DbUpdateConcurrencyException`, so a Postgres
@@ -291,7 +310,9 @@ revert token must do.
   unavailable or transactionally worse.
 - Do **not** set `NormalizedEmail` by hand. `UserManager.UpdateAsync` runs
   `UpdateNormalizedEmailAsync` after validation and before the write, so a hand-set value is
-  overwritten either way.
+  overwritten either way. For the same reason the reservation validator (#905) never reads
+  `NormalizedEmail` to tell a new address: it compares the tracked original `Email` with the
+  current one, with change detection off, so the store's save of the account stays as it was.
 - `EmailChangeRevertTokenProvider` (revert leg) is hand-written over `IDataProtector`, lifespan
   14 days, carrying `(createdAt, userId, revertStamp, purpose)`. Its unit tests must pin **both**
   halves: a *security* stamp rotation does not invalidate it, and a *revert* stamp rotation does.

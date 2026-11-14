@@ -227,10 +227,16 @@ outlier and explicitly **not** the pattern here.
   `RegisterUser` writes the row on `CreateAsync`, `RequireConfirmedEmail` only blocks login, and no
   job removes an unconfirmed registration — so occupying the address needs no mailbox at all.
   `ConfirmEmailChange` therefore stamps `ApplicationUser.EmailChangeRevertArmedAt` and
-  `NormalizedEmailChangeRevertTo` when it arms the undo, and `IEmailChangeRevertReservation`
-  refuses that address to `RegisterUser`, `RequestEmailChange` and `ConfirmEmailChange` — with the
-  `UserAlreadyExistsByEmail` they already give a taken address, because it was taken a moment ago.
-  The admin seeder asks the same check and skips the seed with warning `2355` (#849).
+  `NormalizedEmailChangeRevertTo` when it arms the undo, and that address is refused to everyone
+  else — with the `UserAlreadyExistsByEmail` a taken address already gets, because it was taken a
+  moment ago. The admin seeder skips the seed with warning `2355` instead (#849).
+  > **Amended 2026-11-14 (#905, ADR-0048 rule 4):** the refusal lives in one Identity user validator,
+  > `EmailChangeRevertReservationValidator`, which runs on every create and update through
+  > `UserManager`: registration, the confirm, the revert and the admin seeder all pass it, and each
+  > maps its error code to the answer and log line it gave before. The dispatch leg of the request
+  > keeps its own call to `IEmailChangeRevertReservation`, because it saves no account. The validator
+  > asks only when the address is new (a create, or a changed tracked `Email`), so a failed login or a
+  > password change never pays for it.
   The reservation is one indexed lookup, it excludes the account that armed it (going back is the
   move it protects), and it dies with the revert token's own 14-day lifespan, so no address is ever
   blocked for good. A later change in the chain re-arms nothing and does not extend the window, and
@@ -245,6 +251,9 @@ outlier and explicitly **not** the pattern here.
   account stays where it is and the password is **not** nulled — and `RevertEmailChange.cshtml` now
   renders it as its own state, saying the password still works and pointing the visitor at support,
   instead of the generic dead-link message.
+  > **Amended 2026-11-14 (#905):** the revert gives the same answer when another account holds a live
+  > undo to the same address while this link still works, because the revert passes the reservation
+  > validator too. It logs Warning `2518` and leaves the password alone.
 - **GDPR erasure releases the reservation.** `AccountErasureService` clears all three revert fields
   with the rest of the personal data: the armed target is a former address of that person, and an
   erased account must not keep somebody else's address blocked.

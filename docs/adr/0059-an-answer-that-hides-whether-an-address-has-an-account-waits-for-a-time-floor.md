@@ -306,7 +306,9 @@ and the breach call (up to 3 s) must not hold a database connection.
 The free branch makes about 17 database round trips: three lookups by name and three by address
 (ours, `CreateAsync`'s user validator, and the one inside `AddToRoleAsync`), the reservation check,
 two role lookups and one user-role lookup, three saves each followed by its own savepoint release, and
-the commit. A taken address makes about 5, a reserved one about 4. A TCP connect from the staging box
+the commit. A taken address makes about 5, a reserved one about 6: since #905 the reservation check
+runs in a user validator inside `CreateAsync`, after Identity's own lookups by name and by address
+(ADR-0048 rule 4). A TCP connect from the staging box
 to Neon's `eu-central-1` proxy took 6 to 10 ms over 8 samples (2026-10-15), so the free branch spends
 about 170 ms on the network, plus the CPU of EF and Identity. 500 ms would be under two and a half
 times that on a slow tail, so registration gets its own constant, `ResponseTimeFloors.Registration`.

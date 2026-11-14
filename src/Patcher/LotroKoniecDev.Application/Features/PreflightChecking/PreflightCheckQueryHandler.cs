@@ -42,8 +42,8 @@ internal sealed class PreflightCheckQueryHandler : IQueryHandler<PreflightCheckQ
         string? directory = Path.GetDirectoryName(query.DatFilePath);
         bool hasWriteAccess = directory is not null && _writeAccessChecker.CanWriteTo(directory);
 
-        // The file check opens the live DAT, so it waits until nothing earlier refuses: the launcher
-        // writes the DAT while it runs.
+        // The file check runs only when the game is closed and the folder is writable. It opens the
+        // live DAT, which the launcher writes while it runs.
         DatFileWriteCheck datFileWriteCheck = !isGameRunning && hasWriteAccess
             ? _writeAccessChecker.CheckFile(query.DatFilePath)
             : new DatFileWriteCheck(DatFileWriteRefusal.None);

@@ -4,8 +4,8 @@ using LotroKoniecDev.Primitives.Enums;
 namespace LotroKoniecDev.Application.Abstractions;
 
 /// <summary>
-/// What a read-write open of one file said. The default value means the file can be written, so a
-/// test substitute that nobody set up answers "writable".
+/// Whether one file can be written, and why not. The default value means it can, so a test
+/// substitute that nobody set up answers "writable".
 /// </summary>
 /// <param name="OsReason">The system's own words for the refusal.</param>
 public readonly record struct DatFileWriteCheck(DatFileWriteRefusal Refusal, string? OsReason = null)
@@ -39,8 +39,9 @@ public interface IWriteAccessChecker
     bool CanWriteTo(string directoryPath);
 
     /// <summary>
-    /// Opens <paramref name="filePath"/> for reading and writing, closes it at once and says why the
-    /// open was refused, if it was. Never throws, and changes nothing in the file.
+    /// Reads the Read-only flag of <paramref name="filePath"/>, then opens the file for reading and
+    /// writing and closes it at once. Says why a write would be refused, if it would. Never throws,
+    /// and changes nothing in the file.
     /// </summary>
     DatFileWriteCheck CheckFile(string filePath);
 }

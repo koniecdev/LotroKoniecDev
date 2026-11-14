@@ -157,6 +157,7 @@ public sealed class PatchingServiceTests
     [InlineData(DatFileWriteRefusal.AccessDenied, "DatFile.WriteAccessDenied")]
     [InlineData(DatFileWriteRefusal.InUse, "DatFile.InUse")]
     [InlineData(DatFileWriteRefusal.Other, "DatFile.CannotOpenForWriting")]
+    [InlineData(DatFileWriteRefusal.NotFound, "DatFile.NotFound")]
     public void ApplyTranslations_DatFileOpenFailsAndTheFileNamesWhy_ShouldReturnThatReason(
         DatFileWriteRefusal refusal,
         string expectedCode)

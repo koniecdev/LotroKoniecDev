@@ -90,6 +90,55 @@ The box has 3.7 GiB with 1.7 GiB available alongside both application stacks, pl
 > separate decision and a separate ticket — the ceilings here protect the box **from** the
 > observability stack, and were never a bound on the applications.
 
+> **Amendment (2026-11-14, #779): a week on both boxes corrects Alloy's row, and after a reboot
+> Alloy's working set comes close to its ceiling.** The 285 MiB for Alloy in the table above is a
+> first-run `docker stats` reading on one box (2026-08-29, see References). This is a week on both
+> boxes, 2026-11-07 to 2026-11-14, read from the staging Prometheus on 2026-11-14. Each box has
+> 20,158 of the 20,160 samples a 30 s scrape gives. The prod box was not touched: its agent sends its
+> own series to staging, with `box="lotro-prod"`.
+>
+> | `obs-alloy` | staging (backend + agent) | prod (agent only) |
+> |---|---|---|
+> | Limit | 512 MiB | 512 MiB |
+> | Median working set | 328.2 MiB | 332.5 MiB |
+> | p99 working set | 421.7 MiB | 479.8 MiB |
+> | **Peak working set** | **492.3 MiB (96.1%)** | **495.3 MiB (96.7%)** |
+> | Peak RSS | 291.1 MiB | 260.0 MiB |
+> | Peak swap | 72.2 MiB | 16.7 MiB |
+> | Time above 85% of the limit | 8.5 min | 367 min |
+>
+> The peak comes from
+> `max by (box) (max_over_time(container_memory_working_set_bytes{name="obs-alloy"}[7d]))`. #779
+> holds the other queries.
+>
+> - **The agent-only box is not lighter.** Its working set matches the backend box's (median
+>   332.5 MiB against 328.2 MiB, peak 495.3 MiB against 492.3 MiB). Only its peak RSS is lower.
+> - **Alloy's own headroom:** at the median Alloy uses 64 to 65% of its limit. At the week's peak it
+>   was 19.7 MiB (staging) and 16.7 MiB (prod) under the limit.
+> - **Working set and RSS are different numbers.** The working set is memory use minus inactive file
+>   cache. It is what `docker stats`, the 285 MiB above and the 85% rule all read. RSS is the
+>   process's own memory in RAM, without file cache and without pages in swap. The limit bounds RAM,
+>   not RAM plus swap, because the compose file sets no `memswap_limit`. At the limit the kernel drops
+>   file cache and swaps out the process's memory, and it kills only when that is not enough.
+> - **No kernel OOM kill was counted on either box.** The host counter `node_vmstat_oom_kill` did not
+>   rise in the 15 days Prometheus keeps. Alloy's CPU counter reset only at the two host reboots per
+>   box. The host counter starts at 0 on every boot, so a kill in the seconds before a reboot would be
+>   lost. And `resets()` cannot tell apart two restarts closer than one scrape.
+> - **Both peaks came minutes after a host reboot**, the manual reboots of 2026-11-11 (#1327). In the
+>   data kept from before them, no 6-hour maximum on either box went above 374 MiB. After one reboot
+>   of four so far (prod, 2026-11-13, at the configured reboot time), the working set stayed near the
+>   limit for two 6-hour blocks in a row. The cause of the climb after a reboot was not looked for.
+> - **This qualifies the #782 amendment above.** Its "the only signal that saw it" is true of the
+>   container-level signals looked at then: `container_oom_events_total` and
+>   `container_memory_failcnt`. The host counter `node_vmstat_oom_kill` was not looked at then. It
+>   also counts a kill inside a container limit (the kernel's `__oom_kill_process` counts every OOM
+>   kill), and Alloy already collects it from the host's `/proc`. Whether it moved on 2026-09-09
+>   cannot be checked, because that day is past retention.
+>
+> The ceiling stays 512 MiB, and nothing is decided here. Not measured: the week of 2026-09-09 that
+> #779 first asked for (past retention), the cause of the climb after a reboot, whether the 85% rule
+> fired, and the other four components.
+
 ## Decision
 
 **Tempo runs in the first cut**, pinned to the 2.x line, single binary, local blocks, 14-day

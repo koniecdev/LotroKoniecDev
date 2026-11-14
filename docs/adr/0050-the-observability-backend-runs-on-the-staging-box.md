@@ -184,6 +184,14 @@ agent's 256 MiB ceiling leaves ~1.75 GiB.
 The expected column is a prediction, not a measurement. #710 records the real RSS after a week and
 this table gets corrected from that, rather than trusted.
 
+> **Amended 2026-11-14 (#779).** The week's reading this paragraph promises was never recorded under
+> #710. For Alloy it is now in the ADR-0051 amendment of 2026-11-14. Only Alloy's row was measured.
+> #710's task covered every component, and the week's reading for Grafana, Loki and Prometheus is
+> still not recorded, so this note does not correct the rest of the table. For Alloy, the ceiling is
+> 512 MiB on both boxes since ADR-0051, so the agent-only box's total ceiling is 512 MiB, not
+> 256 MiB. Alloy does not run near the expected ~120 MiB there: on prod the median working set is
+> 332.5 MiB, the peak working set 495.3 MiB and the peak RSS 260.0 MiB.
+
 ### 6. Tempo and the OTLP leg are both deferred to a second cut
 
 The first cut collects **logs from the Docker socket** and **host and container metrics**. It sets no

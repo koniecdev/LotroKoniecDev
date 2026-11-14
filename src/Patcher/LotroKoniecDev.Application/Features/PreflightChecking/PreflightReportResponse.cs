@@ -4,8 +4,8 @@ using LotroKoniecDev.Domain.Core.Errors;
 namespace LotroKoniecDev.Application.Features.PreflightChecking;
 
 /// <param name="DatFileWriteCheck">
-/// What a read-write open of the DAT said. It keeps its default ("writable") when the game runs or
-/// the folder refuses writing, because then the file is never opened.
+/// Whether the DAT itself can be written. It keeps its default ("writable") when the game runs or
+/// the folder refuses writing, because then the file is never checked.
 /// </param>
 public sealed record PreflightReportResponse(
     bool IsGameRunning,

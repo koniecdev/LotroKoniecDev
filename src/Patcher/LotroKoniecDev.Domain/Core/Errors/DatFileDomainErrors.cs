@@ -18,8 +18,6 @@ public static partial class DomainErrors
         public static Error WriteError(int fileId, string message) =>
             IoError("DatFile", "WriteError", $"file {fileId}: {message}");
 
-        // The four messages below are also printed inside the launch's own sentences
-        // (GameLaunch.RepatchFailed, GameLaunchingResponse), so they never say "try again".
         public static Error ReadOnly(string path) =>
             Error.IoError("DatFile.ReadOnly",
                 $"The game file '{path}' is marked read-only, so the patcher cannot write to it. " +

@@ -11,12 +11,12 @@ namespace LotroKoniecDev.Application.Abstractions;
 public readonly record struct DatFileWriteCheck(DatFileWriteRefusal Refusal, string? OsReason = null)
 {
     /// <summary>
-    /// Turns the refusal into an error that tells the player what to do. The native open of the DAT
-    /// gives no reason, so this is the only place one comes from (#1248).
+    /// Turns the refusal into an error that tells the player what to do (#1248). Launch prints the
+    /// message inside its own sentences, so none of the messages says "try again".
     /// </summary>
     public Result ToResult(string datFilePath)
     {
-        if (Refusal == DatFileWriteRefusal.None)
+        if (Refusal is DatFileWriteRefusal.None)
         {
             return Result.Success();
         }

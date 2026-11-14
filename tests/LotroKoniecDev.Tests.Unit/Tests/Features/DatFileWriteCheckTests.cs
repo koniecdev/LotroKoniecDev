@@ -167,5 +167,6 @@ public sealed class DatFileWriteCheckTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("DatFile.CannotOpenForWriting");
+        result.Error.Message.ShouldEndWith($"for writing: {OsReason}");
     }
 }

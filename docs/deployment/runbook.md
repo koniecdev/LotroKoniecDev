@@ -920,7 +920,7 @@ CI green on main → cd.yml gate (pins the tested commit)
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `cd.yml` → `gate` | CI finishing on main (`workflow_run`), `v*` tag, dispatch | the **CI-success gate**: CD fires when CI completes, goes on only after a green CI run that a **push in this repository** started, for a commit that **is on `main`** (a fork's branch or a pushed tag can also be called `main`; `scripts/ci/cd-gate.sh`), and pins the exact tested commit (`head_sha`) for build + rollout. Docs-only pushes run no CI, so they trigger no CD. A dispatch from another branch still builds, but its deploy jobs are refused (below). |
-| `cd.yml` → `build-and-push` | after a passing `gate` | builds the 4 images, **scans each with Trivy** (fails on a fixable HIGH/CRITICAL), then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)**: `:sha-<short>`, `:latest` on main, semver on tags. A `v*` tag only publishes; it does not deploy, and the deploy accepts only images built from the run's own ref, which is `main`: an image built from a tag or a branch never deploys (the one exception is a branch's own images during a temporary-rule proof, see [One-time setup per environment](#one-time-setup-per-environment)). **Push no `v*` tag until #1344 lands:** it builds the commit again under the same `:sha-<short>`, from the tag, so that commit can then no longer be deployed or rolled back to |
+| `cd.yml` → `build-and-push` | after a passing `gate` | builds the 4 images, **scans each with Trivy** (fails on a fixable HIGH/CRITICAL), then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)**: `:sha-<short>`, `:latest` on main, semver on tags. A `v*` tag only publishes; it does not deploy, and the deploy accepts only images built from the run's own ref, which is `main`: an image built from a tag or a branch never deploys (the one exception is a branch's own images during a temporary-rule proof, see [One-time setup per environment](#one-time-setup-per-environment)). **Until #1344 lands, push no `v*` tag, and do not dispatch `cd.yml` from a branch whose head is a commit on `main`:** either one builds that commit again under the same `:sha-<short>`, from another ref, so the commit can then no longer be deployed or rolled back to |
 | `cd.yml` → `deploy-staging` | after `build-and-push`, `STAGING_ENABLED == true`, **automatic** | calls the reusable [`deploy.yml`](../../.github/workflows/deploy.yml) under `environment: staging` |
 | `cd.yml` → `deploy-prod` | after `deploy-staging`, **behind the `production` approval gate** | the SAME reusable `deploy.yml` under `environment: production` |
 
@@ -1015,8 +1015,8 @@ the Caddyfile and `scripts/hetzner/deploy.sh` into `/opt/lotro`, and runs the sc
 
 Finally the runner waits for the public origins to answer, then smokes them. A red smoke rolls the
 box back automatically, **images and config** (from `.previous/`), and the job fails. The previous
-tag gets the same provenance check first, and its digests go to the box
-(`scripts/ci/rollback-to-previous-tag.sh`). If the tag cannot be verified (the check refuses it, or
+tag gets the same provenance check first, against `main` and tried up to three times, and its
+digests go to the box (`scripts/ci/rollback-to-previous-tag.sh`). If the tag cannot be verified (the check refuses it, or
 its digests cannot be looked up), only the config is restored, the run summary says **Not rolled
 back**, and the box keeps the release that just failed: roll back by hand
 ([Deploy or roll back by hand](#deploy-or-roll-back-by-hand)).
@@ -1105,11 +1105,11 @@ done
 `cd.yml`). A run from a branch is refused now, so prove such a change after the merge, or with a
 temporary rule: add a branch rule for that one branch on `staging` only, never on `production`, run
 the proof, and delete the rule straight after. While the rule exists, that branch can read staging's
-secrets. During the proof the production job is refused at once, and staging's automatic rollback
-cannot work in either direction: the proof run's rollback target is a `main` build, which fails the
-check against the branch, and the next `main` deploy's target is the branch build. So after you
-delete the rule, put a `main` build back on staging at once: dispatch `cd.yml` from `main` and reject
-its production step.
+secrets. During the proof the production job is refused at once. The proof run's own rollback still
+works, because the rollback checks its target against `main`. But after a proof deploy, staging runs
+the branch's images, and the next `main` deploy cannot roll back to them. So after you delete the
+rule, put a `main` build back on staging at once: dispatch `cd.yml` from `main` and reject its
+production step.
 
 **Mint a CD deploy key per box**: one key per environment, so a staging compromise cannot touch prod.
 It is the `deploy` user's key, never `root`'s:
@@ -1138,11 +1138,10 @@ first, on your own machine, with the check CD uses (it needs `gh` signed in and 
 `docker login ghcr.io` first if the packages are private):
 
 ```bash
-REGISTRY=ghcr.io IMAGE_NAMESPACE=koniecdev GITHUB_REPOSITORY=koniecdev/LotroKoniecDev GITHUB_REF=refs/heads/main \
-  scripts/ci/resolve-verified-digests.sh sha-1a2b3c4
-# prints EXPECTED_DIGESTS=… only when all four images were built by cd.yml from main
-ssh deploy@<box>
-IMAGE_TAG=sha-1a2b3c4 EXPECTED_DIGESTS='<the value it printed>' bash /opt/lotro/deploy.sh
+line="$(REGISTRY=ghcr.io IMAGE_NAMESPACE=koniecdev GITHUB_REPOSITORY=koniecdev/LotroKoniecDev \
+  GITHUB_REF=refs/heads/main scripts/ci/resolve-verified-digests.sh sha-1a2b3c4)"
+# $line is EXPECTED_DIGESTS=<four repo@digest refs>, and empty unless all four were built by cd.yml from main
+[ -n "$line" ] && ssh deploy@<box> "IMAGE_TAG=sha-1a2b3c4 EXPECTED_DIGESTS='${line#EXPECTED_DIGESTS=}' bash /opt/lotro/deploy.sh"
 ```
 
 With `EXPECTED_DIGESTS`, `deploy.sh` refuses any pulled image that is not one of the checked digests,
@@ -1328,10 +1327,9 @@ only the previous release's code is proven against it (N-1 holds one step back; 
 as in [Deploy or roll back by hand](#deploy-or-roll-back-by-hand):
 
 ```bash
-REGISTRY=ghcr.io IMAGE_NAMESPACE=koniecdev GITHUB_REPOSITORY=koniecdev/LotroKoniecDev GITHUB_REF=refs/heads/main \
-  scripts/ci/resolve-verified-digests.sh <previous-good-sha>      # on your machine
-ssh deploy@<box>
-IMAGE_TAG=<previous-good-sha> EXPECTED_DIGESTS='<the value it printed>' bash /opt/lotro/deploy.sh
+line="$(REGISTRY=ghcr.io IMAGE_NAMESPACE=koniecdev GITHUB_REPOSITORY=koniecdev/LotroKoniecDev \
+  GITHUB_REF=refs/heads/main scripts/ci/resolve-verified-digests.sh <previous-good-sha>)"   # on your machine
+[ -n "$line" ] && ssh deploy@<box> "IMAGE_TAG=<previous-good-sha> EXPECTED_DIGESTS='${line#EXPECTED_DIGESTS=}' bash /opt/lotro/deploy.sh"
 ```
 
 (When the rollout failed on its own, CD's automatic rollback already did this, and only steps 2–4

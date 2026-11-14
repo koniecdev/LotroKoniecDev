@@ -33,7 +33,8 @@ LAST_STDOUT=""
 LAST_STDERR=""
 LAST_STATUS=0
 SUMMARY="$TMP_ROOT/step_summary"
-GH_OUT="$TMP_ROOT/github_output"
+# The script reads these; a developer's shell may export them (compose uses IMAGE_TAG).
+SCRIPT_INPUTS=(-u IMAGE_TAG -u SHORT_SHA -u CANDIDATE_SHA -u DEPLOY_ENVIRONMENT -u GITHUB_REPOSITORY)
 
 fail() {
     printf '✗ [%s] %s\n' "$CASE" "$1"
@@ -94,6 +95,11 @@ done
 git -C "$FIXTURE" add -A
 git -C "$FIXTURE" -c user.name=test -c user.email=test@test.invalid commit --quiet -m 'exactly twenty UI files'
 TWENTY="$(git -C "$FIXTURE" rev-parse HEAD)"
+printf 'x\n' > "$FIXTURE/src/Frontend/LotroKoniecDev.Frontend/wwwroot/say \"hi\".css"
+printf 'x\n' > "$FIXTURE/src/Frontend/LotroKoniecDev.Frontend/wwwroot/back\\slash.css"
+git -C "$FIXTURE" add -A
+git -C "$FIXTURE" -c user.name=test -c user.email=test@test.invalid commit --quiet -m 'odd UI file names'
+ODD_NAMES="$(git -C "$FIXTURE" rev-parse HEAD)"
 UNRELATED="$(git -C "$FIXTURE" -c user.name=test -c user.email=test@test.invalid \
     commit-tree "$(git -C "$FIXTURE" rev-parse 'HEAD^{tree}')" -m 'unrelated root')"
 short_frontend="$(git -C "$FIXTURE" rev-parse --short=7 "$FRONTEND")"
@@ -176,14 +182,12 @@ prod_runs() {
 
 run_notice() {
     : > "$SUMMARY"
-    : > "$GH_OUT"
     : > "$TMP_ROOT/calls"
     LAST_STATUS=0
     local err="$TMP_ROOT/stderr"
-    LAST_STDOUT="$( (cd "$FIXTURE" && env \
+    LAST_STDOUT="$( (cd "$FIXTURE" && env "${SCRIPT_INPUTS[@]}" \
         GITHUB_ACTIONS=true \
         GITHUB_REPOSITORY='koniecdev/LotroKoniecDev' \
-        GITHUB_OUTPUT="$GH_OUT" \
         GITHUB_STEP_SUMMARY="$SUMMARY" \
         STUB_PAGE1="$TMP_ROOT/page1.json" \
         STUB_PAGE2="$TMP_ROOT/page2.json" \
@@ -206,6 +210,8 @@ expect_ui() {
     [ "$(warnings)" -eq 1 ] || fail 'expected exactly one ::warning annotation'
     grep -q '^::warning title=This promotion changes the UI::' <<< "$LAST_STDOUT" || fail 'the annotation has the wrong title'
     grep -qF -- "- \`$4\`" "$SUMMARY" || fail "the step summary does not list $4"
+    grep -q 'Worked out when this run started' "$SUMMARY" || fail 'the step summary must say when the notice was worked out'
+    grep -q 'Not detected:' "$SUMMARY" || fail 'the step summary must name what the notice cannot see'
     pass "warns for $4"
 }
 
@@ -218,6 +224,7 @@ expect_no_ui() {
     has_line "baseline=$2" || fail "expected baseline=$2"
     [ "$(warnings)" -eq 0 ] || fail 'a batch with no UI change must not annotate'
     grep -q 'changes no UI file' "$SUMMARY" || fail 'the step summary does not say "no UI file"'
+    grep -q 'Not detected:' "$SUMMARY" || fail 'a "no" verdict must still name what the notice cannot see'
     pass "$4"
 }
 
@@ -308,6 +315,18 @@ prod_runs "$BASE" "$FRONTEND"
 run_notice STUB_GH_FAIL=1 CANDIDATE_SHA="$FRONTEND"
 expect_unknown 'did not answer' 'a dead API: cannot tell, asks for a walk, still exits 0'
 
+CASE='empty object answer'
+pages '{}'
+run_notice CANDIDATE_SHA="$FRONTEND"
+expect_unknown 'did not answer' 'an empty object instead of a list: "did not answer", not "never reached success"'
+
+CASE='empty object statuses'
+pages "[{\"id\": 9, \"sha\": \"$API_ONLY\"}, {\"id\": 1, \"sha\": \"$BASE\"}]"
+statuses 9 '{}'
+statuses 1 '[{"state": "success"}]'
+run_notice CANDIDATE_SHA="$API_ONLY"
+expect_unknown 'did not answer' 'an empty object for the statuses: cannot tell, never an older success'
+
 CASE='garbled API answer'
 pages '{"message": "Bad credentials"}'
 run_notice CANDIDATE_SHA="$FRONTEND"
@@ -385,18 +404,19 @@ listed="$(grep -o '%0Asrc/' <<< "$annotation" | grep -c '' || true)"
 grep -qF 'more: see the job summary' <<< "$annotation" && fail 'twenty files fit the cap: no "and N more" line'
 pass 'twenty files fit in the annotation with no "more" line'
 
-CASE='GITHUB_OUTPUT'
-prod_runs "$BASE" "$FRONTEND"
-run_notice CANDIDATE_SHA="$FRONTEND"
-grep -qx 'ui_change=yes' "$GH_OUT" || fail 'ui_change was not written to GITHUB_OUTPUT'
-grep -qx "baseline=$BASE" "$GH_OUT" || fail 'baseline was not written to GITHUB_OUTPUT'
-pass 'writes the verdict to GITHUB_OUTPUT'
+CASE='odd file names'
+prod_runs "$TWENTY" "$ODD_NAMES"
+run_notice CANDIDATE_SHA="$ODD_NAMES"
+has_line 'ui_change=yes' || fail 'a UI file whose name git would quote must still count'
+grep -qF 'wwwroot/say "hi".css' "$SUMMARY" || fail 'the summary must list the name with a double quote as it is'
+grep -qF 'wwwroot/back\slash.css' "$SUMMARY" || fail 'the summary must list the name with a backslash as it is'
+pass 'file names with a double quote or a backslash still count as UI'
 
 CASE='local run'
 prod_runs "$BASE" "$FRONTEND"
 : > "$SUMMARY"
 LAST_STATUS=0
-LAST_STDOUT="$( (cd "$FIXTURE" && env -u GITHUB_ACTIONS -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT \
+LAST_STDOUT="$( (cd "$FIXTURE" && env "${SCRIPT_INPUTS[@]}" -u GITHUB_ACTIONS -u GITHUB_STEP_SUMMARY \
     GITHUB_REPOSITORY='koniecdev/LotroKoniecDev' \
     STUB_PAGE1="$TMP_ROOT/page1.json" STUB_PAGE2="$TMP_ROOT/page2.json" \
     STUB_STATUSES_DIR="$TMP_ROOT/statuses" STUB_CALLS="$TMP_ROOT/calls" \
@@ -406,6 +426,7 @@ LAST_STDERR="$(cat "$TMP_ROOT/stderr")"
 has_line 'ui_change=yes' || fail 'expected ui_change=yes on stdout'
 [ "$(warnings)" -eq 0 ] || fail 'a local run must not print workflow commands'
 grep -qF 'Home.razor' <<< "$LAST_STDERR" || fail 'a local run must print the file list on stderr'
+grep -q 'Worked out when this run started' <<< "$LAST_STDERR" && fail 'a local run is not a CI run: no "worked out when this run started" line'
 pass 'a local run prints the verdict on stdout and the details on stderr, no workflow commands'
 
 CASE='repository from gh'

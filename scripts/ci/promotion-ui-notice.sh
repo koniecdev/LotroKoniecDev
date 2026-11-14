@@ -6,9 +6,11 @@
 # should get a /staging-walk before the approval click. This script tells the approver. It diffs
 # the release prod runs now against the candidate and looks for UI files (UI_PATTERN below, the
 # one place that defines them). The prod leg of .github/workflows/deploy.yml runs it in a job
-# that starts before the approval gate. A session can run it locally too:
+# that starts before the approval gate. A session can run it locally too, after `git fetch origin`:
 #
-#   CANDIDATE_SHA=origin/main scripts/ci/promotion-ui-notice.sh
+#   CANDIDATE_SHA=<the commit to promote> scripts/ci/promotion-ui-notice.sh
+#
+# The commit to promote is origin/main after a merge, or the commit of the run waiting at the gate.
 #
 # The baseline is the newest `production` deployment that ever reached `success`, the rule of
 # resolve_via_api in resolve-prod-baseline.sh, read with --paginate as image-scan.yml does. There
@@ -19,7 +21,7 @@
 #
 # Advisory only: it always exits 0. When it cannot tell, it says so and asks for a walk to be safe.
 #
-# Verdict on stdout (and in $GITHUB_OUTPUT when set): ui_change=yes|no|unknown, baseline=<sha|''>.
+# Verdict on stdout: ui_change=yes|no|unknown, baseline=<sha|''>.
 # In GitHub Actions ($GITHUB_ACTIONS=true) it adds a ::warning:: annotation for `yes` and
 # `unknown`, and writes the details to $GITHUB_STEP_SUMMARY. Locally the details go to stderr.
 #
@@ -49,12 +51,7 @@ details() {
 }
 
 emit() {
-    local verdicts
-    verdicts="$(printf 'ui_change=%s\nbaseline=%s' "$1" "$2")"
-    printf '%s\n' "$verdicts"
-    if [ -n "${GITHUB_OUTPUT:-}" ]; then
-        printf '%s\n' "$verdicts" >> "$GITHUB_OUTPUT"
-    fi
+    printf 'ui_change=%s\nbaseline=%s\n' "$1" "$2"
 }
 
 # Workflow-command escaping: `%` first, or the escapes added after it would be escaped again.
@@ -82,15 +79,16 @@ cannot_tell() {
 }
 
 # rc 0 = baseline echoed; 1 = the API could not answer; 2 = no record ever reached `success`.
-# gh's own --jq, so a local run needs no jq install; gh exits 1 when the answer is not a list.
+# gh's own --jq, so a local run needs no jq install. An answer that is not a list (`{}` included)
+# is an error, so gh exits 1 and it reads as "did not answer", never as an empty history.
 resolve_baseline() {
     local records id sha states
     records="$(gh api --paginate "repos/${repository}/deployments?environment=${environment}&per_page=100" \
-        --jq '.[] | "\(.id) \(.sha)"' 2>/dev/null)" || return 1
+        --jq 'if type == "array" then .[] | "\(.id) \(.sha)" else error("not a list") end' 2>/dev/null)" || return 1
     while read -r id sha; do
         [ -n "$id" ] || continue
         states="$(gh api "repos/${repository}/deployments/${id}/statuses?per_page=100" \
-            --jq '.[].state' 2>/dev/null)" || return 1
+            --jq 'if type == "array" then .[].state else error("not a list") end' 2>/dev/null)" || return 1
         if grep -qx 'success' <<< "$states"; then
             printf '%s\n' "$sha"
             return 0
@@ -125,18 +123,23 @@ esac
 git cat-file -e "${baseline}^{commit}" 2>/dev/null \
     || cannot_tell "Prod's release \`${baseline}\` is not a commit in this checkout." "$baseline"
 
-# --no-renames: a UI file moved out of a UI folder still counts as a UI change.
-changed="$(git -c core.quotePath=false diff --no-renames --name-only "$baseline" "$candidate")" \
+# --no-renames: a UI file moved out of a UI folder still counts as a UI change. -z: git quotes a
+# path with a `"`, a `\` or a control character, and a quoted path would miss the `^src/` anchors.
+changed="$(git diff -z --no-renames --name-only "$baseline" "$candidate" | tr '\0' '\n')" \
     || cannot_tell "git could not diff prod's release \`${baseline}\` against the candidate." "$baseline"
 ui_files="$(grep -E "$UI_PATTERN" <<< "$changed")"
 
 source_line="Prod runs commit \`${baseline}\` (the newest successful \`${environment}\` deployment record, not checked against the box: after a deploy by hand or a dispatch with an explicit image tag, it can be wrong)."
-timing_line="Worked out when this run started. If another promotion was approved since, run \`CANDIDATE_SHA=${candidate} scripts/ci/promotion-ui-notice.sh\` locally for the current answer."
 candidate_line="Candidate: commit \`${candidate}\`."
+blind_spot_line='Not detected: a screen that changes only because an API answer changed (the links an API offers, the Contracts, the Polish error texts the APIs send).'
+timing_line=''
+if in_actions; then
+    timing_line="Worked out when this run started. If another promotion was approved since, run \`CANDIDATE_SHA=${candidate} scripts/ci/promotion-ui-notice.sh\` locally, after \`git fetch origin\`, for the current answer."
+fi
 
 if [ -z "$ui_files" ]; then
-    details '## UI change notice' '' "This promotion changes no UI file. No walk is needed." '' \
-        "$candidate_line" "$source_line" "$timing_line"
+    details '## UI change notice' '' "This promotion changes no UI file, so the notice asks for no walk." '' \
+        "$candidate_line" "$source_line" ${timing_line:+"$timing_line"} '' "$blind_spot_line"
     emit no "$baseline"
     exit 0
 fi
@@ -151,12 +154,12 @@ annotate 'This promotion changes the UI' "$message"
 
 details '## UI change notice' '' \
     "**This promotion changes the UI: ${ASK}.**" '' \
-    "$candidate_line" "$source_line" "$timing_line" '' \
+    "$candidate_line" "$source_line" ${timing_line:+"$timing_line"} '' \
     "UI files changed (${count}):" ''
 while IFS= read -r file; do
     details "- \`${file}\`"
 done <<< "$ui_files"
-details '' 'Not detected: a screen that changes only because an API answer changed (the links an API offers, the Contracts, the Polish error texts the APIs send).'
+details '' "$blind_spot_line"
 
 emit yes "$baseline"
 exit 0

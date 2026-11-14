@@ -1085,9 +1085,10 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         // Assert: OpenIddict logs each request's parameters, so the client id shows the check can see them
         loggerFactory.Entries.ShouldContain(entry => entry.Message.Contains(WebsiteClientId, StringComparison.Ordinal));
-        loggerFactory.Entries.ShouldAllBe(entry =>
-            !entry.Message.Contains(WebsiteClientSecret, StringComparison.Ordinal)
-            && (entry.Exception == null || !entry.Exception.ToString().Contains(WebsiteClientSecret, StringComparison.Ordinal)));
+        string[] secretForms = [WebsiteClientSecret, Uri.EscapeDataString(WebsiteClientSecret)];
+        loggerFactory.Entries.ShouldAllBe(entry => secretForms.All(secret =>
+            !entry.Message.Contains(secret, StringComparison.Ordinal)
+            && (entry.Exception == null || !entry.Exception.ToString().Contains(secret, StringComparison.Ordinal))));
     }
 
     private async Task<(string Code, string CodeVerifier, List<string> AuthCookies, string Email)>

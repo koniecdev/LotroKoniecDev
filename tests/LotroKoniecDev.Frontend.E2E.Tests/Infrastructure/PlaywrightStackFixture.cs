@@ -63,7 +63,8 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     private const string Audience = "lotrokoniecdev-api";
     private const string ApiClientSecret = "fe-e2e-api-client-secret-min-32-characters";
     private const string WebClientId = "lotrokoniecdev-frontend";
-    private const string WebClientSecret = "fe-e2e-frontend-client-secret-min-32-characters";
+    // Shaped like openssl rand -base64 32 ('+', '/', '='), so the real form encoding is part of the proof.
+    private const string WebClientSecret = "fe-e2e+frontend/client-secret-min-32-characters==";
 
     private const string AdminUsername = "fee2eadmin";
     private const string AdminEmail = "fe-e2e-admin@lotro-translator.pl";

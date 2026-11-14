@@ -34,8 +34,9 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
 
     /// <summary>
     /// At least 32 characters: some tests boot this host in Production, where the startup check applies.
+    /// The '+', '/' and '=' of a base64 secret (openssl rand -base64 32) must survive the form encoding.
     /// </summary>
-    public const string TestFrontendClientSecret = "integration-test-frontend-secret-32-chars";
+    public const string TestFrontendClientSecret = "integration-test+frontend/secret-32-chars==";
 
     /// <summary>
     /// Also the frontend origin the login page falls back to, so tests compare against it instead of

@@ -24,6 +24,8 @@ namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Auth;
 public sealed class ClientSecretSignInTests : IClassFixture<ProductionFrontendFactory>, IDisposable
 {
     private const string ClientId = "lotrokoniecdev-frontend";
+    private const string AuthCookieName = ".lotrokoniecdev.auth";
+    private const string ErrorPath = "/Error";
     private const string Issuer = "https://auth.staging.invalid";
     private const string Subject = "11111111-1111-1111-1111-111111111111";
 
@@ -31,8 +33,9 @@ public sealed class ClientSecretSignInTests : IClassFixture<ProductionFrontendFa
     private static readonly Uri TokenEndpoint = new($"{Issuer}/connect/token");
     private static readonly Uri UserInfoEndpoint = new($"{Issuer}/connect/userinfo");
 
-    // Built rather than written out, so no secret scanner mistakes test data for a key.
-    private static readonly string ClientSecret = new('c', 44);
+    // Built rather than written out, so no secret scanner mistakes test data for a key. Shaped like
+    // openssl rand -base64 32, whose '+', '/' and '=' must survive the form encoding.
+    private static readonly string ClientSecret = new string('c', 20) + "+/" + new string('c', 20) + "==";
 
     private readonly ProductionFrontendFactory _factory;
     private readonly RSA _signingRsa = RSA.Create(2048);
@@ -82,6 +85,31 @@ public sealed class ClientSecretSignInTests : IClassFixture<ProductionFrontendFa
         QueryHelpers.ParseQuery(authorizeAddress.Query).ShouldNotContainKey("client_secret");
         challenge.ToString().ShouldNotContain(ClientSecret);
         (await challenge.Content.ReadAsStringAsync()).ShouldNotContain(ClientSecret);
+    }
+
+    /// <summary>
+    /// A secret that does not match the stored one (the runbook's reseed trap) ends the sign-in cleanly.
+    /// </summary>
+    [Fact]
+    public async Task SignIn_WhenTheSignInServerRefusesTheClient_ShouldEndOnTheErrorPageWithNoSession()
+    {
+        // Arrange
+        RsaSecurityKey signingKey = new(_signingRsa) { KeyId = "test-signing-key" };
+        StubSignInServer signInServer = new() { RefuseTheClient = true };
+        using WebApplicationFactory<Program> host = CreateHost(signingKey, signInServer);
+        using HttpClient browser = CreateBrowser(host);
+        using HttpResponseMessage challenge = await browser.GetAsync(new Uri("/auth/login", UriKind.Relative));
+        Dictionary<string, StringValues> authorizeQuery =
+            QueryHelpers.ParseQuery(challenge.Headers.Location.ShouldNotBeNull().Query);
+
+        // Act
+        using HttpResponseMessage callback = await SendCallbackAsync(browser, challenge, authorizeQuery["state"].ToString());
+
+        // Assert
+        callback.Headers.Location.ShouldNotBeNull().OriginalString.ShouldBe(ErrorPath);
+        bool sessionCookieIssued = callback.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies)
+            && cookies.Any(cookie => cookie.StartsWith(AuthCookieName, StringComparison.Ordinal));
+        sessionCookieIssued.ShouldBeFalse();
     }
 
     public void Dispose()
@@ -165,6 +193,8 @@ public sealed class ClientSecretSignInTests : IClassFixture<ProductionFrontendFa
     {
         public string? IdToken { get; set; }
 
+        public bool RefuseTheClient { get; init; }
+
         public string? TokenRequestBody { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
@@ -174,7 +204,16 @@ public sealed class ClientSecretSignInTests : IClassFixture<ProductionFrontendFa
             if (request.RequestUri == TokenEndpoint)
             {
                 TokenRequestBody = await request.Content.ShouldNotBeNull().ReadAsStringAsync(cancellationToken);
-                return new HttpResponseMessage(HttpStatusCode.OK)
+                return RefuseTheClient
+                    ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                    {
+                        Content = JsonContent.Create(new Dictionary<string, object?>
+                        {
+                            ["error"] = "invalid_client",
+                            ["error_description"] = "The specified client credentials are invalid."
+                        })
+                    }
+                    : new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = JsonContent.Create(new Dictionary<string, object?>
                     {

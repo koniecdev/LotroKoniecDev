@@ -77,6 +77,7 @@ new_stack() {
 # The stub `docker`. Behavior is steered by env vars the cases set:
 #   STUB_CADDY_INVALID / STUB_PULL_FAIL / STUB_MIGRATE_FAIL / STUB_UP_FAIL — make that step exit 1
 #   STUB_DIGEST — the digest `docker image inspect` reports for every image
+#   STUB_DIGEST_FILLER — after that digest, `docker image inspect` lists 1 MiB of other lines
 #   STUB_BROKER_BOOTING_TRIES=<n> — the first n `rabbitmqctl set_operator_policy` calls fail, as on a
 #     broker that is still starting; STUB_BROKER_DOWN — every one of them fails;
 #     STUB_BROKER_RESTARTED — the first one returns 137, as a try does when the container restarts
@@ -160,6 +161,9 @@ case "$1 $2" in
     'image inspect')
         ref="$3"
         printf '%s@%s\n' "${ref%:*}" "${STUB_DIGEST}"
+        if [ -n "${STUB_DIGEST_FILLER:-}" ]; then
+            head -c 1048576 /dev/zero | tr '\0' a | fold -w 100
+        fi
         ;;
     'image prune') ;;
 esac
@@ -199,8 +203,8 @@ run_deploy() {
     LAST_STATUS=0
     # No pause between broker tries, so a broker that never answers costs no wall-clock time here. The
     # marker on stdin stands in for an operator's terminal (see the stub's policy branch).
-    LAST_OUTPUT="$(printf '%s\n' "$STDIN_MARKER" \
-        | env STACK_DIR="$dir" BROKER_POLICY_RETRY_SECONDS=0 "$@" bash "$DEPLOY_SH" 2>&1)" || LAST_STATUS=$?
+    LAST_OUTPUT="$(env STACK_DIR="$dir" BROKER_POLICY_RETRY_SECONDS=0 "$@" bash "$DEPLOY_SH" \
+        <<< "$STDIN_MARKER" 2>&1)" || LAST_STATUS=$?
 }
 
 expected_digests() {
@@ -487,7 +491,7 @@ CASE='one-off gates vs static IPs'
 pinned="$(pinned_ip_services)"
 [ -n "$pinned" ] || fail 'expected compose.hetzner.yaml to pin at least one static ipv4_address (Caddy)'
 for svc in $pinned; do
-    run_targets | grep -qxF "$svc" && fail \
+    grep -qxF -- "$svc" <<< "$(run_targets)" && fail \
         "deploy.sh builds a one-off container from '$svc', which pins a static ipv4_address" \
         "the running container already holds that address — every deploy after the first would die with 'Address already in use'"
 done
@@ -667,6 +671,19 @@ called 'run --rm --no-deps migrator' && fail 'the migration ran on an unattested
 called 'up -d --remove-orphans' && fail 'the roll continued after a digest mismatch'
 grep -q 'Digest mismatch' <<<"$LAST_OUTPUT" || fail 'the mismatch was not reported'
 pass 'a tag re-pointed after CD attested it aborts the roll before migrating or starting anything'
+
+# The attested digest comes first, and more lines follow it. A pipe into `grep -q` would stop at the
+# match, kill the writer with SIGPIPE and report a false mismatch (#1365).
+CASE='attested digest first in a long digest list'
+stack="$(new_stack longdigests)"
+run_deploy "$stack" IMAGE_TAG=sha-abc1234 EXPECTED_DIGESTS="$(expected_digests "$GOOD_DIGEST")" \
+    STUB_DIGEST="$GOOD_DIGEST" STUB_DIGEST_FILLER=1
+# A failure prints the output, and a mismatch report lists every pulled digest: keep the filler short.
+LAST_OUTPUT="$(cut -c 1-200 <<< "$LAST_OUTPUT")"
+[ "$LAST_STATUS" -eq 0 ] || fail 'an attested digest followed by other lines must still roll' "status $LAST_STATUS"
+grep -q 'Digest mismatch' <<<"$LAST_OUTPUT" && fail 'a matching digest was reported as a mismatch'
+called 'up -d --remove-orphans' || fail 'containers were never rolled'
+pass 'finds the attested digest in a long digest list and rolls'
 
 CASE='no digests supplied'
 stack="$(new_stack nodigest)"

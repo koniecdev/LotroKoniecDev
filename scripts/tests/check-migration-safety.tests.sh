@@ -96,7 +96,7 @@ run_case() {
 
 expect_in_output() {
     # The output may hold a file name that is not valid UTF-8, which grep skips in a UTF-8 locale (#1162).
-    printf '%s' "$LAST_OUTPUT" | LC_ALL=C grep -qF "$1" \
+    LC_ALL=C grep -qF -- "$1" <<< "$LAST_OUTPUT" \
         || fail "output should contain '$1'" "$LAST_OUTPUT"
 }
 
@@ -348,6 +348,15 @@ run_suite() {
     run_case 1 "a local function named ÜDown inside Up() does not end the scan" "$repo" HEAD^1
     expect_in_output "Destructive operation"
 }
+
+# The output helpers get more output than a pipe holds, with the text on its first line. A pipe into
+# `grep -q` would stop at the match, kill the writer with SIGPIPE and turn the result around (#1365).
+LABEL="helpers"
+big_output="first line"$'\n'"$(head -c 1048576 /dev/zero | tr '\0' a | fold -w 100)"
+( LAST_OUTPUT="$big_output"; expect_in_output 'first line' ) > /dev/null 2>&1 \
+    || fail "expect_in_output missed a text on the first line of a 1 MiB output"
+cases=$((cases + 1))
+printf '✓ [%s] %s\n' "$LABEL" "expect_in_output finds a text on the first line of a 1 MiB output"
 
 CHECKER="$SCRIPTS_DIR/check-migration-safety.sh"
 LABEL="sh"

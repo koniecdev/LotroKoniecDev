@@ -68,7 +68,7 @@ CASE='fresh box, no REBOOT_TIME'
 new_box
 run_leg ''
 [ "$LAST_STATUS" -ne 0 ] || fail "a box with no time got a default one, which is one of the two boxes' slots"
-printf '%s' "$LAST_OUTPUT" | grep -q 'FATAL: this box has no reboot time yet' || fail 'the refusal does not say what to set'
+grep -q 'FATAL: this box has no reboot time yet' <<< "$LAST_OUTPUT" || fail 'the refusal does not say what to set'
 [ ! -e "$CONF" ] || fail 'the refused run wrote the file'
 pass 'refuses it and writes nothing'
 
@@ -124,7 +124,7 @@ for bad in '24:00' '1:30' '01:60' '0130' 'now' '01:30 ' ' 01:30' 'x01:30' \
     new_box
     run_leg "$bad"
     [ "$LAST_STATUS" -ne 0 ] || fail "'$bad' was accepted"
-    printf '%s' "$LAST_OUTPUT" | grep -q 'FATAL: the reboot time must be HH:MM' || fail "the refusal of '$bad' does not say why"
+    grep -q 'FATAL: the reboot time must be HH:MM' <<< "$LAST_OUTPUT" || fail "the refusal of '$bad' does not say why"
     [ ! -e "$CONF" ] || fail "'$bad' was written to the file"
 done
 pass 'refuses each one and writes nothing'
@@ -177,7 +177,7 @@ printf 'Unattended-Upgrade::Automatic-Reboot "true";\n' > "$CONF"
 before="$(cat "$CONF")"
 run_leg ''
 [ "$LAST_STATUS" -ne 0 ] || fail 'the leg made up a time'
-printf '%s' "$LAST_OUTPUT" | grep -q 'FATAL: this box has no reboot time yet' || fail 'the refusal does not say why'
+grep -q 'FATAL: this box has no reboot time yet' <<< "$LAST_OUTPUT" || fail 'the refusal does not say why'
 [ "$(cat "$CONF")" = "$before" ] || fail 'the refused run changed the file'
 pass 'refuses to guess'
 
@@ -189,9 +189,9 @@ if command -v apt-config > /dev/null; then
     new_box
     run_leg '01:30'
     dump="$(apt-config -c "$CONF" dump 2>&1)" || fail 'apt-config could not parse the file' "$dump"
-    printf '%s\n' "$dump" | grep -qx 'Unattended-Upgrade::Automatic-Reboot "true";' \
+    grep -qx 'Unattended-Upgrade::Automatic-Reboot "true";' <<< "$dump" \
         || fail 'apt does not see the reboot switched on' "$dump"
-    printf '%s\n' "$dump" | grep -qx 'Unattended-Upgrade::Automatic-Reboot-Time "01:30";' \
+    grep -qx 'Unattended-Upgrade::Automatic-Reboot-Time "01:30";' <<< "$dump" \
         || fail 'apt does not see the reboot time' "$dump"
     pass 'apt-config sees the reboot on, at 01:30'
 else

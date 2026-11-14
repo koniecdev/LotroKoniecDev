@@ -579,6 +579,16 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
     scan, they can hide one (`void ÜDown(` ended the scan of `Up()`), so keep `[[:space:]]` there
     unless nothing valid can stand in that place. macOS grep and sed act differently, so prove a
     guard change on Linux with `LANG=C.UTF-8`.
+  - In every bash script under `scripts/` (the engine copy `scripts/claude/` is fixed in the
+    engine), check text that is already in a variable with a here-string, never by piping it into
+    `grep -q`: `grep -qF -- "$1" <<< "$LAST_OUTPUT"`, not `printf '%s' "$LAST_OUTPUT" | grep -qF --
+    "$1"` (#1365). `grep -q` stops reading at the first match. Under `pipefail`, the `printf` that
+    still has lines to write then dies of SIGPIPE (exit 141), and the whole pipe fails although the
+    text matched: a check that must find the text fails, and one that must not find it passes. A
+    short text of a few lines can hit this too. Any reader that stops early (`head`, `grep -m`, `awk
+    '… exit'`) does the same to a writer that is still writing: one that writes line by line
+    (`printf`, `ip`), or one whose output is bigger than its buffer. When a command's output can be
+    that big, capture it first and check the variable.
   - `scripts/claude/verify-copy.sh` (+ `.ps1` twin), the backlog-loop copy check, is not one of
     these guards: it is part of the copy of the loop engine, whose own CI runs its tests and both
     twins. `pr-verify` runs it on every PR, with no verdict, and `ci` runs it too; there is no

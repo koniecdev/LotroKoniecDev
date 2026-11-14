@@ -65,12 +65,15 @@ new_box() {
 echo "systemctl $*" >> "$BOX/calls.log"
 EOF
 
-    # Answers only the one question the script should ask — the main table's default route.
+    # Answers only the one question the script should ask — the main table's default route. It writes
+    # one route per write, as the real `ip` does (`cat` may grow the pipe and finish first).
     cat > "$BOX/bin/ip" <<'EOF'
 #!/usr/bin/env bash
 echo "ip $*" >> "$BOX/calls.log"
 [ "$*" = '-o route show default' ] || exit 1
-cat "$BOX/default-route"
+while IFS= read -r route || [ -n "$route" ]; do
+    printf '%s\n' "$route" || exit
+done < "$BOX/default-route"
 EOF
 
     # iptables/ip6tables: the FORWARD jump probe answers from the box state; every call is recorded,
@@ -251,6 +254,22 @@ run_rules
 pass 'takes the interface from the default route'
 
 # ---------------------------------------------------------------------------------------------
+# An awk that stopped at the first route would kill `ip` with SIGPIPE, and pipefail would stop the
+# rules script. More routes than a pipe holds make that certain with any awk (#1365).
+CASE='more default routes than a pipe holds'
+new_box
+{
+    printf '%s\n' 'default via 172.31.1.1 dev enp1s0 proto dhcp src 91.98.74.228 metric 100'
+    awk 'BEGIN { for (i = 0; i < 20000; i++) print "default via 10.0.0.1 dev eth1 proto static metric 200" }'
+} > "$BOX/default-route"
+run_leg
+run_rules
+
+[ "$(cat "$BOX/restore-v4.txt")" = "$(expected_rules enp1s0)" ] \
+    || fail 'the rules do not follow the first default route' "$(cat "$BOX/restore-v4.txt")"
+pass 'takes the interface from the first default route and reads the rest without stopping'
+
+# ---------------------------------------------------------------------------------------------
 CASE='Docker does not manage ip6tables'
 new_box
 rm -f "$BOX/chain-v6"
@@ -259,7 +278,7 @@ run_rules
 
 [ -f "$BOX/restore-v4.txt" ] || fail 'IPv4 was skipped together with IPv6'
 [ -e "$BOX/restore-v6.txt" ] && fail 'rules were loaded into an IPv6 chain nothing jumps to'
-printf '%s' "$LAST_OUTPUT" | grep -q 'IPv6 — no FORWARD jump to DOCKER-USER' || fail 'the IPv6 skip was silent' "$LAST_OUTPUT"
+grep -q 'IPv6 — no FORWARD jump to DOCKER-USER' <<< "$LAST_OUTPUT" || fail 'the IPv6 skip was silent' "$LAST_OUTPUT"
 pass 'applies IPv4, skips IPv6 and says so'
 
 # ---------------------------------------------------------------------------------------------
@@ -272,7 +291,7 @@ run_leg
 EXPECT_FAILURE=1 run_rules
 EXPECT_FAILURE=0
 
-printf '%s' "$LAST_OUTPUT" | grep -q 'IPv4 — only 80/443' && fail 'a failed IPv4 load still reported success' "$LAST_OUTPUT"
+grep -q 'IPv4 — only 80/443' <<< "$LAST_OUTPUT" && fail 'a failed IPv4 load still reported success' "$LAST_OUTPUT"
 [ "$(calls_matching '^ip6tables-restore')" -eq 0 ] || fail 'the script carried on after the IPv4 load failed'
 pass 'fails without claiming the box is filtered'
 
@@ -283,7 +302,7 @@ run_leg
 EXPECT_FAILURE=1 run_rules
 EXPECT_FAILURE=0
 
-printf '%s' "$LAST_OUTPUT" | grep -q 'IPv6 — only 80/443' && fail 'a failed IPv6 load still reported success' "$LAST_OUTPUT"
+grep -q 'IPv6 — only 80/443' <<< "$LAST_OUTPUT" && fail 'a failed IPv6 load still reported success' "$LAST_OUTPUT"
 pass 'fails too — a half-filtered box is not reported as done'
 
 # ---------------------------------------------------------------------------------------------
@@ -297,7 +316,7 @@ EXPECT_FAILURE=1 run_rules
 EXPECT_FAILURE=0
 
 [ "$(calls_matching '^ip6?tables-restore')" -eq 0 ] || fail 'rules were loaded although nothing jumps to the chain'
-printf '%s' "$LAST_OUTPUT" | grep -q 'no IPv4 FORWARD jump to DOCKER-USER' || fail 'the failure does not say why' "$LAST_OUTPUT"
+grep -q 'no IPv4 FORWARD jump to DOCKER-USER' <<< "$LAST_OUTPUT" || fail 'the failure does not say why' "$LAST_OUTPUT"
 pass 'fails, loads nothing and says why'
 
 # ---------------------------------------------------------------------------------------------

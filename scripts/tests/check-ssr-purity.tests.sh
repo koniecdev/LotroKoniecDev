@@ -77,7 +77,7 @@ run_tree() {
 }
 
 expect_in_output() {
-    printf '%s' "$LAST_OUTPUT" | grep -qF "$1" \
+    grep -qF -- "$1" <<< "$LAST_OUTPUT" \
         || fail "output should contain '$1'" "$LAST_OUTPUT"
 }
 
@@ -260,6 +260,15 @@ run_suite() {
     run_auth_case 0 "a style in a C# file of the auth system is out of scope" \
         Template.cs 'const string Html = "<style>p{}</style>";'
 }
+
+# The output helpers get more output than a pipe holds, with the text on its first line. A pipe into
+# `grep -q` would stop at the match, kill the writer with SIGPIPE and turn the result around (#1365).
+LABEL="helpers"
+big_output="first line"$'\n'"$(head -c 1048576 /dev/zero | tr '\0' a | fold -w 100)"
+( LAST_OUTPUT="$big_output"; expect_in_output 'first line' ) > /dev/null 2>&1 \
+    || fail "expect_in_output missed a text on the first line of a 1 MiB output"
+cases=$((cases + 1))
+printf '✓ [%s] %s\n' "$LABEL" "expect_in_output finds a text on the first line of a 1 MiB output"
 
 sh_runner="$TMP_ROOT/run-sh.sh"
 printf '#!/usr/bin/env bash\nexec bash "$1/scripts/check-ssr-purity.sh"\n' > "$sh_runner"

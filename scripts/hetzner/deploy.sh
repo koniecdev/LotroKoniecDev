@@ -241,7 +241,7 @@ if [ -n "$EXPECTED_DIGESTS" ]; then
         repo="${expected%@*}"
         ref="${repo}:${IMAGE_TAG}"
         actual="$(docker image inspect "$ref" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null || true)"
-        if ! printf '%s' "$actual" | grep -qxF "$expected"; then
+        if ! grep -qxF -- "$expected" <<< "$actual"; then
             echo "::error::Digest mismatch for ${ref}" >&2
             echo "  expected (attested by CD): ${expected}" >&2
             echo "  actually pulled:           $(printf '%s' "$actual" | tr '\n' ' ')" >&2

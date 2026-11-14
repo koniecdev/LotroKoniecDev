@@ -22,6 +22,8 @@ name: CD
 #                    cut the Neon pre-migration snapshot → ssh to the environment's box → pull +
 #                    assert the attested digests → run the migrator as a GATE → `up -d` → smoke the
 #                    public origins → roll images AND config back to the previous deploy on any failure.
+#                    Beside it, before the click, deploy.yml's `ui-notice` job says whether the batch
+#                    changes the UI, so the approver can ask for a /staging-walk first (#1377).
 #
 # The deployment unit is an immutable per-commit image (`sha-<short>`), and the environment a job
 # targets is ONE BOX (`lotro-staging` or `lotro-prod`, env-scoped var HETZNER_HOST) running

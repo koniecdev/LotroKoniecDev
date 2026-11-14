@@ -40,6 +40,9 @@ name: Deploy (reusable rollout)
 # recreated, so a bad migration leaves the previous release serving and is a no-op for the site) and
 # the automatic rollback below. Pre-launch, with no users, that trade is the right one; a real
 # blue/green would need a second box or a bigger one.
+#
+# Prod only, beside the rollout: the `ui-notice` job (#1377) tells the approver, before the click,
+# whether the batch changes what a user sees, so a session can do a /staging-walk first.
 on:
   workflow_call:
     inputs:
@@ -73,6 +76,39 @@ env:
   STACK_DIR: /opt/lotro
 
 jobs:
+  # The `deploy` job waits at the `production` gate before its first step runs, so a notice inside
+  # it would come after the approval. This job has no environment and no concurrency group: it
+  # starts with the prod leg, before the click. It is advisory. `deploy` does not need it, the
+  # script always exits 0, and continue-on-error keeps a failure here from turning the run red.
+  # The name carries the candidate's tag, so a session can read it from the waiting run.
+  ui-notice:
+    name: UI change notice (${{ inputs.image_tag || format('sha-{0}', inputs.short_sha) }})
+    if: inputs.environment == 'production'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      contents: read
+      deployments: read
+    env:
+      CANDIDATE_SHA: ${{ inputs.deploy_sha }}
+      SHORT_SHA: ${{ inputs.short_sha }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      DEPLOY_ENVIRONMENT: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.deploy_sha }}
+          # Full history: the notice diffs the candidate against the release prod runs now.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Does this promotion change the UI?
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/ci/promotion-ui-notice.sh
+
   deploy:
     name: Deploy to ${{ inputs.environment }} (Hetzner)
     runs-on: ubuntu-24.04

@@ -116,7 +116,6 @@ public sealed class TranslationExportParserTests
         CollectedLines result = await ParseFixtureAsync("exported-truncated.txt");
 
         // Assert: one good line, two failures (too few fields, non-numeric file id).
-        result.Errors.ShouldNotBeEmpty();
         result.Rows.Count.ShouldBe(1);
         result.Errors.Count.ShouldBe(2);
         result.Errors[0].LineNumber.ShouldBe(2);
@@ -130,7 +129,7 @@ public sealed class TranslationExportParserTests
         CollectedLines result = await ParseTextAsync("620756992||1001||only three fields");
 
         // Assert
-        result.Errors.ShouldNotBeEmpty();
+        result.Errors.ShouldHaveSingleItem();
         result.Rows.ShouldBeEmpty();
     }
 
@@ -141,7 +140,7 @@ public sealed class TranslationExportParserTests
         CollectedLines result = await ParseTextAsync("620756992||notanumber||Text||NULL||NULL||1");
 
         // Assert
-        result.Errors.ShouldNotBeEmpty();
+        result.Errors.ShouldHaveSingleItem();
         result.Rows.ShouldBeEmpty();
     }
 
@@ -186,7 +185,7 @@ public sealed class TranslationExportParserTests
         CollectedLines result = await ParseBytesAsync(content);
 
         // Assert
-        result.Errors.ShouldNotBeEmpty();
+        result.Errors.ShouldHaveSingleItem();
         result.Rows.ShouldBeEmpty();
     }
 

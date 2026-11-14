@@ -17,14 +17,17 @@ namespace LotroKoniecDev.Tests.Shared;
 /// </para>
 /// <para>
 /// A run starts its containers from the image IDs it built or found, never from the tag, so it only
-/// tests what it built. Two runs of the same suite in one worktree still share a tag (#889): the second
-/// build takes it, Docker's containerd image store (the Docker Desktop default) deletes the first run's
-/// image at once, and the first run fails with "pull access denied for sha256".
+/// tests what it built. The build never takes the tag (#889): on Docker's containerd image store (the
+/// Docker Desktop default), <c>docker build -t</c> deletes the image that loses the tag, even when another
+/// run of the suite in this worktree is about to start from it. A separate <c>docker tag</c> keeps that
+/// image, untagged. Two <c>docker tag</c> calls for one name at the same moment can fail or lose an image,
+/// so the tag moves only under <see cref="TagLockFile"/>.
 /// </para>
 /// <para>
 /// Because the tag belongs to the worktree, <c>SKIP_DOCKER_BUILD=true</c> reuses the images this
-/// worktree built last time, and a run leaves one image set per worktree behind. A person removes the
-/// set of a deleted worktree by <see cref="ImageLabel"/>.
+/// worktree built last time. A run leaves the tagged image set of its worktree behind, plus the
+/// untagged sets that its rebuilds replaced, until a later run finds them an hour old. A person removes
+/// the images of a deleted worktree by <see cref="ImageLabel"/>.
 /// </para>
 /// </remarks>
 internal sealed class E2EWorktree
@@ -38,17 +41,21 @@ internal sealed class E2EWorktree
     private const string SkipBuildVariable = "SKIP_DOCKER_BUILD";
     private const int FolderNameMaxLength = 40;
     private const int PathHashLength = 8;
+    private const int TagLockTimeoutSeconds = 60;
+    private const int TagLockRetryMilliseconds = 50;
 
     private readonly string _imageTag;
+    private readonly bool _skipBuild;
+    private readonly TimeSpan _tagLockTimeout;
     private readonly Dictionary<string, string> _imageIds = [];
 
-    public E2EWorktree(string suite)
-    {
-        SolutionDirectory = FindSolutionDirectory();
-        _imageTag = BuildImageTag(suite, SolutionDirectory);
-    }
-
     public string SolutionDirectory { get; }
+
+    /// <summary>
+    /// Held only while a run moves or reads the tag. Under <c>obj</c>, so git and the Docker build context
+    /// never see it.
+    /// </summary>
+    internal string TagLockFile { get; }
 
     /// <summary>The image ID a container of <paramref name="repository"/> must start from.</summary>
     public string Image(string repository) =>
@@ -62,12 +69,15 @@ internal sealed class E2EWorktree
     /// </summary>
     public async Task BuildImagesAsync(IReadOnlyList<(string Repository, string Dockerfile)> images)
     {
-        if (Environment.GetEnvironmentVariable(SkipBuildVariable) == "true")
+        if (_skipBuild)
         {
             Console.WriteLine($"Skipping Docker image build ({SkipBuildVariable}=true). Reusing the images tagged {_imageTag}.");
             await FindExistingImagesAsync(images.Select(image => image.Repository).ToArray());
             return;
         }
+
+        // Before the builds, so a run never removes the set its own builds are about to replace.
+        await RemoveOldUntaggedImagesAsync();
 
         string cacheBust = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
 
@@ -75,11 +85,9 @@ internal sealed class E2EWorktree
         {
             _imageIds[repository] = await BuildImageAsync(repository, dockerfile, cacheBust);
         }
-
-        await RemoveOldUntaggedImagesAsync();
     }
 
-    private async Task<string> BuildImageAsync(string repository, string dockerfile, string cacheBust)
+    internal async Task<string> BuildImageAsync(string repository, string dockerfile, string cacheBust)
     {
         string imageName = ImageName(repository);
         string imageIdFile = Path.GetTempFileName();
@@ -90,7 +98,7 @@ internal sealed class E2EWorktree
 
             DockerResult result = await RunDockerAsync(
                 "build", "--build-arg", $"CACHEBUST={cacheBust}", "--label", ImageLabel,
-                "--iidfile", imageIdFile, "-f", dockerfile, "-t", imageName, ".");
+                "--iidfile", imageIdFile, "-f", dockerfile, ".");
 
             if (result.ExitCode != 0)
             {
@@ -101,6 +109,7 @@ internal sealed class E2EWorktree
             }
 
             string imageId = (await File.ReadAllTextAsync(imageIdFile)).Trim();
+            await TagImageAsync(imageId, imageName);
             Console.WriteLine($"Successfully built: {imageName} ({imageId})");
             return imageId;
         }
@@ -110,10 +119,81 @@ internal sealed class E2EWorktree
         }
     }
 
+    internal string ImageName(string repository) => $"{repository}:{_imageTag}";
+
+    public E2EWorktree(string suite)
+        : this(
+            suite,
+            Environment.GetEnvironmentVariable(SkipBuildVariable) == "true",
+            TimeSpan.FromSeconds(TagLockTimeoutSeconds))
+    {
+    }
+
+    internal E2EWorktree(string suite, bool skipBuild, TimeSpan tagLockTimeout)
+    {
+        SolutionDirectory = FindSolutionDirectory();
+        _imageTag = BuildImageTag(suite, SolutionDirectory);
+        _skipBuild = skipBuild;
+        _tagLockTimeout = tagLockTimeout;
+        TagLockFile = Path.Combine(SolutionDirectory, "tests", "obj", $"{_imageTag}.lock");
+    }
+
+    private async Task TagImageAsync(string imageId, string imageName)
+    {
+        DockerResult result;
+
+        await using (await TakeTagLockAsync())
+        {
+            result = await RunDockerAsync("tag", imageId, imageName);
+        }
+
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Failed to tag Docker image {imageId} as '{imageName}' (exit code {result.ExitCode}).\n" +
+                $"Stderr:\n{result.Stderr}");
+        }
+    }
+
+    private async Task<FileStream> TakeTagLockAsync()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(TagLockFile)!);
+        Stopwatch waited = Stopwatch.StartNew();
+
+        while (true)
+        {
+            try
+            {
+                return new FileStream(TagLockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException exception) when (exception.GetType() == typeof(IOException))
+            {
+                if (waited.Elapsed >= _tagLockTimeout)
+                {
+                    throw new InvalidOperationException(
+                        $"Could not lock {TagLockFile} within {_tagLockTimeout.TotalSeconds:0.#} s. Another E2E run " +
+                        $"in this worktree holds it while it moves or reads the tag {_imageTag}; that takes well " +
+                        $"under a second, so the other run or its Docker call is probably stuck.\n" +
+                        $"Last error: {exception.Message}",
+                        exception);
+                }
+
+                await Task.Delay(TagLockRetryMilliseconds);
+            }
+        }
+    }
+
     private async Task FindExistingImagesAsync(string[] repositories)
     {
         string[] imageNames = repositories.Select(ImageName).ToArray();
-        DockerResult result = await RunDockerAsync(["image", "inspect", "--format", "{{.Id}}", .. imageNames]);
+        DockerResult result;
+
+        // Under the lock, because a tag move removes the name for a moment before it adds it again.
+        await using (await TakeTagLockAsync())
+        {
+            result = await RunDockerAsync(["image", "inspect", "--format", "{{.Id}}", .. imageNames]);
+        }
+
         string[] imageIds = result.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         if (result.ExitCode != 0 || imageIds.Length != repositories.Length)
@@ -131,11 +211,11 @@ internal sealed class E2EWorktree
     }
 
     /// <summary>
-    /// On Docker's classic image store a rebuild leaves the old image untagged, so every run would leave
-    /// one more image set behind; the containerd store deletes it at once. The one-hour age limit
-    /// protects a fresh image the classic builder has not tagged yet, in this worktree or another one.
-    /// It does not protect an older image that a <c>SKIP_DOCKER_BUILD</c> run in the same worktree is
-    /// about to start (#889).
+    /// A rebuild leaves the replaced image untagged on both stores. The one-hour age limit keeps it for a
+    /// run that still starts its containers from it, in this worktree or another one. On the containerd
+    /// store the hour counts from the moment the image lost its tag. On the classic store it counts from
+    /// the image's build time, which a cached build keeps, so there only two overlapping runs of a suite
+    /// are safe: the run that replaces an image has pruned before its build.
     /// </summary>
     private async Task RemoveOldUntaggedImagesAsync()
     {
@@ -148,8 +228,6 @@ internal sealed class E2EWorktree
             Console.WriteLine($"Could not remove untagged E2E images (exit code {result.ExitCode}).\nStderr:\n{result.Stderr}");
         }
     }
-
-    private string ImageName(string repository) => $"{repository}:{_imageTag}";
 
     private async Task<DockerResult> RunDockerAsync(params string[] arguments)
     {

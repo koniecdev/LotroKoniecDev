@@ -6,7 +6,10 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 /// </summary>
 internal sealed class TokenRefreshResult
 {
-    /// <summary>A 429, any 5xx, a network error, a timeout, or a request that ended early.</summary>
+    /// <summary>
+    /// A 429, any 5xx, a network error, a timeout, a request that ended early, or a discovery document that
+    /// cannot be read or names no usable token endpoint (#1114).
+    /// </summary>
     public static TokenRefreshResult TemporaryFailure { get; } = new(tokens: null, isTemporaryFailure: true);
 
     /// <summary>Any other refusal, or a success answer whose body cannot be read.</summary>

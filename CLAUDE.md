@@ -538,10 +538,10 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
     (a startup check).
   - `scripts/check-client-hypermedia.sh` (+ `.ps1` twin) flags an API path in any string literal
     under `src/Frontend/` **and** `src/Patcher/`, and a sign-in server path (`connect/…`,
-    `.well-known/…`) in one under `src/Frontend/`, in **both** `pr-verify` and `ci`, right after its
-    self-test; prose in comments stays allowed. The one bounded exception is the editor's detail URI
-    (`{discovered translations href}/{id}`): the `/editor/{id}` route hands over an id, not a link,
-    as `TranslationEditorLoader` documents.
+    `.well-known/openid-configuration`) in one under `src/Frontend/`, in **both** `pr-verify` and
+    `ci`, right after its self-test; prose in comments stays allowed. The one bounded exception is
+    the editor's detail URI (`{discovered translations href}/{id}`): the `/editor/{id}` route hands
+    over an id, not a link, as `TranslationEditorLoader` documents.
 - **The CLI resolves its download URL from discovery, and degrades without guessing (#611).**
   `SyncTranslationFileCommand` takes one input, `TmsBaseUrl`; everything else comes from
   `GET {baseUrl}/` with the HATEOAS vendor `Accept` (a plain-JSON request gets a link-less

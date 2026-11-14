@@ -506,7 +506,7 @@ public sealed class AuthEndpointsExtensionsTests
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldBe(
-            "The auth server's discovery document could not be read, so no refresh token was revoked and the sign-out ends on the home page.");
+            "The auth server's discovery document could not be read, so the sign-out skipped the auth server and ends on the home page.");
     }
 
     /// <summary>

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using LotroKoniecDev.Frontend.Tests.Integration.Shared;
@@ -349,7 +350,30 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
         using HttpResponseMessage page = await browser.GetAsync("/dashboard");
 
         // Assert
-        tokenClientTransport.Requests.ShouldBe(0);
+        tokenClientTransport.RequestUris.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// The positive control for the test above: with the sign-in server up, the same wiring sees the grant
+    /// go to the address the discovery document names.
+    /// </summary>
+    [Fact]
+    public async Task Get_APageWhenTheRenewalIsDueWhileTheSignInServerAnswers_SendsTheRenewalToTheDiscoveredTokenEndpoint()
+    {
+        // Arrange
+        RecordingTokenClientTransport tokenClientTransport = new();
+        using WebApplicationFactory<Program> host = CreateHost(
+            new StandInSignInServer { IsUp = true },
+            new DashboardTranslationSystem(),
+            services => services.AddHttpClient(RecordingTokenClientTransport.ClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => tokenClientTransport));
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host, accessTokenTimeLeft: TimeSpan.FromSeconds(30));
+
+        // Act
+        using HttpResponseMessage page = await browser.GetAsync("/dashboard");
+
+        // Assert
+        tokenClientTransport.RequestUris.ShouldBe([new Uri(StandInSignInServer.TokenEndpoint)]);
     }
 
     public SignInServerDownTests(ProductionFrontendFactory factory)
@@ -388,21 +412,21 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
         return browser.GetAsync(location.OriginalString);
     }
 
-    /// <summary>The transport under the website's own token client. It counts the calls and answers 503.</summary>
+    /// <summary>The transport under the website's own token client. It records each address and answers 503.</summary>
     private sealed class RecordingTokenClientTransport : HttpMessageHandler
     {
         /// <summary>The name ASP.NET Core gives the typed client, which is internal to the Frontend.</summary>
         public const string ClientName = "ITokenEndpointClient";
 
-        private int _requests;
+        private readonly ConcurrentQueue<Uri?> _requestUris = new();
 
-        public int Requests => _requests;
+        public IReadOnlyCollection<Uri?> RequestUris => _requestUris;
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            Interlocked.Increment(ref _requests);
+            _requestUris.Enqueue(request.RequestUri);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
         }
     }
@@ -412,7 +436,9 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
     /// </summary>
     private sealed class StandInSignInServer : HttpMessageHandler
     {
-        /// <summary>Not the usual path, so a redirect to it can only come from this document.</summary>
+        /// <summary>Not the usual paths, so a call or a redirect to them can only come from this document.</summary>
+        public const string TokenEndpoint = $"{Authority}/oauth2/v9/token";
+
         public const string EndSessionEndpoint = $"{Authority}/oauth2/v9/end-session";
 
         private const string DiscoveryAddress = $"{Authority}/.well-known/openid-configuration";
@@ -420,7 +446,7 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
             {
               "issuer": "{{Authority}}/",
               "authorization_endpoint": "{{Authority}}/connect/authorize",
-              "token_endpoint": "{{Authority}}/connect/token",
+              "token_endpoint": "{{TokenEndpoint}}",
               "end_session_endpoint": "{{EndSessionEndpoint}}"
             }
             """;

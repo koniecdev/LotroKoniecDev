@@ -106,7 +106,7 @@ internal sealed partial class SignInServerSignOut
     [LoggerMessage(
         EventId = 1,
         Level = LogLevel.Warning,
-        Message = "The auth server's discovery document could not be read, so no refresh token was revoked and the sign-out ends on the home page.")]
+        Message = "The auth server's discovery document could not be read, so the sign-out skipped the auth server and ends on the home page.")]
     private static partial void LogDiscoveryUnavailable(ILogger logger, Exception exception);
 
     [LoggerMessage(
@@ -118,7 +118,7 @@ internal sealed partial class SignInServerSignOut
     [LoggerMessage(
         EventId = 3,
         Level = LogLevel.Warning,
-        Message = "The OIDC handler has no configuration manager, so no refresh token was revoked and the sign-out ends on the home page.")]
+        Message = "The OIDC handler has no configuration manager, so the sign-out skipped the auth server and ends on the home page.")]
     private static partial void LogNoConfigurationManager(ILogger logger);
 
     [LoggerMessage(

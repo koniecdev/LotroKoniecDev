@@ -35,11 +35,12 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 # so a future /api/v2 cannot slip through.
 $apiPathPattern = '"[^"]*api/v[0-9]'
 
-# A double-quoted literal containing an OAuth or OpenID Connect path of the sign-in server, such as
-# connect/token or .well-known/openid-configuration. The website reads those addresses from the
-# discovery document (#1114). The path must start the literal or follow a character that cannot be
-# part of a word, so a word such as "disconnect/" does not match.
-$authPathPattern = '"([^"]*[^"A-Za-z0-9_.-])?(connect|\.well-known)/'
+# A double-quoted literal containing an OAuth or OpenID Connect path of the sign-in server: connect/...
+# or the discovery document's own .well-known/openid-configuration. The website reads those addresses
+# from the discovery document (#1114). The path must start the literal or follow a character that
+# cannot be part of a word, so a word such as "disconnect/" does not match. Other .well-known paths
+# (security.txt, change-password) are not the sign-in server's.
+$authPathPattern = '"([^"]*[^"A-Za-z0-9_.-])?(connect/|\.well-known/openid-configuration)'
 
 $script:fail = $false
 

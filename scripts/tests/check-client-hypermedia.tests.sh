@@ -201,6 +201,10 @@ run_suite() {
     run_tree 0 "a word that only ends in connect/ passes" "$tree"
 
     tree="$(new_tree)"
+    write_file "$tree" src/Frontend/Pages/Security.cs 'app.MapGet("/.well-known/security.txt", ServeSecurityTxt);'
+    run_tree 0 "a .well-known path of the website itself passes" "$tree"
+
+    tree="$(new_tree)"
     write_file "$tree" src/Patcher/Cli/Note.cs 'const string Path = "connect/token";'
     run_tree 0 "a sign-in server path under src/Patcher is not checked: the CLI has no sign-in" "$tree"
 }

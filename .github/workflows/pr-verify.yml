@@ -205,6 +205,14 @@ jobs:
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/resolve-prod-baseline.tests.sh
 
+      # The provenance check CD runs before every rollout and before every automatic rollback
+      # (#1336). Its real inputs (GHCR, the attestation service) exist nowhere in CI, so the suite
+      # stubs `docker` and `gh` and pins the exact check: the digest, never the tag, with the cd.yml
+      # signer and the run's ref, and an empty stdout on any refusal.
+      - name: Image provenance check self-test
+        if: steps.diff.outputs.guards != 'false'
+        run: ./scripts/tests/resolve-verified-digests.tests.sh
+
       # The verdict mapping is its own gate: n1-compat.sh's exit 1 (schema proven incompatible) and
       # exit 2 (the proof never ran) both block the promotion but demand OPPOSITE fixes, and the
       # runbook tells the approver not to retry a RED. Collapsing them would send them to split a

@@ -189,7 +189,9 @@ is the bridge between the game on a player's machine and the translation file th
 It also **auto-discovers** the LOTRO install (default Standing Stone Games path, Steam, the Windows
 registry, then a disk scan), and maps failures to clear exit codes. Before they touch the `DAT`,
 `patch` and `launch` both stop while the game or its launcher is running. `patch` also stops when
-it cannot write to the game folder, and it keeps a `.backup` of the `DAT`.
+it cannot write to the game folder or to the `DAT` itself, and it keeps a `.backup` of the `DAT`.
+When the `DAT` refuses a write, the message says why (marked read-only, no permission, or open in
+another program) and what to do.
 
 ### Requirements & usage
 

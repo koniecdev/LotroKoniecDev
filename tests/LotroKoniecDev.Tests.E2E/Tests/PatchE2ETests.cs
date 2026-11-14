@@ -120,8 +120,8 @@ public sealed class PatchE2ETests
     }
 
     /// <summary>
-    /// The read-write open path must still require write access, so patching a read-only copy of the
-    /// DAT fails and changes nothing (#629).
+    /// Patching a read-only copy of the DAT fails and changes nothing (#629). The preflight's file
+    /// check refuses it before the backup and the read-write open (#1248).
     /// </summary>
     [SkippableFact]
     public async Task Patch_ShouldFailAndLeaveDatUnchanged_WhenDatCopyIsReadOnly()
@@ -148,9 +148,48 @@ public sealed class PatchE2ETests
         }
         finally
         {
-            // File.Copy carries the ReadOnly attribute over to the .backup copy, so clear it on every
-            // file, or the fixture's cleanup of the temp directory fails on Windows.
+            // Clear the flag on every file, a .backup included if a regression made one (File.Copy
+            // keeps the flag), or the fixture's cleanup of the temp directory fails on Windows.
             foreach (string file in Directory.GetFiles(tempDir))
+            {
+                File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A game file left read-only stops the patch before the backup, with a message that says how to
+    /// clear the flag (#1248). A small stand-in is enough: nothing reads the DAT before the refusal.
+    /// </summary>
+    [SkippableFact]
+    public async Task Patch_ShouldRefuseBeforeTheBackupAndSayHowToClearTheFlag_WhenDatIsReadOnly()
+    {
+        Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
+
+        //Arrange
+        string standInDatPath = Path.Combine(_fixture.CreateTempDir(), "client_local_English.dat");
+        byte[] content = [0x4C, 0x4F, 0x54, 0x52, 0x4F];
+        await File.WriteAllBytesAsync(standInDatPath, content);
+        File.SetAttributes(standInDatPath, File.GetAttributes(standInDatPath) | FileAttributes.ReadOnly);
+
+        try
+        {
+            //Act
+            CliResult result = await _fixture.RunCliAsync(
+                $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{standInDatPath}\"");
+
+            //Assert
+            result.ExitCode.ShouldBe((int)CliExitCode.OperationFailed, $"stdout: {result.Stdout}");
+            result.Stdout.ShouldContain("DatFile.ReadOnly");
+            result.Stdout.ShouldContain(Path.GetFullPath(standInDatPath));
+            result.Stdout.ShouldContain("clear the Read-only check box");
+            File.Exists(standInDatPath + ".backup").ShouldBeFalse("the refusal must come before the backup");
+            (await File.ReadAllBytesAsync(standInDatPath)).ShouldBe(content);
+        }
+        finally
+        {
+            // A .backup made by a regression would carry the flag too.
+            foreach (string file in Directory.GetFiles(Path.GetDirectoryName(standInDatPath)!))
             {
                 File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
             }

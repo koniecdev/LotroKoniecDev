@@ -1,6 +1,47 @@
+using LotroKoniecDev.Domain.Core.Errors;
+using LotroKoniecDev.Primitives.Enums;
+
 namespace LotroKoniecDev.Application.Abstractions;
+
+/// <summary>
+/// Whether one file can be written, and why not. The default value means it can, so a test
+/// substitute that nobody set up answers "writable".
+/// </summary>
+/// <param name="OsReason">The system's own words for the refusal.</param>
+public readonly record struct DatFileWriteCheck(DatFileWriteRefusal Refusal, string? OsReason = null)
+{
+    /// <summary>
+    /// Turns the refusal into an error that tells the player what to do (#1248). Launch prints the
+    /// message inside its own sentences, so none of the messages says "try again".
+    /// </summary>
+    public Result ToResult(string datFilePath)
+    {
+        if (Refusal is DatFileWriteRefusal.None)
+        {
+            return Result.Success();
+        }
+
+        string fullPath = Path.GetFullPath(datFilePath);
+
+        return Result.Failure(Refusal switch
+        {
+            DatFileWriteRefusal.ReadOnly => DomainErrors.DatFile.ReadOnly(fullPath),
+            DatFileWriteRefusal.AccessDenied => DomainErrors.DatFile.WriteAccessDenied(fullPath),
+            DatFileWriteRefusal.InUse => DomainErrors.DatFile.InUse(fullPath),
+            DatFileWriteRefusal.NotFound => DomainErrors.DatFile.NotFound(fullPath),
+            _ => DomainErrors.DatFile.CannotOpenForWriting(fullPath, OsReason)
+        });
+    }
+}
 
 public interface IWriteAccessChecker
 {
     bool CanWriteTo(string directoryPath);
+
+    /// <summary>
+    /// Reads the Read-only flag of <paramref name="filePath"/>, then opens the file for reading and
+    /// writing and closes it at once. Says why a write would be refused, if it would. Never throws,
+    /// and changes nothing in the file.
+    /// </summary>
+    DatFileWriteCheck CheckFile(string filePath);
 }

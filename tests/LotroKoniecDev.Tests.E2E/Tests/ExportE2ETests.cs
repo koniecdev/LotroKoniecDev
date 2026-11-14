@@ -214,8 +214,9 @@ public sealed class ExportE2ETests
         };
 
         process.Start();
-        await process.StandardError.ReadToEndAsync();
-        await process.StandardOutput.ReadToEndAsync();
+
+        // Read both pipes at once: reading one to its end first can block when the other fills up.
+        await Task.WhenAll(process.StandardError.ReadToEndAsync(), process.StandardOutput.ReadToEndAsync());
         await process.WaitForExitAsync();
 
         return process.ExitCode;

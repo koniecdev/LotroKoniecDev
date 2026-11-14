@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Claims;
+using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
@@ -1800,7 +1801,7 @@ public sealed class CookieTokenRefresherTests
 
         RefreshTokenRevoker refreshTokenRevoker = new(
             tokenEndpointClient,
-            optionsMonitor,
+            new SignInServerDiscovery(optionsMonitor),
             timeProvider ?? TimeProvider.System,
             NullLogger<RefreshTokenRevoker>.Instance);
 

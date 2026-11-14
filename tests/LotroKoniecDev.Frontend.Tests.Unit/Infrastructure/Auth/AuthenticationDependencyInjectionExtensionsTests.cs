@@ -15,6 +15,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using NSubstitute;
 
@@ -173,6 +174,10 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         ServiceCollection services = CreateFrontendAuthenticationServices();
         services.AddHttpClient<ITokenEndpointClient, TokenEndpointClient>()
             .ConfigurePrimaryHttpMessageHandler(() => signInServer);
+        services.PostConfigure<OpenIdConnectOptions>(
+            OpenIdConnectDefaults.AuthenticationScheme,
+            options => options.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(
+                new OpenIdConnectConfiguration { TokenEndpoint = "https://localhost:5003/connect/token" }));
         await using ServiceProvider provider = services.BuildServiceProvider();
         ITokenEndpointClient client = provider.GetRequiredService<ITokenEndpointClient>();
 

@@ -269,10 +269,11 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
     }
 
     /// <summary>
-    /// The end-session redirect comes from the configured address, and the revoke gives up quietly.
+    /// The end-session address comes from the discovery document, which this host cannot read, so the
+    /// session ends here, on the home page (#1114, ADR-0067 decision 3). The revoke is skipped too.
     /// </summary>
     [Fact]
-    public async Task Post_LogoutWhileTheSignInServerIsDown_EndsTheSessionAndRedirectsToTheEndSessionPage()
+    public async Task Post_LogoutWhileTheSignInServerIsDown_EndsTheSessionAndRedirectsHome()
     {
         // Arrange
         using WebApplicationFactory<Program> host = CreateHost(new StandInSignInServer(), new DashboardTranslationSystem());
@@ -283,9 +284,49 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
 
         // Assert
         logout.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-        logout.Headers.Location.ShouldNotBeNull().OriginalString.ShouldStartWith($"{Authority}/connect/logout?");
+        logout.Headers.Location.ShouldNotBeNull().OriginalString.ShouldBe("/");
         CookieJarBrowser.SetCookiesOf(logout)
             .ShouldContain(setCookie => setCookie.StartsWith($"{SignedInSession.CookieName}=;", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Post_LogoutWhileTheSignInServerAnswers_RedirectsToTheEndSessionPageTheDiscoveryDocumentNames()
+    {
+        // Arrange
+        using WebApplicationFactory<Program> host = CreateHost(
+            new StandInSignInServer { IsUp = true },
+            new DashboardTranslationSystem());
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+
+        // Act
+        using HttpResponseMessage logout = await browser.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/auth/logout"));
+
+        // Assert
+        logout.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        logout.Headers.Location.ShouldNotBeNull().OriginalString.ShouldStartWith($"{StandInSignInServer.EndSessionEndpoint}?");
+    }
+
+    /// <summary>
+    /// #1114: the renewal reads the token endpoint from the discovery document. A host that has just started
+    /// cannot read it while the sign-in server is down, which is a temporary failure: the access token
+    /// still works, so the page shows (ADR-0067 decision 3).
+    /// </summary>
+    [Fact]
+    public async Task Get_APageWhenTheRenewalIsDueWhileTheSignInServerIsDown_ShowsThePageAndKeepsTheSession()
+    {
+        // Arrange
+        using WebApplicationFactory<Program> host = CreateHost(new StandInSignInServer(), new DashboardTranslationSystem());
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host, accessTokenTimeLeft: TimeSpan.FromSeconds(30));
+
+        // Act
+        using HttpResponseMessage page = await browser.GetAsync("/dashboard");
+
+        // Assert
+        page.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string markup = await page.Content.ReadAsStringAsync();
+        markup.ShouldContain(SignedInSession.UserName);
+        CookieJarBrowser.SetCookiesOf(page)
+            .ShouldNotContain(setCookie => setCookie.StartsWith($"{SignedInSession.CookieName}=;", StringComparison.Ordinal));
     }
 
     public SignInServerDownTests(ProductionFrontendFactory factory)
@@ -329,13 +370,16 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
     /// </summary>
     private sealed class StandInSignInServer : HttpMessageHandler
     {
+        /// <summary>Not the usual path, so a redirect to it can only come from this document.</summary>
+        public const string EndSessionEndpoint = $"{Authority}/oauth2/v9/end-session";
+
         private const string DiscoveryAddress = $"{Authority}/.well-known/openid-configuration";
         private const string DiscoveryDocument = $$"""
             {
               "issuer": "{{Authority}}/",
               "authorization_endpoint": "{{Authority}}/connect/authorize",
               "token_endpoint": "{{Authority}}/connect/token",
-              "end_session_endpoint": "{{Authority}}/connect/logout"
+              "end_session_endpoint": "{{EndSessionEndpoint}}"
             }
             """;
 

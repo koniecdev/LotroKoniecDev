@@ -5,14 +5,14 @@ using LotroKoniecDev.AuthSystem.API.Extensions;
 namespace LotroKoniecDev.AuthSystem.API.Settings;
 
 /// <summary>
-/// Stops the boot in Staging and Production when a key, the client secret, the issuer or a web client
+/// Stops the boot in Staging and Production when a key, a client secret, the issuer or a web client
 /// address is missing or malformed (ADR-0008 §3). Development and Testing use throwaway keys and local
 /// addresses, so only the access token lifetime is checked there. A message names the key but never
 /// repeats the address: it can hold a user name and password, and it goes to the startup log (#1131).
 /// </summary>
 internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictSettings>
 {
-    private const int MinimumApiClientSecretLength = 32;
+    private const int MinimumClientSecretLength = 32;
 
     /// <summary>
     /// Many clients renew a token a minute before it runs out, so a token that lives a minute or less is
@@ -72,13 +72,27 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
             errors.Add(
                 $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.ApiClientSecret)} must be set "
                 + $"in {_environment.EnvironmentName}. Use a strong, randomly generated secret of at least "
-                + $"{MinimumApiClientSecretLength} characters.");
+                + $"{MinimumClientSecretLength} characters.");
         }
-        else if (options.ApiClientSecret.Length < MinimumApiClientSecretLength)
+        else if (options.ApiClientSecret.Length < MinimumClientSecretLength)
         {
             errors.Add(
                 $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.ApiClientSecret)} must be at "
-                + $"least {MinimumApiClientSecretLength} characters in {_environment.EnvironmentName} for security.");
+                + $"least {MinimumClientSecretLength} characters in {_environment.EnvironmentName} for security.");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.FrontendClientSecret))
+        {
+            errors.Add(
+                $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.FrontendClientSecret)} must be "
+                + $"set in {_environment.EnvironmentName}. Use FRONTEND_CLIENT_SECRET from the box .env, a random "
+                + $"secret of at least {MinimumClientSecretLength} characters that the website reads too (ADR-0074).");
+        }
+        else if (options.FrontendClientSecret.Length < MinimumClientSecretLength)
+        {
+            errors.Add(
+                $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.FrontendClientSecret)} must be "
+                + $"at least {MinimumClientSecretLength} characters in {_environment.EnvironmentName} for security.");
         }
 
         if (string.IsNullOrWhiteSpace(options.Issuer))

@@ -34,6 +34,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
     /// <summary>Must match the resource the auth token endpoint stamps on the token.</summary>
     private const string Audience = "lotrokoniecdev-api";
     private const string ApiClientSecret = "e2e-test-api-client-secret-min-32-characters";
+    private const string FrontendClientSecret = "e2e-test-frontend-client-secret-min-32-characters";
 
     /// <summary>
     /// Seeded by auth-api from <c>AdminUser__*</c> with a confirmed e-mail, so a password login gives a real
@@ -174,6 +175,8 @@ public sealed class E2ETestFixture : IAsyncLifetime
             // The token issuer; tms-api also fetches its JWKS from this address.
             .WithEnvironment("OpenIddict__Issuer", "http://auth-api:8080")
             .WithEnvironment("OpenIddict__ApiClientSecret", ApiClientSecret)
+            // The seeder refuses to create the website's confidential client with no secret (ADR-0074).
+            .WithEnvironment("OpenIddict__FrontendClientSecret", FrontendClientSecret)
             // Testing skips the startup check for these, but the seeder registers them, and the first
             // post-logout address is the website root the account pages link to.
             .WithEnvironment("OpenIddict__WebClient__RedirectUris__0", "http://localhost:8080/callback")

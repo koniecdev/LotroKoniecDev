@@ -221,43 +221,23 @@ internal static partial class DatabaseSeederExtensions
 
         if (await applicationManager.FindByClientIdAsync(AuthConstants.ClientIds.Web) is null)
         {
-            OpenIddictApplicationDescriptor webClient = new()
-            {
-                ClientId = AuthConstants.ClientIds.Web,
-                ClientSecret = null,
-                DisplayName = "LotroKoniecDev Web Application",
-                ConsentType = ConsentTypes.Implicit,
-                ClientType = ClientTypes.Public,
-                Permissions =
-                {
-                    Permissions.Endpoints.Authorization,
-                    Permissions.Endpoints.Token,
-                    Permissions.Endpoints.EndSession,
-                    Permissions.Endpoints.Revocation,
-                    Permissions.GrantTypes.AuthorizationCode,
-                    Permissions.GrantTypes.RefreshToken,
-                    Permissions.ResponseTypes.Code,
-                    Permissions.Scopes.Email,
-                    Permissions.Scopes.Profile,
-                    Permissions.Scopes.Roles,
-                    Permissions.Prefixes.Scope + AuthConstants.Scopes.Api,
-                    Permissions.Prefixes.Scope + Scopes.OfflineAccess
-                }
-            };
+            await applicationManager.CreateAsync(CreateWebsiteClient(
+                AuthConstants.ClientIds.Web,
+                "LotroKoniecDev Web Application",
+                ClientTypes.Public,
+                clientSecret: null,
+                settings.WebClient));
+        }
 
-            // Written only when the client is created, so a later change needs a reseed (runbook,
-            // "Reseed traps").
-            foreach (string redirectUri in settings.WebClient.RedirectUris)
-            {
-                webClient.RedirectUris.Add(new Uri(redirectUri));
-            }
-
-            foreach (string postLogoutRedirectUri in settings.WebClient.PostLogoutRedirectUris)
-            {
-                webClient.PostLogoutRedirectUris.Add(new Uri(postLogoutRedirectUri));
-            }
-
-            await applicationManager.CreateAsync(webClient);
+        // An empty secret makes CreateAsync throw, so a host without one stops at boot.
+        if (await applicationManager.FindByClientIdAsync(AuthConstants.ClientIds.Frontend) is null)
+        {
+            await applicationManager.CreateAsync(CreateWebsiteClient(
+                AuthConstants.ClientIds.Frontend,
+                "LotroKoniecDev Website",
+                ClientTypes.Confidential,
+                settings.FrontendClientSecret,
+                settings.WebClient));
         }
 
         if (await applicationManager.FindByClientIdAsync(AuthConstants.ClientIds.Api) is null)
@@ -306,6 +286,57 @@ internal static partial class DatabaseSeederExtensions
                 });
             }
         }
+    }
+
+    /// <summary>
+    /// The old public client and the confidential one differ only in their type and secret (ADR-0074).
+    /// Neither may get <c>client_credentials</c>: the token endpoint gives a service token to any client
+    /// that has that permission.
+    /// </summary>
+    private static OpenIddictApplicationDescriptor CreateWebsiteClient(
+        string clientId,
+        string displayName,
+        string clientType,
+        string? clientSecret,
+        WebClientSettings addresses)
+    {
+        OpenIddictApplicationDescriptor client = new()
+        {
+            ClientId = clientId,
+            ClientSecret = clientSecret,
+            DisplayName = displayName,
+            ConsentType = ConsentTypes.Implicit,
+            ClientType = clientType,
+            Permissions =
+            {
+                Permissions.Endpoints.Authorization,
+                Permissions.Endpoints.Token,
+                Permissions.Endpoints.EndSession,
+                Permissions.Endpoints.Revocation,
+                Permissions.GrantTypes.AuthorizationCode,
+                Permissions.GrantTypes.RefreshToken,
+                Permissions.ResponseTypes.Code,
+                Permissions.Scopes.Email,
+                Permissions.Scopes.Profile,
+                Permissions.Scopes.Roles,
+                Permissions.Prefixes.Scope + AuthConstants.Scopes.Api,
+                Permissions.Prefixes.Scope + Scopes.OfflineAccess
+            }
+        };
+
+        // Written only when the client is created, so a later change needs a reseed (runbook,
+        // "Reseed traps").
+        foreach (string redirectUri in addresses.RedirectUris)
+        {
+            client.RedirectUris.Add(new Uri(redirectUri));
+        }
+
+        foreach (string postLogoutRedirectUri in addresses.PostLogoutRedirectUris)
+        {
+            client.PostLogoutRedirectUris.Add(new Uri(postLogoutRedirectUri));
+        }
+
+        return client;
     }
 
     [LoggerMessage(EventId = EventIds.AdminSeededWithoutPassword, Level = LogLevel.Information, Message = "Seeded the admin account {UserId} without a password. Set the first password through the password reset page")]

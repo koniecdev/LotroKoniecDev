@@ -17,6 +17,7 @@ public sealed class OpenIddictSettingsValidatorTests
     private const string ValidEncryptionKey = "dummy-non-empty-encryption-key";
     private const string ValidSigningKeyXml = "dummy-non-empty-signing-key-xml";
     private const string ValidApiClientSecret = "a-strong-and-sufficiently-long-secret-value";
+    private const string ValidFrontendClientSecret = "another-strong-and-sufficiently-long-secret";
     private const string ValidIssuer = "https://auth.lotro-translator.pl";
 
     // A redirect URI is a full callback URL with a path, so it is checked as an absolute http or https
@@ -34,6 +35,7 @@ public sealed class OpenIddictSettingsValidatorTests
             encryptionKey: string.Empty,
             signingKeyXml: string.Empty,
             apiClientSecret: string.Empty,
+            frontendClientSecret: string.Empty,
             issuer: "https://localhost:5003");
 
         ValidateOptionsResult result = validator.Validate(name: null, settings);
@@ -150,6 +152,55 @@ public sealed class OpenIddictSettingsValidatorTests
     }
 
     [Theory]
+    [InlineData(Production, null)]
+    [InlineData(Production, "")]
+    [InlineData(Production, "   ")]
+    [InlineData(Staging, null)]
+    public void Validate_DeployedEnvironmentWithMissingFrontendClientSecret_FailsNamingTheKeyAndEnvironment(
+        string environmentName,
+        string? frontendClientSecret)
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(environmentName);
+        OpenIddictSettings settings = SettingsWith(frontendClientSecret: frontendClientSecret);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        result.Failures.ShouldContain(failure =>
+            failure.Contains("OpenIddict:FrontendClientSecret", StringComparison.Ordinal)
+            && failure.Contains(environmentName, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_ProductionWithFrontendClientSecretOneCharBelowMinimum_FailsNamingTheKeyWithoutTheValue()
+    {
+        string frontendClientSecret = new('f', 31);
+        OpenIddictSettingsValidator validator = CreateValidator(Production);
+        OpenIddictSettings settings = SettingsWith(frontendClientSecret: frontendClientSecret);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        result.Failures.ShouldContain(failure =>
+            failure.Contains("OpenIddict:FrontendClientSecret", StringComparison.Ordinal)
+            && failure.Contains("at least 32", StringComparison.Ordinal));
+        result.Failures.ShouldAllBe(failure => !failure.Contains(frontendClientSecret, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_ProductionWithFrontendClientSecretAtExactMinimum_Succeeds()
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(Production);
+        OpenIddictSettings settings = SettingsWith(frontendClientSecret: new string('f', 32));
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Succeeded.ShouldBeTrue();
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
@@ -233,6 +284,7 @@ public sealed class OpenIddictSettingsValidatorTests
             encryptionKey: string.Empty,
             signingKeyXml: string.Empty,
             apiClientSecret: string.Empty,
+            frontendClientSecret: string.Empty,
             issuer: string.Empty,
             redirectUris: [],
             postLogoutRedirectUris: [],
@@ -245,6 +297,7 @@ public sealed class OpenIddictSettingsValidatorTests
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:EncryptionKey:Key", StringComparison.Ordinal));
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:SigningKey:RsaPrivateKeyXml", StringComparison.Ordinal));
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:ApiClientSecret", StringComparison.Ordinal));
+        result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:FrontendClientSecret", StringComparison.Ordinal));
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:Issuer", StringComparison.Ordinal));
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:WebClient:RedirectUris", StringComparison.Ordinal));
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:WebClient:PostLogoutRedirectUris", StringComparison.Ordinal));
@@ -586,6 +639,7 @@ public sealed class OpenIddictSettingsValidatorTests
         string? encryptionKey = ValidEncryptionKey,
         string? signingKeyXml = ValidSigningKeyXml,
         string? apiClientSecret = ValidApiClientSecret,
+        string? frontendClientSecret = ValidFrontendClientSecret,
         string? issuer = ValidIssuer,
         string[]? redirectUris = null,
         string[]? postLogoutRedirectUris = null,
@@ -593,6 +647,7 @@ public sealed class OpenIddictSettingsValidatorTests
         {
             Issuer = issuer!,
             ApiClientSecret = apiClientSecret!,
+            FrontendClientSecret = frontendClientSecret!,
             AccessTokenLifetimeMinutes = accessTokenLifetimeMinutes,
             EncryptionKey = new EncryptionKeySettings { Key = encryptionKey! },
             SigningKey = new SigningKeySettings { RsaPrivateKeyXml = signingKeyXml! },

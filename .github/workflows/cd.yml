@@ -6,9 +6,9 @@ name: CD
 # from Azure Container Apps to the Hetzner boxes and the transport became ssh + docker compose).
 #
 #   gate           → CI-success gate. CD is TRIGGERED BY the CI workflow finishing (workflow_run); it
-#                    proceeds only when CI concluded `success` for a push to main in this repository,
-#                    and pins the exact tested commit (head_sha) for everything downstream. Dispatch /
-#                    v* tags pass through.
+#                    proceeds only when CI concluded `success` for a push in this repository, for a
+#                    commit that is on main, and pins the exact tested commit (head_sha) for everything
+#                    downstream. Dispatch / v* tags pass through.
 #   build-and-push → builds the four OCI images, scans each with Trivy (fail HIGH/CRITICAL), then
 #                    publishes them to GHCR signed + attested (cosign + SLSA provenance/SBOM) — the
 #                    deployment unit (ADR-0008 §1/§6; supply-chain hardening, audit 0001 H9 + H1).
@@ -102,26 +102,34 @@ jobs:
   # candidate may proceed AND pins the exact commit CI tested (head_sha) for build + rollout — so the
   # image content, its `sha-<short>` tag and the containers that end up running are all the same tested commit,
   # never main's tip if it raced ahead (which would otherwise re-open C2 under a push race). Manual
-  # dispatch / v* tag publishes pass through ungated. workflow_run fields are read via env, never
-  # interpolated into run: (the SHA is trusted hex). The trigger's `branches: [main]` matches only the
-  # branch NAME: a fork's PR from a branch called `main` matches it too, if the fork's PR edits ci.yml
-  # to run on pull_request. That run has ref main, so neither the environments' branch rule nor the
-  # deploy's provenance pin would stop it. So the CI run must also come from a push in this
-  # repository (#1336); ci.yml runs only on push, so no real run is lost.
+  # dispatch / v* tag publishes pass through ungated. The decision lives in scripts/ci/cd-gate.sh,
+  # which has its own test. The trigger's `branches: [main]` matches only the branch NAME, and a fork's
+  # branch or a pushed TAG can also be called `main`; such a run has ref main, so neither the
+  # environments' branch rule nor the deploy's provenance pin would stop it. So the script also needs a
+  # push in this repository and a tested commit that is on main (#1336). workflow_run fields reach it
+  # only through env, never interpolated into run:.
   gate:
     name: CI gate (deploy candidate)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      contents: read
+      contents: read # the checkout, and the branches + compare API calls of the on-main check
     outputs:
       proceed: ${{ steps.eval.outputs.proceed }}
       deploy_sha: ${{ steps.eval.outputs.deploy_sha }}
       short_sha: ${{ steps.eval.outputs.short_sha }}
     steps:
+      # For a workflow_run this is main's tip: the same commit whose cd.yml is running, never the
+      # tested commit. For a dispatch or a tag push it is the ref whose cd.yml is running anyway.
+      - name: Checkout (the gate script)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Evaluate trigger & CI conclusion
         id: eval
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
           WR_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           WR_BRANCH: ${{ github.event.workflow_run.head_branch }}
@@ -131,47 +139,7 @@ jobs:
           WR_ID: ${{ github.event.workflow_run.id }}
           WR_URL: ${{ github.event.workflow_run.html_url }}
           FALLBACK_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          proceed=false
-          deploy_sha="$FALLBACK_SHA"
-          if [ "$EVENT_NAME" = "workflow_run" ]; then
-            deploy_sha="$WR_SHA"
-            if [ "$WR_CONCLUSION" = "success" ] && [ "$WR_BRANCH" = "main" ] \
-              && [ "$WR_EVENT" = "push" ] && [ "$WR_HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then
-              proceed=true
-              {
-                echo "### ✅ CI gate passed — deploy candidate"
-                echo ""
-                echo "- CI run [#${WR_ID}](${WR_URL}) concluded **${WR_CONCLUSION}** on **${WR_BRANCH}**"
-                echo "- Deploying commit \`${deploy_sha}\` — the exact commit CI tested"
-                echo "- Rollout still pauses at the \`production\` approval gate below."
-              } >> "$GITHUB_STEP_SUMMARY"
-            else
-              {
-                echo "### ⏭️ Deploy skipped — no green CI run for a push to main in this repository"
-                echo ""
-                echo "- CI run [#${WR_ID}](${WR_URL}) concluded **${WR_CONCLUSION:-unknown}** on **${WR_BRANCH:-unknown}**"
-                echo "- Started by **${WR_EVENT:-unknown}** in **${WR_HEAD_REPO:-unknown}**"
-                echo "- No image is built and no rollout is attempted."
-              } >> "$GITHUB_STEP_SUMMARY"
-            fi
-          else
-            # workflow_dispatch (deploy on demand) or a v* tag push (publish artifacts only).
-            proceed=true
-            {
-              echo "### ▶️ ${EVENT_NAME} — not CI-gated"
-              echo ""
-              echo "- Commit \`${deploy_sha}\`"
-              echo "- Manual dispatch / tag publish. Any rollout still requires approval."
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-          short_sha="$(printf '%s' "$deploy_sha" | cut -c1-7)"
-          {
-            printf 'proceed=%s\n' "$proceed"
-            printf 'deploy_sha=%s\n' "$deploy_sha"
-            printf 'short_sha=%s\n' "$short_sha"
-          } >> "$GITHUB_OUTPUT"
+        run: ./scripts/ci/cd-gate.sh
 
   build-and-push:
     name: Build & push ${{ matrix.image }}
@@ -320,8 +288,8 @@ jobs:
 
       # Signed SLSA build provenance (audit 0001 H9) — GitHub's first-party artifact attestation, also
       # Sigstore-backed. push-to-registry stores it as an OCI referrer so it travels with the image and
-      # can be enforced at deploy (`gh attestation verify`, in scripts/ci/resolve-verified-digests.sh) or by
-  # an admission controller.
+      # can be enforced at deploy (`gh attestation verify`, in scripts/ci/resolve-verified-digests.sh)
+      # or by an admission controller.
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:

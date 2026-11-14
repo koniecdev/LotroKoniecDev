@@ -214,6 +214,10 @@ expect 'code=false guards=true images=false' 'the N-1 proof the gate calls'     
 expect 'code=false guards=true images=false' 'the N-1 proof classification self-test'     'scripts/tests/n1-compat.tests.sh'
 expect 'code=false guards=true images=false' 'the image provenance check'                 'scripts/ci/resolve-verified-digests.sh'
 expect 'code=false guards=true images=false' 'the image provenance check self-test'       'scripts/tests/resolve-verified-digests.tests.sh'
+expect 'code=false guards=true images=false' 'the automatic rollback'                     'scripts/ci/rollback-to-previous-tag.sh'
+expect 'code=false guards=true images=false' 'the automatic rollback self-test'           'scripts/tests/rollback-to-previous-tag.tests.sh'
+expect 'code=false guards=true images=false' 'the CD gate'                                'scripts/ci/cd-gate.sh'
+expect 'code=false guards=true images=false' 'the CD gate self-test'                      'scripts/tests/cd-gate.tests.sh'
 
 echo
 echo '── read by an integration test: the .NET gate runs too (#1163) ──────────────────────────────'

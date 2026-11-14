@@ -121,6 +121,13 @@ jobs:
       - name: Image provenance check self-test
         run: ./scripts/tests/resolve-verified-digests.tests.sh
 
+      # Same rollback and gate self-tests as pr-verify (#1336) — CD runs both scripts.
+      - name: Automatic rollback self-test
+        run: ./scripts/tests/rollback-to-previous-tag.tests.sh
+
+      - name: CD gate self-test
+        run: ./scripts/tests/cd-gate.tests.sh
+
       - name: N-1 promotion gate verdict self-test
         run: ./scripts/tests/n1-promotion-gate.tests.sh
 

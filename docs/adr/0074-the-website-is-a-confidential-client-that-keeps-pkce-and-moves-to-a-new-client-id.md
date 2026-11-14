@@ -92,10 +92,10 @@ client. So the value must not change after the first deploy: a changed value bre
 and no automated gate sees it, because smoke's token leg uses `lotrokoniecdev-api`. Rotation follows
 the runbook's reseed path.
 
-The secret travels only to the token and revocation endpoints. Both stay on the configured sign-in
-origin and follow no redirect: the refresh and the revoke through `SameOriginDelegatingHandler`, the
-code exchange through the OIDC back-channel, whose addresses come from the sign-in server's own
-metadata (#830, ADR-0067 decision 4).
+The secret travels only to the token and revocation endpoints, and no client follows a redirect. The
+refresh and the revoke pass `SameOriginDelegatingHandler`. The code exchange goes through the OIDC
+back-channel, which has no origin check: its addresses come from the sign-in server's own metadata,
+and it already carries the code there (the owner's ruling on #830, recorded in ADR-0067's context).
 
 ## Consequences
 

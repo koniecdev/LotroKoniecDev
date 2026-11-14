@@ -122,8 +122,8 @@ public sealed class ConfirmEmailChangeHandlerTests
     }
 
     /// <summary>
-    /// The user validator refuses an address held for another account's undo (#905). The answer stays the
-    /// taken-address one the handler gave when it checked the reservation itself.
+    /// The user validator refuses an address held for another account's undo (#905), and the visitor gets
+    /// the taken-address answer.
     /// </summary>
     [Fact]
     public async Task Handle_TheSaveIsRefusedForAReservedAddress_RefusesAsTaken()
@@ -141,8 +141,7 @@ public sealed class ConfirmEmailChangeHandlerTests
     }
 
     /// <summary>
-    /// Until #905 the handler checked the reservation before Identity's own rules, so the reservation still
-    /// wins when both refuse.
+    /// The reservation wins when Identity refuses for another reason too (ADR-0048 rule 4).
     /// </summary>
     [Fact]
     public async Task Handle_TheSaveIsRefusedForAReservedAddressAndAnotherReason_RefusesAsTaken()

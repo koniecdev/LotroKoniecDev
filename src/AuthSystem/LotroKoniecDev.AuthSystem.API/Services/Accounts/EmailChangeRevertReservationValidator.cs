@@ -20,18 +20,6 @@ internal sealed class EmailChangeRevertReservationValidator : IUserValidator<App
     private readonly ILookupNormalizer _keyNormalizer;
     private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public EmailChangeRevertReservationValidator(
-        IEmailChangeRevertReservation revertReservation,
-        AuthDbContext db,
-        ILookupNormalizer keyNormalizer,
-        IHttpContextAccessor httpContextAccessor)
-    {
-        _revertReservation = revertReservation;
-        _db = db;
-        _keyNormalizer = keyNormalizer;
-        _httpContextAccessor = httpContextAccessor;
-    }
-
     public async Task<IdentityResult> ValidateAsync(UserManager<ApplicationUser> manager, ApplicationUser user)
     {
         // Refusing an empty address is the built-in validator's job.
@@ -67,9 +55,22 @@ internal sealed class EmailChangeRevertReservationValidator : IUserValidator<App
         });
     }
 
+    public EmailChangeRevertReservationValidator(
+        IEmailChangeRevertReservation revertReservation,
+        AuthDbContext db,
+        ILookupNormalizer keyNormalizer,
+        IHttpContextAccessor httpContextAccessor)
+    {
+        _revertReservation = revertReservation;
+        _db = db;
+        _keyNormalizer = keyNormalizer;
+        _httpContextAccessor = httpContextAccessor;
+    }
+
     /// <summary>
-    /// True only for an account this context loaded and whose address did not change since. An account it
-    /// does not track counts as new, so a doubt always asks.
+    /// True only for an account this context tracks and whose address did not change since it started
+    /// tracking it. An account it does not track counts as new, so a doubt always asks. An instance attached
+    /// by hand is trusted as stored (ADR-0048 rule 4).
     /// </summary>
     private bool KeepsItsStoredAddress(ApplicationUser user)
     {

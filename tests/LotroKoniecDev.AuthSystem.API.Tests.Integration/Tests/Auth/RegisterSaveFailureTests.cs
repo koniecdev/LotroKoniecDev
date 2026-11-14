@@ -283,9 +283,8 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
 
     /// <summary>
     /// A reserved address answers as any address does, also when the username is taken in the same moment
-    /// (#905). Identity then refuses both at once, and the reservation must win, as it did when the handler
-    /// checked it before <c>CreateAsync</c>. A known taken username still answers first, from the handler's
-    /// own lookup.
+    /// (#905). Identity then refuses both at once, and the reservation must win. A known taken username
+    /// still answers first, from the handler's own lookup.
     /// </summary>
     [Theory]
     [InlineData(false, HttpStatusCode.Accepted)]

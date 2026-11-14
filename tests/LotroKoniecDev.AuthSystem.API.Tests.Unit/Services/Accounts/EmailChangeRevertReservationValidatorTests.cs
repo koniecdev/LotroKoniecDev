@@ -193,7 +193,7 @@ public sealed class EmailChangeRevertReservationValidatorTests
     /// must never block it.
     /// </summary>
     [Fact]
-    public async Task ValidateAsync_ExcludesTheAccountItself()
+    public async Task ValidateAsync_AccountMovesBackToItsOwnArmedAddress_Succeeds()
     {
         // Arrange: only a query that excludes this account answers "free"
         ApplicationUser user = AttachStoredUser();
@@ -234,7 +234,7 @@ public sealed class EmailChangeRevertReservationValidatorTests
     /// request would miss its changes, and nothing in the result would show it.
     /// </summary>
     [Fact]
-    public async Task ValidateAsync_LeavesChangeDetectionOnAsItFoundIt()
+    public async Task ValidateAsync_ChangeDetectionIsOn_LeavesItOn()
     {
         // Arrange
         StubEveryAddressAsReserved();
@@ -246,6 +246,43 @@ public sealed class EmailChangeRevertReservationValidatorTests
 
         // Assert
         _db.ChangeTracker.AutoDetectChangesEnabled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ValidateAsync_ChangeDetectionIsOff_LeavesItOff()
+    {
+        // Arrange
+        StubEveryAddressAsReserved();
+        ApplicationUser user = AttachStoredUser();
+        user.Email = ReservedEmail;
+        _db.ChangeTracker.AutoDetectChangesEnabled = false;
+
+        // Act
+        await CreateValidator().ValidateAsync(_userManager, user);
+
+        // Assert
+        _db.ChangeTracker.AutoDetectChangesEnabled.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The store attaches the account after the validators. Marked Modified by a change detection here, the
+    /// entry would make that attach accept the changes as stored, so the save would no longer be the one
+    /// Identity alone makes.
+    /// </summary>
+    [Fact]
+    public async Task ValidateAsync_LoadedAccountMovedToANewAddress_LeavesItsEntryUnchanged()
+    {
+        // Arrange
+        StubEveryAddressAsReserved();
+        ApplicationUser user = AttachStoredUser();
+        user.Email = ReservedEmail;
+
+        // Act
+        await CreateValidator().ValidateAsync(_userManager, user);
+
+        // Assert: read without detecting changes, so the read itself cannot mark the entry
+        _db.ChangeTracker.AutoDetectChangesEnabled = false;
+        _db.Entry(user).State.ShouldBe(EntityState.Unchanged);
     }
 
     private void StubEveryAddressAsReserved() =>

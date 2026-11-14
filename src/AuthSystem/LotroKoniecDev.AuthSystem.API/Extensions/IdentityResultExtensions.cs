@@ -25,8 +25,8 @@ internal static class IdentityResultExtensions
             && result.Errors.All(error => error.Code is BreachedPasswordValidator.ErrorCode);
 
         /// <summary>
-        /// Any error with this code wins over the rest: the callers checked the reservation before Identity's
-        /// own rules until #905, and their answers stay the same.
+        /// Any error with this code wins over the rest: a reserved address gets the same answer whatever else
+        /// Identity refuses (ADR-0048 rule 4, #905).
         /// </summary>
         public bool IsReservedEmail =>
             result.Errors.Any(error => error.Code is EmailChangeRevertReservationValidator.ErrorCode);

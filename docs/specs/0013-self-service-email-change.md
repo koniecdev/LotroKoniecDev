@@ -232,8 +232,8 @@ outlier and explicitly **not** the pattern here.
   moment ago. The admin seeder skips the seed with warning `2355` instead (#849).
   > **Amended 2026-11-14 (#905, ADR-0048 rule 4):** the refusal lives in one Identity user validator,
   > `EmailChangeRevertReservationValidator`, which runs on every create and update through
-  > `UserManager`: registration, the confirm, the revert and the admin seeder all pass it, and each
-  > maps its error code to the answer and log line it gave before. The dispatch leg of the request
+  > `UserManager`. Registration, the confirm and the admin seeder lost their own calls and map its error
+  > code to the answer and log line they gave before; the revert passes it too (below). The dispatch leg of the request
   > keeps its own call to `IEmailChangeRevertReservation`, because it saves no account. The validator
   > asks only when the address is new (a create, or a changed tracked `Email`), so a failed login or a
   > password change never pays for it.

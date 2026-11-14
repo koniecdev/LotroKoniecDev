@@ -107,16 +107,18 @@ after the same threat was found reaching the undo from a direction the token cou
    the revert token's own lifespan. It is one indexed lookup, it excludes the account that armed
    it, and it expires with the link, so no address is blocked for good.
    **Where the rule runs (amended 2026-11-14, #905).** `EmailChangeRevertReservationValidator`, an
-   Identity user validator, runs the lookup on every create and update through `UserManager`, so
-   `RegisterUser`, `ConfirmEmailChange`, `RevertEmailChange` and the admin seeder (#849, ADR-0056)
-   no longer each call `IEmailChangeRevertReservation` by hand, and a new path that saves an account
-   through `UserManager` cannot forget it. Each caller maps the validator's error code to the answer
-   and the log line it gave before. The dispatch leg of `RequestEmailChange` keeps its own call: it
-   saves no account, it only picks which mail goes out. A write straight through the context or the
-   store skips the validator. The validator asks only when the address is new: on a create, or when
-   the tracked original `Email` differs from the current one, so a failed login, a lockout or a
-   password change costs no query and never fails on the account's own address. An account the
-   context does not track counts as new. The validator runs after Identity's own one, whose
+   Identity user validator, runs the lookup on every create and update through `UserManager`, so a
+   new path that saves an account through `UserManager` cannot forget it. `RegisterUser`,
+   `ConfirmEmailChange` and the admin seeder (#849, ADR-0056) no longer call
+   `IEmailChangeRevertReservation` by hand; each maps the validator's error code to the answer and the
+   log line it gave before. `RevertEmailChange`, which never had a call, now passes the validator too
+   (see Consequences). The dispatch leg of `RequestEmailChange` keeps its own call: it saves no
+   account, it only picks which mail goes out. The validator asks only when the address is new: on a
+   create, or when the tracked original `Email` differs from the current one, so a failed login, a
+   lockout or a password change costs no query and never fails on the account's own address. An
+   account the context does not track counts as new. Three writes skip it: a write straight through
+   the context, a write through the store, and an account attached to the context by hand with its
+   address already changed, which the validator trusts as stored. No code does the last one today. The validator runs after Identity's own one, whose
    uniqueness lookup must come first: then an address that its holder leaves and arms at the same
    moment is caught by one of the two lookups.
    The refusal reuses `UserAlreadyExistsByEmail`, which leaks nothing: the address really was in

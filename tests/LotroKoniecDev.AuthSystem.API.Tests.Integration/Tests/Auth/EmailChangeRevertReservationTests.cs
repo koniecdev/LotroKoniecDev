@@ -1,8 +1,12 @@
 using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
@@ -16,6 +20,7 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
 using LotroKoniecDev.AuthSystem.Persistence.Outbox;
+using LotroKoniecDev.Tests.Shared;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
@@ -46,6 +51,33 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
 
         // Only the confirmation of the account the arrange registered.
         (await CountRegistrationOutboxRowsAsync()).ShouldBe(1);
+    }
+
+    /// <summary>
+    /// The operator's only sign of this refusal: the visitor gets the same 202 as on any address.
+    /// </summary>
+    [Fact]
+    public async Task Register_ShouldLogTheReservedAddressWarning_WhileTheFreedAddressIsAnArmedRevertTarget()
+    {
+        (RegisterRequest user, _, _) = await CompleteChangeAsync();
+        using CapturingLoggerFactory loggerFactory = new();
+        await using WebApplicationFactory<Program> host = Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                // A second relay on this database could take a row another test waits for.
+                AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
+
+                services.AddSingleton<ILoggerFactory>(loggerFactory);
+            }));
+        using HttpClient client = host.CreateClient();
+
+        using HttpResponseMessage response = await RegisterOnAsync(client, user.Email);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        CapturingLoggerFactory.LogEntry entry = loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.RegisterReservedAddressRefused)
+            .ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
     }
 
     [Fact]
@@ -530,8 +562,10 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
-    private async Task<HttpResponseMessage> RegisterOnAsync(string email) =>
-        await ApiClient.Http.PostAsJsonAsync(
+    private Task<HttpResponseMessage> RegisterOnAsync(string email) => RegisterOnAsync(ApiClient.Http, email);
+
+    private async Task<HttpResponseMessage> RegisterOnAsync(HttpClient client, string email) =>
+        await client.PostAsJsonAsync(
             new Uri("auth/register", UriKind.Relative),
             new RegisterRequest(
                 Faker.Random.AlphaNumeric(16),

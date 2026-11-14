@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
 using OpenIddict.Abstractions;
-using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationRoles.Entities;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -127,17 +126,6 @@ internal static partial class DatabaseSeederExtensions
             return;
         }
 
-        // An admin seeded on an address held for an undo would make that undo link fail (#849). After
-        // the username check, so an admin that moved off the address keeps getting 2353 (ADR-0056
-        // decision 5).
-        IEmailChangeRevertReservation revertReservation =
-            serviceProvider.GetRequiredService<IEmailChangeRevertReservation>();
-        if (await revertReservation.IsReservedAsync(email, exceptUserId: null, CancellationToken.None))
-        {
-            LogAdminSeedEmailReservedForUndo(logger);
-            return;
-        }
-
         TimeProvider timeProvider = serviceProvider.GetRequiredService<TimeProvider>();
 
         ApplicationUser admin = new()
@@ -156,6 +144,15 @@ internal static partial class DatabaseSeederExtensions
             : await userManager.CreateAsync(admin, password);
         if (!createResult.Succeeded)
         {
+            // An admin seeded on an address held for an undo would make that undo link fail (#849); the user
+            // validator refuses it (#905). After the username check, so an admin that moved off the address
+            // keeps getting 2353 (ADR-0056 decision 5).
+            if (createResult.IsReservedEmail)
+            {
+                LogAdminSeedEmailReservedForUndo(logger);
+                return;
+            }
+
             string errors = string.Join(", ", createResult.Errors.Select(e => e.Description));
             throw new InvalidOperationException($"Admin user seeding failed: {errors}");
         }

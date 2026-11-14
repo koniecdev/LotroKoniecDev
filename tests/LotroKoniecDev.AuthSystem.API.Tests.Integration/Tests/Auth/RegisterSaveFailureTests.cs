@@ -228,7 +228,8 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
     /// <summary>
     /// Identity looks the address up again inside <c>CreateAsync</c>. A registration that commits the address
     /// in between makes it refuse with <c>DuplicateEmail</c>, which must answer as a taken address, never
-    /// with the general message that names it (#860).
+    /// with the general message that names it (#860). No insert may be sent: an insert would mean the race
+    /// was settled by the unique index instead, which a test above covers.
     /// </summary>
     [Theory]
     [InlineData(false, HttpStatusCode.Accepted)]
@@ -237,13 +238,75 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
         bool budgetSpent,
         HttpStatusCode expectedStatus)
     {
-        // Arrange: the competitor commits while our request checks the reservation, which sits between
-        // our address lookup and Identity's
+        // Arrange: the competitor commits while our request waits in front of Identity's own address lookup,
+        // the second one in the request after the handler's
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
         RegisterRequest competitor = UserFactory.GenerateRandomRegisterRequest(Faker) with { Email = request.Email };
 
+        MatchingCommandCounter accountInserts = new(command => IsTheAccountInsert(command, request.Email));
         CompetitorCommitsFirstInterceptor interceptor = new(
-            command => IsTheReservationCheck(command, request.Email),
+            NthLookupOf("NormalizedEmail", request.Email, 2),
+            async () =>
+            {
+                using HttpResponseMessage response =
+                    await ApiClient.Http.PostAsJsonAsync(RegisterEndpoint, competitor);
+                return response.StatusCode;
+            });
+
+        await using WebApplicationFactory<Program> host = Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                // A second relay on this database could take a row another test waits for.
+                AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
+                services.ConfigureDbContext<AuthDbContext>(options => options.AddInterceptors(interceptor, accountInserts));
+            }));
+        using HttpClient client = host.CreateClient();
+        if (budgetSpent)
+        {
+            AccountStateFactory.SpendRegistrationBudget(host.Services, request.Email);
+        }
+
+        // Act
+        using HttpResponseMessage response = await client.PostAsJsonAsync(RegisterEndpoint, request);
+
+        // Assert
+        interceptor.CompetitorStatusCode.ShouldBe(HttpStatusCode.Accepted);
+        accountInserts.Count.ShouldBe(0);
+        response.StatusCode.ShouldBe(expectedStatus);
+        (await response.Content.ReadAsStringAsync()).ShouldNotContain(request.Email, Case.Insensitive);
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        (await db.Users.AsNoTracking().AnyAsync(user => user.UserName == request.Username)).ShouldBeFalse();
+        (await db.Users.AsNoTracking().AnyAsync(user => user.UserName == competitor.Username)).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// A reserved address answers as any address does, also when the username is taken in the same moment
+    /// (#905). Identity then refuses both at once, and the reservation must win, as it did when the handler
+    /// checked it before <c>CreateAsync</c>. A known taken username still answers first, from the handler's
+    /// own lookup.
+    /// </summary>
+    [Theory]
+    [InlineData(false, HttpStatusCode.Accepted)]
+    [InlineData(true, HttpStatusCode.TooManyRequests)]
+    public async Task Register_ShouldAnswerAsAReservedAddress_WhenTheUsernameIsTakenInsideIdentitysOwnCheck(
+        bool budgetSpent,
+        HttpStatusCode expectedStatus)
+    {
+        // Arrange: the address is another account's undo target, and the competitor takes the username while
+        // our request waits in front of Identity's own username lookup, the second one after the handler's
+        RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
+        RegisterRequest competitor = UserFactory.GenerateRandomRegisterRequest(Faker) with
+        {
+            Username = request.Username
+        };
+        (RegisterRequest holder, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        await AccountStateFactory.ReserveAddressAsync(Factory.Services, holder.Email, request.Email);
+
+        CompetitorCommitsFirstInterceptor interceptor = new(
+            NthLookupOf("NormalizedUserName", request.Username, 2),
             async () =>
             {
                 using HttpResponseMessage response =
@@ -270,12 +333,13 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
         // Assert
         interceptor.CompetitorStatusCode.ShouldBe(HttpStatusCode.Accepted);
         response.StatusCode.ShouldBe(expectedStatus);
-        (await response.Content.ReadAsStringAsync()).ShouldNotContain(request.Email, Case.Insensitive);
+        (await response.Content.ReadAsStringAsync()).ShouldNotContain("UserAlreadyExistsByUsername");
 
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
-        (await db.Users.AsNoTracking().AnyAsync(user => user.UserName == request.Username)).ShouldBeFalse();
-        (await db.Users.AsNoTracking().AnyAsync(user => user.UserName == competitor.Username)).ShouldBeTrue();
+        (await db.Users.AsNoTracking()
+            .AnyAsync(user => user.NormalizedEmail == request.Email.ToUpperInvariant())).ShouldBeFalse();
+        (await db.Users.AsNoTracking().AnyAsync(user => user.Email == competitor.Email)).ShouldBeTrue();
     }
 
     public enum Clash
@@ -300,14 +364,22 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
                               && string.Equals(value, email, StringComparison.Ordinal));
 
     /// <summary>
-    /// The reservation check filters on the undo target; the account lookups only list that column. The
-    /// address has to match too, because the admin seed runs the same check when the host starts.
+    /// Matches the <paramref name="occurrence"/>-th account lookup on <paramref name="column"/> for this value.
+    /// Only a SELECT counts: the role save's UPDATE carries the same column and value. The reservation query
+    /// filters on <c>NormalizedEmailChangeRevertTo</c>, so it never matches.
     /// </summary>
-    private static bool IsTheReservationCheck(DbCommand command, string email) =>
-        command.CommandText.Contains("\"NormalizedEmailChangeRevertTo\" = ", StringComparison.Ordinal)
-        && command.Parameters.Cast<DbParameter>()
-            .Any(parameter => parameter.Value is string value
-                              && string.Equals(value, email, StringComparison.OrdinalIgnoreCase));
+    private static Func<DbCommand, bool> NthLookupOf(string column, string value, int occurrence)
+    {
+        int seen = 0;
+
+        return command =>
+            command.CommandText.TrimStart().StartsWith("SELECT", StringComparison.Ordinal)
+            && command.CommandText.Contains($"\"{column}\" = ", StringComparison.Ordinal)
+            && command.Parameters.Cast<DbParameter>()
+                .Any(parameter => parameter.Value is string text
+                                  && string.Equals(text, value, StringComparison.OrdinalIgnoreCase))
+            && Interlocked.Increment(ref seen) == occurrence;
+    }
 
     private static NpgsqlException CreateTransientFailure() =>
         new("The operation has timed out", new TimeoutException());
@@ -344,6 +416,37 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
             }
 
             return await base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Counts the commands that match, to tell which check refused a registration when the answer is the
+    /// same for both.
+    /// </summary>
+    private sealed class MatchingCommandCounter : DbCommandInterceptor
+    {
+        private readonly Func<DbCommand, bool> _matches;
+        private int _count;
+
+        public int Count => Volatile.Read(ref _count);
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (_matches(command))
+            {
+                Interlocked.Increment(ref _count);
+            }
+
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        public MatchingCommandCounter(Func<DbCommand, bool> matches)
+        {
+            _matches = matches;
         }
     }
 }

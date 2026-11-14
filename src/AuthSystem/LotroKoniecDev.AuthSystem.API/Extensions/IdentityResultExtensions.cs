@@ -23,5 +23,12 @@ internal static class IdentityResultExtensions
         public bool IsBreachedPassword =>
             result.Errors.Any()
             && result.Errors.All(error => error.Code is BreachedPasswordValidator.ErrorCode);
+
+        /// <summary>
+        /// Any error with this code wins over the rest: the callers checked the reservation before Identity's
+        /// own rules until #905, and their answers stay the same.
+        /// </summary>
+        public bool IsReservedEmail =>
+            result.Errors.Any(error => error.Code is EmailChangeRevertReservationValidator.ErrorCode);
     }
 }

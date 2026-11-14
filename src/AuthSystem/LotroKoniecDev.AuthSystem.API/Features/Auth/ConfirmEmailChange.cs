@@ -5,7 +5,6 @@ using Microsoft.EntityFrameworkCore;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
-using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
@@ -60,7 +59,6 @@ internal sealed partial class ConfirmEmailChange
         private readonly AuthDbContext _db;
         private readonly OutboxWriter _outboxWriter;
         private readonly IUserSessionRevoker _sessionRevoker;
-        private readonly IEmailChangeRevertReservation _revertReservation;
         private readonly TimeProvider _timeProvider;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
@@ -70,7 +68,6 @@ internal sealed partial class ConfirmEmailChange
             AuthDbContext db,
             OutboxWriter outboxWriter,
             IUserSessionRevoker sessionRevoker,
-            IEmailChangeRevertReservation revertReservation,
             TimeProvider timeProvider,
             IValidator<Command> validator,
             ILogger<Handler> logger)
@@ -79,7 +76,6 @@ internal sealed partial class ConfirmEmailChange
             _db = db;
             _outboxWriter = outboxWriter;
             _sessionRevoker = sessionRevoker;
-            _revertReservation = revertReservation;
             _timeProvider = timeProvider;
             _validator = validator;
             _logger = logger;
@@ -145,15 +141,6 @@ internal sealed partial class ConfirmEmailChange
                 return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
             }
 
-            // The reservation (#684) holds here too. The caller's own armed address is excluded: going
-            // back to where the chain started is what the reservation protects.
-            bool reserved = await _revertReservation.IsReservedAsync(newEmail, user.Id, cancellationToken);
-            if (reserved)
-            {
-                LogReservedAddressRefused(_logger, user.Id, newEmail.MaskEmail());
-                return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
-            }
-
             // The notice and the revert token are built from this address; its processor refuses an empty one.
             if (string.IsNullOrWhiteSpace(user.Email))
             {
@@ -199,7 +186,7 @@ internal sealed partial class ConfirmEmailChange
 
             _outboxWriter.Enqueue(new EmailChangeCompleted(user.Id, previousEmail, newEmail));
 
-            Result<IdentityResult> updateResult = await TryUpdateAsync(user);
+            Result<IdentityResult> updateResult = await TryUpdateAsync(user, newEmail);
             if (updateResult.IsFailure)
             {
                 DiscardPendingChanges();
@@ -240,11 +227,19 @@ internal sealed partial class ConfirmEmailChange
         /// Accepted corner case, as in registration (#845): if the commit's answer is lost after it landed,
         /// the retry fails on its own row and the user is told the change failed.
         /// </remarks>
-        private async Task<Result<IdentityResult>> TryUpdateAsync(ApplicationUser user)
+        private async Task<Result<IdentityResult>> TryUpdateAsync(ApplicationUser user, string newEmail)
         {
             try
             {
                 IdentityResult result = await _userManager.UpdateAsync(user);
+
+                // The reservation (#684) holds here too, through the user validator (#905).
+                if (result.IsReservedEmail)
+                {
+                    LogReservedAddressRefused(_logger, user.Id, newEmail.MaskEmail());
+                    return Result.Failure<IdentityResult>(AuthErrors.UserAlreadyExistsByEmail);
+                }
+
                 if (result.IsTakenEmail)
                 {
                     LogUpdateRace(_logger, null, user.Id);

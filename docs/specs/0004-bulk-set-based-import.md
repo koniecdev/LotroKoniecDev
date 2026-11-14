@@ -13,7 +13,8 @@
 Phase 1 shipped as specified: added rows are written by a native Npgsql binary `COPY` behind
 `IBulkTranslationInserter` (`…Persistence/Bulk/`), enlisted in the import transaction; the
 source-change / removed / restored outcomes stay per-row. A full-catalog baseline that took ~3 min
-now completes in **~1 s** on the integration Postgres (measured at 200k rows).
+now completes in **~1 s** on the integration Postgres (measured at 200k rows). *(Before #439's
+indexes; see the 2026-11-14 amendment below.)*
 
 One design detail beyond the original spec surfaced in review and is worth recording: the write
 context has `EnableRetryOnFailure`, so the transaction is driven by the execution strategy
@@ -26,6 +27,23 @@ commit succeeds. This is regression-tested (`ExecuteInTransaction_WhenFirstCommi
 without the deferral the version ends `Unprocessed`; with it the whole unit survives the retry. The
 commit-ack-loss case (server committed, ack lost → retry re-COPYs → unique-key violation → 500) stays
 a loud, non-corrupting failure the admin re-imports past idempotently.
+
+## Amendment 2026-11-14 (#891): the import time
+
+- The Q4 budget (< 10 s) was tested on 200,000 rows, not on the ~700k rows of a full baseline.
+- After #439 added the version pointer indexes and foreign keys, CI measured 10.34 s and
+  11.72 s (PR #441), so the test's limit was raised to 20 s.
+- The 20 s limit then failed in full local runs on a busy machine, on changes that did not touch
+  the import (#891). Wall-clock time depends on machine load, so any fixed limit can fail that way.
+- The acceptance test (`Import_Baseline_ShouldBulkInsertEveryRowWithoutEfInserts`) now checks the
+  mechanism instead, on 5,000 rows and with no time limit: no added row goes through an EF
+  INSERT (ADR-0011).
+- A slower COPY (for example after a schema change, as with #439) shows only in the pass durations
+  the import logs.
+- On the live database a full import takes minutes, not seconds: the file has about 790k rows and
+  is read twice (wiki `Import-do-TMS`).
+
+The decided text below stays as it was agreed. Each statement this note changes points here.
 
 ## Business context
 
@@ -43,7 +61,7 @@ progress, lost result on navigation).
 
 An admin's full-catalog import completes in **seconds, not minutes**, with the import's observable
 semantics (spec 0001) byte-for-byte unchanged — so the synchronous request stays viable and an
-async job (Oś B) is not needed.
+async job (Oś B) is not needed. *(A live import takes minutes: see the 2026-11-14 amendment.)*
 
 ## In scope — Phase 1 (inserts-only via COPY)
 
@@ -63,7 +81,7 @@ case (an empty-DB baseline is *all* added rows, every one `Untranslated` with no
   the version flip to `Processed`, and the **artifact rebuild after commit**.
 - The same `ImportSummary` shape (counts + warnings) is still returned.
 - An acceptance test asserting a large baseline import finishes in **< 10 s** on the integration
-  Postgres (resolved Q4).
+  Postgres (resolved Q4). *(No longer tested: see the 2026-11-14 amendment.)*
 
 ## Out of scope
 
@@ -132,7 +150,8 @@ The set-based write must reproduce `Translation`'s state machine exactly
 ## Acceptance criteria
 
 - [x] A baseline import of a large export (~hundreds of thousands of rows) completes in **< 10 s**
-      on the integration Postgres — the same payload that took ~3 min.
+      on the integration Postgres — the same payload that took ~3 min. *(Met with #276; failed on CI
+      after #439, and no longer tested: see the 2026-11-14 amendment.)*
 - [x] Every existing `ImportExportedTextsTests` integration test stays green with **assertions
       untouched** (idempotent no-op timestamp, the all-five-outcomes case, mass-removal 422 +
       state-intact, truncated/empty/duplicate 422s, auth) — proving semantics are byte-for-byte
@@ -170,11 +189,13 @@ The set-based write must reproduce `Translation`'s state machine exactly
   `(key, status, source)` projection → in-memory transition → bulk write; **never** SQL `CASE`.
   Recorded in the new ADR.
 - **Q4 — Performance budget → < 10 s** on the integration Postgres for a ~700k-row baseline.
+  *(No longer tested: see the 2026-11-14 amendment.)*
 
 ## Assumptions
 
 - The catalog stays a single `Translations` table written whole per import (spec 0001); no
   partitioning/sharding.
 - ~700k rows is the right order of magnitude for the full export; the budget is set with headroom.
+  *(The headroom did not hold after #439: see the 2026-11-14 amendment.)*
 - PostgreSQL remains the only provider (the prod parity stack and ACA both use Postgres), so a
   Postgres-specific `COPY` path carries no portability cost.

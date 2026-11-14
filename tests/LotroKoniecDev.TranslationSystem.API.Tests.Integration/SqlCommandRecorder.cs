@@ -6,7 +6,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration;
 
 /// <summary>
 /// The SQL stream is the only place "this column was not read" shows (PERF-01, PERF-04), a side effect
-/// the <c>.Received()</c> rule allows asserting on.
+/// the <c>.Received()</c> rule allows asserting on. It sees the reader and non-query commands EF runs,
+/// never a scalar command, a raw Npgsql command or a COPY.
 /// </summary>
 public sealed class SqlCommandRecorder : DbCommandInterceptor
 {

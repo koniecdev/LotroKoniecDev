@@ -83,7 +83,9 @@ existing import transaction; leave everything else as it is (Phase 1 of spec 000
 
 **Positive**
 - The baseline import goes from ~3 minutes to seconds; the synchronous request stays viable and the
-  heavier async-job architecture (Oś B) is not forced.
+  heavier async-job architecture (Oś B) is not forced. *(2026-11-14, #891: seconds on the
+  integration Postgres only. A live full import takes minutes (wiki `Import-do-TMS`); see spec
+  0004's 2026-11-14 amendment.)*
 - **No new dependency** — `COPY` is native Npgsql.
 - The handler stays a slim orchestrator (ADR-0001); the `COPY` lives behind a port, consistent with
   ADR-0007's "not everything is a repository" seam.

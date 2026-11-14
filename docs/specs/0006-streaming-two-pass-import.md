@@ -157,7 +157,8 @@ not with the file or the catalog.
       `DOTNET_GCHeapHardLimit=0x18000000` (384 MB) completes **first import and re-import**
       without OOM; peak managed memory recorded in the PR.
 - [ ] Import wall-clock on the integration Postgres stays within spec 0004's < 10 s budget for the
-      ~700k baseline; real staging pass durations measured and recorded in the PR.
+      ~700k baseline; real staging pass durations measured and recorded in the PR. *(2026-11-14,
+      #891: no test measures the import time any more; see spec 0004's amendment.)*
 - [ ] `ITranslationRepository.GetAllAsync` is gone; nothing else regressed (zero warnings).
 - [ ] `iac/env/staging.tfvars` sizing override removed (**the #300 bridge revert**); staging
       QA-FE-09 import re-verified green on the small size after deploy.

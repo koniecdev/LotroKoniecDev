@@ -1,5 +1,5 @@
 ---
-description: Work a GitHub issue end-to-end — a triage agent on Fable interrogates the ticket first (READY/CLARIFY/BOUNCE, wiki-first, the plan's claims checked by /buddy), one question gate, then autonomous to a Ticket report in plain English + PR
+description: Work a GitHub issue end-to-end — a triage agent interrogates the ticket first (READY/CLARIFY/BOUNCE, wiki-first, the plan's claims checked by /buddy), one question gate, then autonomous to a Ticket report in plain English + PR
 argument-hint: <issue number> [extra context]
 ---
 
@@ -110,38 +110,36 @@ checkout or pull first.
 The ticket is a claim, not a fact. Tickets here are written by past agent runs and a human in a
 hurry; premises go stale and are sometimes flat wrong (TheKittySaver #766 was filed —
 and later closed — on a false one). Before any branch, every factual claim is verified and the plan
-is written by the **`ticket-triage` agent** (`.claude/agents/ticket-triage.md`), pinned to Claude
-Fable 5.2 at `xhigh`. This session builds what the plan says, on its own model (Opus 5.5 in the
-maintainer's runs). One model has one set of blind spots, so the model that writes the code is not
-the one that judged the ticket (#1318). A session that itself runs on Fable says so under the
-report's **Doubts**: the triage, the code and the review then share one model again. The
-agent works through this step's checks up to the verdict. This session spawns it, runs `/buddy` on
-its plan, holds the gate and posts the comments.
+is written by the **`ticket-triage` agent** (`.claude/agents/ticket-triage.md`), on this session's
+model and effort (#1412). It works in its own fresh context, so this session stays small for the
+gate, and the session that builds never writes or changes its own plan (the binding rule below).
+A session that itself runs on Fable says so under the report's **Doubts**: the triage, the code
+and the review then all run on one model. The agent works through this step's checks up to the
+verdict. This session spawns it, runs `/buddy` on its plan, holds the gate and posts the comments.
 
 - **Spawn the triage, on every ticket.** One fresh `ticket-triage`, in the foreground. Never pass
-  `name` (a named agent's report never reaches you), and never `model` or `effort`: either beats
-  the pin, and Fable never runs at `max`. Its brief: the ticket number, the user's own words after
-  the number in this command's arguments, quoted as theirs (a workspace name is not one), the main
-  checkout's path and the wiki clone's path written out, the result of step 0's wiki pull, and the
-  worktree's state: detached at `origin/main`, or on the ticket's branch from an earlier run (then
-  the triage checks code facts against `origin/main`, not the working tree). A
-  revision (below) is a fresh agent too, with the last triage report, `/buddy`'s report and the
-  gate's answers in its brief: a headless session never gets the answer to a message, so the agent
-  is never resumed.
+  `name` (a named agent's report never reaches you), and never `model` or `effort`: either
+  replaces the session's model or effort that the agent follows. Its brief: the ticket number, the
+  user's own words after the number in this command's arguments, quoted as theirs (a workspace
+  name is not one), the main checkout's path and the wiki clone's path written out, the result of
+  step 0's wiki pull, and the worktree's state: detached at `origin/main`, or on the ticket's
+  branch from an earlier run (then the triage checks code facts against `origin/main`, not the
+  working tree). A revision (below) is a fresh agent too, with the last triage report, `/buddy`'s
+  report and the gate's answers in its brief: a headless session never gets the answer to a
+  message, so the agent is never resumed.
 - **Fallback, once.** The agent ends on an error (such as `Agent terminated early due to an API
   error`, a usage-limit or credits message, or an unknown agent type), or its report has no
   `VERDICT:` line: spawn the same brief once as `general-purpose`, told to read the agent file from
   `origin/main` (`git show origin/main:.claude/agents/ticket-triage.md`; the worktree may stand on
   an older branch), to follow it as its instructions, and to use only the tools its frontmatter
   lists. That agent runs on the model a plain subagent gets: the session's, or
-  `CLAUDE_CODE_SUBAGENT_MODEL` when it is set. The cause may be Fable's share of the weekly limit
-  running out, or an account with no Fable. No report from the fallback either → stop and report
-  it: the triage did not run, and no ticket skips it.
+  `CLAUDE_CODE_SUBAGENT_MODEL` when it is set. No report from the fallback either → stop and
+  report it: the triage did not run, and no ticket skips it.
 - **Every comment that carries the triage's verdict names its model** (the READY comment, the
   gate's questions, a BOUNCE comment), and so does the report: the `Model:` line of the report the
-  verdict came from. After a fallback, add why it ran in a few plain words ("Fable unavailable: an
-  API error", "no `VERDICT:` line"). Never paste the raw error into a comment: this repo is public,
-  and a limit or credits message can carry account details.
+  verdict came from. After a fallback, add why it ran in a few plain words ("an API error", "no
+  `VERDICT:` line"). Never paste the raw error into a comment: this repo is public, and a limit or
+  credits message can carry account details.
 - **The triage's verdict and plan are binding.** Do not redo its checks and do not overrule it on
   your own judgment. The verdict changes only by the rules on `/buddy`'s result and the gate below,
   and every change to the plan in this step is a revision, written by a fresh `ticket-triage`,

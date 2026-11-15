@@ -254,11 +254,19 @@ start.
 
 ## E2E Tests (LotroKoniecDev.Tests.E2E)
 
-Full-pipeline tests that drive the CLI (`ExportE2ETests`, `PatchE2ETests`, `RoundtripE2ETests`,
-`ErrorPathE2ETests`) against a real DAT. They use `SkippableFact` and **skip** when
+Full-pipeline tests that drive the CLI (`ExportE2ETests`, `PatchE2ETests`, `ErrorPathE2ETests`)
+against a real DAT. They use `SkippableFact` and **skip** when
 `TestData/client_local_English.dat` is missing (setup: the project's `README.md`). Off Windows the
 project is not run at all, because the CLI is a win-x86 program: `dotnet test` prints one
 `LotroKoniecDev.Tests.E2E: not run` line instead (`WindowsOnlyTestRun.targets`, #816).
+
+The DAT is 2 GB, so the tests of one class share one copy of it through a class fixture, deleted
+when the class's last test is done (#1408). `PatchE2ETests` uses `PatchedDatCopy`: one patch with
+the repo's translation file, and every test checks one fact about that result. A new patch test
+checks the same result, or patches the shared copy again after it. `SharedDatCopy` serves the tests
+that leave the copy as they found it, so a test that changes a read-only flag or an ACL puts it back
+in `finally`. A fresh copy for one test (`E2ETestFixture.CreateTempDatCopy()`) is the exception,
+and the test says why it needs one.
 
 ## TMS Real-Process E2E Tests (LotroKoniecDev.TranslationSystem.E2E.Tests)
 

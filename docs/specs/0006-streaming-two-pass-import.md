@@ -134,6 +134,9 @@ not with the file or the catalog.
   record real pass durations in the implementing PR (they are the "Oś B" trigger data).
 - **Bootstrap seeder is untouched** (`PolishTranslationSeeder` uses the materializing parse of the
   much smaller `polish.txt`); the materializing parser API stays available for it.
+  *(Amendment 2026-11-14, #1282: #320 removed the seeder, so only tests still called the
+  materializing parse. #1282 removed it; the streaming `ParseLinesAsync` is the parser's one read
+  path.)*
 
 ## Contract
 

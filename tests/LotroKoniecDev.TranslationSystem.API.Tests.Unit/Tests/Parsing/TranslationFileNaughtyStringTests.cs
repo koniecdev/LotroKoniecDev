@@ -1,6 +1,7 @@
 using System.Text;
 using LotroKoniecDev.Tests.Shared;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
+using LotroKoniecDev.TranslationSystem.API.Tests.Unit.Shared;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
@@ -22,7 +23,7 @@ public sealed class TranslationFileNaughtyStringTests
         string file = _serializer.Serialize([Row(620756992, 1001, naughty, null, null)]);
 
         // Act
-        ParsedExport parsed = await ParseAsync(file);
+        CollectedLines parsed = await ParseTextAsync(file);
 
         // Assert
         parsed.Errors.ShouldBeEmpty();
@@ -38,7 +39,7 @@ public sealed class TranslationFileNaughtyStringTests
         string file = _serializer.Serialize([Row(620756992, 1001, content, "1-2", "1-2")]);
 
         // Act
-        ParsedExport parsed = await ParseAsync(file);
+        CollectedLines parsed = await ParseTextAsync(file);
 
         // Assert
         ParsedExportRow row = parsed.Rows.ShouldHaveSingleItem();
@@ -56,7 +57,7 @@ public sealed class TranslationFileNaughtyStringTests
         string file = _serializer.Serialize([Row(620756992, 1001, content, null, null)]);
 
         // Act
-        ParsedExport parsed = await ParseAsync(file);
+        CollectedLines parsed = await ParseTextAsync(file);
 
         // Assert
         parsed.Rows.ShouldHaveSingleItem().Content.ShouldBe(content);
@@ -76,7 +77,7 @@ public sealed class TranslationFileNaughtyStringTests
         string file = _serializer.Serialize(rows);
 
         // Act
-        ParsedExport parsed = await ParseAsync(file);
+        CollectedLines parsed = await ParseTextAsync(file);
 
         // Assert
         parsed.Errors.ShouldBeEmpty();
@@ -95,7 +96,7 @@ public sealed class TranslationFileNaughtyStringTests
         string file = _serializer.Serialize([Row(620756992, 1001, content, null, null)]);
 
         // Act
-        ParsedExport parsed = await ParseAsync(file);
+        CollectedLines parsed = await ParseTextAsync(file);
 
         // Assert
         parsed.Errors.ShouldBeEmpty();
@@ -113,7 +114,7 @@ public sealed class TranslationFileNaughtyStringTests
         string file = _serializer.Serialize([Row(620756992, 1001, content, null, null)]);
 
         // Act
-        ParsedExport parsed = await ParseAsync(file);
+        CollectedLines parsed = await ParseTextAsync(file);
 
         // Assert
         parsed.Errors.ShouldBeEmpty();
@@ -134,7 +135,7 @@ public sealed class TranslationFileNaughtyStringTests
         string file = _serializer.Serialize([Row(620756992, 1001, content, "1-2", "3-4")]);
 
         // Act
-        ParsedExport parsed = await ParseAsync(file);
+        CollectedLines parsed = await ParseTextAsync(file);
 
         // Assert
         parsed.Errors.ShouldBeEmpty();
@@ -149,10 +150,10 @@ public sealed class TranslationFileNaughtyStringTests
     [InlineData("620756992||1001||Content||NULL||1-x||1", "args_id")]
     [InlineData("620756992||1001||Content||1--2||NULL||1", "args_order")]
     [InlineData("620756992||1001||Content||ONE||NULL||1", "args_order")]
-    public async Task ParseAsync_MalformedArgsColumn_ShouldRejectTheRowInsteadOfStoringItVerbatim(string line, string column)
+    public async Task ParseLinesAsync_MalformedArgsColumn_ShouldRejectTheRowInsteadOfStoringItVerbatim(string line, string column)
     {
         // Act: stored as it is, the value would be unusable yet still take part in the diff (#597).
-        ParsedExport parsed = await ParseAsync($"{line}\r\n");
+        CollectedLines parsed = await ParseTextAsync($"{line}\r\n");
 
         // Assert
         parsed.Rows.ShouldBeEmpty();
@@ -167,7 +168,7 @@ public sealed class TranslationFileNaughtyStringTests
         string file = _serializer.Serialize([Row(620756992, 1001, content, "1-2", "3-4")]);
 
         // Act
-        ParsedExport parsed = await ParseAsync(file);
+        CollectedLines parsed = await ParseTextAsync(file);
 
         // Assert
         parsed.Errors.ShouldBeEmpty();
@@ -184,7 +185,7 @@ public sealed class TranslationFileNaughtyStringTests
         string file = _serializer.Serialize([Row(620756992, 1001, string.Empty, null, null)]);
 
         // Act
-        ParsedExport parsed = await ParseAsync(file);
+        CollectedLines parsed = await ParseTextAsync(file);
 
         // Assert
         parsed.Errors.ShouldBeEmpty();
@@ -193,10 +194,10 @@ public sealed class TranslationFileNaughtyStringTests
 
     [Theory]
     [MemberData(nameof(NaughtyStringCases.NonAsciiDigits), MemberType = typeof(NaughtyStringCases))]
-    public async Task ParseAsync_NonAsciiDigitsInTheFileIdColumn_ShouldRejectTheRow(string naughtyDigits)
+    public async Task ParseLinesAsync_NonAsciiDigitsInTheFileIdColumn_ShouldRejectTheRow(string naughtyDigits)
     {
         // Act: accepting a fullwidth or Arabic-Indic "number" would attach a row to the wrong fragment.
-        ParsedExport parsed = await ParseAsync($"{naughtyDigits}||1001||Content||NULL||NULL||1\r\n");
+        CollectedLines parsed = await ParseTextAsync($"{naughtyDigits}||1001||Content||NULL||NULL||1\r\n");
 
         // Assert
         parsed.Rows.ShouldBeEmpty();
@@ -205,10 +206,10 @@ public sealed class TranslationFileNaughtyStringTests
 
     [Theory]
     [MemberData(nameof(NaughtyStringCases.NonAsciiDigits), MemberType = typeof(NaughtyStringCases))]
-    public async Task ParseAsync_NonAsciiDigitsInTheGossipIdColumn_ShouldRejectTheRow(string naughtyDigits)
+    public async Task ParseLinesAsync_NonAsciiDigitsInTheGossipIdColumn_ShouldRejectTheRow(string naughtyDigits)
     {
         // Act
-        ParsedExport parsed = await ParseAsync($"620756992||{naughtyDigits}||Content||NULL||NULL||1\r\n");
+        CollectedLines parsed = await ParseTextAsync($"620756992||{naughtyDigits}||Content||NULL||NULL||1\r\n");
 
         // Assert
         parsed.Rows.ShouldBeEmpty();
@@ -217,13 +218,13 @@ public sealed class TranslationFileNaughtyStringTests
 
     [Theory]
     [MemberData(nameof(NaughtyStringCases.All), MemberType = typeof(NaughtyStringCases))]
-    public async Task ParseAsync_NaughtyStringInEveryColumn_ShouldAnswerWithErrorsInsteadOfThrowing(string naughty)
+    public async Task ParseLinesAsync_NaughtyStringInEveryColumn_ShouldAnswerWithErrorsInsteadOfThrowing(string naughty)
     {
         // Arrange: the whole uploaded line is hostile: both id columns, the content and both args.
         string line = string.Join("||", naughty, naughty, naughty, naughty, naughty, naughty);
 
         // Act & Assert: a parse error is reported to the admin; an exception would abort the import.
-        await Should.NotThrowAsync(() => ParseAsync(line));
+        await Should.NotThrowAsync(() => ParseTextAsync(line));
     }
 
     /// <summary>
@@ -239,10 +240,10 @@ public sealed class TranslationFileNaughtyStringTests
             argsId,
             SourceHash.Compute(content, argsOrder, argsId).ToWireDigest());
 
-    private async Task<ParsedExport> ParseAsync(string file)
+    private async Task<CollectedLines> ParseTextAsync(string file)
     {
         using MemoryStream stream = new(Encoding.UTF8.GetBytes(file));
 
-        return await _parser.ParseAsync(stream, CancellationToken.None);
+        return await _parser.ParseLinesAsync(stream, CancellationToken.None).CollectAsync();
     }
 }

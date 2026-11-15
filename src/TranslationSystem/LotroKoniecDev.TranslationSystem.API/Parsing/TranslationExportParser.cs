@@ -31,28 +31,6 @@ internal sealed class TranslationExportParser : ITranslationExportParser
     /// </summary>
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
-    public async Task<ParsedExport> ParseAsync(Stream stream, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(stream);
-
-        List<ParsedExportRow> rows = [];
-        List<ExportParseError> errors = [];
-
-        await foreach (ParsedExportLine line in ParseLinesAsync(stream, cancellationToken))
-        {
-            if (line.Error is { } error)
-            {
-                errors.Add(error);
-            }
-            else
-            {
-                rows.Add(line.Row!);
-            }
-        }
-
-        return new ParsedExport(rows, errors);
-    }
-
     public async IAsyncEnumerable<ParsedExportLine> ParseLinesAsync(
         Stream stream,
         [EnumeratorCancellation] CancellationToken cancellationToken)

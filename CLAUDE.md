@@ -389,16 +389,16 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   When Fable is not available (its share of the weekly limit is spent, or a contributor's account
   has no Fable), the review falls back once to a `general-purpose` agent that follows the same agent
   file, on the model a plain subagent gets (the session's, or `CLAUDE_CODE_SUBAGENT_MODEL` when it
-  is set), and the report says so; the triage has the same one retry on any error (`/ticket` step
-  2). That fallback answers the reason #643 removed an older pin: a contributor without the tier
-  still gets a review. Never pass `model` or `effort` when you spawn `code-reviewer` or
-  `ticket-triage`: either beats the review's pin or replaces the session's model and effort that the
-  triage follows. Never run Fable at `max`. Loop-mode worker sessions take model and effort from the
-  maintainer's machine-local policy (Opus 5.5 at **xhigh** since 2026-09-22; without it the scripts
-  fall back to **effort high**, the `LOOP_EFFORT` default), unless the prompt for that run says
-  otherwise, and the triage follows them. This applies to interactive sessions and loop
-  workers alike. The values live in agent frontmatter and in the
-  loop scripts' defaults; if this prose and the frontmatter disagree, the frontmatter wins.
+  is set), and the report says so; the triage has the same one retry on an error or a report with no
+  `VERDICT:` line (`/ticket` step 2). That fallback answers the reason #643 removed an older pin: a
+  contributor without the tier still gets a review. Never pass `model` or `effort` when you spawn
+  `code-reviewer` or `ticket-triage`: either beats the review's pin or replaces the session's model
+  and effort that the triage follows. Never run Fable at `max`. Loop-mode worker sessions take model
+  and effort from the maintainer's machine-local policy (Opus 5.5 at **xhigh** since 2026-09-22;
+  without it the scripts fall back to **effort high**, the `LOOP_EFFORT` default), unless the prompt
+  for that run says otherwise, and the triage follows them. This applies to interactive sessions and
+  loop workers alike. The values live in agent frontmatter and in the loop scripts' defaults; if
+  this prose and the frontmatter disagree, the frontmatter wins.
 - **Token discipline.** About half the spend is cache reads (context length × turn count), and this
   repo boots the largest context of the owner's projects, so the levers are fewer turns and shorter
   contexts. Batch independent tool calls into one message; chain dependent shell steps with `&&`

@@ -138,8 +138,8 @@ verdict. This session spawns it, runs `/buddy` on its plan, holds the gate and p
 - **Every comment that carries the triage's verdict names its model** (the READY comment, the
   gate's questions, a BOUNCE comment), and so does the report: the `Model:` line of the report the
   verdict came from. After a fallback, add why it ran in a few plain words ("an API error", "no
-  `VERDICT:` line"). Never paste the raw error into a comment: this repo is public,
-  and a limit or credits message can carry account details.
+  `VERDICT:` line"). Never paste the raw error into a comment: this repo is public, and a limit or
+  credits message can carry account details.
 - **The triage's verdict and plan are binding.** Do not redo its checks and do not overrule it on
   your own judgment. The verdict changes only by the rules on `/buddy`'s result and the gate below,
   and every change to the plan in this step is a revision, written by a fresh `ticket-triage`,

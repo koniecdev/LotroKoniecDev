@@ -74,8 +74,8 @@ public sealed class PatchE2ETests : IClassFixture<PatchedDatCopy>
         //Arrange: the shared first patch created the backup
         PatchedDat patched = await _patchedDatCopy.GetAsync();
         patched.Patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"First patch failed: {patched.Patch.Stderr}");
-
-        DateTime backupModifiedAfterFirst = File.GetLastWriteTimeUtc(patched.BackupPath);
+        DateTime backupModifiedAfterFirst = patched.BackupLastWriteAfterPatchUtc.ShouldNotBeNull(
+            "First patch should have created the backup");
 
         //Act: second patch should reuse existing backup
         CliResult secondPatch = await _fixture.RunCliAsync(
@@ -121,11 +121,12 @@ public sealed class PatchE2ETests : IClassFixture<PatchedDatCopy>
 
         //Arrange
         PatchedDat patched = await _patchedDatCopy.GetAsync();
-        File.SetAttributes(patched.DatPath, File.GetAttributes(patched.DatPath) | FileAttributes.ReadOnly);
-        byte[] hashBefore = await ComputeFileHashAsync(patched.DatPath);
 
         try
         {
+            File.SetAttributes(patched.DatPath, File.GetAttributes(patched.DatPath) | FileAttributes.ReadOnly);
+            byte[] hashBefore = await ComputeFileHashAsync(patched.DatPath);
+
             //Act
             CliResult result = await _fixture.RunCliAsync(
                 $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{patched.DatPath}\"");
@@ -138,8 +139,12 @@ public sealed class PatchE2ETests : IClassFixture<PatchedDatCopy>
         }
         finally
         {
-            // The other tests of this class patch the same copy again.
-            File.SetAttributes(patched.DatPath, File.GetAttributes(patched.DatPath) & ~FileAttributes.ReadOnly);
+            // The other tests of this class patch the same copy again. A backup made from the
+            // read-only DAT gets the flag too, so clear it on every file.
+            foreach (string file in Directory.GetFiles(Path.GetDirectoryName(patched.DatPath)!))
+            {
+                File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
+            }
         }
     }
 
@@ -164,9 +169,10 @@ public sealed class PatchE2ETests : IClassFixture<PatchedDatCopy>
         patched.Patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"Patch failed: {patched.Patch.Stderr}");
         patched.Patch.Stderr.ShouldBeNullOrWhiteSpace(
             "Patch should not produce stderr output");
-        patched.ExportAfterPatch.ExitCode.ShouldBe((int)CliExitCode.Success,
-            $"Export after failed: {patched.ExportAfterPatch.Stderr}");
-        patched.ExportAfterPatch.Stderr.ShouldBeNullOrWhiteSpace(
+        patched.ExportAfterPatchError.ShouldBeNull($"Export after did not finish: {patched.ExportAfterPatchError}");
+        CliResult exportAfter = patched.ExportAfterPatch.ShouldNotBeNull();
+        exportAfter.ExitCode.ShouldBe((int)CliExitCode.Success, $"Export after failed: {exportAfter.Stderr}");
+        exportAfter.Stderr.ShouldBeNullOrWhiteSpace(
             "Export after should not produce stderr output");
 
         //Assert: build O(1) lookup indexes for both exports
@@ -217,8 +223,9 @@ public sealed class PatchE2ETests : IClassFixture<PatchedDatCopy>
         //Act: the shared copy is patched once and exported right after that patch
         PatchedDat patched = await _patchedDatCopy.GetAsync();
         patched.Patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"Patch failed: {patched.Patch.Stderr}");
-        patched.ExportAfterPatch.ExitCode.ShouldBe((int)CliExitCode.Success,
-            $"Export after failed: {patched.ExportAfterPatch.Stderr}");
+        patched.ExportAfterPatchError.ShouldBeNull($"Export after did not finish: {patched.ExportAfterPatchError}");
+        CliResult exportAfter = patched.ExportAfterPatch.ShouldNotBeNull();
+        exportAfter.ExitCode.ShouldBe((int)CliExitCode.Success, $"Export after failed: {exportAfter.Stderr}");
 
         //Assert: sample untranslated lines and verify they're identical
         Dictionary<string, string> beforeIndex = BuildLineIndex(_fixture.CachedExportPath);

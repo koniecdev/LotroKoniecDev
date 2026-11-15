@@ -192,7 +192,18 @@ public sealed class E2ETestFixture : IAsyncLifetime
     {
         string tempDir = CreateTempDir();
         string destPath = Path.Combine(tempDir, DatFileName);
-        File.Copy(DatFilePath, destPath);
+
+        try
+        {
+            File.Copy(DatFilePath, destPath);
+        }
+        catch
+        {
+            // A copy that failed halfway (a full disk) must not stay until the collection ends.
+            DeleteTempDir(tempDir);
+            throw;
+        }
+
         return destPath;
     }
 

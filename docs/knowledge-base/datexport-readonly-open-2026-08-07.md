@@ -83,8 +83,8 @@ that had been red on `main` since 2026-07-11, now passing **with its assertion u
 > trusting a red E2E run.**
 >
 > **Update 2026-11-15 (#1408):** the tests of one class now share one copy, deleted when the class
-> ends. A run holds at most one copy and its backup (3.9 GiB, down from 43 GiB) and takes about
-> 45 s, down from about 7 minutes.
+> ends. A run normally holds one copy and its backup at a time (measured peak 3.9 GiB, down from
+> 43 GiB) and the suite alone takes about 45 s, down from about 7 minutes.
 
 ## The measurement trap that produced the wrong answer first
 

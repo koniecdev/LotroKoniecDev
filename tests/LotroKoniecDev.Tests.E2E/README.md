@@ -17,7 +17,9 @@ The suite runs only on Windows: elsewhere `dotnet test` prints one "not run" lin
 - The DAT file is ~2 GB, do not commit it
 - Tests never change the original DAT. The tests of one class share one temporary copy in
   `%TEMP%\lotro_e2e_*`, deleted when the class's last test is done (#1408): `PatchedDatCopy` is
-  patched once and every patch test checks that one result, `SharedDatCopy` is left as each test
-  found it. A run holds at most one copy and its backup at a time, so keep about 5 GB free in
-  `%TEMP%`. A test that truly needs a fresh copy calls `CreateTempDatCopy()` itself, and says why
+  patched once before any test checks it, and every patch test checks that one result (three tests
+  patch it again afterwards); `SharedDatCopy` is left as each test found it. A run normally holds
+  one copy and its backup at a time (a copy whose delete fails stays until the run ends), so keep
+  about 5 GB free in `%TEMP%`. A test that truly needs a fresh copy calls `CreateTempDatCopy()`
+  itself, and says why
 - Close LOTRO and its launcher first: `patch` refuses to run while either is open, even on a copy

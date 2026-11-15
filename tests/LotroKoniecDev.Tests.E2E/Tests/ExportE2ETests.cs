@@ -155,15 +155,19 @@ public sealed class ExportE2ETests : IClassFixture<SharedDatCopy>
         string outputPath = Path.Combine(Path.GetDirectoryName(tempDatPath)!, "acl_export.txt");
         string account = $"{Environment.UserDomainName}\\{Environment.UserName}";
 
-        // Give read and execute rights and turn inheritance off, like the game folder's Users:(RX).
-        // Never write this as /deny "(W)": FILE_GENERIC_WRITE includes SYNCHRONIZE, so denying it
-        // blocks reads too and the copy no longer behaves like the Program Files file (#629). The
-        // precondition checks below catch that trap.
-        int aclExitCode = await RunIcaclsAsync($"\"{tempDatPath}\" /inheritance:r /grant:r \"{account}:(RX)\"");
-        aclExitCode.ShouldBe(0, "the test could not set up its own ACL");
+        // The copy is shared with the read-only test: its flag would refuse the write on its own.
+        File.GetAttributes(tempDatPath).HasFlag(FileAttributes.ReadOnly).ShouldBeFalse(
+            "precondition: only the ACL may refuse the write, or this proves nothing");
 
         try
         {
+            // Give read and execute rights and turn inheritance off, like the game folder's Users:(RX).
+            // Never write this as /deny "(W)": FILE_GENERIC_WRITE includes SYNCHRONIZE, so denying it
+            // blocks reads too and the copy no longer behaves like the Program Files file (#629). The
+            // precondition checks below catch that trap.
+            int aclExitCode = await RunIcaclsAsync($"\"{tempDatPath}\" /inheritance:r /grant:r \"{account}:(RX)\"");
+            aclExitCode.ShouldBe(0, "the test could not set up its own ACL");
+
             CanOpen(tempDatPath, FileAccess.Read).ShouldBeTrue(
                 "precondition: the ACL must still allow reads, or this proves nothing");
             CanOpen(tempDatPath, FileAccess.Write).ShouldBeFalse(

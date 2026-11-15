@@ -44,25 +44,23 @@ internal static partial class AuthenticationDependencyInjectionExtensions
         {
             services.AddCascadingAuthenticationState();
             services.AddAuthorization();
+            services.AddSingleton<SignInServerDiscovery>();
             services.AddSingleton<SignInAvailability>();
 
             // Scoped: they hold a typed HttpClient, which a singleton would keep past the factory's
             // handler recycling.
             services.AddScoped<CookieTokenRefresher>();
             services.AddScoped<RefreshTokenRevoker>();
+            services.AddScoped<SignInServerSignOut>();
             services.TryAddSingleton(TimeProvider.System);
 
             // The refresh grant, the revoke and the OIDC back-channel below carry the visitor's address to
-            // the auth API (ADR-0054). The revoke follows a link from the discovery document, so the origin
-            // check comes first (#830).
+            // the auth API (ADR-0054). The grant and the revoke go to addresses from the discovery
+            // document, so the origin check comes first (#830, #1114). Not the OIDC handler's back-channel:
+            // it has no origin check, and the refresh token is a secret (ADR-0067 decision 4).
             services.AddHttpContextAccessor();
-            services.AddHttpClient<ITokenEndpointClient, TokenEndpointClient>((sp, client) =>
-                {
-                    AuthSystemSettings settings = sp
-                        .GetRequiredService<IOptions<AuthSystemSettings>>().Value;
-                    client.BaseAddress = new Uri(settings.BaseUrl);
-                    client.Timeout = AuthServerRequestTimeout;
-                })
+            services.AddHttpClient<ITokenEndpointClient, TokenEndpointClient>(client =>
+                    client.Timeout = AuthServerRequestTimeout)
                 .AddSameOriginHandler<AuthSystemSettings>(settings => settings.BaseUrl)
                 .AddFrontendCallerHandler<AuthSystemSettings>(settings => settings.CallerKey);
 

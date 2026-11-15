@@ -10,8 +10,9 @@ using Microsoft.Extensions.Options;
 namespace LotroKoniecDev.Frontend.Tests.Integration.Shared;
 
 /// <summary>
-/// The session cookie, protected with the host's own keys. Its access token is far from expiry, so the
-/// cookie check never calls the sign-in server. The token is opaque to the website, so any text serves.
+/// The session cookie, protected with the host's own keys. By default its access token is far from expiry,
+/// so the cookie check never calls the sign-in server. The token is opaque to the website, so any text
+/// serves.
 /// </summary>
 public static class SignedInSession
 {
@@ -19,15 +20,25 @@ public static class SignedInSession
     public const string Subject = "11111111-1111-1111-1111-111111111111";
     public const string UserName = "Anna";
 
+    private static readonly TimeSpan FarFromExpiry = TimeSpan.FromMinutes(5);
+
     /// <summary>A browser that already carries the session cookie.</summary>
-    public static CookieJarBrowser OpenBrowser(WebApplicationFactory<Program> host)
+    public static CookieJarBrowser OpenBrowser(WebApplicationFactory<Program> host) =>
+        OpenBrowser(host, FarFromExpiry);
+
+    /// <summary>
+    /// Less than a minute left makes the next request renew the access token.
+    /// </summary>
+    public static CookieJarBrowser OpenBrowser(WebApplicationFactory<Program> host, TimeSpan accessTokenTimeLeft)
     {
         CookieJarBrowser browser = new(host);
-        browser.SetCookie(CookieName, ProtectedTicket(host));
+        browser.SetCookie(CookieName, ProtectedTicket(host, accessTokenTimeLeft));
         return browser;
     }
 
-    public static string ProtectedTicket(WebApplicationFactory<Program> host)
+    public static string ProtectedTicket(WebApplicationFactory<Program> host) => ProtectedTicket(host, FarFromExpiry);
+
+    private static string ProtectedTicket(WebApplicationFactory<Program> host, TimeSpan accessTokenTimeLeft)
     {
         ClaimsPrincipal user = new(new ClaimsIdentity(
             [new Claim("sub", Subject), new Claim("name", UserName)],
@@ -43,7 +54,7 @@ public static class SignedInSession
             new AuthenticationToken
             {
                 Name = "expires_at",
-                Value = DateTimeOffset.UtcNow.AddMinutes(5).ToString("o", CultureInfo.InvariantCulture)
+                Value = DateTimeOffset.UtcNow.Add(accessTokenTimeLeft).ToString("o", CultureInfo.InvariantCulture)
             }
         ]);
 

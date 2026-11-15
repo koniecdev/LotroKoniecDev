@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Hypermedia guard for every API client in the repo — the Frontend (#610) and the patcher CLI (#611).
+# It also stops the Frontend from writing a sign-in server address of its own (#1114).
 #
 # There is no API gateway (ADR-0041): each API's discovery document IS the client
 # contract surface, so a client resolves every entry point by REL NAME and follows the
@@ -37,10 +38,17 @@ REPO_ROOT="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 # loosely so a future /api/v2 cannot slip through.
 API_PATH_PATTERN='"[^"]*api/v[0-9]'
 
+# A double-quoted literal containing an OAuth or OpenID Connect path of the sign-in server: connect/...
+# or the discovery document's own .well-known/openid-configuration. The website reads those addresses
+# from the discovery document (#1114). The path must start the literal or follow a character that
+# cannot be part of a word, so a word such as "disconnect/" does not match. Other .well-known paths
+# (security.txt, change-password) are not the sign-in server's.
+AUTH_PATH_PATTERN='"([^"]*[^"A-Za-z0-9_.-])?(connect/|\.well-known/openid-configuration)'
+
 fail=0
 
 check() {
-    # $1 = client directory under src/, $2 = plain explanation of what to do instead.
+    # $1 = client directory under src/, $2 = the pattern, $3 = plain explanation of what to do instead.
     # obj/ and bin/ are build output, not source — never scan them (in CI this runs before
     # restore/build, but a local run after a build would otherwise hit generated *.g.cs).
     local dir="$REPO_ROOT/src/$1"
@@ -62,31 +70,34 @@ check() {
 
     # grep exits 1 when nothing matches, which is the clean result. 2 means it could not read a file.
     local matches rc=0
-    matches="$(grep -rnE "$API_PATH_PATTERN" --include='*.razor' --include='*.cs' --exclude-dir=obj --exclude-dir=bin "$dir")" || rc=$?
+    matches="$(grep -rnE "$2" --include='*.razor' --include='*.cs' --exclude-dir=obj --exclude-dir=bin "$dir")" || rc=$?
     if [ "$rc" -gt 1 ]; then
         echo "Hypermedia guard: could not read the files under $dir." >&2
         exit 2
     fi
     if [ -n "$matches" ]; then
         fail=1
-        printf '✗ %s\n' "$2"
+        printf '✗ %s\n' "$3"
         echo "$matches" | sed 's/^/    /'
         echo
     fi
 }
 
-check 'Frontend' \
+check 'Frontend' "$API_PATH_PATTERN" \
     'A TMS API path is hardcoded in a string literal under src/Frontend. Resolve the entry point by rel instead: IDiscoveryCache.ResolveTranslationSystemHrefAsync(Rels.<Name>), or follow the href a loaded resource already advertises.'
 
-check 'Patcher' \
+check 'Frontend' "$AUTH_PATH_PATTERN" \
+    'A sign-in server address (an OAuth or OpenID Connect path) is hardcoded in a string literal under src/Frontend. Read it from the discovery document instead, through SignInServerDiscovery (#1114).'
+
+check 'Patcher' "$API_PATH_PATTERN" \
     'A TMS API path is hardcoded in a string literal under src/Patcher. The CLI ships to players and cannot be updated remotely, so a baked-in path is permanent — resolve the endpoint by rel through ITranslationFileEndpointResolver instead.'
 
 if [ "$fail" -ne 0 ]; then
     echo "──────────────────────────────────────────────────────────────────────"
-    echo "Hypermedia guard FAILED — API clients must not hardcode API paths."
+    echo "Hypermedia guard FAILED — API clients must not hardcode API or sign-in server paths."
     echo "See ADR-0041 and CLAUDE.md → 'No API gateway'. A client takes one root URL"
     echo "per service as config and resolves everything else by rel name."
     exit 1
 fi
 
-echo "✓ Hypermedia guard passed — the Frontend and the CLI resolve their entry points by rel."
+echo "✓ Hypermedia guard passed — the Frontend and the CLI resolve their entry points by rel, and the Frontend writes no sign-in server path."

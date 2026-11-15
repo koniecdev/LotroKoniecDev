@@ -120,9 +120,9 @@ internal sealed partial class CookieTokenRefresher
         TokenRefreshResult refreshResult = await _tokenEndpointClient.RefreshAsync(
             refreshToken, cancellationToken);
 
-        // A temporary failure (429, 5xx, network, timeout) keeps a session whose access token still works,
-        // and the next request tries again (ADR-0067 decision 3). The clock is read after the call, because a
-        // timeout takes 30 seconds.
+        // A temporary failure (429, 5xx, network, timeout, no token endpoint from discovery) keeps a session
+        // whose access token still works, and the next request tries again (ADR-0067 decision 3). The clock
+        // is read after the call, because a timeout takes 30 seconds.
         if (refreshResult.IsTemporaryFailure && _timeProvider.GetUtcNow() < expiresAt)
         {
             LogRefreshPostponed(_logger);

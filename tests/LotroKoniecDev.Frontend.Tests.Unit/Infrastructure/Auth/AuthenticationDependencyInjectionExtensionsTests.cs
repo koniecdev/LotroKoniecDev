@@ -15,6 +15,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using NSubstitute;
 
@@ -173,6 +174,10 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         ServiceCollection services = CreateFrontendAuthenticationServices();
         services.AddHttpClient<ITokenEndpointClient, TokenEndpointClient>()
             .ConfigurePrimaryHttpMessageHandler(() => signInServer);
+        services.PostConfigure<OpenIdConnectOptions>(
+            OpenIdConnectDefaults.AuthenticationScheme,
+            options => options.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(
+                new OpenIdConnectConfiguration { TokenEndpoint = "https://localhost:5003/connect/token" }));
         await using ServiceProvider provider = services.BuildServiceProvider();
         ITokenEndpointClient client = provider.GetRequiredService<ITokenEndpointClient>();
 
@@ -182,7 +187,36 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     }
 
     /// <summary>
-    /// The revoke follows a link from the discovery document (#964, #830).
+    /// #1114: the renewal sends the refresh token to the address the discovery document names, so the
+    /// origin check on its own client is what keeps the token on the sign-in server (ADR-0067 decision 4).
+    /// The OIDC handler's back-channel has no such check.
+    /// </summary>
+    [Theory]
+    [InlineData("https://attacker.example/connect/token")]
+    [InlineData("https://localhost.attacker.example/connect/token")]
+    [InlineData("http://localhost:5003/connect/token")]
+    [InlineData("https://localhost:5004/connect/token")]
+    public async Task AddFrontendAuthentication_TokenEndpointClient_RefusesATokenEndpointOffTheAuthOrigin(string tokenEndpoint)
+    {
+        UnavailableSignInServer signInServer = new();
+        ServiceCollection services = CreateFrontendAuthenticationServices();
+        services.AddHttpClient<ITokenEndpointClient, TokenEndpointClient>()
+            .ConfigurePrimaryHttpMessageHandler(() => signInServer);
+        services.PostConfigure<OpenIdConnectOptions>(
+            OpenIdConnectDefaults.AuthenticationScheme,
+            options => options.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(
+                new OpenIdConnectConfiguration { TokenEndpoint = tokenEndpoint }));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        ITokenEndpointClient client = provider.GetRequiredService<ITokenEndpointClient>();
+
+        TokenRefreshResult result = await client.RefreshAsync("the-refresh-token");
+
+        result.ShouldBe(TokenRefreshResult.TemporaryFailure);
+        signInServer.Requests.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// The renewal and the revoke go to addresses from the discovery document (#964, #830, #1114).
     /// </summary>
     [Fact]
     public void AddFrontendAuthentication_TokenEndpointClient_ChecksTheOriginBeforeAnyOtherFrontendHandler()

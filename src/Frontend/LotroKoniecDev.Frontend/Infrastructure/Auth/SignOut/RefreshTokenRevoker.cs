@@ -1,7 +1,4 @@
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
@@ -18,21 +15,9 @@ internal sealed partial class RefreshTokenRevoker
     internal static readonly TimeSpan TimeLimit = TimeSpan.FromSeconds(5);
 
     private readonly ITokenEndpointClient _tokenEndpointClient;
-    private readonly IOptionsMonitor<OpenIdConnectOptions> _openIdConnectOptionsMonitor;
+    private readonly SignInServerDiscovery _signInServerDiscovery;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<RefreshTokenRevoker> _logger;
-
-    public RefreshTokenRevoker(
-        ITokenEndpointClient tokenEndpointClient,
-        IOptionsMonitor<OpenIdConnectOptions> openIdConnectOptionsMonitor,
-        TimeProvider timeProvider,
-        ILogger<RefreshTokenRevoker> logger)
-    {
-        _tokenEndpointClient = tokenEndpointClient;
-        _openIdConnectOptionsMonitor = openIdConnectOptionsMonitor;
-        _timeProvider = timeProvider;
-        _logger = logger;
-    }
 
     /// <summary>
     /// No cancellation token: a browser that drops the sign-out request is the case this revoke exists for.
@@ -40,11 +25,7 @@ internal sealed partial class RefreshTokenRevoker
     /// </summary>
     public async Task RevokeAsync(params IReadOnlyCollection<string?> refreshTokens)
     {
-        string[] tokensToRevoke = refreshTokens
-            .OfType<string>()
-            .Where(token => !string.IsNullOrWhiteSpace(token))
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
+        string[] tokensToRevoke = RealTokens(refreshTokens);
         if (tokensToRevoke.Length == 0)
         {
             return;
@@ -54,16 +35,14 @@ internal sealed partial class RefreshTokenRevoker
 
         try
         {
-            Uri? revocationEndpoint = await ResolveRevocationEndpointAsync(timeLimit.Token);
-            if (revocationEndpoint is null)
+            SignInServerDiscoveryResult discovery = await _signInServerDiscovery.ReadAsync(timeLimit.Token);
+            if (discovery.Configuration is not { } configuration)
             {
+                LogNoDiscoveryDocument(discovery.Failure);
                 return;
             }
 
-            // Side by side, so a slow first revoke does not use up the second one's time. The async lambda
-            // keeps a client that throws before returning a task from failing the other revoke.
-            await Task.WhenAll(tokensToRevoke.Select(async token =>
-                await _tokenEndpointClient.RevokeRefreshTokenAsync(revocationEndpoint, token, timeLimit.Token)));
+            await RevokeAtDiscoveredEndpointAsync(configuration, tokensToRevoke, timeLimit.Token);
         }
         catch (Exception exception)
         {
@@ -73,44 +52,76 @@ internal sealed partial class RefreshTokenRevoker
         }
     }
 
-    private async Task<Uri?> ResolveRevocationEndpointAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// For a sign-out that has already read the discovery document: the revoke shares its copy and its time
+    /// limit, so a stuck sign-in server holds the sign-out once, not twice.
+    /// </summary>
+    public async Task RevokeAsync(
+        OpenIdConnectConfiguration configuration,
+        string? refreshToken,
+        CancellationToken timeLimit)
     {
-        IConfigurationManager<OpenIdConnectConfiguration>? configurationManager = _openIdConnectOptionsMonitor
-            .Get(OpenIdConnectDefaults.AuthenticationScheme)
-            .ConfigurationManager;
-        if (configurationManager is null)
+        string[] tokensToRevoke = RealTokens([refreshToken]);
+        if (tokensToRevoke.Length == 0)
         {
-            LogNoConfigurationManager(_logger);
-            return null;
+            return;
         }
 
-        OpenIdConnectConfiguration configuration;
         try
         {
-            // WaitAsync keeps the time limit even if the manager does not watch the token on its own.
-            configuration = await configurationManager
-                .GetConfigurationAsync(cancellationToken)
-                .WaitAsync(cancellationToken);
+            await RevokeAtDiscoveredEndpointAsync(configuration, tokensToRevoke, timeLimit);
         }
         catch (Exception exception)
         {
-            LogDiscoveryUnavailable(_logger, exception);
-            return null;
+            LogRevocationFailedUnexpectedly(_logger, exception);
         }
-
-        // On Linux and macOS a path such as "/connect/revoke" also parses as absolute, as a file:// address.
-        if (!Uri.TryCreate(configuration.RevocationEndpoint, UriKind.Absolute, out Uri? revocationEndpoint)
-            || !IsWebAddress(revocationEndpoint))
-        {
-            LogNoRevocationEndpoint(_logger);
-            return null;
-        }
-
-        return revocationEndpoint;
     }
 
-    private static bool IsWebAddress(Uri address) =>
-        address.Scheme == Uri.UriSchemeHttps || address.Scheme == Uri.UriSchemeHttp;
+    public RefreshTokenRevoker(
+        ITokenEndpointClient tokenEndpointClient,
+        SignInServerDiscovery signInServerDiscovery,
+        TimeProvider timeProvider,
+        ILogger<RefreshTokenRevoker> logger)
+    {
+        _tokenEndpointClient = tokenEndpointClient;
+        _signInServerDiscovery = signInServerDiscovery;
+        _timeProvider = timeProvider;
+        _logger = logger;
+    }
+
+    private static string[] RealTokens(IReadOnlyCollection<string?> refreshTokens) => refreshTokens
+        .OfType<string>()
+        .Where(token => !string.IsNullOrWhiteSpace(token))
+        .Distinct(StringComparer.Ordinal)
+        .ToArray();
+
+    private async Task RevokeAtDiscoveredEndpointAsync(
+        OpenIdConnectConfiguration configuration,
+        string[] tokensToRevoke,
+        CancellationToken timeLimit)
+    {
+        if (SignInServerDiscovery.AsWebAddress(configuration.RevocationEndpoint) is not { } revocationEndpoint)
+        {
+            LogNoRevocationEndpoint(_logger);
+            return;
+        }
+
+        // Side by side, so a slow first revoke does not use up the second one's time. The async lambda
+        // keeps a client that throws before returning a task from failing the other revoke.
+        await Task.WhenAll(tokensToRevoke.Select(async token =>
+            await _tokenEndpointClient.RevokeRefreshTokenAsync(revocationEndpoint, token, timeLimit)));
+    }
+
+    private void LogNoDiscoveryDocument(Exception? failure)
+    {
+        if (failure is null)
+        {
+            LogNoConfigurationManager(_logger);
+            return;
+        }
+
+        LogDiscoveryUnavailable(_logger, failure);
+    }
 
     [LoggerMessage(
         EventId = 1,

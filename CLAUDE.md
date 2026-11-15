@@ -532,11 +532,16 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
     other code set first is kept, and the standard transport at its end gets the same switch (a
     test's stand-in server is left as it is). `CreatePrimaryHandler` keeps no cookies (#924): one
     handler serves every visitor.
+  - The same holds for the sign-in server (#1114): the website reads its token, revoke and
+    end-session addresses from the OIDC discovery document through `SignInServerDiscovery`, never
+    from a `connect/…` path, and `AuthSystem:BaseUrl` must share `AuthSystem:Authority`'s origin
+    (a startup check).
   - `scripts/check-client-hypermedia.sh` (+ `.ps1` twin) flags an API path in any string literal
-    under `src/Frontend/` **and** `src/Patcher/`, in **both** `pr-verify` and `ci`, right after its
-    self-test; prose in comments stays allowed. The one bounded exception is the editor's detail URI
-    (`{discovered translations href}/{id}`): the `/editor/{id}` route hands over an id, not a link,
-    as `TranslationEditorLoader` documents.
+    under `src/Frontend/` **and** `src/Patcher/`, and a sign-in server path (`connect/…`,
+    `.well-known/openid-configuration`) in one under `src/Frontend/`, in **both** `pr-verify` and
+    `ci`, right after its self-test; prose in comments stays allowed. The one bounded exception is
+    the editor's detail URI (`{discovered translations href}/{id}`): the `/editor/{id}` route hands
+    over an id, not a link, as `TranslationEditorLoader` documents.
 - **The CLI resolves its download URL from discovery, and degrades without guessing (#611).**
   `SyncTranslationFileCommand` takes one input, `TmsBaseUrl`; everything else comes from
   `GET {baseUrl}/` with the HATEOAS vendor `Accept` (a plain-JSON request gets a link-less

@@ -78,6 +78,54 @@ public sealed class AuthSystemSettingsValidatorTests
             error.ErrorMessage.Contains("AuthSystem:BaseUrl", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// #1114: the website calls the addresses from the Authority's discovery document only on BaseUrl's
+    /// origin, so on two origins every renewal would fail and every session would end early.
+    /// </summary>
+    [Theory]
+    [InlineData("https://localhost:5003/", "https://localhost:5004")]
+    [InlineData("http://localhost:5003/", "https://localhost:5003")]
+    [InlineData("https://auth-api:8443/", "https://auth.lotro.test")]
+    public void Validate_WithBaseUrlAndAuthorityOnDifferentOrigins_FailsNamingBothKeys(string baseUrl, string authority)
+    {
+        AuthSystemSettings settings = Settings(baseUrl: baseUrl, authority: authority);
+
+        ValidationResult result = _validator.Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        result.Errors.ShouldContain(error =>
+            error.ErrorMessage.Contains("AuthSystem:BaseUrl and AuthSystem:Authority must have the same origin", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("https://auth.lotro.test/", "https://auth.lotro.test")]
+    [InlineData("https://auth.lotro.test/", "https://auth.lotro.test:443")]
+    [InlineData("https://AUTH.lotro.test/", "https://auth.lotro.test")]
+    [InlineData("https://auth.lotro.test/api/", "https://auth.lotro.test/tenant")]
+    public void Validate_WithBaseUrlAndAuthorityOnOneOrigin_Passes(string baseUrl, string authority)
+    {
+        AuthSystemSettings settings = Settings(baseUrl: baseUrl, authority: authority);
+
+        ValidationResult result = _validator.Validate(settings);
+
+        result.IsValid.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// Only the rule on the broken key reports, and the origin check never throws on a value that is not a URL.
+    /// </summary>
+    [Theory]
+    [InlineData("not-a-url", "https://localhost:5003")]
+    [InlineData("https://localhost:5003/", "not-a-url")]
+    public void Validate_WithAKeyThatIsNotAUrl_DoesNotCompareTheOrigins(string baseUrl, string authority)
+    {
+        AuthSystemSettings settings = Settings(baseUrl: baseUrl, authority: authority);
+
+        ValidationResult result = _validator.Validate(settings);
+
+        result.Errors.ShouldHaveSingleItem().ErrorMessage.ShouldContain("must be a non-empty absolute http(s) URL.");
+    }
+
     [Fact]
     public void Validate_WithMissingClientId_FailsNamingTheKey()
     {

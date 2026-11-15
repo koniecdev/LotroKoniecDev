@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using LotroKoniecDev.Frontend.Tests.Integration.Shared;
@@ -269,10 +270,11 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
     }
 
     /// <summary>
-    /// The end-session redirect comes from the configured address, and the revoke gives up quietly.
+    /// The end-session address comes from the discovery document, which this host cannot read, so the
+    /// session ends here, on the home page (#1114, ADR-0067 decision 3). The revoke is skipped too.
     /// </summary>
     [Fact]
-    public async Task Post_LogoutWhileTheSignInServerIsDown_EndsTheSessionAndRedirectsToTheEndSessionPage()
+    public async Task Post_LogoutWhileTheSignInServerIsDown_EndsTheSessionAndRedirectsHome()
     {
         // Arrange
         using WebApplicationFactory<Program> host = CreateHost(new StandInSignInServer(), new DashboardTranslationSystem());
@@ -283,9 +285,95 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
 
         // Assert
         logout.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-        logout.Headers.Location.ShouldNotBeNull().OriginalString.ShouldStartWith($"{Authority}/connect/logout?");
+        logout.Headers.Location.ShouldNotBeNull().OriginalString.ShouldBe("/");
         CookieJarBrowser.SetCookiesOf(logout)
             .ShouldContain(setCookie => setCookie.StartsWith($"{SignedInSession.CookieName}=;", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Post_LogoutWhileTheSignInServerAnswers_RedirectsToTheEndSessionPageTheDiscoveryDocumentNames()
+    {
+        // Arrange
+        using WebApplicationFactory<Program> host = CreateHost(
+            new StandInSignInServer { IsUp = true },
+            new DashboardTranslationSystem());
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+
+        // Act
+        using HttpResponseMessage logout = await browser.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/auth/logout"));
+
+        // Assert
+        logout.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        logout.Headers.Location.ShouldNotBeNull().OriginalString.ShouldStartWith($"{StandInSignInServer.EndSessionEndpoint}?");
+    }
+
+    /// <summary>
+    /// #1114: the renewal reads the token endpoint from the discovery document. A host that has just started
+    /// cannot read it while the sign-in server is down, which is a temporary failure: the access token
+    /// still works, so the page shows (ADR-0067 decision 3).
+    /// </summary>
+    [Fact]
+    public async Task Get_APageWhenTheRenewalIsDueWhileTheSignInServerIsDown_ShowsThePageAndKeepsTheSession()
+    {
+        // Arrange
+        using WebApplicationFactory<Program> host = CreateHost(new StandInSignInServer(), new DashboardTranslationSystem());
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host, accessTokenTimeLeft: TimeSpan.FromSeconds(30));
+
+        // Act
+        using HttpResponseMessage page = await browser.GetAsync("/dashboard");
+
+        // Assert
+        page.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string markup = await page.Content.ReadAsStringAsync();
+        markup.ShouldContain(SignedInSession.UserName);
+        CookieJarBrowser.SetCookiesOf(page)
+            .ShouldNotContain(setCookie => setCookie.StartsWith($"{SignedInSession.CookieName}=;", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// #1114: with no address from the discovery document, the renewal sends nothing, not even to an
+    /// address of its own making.
+    /// </summary>
+    [Fact]
+    public async Task Get_APageWhenTheRenewalIsDueWhileTheSignInServerIsDown_SendsNoRenewal()
+    {
+        // Arrange
+        RecordingTokenClientTransport tokenClientTransport = new();
+        using WebApplicationFactory<Program> host = CreateHost(
+            new StandInSignInServer(),
+            new DashboardTranslationSystem(),
+            services => services.AddHttpClient(RecordingTokenClientTransport.ClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => tokenClientTransport));
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host, accessTokenTimeLeft: TimeSpan.FromSeconds(30));
+
+        // Act
+        using HttpResponseMessage page = await browser.GetAsync("/dashboard");
+
+        // Assert
+        tokenClientTransport.RequestUris.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// The positive control for the test above: with the sign-in server up, the same wiring sees the grant
+    /// go to the address the discovery document names.
+    /// </summary>
+    [Fact]
+    public async Task Get_APageWhenTheRenewalIsDueWhileTheSignInServerAnswers_SendsTheRenewalToTheDiscoveredTokenEndpoint()
+    {
+        // Arrange
+        RecordingTokenClientTransport tokenClientTransport = new();
+        using WebApplicationFactory<Program> host = CreateHost(
+            new StandInSignInServer { IsUp = true },
+            new DashboardTranslationSystem(),
+            services => services.AddHttpClient(RecordingTokenClientTransport.ClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => tokenClientTransport));
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host, accessTokenTimeLeft: TimeSpan.FromSeconds(30));
+
+        // Act
+        using HttpResponseMessage page = await browser.GetAsync("/dashboard");
+
+        // Assert
+        tokenClientTransport.RequestUris.ShouldBe([new Uri(StandInSignInServer.TokenEndpoint)]);
     }
 
     public SignInServerDownTests(ProductionFrontendFactory factory)
@@ -324,18 +412,42 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
         return browser.GetAsync(location.OriginalString);
     }
 
+    /// <summary>The transport under the website's own token client. It records each address and answers 503.</summary>
+    private sealed class RecordingTokenClientTransport : HttpMessageHandler
+    {
+        /// <summary>The name ASP.NET Core gives the typed client, which is internal to the Frontend.</summary>
+        public const string ClientName = "ITokenEndpointClient";
+
+        private readonly ConcurrentQueue<Uri?> _requestUris = new();
+
+        public IReadOnlyCollection<Uri?> RequestUris => _requestUris;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            _requestUris.Enqueue(request.RequestUri);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        }
+    }
+
     /// <summary>
     /// When up, it answers its discovery document and nothing else.
     /// </summary>
     private sealed class StandInSignInServer : HttpMessageHandler
     {
+        /// <summary>Not the usual paths, so a call or a redirect to them can only come from this document.</summary>
+        public const string TokenEndpoint = $"{Authority}/oauth2/v9/token";
+
+        public const string EndSessionEndpoint = $"{Authority}/oauth2/v9/end-session";
+
         private const string DiscoveryAddress = $"{Authority}/.well-known/openid-configuration";
         private const string DiscoveryDocument = $$"""
             {
               "issuer": "{{Authority}}/",
               "authorization_endpoint": "{{Authority}}/connect/authorize",
-              "token_endpoint": "{{Authority}}/connect/token",
-              "end_session_endpoint": "{{Authority}}/connect/logout"
+              "token_endpoint": "{{TokenEndpoint}}",
+              "end_session_endpoint": "{{EndSessionEndpoint}}"
             }
             """;
 

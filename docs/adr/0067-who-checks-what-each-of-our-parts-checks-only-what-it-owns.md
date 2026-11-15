@@ -367,7 +367,12 @@ changes that.
   checks" is gone.
 - **#1114:** read the renewal and sign-out addresses from the discovery document (decision 5). A
   failed discovery fetch on that path is a temporary failure (decision 3); Microsoft's sample calls
-  `GetConfigurationAsync`, which throws when nothing is cached yet (the #1058 failure).
+  `GetConfigurationAsync`, which throws when nothing is cached yet (the #1058 failure). Done
+  (2026-11-14): the renewal keeps its own typed client and does not post through the OIDC handler's
+  back-channel as the sample does, because that one has no origin check (decision 4). The sign-out
+  builds its URL with `OpenIdConnectMessage.CreateLogoutRequestUrl()` and does not use the handler's
+  own sign-out, which sends a return address the sign-in server does not list for this client, adds
+  `state` and telemetry parameters and reads the document with no time limit.
 - **ADR-0008 §3:** amended with the bar for a startup check (decision 6).
 - **Review instructions:** `.claude/agents/code-reviewer.md` (Phase 1 reads this ADR, Phase 6 has a
   third state, "another part's job", and the gate counts inputs from outside our trust boundary

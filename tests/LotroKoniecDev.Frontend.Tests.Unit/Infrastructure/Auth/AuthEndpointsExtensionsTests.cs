@@ -8,6 +8,7 @@ using LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 using LotroKoniecDev.Frontend.Settings;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
+using LotroKoniecDev.Frontend.Tests.Unit.Shared;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
@@ -16,8 +17,10 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using NSubstitute;
@@ -33,8 +36,12 @@ public sealed class AuthEndpointsExtensionsTests
 {
     private const string Authority = "https://auth.lotro.test";
     private const string RevocationEndpoint = "https://auth.lotro.test/connect/revoke";
+    private const string EndSessionEndpoint = "https://auth.lotro.test/connect/logout";
     private const string RefreshToken = "the-refresh-token";
     private const string IdToken = "the-id-token";
+
+    /// <summary>A real-time guard, so a broken time limit fails the test instead of hanging the run.</summary>
+    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);
 
     public static TheoryData<Exception> AuthorityUnreachableFailures() => new()
     {
@@ -285,7 +292,7 @@ public sealed class AuthEndpointsExtensionsTests
         StubHttpMessageHandler authApi = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
         HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken);
 
-        await AuthEndpointsExtensions.LogoutAsync(context, CreateAuthSystemOptions(), CreateRevoker(authApi));
+        await AuthEndpointsExtensions.LogoutAsync(context, CreateSignOut(authApi));
 
         authApi.LastRequest.ShouldNotBeNull().RequestUri.ShouldBe(new Uri(RevocationEndpoint));
         authApi.LastRequestBody.ShouldNotBeNull().ShouldContain($"token={RefreshToken}");
@@ -299,8 +306,7 @@ public sealed class AuthEndpointsExtensionsTests
 
         IResult result = await AuthEndpointsExtensions.LogoutAsync(
             context,
-            CreateAuthSystemOptions(),
-            CreateRevoker(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty)));
+            CreateSignOut(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty)));
 
         RedirectHttpResult redirect = result.ShouldBeOfType<RedirectHttpResult>();
         redirect.Url.ShouldBe(
@@ -342,8 +348,7 @@ public sealed class AuthEndpointsExtensionsTests
 
         await AuthEndpointsExtensions.LogoutAsync(
             context,
-            CreateAuthSystemOptions(),
-            scope.ServiceProvider.GetRequiredService<RefreshTokenRevoker>());
+            scope.ServiceProvider.GetRequiredService<SignInServerSignOut>());
 
         authApi.Requests.ShouldHaveSingleItem().ShouldBe($"{RevocationEndpoint} token={RefreshToken}");
     }
@@ -368,7 +373,7 @@ public sealed class AuthEndpointsExtensionsTests
         HttpContext context = CreateSignedInContext(authenticationService, RefreshToken);
 
         IResult result = await AuthEndpointsExtensions.LogoutAsync(
-            context, CreateAuthSystemOptions(), CreateRevoker(authApi));
+            context, CreateSignOut(authApi));
 
         result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldStartWith($"{Authority}/connect/logout?");
         await authenticationService.Received(1).SignOutAsync(
@@ -387,7 +392,7 @@ public sealed class AuthEndpointsExtensionsTests
         HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), refreshToken);
 
         IResult result = await AuthEndpointsExtensions.LogoutAsync(
-            context, CreateAuthSystemOptions(), CreateRevoker(authApi));
+            context, CreateSignOut(authApi));
 
         authApi.LastRequest.ShouldBeNull();
         result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldContain($"&id_token_hint={IdToken}");
@@ -405,10 +410,256 @@ public sealed class AuthEndpointsExtensionsTests
         context.Request.Host = new HostString("app.lotro.test");
 
         IResult result = await AuthEndpointsExtensions.LogoutAsync(
-            context, CreateAuthSystemOptions(), CreateRevoker(authApi));
+            context, CreateSignOut(authApi));
 
         authApi.LastRequest.ShouldBeNull();
         result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldNotContain("id_token_hint");
+    }
+
+    /// <summary>
+    /// #1114: the address comes from the discovery document, wherever the sign-in server puts it.
+    /// </summary>
+    [Fact]
+    public async Task LogoutAsync_WhenTheDiscoveryDocumentNamesAnotherEndSessionAddress_RedirectsThere()
+    {
+        const string endSessionEndpoint = "https://auth.lotro.test/oauth2/v9/end-session";
+        HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken);
+
+        IResult result = await AuthEndpointsExtensions.LogoutAsync(
+            context,
+            CreateSignOut(
+                StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty),
+                DiscoveryFrom(DiscoveryNaming(endSessionEndpoint))));
+
+        result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldBe(EndSessionUrlWithHint(endSessionEndpoint));
+    }
+
+    [Fact]
+    public async Task LogoutAsync_WhenTheEndSessionAddressAlreadyHasAQuery_AddsTheParametersToIt()
+    {
+        HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken);
+
+        IResult result = await AuthEndpointsExtensions.LogoutAsync(
+            context,
+            CreateSignOut(
+                StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty),
+                DiscoveryFrom(DiscoveryNaming($"{EndSessionEndpoint}?tenant=lotro"))));
+
+        result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldBe(
+            $"{EndSessionEndpoint}?tenant=lotro&post_logout_redirect_uri={Uri.EscapeDataString("https://app.lotro.test")}"
+            + $"&id_token_hint={IdToken}");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task LogoutAsync_WhenTheCookieHoldsABlankIdToken_RedirectsWithoutAHint(string idToken)
+    {
+        HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken, idToken);
+
+        IResult result = await AuthEndpointsExtensions.LogoutAsync(
+            context, CreateSignOut(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty)));
+
+        result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldBe(
+            $"{EndSessionEndpoint}?post_logout_redirect_uri={Uri.EscapeDataString("https://app.lotro.test")}");
+    }
+
+    /// <summary>
+    /// #1114: with no copy of the document and the sign-in server down, the session still ends here
+    /// (ADR-0067 decision 3). The address is never made up.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AuthorityUnreachableFailures))]
+    public async Task LogoutAsync_WhenTheDiscoveryDocumentCannotBeRead_SignsOutTheCookieRevokesNothingAndRedirectsHome(
+        Exception discoveryFailure)
+    {
+        StubHttpMessageHandler authApi = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        HttpContext context = CreateSignedInContext(authenticationService, RefreshToken);
+
+        IResult result = await AuthEndpointsExtensions.LogoutAsync(
+            context, CreateSignOut(authApi, DiscoveryFrom(FailingDiscovery(discoveryFailure))));
+
+        result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldBe("/");
+        authApi.LastRequest.ShouldBeNull();
+        // The cookie sign-out is not in the return value, so .Received() is the only proof.
+        await authenticationService.Received(1).SignOutAsync(
+            context,
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            Arg.Any<AuthenticationProperties?>());
+    }
+
+    [Fact]
+    public async Task LogoutAsync_WhenTheDiscoveryDocumentCannotBeRead_LogsOneWarning()
+    {
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken);
+
+        await AuthEndpointsExtensions.LogoutAsync(
+            context,
+            CreateSignOut(
+                StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty),
+                DiscoveryFrom(FailingDiscovery(new HttpRequestException("Connection refused."))),
+                logger: loggerFactory.CreateLogger<SignInServerSignOut>()));
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldBe(
+            "The auth server's discovery document could not be read, so the sign-out skipped the auth server and ends on the home page.");
+    }
+
+    /// <summary>
+    /// The hint names the user, and the website's own CSP blocks a sign-out form that ends anywhere but the
+    /// authority's origin.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("/connect/logout")]
+    [InlineData("ftp://auth.lotro.test/connect/logout")]
+    [InlineData("https://attacker.example/connect/logout")]
+    [InlineData("https://auth.lotro.test.attacker.example/connect/logout")]
+    [InlineData("http://auth.lotro.test/connect/logout")]
+    [InlineData("https://auth.lotro.test:8443/connect/logout")]
+    public async Task LogoutAsync_WhenTheDiscoveryDocumentNamesNoUsableEndSessionAddress_StillRevokesAndRedirectsHome(
+        string? endSessionEndpoint)
+    {
+        StubHttpMessageHandler authApi = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
+        HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken);
+
+        IResult result = await AuthEndpointsExtensions.LogoutAsync(
+            context, CreateSignOut(authApi, DiscoveryFrom(DiscoveryNaming(endSessionEndpoint))));
+
+        result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldBe("/");
+        authApi.LastRequest.ShouldNotBeNull().RequestUri.ShouldBe(new Uri(RevocationEndpoint));
+    }
+
+    [Fact]
+    public async Task LogoutAsync_WhenTheDiscoveryDocumentNamesNoUsableEndSessionAddress_LogsOneWarning()
+    {
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken);
+
+        await AuthEndpointsExtensions.LogoutAsync(
+            context,
+            CreateSignOut(
+                StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty),
+                DiscoveryFrom(DiscoveryNaming("https://attacker.example/connect/logout")),
+                logger: loggerFactory.CreateLogger<SignInServerSignOut>()));
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldBe(
+            "The auth server's discovery document has no usable end-session endpoint on the authority's origin, so the sign-out ends on the home page.");
+    }
+
+    [Fact]
+    public async Task LogoutAsync_WhenTheDefaultPortIsWrittenOut_StillRedirectsToTheEndSessionPage()
+    {
+        HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken);
+
+        IResult result = await AuthEndpointsExtensions.LogoutAsync(
+            context,
+            CreateSignOut(
+                StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty),
+                DiscoveryFrom(DiscoveryNaming("https://auth.lotro.test:443/connect/logout"))));
+
+        result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldBe(EndSessionUrlWithHint(EndSessionEndpoint));
+    }
+
+    [Fact]
+    public async Task LogoutAsync_WhenThereIsNoConfigurationManager_RevokesNothingAndRedirectsHome()
+    {
+        StubHttpMessageHandler authApi = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
+        HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken);
+
+        IResult result = await AuthEndpointsExtensions.LogoutAsync(context, CreateSignOut(authApi, DiscoveryFrom(null)));
+
+        result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldBe("/");
+        authApi.LastRequest.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// An exception would undo the sign-out: the error page drops the header that deletes the cookie.
+    /// </summary>
+    [Fact]
+    public async Task LogoutAsync_WhenTheOidcOptionsCannotBeBuilt_StillSignsOutTheCookieAndRedirectsHome()
+    {
+        IOptionsMonitor<OpenIdConnectOptions> optionsMonitor = Substitute.For<IOptionsMonitor<OpenIdConnectOptions>>();
+        optionsMonitor.Get(OpenIdConnectDefaults.AuthenticationScheme)
+            .Returns(_ => throw new OptionsValidationException(
+                OpenIdConnectDefaults.AuthenticationScheme, typeof(OpenIdConnectOptions), ["The options are invalid."]));
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        HttpContext context = CreateSignedInContext(authenticationService, RefreshToken);
+
+        IResult result = await AuthEndpointsExtensions.LogoutAsync(
+            context,
+            CreateSignOut(
+                StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty),
+                new SignInServerDiscovery(optionsMonitor)));
+
+        result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldBe("/");
+        await authenticationService.Received(1).SignOutAsync(
+            context,
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            Arg.Any<AuthenticationProperties?>());
+    }
+
+    /// <summary>
+    /// The sign-out request waits for the sign-in server, but never past the time limit, even if the
+    /// configuration manager ignores the token.
+    /// </summary>
+    [Fact]
+    public async Task LogoutAsync_WhenTheDiscoveryDocumentNeverArrives_RedirectsHomeExactlyAtTheTimeLimit()
+    {
+        FakeTimeProvider time = new();
+        HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken);
+        SignInServerSignOut signOut = CreateSignOut(
+            StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty),
+            DiscoveryFrom(DiscoveryAnsweringWith(new TaskCompletionSource<OpenIdConnectConfiguration>().Task)),
+            time);
+
+        Task<IResult> logout = AuthEndpointsExtensions.LogoutAsync(context, signOut);
+        time.Advance(RefreshTokenRevoker.TimeLimit - TimeSpan.FromTicks(1));
+        bool finishedBeforeTheLimit = logout.IsCompleted;
+        time.Advance(TimeSpan.FromTicks(1));
+        IResult result = await logout.WaitAsync(TestTimeout);
+
+        finishedBeforeTheLimit.ShouldBeFalse();
+        result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldBe("/");
+    }
+
+    /// <summary>
+    /// #1114: the read and the revoke share one time limit, so a slow sign-in server holds the sign-out
+    /// once, not once per call.
+    /// </summary>
+    [Fact]
+    public async Task LogoutAsync_WhenTheDiscoveryDocumentIsSlowAndTheRevokeHangs_FinishesAtOneTimeLimit()
+    {
+        TaskCompletionSource<OpenIdConnectConfiguration> discoveryAnswer =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        HangingAuthApi authApi = new();
+        FakeTimeProvider time = new();
+        HttpContext context = CreateSignedInContext(Substitute.For<IAuthenticationService>(), RefreshToken);
+        SignInServerSignOut signOut = CreateSignOut(authApi, DiscoveryFrom(DiscoveryAnsweringWith(discoveryAnswer.Task)), time);
+
+        Task<IResult> logout = AuthEndpointsExtensions.LogoutAsync(context, signOut);
+        time.Advance(TimeSpan.FromSeconds(3));
+        discoveryAnswer.SetResult(new OpenIdConnectConfiguration
+        {
+            RevocationEndpoint = RevocationEndpoint,
+            EndSessionEndpoint = EndSessionEndpoint
+        });
+        await authApi.RequestStarted.Task.WaitAsync(TestTimeout);
+        time.Advance(RefreshTokenRevoker.TimeLimit - TimeSpan.FromSeconds(3) - TimeSpan.FromTicks(1));
+        bool finishedBeforeTheLimit = logout.IsCompleted;
+        time.Advance(TimeSpan.FromTicks(1));
+        IResult result = await logout.WaitAsync(TestTimeout);
+
+        finishedBeforeTheLimit.ShouldBeFalse();
+        result.ShouldBeOfType<RedirectHttpResult>().Url.ShouldBe(EndSessionUrlWithHint(EndSessionEndpoint));
     }
 
     /// <summary>
@@ -433,7 +684,12 @@ public sealed class AuthEndpointsExtensionsTests
         services.PostConfigure<OpenIdConnectOptions>(
             OpenIdConnectDefaults.AuthenticationScheme,
             options => options.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(
-                new OpenIdConnectConfiguration { Issuer = Authority, RevocationEndpoint = RevocationEndpoint }));
+                new OpenIdConnectConfiguration
+                {
+                    Issuer = Authority,
+                    RevocationEndpoint = RevocationEndpoint,
+                    EndSessionEndpoint = EndSessionEndpoint
+                }));
 
         return services.BuildServiceProvider();
     }
@@ -476,9 +732,12 @@ public sealed class AuthEndpointsExtensionsTests
         return context;
     }
 
-    private static HttpContext CreateSignedInContext(IAuthenticationService authenticationService, string? refreshToken)
+    private static HttpContext CreateSignedInContext(
+        IAuthenticationService authenticationService,
+        string? refreshToken,
+        string idToken = IdToken)
     {
-        List<AuthenticationToken> tokens = [new AuthenticationToken { Name = "id_token", Value = IdToken }];
+        List<AuthenticationToken> tokens = [new AuthenticationToken { Name = "id_token", Value = idToken }];
         if (refreshToken is not null)
         {
             tokens.Add(new AuthenticationToken { Name = "refresh_token", Value = refreshToken });
@@ -508,23 +767,86 @@ public sealed class AuthEndpointsExtensionsTests
         });
 
     /// <summary>The real revoker and token client, with the auth API and its discovery document stubbed.</summary>
-    private static RefreshTokenRevoker CreateRevoker(StubHttpMessageHandler authApi)
+    private static RefreshTokenRevoker CreateRevoker(
+        HttpMessageHandler authApi,
+        SignInServerDiscovery? discovery = null,
+        TimeProvider? timeProvider = null)
     {
-        IConfigurationManager<OpenIdConnectConfiguration> configurationManager =
-            Substitute.For<IConfigurationManager<OpenIdConnectConfiguration>>();
-        configurationManager.GetConfigurationAsync(Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new OpenIdConnectConfiguration { RevocationEndpoint = RevocationEndpoint }));
-
+        SignInServerDiscovery signInServerDiscovery = discovery ?? DiscoveryFrom(DiscoveryNaming(EndSessionEndpoint));
         TokenEndpointClient tokenEndpointClient = new(
-            new HttpClient(authApi) { BaseAddress = new Uri(Authority + "/") },
+            new HttpClient(authApi),
             CreateAuthSystemOptions(),
+            signInServerDiscovery,
+            timeProvider ?? TimeProvider.System,
             NullLogger<TokenEndpointClient>.Instance);
 
         return new RefreshTokenRevoker(
             tokenEndpointClient,
-            CreateOptionsMonitor(configurationManager),
-            TimeProvider.System,
+            signInServerDiscovery,
+            timeProvider ?? TimeProvider.System,
             NullLogger<RefreshTokenRevoker>.Instance);
+    }
+
+    private static SignInServerSignOut CreateSignOut(HttpMessageHandler authApi) =>
+        CreateSignOut(authApi, DiscoveryFrom(DiscoveryNaming(EndSessionEndpoint)));
+
+    /// <summary>The real sign-out, revoker and token client, with the auth API and its discovery document stubbed.</summary>
+    private static SignInServerSignOut CreateSignOut(
+        HttpMessageHandler authApi,
+        SignInServerDiscovery discovery,
+        TimeProvider? timeProvider = null,
+        ILogger<SignInServerSignOut>? logger = null) => new(
+        CreateRevoker(authApi, discovery, timeProvider),
+        discovery,
+        CreateAuthSystemOptions(),
+        timeProvider ?? TimeProvider.System,
+        logger ?? NullLogger<SignInServerSignOut>.Instance);
+
+    private static SignInServerDiscovery DiscoveryFrom(IConfigurationManager<OpenIdConnectConfiguration>? configurationManager) =>
+        new(CreateOptionsMonitor(configurationManager));
+
+    private static IConfigurationManager<OpenIdConnectConfiguration> DiscoveryNaming(string? endSessionEndpoint) =>
+        new StaticConfigurationManager<OpenIdConnectConfiguration>(new OpenIdConnectConfiguration
+        {
+            RevocationEndpoint = RevocationEndpoint,
+            EndSessionEndpoint = endSessionEndpoint
+        });
+
+    private static IConfigurationManager<OpenIdConnectConfiguration> FailingDiscovery(Exception failure)
+    {
+        IConfigurationManager<OpenIdConnectConfiguration> configurationManager =
+            Substitute.For<IConfigurationManager<OpenIdConnectConfiguration>>();
+        configurationManager.GetConfigurationAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<OpenIdConnectConfiguration>(failure));
+        return configurationManager;
+    }
+
+    private static IConfigurationManager<OpenIdConnectConfiguration> DiscoveryAnsweringWith(
+        Task<OpenIdConnectConfiguration> answer)
+    {
+        IConfigurationManager<OpenIdConnectConfiguration> configurationManager =
+            Substitute.For<IConfigurationManager<OpenIdConnectConfiguration>>();
+        configurationManager.GetConfigurationAsync(Arg.Any<CancellationToken>()).Returns(answer);
+        return configurationManager;
+    }
+
+    private static string EndSessionUrlWithHint(string endSessionEndpoint) =>
+        $"{endSessionEndpoint}?post_logout_redirect_uri={Uri.EscapeDataString("https://app.lotro.test")}"
+        + $"&id_token_hint={IdToken}";
+
+    /// <summary>A sign-in server that took the revoke and never answers. Only cancellation ends the wait.</summary>
+    private sealed class HangingAuthApi : HttpMessageHandler
+    {
+        public TaskCompletionSource RequestStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestStarted.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
     }
 
     /// <summary>Records every call to the auth API as "address body" and answers each with 200.</summary>
@@ -567,7 +889,7 @@ public sealed class AuthEndpointsExtensionsTests
 
     private static SignInAvailability CreateSignInAvailability(
         IConfigurationManager<OpenIdConnectConfiguration>? configurationManager) =>
-        new(CreateOptionsMonitor(configurationManager), NullLogger<SignInAvailability>.Instance);
+        new(DiscoveryFrom(configurationManager), NullLogger<SignInAvailability>.Instance);
 
     private static IConfigurationManager<OpenIdConnectConfiguration> CreateReachableConfigurationManager()
     {

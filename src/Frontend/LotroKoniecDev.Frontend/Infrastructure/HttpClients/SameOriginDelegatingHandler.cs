@@ -20,7 +20,7 @@ internal sealed partial class SameOriginDelegatingHandler : DelegatingHandler
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
-        if (request.RequestUri is { IsAbsoluteUri: true } requestUri && IsSameOrigin(requestUri))
+        if (request.RequestUri is { IsAbsoluteUri: true } requestUri && UriOrigin.AreSame(requestUri, _origin))
         {
             return await base.SendAsync(request, cancellationToken);
         }
@@ -34,11 +34,6 @@ internal sealed partial class SameOriginDelegatingHandler : DelegatingHandler
         throw new HttpRequestException(
             $"The request to '{refusedOrigin}' was refused, because it is not the configured origin '{configuredOrigin}'.");
     }
-
-    private bool IsSameOrigin(Uri requestUri) =>
-        string.Equals(requestUri.Scheme, _origin.Scheme, StringComparison.OrdinalIgnoreCase)
-        && string.Equals(requestUri.IdnHost, _origin.IdnHost, StringComparison.OrdinalIgnoreCase)
-        && requestUri.Port == _origin.Port;
 
     /// <summary>
     /// <see cref="Uri.Authority"/> leaves out any <c>user:password@</c> part, so a link that carries one

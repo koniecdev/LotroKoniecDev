@@ -1,7 +1,4 @@
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using System.Runtime.ExceptionServices;
 
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 
@@ -13,7 +10,7 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 /// </summary>
 internal sealed partial class SignInAvailability
 {
-    private readonly IOptionsMonitor<OpenIdConnectOptions> _openIdConnectOptionsMonitor;
+    private readonly SignInServerDiscovery _signInServerDiscovery;
     private readonly ILogger<SignInAvailability> _logger;
 
     /// <summary>
@@ -22,36 +19,27 @@ internal sealed partial class SignInAvailability
     /// </summary>
     public async Task<bool> CanRedirectToSignInAsync(CancellationToken cancellationToken)
     {
-        IConfigurationManager<OpenIdConnectConfiguration>? configurationManager = _openIdConnectOptionsMonitor
-            .Get(OpenIdConnectDefaults.AuthenticationScheme)
-            .ConfigurationManager;
-        if (configurationManager is null)
+        SignInServerDiscoveryResult discovery = await _signInServerDiscovery.ReadAsync(cancellationToken);
+        if (discovery.Failure is not { } failure)
         {
             return true;
         }
 
-        // A browser that left is not an outage: its abort goes up as a cancelled request. The manager
-        // fetches without the token, so WaitAsync is what stops the wait.
-        try
+        // A browser that left is not an outage: its abort goes up as a cancelled request.
+        if (failure is OperationCanceledException && cancellationToken.IsCancellationRequested)
         {
-            await configurationManager
-                .GetConfigurationAsync(cancellationToken)
-                .WaitAsync(cancellationToken);
-            return true;
+            ExceptionDispatchInfo.Throw(failure);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException
-                                          || !cancellationToken.IsCancellationRequested)
-        {
-            LogSignInServerUnreachable(_logger, exception);
-            return false;
-        }
+
+        LogSignInServerUnreachable(_logger, failure);
+        return false;
     }
 
     public SignInAvailability(
-        IOptionsMonitor<OpenIdConnectOptions> openIdConnectOptionsMonitor,
+        SignInServerDiscovery signInServerDiscovery,
         ILogger<SignInAvailability> logger)
     {
-        _openIdConnectOptionsMonitor = openIdConnectOptionsMonitor;
+        _signInServerDiscovery = signInServerDiscovery;
         _logger = logger;
     }
 

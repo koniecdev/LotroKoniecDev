@@ -1,18 +1,26 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
+using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 using LotroKoniecDev.Frontend.Settings;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Tests.Unit.Shared;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using NSubstitute;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Auth.TokenRefresh;
 
 public sealed class TokenEndpointClientTests
 {
     private const string AuthBaseUrl = "https://auth.lotro.test/";
+    private const string TokenEndpoint = "https://auth.lotro.test/connect/token";
     private const string RefreshToken = "the-refresh-token";
 
     // Built rather than written out, so no secret scanner mistakes test data for a token.
@@ -24,6 +32,13 @@ public sealed class TokenEndpointClientTests
 
     private static readonly byte[] InvalidUtf8InTheAccessToken =
         [.. """{"access_token":"a"""u8, 0xFF, .. """a","expires_in":3600}"""u8];
+
+    public static TheoryData<Exception> DiscoveryFailures() => new()
+    {
+        new InvalidOperationException("IDX20803: Unable to obtain configuration from the authority."),
+        new HttpRequestException("Connection refused."),
+        new TaskCanceledException("The discovery request timed out."),
+    };
 
     [Fact]
     public async Task RefreshAsync_WhenTheAuthApiAnswersWithTokens_ReturnsThem()
@@ -602,6 +617,203 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
+    /// #1114: the address comes from the discovery document, wherever the sign-in server puts it.
+    /// </summary>
+    [Fact]
+    public async Task RefreshAsync_Always_SendsTheGrantToTheTokenEndpointTheDiscoveryDocumentNames()
+    {
+        StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            $$"""{"access_token":"{{AccessToken}}","expires_in":3600}""");
+        using HttpClient httpClient = CreateHttpClient(transport);
+        TokenEndpointClient client = CreateClient(
+            httpClient, discovery: DiscoveryFrom(DiscoveryNaming("https://auth.lotro.test/oauth2/v9/token")));
+
+        await client.RefreshAsync(RefreshToken);
+
+        transport.LastRequest.ShouldNotBeNull().RequestUri.ShouldBe(new Uri("https://auth.lotro.test/oauth2/v9/token"));
+    }
+
+    /// <summary>
+    /// #1114: with no copy of the document and the sign-in server down, the session waits for the next
+    /// request (ADR-0067 decision 3), and nothing goes to an address the code made up.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(DiscoveryFailures))]
+    public async Task RefreshAsync_WhenTheDiscoveryDocumentCannotBeRead_IsATemporaryFailureAndSendsNothing(Exception failure)
+    {
+        StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        using HttpClient httpClient = CreateHttpClient(transport);
+        TokenEndpointClient client = CreateClient(httpClient, discovery: DiscoveryFrom(FailingDiscovery(failure)));
+
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
+
+        result.ShouldBe(TokenRefreshResult.TemporaryFailure);
+        transport.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task RefreshAsync_WhenTheDiscoveryDocumentCannotBeRead_LogsOneWarning()
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}"));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(
+            httpClient,
+            loggerFactory.CreateLogger<TokenEndpointClient>(),
+            DiscoveryFrom(FailingDiscovery(new HttpRequestException("Connection refused."))));
+
+        await client.RefreshAsync(RefreshToken);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldBe("The auth server's discovery document could not be read, so no refresh token grant was sent.");
+    }
+
+    /// <summary>
+    /// On Linux and macOS a bare path parses as an absolute file:// address.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("connect/token")]
+    [InlineData("/connect/token")]
+    [InlineData("ftp://auth.lotro.test/connect/token")]
+    public async Task RefreshAsync_WhenTheDiscoveryDocumentNamesNoUsableTokenEndpoint_IsATemporaryFailureAndSendsNothing(
+        string? tokenEndpoint)
+    {
+        StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        using HttpClient httpClient = CreateHttpClient(transport);
+        TokenEndpointClient client = CreateClient(httpClient, discovery: DiscoveryFrom(DiscoveryNaming(tokenEndpoint)));
+
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
+
+        result.ShouldBe(TokenRefreshResult.TemporaryFailure);
+        transport.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task RefreshAsync_WhenTheDiscoveryDocumentNamesNoUsableTokenEndpoint_LogsOneWarning()
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}"));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(
+            httpClient, loggerFactory.CreateLogger<TokenEndpointClient>(), DiscoveryFrom(DiscoveryNaming(null)));
+
+        await client.RefreshAsync(RefreshToken);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldBe(
+            "The auth server's discovery document has no usable token endpoint, so no refresh token grant was sent.");
+    }
+
+    [Fact]
+    public async Task RefreshAsync_WhenThereIsNoConfigurationManager_IsATemporaryFailureAndSendsNothing()
+    {
+        StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        using HttpClient httpClient = CreateHttpClient(transport);
+        TokenEndpointClient client = CreateClient(httpClient, discovery: DiscoveryFrom(null));
+
+        TokenRefreshResult result = await client.RefreshAsync(RefreshToken);
+
+        result.ShouldBe(TokenRefreshResult.TemporaryFailure);
+        transport.LastRequest.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// #1114: only a host with no copy waits for the document, and never past the time limit, even if
+    /// the configuration manager ignores the token.
+    /// </summary>
+    [Fact]
+    public async Task RefreshAsync_WhenTheDiscoveryDocumentNeverArrives_GivesUpExactlyAtTheTimeLimit()
+    {
+        StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        using HttpClient httpClient = CreateHttpClient(transport);
+        FakeTimeProvider time = new();
+        TokenEndpointClient client = CreateClient(httpClient, discovery: DiscoveryFrom(PendingDiscovery()), timeProvider: time);
+        using CancellationTokenSource requestAborted = new();
+
+        Task<TokenRefreshResult> refresh = client.RefreshAsync(RefreshToken, requestAborted.Token);
+        time.Advance(TokenEndpointClient.DiscoveryTimeLimit - TimeSpan.FromTicks(1));
+        bool finishedBeforeTheLimit = refresh.IsCompleted;
+        time.Advance(TimeSpan.FromTicks(1));
+        TokenRefreshResult result = await refresh.WaitAsync(TestTimeout);
+
+        finishedBeforeTheLimit.ShouldBeFalse();
+        result.ShouldBe(TokenRefreshResult.TemporaryFailure);
+        transport.LastRequest.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// The time limit means a stuck sign-in server, which someone should look at (#977).
+    /// </summary>
+    [Fact]
+    public async Task RefreshAsync_WhenTheDiscoveryDocumentNeverArrives_LogsOneWarning()
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}"));
+        FakeTimeProvider time = new();
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(
+            httpClient, loggerFactory.CreateLogger<TokenEndpointClient>(), DiscoveryFrom(PendingDiscovery()), time);
+        using CancellationTokenSource requestAborted = new();
+
+        Task<TokenRefreshResult> refresh = client.RefreshAsync(RefreshToken, requestAborted.Token);
+        time.Advance(TokenEndpointClient.DiscoveryTimeLimit);
+        await refresh.WaitAsync(TestTimeout);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldBe("The auth server's discovery document could not be read, so no refresh token grant was sent.");
+    }
+
+    /// <summary>
+    /// A browser that leaves is a normal user action, also while the website waits for the document (#977).
+    /// </summary>
+    [Fact]
+    public async Task RefreshAsync_WhenTheBrowserLeavesWhileWaitingForTheDiscoveryDocument_LogsOneInformationLine()
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}"));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(
+            httpClient, loggerFactory.CreateLogger<TokenEndpointClient>(), DiscoveryFrom(PendingDiscovery()));
+        using CancellationTokenSource requestAborted = new();
+
+        Task<TokenRefreshResult> refresh = client.RefreshAsync(RefreshToken, requestAborted.Token);
+        await requestAborted.CancelAsync();
+        await refresh.WaitAsync(TestTimeout);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Information);
+        entry.Message.ShouldBe("Refresh token grant was cancelled because the request was aborted.");
+    }
+
+    /// <summary>
+    /// #923: the grant keeps the client's 30 seconds, so the sign-in server's 20 seconds for a database
+    /// connection run out first. The discovery time limit must never reach it.
+    /// </summary>
+    [Fact]
+    public async Task RefreshAsync_WhenTheGrantTakesLongerThanTheDiscoveryTimeLimit_StillReturnsTheTokens()
+    {
+        HeldAnswerHttpMessageHandler transport = new($$"""{"access_token":"{{AccessToken}}","expires_in":3600}""");
+        using HttpClient httpClient = CreateHttpClient(transport);
+        FakeTimeProvider time = new();
+        TokenEndpointClient client = CreateClient(httpClient, timeProvider: time);
+        using CancellationTokenSource requestAborted = new();
+
+        Task<TokenRefreshResult> refresh = client.RefreshAsync(RefreshToken, requestAborted.Token);
+        await transport.RequestStarted.Task.WaitAsync(TestTimeout);
+        time.Advance(TokenEndpointClient.DiscoveryTimeLimit * 2);
+        transport.Answer();
+        TokenRefreshResult result = await refresh.WaitAsync(TestTimeout);
+
+        result.Tokens.ShouldNotBeNull().AccessToken.ShouldBe(AccessToken);
+    }
+
+    /// <summary>
     /// #964: RFC 7009 for a public client.
     /// </summary>
     [Fact]
@@ -741,19 +953,16 @@ public sealed class TokenEndpointClientTests
             Headers = { ContentType = new MediaTypeHeaderValue("application/json") { CharSet = charset } }
         };
 
-    private static HttpClient CreateHttpClient(HttpMessageHandler transport) =>
-        new(transport) { BaseAddress = new Uri(AuthBaseUrl) };
+    private static HttpClient CreateHttpClient(HttpMessageHandler transport) => new(transport);
 
     private static HttpClient CreateTimingOutHttpClient() =>
-        new(new NeverAnsweringHttpMessageHandler())
-        {
-            BaseAddress = new Uri(AuthBaseUrl),
-            Timeout = TimeSpan.FromMilliseconds(50)
-        };
+        new(new NeverAnsweringHttpMessageHandler()) { Timeout = TimeSpan.FromMilliseconds(50) };
 
     private static TokenEndpointClient CreateClient(
         HttpClient httpClient,
-        ILogger<TokenEndpointClient>? logger = null) => new(
+        ILogger<TokenEndpointClient>? logger = null,
+        SignInServerDiscovery? discovery = null,
+        TimeProvider? timeProvider = null) => new(
         httpClient,
         Microsoft.Extensions.Options.Options.Create(new AuthSystemSettings
         {
@@ -764,7 +973,40 @@ public sealed class TokenEndpointClientTests
             SignedOutCallbackPath = "/signout-callback-oidc",
             Scopes = ["openid", "email", "profile"]
         }),
+        discovery ?? DiscoveryFrom(DiscoveryNaming(TokenEndpoint)),
+        timeProvider ?? TimeProvider.System,
         logger ?? NullLogger<TokenEndpointClient>.Instance);
+
+    private static SignInServerDiscovery DiscoveryFrom(IConfigurationManager<OpenIdConnectConfiguration>? configurationManager)
+    {
+        IOptionsMonitor<OpenIdConnectOptions> optionsMonitor = Substitute.For<IOptionsMonitor<OpenIdConnectOptions>>();
+        optionsMonitor.Get(OpenIdConnectDefaults.AuthenticationScheme)
+            .Returns(new OpenIdConnectOptions { ConfigurationManager = configurationManager });
+        return new SignInServerDiscovery(optionsMonitor);
+    }
+
+    private static IConfigurationManager<OpenIdConnectConfiguration> DiscoveryNaming(string? tokenEndpoint) =>
+        new StaticConfigurationManager<OpenIdConnectConfiguration>(
+            new OpenIdConnectConfiguration { TokenEndpoint = tokenEndpoint });
+
+    private static IConfigurationManager<OpenIdConnectConfiguration> FailingDiscovery(Exception failure)
+    {
+        IConfigurationManager<OpenIdConnectConfiguration> configurationManager =
+            Substitute.For<IConfigurationManager<OpenIdConnectConfiguration>>();
+        configurationManager.GetConfigurationAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<OpenIdConnectConfiguration>(failure));
+        return configurationManager;
+    }
+
+    /// <summary>A sign-in server that never sends its document and ignores the token.</summary>
+    private static IConfigurationManager<OpenIdConnectConfiguration> PendingDiscovery()
+    {
+        IConfigurationManager<OpenIdConnectConfiguration> configurationManager =
+            Substitute.For<IConfigurationManager<OpenIdConnectConfiguration>>();
+        configurationManager.GetConfigurationAsync(Arg.Any<CancellationToken>())
+            .Returns(new TaskCompletionSource<OpenIdConnectConfiguration>().Task);
+        return configurationManager;
+    }
 
     /// <summary>A sign-in server that took the connection but never answers. Only cancellation ends the wait.</summary>
     private sealed class NeverAnsweringHttpMessageHandler : HttpMessageHandler
@@ -778,6 +1020,31 @@ public sealed class TokenEndpointClientTests
             RequestStarted.TrySetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new UnreachableException();
+        }
+    }
+
+    /// <summary>Holds the answer until the test lets it go. Only a cancel of the request ends the wait first.</summary>
+    private sealed class HeldAnswerHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly string _body;
+        private readonly TaskCompletionSource _answer = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource RequestStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Answer() => _answer.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestStarted.TrySetResult();
+            await _answer.Task.WaitAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(_body) };
+        }
+
+        public HeldAnswerHttpMessageHandler(string body)
+        {
+            _body = body;
         }
     }
 

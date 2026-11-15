@@ -1,16 +1,13 @@
 using LotroKoniecDev.Frontend.Infrastructure.Auth.SignOut;
 using LotroKoniecDev.Frontend.Infrastructure.Security;
-using LotroKoniecDev.Frontend.Settings;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.Extensions.Options;
 
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 
 internal static class AuthEndpointsExtensions
 {
-    private const string EndSessionPath = "connect/logout";
     private const string IdTokenName = "id_token";
     private const string RefreshTokenName = "refresh_token";
 
@@ -82,14 +79,12 @@ internal static class AuthEndpointsExtensions
     }
 
     /// <summary>
-    /// Internal so a unit test can call it without a web host. The end-session redirect works only if the
-    /// browser reaches the auth server, so the website first revokes the refresh token server to server
-    /// (#964). The redirect stays for the auth server's own cookie.
+    /// Internal so a unit test can call it without a web host. The cookie goes first, so the session ends
+    /// here whatever the sign-in server does.
     /// </summary>
     internal static async Task<IResult> LogoutAsync(
         HttpContext context,
-        IOptions<AuthSystemSettings> authSystemOptions,
-        RefreshTokenRevoker refreshTokenRevoker)
+        SignInServerSignOut signInServerSignOut)
     {
         AuthenticateResult authentication =
             await context.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -97,19 +92,11 @@ internal static class AuthEndpointsExtensions
         string? refreshToken = authentication.Properties?.GetTokenValue(RefreshTokenName);
 
         await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-        await refreshTokenRevoker.RevokeAsync(refreshToken);
 
-        string authority = authSystemOptions.Value.Authority.TrimEnd('/');
-        string postLogoutRedirect = $"{context.Request.Scheme}://{context.Request.Host}";
-
-        string endSessionUrl = $"{authority}/{EndSessionPath}" +
-                               $"?post_logout_redirect_uri={Uri.EscapeDataString(postLogoutRedirect)}";
-
-        if (!string.IsNullOrWhiteSpace(idToken))
-        {
-            endSessionUrl += $"&id_token_hint={Uri.EscapeDataString(idToken)}";
-        }
-
-        return Results.Redirect(endSessionUrl);
+        string redirect = await signInServerSignOut.EndSessionAsync(
+            idToken,
+            refreshToken,
+            postLogoutRedirectUri: $"{context.Request.Scheme}://{context.Request.Host}");
+        return Results.Redirect(redirect);
     }
 }

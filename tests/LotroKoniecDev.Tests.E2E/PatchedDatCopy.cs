@@ -37,6 +37,8 @@ public sealed class PatchedDatCopy : IDisposable
         CliResult patch = await _fixture.RunCliAsync(
             $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{datPath}\"");
         DateTime lastWriteAfterPatchUtc = File.GetLastWriteTimeUtc(datPath);
+        FileInfo backup = new(PatchedDat.BackupPathOf(datPath));
+        long? backupSizeAfterPatch = backup.Exists ? backup.Length : null;
 
         string exportAfterPatchPath = Path.Combine(_tempDir, "after.txt");
         CliResult exportAfterPatch = await _fixture.RunCliAsync(
@@ -47,20 +49,26 @@ public sealed class PatchedDatCopy : IDisposable
             sizeBeforePatch,
             lastWriteBeforePatchUtc,
             lastWriteAfterPatchUtc,
+            backupSizeAfterPatch,
             patch,
             exportAfterPatchPath,
             exportAfterPatch);
     }
 }
 
+/// <param name="BackupSizeAfterPatch">The backup's size right after the one patch; <c>null</c> when
+/// the patch made no backup.</param>
 public sealed record PatchedDat(
     string DatPath,
     long SizeBeforePatch,
     DateTime LastWriteBeforePatchUtc,
     DateTime LastWriteAfterPatchUtc,
+    long? BackupSizeAfterPatch,
     CliResult Patch,
     string ExportAfterPatchPath,
     CliResult ExportAfterPatch)
 {
-    public string BackupPath => DatPath + ".backup";
+    public string BackupPath => BackupPathOf(DatPath);
+
+    public static string BackupPathOf(string datPath) => datPath + ".backup";
 }

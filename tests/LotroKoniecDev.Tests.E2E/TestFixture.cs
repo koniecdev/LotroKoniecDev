@@ -50,7 +50,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
             {
                 if (Directory.GetCreationTimeUtc(dir) < DateTime.UtcNow.AddHours(-1))
                 {
-                    Directory.Delete(dir, true);
+                    DeleteWithReadOnlyFiles(dir);
                 }
             }
             catch
@@ -214,17 +214,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
         {
             if (Directory.Exists(tempDir))
             {
-                // Directory.Delete refuses a read-only file on Windows, and a test may have left one.
-                foreach (string file in Directory.GetFiles(tempDir, "*", SearchOption.AllDirectories))
-                {
-                    FileAttributes attributes = File.GetAttributes(file);
-                    if (attributes.HasFlag(FileAttributes.ReadOnly))
-                    {
-                        File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
-                    }
-                }
-
-                Directory.Delete(tempDir, recursive: true);
+                DeleteWithReadOnlyFiles(tempDir);
             }
 
             _tempDirectories.Remove(tempDir);
@@ -233,6 +223,24 @@ public sealed class E2ETestFixture : IAsyncLifetime
         {
             // Best-effort cleanup
         }
+    }
+
+    /// <summary>
+    /// <see cref="Directory.Delete(string, bool)"/> refuses a read-only file on Windows, and a test may
+    /// have left one, so the flag goes first.
+    /// </summary>
+    private static void DeleteWithReadOnlyFiles(string dir)
+    {
+        foreach (string file in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
+        {
+            FileAttributes attributes = File.GetAttributes(file);
+            if (attributes.HasFlag(FileAttributes.ReadOnly))
+            {
+                File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+            }
+        }
+
+        Directory.Delete(dir, recursive: true);
     }
 
     private static async Task BuildCliProjectAsync()

@@ -60,9 +60,9 @@ public sealed class PatchE2ETests : IClassFixture<PatchedDatCopy>
 
         //Assert
         patched.Patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"stderr: {patched.Patch.Stderr}");
-        File.Exists(patched.BackupPath).ShouldBeTrue(
+        patched.BackupSizeAfterPatch.ShouldNotBeNull(
             "Backup file should be created alongside the DAT file");
-        new FileInfo(patched.BackupPath).Length.ShouldBe(patched.SizeBeforePatch,
+        patched.BackupSizeAfterPatch.Value.ShouldBe(patched.SizeBeforePatch,
             "Backup should have the same size as the original DAT");
     }
 

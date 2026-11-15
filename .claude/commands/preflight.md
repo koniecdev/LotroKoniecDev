@@ -22,7 +22,7 @@ run; a false premise caught here costs a few tool calls instead of a whole imple
   cheaper model (`claude --model opus`) and run this as its first prompt. A mid-session `/model`
   switch re-reads the whole conversation uncached (`/effort` is cache-safe only on Fable 5.1;
   unverified on Opus 5.5). Its verdict is a cheap first sort, never the final word: `/ticket` and
-  `/work-ticket` still run their `ticket-triage` agent on Fable on every ticket (#1318).
+  `/work-ticket` still run their `ticket-triage` agent on every ticket (#1318).
 - Budget ≈ 10 tool calls per ticket. If a verdict needs more than that, the verdict is
   CLARIFY with "needs a deeper look" — do not silently turn triage into an investigation.
 - Batch: pull all tickets in as few `gh` calls as possible; group greps across tickets where the

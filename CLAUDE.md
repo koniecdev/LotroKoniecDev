@@ -136,7 +136,7 @@ validator.
 | Touch update-day behaviour on the client (sentinel, orchestrator, any new DAT write path) | `docs/specs/0012-update-resilience.md` (Tier 0/1 rules as amended 2026-08-17) + **ADR-0047**: every write goes through the per-row source guard; the no-masking invariant has no path exceptions |
 | Touch the game-content catalog (CatalogEntry/TextSlot, Companion zip import, catalog browser, memberships) | `docs/specs/0008-game-content-catalog-layer.md` + `docs/knowledge-base/lotro-companion-data-model.md` (the verified `key:<FileId>:<GossipId>` join; never join on text). Naming rule: **never "entity"** in this layer |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
-| Plan any ticket's fix, or act on a negative claim, a cause outside the repo, or a ticket's own conclusion | the **`ticket-triage`** agent (on Fable) writes the verdict and the plan, then **`/buddy`** with its design challenge, before the verdict is posted, on every ticket (no `/buddy` → its fallback agent): `/ticket` step 2 |
+| Plan any ticket's fix, or act on a negative claim, a cause outside the repo, or a ticket's own conclusion | the **`ticket-triage`** agent writes the verdict and the plan, then **`/buddy`** with its design challenge, before the verdict is posted, on every ticket (no `/buddy` → its fallback agent): `/ticket` step 2 |
 | Review a finished change | the **`code-reviewer`** agent (on Fable) on every diff, small ones too, a fresh one per round, three rounds plus one confirmation round only when the review is ending, then `/code-review` as the second pass (`/ticket` step 7); before the push, a **`gate-runner`** run on the pushed commit unless a `code-reviewer` or `gate-runner` report already names it (`/ticket` step 8) |
 | Sort review findings, file one, or triage an `audit` ticket | **ADR-0067 §8** (what is not a finding) + ADR-0008 §3 (the bar for a startup check) + ADR-0069 (the game launcher is not checked) + `docs/labels.md` → "One bug class per ticket" |
 | Understand the backlog / milestones | `gh issue list` + Roadmap below |
@@ -373,24 +373,30 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   the convention next to it, with rough sizes, and pick the smaller and more readable one (PR #952's
   IL scanner was bigger than the interceptor it stood in for, and the owner closed it; ADR-0038 §6
   amendment).
-- **Agent fan-out is budgeted; the judgment points run on a second model (#1318).** Hard cap:
-  **max 4 subagents in parallel**, no chained waves by default. Two committed agents are pinned to
-  **Claude Fable 5.2 at `xhigh`** (the maintainer's decision of 2026-11-10): `ticket-triage`, which
-  judges every ticket and writes its plan (`/ticket` step 2), and `code-reviewer`, which reviews
-  every diff, small ones too (`/ticket` step 7). The session that writes the code runs on its own
-  model (Opus 5.5 in the maintainer's runs), and one model has one set of blind spots. Every ticket's plan also gets the `/buddy` challenge
-  (#1306), `/code-review` stays the second pass, and the pushed commit has a gate run of its own:
-  a `gate-runner` run before the push when no `code-reviewer` or `gate-runner` report names that
-  commit yet (`/ticket` step 8, #1319). `gate-runner`, `dat-format-expert`, `/code-review` and
-  `/security-review` follow the session's model and effort. When Fable is not available (its share
-  of the weekly limit is spent, or a contributor's account has no Fable), a pinned step falls back
-  once to a `general-purpose` agent that follows the same agent file, on the model a plain subagent
-  gets (the session's, or `CLAUDE_CODE_SUBAGENT_MODEL` when it is set), and the report says so. That fallback answers the reason #643 removed an older pin: a contributor
-  without the tier still gets a triage and a review. Never pass `model` or `effort` when you spawn
-  a pinned agent (either beats the pin), and never run Fable at `max`. Loop-mode worker sessions
-  take model and effort from the maintainer's machine-local policy (Opus 5.5 at **xhigh** since
-  2026-09-22; without it the scripts fall back to **effort high**, the `LOOP_EFFORT` default),
-  unless the prompt for that run says otherwise. This applies to interactive sessions and loop
+- **Agent fan-out is budgeted; the code review runs on a second model (#1318, #1412).** Hard cap:
+  **max 4 subagents in parallel**, no chained waves by default. One committed agent is pinned to
+  **Claude Fable 5.2 at `xhigh`**: `code-reviewer`, which reviews every diff, small ones too
+  (`/ticket` step 7). The session that writes the code runs on its own model (Opus 5.5 in the
+  maintainer's runs), and one model has one set of blind spots. `ticket-triage`, which judges every
+  ticket and writes its plan (`/ticket` step 2), is not pinned (the maintainer's decision of
+  2026-11-15): a blinded comparison of real loop runs found Fable better only at the review, and a
+  Fable triage used up the Fable share the review needs. It still writes the plan in its own fresh
+  context, so the session that builds never writes its own plan. Every ticket's plan also gets the
+  `/buddy` challenge (#1306), `/code-review` stays the second pass, and the pushed commit has a gate
+  run of its own: a `gate-runner` run before the push when no `code-reviewer` or `gate-runner`
+  report names that commit yet (`/ticket` step 8, #1319). `ticket-triage`, `gate-runner`,
+  `dat-format-expert`, `/code-review` and `/security-review` follow the session's model and effort.
+  When Fable is not available (its share of the weekly limit is spent, or a contributor's account
+  has no Fable), the review falls back once to a `general-purpose` agent that follows the same agent
+  file, on the model a plain subagent gets (the session's, or `CLAUDE_CODE_SUBAGENT_MODEL` when it
+  is set), and the report says so; the triage has the same one retry on any error (`/ticket` step
+  2). That fallback answers the reason #643 removed an older pin: a contributor without the tier
+  still gets a review. Never pass `model` or `effort` when you spawn `code-reviewer` or
+  `ticket-triage`: either beats the review's pin or replaces the session's model and effort that the
+  triage follows. Never run Fable at `max`. Loop-mode worker sessions take model and effort from the
+  maintainer's machine-local policy (Opus 5.5 at **xhigh** since 2026-09-22; without it the scripts
+  fall back to **effort high**, the `LOOP_EFFORT` default), unless the prompt for that run says
+  otherwise, and the triage follows them. This applies to interactive sessions and loop
   workers alike. The values live in agent frontmatter and in the
   loop scripts' defaults; if this prose and the frontmatter disagree, the frontmatter wins.
 - **Token discipline.** About half the spend is cache reads (context length × turn count), and this

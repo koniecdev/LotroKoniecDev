@@ -55,10 +55,10 @@ everything that matters must be committed and pushed.
    wiki — the clone sits beside the **main** checkout, not beside your worktree:
    `WIKI="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/../LotroKoniecDev.wiki"`,
    then `git -C "$WIKI" pull --ff-only` (another run may hold its lock; if the pull fails, the
-   triage reads what is there). Then spawn the `ticket-triage` agent (Claude Fable 5.2, #1318) in
-   the FOREGROUND, never with `name`, `model` or `effort`, with its fallback, all as that step
-   says. A `<!-- preflight-verdict -->` comment on the issue is input for it, never
-   a skip. No report even from the fallback → `STATUS: BLOCKED` (category: review-unclean). Its
+   triage reads what is there). Then spawn the `ticket-triage` agent in the FOREGROUND, never
+   with `name`, `model` or `effort`, with its fallback, all as that step says. A
+   `<!-- preflight-verdict -->` comment on the issue is input for it, never a skip. No report even
+   from the fallback → `STATUS: BLOCKED` (category: review-unclean). Its
    verdict decides, and you never overrule it on your own judgment. A `STATUS: BLOCKED` block that
    carries its verdict names the model that wrote it, and after a fallback why the fallback ran
    (`/ticket` step 2):

@@ -8,13 +8,15 @@ using LotroKoniecDev.Primitives.Constants;
 namespace LotroKoniecDev.Tests.E2E.Tests;
 
 [Collection("E2E")]
-public sealed class ExportE2ETests
+public sealed class ExportE2ETests : IClassFixture<SharedDatCopy>
 {
     private readonly E2ETestFixture _fixture;
+    private readonly SharedDatCopy _sharedDatCopy;
 
-    public ExportE2ETests(E2ETestFixture fixture)
+    public ExportE2ETests(E2ETestFixture fixture, SharedDatCopy sharedDatCopy)
     {
         _fixture = fixture;
+        _sharedDatCopy = sharedDatCopy;
     }
 
     [SkippableFact]
@@ -113,7 +115,7 @@ public sealed class ExportE2ETests
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
         //Arrange
-        string tempDatPath = _fixture.CreateTempDatCopy();
+        string tempDatPath = _sharedDatCopy.GetDatPath();
         string outputPath = Path.Combine(Path.GetDirectoryName(tempDatPath)!, "readonly_export.txt");
         File.SetAttributes(tempDatPath, File.GetAttributes(tempDatPath) | FileAttributes.ReadOnly);
 
@@ -149,7 +151,7 @@ public sealed class ExportE2ETests
         Skip.IfNot(OperatingSystem.IsWindows(), "ACLs are a Windows concept");
 
         //Arrange
-        string tempDatPath = _fixture.CreateTempDatCopy();
+        string tempDatPath = _sharedDatCopy.GetDatPath();
         string outputPath = Path.Combine(Path.GetDirectoryName(tempDatPath)!, "acl_export.txt");
         string account = $"{Environment.UserDomainName}\\{Environment.UserName}";
 
@@ -181,9 +183,9 @@ public sealed class ExportE2ETests
         }
         finally
         {
-            // Best-effort restore so the fixture's temp sweep is not fighting our own ACL. Never
-            // assert here: a failure would replace whatever the test was actually reporting.
-            _ = await RunIcaclsAsync($"\"{tempDatPath}\" /inheritance:e /grant \"{account}:(F)\"");
+            // Put back the inherited ACL the copy had, because the other tests of this class share it.
+            // Never assert here: a failure would replace whatever the test was actually reporting.
+            _ = await RunIcaclsAsync($"\"{tempDatPath}\" /reset");
         }
     }
 

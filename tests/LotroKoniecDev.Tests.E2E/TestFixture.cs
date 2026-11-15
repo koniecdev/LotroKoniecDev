@@ -129,19 +129,9 @@ public sealed class E2ETestFixture : IAsyncLifetime
 
     public Task DisposeAsync()
     {
-        foreach (string dir in _tempDirectories)
+        foreach (string dir in _tempDirectories.ToList())
         {
-            try
-            {
-                if (Directory.Exists(dir))
-                {
-                    Directory.Delete(dir, recursive: true);
-                }
-            }
-            catch
-            {
-                // Best-effort cleanup
-            }
+            DeleteTempDir(dir);
         }
 
         return Task.CompletedTask;
@@ -212,6 +202,37 @@ public sealed class E2ETestFixture : IAsyncLifetime
         Directory.CreateDirectory(tempDir);
         _tempDirectories.Add(tempDir);
         return tempDir;
+    }
+
+    /// <summary>
+    /// Deletes a temp folder now, best effort. A folder that cannot be deleted stays on the list, so
+    /// the end of the collection tries again.
+    /// </summary>
+    public void DeleteTempDir(string tempDir)
+    {
+        try
+        {
+            if (Directory.Exists(tempDir))
+            {
+                // Directory.Delete refuses a read-only file on Windows, and a test may have left one.
+                foreach (string file in Directory.GetFiles(tempDir, "*", SearchOption.AllDirectories))
+                {
+                    FileAttributes attributes = File.GetAttributes(file);
+                    if (attributes.HasFlag(FileAttributes.ReadOnly))
+                    {
+                        File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+                    }
+                }
+
+                Directory.Delete(tempDir, recursive: true);
+            }
+
+            _tempDirectories.Remove(tempDir);
+        }
+        catch
+        {
+            // Best-effort cleanup
+        }
     }
 
     private static async Task BuildCliProjectAsync()

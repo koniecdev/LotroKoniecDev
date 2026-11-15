@@ -250,3 +250,23 @@ snapshot best-effort, post-mvp (Decision 5).
   #338 mirrors
 - EF Core docs — migrations in production (bundles; down-migrations as a dev-time tool)
 - Squawk — <https://github.com/sbdchd/squawk> (the recorded DDL-level upgrade path)
+
+## Amendment (2026-11-16, #1378): a branch restore puts the auth database back
+
+A branch restore rewinds every database on the branch, `lotro_auth` included. A rewound auth
+database undoes every account change made since the restore point, and the privacy policy promises
+that a restore never brings a deleted account back. So the runbook procedure for §5 saves auth before
+the restore and puts it back afterwards:
+
+- When no auth migration is to blame, it restores a dump of the auth schema taken just before the
+  restore, in one transaction, so auth is exactly as it was. The previous release runs on that newer
+  auth schema, which §2 guarantees.
+- When an auth migration is to blame, it keeps the rewound auth database and copies back, from an
+  export taken just before the restore, every account whose deletion date or security stamp moved.
+  Accounts erased after the restore point are erased again, and every session ends, before auth-api
+  serves.
+- On both paths every erasure message goes to the translation system again, because its database
+  was rewound too.
+
+This changes only how a restore is carried out. Decision 5 (restore, never rollback; the snapshot is
+best effort) and Alternative F stand.

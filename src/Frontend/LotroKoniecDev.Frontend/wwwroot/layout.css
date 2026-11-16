@@ -802,9 +802,17 @@ code {
     color: var(--accent-hi);
 }
 
+/* On a screen taller than the page, the band stays on top of the footer instead of above a gap. */
+main:has(> .home-banner) {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
 /* The strip's edges are pure black, so on a screen wider than the strip the band has no seam. */
 .home-banner {
     display: block;
+    margin-top: auto;
     background: oklch(0 0 0);
 }
 

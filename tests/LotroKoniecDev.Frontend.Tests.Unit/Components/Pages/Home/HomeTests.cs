@@ -157,6 +157,19 @@ public sealed class HomeTests : BunitContext
     }
 
     [Fact]
+    public void Render_Page_PutsTheBannerAfterTheLastSectionOutsideThePanels()
+    {
+        AddAuthorization().SetNotAuthorized();
+        StubProgress(ApiResult.Success(new PublicProgressResponse(0, 0, 0, null)));
+
+        IRenderedComponent<HomeComponent> component = RenderHome();
+
+        IElement bannerLink = component.Find("a.home-banner");
+        bannerLink.Closest("section").ShouldBeNull();
+        bannerLink.PreviousElementSibling.ShouldNotBeNull().ClassList.ShouldContain("content-wrap");
+    }
+
+    [Fact]
     public void Render_Page_ShowsTheWideStripFrom641PxAndThePhoneBannerBelow()
     {
         AddAuthorization().SetNotAuthorized();

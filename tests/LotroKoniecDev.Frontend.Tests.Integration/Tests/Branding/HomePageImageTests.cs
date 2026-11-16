@@ -33,7 +33,8 @@ public sealed partial class HomePageImageTests : IClassFixture<ProductionFronten
 
         // Assert
         page.StatusCode.ShouldBe(HttpStatusCode.OK);
-        sources.ShouldNotBeEmpty();
+        // The logo, the strip and the phone banner. A streamed page can name a file twice.
+        sources.Distinct().Count().ShouldBe(3);
         answers.ShouldAllBe(answer => answer.EndsWith(" 200 image", StringComparison.Ordinal));
     }
 

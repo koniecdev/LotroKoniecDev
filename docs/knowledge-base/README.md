@@ -29,6 +29,14 @@ Detailed analysis: [lotro-companion-data-model.md](lotro-companion-data-model.md
 - `lotro-data` GitHub repo **is** the live dataset (updated within days of each patch); labels not needed — our English comes from our own export
 - Caveats: subset coverage, join on keys never text (`${PLAYER}` vs `<--DO_NOT_TOUCH!-->`), version skew tolerated as dangling refs, no LICENSE (attribution = courtesy decision)
 
+### Grammar marks at the end of game texts — desk research, no live test yet (2026-11-16)
+Detailed analysis: [grammar-marks-2026-11-16.md](grammar-marks-2026-11-16.md) (#1370) · live test and the translator rule: #1433
+- 200,150 of 792,500 live rows end with a bracket token, almost always a mark like `[e]`, `[ps]` or `[D]`; 87 different tokens
+- **A mark is a set of one-letter flags that other texts select on**, proven by our own English rows: `#1:{ [n]| [p]| an[v]| a}` (the article), `{is|are[p]}`, `{he[m]|she[f]|it}`, `{'s|'[s]}`, `{second[1]|seconds}`; `m` male, `f` female, `n` name, `p` plural, `v` vowel sound, `s` ends in "s"; capitals are race and class codes
+- Strong third-party evidence that the client reads `[m]`/`[f]` choices written into translated text (the Russian project, same English client); whether it reads the mark of a translated value (`Krasnolud[D]`) is unproven, and a translator cannot change the order of a composed title's parts (`args_order` stays English)
+- Every English choice with a flag in it (3,762 rows) sits in a row with arguments, and our pipeline cannot add an argument; the mark is inside `source_digest` and `SourceHash`, so a mark-only change by SSG counts as changed English
+- Proposed interim rule: copy every mark exactly (233 of 235 translated rows already do); the end state (lock the mark, or an editable mark from a known set) waits for the live test
+
 ### Update 50 "The Wolves of Mordor" — the first single major measured with the E5/E7 tools, and Tier 0 on a real update (2026-10-29)
 Detailed analysis: [update-50/RESULTS.md](update-50/RESULTS.md) · before: [update-50/BASELINE.md](update-50/BASELINE.md)
 - Measured in a **sandbox copy of the install**: the launcher patches a user-writable copy with no UAC prompt, so nobody has to click and the live game is never touched

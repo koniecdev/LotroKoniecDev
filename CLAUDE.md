@@ -360,6 +360,19 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   `ComplexProperty` is the right mapping for a VO (pure value, no identity tracking), but it cannot
   be indexed in EF Core 10 (fixed in EF Core 11). With `OwnsOne`, define `HasColumnName` explicitly
   and put `HasIndex` inside the owned builder.
+- **An id that another system owns is never our primary key (#1425).** That covers the game's
+  `FileId`/`GossipId`, the DID in the LOTRO Companion data and any other outside id. It is an
+  ordinary column with an index, never the key or a part of it. Our tables key on our own id,
+  normally a GUIDv7 (`Guid.CreateVersion7()`, wrapped in a typed `<Name>Id` where the domain has
+  one). Then our key never depends on their numbering: if they renumber or reuse ids, or our guess
+  that their id is unique turns out wrong, we change a column or an index, not the primary key and
+  every foreign key that points at it. Check their data and decide, before the table ships, whether
+  the outside id's index is unique: making it unique later, over live data, is destructive
+  (ADR-0023). `Translation` is the template: `TranslationId` is the key, and `(FileId, GossipId)`
+  is a unique index on the owned `FragmentKey`. First case: #363. Tables that a library shapes
+  (ASP.NET Identity, OpenIddict, EF's migration history) keep the library's keys. The sign-in
+  session keys on a random GUID on purpose, because its id is the session key (ADR-0062,
+  `SignInSession.Create`).
 - **Migrations are forward-only and N-1 backward-compatible (ADR-0023).** The deploy gate commits
   the schema **before** traffic moves, and rollback reverts code, never schema, so the running app
   revision must survive every migration. Never rely on `Down()` outside local dev; recovery is

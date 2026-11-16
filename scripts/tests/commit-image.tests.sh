@@ -12,9 +12,10 @@
 #      (except `latest`) and reads the sha tag back. The docker stub answers a digest only for the
 #      printf format, because some buildx versions print the whole view for a bare one.
 #   2. The workflow shape. No workflow starts on a tag, a release or a created ref. In cd.yml's
-#      build-and-push job, the lookup comes first, every later step runs only when it found nothing,
-#      the build pushes no tag, and naming the image is the last step, after the attestation.
-#      Broken copies of the workflows prove that each check still fires.
+#      build-and-push job, no step before the lookup writes to the registry, every later step runs
+#      only when it found nothing, the build pushes no tag, and naming the image is the last step,
+#      after the Trivy scan, cosign signing and the attestation. A broken copy of the workflows for
+#      each check proves that it still fires.
 #
 # The YAML reader understands the block style the workflows use: two-space indent, one key per
 # line. Directly under `on:`, a form it cannot follow (`on:` written inline, a list, an odd indent,
@@ -247,6 +248,18 @@ else
     fail "expected a stop with no output and no gh call, got exit $LAST_STATUS and '$(cat "$STATE/gh.calls")'"
 fi
 
+# Real gh reads an empty --source-ref as no pin at all.
+CASE='find: an empty GITHUB_REF'
+reset_state
+has_tag "$REPO:sha-abc1234" "$D1"
+attested "$D1"
+run_find GITHUB_REF=''
+if [ "$LAST_STATUS" -ne 0 ] && [ ! -s "$STATE/out" ] && [ ! -s "$STATE/gh.calls" ]; then
+    pass 'an empty ref stops before it asks gh, because gh would check no ref at all'
+else
+    fail "expected a stop with no output and no gh call, got exit $LAST_STATUS and '$(cat "$STATE/gh.calls")'"
+fi
+
 for answer in \
     'ERROR: failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token: 403 Forbidden' \
     'ERROR: unexpected status from HEAD request to https://ghcr.io/v2/owner/app/manifests/sha-abc1234: 401 Unauthorized' \
@@ -364,7 +377,7 @@ else
 fi
 
 CASE='name: bad input'
-for input in "DIGEST=sha256:1234" "TAGS=ghcr.io/other/app:sha-abc1234" "TAGS=$(printf '\n')"; do
+for input in "DIGEST=sha256:1234" "TAGS=ghcr.io/other/app:sha-abc1234" "TAGS="; do
     reset_state
     run_name TAGS='ghcr.io/owner/app:sha-abc1234' "$input"
     if [ "$LAST_STATUS" -ne 0 ] && ! created; then
@@ -373,6 +386,15 @@ for input in "DIGEST=sha256:1234" "TAGS=ghcr.io/other/app:sha-abc1234" "TAGS=$(p
         fail "expected a stop with no retag for $input, got exit $LAST_STATUS"
     fi
 done
+
+CASE='name: TAGS holds only empty lines'
+reset_state
+run_name $'TAGS=\n\n'
+if [ "$LAST_STATUS" -ne 0 ] && ! created && grep -qF 'TAGS names no tag' <<< "$LAST_OUTPUT"; then
+    pass 'a TAGS value with no tag in it stops the job'
+else
+    fail "expected a stop with 'TAGS names no tag' and no retag, got exit $LAST_STATUS"
+fi
 
 # ── Workflow shape ──────────────────────────────────────────────────────────────────────────────
 
@@ -454,11 +476,13 @@ build_job_problems() {
             for (i = 1; i <= n; i++) if (id[i] == "existing") lookup = i
             if (!lookup) { print "no lookup step (id: existing)"; exit }
             if (text[lookup] !~ /scripts\/ci\/commit-image\.sh find/) print "the lookup does not run commit-image.sh find"
-            build = 0; name = 0; attest = 0
+            build = 0; name = 0; attest = 0; scan = 0; sign = 0
             for (i = 1; i <= n; i++) {
                 if (id[i] == "build") build = i
                 if (id[i] == "name") name = i
                 if (text[i] ~ /actions\/attest-build-provenance@/) attest = i
+                if (text[i] ~ /aquasecurity\/trivy-action@/) scan = i
+                if (text[i] ~ /\n +run: cosign sign /) sign = i
             }
             for (i = 1; i < lookup; i++)
                 if (text[i] ~ /build-push-action@|imagetools create|docker push/) print "step " i " writes to the registry before the lookup"
@@ -467,7 +491,7 @@ build_job_problems() {
             if (!build) print "no build step (id: build)"
             else {
                 if (text[build] !~ /push-by-digest=true/) print "the build step does not push by digest"
-                if (text[build] ~ /\n +tags:/) print "the build step pushes tags"
+                if (text[build] ~ /\n +tags:/) print "the build step lists tags"
                 if (text[build] ~ /\n +push: *true/) print "the build step pushes tags (push: true)"
             }
             if (!name) print "no naming step (id: name)"
@@ -475,6 +499,8 @@ build_job_problems() {
                 if (text[name] !~ /scripts\/ci\/commit-image\.sh name/) print "the naming step does not run commit-image.sh name"
                 if (name != n) print "the naming step is not the last step"
                 if (!attest || attest > name) print "the naming step does not come after the attestation"
+                if (!scan || scan > name) print "the naming step does not come after the Trivy scan"
+                if (!sign || sign > name) print "the naming step does not come after cosign sign"
             }
         }
     ' "$1"
@@ -536,6 +562,9 @@ expect_trigger_problem 'a quoted push key'  'push: lists tags'            's/^  
 expect_trigger_problem 'a four-space indent' 'a form this test cannot read' '/^on:/,/^[a-z]/s/^  /    /'
 expect_trigger_problem 'quoted tags'        'push: lists tags'            $'/^  push:/a\\    \'tags\': [\'v*\']'
 expect_trigger_problem 'a space before :'   'push: lists tags'            '/^  push:/a\    tags : [v*]'
+expect_trigger_problem 'a create trigger'   'starts on create'            '/^on:/a\  create:'
+expect_trigger_problem 'an inline push:'    'push: has an inline value'   's/^  push:.*/  push: {branches: [main]}/'
+expect_trigger_problem 'no on: section'     'has no on: section'          's/^on:/jobs-before:/'
 
 CASE='shape fires: an empty workflow folder'
 rm -rf "$TMP_ROOT/empty"
@@ -556,7 +585,16 @@ else
 fi
 
 expect_build_problem 'a lost guard'         'runs without the exists'     '0,/^        if: steps.existing.outputs.exists == .false.$/{//d;}'
-expect_build_problem 'a tagged push'        'the build step pushes tags'  's/push-by-digest=true,//; /^          outputs: /a\          push: true'
+expect_build_problem 'a tagged push'        'the build step pushes tags (push: true)' 's/push-by-digest=true,//; /^          outputs: /a\          push: true'
+expect_build_problem 'a tags input'         'the build step lists tags'   '/^          outputs: /a\          tags: ghcr.io/owner/app:sha-abc1234'
+expect_build_problem 'no push by digest'    'the build step does not push by digest' 's/push-by-digest=true,//'
+expect_build_problem 'no lookup step'       'no lookup step (id: existing)' 's/^        id: existing$/        id: other/'
+expect_build_problem 'a push before lookup' 'writes to the registry before the lookup' '/- name: Look up this commit.s existing image/i\      - name: Early push\n        run: docker push ghcr.io/owner/app:sha-abc1234'
+expect_build_problem 'no build step'        'no build step (id: build)'   's/^        id: build$/        id: other/'
+expect_build_problem 'no naming step'       'no naming step (id: name)'   's/^        id: name$/        id: other/'
+expect_build_problem 'a naming step that is not the script' 'the naming step does not run commit-image.sh name' 's#scripts/ci/commit-image.sh name#true#'
+expect_build_problem 'no Trivy scan'        'does not come after the Trivy scan' 's#aquasecurity/trivy-action@#aquasecurity/other-action@#'
+expect_build_problem 'no signing'           'does not come after cosign sign' 's/run: cosign sign /run: cosign verify /'
 expect_build_problem 'a step after naming'  'the naming step is not the last step' '/run: \.\/scripts\/ci\/commit-image\.sh name/a\      - name: After\n        if: steps.existing.outputs.exists == '"'"'false'"'"'\n        run: true'
 expect_build_problem 'no attestation'       'does not come after the attestation' 's#actions/attest-build-provenance@#actions/attest-other@#'
 expect_build_problem 'a lookup that builds' 'the lookup does not run commit-image.sh find' 's#scripts/ci/commit-image.sh find#true#'

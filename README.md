@@ -264,7 +264,8 @@ own.
 
 ## Project status & roadmap
 
-Pre-release, actively developed. The Patcher (**M1**) is shipped and proven on live game updates. The
+Version 0.x, actively developed: the website is live and has its first outside translator, and 1.0
+will be the release for players. The Patcher (**M1**) is shipped and proven on live game updates. The
 TMS backend (**M2**, minus the forum watcher — game versions are registered manually for now), the
 Blazor frontend (**M3**) and the deployment pipeline (**M6** — Docker Compose on a Hetzner VPS +
 Neon Postgres, staging → production promotion) are built and **deployed** (see the live link above).

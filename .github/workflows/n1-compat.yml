@@ -5,8 +5,9 @@ name: N-1 Backward Compatibility
 # serves production during every deploy's smoke window and after any failed rollout
 # (rollback moves traffic, never schema). scripts/n1-compat.sh generates idempotent schema
 # scripts from the PR merge commit, checks out HEAD^1 (= the main tip being merged into =
-# the deployed release; the repo has no version tags) into a worktree, and runs the old
-# checkout's own *.Tests.Integration.csproj suites with the seam env var set.
+# the deployed release; a version tag marks a release, not a deploy, ADR-0070) into a
+# worktree, and runs the old checkout's own *.Tests.Integration.csproj suites with the seam
+# env var set.
 #
 # Deliberately NOT a required check: path-filtered required checks deadlock every PR the
 # filter skips (the pr-verify docs-only lesson). Schema can only change through

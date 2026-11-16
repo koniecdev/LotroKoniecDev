@@ -258,16 +258,6 @@ verdict "baseline=$C1" || fail 'a box pinning a tag outranks an empty deployment
 if grep -q 'BOOTSTRAP' <<<"$LAST_OUTPUT"; then fail 'a serving box must never read as bootstrap'; fi
 pass 'an empty history with a serving box resolves from the box, not bootstrap'
 
-CASE='version-tag deploy'
-# cd.yml publishes version images as {{version}} — git tag v1.2.3 becomes image tag 1.2.3 — so the
-# box pins a string git cannot resolve until the v goes back on.
-git -C "$FIXTURE" tag 'v9.9.9' "$C2"
-deployments_json '[]'
-run_resolve CANDIDATE_SHA="$C3" STUB_BOX_TAG='9.9.9'
-[ "$LAST_STATUS" -eq 0 ] || fail 'a version-tag deploy must resolve, not fail closed' "status $LAST_STATUS"
-verdict "baseline=$C2" || fail 'the image tag 9.9.9 must resolve through the git tag v9.9.9'
-pass 'a box-pinned version tag resolves through its v-prefixed git tag'
-
 CASE='bootstrap: no success yet, box pins nothing'
 deployments_json "[{\"id\": 60, \"sha\": \"$C2\"}]"
 statuses_json 60 '[{"state": "failure"}]'
@@ -398,6 +388,15 @@ CASE='fallback: unresolvable tag'
 run_resolve CANDIDATE_SHA="$C3" STUB_GH_FAIL=1 STUB_BOX_TAG='sha-deadbee'
 [ "$LAST_STATUS" -eq 2 ] || fail 'a box tag that is no commit must fail CLOSED' "got $LAST_STATUS"
 pass 'a box tag that resolves to no commit fails closed (exit 2)'
+
+CASE='fallback: a tag that is not sha-<short>'
+# `main` resolves in the fixture repo, so only an explicit refusal keeps it from naming a commit.
+for box_tag in 'main' 'sha-main' 'sha-12345'; do
+    run_resolve CANDIDATE_SHA="$C3" STUB_GH_FAIL=1 STUB_BOX_TAG="$box_tag"
+    [ "$LAST_STATUS" -eq 2 ] || fail "box tag '$box_tag' is not sha-<short> and must fail CLOSED" "got $LAST_STATUS"
+    grep -q 'not a sha-<short> tag' <<<"$LAST_OUTPUT" || fail "expected the not-a-sha-tag message for '$box_tag'"
+done
+pass 'a box tag that is not sha- plus hex fails closed (exit 2), even when git could resolve it'
 
 CASE='fallback: hostile tag'
 run_resolve CANDIDATE_SHA="$C3" STUB_GH_FAIL=1 STUB_BOX_TAG='sha-abc; rm -rf /'

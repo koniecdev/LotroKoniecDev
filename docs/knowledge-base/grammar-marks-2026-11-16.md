@@ -29,8 +29,9 @@ still overturn a claim about the client.
 - **Capital letters are codes**: race codes on race names (`Dwarf[D]`), class codes on class names
   (`Warden [W]`), and `[E]`, whose meaning is UNPROVEN. The same letter means different things in
   the two lists: `Man[U]` is a race and `Guardian [U]` is a class.
-- **The client reads `[m]`/`[f]` in translated text.** The Russian project patches the same
-  English client and lets its translators add `#1:{…[m]|…[f]}` choices. STRONG THIRD-PARTY
+- **The client reads `[m]`/`[f]` choices written into translated text**, at least for the
+  player's own gender. The Russian project patches the same English client and lets its translators
+  add `#1:{…[m]|…[f]}` choices. STRONG THIRD-PARTY
   EVIDENCE. Whether the client reads the mark of a translated *value* (`Krasnolud[D]`) is
   UNPROVEN, and it decides whether a dropped mark breaks other texts.
 - **Composed player titles are built in a text we translate** (`#1 #2 #3, Apprentice Scholar`).
@@ -61,6 +62,9 @@ still overturn a claim about the client.
     so this page names files and paraphrases (see
     [lotro-companion-data-model.md](lotro-companion-data-model.md)).
   - Our own code, cited as `file:line` on `origin/main` at `72ebf27a`.
+- **Reproducing the counts:** the main queries are in the appendix at the end. `lotro-db` is a
+  read-only `psql` wrapper on the maintainer's machine; anyone with read access to the database can
+  run the same SQL.
 - **Not done here:** anything that needs the game. No DAT was read, so the `ArgStrings` question
   below is open too.
 
@@ -98,6 +102,7 @@ still overturn a claim about the client.
   bracket tokens sit on 3,762 rows (section 2).
 - **A mark followed by spaces.** 20 live rows (12 different texts) end with a mark and then one or
   more spaces (`[E]`, `[e]`, `[m]`, `[v]`). None is translated, and the counts above leave them out.
+  No row has a line break after its mark; 3 rows end with a mark and then the two characters `\n`.
 - **Translated rows.** 235 rows with Polish have an English text that ends with a mark
   (127 approved, 108 drafts). The Polish keeps the same mark on 233, changes it on 0, and drops it
   on 2 (both drafts). The ticket counted 73 such rows on 2026-11-13. 38 Polish texts contain an
@@ -198,7 +203,7 @@ the trailing mark of the English race name (`lotro-tools` `RaceDataLoader`; `lot
 | capitals in race names | race code: `U` Man and Woman, `L` Elf and High Elf, `D` Dwarf and Stout-axe, `O` Hobbit and River Hobbit, `B` Beorning | PROVEN as codes that choices select on | FileId 620756996; `#-1:{Skógi[D]\|Eilian}`; Companion `lore/races.xml` |
 | capitals in class names | class code: `R` Brawler, `G` Burglar, `C` Captain, `H` Champion, `U` Guardian, `T` Hunter, `L` Lore-master, `O` Mariner, `I` Minstrel, `K` Rune-keeper, `W` Warden, `B` Beorning | PROVEN as codes that choices select on | FileId 620756999 (note the space before the mark: `Warden [W]`); the class-choice texts |
 | upper-case flags (`[P]`, `[V]`, `[MN]`, `[FN]`, `[M]`, `[N]`, `[F]`) | probably the same flags written in upper case | UNPROVEN | `Armoured Frost Troll[V]`, `Gorge Webs[P]`, `Naruhel[FN]`; the choice `#1:{ [P]\| [p]\| the }` lists both cases, a hint that case matters |
-| `DNT` | a developer note: do not translate | UNPROVEN | 4 rows, all test or developer texts |
+| `DNT` | a developer note: do not translate | STRONG THIRD-PARTY EVIDENCE | 4 rows, all test or developer texts. The Russian rules page says texts with DNT, LFF, TBD, SRR and the like are not translated at all ("Весь текст не переводится, его просто пропускаем"); #1421 hides such developer texts |
 
 **Correction of an earlier claim.** The loop comment on #1370 of 2026-11-13 said that LOTRO
 Companion removes the marks, so its German and French labels cannot show them. That is too broad.
@@ -253,7 +258,10 @@ labels with marks and `fr/factions.xml` has 13.
   (`TranslationLineEscaper`, ADR-0039).
 - The TMS stores what the translator sent (`UpsertTranslation.cs`), the file export writes it as it
   is (`TranslationFileSerializer.cs:32`, `PrecomputedTranslationFileProjector.cs:65`), and the
-  editor checks only the `<--DO_NOT_TOUCH!-->` count (`PlaceholderAnalyzer.cs:11`).
+  editor checks only the `<--DO_NOT_TOUCH!-->` count, as advice: `PlaceholderAnalyzer.Compare`,
+  called at `Editor.razor:119`, shows a warning (`Editor.razor:157-162`) and does not block the save.
+  Neither the save nor the patcher refuses a Polish text with a different placeholder count than
+  the English; #1437 tracks that.
 - The same-text panel of #1360 matches the English exactly (`ListSameSourceTextTranslations.cs:52`),
   so `Dwarf[D]` and `Dwarf` are two different groups.
 
@@ -300,9 +308,9 @@ counts them.
 Measured against these definitions:
 
 - **#1421 is safe as written.** Its rule empties 3,650 untranslated rows (44 different texts)
-  only because it removes a bracket token, and every token it removes there is a known flag set
-  (`ps`, `e`, `p`, `E`, `es`, `s`, `ns`, `v`, `m`, `F`, `M`). No visible word in brackets gets
-  erased on a row it hides. The tokens it misses (`[nvps]`, `[n=ps]`, digits) only leave a row
+  only because it removes a bracket token, and every token it removes there is one of the end
+  marks counted in section 1 (`ps`, `e`, `p`, `E`, `es`, `s`, `ns`, `v`, `m`, `F`, `M`), whatever
+  each one means. No visible word in brackets gets erased on a row it hides. The tokens it misses (`[nvps]`, `[n=ps]`, digits) only leave a row
   visible, which is the safe direction.
 - **The definitions differ in position** (anywhere vs the end) **and in shape** (one to three
   letters vs any letters). Real marks have up to four letters (`[nvps]`), upper case, and a space
@@ -333,6 +341,9 @@ no mark logic. The Frontend cannot reference the TMS Domain, but it does see the
   UNPROVEN (live-test item c). If Polish needs another order, "a translator can set the argument
   order" is a product-ticket candidate. It depends on #1409 (a second patch of a reordered row
   moves the arguments again), and the wiki already leaves this choice to the owner (section 4).
+  Another design for that ticket to weigh: the Russian platform adds a digit to every
+  `<--DO_NOT_TOUCH!-->` in a translation by itself (rule 13 list), so each placeholder may carry
+  its own argument number. How their tool uses that digit is UNPROVEN.
 - **Race and sub-race names are separate texts.** The race list (FileId 620756996) has
   `Stout-axe[D]` (GossipId 49821557) next to `Dwarf[D]` (3358501). "Stout-axe Dwarf" is a text of
   its own (621025278:228870261), and so is "Get the Stout-axe Dwarf Race" (191177136). No English
@@ -349,12 +360,21 @@ On the sandbox install (no UAC, [update-50/RESULTS.md](update-50/RESULTS.md)), w
 from that install so their `source_digest` matches (ADR-0047). DAT reading and writing goes through
 the `dat-format-expert` agent. Record what the game shows, with screenshots.
 
-- **a. The Russian construction in Polish.** Pick a dialogue whose English has the player-name
-  placeholder and no choice. Write `#2:<--DO_NOT_TOUCH!-->` and `#2:{zrobiłeś[m]|zrobiłaś[f]}` into
-  the Polish. Check it with a male and with a female character.
-- **b. Drop and change a race mark.** On `Krasnolud[D]`: first drop the mark, then write `[x]`.
-  Each time, open a text that chooses by race (`#-1:{…[D]|…}`, for example a crafting or starter
-  quest objective) with a dwarf character. Does the dwarf branch still show?
+Two rules for every hand-made row. Keep exactly as many `<--DO_NOT_TOUCH!-->` as the English: the
+patcher does not check the count (#1437), so a typo would look like a finding about marks. And use
+a `#N:` label on both the placeholder and the choice, so an unlabelled choice (section 2: which
+argument it reads is UNPROVEN) never mixes into the result.
+
+- **a. The Russian construction in Polish.** Pick a dialogue whose English has one player-name
+  placeholder, no label and no choice. Write `#1:<--DO_NOT_TOUCH!-->` and
+  `#1:{zrobiłeś[m]|zrobiłaś[f]}` into the Polish, as the Russian example does. Check it with a male
+  and with a female character. Then, on another row, try the same with `#2:`, to see whether a
+  label is only a name.
+- **b. Drop and change a race mark.** On all three `Krasnolud[D]` rows (the `Dwarf[D]` rows of
+  FileId 620756996): first drop the mark, then write `[x]`. Each time, open a text that chooses by
+  race (`#-1:{…[D]|…}`, for example a crafting or starter quest objective) with a plain Dwarf
+  character, not a Stout-axe: a Stout-axe's race name is the separate `Stout-axe[D]` row. Does the
+  dwarf branch still show? Then repeat on the `Stout-axe[D]` rows with a Stout-axe character.
 - **c. Word order.** Two hand-made rows on two different player titles, so the two results can be
   told apart: (1) one title with the pieces moved and `args_order` set to match (for example
   `1-3-2`); (2) another title with only the labelled placeholders moved (`#3:` before `#2:`),
@@ -369,15 +389,17 @@ the `dat-format-expert` agent. Record what the game shows, with screenshots.
 - **f. Flags on values.** Remove `[e]`, `[v]`, `[E]` or `[ps]` on a few item names that appear in
   loot or quest messages, and see whether those messages change.
 - **g. Count marks.** Write a Polish choice with `[1]`, `[2]`, `[3]`, `[4]` and a default, in a
-  text with a number, and see it with the numbers 1, 2, 5, 12, 22 and 25. Does `[2]` match 22?
+  text with a number, and see it with the numbers 1, 2, 3, 4, 5, 12, 13, 14, 22, 23, 24 and 25.
+  Do `[2]`, `[3]` and `[4]` match 22, 23 and 24, and not 12, 13 and 14?
   Also look at the three English rows that match other numbers (`[1.0]`, `[51,0]`, `[350]`, `[0]`;
   section 2) in game.
 - **h. Polish flags.** On a value that a Polish text picks by gender (an item name or an NPC name),
   add a Polish gender letter that English does not use for that value (for example `[f]` on a
-  female item name) and check that a Polish choice `{…[m]|…[f]|…}` follows it. This decides
-  between options A and B below.
+  female item name) and check that a labelled Polish choice `#1:{…[m]|…[f]|…}` follows it. This
+  decides between options A and B below.
 - **i. Branches with several letters.** Give one value `[mn]` and another `[m]`, and show both in a
-  choice `{a[mn]|b[m]|c}` and in `{b[m]|a[mn]|c}`. Then show a value marked `[mn]` in `{b[m]|c}`.
+  labelled choice `#1:{a[mn]|b[m]|c}` and in `#1:{b[m]|a[mn]|c}`. Then show a value marked `[mn]`
+  in `#1:{b[m]|c}`.
   Together they show whether the client takes the first branch that fits, the exact set, or the
   most specific branch (the developer test text in section 2). The last probe is also the case a
   Polish gender choice on an NPC name (`[mn]`, `[fn]`) depends on.
@@ -388,12 +410,15 @@ the `dat-format-expert` agent. Record what the game shows, with screenshots.
 
 > **Propozycja, jeszcze nie obowiązuje.**
 >
-> 1. Znacznik na końcu tekstu, np. `[D]`, `[mn]` albo `[ps]`, przepisz dokładnie tak jak w angielskim
->    tekście, razem ze spacją przed nim, jeśli jest. Nie tłumacz go, nie usuwaj go i nie zmieniaj
->    w nim liter.
-> 2. Oznaczenia `#1:`, `#2:` przed `<--DO_NOT_TOUCH!-->` zostaw na swoim miejscu. W wyborach
->    w klamrach, np. `#1:{he[m]|she[f]|it}`, przetłumacz słowa, a znaczniki w nawiasach kwadratowych
->    przepisz bez zmian.
+> 1. Znacznik na końcu tekstu, czyli same litery w nawiasach kwadratowych, np. `[D]`, `[mn]` albo
+>    `[ps]`, przepisz dokładnie tak jak w angielskim tekście, razem ze spacją przed nim, jeśli jest.
+>    Nie tłumacz go, nie usuwaj go i nie zmieniaj w nim liter. Nawias ze zwykłym słowem albo ze
+>    spacją w środku (`[ filter \]`) to nie znacznik, tylko tekst do przetłumaczenia.
+> 2. Oznaczenie `#1:`, `#2:` zawsze stoi tuż przed swoim `<--DO_NOT_TOUCH!-->`: jeśli przenosisz
+>    `<--DO_NOT_TOUCH!-->` w inne miejsce zdania, przenieś je razem z oznaczeniem. Nie zamieniaj
+>    kolejności dwóch `<--DO_NOT_TOUCH!-->`: gra wstawia wartości zawsze w angielskiej kolejności.
+>    W wyborach w klamrach, np. `#1:{he[m]|she[f]|it}`, przetłumacz słowa, a znaczniki w nawiasach
+>    kwadratowych przepisz bez zmian.
 > 3. Formy zależnej od płci postaci nie dodawaj sam, dopóki nie sprawdzimy jej w grze.
 
 Open in this proposal: what to do with a choice that has no Polish words, like the English article
@@ -454,3 +479,45 @@ These go into #1433, each with a recommended answer:
     `lore/labels/en/titles.xml`, `lore/races.xml`.
 - [russian-project.md](russian-project.md), [lotro-companion-data-model.md](lotro-companion-data-model.md),
   ADR-0039, ADR-0042, ADR-0047.
+
+## Appendix: main queries (PostgreSQL, read-only)
+
+Every query reads only `translation."Translations"` and only live rows.
+
+```sql
+-- Section 1: rows that end with a bracket token, and the count per token.
+SELECT substring("SourceText" from '(\[[^][]{1,12}\])$') AS mark, count(*)
+FROM translation."Translations" WHERE "RemovedInVersion" IS NULL AND "SourceText" ~ '\[[^][]{1,12}\]$' GROUP BY 1 ORDER BY 2 DESC;
+
+-- Section 1: translated rows that keep, change or drop the English end mark.
+WITH t AS (SELECT substring("SourceText" from '(\[[^][]{1,12}\])\s*$') sm,
+                  substring("TranslatedText" from '(\[[^][]{1,12}\])\s*$') tm
+           FROM translation."Translations" WHERE "RemovedInVersion" IS NULL AND "TranslatedText" IS NOT NULL AND "SourceText" ~ '\[[^][]{1,12}\]\s*$')
+SELECT count(*) FILTER (WHERE tm = sm), count(*) FILTER (WHERE tm <> sm),
+       count(*) FILTER (WHERE tm IS NULL) FROM t;
+
+-- Section 2: the "v" test, on marks of 1-4 letters. The "s" test swaps the vowel class for 's$'.
+WITH t AS (SELECT substring("SourceText" from '\[([^][]{1,12})\]$') AS mark,
+                  regexp_replace("SourceText", '\[[^][]{1,12}\]$', '') AS body
+           FROM translation."Translations" WHERE "RemovedInVersion" IS NULL AND "SourceText" ~ '\[[a-z]{1,4}\]$')
+SELECT mark LIKE '%v%', count(*),
+       avg((body ~* '^(the |an? )?[aeiouáéíóúâêîôûäëïöüàèìòù]')::int) FROM t GROUP BY 1;
+
+-- Section 2: choices, labels and the rows with no argument.
+SELECT count(*) FILTER (WHERE "SourceText" ~ '#-?\d+:<--DO_NOT_TOUCH!-->'),
+       count(*) FILTER (WHERE "SourceText" ~ '#-?\d+:\{'),
+       count(*) FILTER (WHERE "SourceText" ~ '\{[^{}]*\[[^][]+\][^{}]*\}'),
+       count(*) FILTER (WHERE "SourceText" ~ '\{[^{}]*\[[^][]+\][^{}]*\}' AND "ArgsOrder" IS NULL)
+FROM translation."Translations" WHERE "RemovedInVersion" IS NULL;
+
+-- Section 2: flags inside choices, per occurrence.
+WITH b AS (SELECT (regexp_matches("SourceText", '\{([^{}]*)\}', 'g'))[1] AS x FROM translation."Translations" WHERE "RemovedInVersion" IS NULL AND "SourceText" ~ '\{'),
+     k AS (SELECT (regexp_matches(x, '\[([^][]{1,12})\]', 'g'))[1] AS tok FROM b)
+SELECT tok, count(*) FROM k GROUP BY 1 ORDER BY 2 DESC;
+
+-- Section 4: the rows #1421's rule hides only because it removes a token.
+SELECT count(*), count(DISTINCT "SourceText")
+FROM translation."Translations" WHERE "RemovedInVersion" IS NULL AND "TranslatedText" IS NULL AND "SourceText" ~ '\[[A-Za-z]{1,3}\]'
+  AND regexp_replace(replace("SourceText", '<--DO_NOT_TOUCH!-->', ''), '\[[A-Za-z]{1,3}\]', '', 'g')
+      !~ '[[:alpha:]]';
+```

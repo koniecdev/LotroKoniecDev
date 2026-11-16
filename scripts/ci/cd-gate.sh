@@ -9,8 +9,8 @@
 #   * the tested commit is on `main` itself. A writer can push a TAG named `main`, and GitHub then puts
 #     `main` in head_branch with event `push` from this repository. Only the commit's place in history
 #     tells the two apart, so an unmerged commit never reaches build-and-push with ref `main`.
-# A `workflow_dispatch` or a `v*` tag push passes through ungated, as before: the environments allow
-# only `main`, so their deploy jobs run only for a dispatch from `main`.
+# A `workflow_dispatch` passes through ungated, as before: the environments allow only `main`, so its
+# deploy jobs run only for a dispatch from `main`.
 #
 # Env:     EVENT_NAME, FALLBACK_SHA (github.sha), GITHUB_REPOSITORY (all required); for a workflow_run
 #          also WR_CONCLUSION, WR_BRANCH, WR_EVENT, WR_HEAD_REPO, WR_SHA, WR_ID, WR_URL; `gh` needs a
@@ -91,13 +91,13 @@ EOF
 EOF
     fi
 else
-    # workflow_dispatch (deploy on demand) or a v* tag push (publish artifacts only).
+    # workflow_dispatch (deploy on demand).
     proceed=true
     summary <<EOF
 ### ▶️ ${EVENT_NAME} — not CI-gated
 
 - Commit \`${deploy_sha}\`
-- Manual dispatch / tag publish. Only a run from \`main\` may deploy, and production still needs its approval.
+- Manual dispatch. Only a run from \`main\` may deploy, and production still needs its approval.
 EOF
 fi
 

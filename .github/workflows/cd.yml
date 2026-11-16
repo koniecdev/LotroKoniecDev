@@ -121,7 +121,7 @@ jobs:
       short_sha: ${{ steps.eval.outputs.short_sha }}
     steps:
       # For a workflow_run this is main's tip: the same commit whose cd.yml is running, never the
-      # tested commit. For a dispatch or a tag push it is the ref whose cd.yml is running anyway.
+      # tested commit. For a dispatch it is the ref whose cd.yml is running anyway.
       - name: Checkout (the gate script)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

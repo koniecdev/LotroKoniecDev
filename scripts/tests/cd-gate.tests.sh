@@ -158,18 +158,16 @@ for bad in '' 'abc' "${TESTED_SHA}0" "1111111111111111111111111111111111111111;x
     pass 'a tested sha that is not 40 hex is refused, and never reaches the outputs or the API'
 done
 
-# --- dispatch and tag push pass through ---------------------------------------------------------
+# --- a dispatch passes through ------------------------------------------------------------------
 
-for event in workflow_dispatch push; do
-    CASE="$event"
-    run_gate EVENT_NAME="$event" WR_CONCLUSION= WR_BRANCH= WR_EVENT= WR_HEAD_REPO= WR_SHA=
-    [ "$LAST_STATUS" -eq 0 ] || fail "expected exit 0, got $LAST_STATUS"
-    output_is 'proceed=true'
-    output_is "deploy_sha=$TIP_SHA"
-    output_is "short_sha=${TIP_SHA:0:7}"
-    [ ! -s "$CALLS" ] || fail 'a dispatch or tag push must not call the API'
-    pass 'passes through ungated, pinned to github.sha'
-done
+CASE='workflow_dispatch'
+run_gate EVENT_NAME=workflow_dispatch WR_CONCLUSION= WR_BRANCH= WR_EVENT= WR_HEAD_REPO= WR_SHA=
+[ "$LAST_STATUS" -eq 0 ] || fail "expected exit 0, got $LAST_STATUS"
+output_is 'proceed=true'
+output_is "deploy_sha=$TIP_SHA"
+output_is "short_sha=${TIP_SHA:0:7}"
+[ ! -s "$CALLS" ] || fail 'a dispatch must not call the API'
+pass 'passes through ungated, pinned to github.sha'
 
 # --- usage errors -------------------------------------------------------------------------------
 

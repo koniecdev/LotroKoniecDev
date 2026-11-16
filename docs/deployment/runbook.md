@@ -1176,9 +1176,9 @@ so a tag moved between the check and the pull cannot slip in.
 
 Always name a `sha-<short>` tag, never `latest`: the script pins the tag in `.env`, the next
 automatic rollback returns to whatever `.env` names, and `latest` moves with every green CI run.
-Name only a tag that CD has deployed before: `deploy.sh` run by hand checks no build provenance, so
-it would also run a tag that never passed CD's checks (one pushed by hand, or one from before
-ADR-0070 whose build failed after its push).
+Never skip the check above: `deploy.sh` itself checks no build provenance, so without
+`EXPECTED_DIGESTS` it would also run a tag that never passed CD's checks (one pushed by hand, or one
+from before ADR-0070 whose build failed after its push).
 
 Rolling back = deploying the previous tag. The tag that is live now is the `IMAGE_TAG` line in
 `/opt/lotro/.env` (written only after a successful roll, so it never lies), and every CD run prints the
@@ -1193,8 +1193,9 @@ Two edges worth knowing. `deploy.sh` prunes unused images older than 14 days
 `deploy.sh` pulls it for you. A pull by hand needs `DOCKER_CONFIG=/nonexistent` in front, or a stored
 login that has expired fails it ([Gotchas](#gotchas)). And re-running CD for a commit (**Actions → CD
 → Run workflow**, optionally with an explicit `image_tag`) works only from `main`, the `image_tag` must
-be an image built from `main`, and the run still goes through the staging→prod gate. It builds nothing for a commit whose images `cd.yml` already built from `main`. But
-it first builds the commit it was started on (the tip of `main`) when that commit has no images yet.
+be an image built from `main`, and the run still goes through the staging→prod gate. It builds
+nothing for a commit whose images `cd.yml` already built from `main`. But it first builds the commit
+it was started on (the tip of `main`) when that commit has no images yet.
 That is common: a commit that only changed docs starts no CI, so it starts no CD and gets no images.
 A failed build there stops the deploy, a rollback included (#1424).
 

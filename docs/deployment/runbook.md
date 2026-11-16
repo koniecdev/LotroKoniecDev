@@ -1092,7 +1092,8 @@ IMAGE_TAG=sha-1a2b3c4 bash /opt/lotro/deploy.sh    # roll to a specific commit's
 Always name a `sha-<short>` tag, never `latest`: the script pins the tag in `.env`, the next
 automatic rollback returns to whatever `.env` names, and `latest` moves with every green CI run.
 Name only a tag that CD has deployed before: `deploy.sh` run by hand checks no build provenance, so
-it would also run an image that failed its scan.
+it would also run a tag that never passed CD's checks (one pushed by hand, or one from before
+ADR-0070 whose build failed after its push).
 
 Rolling back = deploying the previous tag. The tag that is live now is the `IMAGE_TAG` line in
 `/opt/lotro/.env` (written only after a successful roll, so it never lies), and every CD run prints the
@@ -1142,8 +1143,8 @@ live since 2026-11-15 (ADR-0071), so v0.1.0 needs only a prod commit that has AD
    git cat-file -e <sha>:docs/adr/0070-a-release-is-a-git-tag-and-cd-builds-each-commit-once.md && echo "has ADR-0070"
    ```
 
-   If it prints nothing, do not tag that commit: promote a newer commit to prod first, then start
-   again at step 1.
+   If it does not print `has ADR-0070`, do not tag that commit: promote a newer commit to prod
+   first, then start again at step 1.
 3. **Tag it and push the tag:**
 
    ```bash
@@ -1164,9 +1165,9 @@ fails half way leaves only an untagged digest, and re-running the job builds the
 is nothing to clean up.
 
 A CD run stops at *Look up this commit's existing image* with "gh did not confirm that cd.yml in
-… built it from <ref>" only when the tag exists but was not built by this repo's `cd.yml` from the
-run's own ref. CD never builds over a tag, because a second build is not the same image. The `gh`
-output just above that line says which case it is:
+… built it from <ref>" only when the tag exists and `gh` does not confirm that this repo's `cd.yml`
+built it from the run's own ref. CD never builds over a tag, because a second build is not the
+same image. The `gh` output just above that line says which case it is:
 
 - the check could not reach GitHub for a moment;
 - the image was built from another ref: a CD run on a branch whose head is this commit named it

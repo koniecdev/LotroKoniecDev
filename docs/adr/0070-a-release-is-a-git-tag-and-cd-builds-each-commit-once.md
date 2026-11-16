@@ -201,9 +201,10 @@ that lands second can move the lookup onto the shared script.
 
 ## Implementation Notes
 
-- `cd.yml`: no `push: tags` trigger and no `type=semver` tags. `build-and-push` starts with the step
+- `cd.yml`: no `push: tags` trigger and no `type=semver` tags. In `build-and-push`, no step before
   "Look up this commit's existing image" (`commit-image.sh find`, pinned to `cd.yml` and
-  `$GITHUB_REF`); every later step runs only when it reports `exists=false`. The build pushes by
+  `$GITHUB_REF`) writes to the registry, and every later step runs only when it reports
+  `exists=false`. The build pushes by
   digest (`push-by-digest=true`, no `tags`), and the last step, "Name the checked image"
   (`commit-image.sh name`), adds the tags. Its concurrency group no longer cancels a running build.
 - `scripts/tests/commit-image.tests.sh` runs in pr-verify on every PR and in ci on main. Besides

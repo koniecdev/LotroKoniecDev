@@ -237,6 +237,26 @@ public sealed class TranslationFileDownloaderTests
         result.Error.Code.ShouldBe("TranslationFileSync.NetworkError");
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public async Task FetchAsync_RefusedOrFailedResponse_ShouldReturnANetworkFailure(HttpStatusCode status)
+    {
+        // Arrange: the download budget's 429 (#697) must end the way an outage behind the proxy does, so
+        // the launch goes on with the local file (spec 0001 Q5).
+        using HttpResponseMessage response = new(status);
+        using HttpClient httpClient = new(new StubHttpMessageHandler(response));
+        TranslationFileDownloader sut = new(httpClient);
+
+        // Act
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(Endpoint, "\"cached-etag\"", CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("TranslationFileSync.NetworkError");
+    }
+
     [Fact]
     public async Task FetchAsync_NotModifiedResponse_ShouldReportTheCachedCopyCurrentWithoutAnyCheck()
     {

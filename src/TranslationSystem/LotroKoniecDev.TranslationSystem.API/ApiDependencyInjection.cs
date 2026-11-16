@@ -200,6 +200,7 @@ internal static class ApiDependencyInjection
                     $"{TranslationFileDiskCacheSettings.ConfigurationSection}:{nameof(TranslationFileDiskCacheSettings.Directory)} must be an absolute path, or left out.")
                 .ValidateOnStart();
             services.AddSingleton<ITranslationFileDiskCache, TranslationFileDiskCache>();
+            services.AddSingleton<TranslationFileDownloadMetrics>();
 
             services.AddScoped<
                 IQueryHandler<GetTranslationFile.HashQuery, Result<string>>,

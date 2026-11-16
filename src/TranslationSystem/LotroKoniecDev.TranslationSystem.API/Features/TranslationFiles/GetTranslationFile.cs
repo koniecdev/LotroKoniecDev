@@ -20,6 +20,12 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 /// </summary>
 internal sealed class GetTranslationFile : IEndpoint
 {
+    /// <summary>
+    /// The download's own limiter policy, registered in Program.cs. It replaces fixed-by-ip on this
+    /// route (ADR-0064, 2026-11-14 amendment).
+    /// </summary>
+    internal const string RateLimitPolicy = "translation-file-download";
+
     private const string SupportedLanguage = SupportedLanguages.Polish;
 
     /// <summary>
@@ -90,6 +96,7 @@ internal sealed class GetTranslationFile : IEndpoint
                 string lang,
                 IQueryHandler<HashQuery, Result<string>> hashHandler,
                 IQueryHandler<Query, Result<TranslationFileResult>> handler,
+                TranslationFileDownloadMetrics metrics,
                 HttpContext httpContext,
                 CancellationToken cancellationToken) =>
             {
@@ -123,14 +130,17 @@ internal sealed class GetTranslationFile : IEndpoint
 
                 // The tag of the copy actually sent, which is newer if a rebuild landed in between.
                 SetRevalidationHeaders(httpContext, new EntityTagHeaderValue($"\"{result.Value.ETag}\""));
+                metrics.RecordFullDownload(result.Value.Content.Length);
                 return Results.Stream(result.Value.Content, TextPlainUtf8);
             })
             .WithName(nameof(GetTranslationFile))
             .WithTags("TranslationFiles")
             .AllowAnonymous()
+            .RequireRateLimiting(RateLimitPolicy)
             .Produces<string>(StatusCodes.Status200OK, "text/plain")
             .Produces(StatusCodes.Status304NotModified)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
     }
 
     /// <summary>

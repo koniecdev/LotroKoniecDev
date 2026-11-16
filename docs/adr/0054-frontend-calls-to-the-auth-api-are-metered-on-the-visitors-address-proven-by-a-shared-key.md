@@ -5,6 +5,7 @@
 moved the TMS limiter before authentication, noted in the TMS amendment; amended 2026-09-24 — see
 "Amendment: an IPv6 client is its /64"; amended 2026-09-27 — see "Amendment: the refused-call warning
 names the visitor too"; 2026-09-28 — #900 made introspection POST only (ADR-0061), noted in that
+amendment; 2026-11-14 — #697 added a second TMS policy keyed through the resolver, noted in the TMS
 amendment)
 **Date:** 2026-09-22
 **Decision-makers:** Solo maintainer (ticket #819)
@@ -311,6 +312,12 @@ have put every page on the 429 copy. The decision above now covers the TMS API t
 - This amendment left the TMS limiter after authentication, so a request refused with 401 was not
   counted. #829 (2026-09-24) moved it before authentication, as on the auth API: a request refused
   with 401 or 403 now spends the bucket too (`RefusedCallsRateLimitingTests`).
+- #697 (2026-11-14) gave the translation file download its own policy, `translation-file-download`
+  (5 calls a minute, ADR-0064 amendment), so `fixed-by-ip` is no longer the TMS API's one policy. It
+  keys through the resolver too: the landing-page download reaches the endpoint from the frontend
+  container, so a connection key would put every website visitor in one bucket of 5. A leaked key
+  lets its holder pick a fresh download bucket for each address they invent, as on `fixed-by-ip`.
+  That is the trade-off this ADR already accepts: rotating the key ends it.
 
 Tests: `TranslationSystem.API.Tests.Unit` — `RateLimitPartitionKeyResolverTests`,
 `FrontendCallerSettingsValidatorTests`; `TranslationSystem.API.Tests.Integration` —

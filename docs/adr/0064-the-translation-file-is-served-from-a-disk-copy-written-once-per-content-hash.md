@@ -1,6 +1,6 @@
 # ADR-0064: The Translation File Is Served from a Disk Copy, Written Once per Content Hash
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-11-14 — see "Amendment: the download has its own rate limit")
 **Date:** 2026-10-07
 **Decision-makers:** Solo maintainer (ticket #715)
 **Related:** TranslationSystem.API (`Features/TranslationFiles/GetTranslationFile.cs`,
@@ -189,3 +189,63 @@ the whole file was read first. Once a body is streamed, that cannot be avoided.
 
 - #716 measures the update-day crowd on the local parity stack. It should run once more on top of this
   change, and it decides whether downloads also need a cap for bandwidth.
+
+## Amendment: the download has its own rate limit (2026-11-14, #697)
+
+The endpoint is anonymous, and its answer is the whole file. Its only limit was `fixed-by-ip`: 100
+calls a minute per address, the same budget as a small JSON list. A client that never sends
+`If-None-Match` could pull 100 full files a minute, and the box's bandwidth is a monthly allowance.
+§6 left a cap on downloads running at the same time to #716. This amendment limits how often one
+address may ask, which is a different question.
+
+- **The endpoint has its own policy, `translation-file-download`: 5 calls a minute per address.** It
+  is a fixed window with no queue, keyed through `RateLimitPartitionKeyResolver` like `fixed-by-ip`
+  (ADR-0054). A real client asks once per launch. The 6th call in a minute gets 429 with
+  `Retry-After` from the limiter's shared rejection code, and a refused call reads no hash and opens
+  no file.
+- **It replaces `fixed-by-ip` on this route, on purpose.** The rejected alternative above says an
+  endpoint's own policy "would silently drop `fixed-by-ip`". That was about a concurrency limiter,
+  which limits no rate. This policy has the same key and is 20 times stricter, so nothing is lost.
+  Downloads no longer spend the shared bucket.
+- **Every call counts, a 304 included.** The ticket asked for a budget "in bodies". But the limiter
+  decides before the endpoint, and only the endpoint knows whether the answer is a 304. A budget that
+  counts only bodies would need its own permit inside the endpoint, its own on/off switch, a new
+  error code and a hand-set `Retry-After`. Counting every call gives the same cap of 5 bodies a
+  minute with the limiter the API already has. The cost: when several players behind one shared
+  address start the game in the same minute, the 6th is refused. A returning player goes on with the
+  local file, as in an outage (spec 0001 Q5). A first-time player with no local file cannot start,
+  and can try again after a minute. Once the patcher has a default TMS address (#1281), every launch
+  spends one call.
+- **The ceiling.** An address is an IPv4 address or an IPv6 /64 (ADR-0054). Per address, the limit
+  allows 7,200 full downloads a day: about 340 MB a day at today's file of about 47 KB, and about
+  590 GB a day (about 55 Mbit/s) at the full size of about 82 MB. That is far from full speed, but it
+  is not small. A longer window would be stricter, but the buckets live in memory and every deploy
+  starts with empty ones, so a window of a day would reset several times a day (the argument of
+  ADR-0072 §3). A token bucket of 5, refilled by one a minute, would cut the ceiling to 1,440 a day,
+  but after the first burst a shared address would get only one launch a minute, and the ticket asks
+  for "a handful per minute".
+- **A leaked frontend key** lets its holder pick a fresh download bucket for each address they
+  invent, as it already does on `fixed-by-ip`. Rotating the key ends it (ADR-0054, the TMS
+  amendment).
+- **No proxy cache.** A cache in Caddy with a public validator would save work in the API and the
+  database. The disk copy (§1) already removed most of that work, and the 304 path reads only the
+  hash. It would not cut the bytes that leave the box, which is the cost here. The stock Caddy image
+  has no cache anyway (the rejected alternative above).
+- **A counter shows the pattern.** `lotro.translation_file.download.uncompressed_size` (meter
+  `LotroKoniecDev.TranslationSystem.TranslationFiles`, unit bytes) adds the file's length when a full
+  download starts. It is not egress: a compressed or an aborted download counts in full. It has no
+  client tag. The services dashboard shows it next to this route's answers by status (200, 304, 429).
+- **§6's question stays open.** The update-day crowd comes from many addresses, and a limit per
+  address does not cap it.
+
+Follow-up: #716's load test sends many clients from one machine to the parity stack, which runs in
+Production, so after this change every call after the 5th in a minute is a 429. Each simulated client
+must send its own `X-LOTRO-Client-Address` next to the parity stack's `FRONTEND_CALLER_KEY` in
+`X-LOTRO-Frontend-Key`.
+
+Tests: `TranslationSystem.API.Tests.Integration` — `TranslationFileDownloadRateLimitingTests` (the 6th
+call is refused with `Retry-After`, other endpoints stay open for the same caller, another address and
+another visitor behind the frontend keep their own budget) and two `GetTranslationFileTests` for the
+counter; `Tests.Infrastructure` — a 429 ends as `NetworkError` in `TranslationFileDownloaderTests` and
+`TranslationSystemDiscoveryClientTests`; `Frontend.Tests.Unit` — the landing-page download answers a
+TMS 429 with the Polish status text (`ImportExportEndpointsExtensionsTests`).

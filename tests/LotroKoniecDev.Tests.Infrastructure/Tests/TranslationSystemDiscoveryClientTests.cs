@@ -73,11 +73,14 @@ public sealed class TranslationSystemDiscoveryClientTests
         handler.LastRequest.Headers.Accept.ShouldContain(header => header.MediaType == MediaTypes.HateoasJson);
     }
 
-    [Fact]
-    public async Task FetchLinksAsync_ServerError_ShouldReturnANetworkFailure()
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public async Task FetchLinksAsync_RefusedOrFailedResponse_ShouldReturnANetworkFailure(HttpStatusCode status)
     {
-        // Arrange
-        using HttpResponseMessage response = new(HttpStatusCode.ServiceUnavailable);
+        // Arrange: a 429 is the outage path too, so the resolver falls back to the saved endpoint (#697)
+        using HttpResponseMessage response = new(status);
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));
         TranslationSystemDiscoveryClient sut = new(httpClient);
 

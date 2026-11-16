@@ -14,6 +14,7 @@ using Serilog;
 using Serilog.Sinks.OpenTelemetry;
 using LotroKoniecDev.TranslationSystem.API;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
+using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 using LotroKoniecDev.TranslationSystem.API.Health;
 using LotroKoniecDev.TranslationSystem.API.Middleware;
 using LotroKoniecDev.TranslationSystem.API.Services.RateLimiting;
@@ -112,7 +113,8 @@ try
             .AddAspNetCoreInstrumentation()
             .AddRuntimeInstrumentation()
             .AddMeter("Microsoft.EntityFrameworkCore")
-            .AddMeter("Npgsql"));
+            .AddMeter("Npgsql")
+            .AddMeter(TranslationFileDownloadMetrics.MeterName));
 
     // Without an endpoint the SDK keeps retrying its default localhost:4317, which no box runs.
     if (otlpExportEnabled)
@@ -234,6 +236,18 @@ try
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = 100,
+                    Window = TimeSpan.FromMinutes(1)
+                }));
+
+        // The translation file is the one anonymous answer that costs real bandwidth, and a real client
+        // asks once per launch. A 304 counts too, because the limiter decides before the endpoint knows
+        // the answer (ADR-0064, 2026-11-14 amendment).
+        options.AddPolicy(GetTranslationFile.RateLimitPolicy, httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: httpContext.RequestServices.GetRequiredService<RateLimitPartitionKeyResolver>().Resolve(httpContext),
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 5,
                     Window = TimeSpan.FromMinutes(1)
                 }));
 

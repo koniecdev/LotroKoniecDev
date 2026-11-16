@@ -54,7 +54,7 @@
 ### 1. The distributed translation file / distribution endpoint
 
 Request names the downloadable `polish.txt` artifact or its endpoint
-(`GET https://tms.lotro-translator.pl/api/v1/translation-files/polish`).
+(`GET https://tms.lotro-translator.pl/api/v1/translation-files/pl`).
 
 - **Immediate (minutes):** SSH to the box, stop the TMS API:
   `cd /opt/lotro && docker compose -f compose.hetzner.yaml stop tms-api`.
@@ -65,7 +65,7 @@ Request names the downloadable `polish.txt` artifact or its endpoint
   ship through the normal CD, then `docker compose -f compose.hetzner.yaml start tms-api`.
   Deleting the `PrecomputedTranslationFiles` row alone is **not** sufficient — the
   projector regenerates the artifact after the next approve/write.
-- **Verify:** `curl -s -o /dev/null -w "%{http_code}" https://tms.lotro-translator.pl/api/v1/translation-files/polish`
+- **Verify:** `curl -s -o /dev/null -w "%{http_code}" https://tms.lotro-translator.pl/api/v1/translation-files/pl`
   returns a non-2xx code; repeat for staging.
 
 ### 2. A named repository asset
@@ -141,7 +141,7 @@ Following your notice dated <date>, the following actions were completed as of
 <date, time, timezone>:
 
 - <e.g. distribution of the translation file at
-  https://tms.lotro-translator.pl/api/v1/translation-files/polish has been disabled>
+  https://tms.lotro-translator.pl/api/v1/translation-files/pl has been disabled>
 - <e.g. the file <path> has been removed from the repository>
 
 Please let me know if any further action is required; any remaining request will

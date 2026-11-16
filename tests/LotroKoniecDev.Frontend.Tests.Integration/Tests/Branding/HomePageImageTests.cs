@@ -33,8 +33,9 @@ public sealed partial class HomePageImageTests : IClassFixture<ProductionFronten
 
         // Assert
         page.StatusCode.ShouldBe(HttpStatusCode.OK);
-        // The logo, the strip and the phone banner. A streamed page can name a file twice.
-        sources.Distinct().Count().ShouldBe(3);
+        // A streamed page can name a file twice, and the asset path carries a fingerprint after the first dot.
+        sources.Select(source => source.Split('.')[0]).Distinct()
+            .ShouldBe(["logo", "discord-strip", "discord-banner"], ignoreOrder: true);
         answers.ShouldAllBe(answer => answer.EndsWith(" 200 image", StringComparison.Ordinal));
     }
 

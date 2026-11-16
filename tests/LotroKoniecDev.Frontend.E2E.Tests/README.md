@@ -81,6 +81,8 @@ One test class per flow, in `Flows/`:
   style of the e-mail change page.
 - `CookieConsentBannerTests`, `SelfHostedFontsTests`, `AccountGdprSelfServiceTests`: the LEGAL
   pack (cookie banner, no Google font hosts, data export and account deletion under "Moje konto").
+- `HomeDiscordBannerTests`: the home page's Discord band sits right on top of the footer on short and
+  tall screens, and keeps its own width on a screen wider than the strip.
 
 > PL-only: the Auth pages and the FE nav are Polish-only (no culture routing), so there is no
 > culture parameter.

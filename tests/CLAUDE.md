@@ -286,8 +286,8 @@ confirmation e-mail and a Playwright browser container. The host test connects t
 back-channel (the single-`Authority` constraint of ADR-0006). It references no project: it drives
 everything over HTTP and the browser. The flows live in `Flows/`: the register → confirm → login →
 logout happy path, the auth pages' CSP, the one-time-link pages (back, reload, double click), the
-submit-once button, the e-mail change success style, the cookie banner, self-hosted fonts and the
-account's GDPR self-service.
+submit-once button, the e-mail change success style, the cookie banner, self-hosted fonts, the
+account's GDPR self-service and the home page's Discord band.
 Topology, local runs and image clean-up: the project's `README.md`.
 
 Locators follow Playwright's guidance: `GetByRole` / `GetByLabel` first, `data-testid` only where

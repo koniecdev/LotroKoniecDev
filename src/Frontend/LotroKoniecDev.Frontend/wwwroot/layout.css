@@ -816,10 +816,8 @@ main:has(> .home-banner) {
     background: oklch(0 0 0);
 }
 
+/* No width rule: the image keeps its own width, and the global max-width shrinks it to the screen. */
 .home-banner img {
-    display: block;
-    width: 100%;
-    max-width: 2172px;
     height: auto;
     margin: 0 auto;
 }

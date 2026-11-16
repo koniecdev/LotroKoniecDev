@@ -63,7 +63,7 @@ public sealed class CookieConsentBannerTests : E2ETestBase
         await banner.WaitForAsync();
 
         // The terms page is far taller than the viewport, so an in-flow bar would be below the fold.
-        LocatorBoundingBoxResult bar = await RequireBoundingBoxAsync(banner);
+        LocatorBoundingBoxResult bar = await banner.RequireBoundingBoxAsync();
 
         (bar.Y + bar.Height).ShouldBe(PhoneViewportHeight, 1d);
     }
@@ -89,10 +89,10 @@ public sealed class CookieConsentBannerTests : E2ETestBase
 
         // Assert: the whole footer ends up above the bar, and the trial click's hit-target check fails if
         // anything is drawn over a link.
-        LocatorBoundingBoxResult bar = await RequireBoundingBoxAsync(banner);
-        LocatorBoundingBoxResult footerBox = await RequireBoundingBoxAsync(footer);
-        LocatorBoundingBoxResult termsBox = await RequireBoundingBoxAsync(termsLink);
-        LocatorBoundingBoxResult privacyPolicyBox = await RequireBoundingBoxAsync(privacyPolicyLink);
+        LocatorBoundingBoxResult bar = await banner.RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult footerBox = await footer.RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult termsBox = await termsLink.RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult privacyPolicyBox = await privacyPolicyLink.RequireBoundingBoxAsync();
 
         (footerBox.Y + footerBox.Height).ShouldBeLessThanOrEqualTo(bar.Y + 1);
         (termsBox.Y + termsBox.Height).ShouldBeLessThanOrEqualTo(bar.Y);
@@ -115,10 +115,10 @@ public sealed class CookieConsentBannerTests : E2ETestBase
         await page.GetByRole(AriaRole.Button, new() { Name = AcceptButtonName, Exact = true }).ClickAsync();
         await banner.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Detached });
         await page.WaitForLoadStateAsync();
-        await WaitForFontsAsync(page);
+        await page.WaitForFontsAsync();
         await ScrollToBottomAsync(page);
 
-        LocatorBoundingBoxResult footerBox = await RequireBoundingBoxAsync(page.GetByRole(AriaRole.Contentinfo));
+        LocatorBoundingBoxResult footerBox = await page.GetByRole(AriaRole.Contentinfo).RequireBoundingBoxAsync();
 
         (footerBox.Y + footerBox.Height).ShouldBe(PhoneViewportHeight, 1d);
     }
@@ -142,20 +142,10 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     {
         IPage page = await context.NewPageAsync();
         await page.GotoAsync($"{Fixture.FrontendBaseUrl}/regulamin");
-        await WaitForFontsAsync(page);
+        await page.WaitForFontsAsync();
         return page;
     }
 
-    /// <summary>
-    /// <c>font-display: swap</c> means a late font would move the page after it was measured.
-    /// </summary>
-    private static async Task WaitForFontsAsync(IPage page) =>
-        await page.EvaluateAsync<bool>("document.fonts.ready.then(() => true)");
-
     private static async Task ScrollToBottomAsync(IPage page) =>
         await page.EvaluateAsync("window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' })");
-
-    private static async Task<LocatorBoundingBoxResult> RequireBoundingBoxAsync(ILocator locator) =>
-        await locator.BoundingBoxAsync()
-        ?? throw new InvalidOperationException($"'{locator}' has no bounding box — it is not rendered.");
 }

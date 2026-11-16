@@ -313,8 +313,8 @@ These decide **which environment a box is**. The full list with placeholders is 
   (`www.lotro-translator.pl`, `www.uratujkota.pl`). Staging keeps the inert compose defaults,
   because its www names have no DNS record. Set `TKS_DOMAIN_APP_WWW` only together with
   `TKS_DOMAIN_APP`: `caddy validate` does not check either pair. When you add or change one outside
-  a deploy, re-apply the running tag as `deploy`. With the same tag only Caddy is recreated, so the
-  sites on the box stop for a few seconds:
+  a deploy, re-apply the running tag as `deploy`. With the same tag the apps keep running and Caddy
+  is recreated, so the sites on the box stop for a few seconds:
 
   ```bash
   ssh deploy@<prod box>

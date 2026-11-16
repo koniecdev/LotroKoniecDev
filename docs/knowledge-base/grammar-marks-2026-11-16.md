@@ -96,6 +96,8 @@ still overturn a claim about the client.
 - **Marks inside a text.** Outside `{…}` choices, a one-to-three-letter bracket token in the middle
   of a text is rare: `[max]` on 10 rows (a visible word) and `[e]` on 1 row. Inside choices,
   bracket tokens sit on 3,762 rows (section 2).
+- **A mark followed by spaces.** 20 live rows (12 different texts) end with a mark and then one or
+  more spaces (`[E]`, `[e]`, `[m]`, `[v]`). None is translated, and the counts above leave them out.
 - **Translated rows.** 235 rows with Polish have an English text that ends with a mark
   (127 approved, 108 drafts). The Polish keeps the same mark on 233, changes it on 0, and drops it
   on 2 (both drafts). The ticket counted 73 such rows on 2026-11-13. 38 Polish texts contain an
@@ -138,7 +140,7 @@ Common choices in our English rows (short fragments only):
 | `#1:{is\|are[p]}`, `#1:{it\|them[p]}` | `p` is plural |
 | `#1:{he[m]\|she[f]\|it}`, `#2:{ Lord[m] \| Lady[f] }` | `m` male, `f` female, otherwise "it" |
 | `#1:{'s\|'[s]}` | `s`: the value ends in "s", so the possessive is only `'` |
-| `#1:{seconds\|second[1]}`, `#2:{all[!1]}` | `[1]`: the number is one; English has only one and "not one" |
+| `#1:{seconds\|second[1]}`, `#2:{all[!1]}` | `[1]`: the number is one; English mostly has one and "not one" |
 | `#-1:{Skógi[D]\|Eilian}` | an NPC chosen by a race code, probably the player's |
 | `#1:{None\|…[G]\|…[C]\|…[H]\|…}` | a text chosen by a class code, probably the player's |
 | `#1:{ [E]}`, `#4:{ [!b]}` | a space printed only when the value has `E` / is not `b` (UNPROVEN what `E` and `b` are) |
@@ -148,8 +150,8 @@ Flags that the choices select on (bracket tokens inside `{…}`, counted per occ
 `D` 35, `p` 17, `U` 16, the class codes about 15 each, `s` 14, `v` 3, `n` 3. `e` never appears
 inside a choice.
 
-One more brace token is not a choice: `{keepspaces}` stands in 37 live rows, 16 of them with no
-argument. It looks like a directive to the client; what it does is UNPROVEN.
+One more token sits in double braces and is not a choice: `{{keepspaces}}` stands in 37 live rows,
+16 of them with no argument. It looks like a directive to the client; what it does is UNPROVEN.
 
 **What looks like an English developer test text lists combinations** (FileId 620757433,
 GossipId 172674726): `…<--DO_NOT_TOUCH!--> is {…[mp]|…[fp]|…[i]|…[m]|…[f]|…[mps]|…[fv]|…[fpv]}`,
@@ -190,8 +192,8 @@ the trailing mark of the English race name (`lotro-tools` `RaceDataLoader`; `lot
 | `v` | starts with a vowel sound: English "an" | PROVEN | `an[v]` above; 97.1% of the 15,536 rows with a lowercase `v` start with a vowel letter, against 6.9% of the 172,432 lowercase marks without `v`. The exceptions are mostly plurals (46%) and names (39%), which take no article, and words like "Uniform" |
 | `s` | ends in "s": the possessive is only `'` | PROVEN | `{'s\|'[s]}`; 98.9% of `[s]` rows end in "s" (`Treated Leather Harness[s]`), against 1.3% of `[e]` rows |
 | `e` | no other flag fits: singular, consonant start, not a name, no final "s" | STRONG DATA PATTERN, meaning UNPROVEN | 75,558 rows alone, only 49 combined with another letter; 1.3% end in "s" and 1.5% start with a vowel, exactly what the other flags leave over; no choice selects on it. The Russian rules name `[e]` as a mark to keep |
-| `1` | the number is one (count marks) | PROVEN for English | `{second[1]\|seconds}`; English never uses `[2]` and up. Russian translators write `#1:{день[1] \| дня[2] \| дня[3] \| дня[4] \| дней}` (picture of rule 14); whether `[2]` means "exactly 2" or "ends in 2" (22, 32…) is UNPROVEN |
-| `b` | probably "blank": the value is empty | UNPROVEN | only `!b` appears, as `{ [!b]}` (a space unless the value is empty) and `{ month[!b1]\| months[!b]}` in duration texts |
+| `1` | the number is one (count marks) | PROVEN for English | `{second[1]\|seconds}`; English almost never uses other numbers: `[1.0]`, `[51,0]`, `[350]` and `[0]` stand on 3 rows (620757497:192208844, 620792218:145860117, 620792218:226306018). Russian translators write `#1:{день[1] \| дня[2] \| дня[3] \| дня[4] \| дней}` (picture of rule 14); whether `[2]` means "exactly 2" or "ends in 2" (22, 32…) is UNPROVEN |
+| `b` | probably "blank": the value is empty | UNPROVEN | mostly `!b`, as `{ [!b]}` (a space unless the value is empty) and `{ month[!b1]\| months[!b]}` in duration texts; one row has `#4:{00[b]}`, which prints "00" when the value is empty |
 | `E` | used to add a space after a title rank and before a surname | UNPROVEN | `#1:{ [E]}…#3:{ [E]}` in player title texts; Companion calls these arguments RANK and SURNAME (`${RANK: [E]}`). The same letter ends 12,062 item names (`Silver-braid Necklace[E]`), which look like the `[e]` rows (1.9% end in "s", 1.3% start with a vowel), so `E` on an item may be an older form of `e` |
 | capitals in race names | race code: `U` Man and Woman, `L` Elf and High Elf, `D` Dwarf and Stout-axe, `O` Hobbit and River Hobbit, `B` Beorning | PROVEN as codes that choices select on | FileId 620756996; `#-1:{Skógi[D]\|Eilian}`; Companion `lore/races.xml` |
 | capitals in class names | class code: `R` Brawler, `G` Burglar, `C` Captain, `H` Champion, `U` Guardian, `T` Hunter, `L` Lore-master, `O` Mariner, `I` Minstrel, `K` Rune-keeper, `W` Warden, `B` Beorning | PROVEN as codes that choices select on | FileId 620756999 (note the space before the mark: `Warden [W]`); the class-choice texts |
@@ -226,7 +228,8 @@ labels with marks and `fr/factions.xml` has 13.
 - **A choice in a text with no argument: UNPROVEN, and probably not.** In our English rows all
   3,762 rows with a choice have arguments (`"ArgsOrder"` is NULL on none of them; the export
   writes NULL exactly when a fragment has no argument, `ExportTextsQueryHandler.cs:82-93`). The
-  official German and French texts sometimes add a gender choice where English has none: key `620879993:74285333` is "Friend" in English,
+  official German and French texts sometimes add a gender choice where English has none: key
+  `620879993:74285333` is "Friend" in English,
   `${PLAYERNAME:Freund[m]|Freundin[f]}` in German and `${PLAYERNAME:Ami[m]|Amie[f]}` in French
   (`lotro-data` `lore/labels/{en,de,fr}/factions.xml`). An official French label also carries a
   French mark on a value: key `1879330539` is `Cavaliers du Rohan[mp]` (probably masculine plural),
@@ -235,7 +238,8 @@ labels with marks and `fr/factions.xml` has 13.
   ([lotro-companion-data-model.md](lotro-companion-data-model.md)), so the German DAT probably has
   an argument there. **Our pipeline cannot add an argument**: it writes only the pieces, and the
   argument references come from the English fragment (`Fragment.cs:17-21`). Live-test item e. The
-  `{keepspaces}` rows with no argument (section 2) are a second lead for it.
+  `{{keepspaces}}` rows with no argument (section 2) are a weaker second lead: double braces look
+  like a syntax of their own.
 - **`${VAR:…}` is Companion's way to show a text, never text to type.** The client syntax is
   `#N:{…}` after a labelled placeholder.
 
@@ -310,8 +314,8 @@ Measured against these definitions:
 
 **Recommendation** (for the product tickets after the owner's ruling): one shared definition of a
 mark in the TMS for #1369, #378 and #1423, so three tickets do not write three patterns:
-"a bracket token of letters at the end of the text, with an optional space before it" (question 3
-in section 8). #1421 keeps its own "one to three letters anywhere", because what it misses only
+"a bracket token of letters at the end of the text, with an optional space before it and spaces
+after it ignored" (question 3 in section 8). #1421 keeps its own "one to three letters anywhere", because what it misses only
 leaves a row visible. The definition stays in the TMS: the patcher shares no code with it and needs
 no mark logic. The Frontend cannot reference the TMS Domain, but it does see the Contracts and
 `TranslationSystem.Primitives` (`BoundedContextIsolationTests`); the editor already reads
@@ -328,7 +332,7 @@ no mark logic. The Frontend cannot reference the TMS Domain, but it does see the
   let a translator change today. Whether the client honours a changed `args_order` on such a row is
   UNPROVEN (live-test item c). If Polish needs another order, "a translator can set the argument
   order" is a product-ticket candidate. It depends on #1409 (a second patch of a reordered row
-  undoes the order), and the wiki already leaves this choice to the owner (section 4).
+  moves the arguments again), and the wiki already leaves this choice to the owner (section 4).
 - **Race and sub-race names are separate texts.** The race list (FileId 620756996) has
   `Stout-axe[D]` (GossipId 49821557) next to `Dwarf[D]` (3358501). "Stout-axe Dwarf" is a text of
   its own (621025278:228870261), and so is "Get the Stout-axe Dwarf Race" (191177136). No English
@@ -355,7 +359,8 @@ the `dat-format-expert` agent. Record what the game shows, with screenshots.
   told apart: (1) one title with the pieces moved and `args_order` set to match (for example
   `1-3-2`); (2) another title with only the labelled placeholders moved (`#3:` before `#2:`),
   `args_order` unchanged. Patch each row exactly once, on a DAT restored from the backup, because a
-  second patch undoes a reorder (#1409); write the patch count next to each screenshot. Then find
+  second patch moves the arguments again (#1409); `launch` patches too when the file changed, so
+  count it. Write the patch count next to each screenshot. Then find
   any screen that shows "Stout-axe" next to "Dwarf", and try the Polish order there.
 - **d. `ArgStrings`.** A read-only scan of the English DAT: count the fragments with non-empty
   `ArgStrings`, show what they hold, and list a few that contain marks.
@@ -365,6 +370,8 @@ the `dat-format-expert` agent. Record what the game shows, with screenshots.
   loot or quest messages, and see whether those messages change.
 - **g. Count marks.** Write a Polish choice with `[1]`, `[2]`, `[3]`, `[4]` and a default, in a
   text with a number, and see it with the numbers 1, 2, 5, 12, 22 and 25. Does `[2]` match 22?
+  Also look at the three English rows that match other numbers (`[1.0]`, `[51,0]`, `[350]`, `[0]`;
+  section 2) in game.
 - **h. Polish flags.** On a value that a Polish text picks by gender (an item name or an NPC name),
   add a Polish gender letter that English does not use for that value (for example `[f]` on a
   female item name) and check that a Polish choice `{…[m]|…[f]|…}` follows it. This decides
@@ -390,8 +397,8 @@ the `dat-format-expert` agent. Record what the game shows, with screenshots.
 > 3. Formy zależnej od płci postaci nie dodawaj sam, dopóki nie sprawdzimy jej w grze.
 
 Open in this proposal: what to do with a choice that has no Polish words, like the English article
-`#1:{ [n]| [p]| an[v]| a}`, and with the `{keepspaces}` directive, which is not a choice and has no
-words to translate. The owner rules on both in #1433.
+`#1:{ [n]| [p]| an[v]| a}`, and with the `{{keepspaces}}` directive, which is not a choice and has
+no words to translate. The owner rules on both in #1433.
 
 **End state, after live-test item h.** Two options, side by side; neither leads yet:
 
@@ -423,8 +430,8 @@ These go into #1433, each with a recommended answer:
    If the client reads flags from the Polish value text and accepts Polish letters, choose B; if
    not, A.
 3. **The shared definition of a mark** for #1369, #378 and #1423. Recommended: "a bracket token of
-   letters at the end of the text, with an optional space before it", which covers `[nvps]` and
-   `Warden [W]`. Keep #1421's "one to three letters anywhere", because what it misses only leaves
+   letters at the end of the text, with an optional space before it and spaces after it ignored",
+   which covers `[nvps]`, `Warden [W]` and the 20 rows with spaces after the mark. Keep #1421's "one to three letters anywhere", because what it misses only leaves
    a row visible.
 4. **Upper-case marks (`[P]`, `[MN]`…)**: should checks treat them as the lower-case flags?
    Recommended: no. Until the live test, a check only asks "copied exactly".

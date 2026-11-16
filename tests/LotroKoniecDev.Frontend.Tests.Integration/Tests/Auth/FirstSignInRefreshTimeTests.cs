@@ -25,7 +25,7 @@ namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Auth;
 public sealed class FirstSignInRefreshTimeTests : IClassFixture<ProductionFrontendFactory>, IDisposable
 {
     private const string AuthCookieName = ".lotrokoniecdev.auth";
-    private const string ClientId = "lotrokoniecdev-web";
+    private const string ClientId = "lotrokoniecdev-frontend";
     private const string Issuer = "https://auth.staging.invalid";
     private const string Subject = "11111111-1111-1111-1111-111111111111";
 

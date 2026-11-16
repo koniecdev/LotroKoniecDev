@@ -8,6 +8,8 @@
 #   FRONTEND_CALLER_KEY                       base64 of 32 random bytes
 # and the key that opens the full /health on both APIs (ADR-0058):
 #   HEALTH_CHECK_KEY                          base64 of 32 random bytes
+# and the website's client secret (ADR-0074), which auth-api and the frontend both read:
+#   FRONTEND_CLIENT_SECRET                    base64 of 32 random bytes
 #
 # Prints KEY=VALUE lines on stdout — append them to your git-ignored .env.prod, e.g.:
 #   scripts/gen-openiddict-keys.sh >> .env.prod
@@ -21,6 +23,7 @@ ENC_KEY="$(openssl rand -base64 32)"
 API_SECRET="$(openssl rand -hex 24)"
 CALLER_KEY="$(openssl rand -base64 32)"
 HEALTH_KEY="$(openssl rand -base64 32)"
+CLIENT_SECRET="$(openssl rand -base64 32)"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -82,3 +85,4 @@ echo "OpenIddict__ApiClientSecret=$API_SECRET"
 echo "OpenIddict__SigningKey__RsaPrivateKeyXml=$RSA_XML_B64"
 echo "FRONTEND_CALLER_KEY=$CALLER_KEY"
 echo "HEALTH_CHECK_KEY=$HEALTH_KEY"
+echo "FRONTEND_CLIENT_SECRET=$CLIENT_SECRET"

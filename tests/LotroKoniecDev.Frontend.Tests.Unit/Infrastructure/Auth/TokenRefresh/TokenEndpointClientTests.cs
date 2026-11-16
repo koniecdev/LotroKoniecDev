@@ -22,9 +22,12 @@ public sealed class TokenEndpointClientTests
     private const string AuthBaseUrl = "https://auth.lotro.test/";
     private const string TokenEndpoint = "https://auth.lotro.test/connect/token";
     private const string RefreshToken = "the-refresh-token";
+    private const string ClientId = "lotrokoniecdev-frontend";
 
     // Built rather than written out, so no secret scanner mistakes test data for a token.
     private static readonly string AccessToken = new('a', 40);
+
+    private static readonly string ClientSecret = new('s', 40);
 
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);
 
@@ -33,12 +36,59 @@ public sealed class TokenEndpointClientTests
     private static readonly byte[] InvalidUtf8InTheAccessToken =
         [.. """{"access_token":"a"""u8, 0xFF, .. """a","expires_in":3600}"""u8];
 
+    public static TheoryData<string> RefusalsThatRepeatTheSecret => new()
+    {
+        $$"""{"error":"invalid_client","error_description":"Refused.","client_secret":"{{ClientSecret}}"}""",
+        $"client_id={ClientId}&client_secret={ClientSecret}"
+    };
+
     public static TheoryData<Exception> DiscoveryFailures() => new()
     {
         new InvalidOperationException("IDX20803: Unable to obtain configuration from the authority."),
         new HttpRequestException("Connection refused."),
         new TaskCanceledException("The discovery request timed out."),
     };
+
+    /// <summary>
+    /// ADR-0074: the website is a confidential client, so every refresh carries its secret.
+    /// </summary>
+    [Fact]
+    public async Task RefreshAsync_Always_SendsTheGrantTheTokenAndTheClientCredentialsToTheTokenEndpoint()
+    {
+        StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            $$"""{"access_token":"{{AccessToken}}","expires_in":3600}""");
+        using HttpClient httpClient = CreateHttpClient(transport);
+        TokenEndpointClient client = CreateClient(httpClient);
+
+        await client.RefreshAsync(RefreshToken);
+
+        transport.LastRequest.ShouldNotBeNull().Method.ShouldBe(HttpMethod.Post);
+        transport.LastRequest.RequestUri.ShouldBe(new Uri(TokenEndpoint));
+        transport.LastRequestBody.ShouldBe(
+            $"grant_type=refresh_token&refresh_token={RefreshToken}&client_id={ClientId}&client_secret={ClientSecret}");
+    }
+
+    /// <summary>
+    /// Development and Testing may run with no secret. An empty field would still name a secret, so none is
+    /// sent.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task RefreshAsync_WhenNoSecretIsSet_SendsNoSecretField(string? clientSecret)
+    {
+        StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            $$"""{"access_token":"{{AccessToken}}","expires_in":3600}""");
+        using HttpClient httpClient = CreateHttpClient(transport);
+        TokenEndpointClient client = CreateClientWithSecret(httpClient, clientSecret);
+
+        await client.RefreshAsync(RefreshToken);
+
+        transport.LastRequestBody.ShouldBe($"grant_type=refresh_token&refresh_token={RefreshToken}&client_id={ClientId}");
+    }
 
     [Fact]
     public async Task RefreshAsync_WhenTheAuthApiAnswersWithTokens_ReturnsThem()
@@ -814,10 +864,10 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// #964: RFC 7009 for a public client.
+    /// #964: RFC 7009 for a confidential client (ADR-0074).
     /// </summary>
     [Fact]
-    public async Task RevokeRefreshTokenAsync_Always_SendsTheTokenItsKindAndTheClientIdToTheGivenEndpoint()
+    public async Task RevokeRefreshTokenAsync_Always_SendsTheTokenItsKindAndTheClientCredentialsToTheGivenEndpoint()
     {
         StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
         using HttpClient httpClient = CreateHttpClient(transport);
@@ -828,7 +878,54 @@ public sealed class TokenEndpointClientTests
         transport.LastRequest.ShouldNotBeNull().Method.ShouldBe(HttpMethod.Post);
         transport.LastRequest.RequestUri.ShouldBe(RevocationEndpoint);
         transport.LastRequestBody.ShouldBe(
-            $"token={RefreshToken}&token_type_hint=refresh_token&client_id=lotrokoniecdev-web");
+            $"token={RefreshToken}&token_type_hint=refresh_token&client_id={ClientId}&client_secret={ClientSecret}");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task RevokeRefreshTokenAsync_WhenNoSecretIsSet_SendsNoSecretField(string? clientSecret)
+    {
+        StubHttpMessageHandler transport = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty);
+        using HttpClient httpClient = CreateHttpClient(transport);
+        TokenEndpointClient client = CreateClientWithSecret(httpClient, clientSecret);
+
+        await client.RevokeRefreshTokenAsync(RevocationEndpoint, RefreshToken);
+
+        transport.LastRequestBody.ShouldBe($"token={RefreshToken}&token_type_hint=refresh_token&client_id={ClientId}");
+    }
+
+    /// <summary>
+    /// ADR-0074: only the two OAuth fields reach the log, so a refusal that repeats the request never
+    /// carries the secret into the warning.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(RefusalsThatRepeatTheSecret))]
+    public async Task RevokeRefreshTokenAsync_WhenTheRefusalBodyRepeatsTheSecret_NeverLogsIt(string body)
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.Unauthorized, body));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
+
+        await client.RevokeRefreshTokenAsync(RevocationEndpoint, RefreshToken);
+
+        logs.Entries.ShouldHaveSingleItem().Message.ShouldNotContain(ClientSecret);
+    }
+
+    [Theory]
+    [MemberData(nameof(RefusalsThatRepeatTheSecret))]
+    public async Task RefreshAsync_WhenTheRefusalBodyRepeatsTheSecret_NeverLogsIt(string body)
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.Unauthorized, body));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
+
+        await client.RefreshAsync(RefreshToken);
+
+        logs.Entries.ShouldHaveSingleItem().Message.ShouldNotContain(ClientSecret);
     }
 
     [Fact]
@@ -962,13 +1059,21 @@ public sealed class TokenEndpointClientTests
         HttpClient httpClient,
         ILogger<TokenEndpointClient>? logger = null,
         SignInServerDiscovery? discovery = null,
+        TimeProvider? timeProvider = null) => CreateClientWithSecret(httpClient, ClientSecret, logger, discovery, timeProvider);
+
+    private static TokenEndpointClient CreateClientWithSecret(
+        HttpClient httpClient,
+        string? clientSecret,
+        ILogger<TokenEndpointClient>? logger = null,
+        SignInServerDiscovery? discovery = null,
         TimeProvider? timeProvider = null) => new(
         httpClient,
         Microsoft.Extensions.Options.Options.Create(new AuthSystemSettings
         {
             BaseUrl = AuthBaseUrl,
             Authority = "https://auth.lotro.test",
-            ClientId = "lotrokoniecdev-web",
+            ClientId = ClientId,
+            ClientSecret = clientSecret,
             CallbackPath = "/callback",
             SignedOutCallbackPath = "/signout-callback-oidc",
             Scopes = ["openid", "email", "profile"]

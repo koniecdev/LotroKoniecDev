@@ -11,6 +11,7 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
     private const string RefreshTokenGrantType = "refresh_token";
     private const string RefreshTokenParam = "refresh_token";
     private const string ClientIdParam = "client_id";
+    private const string ClientSecretParam = "client_secret";
     private const string TokenParam = "token";
     private const string TokenTypeHintParam = "token_type_hint";
     private const string RefreshTokenTypeHint = "refresh_token";
@@ -39,12 +40,11 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
             return TokenRefreshResult.TemporaryFailure;
         }
 
-        using FormUrlEncodedContent content = new(
+        using FormUrlEncodedContent content = new(WithClientCredentials(
         [
             new KeyValuePair<string, string>(GrantTypeParam, RefreshTokenGrantType),
-            new KeyValuePair<string, string>(RefreshTokenParam, refreshToken),
-            new KeyValuePair<string, string>(ClientIdParam, _authSystemOptions.Value.ClientId)
-        ]);
+            new KeyValuePair<string, string>(RefreshTokenParam, refreshToken)
+        ]));
 
         try
         {
@@ -97,12 +97,11 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
         string refreshToken,
         CancellationToken cancellationToken = default)
     {
-        using FormUrlEncodedContent content = new(
+        using FormUrlEncodedContent content = new(WithClientCredentials(
         [
             new KeyValuePair<string, string>(TokenParam, refreshToken),
-            new KeyValuePair<string, string>(TokenTypeHintParam, RefreshTokenTypeHint),
-            new KeyValuePair<string, string>(ClientIdParam, _authSystemOptions.Value.ClientId)
-        ]);
+            new KeyValuePair<string, string>(TokenTypeHintParam, RefreshTokenTypeHint)
+        ]));
 
         try
         {
@@ -178,6 +177,23 @@ internal sealed partial class TokenEndpointClient : ITokenEndpointClient
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// A confidential client sends its secret on every call to these endpoints (ADR-0074). A blank secret
+    /// sends no field at all, never an empty one.
+    /// </summary>
+    private List<KeyValuePair<string, string>> WithClientCredentials(List<KeyValuePair<string, string>> fields)
+    {
+        AuthSystemSettings settings = _authSystemOptions.Value;
+        fields.Add(new KeyValuePair<string, string>(ClientIdParam, settings.ClientId));
+
+        if (!string.IsNullOrWhiteSpace(settings.ClientSecret))
+        {
+            fields.Add(new KeyValuePair<string, string>(ClientSecretParam, settings.ClientSecret));
+        }
+
+        return fields;
     }
 
     /// <summary>

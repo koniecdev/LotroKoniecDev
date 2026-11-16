@@ -19,11 +19,12 @@ Content-Type: application/x-www-form-urlencoded
 
 grant_type=client_credentials&client_id=lotrokoniecdev-api&client_secret=<your_api_client_secret>&scope=api service
 
-### Refresh token (for web client after authorization code flow)
+### Refresh token (for the website's client after authorization code flow)
+# The secret is OpenIddict:FrontendClientSecret (appsettings.Development.json in Development).
 POST {{baseUrl}}/connect/token
 Content-Type: application/x-www-form-urlencoded
 
-grant_type=refresh_token&client_id=lotrokoniecdev-web&refresh_token=<your_refresh_token_here>
+grant_type=refresh_token&client_id=lotrokoniecdev-frontend&client_secret=<your_frontend_client_secret>&refresh_token=<your_refresh_token_here>
 
 ### Get user info
 # Needs a user's access token. Only the authorization code flow issues one, and this file cannot run that flow.
@@ -31,12 +32,12 @@ grant_type=refresh_token&client_id=lotrokoniecdev-web&refresh_token=<your_refres
 GET {{baseUrl}}/connect/userinfo
 Authorization: Bearer <your_access_token_here>
 
-### Revoke token (a refresh token issued to the web client)
+### Revoke token (a refresh token issued to the website's client)
 # Refresh tokens roll: after the refresh request above, revoke the new token it returned.
 POST {{baseUrl}}/connect/revoke
 Content-Type: application/x-www-form-urlencoded
 
-token=<your_refresh_token_here>&token_type_hint=refresh_token&client_id=lotrokoniecdev-web
+token=<your_refresh_token_here>&token_type_hint=refresh_token&client_id=lotrokoniecdev-frontend&client_secret=<your_frontend_client_secret>
 
 ### Health check - liveness
 GET {{baseUrl}}/health/live

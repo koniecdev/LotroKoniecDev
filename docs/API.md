@@ -70,7 +70,8 @@ OAuth clients seeded at startup (`DatabaseSeederExtensions.cs`):
 
 | `client_id` | Type | Grants | Notes |
 |---|---|---|---|
-| `lotrokoniecdev-web` | public | auth code + PKCE, refresh | the frontend; redirect and post-logout URIs from config |
+| `lotrokoniecdev-frontend` | confidential | auth code + PKCE, refresh | the frontend (ADR-0074); secret `OpenIddict:FrontendClientSecret`, sent on the code exchange, the refresh and the revoke; redirect and post-logout URIs from config |
+| `lotrokoniecdev-web` | public | auth code + PKCE, refresh | the frontend's old client, kept for one release after ADR-0074, then removed; same URIs |
 | `lotrokoniecdev-api` | confidential | client credentials | service to service; secret from config; may call introspection |
 | `lotrokoniecdev-test` | public | password, refresh | seeded only in `Testing` |
 

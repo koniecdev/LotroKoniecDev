@@ -27,9 +27,19 @@ internal sealed class OpenIddictSettings
     /// </summary>
     public string ApiClientSecret { get; init; } = string.Empty;
 
+    /// <summary>
+    /// The website's client secret (ADR-0074). The website reads the same value. Required, long and random,
+    /// everywhere except Development and Testing. It is stored only when the client is created, so a later
+    /// change needs a reseed (runbook, "Reseed traps").
+    /// </summary>
+    public string FrontendClientSecret { get; init; } = string.Empty;
+
     public WebClientSettings WebClient { get; init; } = new();
 }
 
+/// <summary>
+/// The addresses of both website clients: the old public one and the confidential one (ADR-0074).
+/// </summary>
 internal sealed class WebClientSettings
 {
     /// <summary>

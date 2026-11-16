@@ -141,20 +141,34 @@ public sealed class HomeTests : BunitContext
     }
 
     [Fact]
-    public void Render_TranslatorsSection_LinksTheDiscordBannerInANewTab()
+    public void Render_Page_LinksTheDiscordBannerInANewTab()
     {
         AddAuthorization().SetNotAuthorized();
         StubProgress(ApiResult.Success(new PublicProgressResponse(0, 0, 0, null)));
 
         IRenderedComponent<HomeComponent> component = RenderHome();
 
-        IElement bannerLink = component.Find("#dla-tlumaczy a.home-banner");
+        IElement bannerLink = component.Find("a.home-banner");
         bannerLink.GetAttribute("href").ShouldBe("https://discord.gg/sncXwa64Ex");
         bannerLink.GetAttribute("target").ShouldBe("_blank");
         bannerLink.GetAttribute("rel").ShouldBe("noopener");
-        IElement banner = bannerLink.QuerySelector("img").ShouldNotBeNull();
-        banner.GetAttribute("src").ShouldBe("discord-banner.webp");
-        banner.GetAttribute("alt").ShouldBe("Tłumacz LOTRO razem z nami. Dołącz do Discorda!");
+        bannerLink.QuerySelector("img").ShouldNotBeNull()
+            .GetAttribute("alt").ShouldBe("Tłumacz LOTRO razem z nami. Dołącz do Discorda!");
+    }
+
+    [Fact]
+    public void Render_Page_ShowsTheWideStripFrom641PxAndThePhoneBannerBelow()
+    {
+        AddAuthorization().SetNotAuthorized();
+        StubProgress(ApiResult.Success(new PublicProgressResponse(0, 0, 0, null)));
+
+        IRenderedComponent<HomeComponent> component = RenderHome();
+
+        IElement picture = component.Find("a.home-banner > picture");
+        IElement strip = picture.QuerySelector("source").ShouldNotBeNull();
+        strip.GetAttribute("media").ShouldBe("(min-width: 641px)");
+        strip.GetAttribute("srcset").ShouldBe("discord-strip.webp");
+        picture.QuerySelector("img").ShouldNotBeNull().GetAttribute("src").ShouldBe("discord-banner.webp");
     }
 
     private void StubProgress(ApiResult<PublicProgressResponse> result) =>

@@ -802,16 +802,18 @@ code {
     color: var(--accent-hi);
 }
 
+/* The strip's edges are pure black, so on a screen wider than the strip the band has no seam. */
 .home-banner {
     display: block;
-    border-radius: var(--radius-sm);
-    overflow: hidden;
+    background: oklch(0 0 0);
 }
 
 .home-banner img {
     display: block;
     width: 100%;
+    max-width: 2172px;
     height: auto;
+    margin: 0 auto;
 }
 
 .home-tech {

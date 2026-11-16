@@ -8,7 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Branding;
 
 /// <summary>
-/// The home page shows the site's images: the logo, the Discord banner and the tab icon (#1371). A wrong
+/// The home page shows the site's images: the logo, both Discord banners and the tab icon (#1371). A wrong
 /// path only shows a broken image, so a test asks for each file the page names.
 /// </summary>
 public sealed partial class HomePageImageTests : IClassFixture<ProductionFrontendFactory>
@@ -84,7 +84,8 @@ public sealed partial class HomePageImageTests : IClassFixture<ProductionFronten
         return answers;
     }
 
-    [GeneratedRegex("""<img\b[^>]*\bsrc="(?<src>[^"]+)""")]
+    /// <summary>An <c>&lt;img src&gt;</c>, or a <c>&lt;source srcset&gt;</c> that holds one file.</summary>
+    [GeneratedRegex("""<(?:img\b[^>]*\bsrc|source\b[^>]*\bsrcset)="(?<src>[^"]+)""")]
     private static partial Regex ImageSourceRegex();
 
     [GeneratedRegex("""<link\b[^>]*\brel="icon"[^>]*\bhref="(?<href>[^"]+)""")]

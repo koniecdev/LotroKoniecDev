@@ -8,7 +8,8 @@ name: Smoke test
 # the same values CD uses, so the two runs cannot drift apart (#1335). `deployment: false` keeps it
 # out of the deployment history: image-scan.yml and the N-1 promotion gate (#534) read the newest
 # successful deployment to learn what runs on a box. A production run still waits at the
-# `production` reviewer gate. Runbook: "Post-deploy smoke test" → "In CI".
+# `production` reviewer gate. A run from any branch but main is refused before it starts: both
+# environments allow only main (#1336). Runbook: "Post-deploy smoke test" → "In CI".
 on:
   workflow_dispatch:
     inputs:

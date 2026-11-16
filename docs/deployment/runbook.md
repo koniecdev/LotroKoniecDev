@@ -308,12 +308,29 @@ These decide **which environment a box is**. The full list with placeholders is 
 - `COMPOSE_PROJECT_NAME` (`lotro-prod` | `lotro-staging`), `IMAGE_NAMESPACE`, `IMAGE_TAG`,
   `DOMAIN_APP` / `DOMAIN_AUTH` / `DOMAIN_TMS`, `ACME_EMAIL`.
 - `TKS_DOMAIN_*`: the guest TheKittySaver vhosts.
+- `DOMAIN_APP_WWW` / `TKS_DOMAIN_APP_WWW`: the www names. Caddy answers them with a 301 to the same
+  path and query on `DOMAIN_APP` / `TKS_DOMAIN_APP` (#1417). **Prod only**
+  (`www.lotro-translator.pl`, `www.uratujkota.pl`). Staging keeps the inert compose defaults,
+  because its www names have no DNS record. Set `TKS_DOMAIN_APP_WWW` only together with
+  `TKS_DOMAIN_APP`: `caddy validate` does not check either pair. When you add or change one outside
+  a deploy, re-apply the running tag as `deploy`. With the same tag only Caddy is recreated, so the
+  sites on the box stop for a few seconds:
+
+  ```bash
+  ssh deploy@<prod box>
+  # add the value to /opt/lotro/.env, then:
+  IMAGE_TAG=$(sed -n 's/^IMAGE_TAG=//p' /opt/lotro/.env | head -1) bash /opt/lotro/deploy.sh
+  ```
+
+  Never `docker compose up -d caddy` for this: it skips the validate gate in `deploy.sh`, and a
+  Caddy that does not start takes every site on the box down.
 - `DOMAIN_OBS` / `OBS_ALLOWED_PUSH_IP` / `OBS_PUSH_USER`: the observability ingest vhost, on the
   **backend box only**. The other box keeps the inert compose defaults (#755).
-- `XROBOTS`: Caddy stamps it as `X-Robots-Tag` on every LOTRO vhost response (#531). Prod leaves it
-  unset (→ `all`, a no-op); the **staging box sets `XROBOTS="noindex, nofollow"`**, so the public
-  staging trio is never indexed as a copy of prod. The TKS vhosts are left out, because TKS sets the
-  header in its own app (koniecdev/TheKittySaver#390).
+- `XROBOTS`: Caddy stamps it as `X-Robots-Tag` on every LOTRO vhost that serves pages (#531), so
+  not on the www redirect. Prod leaves it unset (→ `all`, a no-op); the **staging box sets
+  `XROBOTS="noindex, nofollow"`**, so the public staging trio is never indexed as a copy of prod.
+  The TKS vhosts are left out, because TKS sets the header in its own app
+  (koniecdev/TheKittySaver#390).
 - `OOM_SCORE_ADJ_APP`: **opposite on the two boxes**, `500` on staging and `0` on prod (see
   [Memory pressure](#memory-pressure-who-the-kernel-kills-first)). The observability project's
   `/opt/obs/.env` has `OBS_ALLOY_OOM_SCORE_ADJ`, which inverts the same way (`-300` staging, `300` prod).
@@ -811,7 +828,8 @@ against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://
    **public key** → note the IP.
 2. **DNS first** (ACME needs it to resolve before certificates can issue): registrar panel → A
    records for every public hostname → the new IP, TTL 300. The hostnames are in the
-   [env matrix](#environment-variable-matrix): prod trio → prod IP, staging trio → staging IP.
+   [env matrix](#environment-variable-matrix): prod trio and the two www names → prod IP, staging
+   trio → staging IP.
 3. **Bootstrap** (idempotent: a re-run changes nothing). It asks nothing, so it needs no `ssh -t`:
 
    ```bash

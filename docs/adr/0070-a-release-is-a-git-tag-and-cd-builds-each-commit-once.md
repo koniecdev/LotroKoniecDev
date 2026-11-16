@@ -43,7 +43,7 @@ Nothing reads version image tags. Deploy, rollback, the image scan and the runbo
   not strict SemVer: X changes once, from 0 to 1, at the release to players.
 - No workflow listens to the tag or the release. A release builds nothing and deploys nothing.
 - The images of a release are the `sha-<short>` images of its commit. To deploy or roll back to a
-  release, dispatch CD with that `sha-<short>`.
+  release, dispatch CD from `main` with that `sha-<short>` as `image_tag`.
 - Images get no version names (owner decision 1 in #1344). When something needs them (a retention
   policy, a pull by version), they are added by retagging the existing digest, never by a build.
 
@@ -60,17 +60,27 @@ the tag names the very digest that was signed.
 **Before it builds**, `build-and-push` looks up the commit's `sha-<short>`:
 
 - The registry reports it as not found: build, push, scan, sign, attest and name it.
-- It exists and carries this repo's build provenance: reuse it. Nothing is built or pushed, and the
-  deploy takes that image.
-- It exists without provenance: stop the job. Either the check failed for a moment, or the tag was
-  written by hand, or before this ADR by a build that came before signing began or failed after its
-  push. CD never builds over a tag.
+- It exists, and this repo's `cd.yml` built and attested it from this run's own ref: reuse it.
+  Nothing is built or pushed, and the deploy takes that image. The check is
+  `gh attestation verify --repo <repo> --signer-workflow <repo>/.github/workflows/cd.yml
+  --source-ref "$GITHUB_REF"`.
+- It exists, but that check fails: stop the job. Either the check failed for a moment, or the image
+  was built from another ref (a run on a branch whose head is this commit), by another workflow or
+  repo, or the tag was written by hand, or before this ADR by a build that came before signing began
+  or failed after its push. CD never builds over a tag.
 - Any other registry answer, a refusal included: stop the job. A token refused for a moment may still
   be able to write, and a write could move a tag.
 
+The ref is the run's own, not a fixed `refs/heads/main`. A run started by CI, and a hand run from
+`main`, both have `refs/heads/main`, so on `main` the two give the same answer. The run's own ref
+also lets a second run on one branch head reuse that branch's images, and it is the ref the rollout
+check reads in the same run once #1336 adds `--signer-workflow` and `--source-ref` there. So the
+lookup reuses only what the deploy after it accepts.
+
 Both decisions live in `scripts/ci/commit-image.sh`, and `scripts/tests/commit-image.tests.sh` tests
 them with stubs and pins the job's shape. Builds of the same commit and image wait for each other
-instead of cancelling each other, so the second run reuses the first one's image.
+instead of cancelling each other, so the second run reuses the first one's image when both run from
+the same ref, and stops when they do not.
 
 ### 3. Only the server images
 
@@ -88,7 +98,8 @@ batched and runs many times between two tags.
 
 Owner decision 2 in #1344: in 0.x, breaking changes in the API and the code stay free, because every
 client (website, CLI) ships from this repo and deploys with it. The database keeps the ADR-0023
-rules, and the backup (#688) protects the translators' data.
+rules, and the nightly off-platform backup (ADR-0071, live since 2026-11-15) protects the
+translators' data.
 
 ## Consequences
 
@@ -97,7 +108,7 @@ rules, and the backup (#688) protects the translators' data.
 - The bytes behind `sha-<short>` never change after the first good build, so staging, prod and a
   rollback run the same image.
 - Cutting a release cannot break a deploy, because it touches no image.
-- A CI re-run or a dispatch of a commit that was already built costs no build.
+- A CI re-run, or a second run from the same ref, of a commit that was already built costs no build.
 - A build that fails half way leaves nothing to clean up: only an untagged digest stays behind.
 
 ### Negative / Accepted Trade-offs
@@ -106,6 +117,13 @@ rules, and the backup (#688) protects the translators' data.
   came before signing began or failed after its push) cannot be built again until someone deletes
   that package version in GHCR or merges a new commit. This only matters for re-running CD on such a
   commit.
+- A run stops when the commit's `sha-<short>` was built from another ref. A branch run whose head is
+  a `main` commit, made before `main`'s CD built that commit, blocks it the same way: `main`'s run
+  stops until someone deletes that package version or merges a new commit. Such a branch run has to
+  be started by a writer, and before this ADR it would have moved the tag instead.
+- A hand run with `image_tag` still builds the commit it runs on first, when that commit has no
+  images yet. That is common after a commit that only changed docs, which starts no CI and so no CD.
+  A failed build there stops the deploy, a rollback included (#1424).
 - `sha-<short>` (seven hex digits) is now the key for "already built". If two commits shared those
   seven digits, the second would reuse the first one's image. The odds are about one in 400,000 per
   commit at today's size, and they grow slowly with the history; before, the second commit would have
@@ -133,7 +151,16 @@ unsigned.
 
 The strongest guard: a moved tag could never reach a box, even after a hand push to GHCR. Not chosen
 now: the compose file, the box `.env`, the baseline resolver, the image scan, the hand procedure and
-the box tests all work by tag. Rule 2 removes every way our own pipeline moves a tag.
+the box tests all work by tag. Rule 2 removes the ways a `cd.yml` with this change moves a tag. A tag
+can still move by:
+
+- a hand push to GHCR, or any workflow on any branch with `packages: write`;
+- a `v*` tag on a commit from before this ADR, which starts that commit's old tag trigger;
+- a hand run of CD from a ref whose head is from before this ADR, which runs that ref's old `cd.yml`;
+- a re-run of the build job of a CD run from before this ADR, which uses that run's old `cd.yml`
+  (GitHub allows re-runs for 30 days).
+
+The runbook forbids the last three. The first is the reason this option stays open.
 
 ### D. Build again over an existing image that has no provenance
 
@@ -147,23 +174,52 @@ attestation still run, so any failure after the push left a tag on an unchecked 
 stayed blocked until someone deleted it by hand. The rollback and a hand-run `deploy.sh` check no
 provenance, so they would also run such an image. Naming the image last removes both.
 
+### F. Pin the lookup to the built commit (`--source-digest`)
+
+Rejected. For a run started by CI, the attestation names `github.sha`, which is the tip of `main`
+when the run started, not the commit CD built. Run 43486613717 built `d5d2077` while its `github.sha`
+was `a67f27e`. The check would refuse a good image.
+
+### G. Pin the lookup to a fixed `refs/heads/main`
+
+Rejected. On every run from `main` it gives the same answer as `$GITHUB_REF`. It would stop every
+second run on one branch head, the proof route of #1336 included, and it would differ from the ref
+the rollout check reads.
+
+### H. Only runs from `main` build or name `sha-<short>`
+
+The only option that keeps an honest branch run from blocking a `main` commit. It is not a security
+control: a branch can change its own `cd.yml`. It would break proving a build change from a branch,
+and the branch deploys #1336 keeps for its proof route. Deferred: worth looking at again once #1336
+lets only `main` use the environments.
+
+### I. One "built by us" check shared by the lookup, the deploy and the rollback
+
+The best end state: one definition of "ours". It needs the script #1336 adds to the deploy. Until
+both are on `main`, the exact-command tests on both sides keep the two copies in step, and the change
+that lands second can move the lookup onto the shared script.
+
 ## Implementation Notes
 
 - `cd.yml`: no `push: tags` trigger and no `type=semver` tags. `build-and-push` starts with the step
-  "Look up this commit's existing image" (`commit-image.sh find`); every later step runs only when it
-  reports `exists=false`. The build pushes by digest (`push-by-digest=true`, no `tags`), and the last
-  step, "Name the checked image" (`commit-image.sh name`), adds the tags. Its concurrency group no
-  longer cancels a running build.
+  "Look up this commit's existing image" (`commit-image.sh find`, pinned to `cd.yml` and
+  `$GITHUB_REF`); every later step runs only when it reports `exists=false`. The build pushes by
+  digest (`push-by-digest=true`, no `tags`), and the last step, "Name the checked image"
+  (`commit-image.sh name`), adds the tags. Its concurrency group no longer cancels a running build.
 - `scripts/tests/commit-image.tests.sh` runs in pr-verify on every PR and in ci on main. Besides
   the script, it checks that no workflow starts on a tag, a release or a new ref.
 - `scripts/ci/resolve-prod-baseline.sh` no longer tries `v<tag>` for a box-pinned tag, because the
   box can only pin `sha-<short>`.
 - Runbook: "Cutting a release" and "An image that failed its checks".
+- `commit-image.sh` reads digests with `--format '{{printf "%s" .Manifest.Digest}}'`: some buildx
+  versions print the whole manifest view for a bare `{{.Manifest.Digest}}`.
 
 ## References
 
 - #1344 (the bug and both owner decisions), epic #1346, wiki page `Wersje-systemu`
-- ADR-0012 §1, ADR-0008 §6, ADR-0024 Decision 1, ADR-0023
+- ADR-0012 §1, ADR-0008 §6, ADR-0024 Decision 1, ADR-0023, ADR-0071 (the backup)
+- #1336 (which refs may deploy, and the rollout's provenance check), #1424 (a hand run with
+  `image_tag` still builds first)
 - [docker buildx imagetools create](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/)
   ("If only one source is specified and that source is a manifest list or image index, create
   performs a carbon copy")

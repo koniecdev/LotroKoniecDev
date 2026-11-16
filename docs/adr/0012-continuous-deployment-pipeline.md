@@ -39,9 +39,10 @@ human-pull convenience only — never the thing that defines what runs.
 
 **Amendment (2026-11-12, ADR-0070 / #1344).** No semver images and no `v*` trigger any more: a tag
 push rebuilt the commit and moved its `sha-<short>`. A release is a git tag + a GitHub Release, and
-CD builds each commit once (an existing `sha-<short>` is reused, never rebuilt). The image is now
-pushed by digest and gets its `sha-<short>` name only after Trivy, cosign and the attestation passed,
-so a failed scan leaves an untagged digest that nothing deploys.
+CD builds each commit once (an existing `sha-<short>` that this `cd.yml` built from the same ref is
+reused; any other stops the job; neither is rebuilt). The image is now pushed by digest and gets its
+`sha-<short>` name only after Trivy, cosign and the attestation passed, so a failed scan leaves an
+untagged digest that nothing deploys.
 
 **Amendment (2026-06-30, audit 0001 H9 + H1 — supply-chain hardening of the deployment unit).** The
 immutable image is now **scanned, signed and attested** before it can be deployed, and that chain is
@@ -90,7 +91,7 @@ suite (Release build + unit + integration) is thus a gate *before* the deploy ca
 a parallel race. `workflow_dispatch` and `v*`-tag pushes are deliberately **not** CI-gated (manual /
 publish-only paths) — they pass through the gate ungated — but a dispatch rollout still requires the
 same human approval, and a tag still only publishes artifacts. (ADR-0070: the `v*` path is gone, and
-a dispatch of a commit that was already built reuses its image instead of building it again.)
+a dispatch from the same ref as the build reuses the commit's image instead of building it again.)
 Because CI carries `paths-ignore` for docs, a docs-only push runs no CI and therefore triggers no CD
 (incidentally closing audit 0001 M2).
 

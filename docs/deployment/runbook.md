@@ -929,7 +929,7 @@ CI green on main → cd.yml gate (pins the tested commit)
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `cd.yml` → `gate` | CI finishing on main (`workflow_run`), dispatch | the **CI-success gate**: CD fires when CI completes, goes on only after a green CI, and pins the exact tested commit (`head_sha`) for build + rollout. Docs-only pushes run no CI, so they trigger no CD. |
-| `cd.yml` → `build-and-push` | after a passing `gate` | **builds each commit once** (ADR-0070): a commit whose `:sha-<short>` already exists with our build provenance is reused, not rebuilt. Otherwise it builds the 4 images, pushes them to GHCR **by digest, with no tag**, **scans each with Trivy** (fails on a fixable HIGH/CRITICAL), **signs (cosign keyless) + attests (SLSA provenance + SBOM)** them, and only then names them `:sha-<short>` (+ `:latest` on the main tip). A build that fails half way leaves only an untagged digest, which nothing deploys |
+| `cd.yml` → `build-and-push` | after a passing `gate` | **builds each commit once** (ADR-0070): a commit whose `:sha-<short>` this `cd.yml` built from the same ref (`--source-ref $GITHUB_REF`) is reused, not rebuilt, and any other existing `:sha-<short>` stops the job. Otherwise it builds the 4 images, pushes them to GHCR **by digest, with no tag**, **scans each with Trivy** (fails on a fixable HIGH/CRITICAL), **signs (cosign keyless) + attests (SLSA provenance + SBOM)** them, and only then names them `:sha-<short>` (+ `:latest` on the main tip). A build that fails half way leaves only an untagged digest, which nothing deploys |
 | `cd.yml` → `deploy-staging` | after `build-and-push`, `STAGING_ENABLED == true`, **automatic** | calls the reusable [`deploy.yml`](../../.github/workflows/deploy.yml) under `environment: staging` |
 | `cd.yml` → `deploy-prod` | after `deploy-staging`, **behind the `production` approval gate** | the SAME reusable `deploy.yml` under `environment: production` |
 
@@ -1105,20 +1105,24 @@ Two edges worth knowing. `deploy.sh` prunes unused images older than 14 days
 (`PRUNE_UNUSED_OLDER_THAN`), so an older tag may need a fresh pull on the box; GHCR still has it.
 `deploy.sh` pulls it for you. A pull by hand needs `DOCKER_CONFIG=/nonexistent` in front, or a stored
 login that has expired fails it ([Gotchas](#gotchas)). And re-running CD for a commit (**Actions → CD
-→ Run workflow**, optionally with an explicit `image_tag`) still goes through the staging→prod gate.
-It builds nothing for a commit that already has its images.
+→ Run workflow** from `main`, optionally with an explicit `image_tag`) still goes through the
+staging→prod gate. It builds nothing for a commit whose images `cd.yml` already built from `main`. But
+it first builds the commit it was started on (the tip of `main`) when that commit has no images yet.
+That is common: a commit that only changed docs starts no CI, so it starts no CD and gets no images.
+A failed build there stops the deploy, a rollback included (#1424).
 
 ## Releases
 
 A release is an annotated git tag `vX.Y.Z` plus a GitHub Release with notes (ADR-0070). The wiki
 page `Wersje-systemu` says what the number means and what 1.0 needs. No workflow listens to the tag
 or the release: cutting one builds nothing and deploys nothing, and the images of a release are the
-`:sha-<short>` images of its commit. To deploy or roll back to a release, run CD by hand with that
-`image_tag`.
+`:sha-<short>` images of its commit. To deploy or roll back to a release, run CD by hand from `main`
+with that `image_tag` (mind the build first, in "Two edges worth knowing" above).
 
 ### Cutting a release
 
-v0.1.0 waits until the translators' work is in the daily backup (#688), as the wiki page says.
+The wiki page says v0.1.0 comes once the translators' work is in the daily backup. That backup is
+live since 2026-11-15 (ADR-0071), so v0.1.0 needs only a prod commit that has ADR-0070 (step 2).
 
 1. **Find the commit prod runs.** The box is the ground truth: its `.env` names the image tag that is
    live, and `deploy.sh` writes it only after a good roll. On the prod box:
@@ -1159,23 +1163,34 @@ CD names an image `sha-<short>` only after Trivy, cosign and the attestation pas
 fails half way leaves only an untagged digest, and re-running the job builds the commit again. There
 is nothing to clean up.
 
-A CD run stops at *Look up this commit's existing image* with "its build provenance did not verify"
-only when the tag exists without provenance: a tag pushed by hand, one from before ADR-0070 whose
-build came before signing began or failed after its push, or a provenance check that failed for a
-moment. CD never builds over a tag, because a second build is
-not the same image.
+A CD run stops at *Look up this commit's existing image* with "gh did not confirm that cd.yml in
+… built it from <ref>" only when the tag exists but was not built by this repo's `cd.yml` from the
+run's own ref. CD never builds over a tag, because a second build is not the same image. The `gh`
+output just above that line says which case it is:
 
-1. Re-run the failed job once. The provenance check itself may have failed for a moment.
-2. Still failing: merge a new commit, which gets its own image.
-3. Or delete that image version and re-run: on GitHub, open the package (`lotrokoniecdev-<image>`
-   under the owner's Packages), **View and manage all versions**, then **Delete version** on the
-   one tagged `sha-<short>`. Delete only an image without provenance: CD never deployed it.
+- the check could not reach GitHub for a moment;
+- the image was built from another ref: a CD run on a branch whose head is this commit named it
+  first;
+- a tag pushed by hand, or one from before ADR-0070 whose build came before signing began or failed
+  after its push.
+
+1. `gh` could not reach GitHub: re-run the failed job once.
+2. Built from another ref, on a run from `main`: merge a new commit, which gets its own image, or
+   delete that image version (step 4) and re-run. On a run from a branch: run CD from the ref that
+   built the image (from `main`, with its `image_tag`, when `main` built it).
+3. A tag with no provenance: merge a new commit, or delete that image version (step 4) and re-run.
+4. To delete an image version: on GitHub, open the package (`lotrokoniecdev-<image>` under the
+   owner's Packages), **View and manage all versions**, then **Delete version** on the one tagged
+   `sha-<short>`. Delete only an image that no box runs: check `IMAGE_TAG` in `/opt/lotro/.env` on
+   staging and prod first. An image built from a branch may be running on staging.
 
 **Never re-run the build jobs of a CD run that started before ADR-0070 merged** (GitHub allows a
 re-run for 30 days). A re-run uses the `cd.yml` of the original run, which builds the commit again
-and moves its tag. To deploy that commit again, run CD by hand from `main` with its `image_tag`.
-That is also the way for any other CD run of a commit from before ADR-0070: the new `cd.yml` checks
-out that commit, which has no `commit-image.sh`, so its lookup stops.
+and moves its tag. **Never run CD by hand from a ref whose head is from before ADR-0070** either: a
+hand run uses that ref's own `cd.yml`, which builds again too. To deploy such a commit again, run CD
+by hand from `main` with its `image_tag`. A new CD run that CI starts for a commit from before
+ADR-0070 (after a re-run of its CI run) uses the new `cd.yml`, which checks out that commit. It has
+no `commit-image.sh`, so the lookup fails and nothing deploys.
 
 ## Database migrations
 

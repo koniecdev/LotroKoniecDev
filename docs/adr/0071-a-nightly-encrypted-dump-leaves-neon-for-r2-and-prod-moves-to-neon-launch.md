@@ -206,3 +206,26 @@ for 14 days, as far back as Prometheus keeps samples, and then goes quiet.
 - The privacy policy, sections 04 and 07, pinned by `PrivacyPolicyPageTests`.
 - `docs/deployment/runbook.md` → "Database backups": the Neon plan, the wiring, the restore drill and
   the procedures. The Neon plan change and the crontab line are owner steps on the live systems.
+
+## Amendment (2026-11-16, #1378): a bad-migration restore replaces the prod branch too
+
+§6 says that a restore never replaces the prod database, and that a whole-database restore is for
+the loss of the Neon project only. There is a second case: a Neon branch restore after a bad
+migration (ADR-0023 §5) rewinds the whole prod branch, auth included. Its procedure saves auth before
+the restore and puts it back afterwards (ADR-0023, amendment of 2026-11-16), so no deletion or
+cancellation made after the restore point is undone, and it sends every erasure to the translation
+system again.
+
+The redo after the loss of the Neon project changes too:
+
+- A cancellation made after the dump is redone even when the restored row has no deletion waiting,
+  and an e-mail change undone after the dump is redone with it.
+- Three sources name what happened after the dump, in this order: Brevo's mail log (kept with no
+  time limit unless a retention rule shortens it; Brevo's help names no limit per plan, so for the
+  Free plan this is inferred, not stated), Loki (14 days, best effort), and, when neither
+  reaches back to the dump, one e-mail by hand to every account, asking anyone who deleted their
+  account since the dump to do it again (owner decision, 2026-11-15).
+- Every erasure message is sent again, because the translation dump may still hold a name that was
+  erased after it.
+- A cancellation that no source shows any more stays a known gap, listed in the runbook under
+  "Still not covered".

@@ -526,9 +526,12 @@ exists. Rotate first, then remove the line, in this order:
      leftovers from the Azure era (ADR-0013 calls them unused). Delete them;
    - any backup of the box `.env` still holds it;
    - if the value was ever reused anywhere else, change it there too.
-4. Remember that a database restore brings the old password back. A Neon restore (PITR or a
-   pre-migration snapshot) to a point before the rotation restores the old hash with the rest of the
-   `Users` table. After such a restore, rotate again.
+4. Remember that a whole-database restore brings the old password back: after
+   [Neon is gone](#neon-is-gone-whole-database-restore) from a dump older than the rotation, rotate
+   again. A Neon branch restore ([PITR or a pre-migration snapshot](#procedure)) does not: it puts
+   auth back as it was just before the restore, either as a whole or by copying back every account
+   whose security stamp moved, and a password change moves the stamp. The exception is a damaged
+   export, when its step 4 redoes deletions by hand: then rotate again too.
 
 **Warning `2353`: the admin username belongs to a different address.** The seeder logs it on every
 start when `AUTH_ADMIN_EMAIL` matches no account but `AUTH_ADMIN_USERNAME` is taken. There are two
@@ -1225,8 +1228,11 @@ a branch to any moment inside the retention window.
   ```
 
 - **A branch restore is branch-wide.** `lotro_translation` and `lotro_auth` live on the same branch,
-  so they always rewind **together**. That is right for "undo the migrator run", because the one
-  migrator applies both contexts.
+  so they always rewind **together**. A rewound auth database would undo every account change made
+  since the restore point, account deletions and cancellations included, and the privacy policy
+  promises that a restore never brings a deleted account back. So the procedure saves auth before
+  the restore and puts it back afterwards (#1378): as a whole when no auth migration is to blame, and
+  account by account when one is.
 
 #### Risk boundary — what can be undone, and how far back (MIGR-01, revised by #688)
 
@@ -1241,8 +1247,10 @@ by hand. Since ADR-0071 the layers are:
 
 **Still not covered:** rows written after the last dump that are also outside the history window
 when Neon itself is lost (at most one day of work), and damage noticed more than 30 days later.
-The history window is 7 days only once the production projects are on Launch
-([Database backups](#database-backups) → Neon plan); until then it is the Free plan's 6 hours.
+After such a loss, also a deletion or a cancellation made after the dump that neither Brevo's mail
+log nor Loki still shows ([Neon is gone](#neon-is-gone-whole-database-restore), step 3). The e-mail
+that step sends by hand covers the deletions. A cancellation with no record left comes back as a
+waiting deletion, and the finalizer erases an account its owner chose to keep.
 
 #### Procedure
 
@@ -1251,11 +1259,29 @@ corrupted data, or broke the serving release beyond what N-1 compatibility (ADR-
 Time matters: **the restore point must still be inside the history window** (7 days on prod, 6 h
 on staging), unless you have the auto-snapshot, which never expires.
 
-**0. Find the restore point.** The deploy run's step summary prints a **"DB restore point
-(pre-migration)"** table: the UTC timestamp captured just *before* the migrator ran, the target
-migration per context, and the **auto-snapshot branch**. When it names one, prefer
+**0. Find the restore point, and pick the path for auth.** The deploy run's step summary prints a
+**"DB restore point (pre-migration)"** table: the UTC timestamp captured just *before* the migrator
+ran, the target migration per context, and the **auto-snapshot branch**. When it names one, prefer
 [Restore from the auto-snapshot](#restore-from-the-auto-snapshot-migr-04): no timestamp math, no window
 pressure.
+
+Then check whether the bad release added an auth migration. In a clone of the repo, after
+`git fetch origin`, with each image tag minus its `sha-` prefix (`sha-1a2b3c4` → `1a2b3c4`):
+
+```bash
+git diff --name-only --diff-filter=A <previous good> <bad> -- src/AuthSystem/LotroKoniecDev.AuthSystem.Persistence/Migrations \
+  | grep -v -e '\.Designer\.cs$' -e 'ModelSnapshot\.cs$'
+```
+
+Check it against the **"Target migration — auth"** row in the run summaries of both deploys: the
+same value in both means no new auth migration. When the two disagree (a mistyped path prints
+nothing too), count it as a new one.
+
+- **Keep auth:** no auth migration is to blame, and nothing suggests that the bad release's code
+  damaged account rows. Step 4 puts auth back exactly as it was before the restore. The previous
+  release runs on the newer auth schema, which N-1 compatibility guarantees (ADR-0023 §2).
+- **Rewind auth:** an auth migration is to blame, or you are not sure. Step 4 keeps the rewound auth
+  database and copies back the accounts that changed since the restore point.
 
 **1. Put the last good release back first.** After the restore the schema is pre-migration again, and
 only the previous release's code is proven against it (N-1 holds one step back; *new* code on the
@@ -1266,10 +1292,46 @@ ssh deploy@<box>
 IMAGE_TAG=<previous-good-sha> bash /opt/lotro/deploy.sh
 ```
 
-(When the rollout failed on its own, CD's automatic rollback already did this, and only steps 2–4
+(When the rollout failed on its own, CD's automatic rollback already did this, and only steps 2–7
 remain.)
 
-**2. Restore the Neon branch to just before the migrator ran.** Use the project + branch ids you
+**2. Stop the APIs and save auth.** From here to the end of step 5, approve no deploy and run no CD
+rollback: both run the migrator and then start every service (`deploy.sh`), and a CD deploy also
+deletes the MIGR-04 snapshot. On staging there is nothing to approve: CD deploys every green push to
+`main` by itself. So for a staging restore or the rehearsal, pause it first with
+`gh workflow disable cd.yml` (and check with `gh run list --workflow cd.yml --limit 3` that no run is
+in progress), and turn it back on with `gh workflow enable cd.yml` after step 5. A push made in
+between deploys with the next one. Keep clear of 01:00–01:30 UTC (the nightly dump) and of 02:25 UTC
+(ssh closes before the prod box's reboot). A reboot does not start a stopped container. Close every
+other session on `lotro_auth` (a psql shell, an IDE data source): step 4 waits on their locks.
+
+On the box, after the [shell helpers](#shell-helpers-paste-first) (they set `umask 077`: every file
+below holds password hashes). Take both the dump and the export, whatever path step 0 picked: the
+export is the fallback when the dump cannot go back.
+
+```bash
+dc stop auth-api tms-api
+read -rs PGPASSWORD && export PGPASSWORD    # neondb_owner's password: Neon console → Connect
+AUTH='host=<direct host> dbname=lotro_auth user=neondb_owner sslmode=require'
+TRANSLATION='host=<direct host> dbname=lotro_translation user=neondb_owner sslmode=require'
+
+# Grants to other roles. The restore in step 4 drops them, so keep this output: nothing is expected.
+psql_in "$AUTH" -At -c "SELECT 'object', relname, relacl::text FROM pg_class WHERE relnamespace = 'authsystem'::regnamespace AND relacl IS NOT NULL UNION ALL SELECT 'column', attrelid::regclass || '.' || attname, attacl::text FROM pg_attribute WHERE attrelid IN (SELECT oid FROM pg_class WHERE relnamespace = 'authsystem'::regnamespace) AND attacl IS NOT NULL UNION ALL SELECT 'schema', nspname, nspacl::text FROM pg_namespace WHERE nspname = 'authsystem' AND nspacl IS NOT NULL UNION ALL SELECT 'default', defaclobjtype::text, defaclacl::text FROM pg_default_acl WHERE defaclnamespace = 'authsystem'::regnamespace"
+
+docker run --rm -i --network host -e PGPASSWORD "$PG_IMAGE" \
+  pg_dump --format=custom --schema=authsystem -d "$AUTH" < /dev/null > auth-before.dump
+docker run --rm -i "$PG_IMAGE" pg_restore --file=/dev/null < auth-before.dump && echo 'the dump is complete'
+psql_in "$AUTH" -At -c 'SELECT count(*), md5(string_agg(u::text, chr(10) ORDER BY "Id")) FROM authsystem."Users" u' \
+  -c 'SELECT "MigrationId" FROM authsystem."__EFMigrationsHistory" ORDER BY 1' > auth-before.check
+psql_in "$AUTH" -At -c '\copy (SELECT "Id", "Email", "NormalizedEmail", "EmailConfirmed", "PasswordHash", "SecurityStamp", "LockoutEnabled", "LockoutEnd", "AccessFailedCount", "DeletionScheduledAt", "EmailChangeRevertStamp", "EmailChangeRevertTo", "NormalizedEmailChangeRevertTo", "EmailChangeRevertArmedAt" FROM authsystem."Users") TO STDOUT' > users-before.tsv
+[ "$(wc -l < users-before.tsv)" = "$(head -1 auth-before.check | cut -d'|' -f1)" ] && echo 'the export is complete'
+```
+
+Do not start step 3 before the dump check printed `the dump is complete`. When the export check
+stays silent, run the export again. When it fails twice (a migration renamed one of its columns),
+note it and go on: step 4 then counts the export as damaged.
+
+**3. Restore the Neon branch to just before the migrator ran.** Use the project + branch ids you
 looked up above and the step-0 timestamp:
 
 ```bash
@@ -1288,16 +1350,223 @@ curl -sf -X POST -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: appl
   post-migration writes can still be salvaged from it.
 - Console alternative: project → *Branches* → `production` → **Restore** → *From this branch's
   history* → pick the timestamp.
-- The restore is near-instant (copy-on-write). Active connections drop once; the apps' Npgsql pools
-  reconnect on the next request.
+- The restore is near-instant (copy-on-write). Any connection still open drops once.
 
-**3. Verify.** Run the [Verifying](#verifying) queries: the bad migration's row must be **gone** from
-that context's `__EFMigrationsHistory` (the restore rewinds schema, data and history together). Then
-[smoke](#post-deploy-smoke-test) the environment.
+**4. Put auth back as it was before the restore.** In the same shell as step 2.
 
-**4. Roll forward.** Fix the migration in a new commit and let the normal pipeline redeploy; the
-migrator gate re-applies from the rewound history. Once you are confident, delete the `pre-restore-*`
-safety branch (the Free plan allows at most 10 branches per project):
+*Keep auth.* Restore the step-2 dump over the rewound schema:
+
+```bash
+# The restore can drop only what neondb_owner owns. This must print neondb_owner and nothing else.
+psql_in "$AUTH" -At -c "SELECT tableowner FROM pg_tables WHERE schemaname = 'authsystem' UNION SELECT sequenceowner FROM pg_sequences WHERE schemaname = 'authsystem' UNION SELECT nspowner::regrole::text FROM pg_namespace WHERE nspname = 'authsystem'"
+
+docker run --rm --network host -e PGPASSWORD -v "$PWD":/restore:ro "$PG_IMAGE" \
+  pg_restore --clean --if-exists --single-transaction --no-owner --no-privileges -d "$AUTH" /restore/auth-before.dump \
+  && psql_in "$AUTH" -At -c 'SELECT count(*), md5(string_agg(u::text, chr(10) ORDER BY "Id")) FROM authsystem."Users" u' \
+       -c 'SELECT "MigrationId" FROM authsystem."__EFMigrationsHistory" ORDER BY 1' > auth-after.check \
+  && cmp auth-before.check auth-after.check && echo 'auth is back as it was'
+```
+
+Go on only when it printed `auth is back as it was`.
+
+- When the restore worked but `cmp` prints a difference, something wrote to `lotro_auth` after
+  step 2 (an API that was not stopped, a deploy). Do not start the APIs: find the writer first.
+- The restore is one transaction: when it fails, nothing changed. An error that ends in
+  `because other objects depend on it` names, on its `DETAIL` line, an object that the restored
+  branch has and the dump has not (usually a table that a migration of the bad release dropped).
+  Check that the dump does not hold it, then drop it and run the restore again:
+  `docker run --rm -i "$PG_IMAGE" pg_restore --list < auth-before.dump | grep -F ' authsystem <name> '`
+  prints nothing, then `psql_in "$AUTH" -c 'DROP TABLE authsystem."<name>"'` (`DROP SEQUENCE` or
+  `DROP VIEW` when the `DETAIL` line names one).
+- On any other error, take the rewind-auth path below, with the export from step 2.
+- Grant again whatever the grant query of step 2 printed.
+
+Then send every erasure to the translation system again. The translation database went back to the
+restore point, so a translator profile erased after it shows its name again, and auth never sends
+an erasure twice on its own. Erasing a profile twice is harmless.
+
+```bash
+psql_in "$AUTH" -c "UPDATE authsystem.\"OutboxMessages\" SET \"ProcessedOn\" = NULL WHERE \"Type\" = 'AccountErased'"
+```
+
+Note the `UPDATE` count for step 5. Keep the step-2 files until step 5 is done: they are the
+fallback if auth-api does not come up. Rows of an outbox type that only the bad release knows meet the
+previous release now: see [Rolling back past ADR-0065](#rolling-back-past-adr-0065).
+
+*Rewind auth.* Keep the rewound database and copy back every account whose deletion date or
+security stamp moved since the restore point. Every write that changes an address, a password, a
+deletion or an undo link also changes the stamp, so this catches a deletion asked for after the
+restore point, a cancellation made after it (also of a deletion asked for after it), and an
+e-mail change undone after it. It also brings back password resets and e-mail changes made after the
+restore point: the state before the restore is the truth. An account erased after the restore point
+keeps a placeholder address, so the finalizer erases it again, with its message to the translation
+system. What the redo does not select stays rewound: an e-mail confirmation and a failed-login
+lockout made after the restore point (harmless; a person may be asked to confirm their address
+again), and anything outside the `Users` columns it copies, such as a role granted or removed by
+hand, or a row deleted by hand. Check such changes against your own notes. A mail that was still
+waiting in the outbox at the restore point goes out again, built from today's account state.
+
+Do not use the export when it may hold the damage: an auth migration of the bad release writes,
+drops or renames one of its columns; the bad release's code wrote one of them wrongly; that
+migration dropped or relaxed the unique index `IX_Users_Email` or `EmailIndex`; or the export failed
+in step 2. Then redo each deletion and cancellation by hand, from the sources and with the SQL of
+[Neon is gone](#neon-is-gone-whole-database-restore) step 3 (match Loki's rows by `"Id"`). Finish
+with the last three writes of the block below (the `UPDATE` of `OutboxMessages` and the two
+`DELETE`s), then run the due-list block after it.
+
+When the step-2 files are lost, the `pre-restore-*` branch still holds auth as it was at step 2:
+give it a compute in the Neon console and take the dump and the export from its direct host. Use a
+variable of its own for that host: `AUTH` must still name the restored branch in step 4.
+
+First set the dry run:
+
+```bash
+END=ROLLBACK
+```
+
+Then run this block. With `END=ROLLBACK` it prints every account it would change and the accounts
+the finalizer will erase, and changes nothing. Read the list, then type `END=COMMIT` and run this
+block again. **The second run must end with `COMMIT`.** When it ends with `ROLLBACK`, nothing was
+copied back: do not go on.
+
+```bash
+[ -s users-before.tsv ] && { cat <<'SQL'
+BEGIN;
+CREATE TEMP TABLE before_restore AS SELECT "Id", "Email", "NormalizedEmail", "EmailConfirmed", "PasswordHash", "SecurityStamp", "LockoutEnabled", "LockoutEnd", "AccessFailedCount", "DeletionScheduledAt", "EmailChangeRevertStamp", "EmailChangeRevertTo", "NormalizedEmailChangeRevertTo", "EmailChangeRevertArmedAt" FROM authsystem."Users" WITH NO DATA;
+\copy before_restore FROM STDIN
+SQL
+  cat users-before.tsv; echo '\.'
+  cat <<'SQL'
+-- "Erased" is the ErasedAccounts rule: the marker address and no password.
+CREATE TEMP TABLE redo AS
+SELECT b.*, u."DeletionScheduledAt" AS restored_deletion,
+       (b."Email" LIKE 'anon-%@anonymized.local' AND b."PasswordHash" IS NULL)
+       AND NOT (u."Email" LIKE 'anon-%@anonymized.local' AND u."PasswordHash" IS NULL) AS erase_again
+FROM before_restore b JOIN authsystem."Users" u USING ("Id")
+WHERE b."DeletionScheduledAt" IS DISTINCT FROM u."DeletionScheduledAt"
+   OR b."SecurityStamp" IS DISTINCT FROM u."SecurityStamp";
+SELECT "Id", CASE WHEN erase_again THEN 'erase again' ELSE 'copy back' END AS action,
+       restored_deletion, "DeletionScheduledAt" AS deletion_before_restore
+FROM redo
+UNION ALL
+SELECT b."Id", 'NOT IN THE RESTORED DATABASE (registered after the restore point): ' || b."Email", NULL, b."DeletionScheduledAt"
+FROM before_restore b WHERE NOT EXISTS (SELECT 1 FROM authsystem."Users" u WHERE u."Id" = b."Id")
+ORDER BY 2, 1;
+-- Placeholders first: two accounts may have swapped addresses, and the unique index checks every row.
+UPDATE authsystem."Users" u
+SET "Email" = 'redo-' || u."Id" || '@restore.invalid', "NormalizedEmail" = upper('redo-' || u."Id" || '@restore.invalid')
+FROM redo r WHERE u."Id" = r."Id";
+UPDATE authsystem."Users" u
+SET "Email" = CASE WHEN r.erase_again THEN u."Email" ELSE r."Email" END,
+    "NormalizedEmail" = CASE WHEN r.erase_again THEN u."NormalizedEmail" ELSE r."NormalizedEmail" END,
+    "EmailConfirmed" = r."EmailConfirmed", "PasswordHash" = r."PasswordHash", "SecurityStamp" = r."SecurityStamp",
+    "LockoutEnabled" = r."LockoutEnabled", "LockoutEnd" = r."LockoutEnd", "AccessFailedCount" = r."AccessFailedCount",
+    "DeletionScheduledAt" = r."DeletionScheduledAt", "EmailChangeRevertStamp" = r."EmailChangeRevertStamp",
+    "EmailChangeRevertTo" = r."EmailChangeRevertTo", "NormalizedEmailChangeRevertTo" = r."NormalizedEmailChangeRevertTo",
+    "EmailChangeRevertArmedAt" = r."EmailChangeRevertArmedAt"
+FROM redo r WHERE u."Id" = r."Id";
+UPDATE authsystem."OutboxMessages" SET "ProcessedOn" = NULL WHERE "Type" = 'AccountErased';
+DELETE FROM authsystem."SignInSessions";
+DELETE FROM authsystem."OpenIddictTokens";
+-- The finalizer's rule (14 days of grace, and 14 more while an undo link is live): it erases these at start.
+SELECT "Id" AS due_now FROM authsystem."Users"
+WHERE "DeletionScheduledAt" <= now() - interval '14 days'
+  AND ("EmailChangeRevertArmedAt" IS NULL OR "EmailChangeRevertArmedAt" <= now() - interval '14 days')
+  AND "Email" NOT LIKE '%@anonymized.local';
+SQL
+  echo "$END;"
+} | psql_in "$AUTH"
+```
+
+- When the block prints nothing at all, `users-before.tsv` is empty or missing: the export failed,
+  so treat it as damaged (above). `COPY <n>` must equal the account count in the first line of
+  `auth-before.check`.
+- The list marks each account `copy back` or `erase again`, with its deletion date in the restored
+  database and before the restore. Read it before the `COMMIT` run.
+- `NOT IN THE RESTORED DATABASE` marks an account registered after the restore point, with its
+  address. It is gone with the rewind; tell its owner to register again. Skip an address of the
+  form `anon-…@anonymized.local`: that account was erased.
+- Note the third `UPDATE` count of the `COMMIT` run (the outbox reset) for step 5.
+- A unique-index error means another account still holds one of the addresses, which only a damaged
+  export can cause: treat the export as damaged (above).
+
+After the `COMMIT` run, keep the due list for step 5:
+
+```bash
+psql_in "$AUTH" -At -c "SELECT \"Id\" FROM authsystem.\"Users\" WHERE \"DeletionScheduledAt\" <= now() - interval '14 days' AND (\"EmailChangeRevertArmedAt\" IS NULL OR \"EmailChangeRevertArmedAt\" <= now() - interval '14 days') AND \"Email\" NOT LIKE '%@anonymized.local'" > due-ids.txt
+```
+
+**5. Start the APIs.** auth-api first:
+
+```bash
+STARTED=$(date -u +%FT%TZ); dc start auth-api
+```
+
+`start` also runs the exited migrator container of the previous release again, because auth-api
+waits for it. It has nothing to apply. When it fails, auth-api stays down: read `dc logs migrator`.
+
+*Rewind auth only:* wait until the finalizer has erased every account on the due list. It runs once
+at start, then only once a day.
+
+```bash
+if [ ! -f due-ids.txt ]; then echo 'due-ids.txt is not in this folder: do not go on'; else
+  DUE="{$(paste -sd, due-ids.txt)}"
+  for i in $(seq 1 30); do
+    LEFT=$(psql_in "$AUTH" -At -c "SELECT count(*) FROM authsystem.\"Users\" WHERE \"Id\" = ANY('$DUE'::uuid[]) AND \"Email\" NOT LIKE '%@anonymized.local'")
+    [ "$LEFT" = 0 ] && break; sleep 10
+  done; echo "left: $LEFT"
+fi
+dc logs --no-log-prefix --since "$STARTED" auth-api | grep -F -e '"@mt":"GDPR deletion finalization failed for user' \
+  -e '"@mt":"GDPR deletion finalization could not read user' -e '"@mt":"GDPR deletion finalizer run failed'
+```
+
+`left: 0` and no line from `grep`: go on. Otherwise keep tms-api stopped, fix the cause those lines
+name, run `STARTED=$(date -u +%FT%TZ); dc stop auth-api && dc start auth-api`, and wait again: the
+`grep` reads only the lines since the last start.
+
+Then, on both paths, take the names off the translator profiles of every erased account before
+tms-api serves: the translation database went back to the restore point, and the privacy policy
+promises that an erased account's data never come back to the site. This is what the translation
+system's own erasure does (`Translator.Erase`). The `UPDATE` count is how many names the restore
+brought back; the re-sent erasures then find nothing left to do.
+
+```bash
+psql_in "$AUTH" -At -c "SELECT \"Id\" FROM authsystem.\"Users\" WHERE \"Email\" LIKE 'anon-%@anonymized.local' AND \"PasswordHash\" IS NULL" > erased-ids.txt
+{ echo 'CREATE TEMP TABLE erased (id uuid);'; echo '\copy erased FROM STDIN'; cat erased-ids.txt; echo '\.'
+  echo "UPDATE translation.\"Translators\" t SET \"DisplayName\" = 'Usunięte konto', \"Email\" = NULL FROM erased e WHERE t.\"IdentityId\" = e.id AND (t.\"DisplayName\" <> 'Usunięte konto' OR t.\"Email\" IS NOT NULL);"
+} | psql_in "$TRANSLATION"
+```
+
+Then tms-api:
+
+```bash
+TMS_STARTED=$(date -u +%FT%TZ); dc start tms-api
+psql_in "$AUTH" -At -c "SELECT count(*) FROM authsystem.\"OutboxMessages\" WHERE \"Type\" = 'AccountErased' AND \"ProcessedOn\" IS NULL"
+dc logs --no-log-prefix --since "$TMS_STARTED" tms-api | grep -cF '"@mt":"Erased the translator profile of user'
+```
+
+Run the two counts again until they settle. The first reaches 0 within a minute or two. The second
+reaches the `UPDATE` count of the outbox reset in step 4, plus every account the finalizer erased at
+start (its `GDPR deletion finalized` lines since `$STARTED`: the due list, and any account whose 14
+days ended while the APIs were down). Then clean up:
+
+```bash
+rm -f due-ids.txt erased-ids.txt auth-before.dump users-before.tsv auth-before.check auth-after.check; unset PGPASSWORD
+```
+
+**6. Verify.** Run the [Verifying](#verifying) queries: the bad migration's row must be **gone** from
+that context's `__EFMigrationsHistory` (the restore rewinds schema, data and history together). On
+the keep-auth path, the auth history still holds every auth migration of the bad release, as step 4
+checked. `dc ps` shows every service up. Then [smoke](#post-deploy-smoke-test) the environment.
+
+**7. Roll forward.** Fix the migration in a new commit and let the normal pipeline redeploy; the
+migrator gate re-applies from the rewound history. On the keep-auth path, the bad release's auth
+migrations stay applied, so the fix must not edit or remove them: EF never runs an applied migration
+again, and a `git revert` of the bad release would remove them, so the next auth migration would be
+built against a model snapshot that does not know them. Keep those migration files and the snapshot
+as they are, and fix forward on top.
+Once you are confident, delete the `pre-restore-*` safety branch (the Free plan allows at most 10
+branches per project):
 
 ```bash
 curl -sf -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
@@ -1327,7 +1596,7 @@ the Free plan's storage cap on staging), and by the time deploy N+1 runs, deploy
 itself. So **the snapshot protects the latest deploy only**; an older bad migration falls back to
 PITR (inside the history window), the nightly dump, or the risk boundary above.
 
-**Restore procedure**: the same as the [PITR procedure](#procedure) except step 2. Restore the
+**Restore procedure**: the same as the [PITR procedure](#procedure) except step 3. Restore the
 default branch **from the snapshot branch's head** instead of from its own history. With
 `source_timestamp` left out, the source is restored to its head, which for the snapshot **is** the
 pre-migration state. `preserve_under_name` is **required** here because the restored branch has
@@ -1349,10 +1618,33 @@ curl -sf -X POST -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: appl
 
 #### Rehearsal (staging drill)
 
-Steps 2–4 can be rehearsed on staging at any time, without a deploy: restore the staging branch to
-five minutes ago (no data change while staging is idle), check that the [Verifying](#verifying)
-output is unchanged, then delete the preserved branch. Do **not** run it while someone is using
-staging: the restore drops connections and rewinds anything written after the restore point.
+Steps 2–6 on the keep-auth path can be rehearsed on staging at any time, without a deploy: restore
+the staging branch to five minutes ago (no data change while staging is idle), check that the
+[Verifying](#verifying) output is unchanged, then delete the preserved branch. It is also the only
+proof of step 4's `pg_restore` against Neon: #1378 proved it on a local Postgres 18 only. Do **not**
+run it while someone is using staging: the APIs are down until step 5, and the restore rewinds
+anything written after the restore point.
+
+Proven on 2026-11-16, locally (#1378): Postgres 18.7 (the image `backup.sh` pins), all 9 auth
+migrations, a non-superuser `neondb_owner` that owns every object, and the blocks of steps 2, 4
+and 5 cut from this page and run as written. *Rewind auth*, 16 accounts: 13 changed after the
+restore point (a deletion; two cancellations, one of a deletion asked for after it; three erasures;
+a takeover undone by its link; a new request after a cancellation; a password reset; two accounts
+that swapped addresses; an address freed by an erasure and then taken by another account; a live
+account on the marker domain), one registered after it, two untouched (one of them erased before
+the restore point). The dry run changed nothing.
+The real run copied the 13 back, kept placeholders for the three erased ones, ended the session and
+listed exactly those three as due. A real auth-api on that database erased them at start and left
+the cancelled accounts alone, and a real tms-api took four erasures off the translator profiles, the
+re-sent old one included. Step 5's SQL took four rewound names off before tms-api started, and
+changed nothing on a second run. *Keep auth:* every table and the auth history came back as they were,
+including a table the rewound database did not have, and the grants to another role were gone and
+had to be granted again. A leftover table, with or without a foreign key into `Users`, made the
+restore fail with nothing changed, and it passed once the table was dropped. The rewind block also
+worked over such a database. The new SQL of "Neon is gone" step 3 ran too, and its LogQL ran on
+Loki 3.7.7 (the version prod runs) against a line shaped like auth-api's. Not proven here: the
+restore against Neon (the rehearsal above), and the `grep` lines against live CLEF output (the
+alert rules read the same `"@mt"` field).
 
 ## Database backups
 
@@ -1457,6 +1749,7 @@ export DOCKER_CONFIG=/nonexistent
 mkdir -p /opt/lotro/backups/restore && cd /opt/lotro/backups/restore
 eval "$(bash /opt/lotro/backup.sh --helpers)"; echo "$PG_IMAGE"
 psql_in() { docker run --rm -i --network host -e PGPASSWORD "$PG_IMAGE" psql -v ON_ERROR_STOP=1 -X "$@"; }
+dc() { (cd /opt/lotro && docker compose -f compose.hetzner.yaml --env-file .env "$@"); }
 ```
 
 ### Fetch and decrypt a dump
@@ -1670,11 +1963,20 @@ times.
 
 ### Neon is gone (whole-database restore)
 
-The one case for a whole-database restore: the Neon project itself is lost.
+The one case for a whole-database restore from a dump: the Neon project itself is lost. A bad
+migration rewinds the Neon branch instead ([Recover from a bad migration](#recover-from-a-bad-migration-neon-pitr)),
+and that procedure puts auth back as it was just before the restore.
 
 1. Create a new project in the Launch organization (same region, Postgres 18) with the databases
    `lotro_translation` and `lotro_auth`, and set the history window to 7 days.
-2. [Fetch and decrypt](#fetch-and-decrypt-a-dump) the newest dump of **both** databases (the same
+2. Stop both APIs first, so that neither serves nor takes a message before step 5:
+
+   ```bash
+   cd /opt/lotro && export DOCKER_CONFIG=/nonexistent
+   docker compose -f compose.hetzner.yaml --env-file .env stop auth-api tms-api
+   ```
+
+   [Fetch and decrypt](#fetch-and-decrypt-a-dump) the newest dump of **both** databases (the same
    night), then restore each into the new project, auth first. With the new project's password in
    `PGPASSWORD` (`read -rs PGPASSWORD && export PGPASSWORD`):
 
@@ -1699,11 +2001,52 @@ The one case for a whole-database restore: the Neon project itself is lost.
 3. **Do every erasure again, and undo every later cancellation.** Do it before step 5: the finalizer
    runs as soon as auth-api starts on the new database. The dump is older than the loss. An account whose deletion was asked
    for before the dump comes back still waiting, and the finalizer erases it again on its next run.
-   A deletion asked for after the dump is gone with the old database: Brevo's log of the deletion
-   mails sent since the dump time (the ones with the link that cancels the deletion) names those
-   accounts and the time of each request. Schedule each one again the way the request does, then
-   the finalizer erases it once 14 days from the original request are over (on its next run, when
-   they already are):
+   What happened after the dump is gone with the old database. Three sources name it, in this
+   order:
+
+   - **Brevo's mail log:** Transactional → Logs, filtered by subject and by time, with a CSV export.
+     Brevo's help (read on 2026-11-16) says the logs are kept **indefinitely by default**. It names
+     no limit per plan, so we take it to hold on the Free plan this account is on too; the help does
+     not say so for Free in words (unconfirmed). Only a retention rule (1 to 24 months) shortens it:
+     check **Settings → Transactional emails → Retention rules**, and check that the log really
+     reaches back to the dump time. The plan shows under the account name (bottom left) → **My plan**. Sources:
+     [Manage your transactional logs](https://help.brevo.com/hc/en-us/articles/360021533839),
+     [Configure a custom retention period](https://help.brevo.com/hc/en-us/articles/4415743225746),
+     [Upgrade to a higher plan](https://help.brevo.com/hc/en-us/articles/209296725).
+   - **Loki,** when Brevo's log does not reach back to the dump time: Grafana on the staging box →
+     **Explore** → Loki. It keeps 14 days, best effort: its rate limits can drop lines, and nothing
+     ships while the staging box is down, so a missing line does not prove that nothing happened.
+     auth-api logs each request with the account's id (`UserId`) and the time (`At`):
+
+     ```logql
+     {project="lotrokoniecdev", box="lotro-prod", container=~".*auth-api.*"} |= `"@mt":"GDPR deletion scheduled for user` | json UserId="UserId", At="[\"@t\"]"
+     ```
+
+     The same with `GDPR deletion cancelled for user` and `E-mail change reverted for user`. In the
+     SQL below, match such an account by `"Id" = '<UserId>'` instead of its address.
+   - **An e-mail by hand,** when neither source reaches back to the dump time. Before step 5, send
+     one e-mail, every address in BCC, to every account in the restored database that is not
+     erased:
+
+     ```sql
+     SELECT "Email" FROM authsystem."Users" WHERE NOT ("Email" LIKE 'anon-%@anonymized.local' AND "PasswordHash" IS NULL);
+     ```
+
+     The subject, then the text, with the dump time in Polish time:
+
+     ```text
+     Przywróciliśmy serwis z kopii zapasowej — lotro-translator.pl
+
+     Serwis lotro-translator.pl przywróciliśmy z kopii zapasowej z <data i godzina dumpa> czasu polskiego. Jeśli po tym czasie zleciłeś(-aś) usunięcie konta, zleć je ponownie: Moje konto → Usuń konto.
+     ```
+
+     The gap this leaves is listed under "Still not covered" in the
+     [risk boundary](#risk-boundary--what-can-be-undone-and-how-far-back-migr-01-revised-by-688).
+
+   A deletion asked for after the dump: Brevo's deletion mails (the ones with the link that cancels
+   the deletion) or Loki's `deletion scheduled` lines name the account and the time of the request.
+   Schedule each one again the way the request does, then the finalizer erases it once 14 days from
+   the original request are over (on its next run, when they already are):
 
    ```sql
    UPDATE authsystem."Users"
@@ -1712,7 +2055,7 @@ The one case for a whole-database restore: the Neon project itself is lost.
    ```
 
    The erasure then reaches the translation system as usual
-   ([The account events parking lot](#the-account-events-parking-lot-tmsaccount-erased-dlq)).
+   ([The account events parking lot](#the-account-events-parking-lot-tmsaccount-eraseddlq)).
    `UPDATE 0` means one of two things. The account was created after the dump: nothing of it came
    back, so there is nothing to erase. Or its address changed after the dump: Brevo's log has a mail
    to the earlier address from the same days (the e-mail change mails); use that address. The old
@@ -1725,28 +2068,66 @@ The one case for a whole-database restore: the Neon project itself is lost.
    The other way round: a deletion asked for before the dump and cancelled after it comes back
    still waiting, and the finalizer would erase an account its owner chose to keep. Brevo's log of
    the mails that confirm a cancelled deletion (subject "Anulowano usunięcie konta"), sent since
-   the dump time, names those accounts. An e-mail change undone by its link cancels a deletion too,
-   and sends the same mail.
-   When one address has both kinds of mail since the dump, the later one decides. For each
-   cancellation, clear what the cancel clears:
+   the dump time, or Loki's `deletion cancelled` lines name those accounts.
+   When one account has both a request and a cancellation since the dump, the later one decides.
+   For each cancellation, clear what the cancel clears, even when the restored row has no deletion
+   waiting: a deletion asked for and cancelled after the dump still cleared the password, and
+   whoever asked for it may know the old one.
 
    ```sql
    UPDATE authsystem."Users"
    SET "DeletionScheduledAt" = NULL, "LockoutEnd" = NULL, "PasswordHash" = NULL, "AccessFailedCount" = 0,
        "SecurityStamp" = gen_random_uuid()::text
-   WHERE "NormalizedEmail" = upper('<address from the mail>') AND "DeletionScheduledAt" IS NOT NULL;
+   WHERE "NormalizedEmail" = upper('<address from the mail>');
    ```
 
    A cancel clears the password and sends its owner to set a new one. A password set after the
    dump is lost with the rest of that day, so tell them to set it again with "forgot password".
-4. **Sign everyone out.** The auth dump brings back sign-in sessions and refresh tokens that were
-   ended after the dump. Delete every row of `authsystem."SignInSessions"` and
-   `authsystem."OpenIddictTokens"`; everyone signs in again.
-5. Start the APIs on the new database, then run the [smoke test](#post-deploy-smoke-test):
+
+   An e-mail change undone by its link cancels a deletion too, and sends the same mail (in Loki: an
+   `E-mail change reverted` line for an account that had a deletion waiting). The undo also moved
+   the address back, so the restored row may still hold the other address, and the cancel above
+   gives `UPDATE 0`. Then redo the undo itself, matched by the address it went back to (or by
+   `"Id"`):
+
+   ```sql
+   UPDATE authsystem."Users"
+   SET "Email" = "EmailChangeRevertTo", "NormalizedEmail" = "NormalizedEmailChangeRevertTo", "EmailConfirmed" = true,
+       "PasswordHash" = NULL, "SecurityStamp" = gen_random_uuid()::text, "EmailChangeRevertStamp" = gen_random_uuid(),
+       "EmailChangeRevertTo" = NULL, "NormalizedEmailChangeRevertTo" = NULL, "EmailChangeRevertArmedAt" = NULL,
+       "DeletionScheduledAt" = NULL, "LockoutEnd" = NULL, "AccessFailedCount" = 0
+   WHERE "NormalizedEmailChangeRevertTo" = upper('<address from the mail>') AND "EmailChangeRevertTo" IS NOT NULL;
+   ```
+4. **Sign everyone out, and send every erasure again.** The auth dump brings back sign-in sessions
+   and refresh tokens that were ended after the dump. Delete every row of
+   `authsystem."SignInSessions"` and `authsystem."OpenIddictTokens"`; everyone signs in again. The
+   translation dump may also hold the name of a translator whose erasure the translation system took
+   after that dump, and auth never sends an erasure twice on its own. Erasing a profile twice is
+   harmless:
+
+   ```sql
+   UPDATE authsystem."OutboxMessages" SET "ProcessedOn" = NULL WHERE "Type" = 'AccountErased';
+   ```
+
+   Then, in the shell helpers' folder (`cd /opt/lotro/backups/restore`), save the due list as
+   [PITR step 4](#procedure) does after its `COMMIT` run (`due-ids.txt`), with `AUTH` naming the new
+   project's `lotro_auth` and `TRANSLATION` its `lotro_translation`.
+5. Start auth-api on the new database (`--force-recreate`: step 2 changed `.env`, and a plain
+   `start` would keep the old connection strings), wait for the finalizer as
+   [PITR step 5](#procedure) does (on a failure, set `STARTED` again and run the same `up`), then
+   start tms-api and run the [smoke test](#post-deploy-smoke-test):
 
    ```bash
    cd /opt/lotro && export DOCKER_CONFIG=/nonexistent
-   docker compose -f compose.hetzner.yaml --env-file .env up -d --no-deps --force-recreate auth-api tms-api
+   STARTED=$(date -u +%FT%TZ)
+   docker compose -f compose.hetzner.yaml --env-file .env up -d --no-deps --force-recreate auth-api
+   ```
+
+   Back in the shell helpers' folder, wait for the due list and take the names off the translator
+   profiles, as [PITR step 5](#procedure) does. Only then:
+
+   ```bash
+   docker compose -f compose.hetzner.yaml --env-file .env up -d --no-deps --force-recreate tms-api
    ```
 6. Point the `production` environment's `NEON_PROJECT_ID` variable and `NEON_API_KEY` secret at the
    new project (MIGR-04).
@@ -1861,7 +2242,9 @@ a `message-ttl`, and never widen the e-mail expiry pattern to reach it (ADR-0036
 Changing the arguments of `tms.account-erased` follows the same rules as `emails.send` (see
 [Traps](#traps)), with tms-api in auth-api's place. A message lost there is worse than a lost e-mail:
 the AuthSystem never sends an erasure again once it was sent, so the person's name stays on the
-profile for good.
+profile for good. The one exception is a database restore: its procedure sends every erasure again
+([Recover from a bad migration](#recover-from-a-bad-migration-neon-pitr) step 4,
+[Neon is gone](#neon-is-gone-whole-database-restore) step 4).
 
 ### Rolling back past ADR-0065
 

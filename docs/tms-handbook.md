@@ -916,8 +916,10 @@ API gateway (ADR-0041). Rel names are therefore a public contract that never get
 
 Two databases because the two systems are separate worlds — separate migrations, separate
 lifecycles, one server for cost. In production both live in one **Neon** project (serverless
-PostgreSQL 18). A point-in-time restore rewinds *both together*, which is correct because one
-migrator run migrates both.
+PostgreSQL 18). A point-in-time restore rewinds *both together*. A rewound auth database would bring
+back accounts that their owners deleted, so the runbook saves auth before such a restore and puts it
+back afterwards: as a whole when no auth migration is to blame, account by account when one is
+(#1378).
 
 ### 6.2 Mapping choices worth knowing
 

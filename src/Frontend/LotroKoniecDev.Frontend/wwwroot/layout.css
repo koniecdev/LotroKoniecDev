@@ -804,7 +804,6 @@ code {
 
 .home-banner {
     display: block;
-    margin-top: 18px;
     border-radius: var(--radius-sm);
     overflow: hidden;
 }

@@ -20,7 +20,8 @@ name: Deploy (reusable rollout)
 #      an expand + its contract riding one approved batch is green per step and still breaks the
 #      serving release. RED aborts here, before GHCR, Neon or the box is touched.
 #   2. resolve the tag to DIGESTS and verify each image's build provenance (audit 0001 H9) — an image
-#      this CD did not build, scan and attest never reaches a box.
+#      that this repository's cd.yml did not build, scan and attest from this run's ref (main) never
+#      reaches a box (#1336).
 #   3. publish the pre-migration restore point + cut the Neon snapshot branch (MIGR-01/MIGR-04) — the
 #      migrator is about to run, and ADR-0023's recovery story is roll-forward or restore, never Down().
 #   4. snapshot the box's live config, scp the stack files (compose + Caddyfile + deploy.sh) so the
@@ -29,8 +30,9 @@ name: Deploy (reusable rollout)
 #      → reload Caddy → set the e-mail parking-lot expiry policy (warns, never fails; ADR-0036 §6) →
 #      pin the tag in .env.
 #   5. wait for the public origins to answer, smoke them (scripts/smoke.sh — the fingerprint leg,
-#      because `GET / -> 200` proves nothing), and roll the box back — images AND config — if anything
-#      above went red.
+#      because `GET / -> 200` proves nothing), and roll the box back if anything above went red. The
+#      config is always restored; the images only when the previous tag passes the same provenance
+#      check (#1336).
 #
 # What is deliberately GONE versus the ACA rollout: the 0%-traffic candidate revision, its label FQDN
 # smoke and the one-active-revision sweep. A 4 GB box cannot hold a second live set of three apps, so
@@ -81,9 +83,11 @@ jobs:
     # before the rollout even starts. Staging keeps the tight budget — a hung roll holds the
     # per-environment mutation lock, and nothing extra runs there.
     timeout-minutes: ${{ inputs.environment == 'production' && 60 || 30 }}
-    # The environment carries the protection rules: `production` has the required-reviewer gate (this is
-    # the staging→prod promotion approval); `staging` has none (auto). It also selects the env-scoped
-    # vars/secrets — crucially HETZNER_HOST, which is what makes this job target one box or the other.
+    # The environment carries the protection rules. Both allow only `main` (a deployment branch rule,
+    # #1336), so a job on any other ref is refused before it gets a secret. `production` also has the
+    # required-reviewer gate (the staging→prod promotion approval); `staging` has no reviewer (auto).
+    # It also selects the env-scoped vars/secrets — crucially HETZNER_HOST, which is what makes this
+    # job target one box or the other.
     environment:
       name: ${{ inputs.environment }}
       url: ${{ vars.FRONTEND_URL }}
@@ -274,42 +278,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pin images to digests
+      # Supply-chain gate BEFORE anything touches the box (audit 0001 H9): every image must be built and
+      # attested by this repo's cd.yml from this run's ref. Why the signer and the ref are pinned: the
+      # script's header (#1336). It fails closed with nothing written to $GITHUB_ENV.
+      - name: Pin images to verified digests (fail closed before rollout)
         env:
           TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          digests=""
-          for image in \
-            lotrokoniecdev-migrator \
-            lotrokoniecdev-auth-api \
-            lotrokoniecdev-tms-api \
-            lotrokoniecdev-frontend; do
-            repo="${REGISTRY}/${IMAGE_NAMESPACE}/${image}"
-            ref="${repo}:${TAG}"
-            digest="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')"
-            case "$digest" in
-              sha256:*) ;;
-              *) echo "::error::Could not resolve a digest for ${ref} (got '${digest:-<empty>}')"; exit 1 ;;
-            esac
-            digests="${digests}${digests:+ }${repo}@${digest}"
-            printf '%s -> %s\n' "$ref" "$digest"
-          done
-          printf 'EXPECTED_DIGESTS=%s\n' "$digests" >> "$GITHUB_ENV"
-
-      # Supply-chain gate BEFORE anything touches the box (audit 0001 H9). Every image about to run must
-      # carry a build-provenance attestation signed by THIS repo's CD. A foreign, tampered or
-      # never-built-by-us image fails closed here — before the migrator runs.
-      - name: Verify image provenance (fail closed before rollout)
-        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          for ref in $EXPECTED_DIGESTS; do
-            echo "::group::Verify provenance — ${ref}"
-            gh attestation verify "oci://${ref}" --repo "$GITHUB_REPOSITORY"
-            echo "::endgroup::"
-          done
+          ./scripts/ci/resolve-verified-digests.sh "$TAG" >> "$GITHUB_ENV"
 
       # MIGR-01 (#336) + MIGR-04 (#339): the migrator runs inside the `up -d` below, so publish the
       # restore point and cut the durable Neon snapshot branch FIRST. ADR-0023 recovery is roll-forward
@@ -495,11 +473,8 @@ jobs:
       # would otherwise survive the rollback and re-break the re-run), then the previous deploy.sh is
       # re-run with the previous tag.
       #
-      # Note it does NOT re-pass EXPECTED_DIGESTS: those digests belong to the image tag that just
-      # failed. The tag we roll BACK to was itself provenance-verified when it was deployed, and the
-      # box very likely still has its layers — the residual risk (someone re-points an OLD sha- tag in
-      # GHCR between then and now) needs registry write access, at which point the rollback is not the
-      # weakest link.
+      # The previous tag gets the same provenance check as the rollout; when it fails, only the config is
+      # restored. Why and every outcome: scripts/ci/rollback-to-previous-tag.sh (#1336).
       #
       # Reached only when deploy.sh had already started (it prints PREVIOUS_IMAGE_TAG before touching
       # anything); an earlier gate failing means the box was never touched, so there is nothing to
@@ -508,25 +483,9 @@ jobs:
       # The job still fails; this only restores service.
       - name: Roll back to the previous tag on failure
         if: failure() && env.PREVIOUS_IMAGE_TAG != ''
-        run: |
-          set -euo pipefail
-          echo "::error::Rollout or smoke failed — rolling ${HETZNER_HOST} back to ${PREVIOUS_IMAGE_TAG}."
-          # SC2029: the RUNNER must expand the tag + stack dir into the remote command (the tag was
-          # validated at capture time in the deploy step above). Intentional.
-          # shellcheck disable=SC2029
-          ssh box "
-            set -e
-            cd ${STACK_DIR}
-            for f in compose.hetzner.yaml .docker/hetzner/Caddyfile deploy.sh; do
-              [ -f \".previous/\$f\" ] && cp -p \".previous/\$f\" \"\$f\" || true
-            done
-            IMAGE_TAG='${PREVIOUS_IMAGE_TAG}' bash ${STACK_DIR}/deploy.sh
-          "
-          {
-            echo "### ⏮️ Rolled back"
-            echo ""
-            echo "\`${ENVIRONMENT}\` was rolled back to image tag \`${PREVIOUS_IMAGE_TAG}\` after a failed rollout/smoke."
-          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/ci/rollback-to-previous-tag.sh
 
       - name: Summarize the rollout
         if: success()

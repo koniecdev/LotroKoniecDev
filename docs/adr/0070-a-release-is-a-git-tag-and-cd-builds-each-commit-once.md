@@ -68,8 +68,10 @@ the tag names the very digest that was signed.
   was built from another ref (a run on a branch whose head is this commit), by another workflow or
   repo, or the tag was written by hand, or before this ADR by a build that came before signing began
   or failed after its push. CD never builds over a tag.
-- Any other registry answer, a refusal included: stop the job. A token refused for a moment may still
-  be able to write, and a write could move a tag.
+- Any other registry answer stops the job. That includes a refusal (a token refused for a moment may
+  still be able to write, and a write could move a tag) and a missing child manifest of the image
+  index, whose error line also ends in ": not found". Only the registry's own line for the tag,
+  `ERROR: <ref>: not found`, means "missing".
 
 The ref is the run's own, not a fixed `refs/heads/main`. A run started by CI, and a hand run from
 `main`, both have `refs/heads/main`, so on `main` the two give the same answer. The run's own ref
@@ -78,9 +80,10 @@ check reads in the same run once #1336 adds `--signer-workflow` and `--source-re
 lookup reuses only what the deploy after it accepts.
 
 Both decisions live in `scripts/ci/commit-image.sh`, and `scripts/tests/commit-image.tests.sh` tests
-them with stubs and pins the job's shape. Builds of the same commit and image wait for each other
-instead of cancelling each other, so the second run reuses the first one's image when both run from
-the same ref, and stops when they do not.
+them with stubs and pins the job's shape. A second build of the same commit and image waits for the
+running one instead of cancelling it, then reuses its image when both run from the same ref, and
+stops when they do not. GitHub keeps one running and one waiting job per group, so a third run
+cancels the waiting one. The group also keeps two runs of one commit from naming it at once.
 
 ### 3. Only the server images
 
@@ -204,9 +207,9 @@ that lands second can move the lookup onto the shared script.
 - `cd.yml`: no `push: tags` trigger and no `type=semver` tags. In `build-and-push`, no step before
   "Look up this commit's existing image" (`commit-image.sh find`, pinned to `cd.yml` and
   `$GITHUB_REF`) writes to the registry, and every later step runs only when it reports
-  `exists=false`. The build pushes by
-  digest (`push-by-digest=true`, no `tags`), and the last step, "Name the checked image"
-  (`commit-image.sh name`), adds the tags. Its concurrency group no longer cancels a running build.
+  `exists=false`. The build pushes by digest (`push-by-digest=true`, no `tags`), and the last step,
+  "Name the checked image" (`commit-image.sh name`), adds the tags. Its concurrency group no longer
+  cancels a running build.
 - `scripts/tests/commit-image.tests.sh` runs in pr-verify on every PR and in ci on main. Besides
   the script, it checks that no workflow starts on a tag, a release or a new ref.
 - `scripts/ci/resolve-prod-baseline.sh` no longer tries `v<tag>` for a box-pinned tag, because the

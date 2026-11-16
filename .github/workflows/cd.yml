@@ -47,8 +47,9 @@ name: CD
 # Supply-chain hardening (audit 0001 H9 + the H1 image-scanning leg — the dependency/SAST legs already
 # ship as NuGetAudit + CodeQL + Dependabot). Each image is pushed by digest, with no tag, then scanned
 # by Trivy, and a fixable HIGH/CRITICAL fails the job BEFORE the image is signed. Only a clean image
-# is signed keyless (cosign), carries a signed SLSA build-provenance attestation + an SPDX SBOM, and
-# gets its `sha-<short>` name. An image that failed stays an untagged digest that nothing deploys. The
+# is signed keyless (cosign), gets a signed SLSA build-provenance attestation and gets its
+# `sha-<short>` name. BuildKit's own provenance and SPDX SBOM are attached at build time, so an image
+# that failed carries them too, but it stays an untagged digest that nothing deploys. The
 # deploy job re-verifies that provenance (`gh attestation verify`) and fails closed, so only an image
 # our own CD built, scanned and attested can reach an environment through CD. No keys are stored —
 # signing uses the job's GitHub OIDC identity (Fulcio/Rekor).
@@ -187,8 +188,9 @@ jobs:
     # tested commit (workflow_run.head_sha, else github.sha for a dispatch), NOT github.ref: under
     # workflow_run github.ref is always refs/heads/main, so a github.ref key would queue builds of
     # *different* commits behind each other. Deploys are serialized separately (deploy-prod has its
-    # own group). The group MUST include matrix.image, else the four legs share one group and wait
-    # for each other.
+    # own group). The group MUST include matrix.image, else the four legs share one group: one runs,
+    # one waits and the others are cancelled. The group also keeps two runs of one commit from naming
+    # it at once (commit-image.sh name reads the tag, then writes it).
     concurrency:
       group: cd-build-${{ github.event.workflow_run.head_sha || github.sha }}-${{ matrix.image }}
       cancel-in-progress: false

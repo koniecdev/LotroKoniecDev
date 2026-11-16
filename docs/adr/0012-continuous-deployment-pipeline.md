@@ -49,14 +49,14 @@ immutable image is now **scanned, signed and attested** before it can be deploye
 **verified at deploy**. In `build-and-push`, each image is scanned by Trivy (a fixable HIGH/CRITICAL
 fails the build *before* publish (until ADR-0070 the image was pushed before the scan; now it is
 pushed by digest and named only after the scan) — the H1 image-scanning leg, complementing the
-already-shipped NuGetAudit + CodeQL + Dependabot dependency/SAST legs); BuildKit attaches an SLSA provenance + SPDX
-SBOM attestation (`provenance: true`, `sbom: true`); the image is signed keyless with **cosign**
-(Fulcio/Rekor — no stored key, the job's GitHub OIDC identity); and a signed first-party
-**build-provenance attestation** (`actions/attest-build-provenance`) is pushed to GHCR as an OCI
-referrer. `deploy-prod` then runs a **fail-closed verify gate** (`gh attestation verify`) over all
-four images *before* the migration gate (§4) or any traffic move, so only an image our own CD built,
-scanned and attested can reach prod. The attestations are also standalone artifacts (SBOM for CVE
-triage, provenance for "which commit/builder produced this"). One consequence: enabling
+already-shipped NuGetAudit + CodeQL + Dependabot dependency/SAST legs); BuildKit attaches an SLSA
+provenance + SPDX SBOM attestation (`provenance: true`, `sbom: true`); the image is signed keyless
+with **cosign** (Fulcio/Rekor — no stored key, the job's GitHub OIDC identity); and a signed
+first-party **build-provenance attestation** (`actions/attest-build-provenance`) is pushed to GHCR
+as an OCI referrer. `deploy-prod` then runs a **fail-closed verify gate** (`gh attestation verify`)
+over all four images *before* the migration gate (§4) or any traffic move, so only an image our own
+CD built, scanned and attested can reach prod. The attestations are also standalone artifacts (SBOM
+for CVE triage, provenance for "which commit/builder produced this"). One consequence: enabling
 `provenance`/`sbom` turns each push into an OCI **image index** (the `linux/amd64` runtime manifest +
 one `unknown/unknown` attestation manifest); ACA/containerd platform-match the runtime manifest, so
 the rollout pull is unchanged.

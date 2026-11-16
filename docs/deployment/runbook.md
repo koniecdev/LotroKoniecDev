@@ -21,7 +21,7 @@
 - [Consistency rules that bite](#consistency-rules-that-bite) — issuer / redirect / authority / CORS
 - [Bringing the stack up](#bringing-the-stack-up) — dev, prod-parity, (re)provisioning a box, and the one-time network cutover
 - [Continuous deployment (CD over ssh)](#continuous-deployment-cd-over-ssh) — build once → automatic staging → gated prod promotion
-- [Releases](#releases) — cutting a version (a git tag + a GitHub Release), and a commit whose image failed its checks
+- [Releases](#releases) — cutting a version (a git tag + a GitHub Release), and a commit whose image failed its checks or cannot be read
 - [Database migrations](#database-migrations) — strategy, running them, and recovering from a bad migration (Neon PITR + the MIGR-04 auto-snapshot)
 - [Database backups](#database-backups) — the Neon plan, the nightly encrypted dump to R2, and how to get damaged rows back (ADR-0071)
 - [Message broker (RabbitMQ)](#message-broker-rabbitmq) — the in-stack broker, the dead-letter parking lots, replay and rotation traps
@@ -947,8 +947,8 @@ arms the staging leg and makes prod wait on it (ADR-0018).
 run would deploy a days-old SHA. [`cd-janitor.yml`](../../.github/workflows/cd-janitor.yml) (#527)
 cancels any CD run left `waiting` at the `production` gate for more than 24 hours (nightly cron,
 04:25 UTC; on demand: `gh workflow run cd-janitor.yml`). Nothing is lost: every newer green-CI merge
-produces a fresh candidate, and any older commit can still be deployed through `cd.yml`'s
-`workflow_dispatch`.
+produces a fresh candidate, and any older commit can still be deployed by running `cd.yml` by hand
+from `main` with its `image_tag`.
 
 **Cancelling a `waiting` run by hand:** the UI *Cancel* button and `gh run cancel` do **not** work on
 approval-gated runs. They only file a cancellation request no runner ever picks up, so the run stays
@@ -1190,8 +1190,22 @@ re-run for 30 days). A re-run uses the `cd.yml` of the original run, which build
 and moves its tag. **Never run CD by hand from a ref whose head is from before ADR-0070** either: a
 hand run uses that ref's own `cd.yml`, which builds again too. To deploy such a commit again, run CD
 by hand from `main` with its `image_tag`. A new CD run that CI starts for a commit from before
-ADR-0070 (after a re-run of its CI run) uses the new `cd.yml`, which checks out that commit. It has
-no `commit-image.sh`, so the lookup fails and nothing deploys.
+ADR-0070 (after a re-run of its CI run, or when its CI ends after ADR-0070 merged) uses the new
+`cd.yml`, which checks out that commit. It has no `commit-image.sh`, so the lookup fails and nothing
+deploys from that run. The next CD run from `main` deploys a newer commit that contains it.
+
+### An image the lookup cannot read
+
+CD stops at *Look up this commit's existing image*, or at *Name the checked image*, with "Could not
+tell whether … exists" when the registry answers anything but "not found" for the tag itself.
+Usually the registry or the token failed for a moment: re-run the job once.
+
+When the error above that line names a manifest by digest (`content at …/manifests/sha256:… not
+found`), a child of the image index is gone: its platform image or its attestation. GHCR lists those
+children as untagged versions of the package, so deleting untagged versions breaks the tagged image
+that uses them. **Never delete untagged versions of the `lotrokoniecdev-*` packages by hand.** To
+recover, delete the tagged `sha-<short>` version too (step 4 above, after the same check that no box
+runs it), then re-run; or merge a new commit, which gets its own image.
 
 ## Database migrations
 

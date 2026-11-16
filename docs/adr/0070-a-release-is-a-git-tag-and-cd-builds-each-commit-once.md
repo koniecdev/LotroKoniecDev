@@ -88,7 +88,9 @@ cancels the waiting one. The group also keeps two runs of one commit from naming
 ### 3. Only the server images
 
 Rule 2 covers the four server images. The desktop app (M4, #45) will ship as an exe attached to the
-GitHub Release, so its release does build something on purpose. Its own ticket decides how.
+GitHub Release, so its release does build something on purpose. Its own ticket decides how, and it
+narrows the trigger check in `scripts/tests/commit-image.tests.sh`, which today refuses any workflow
+that starts on a tag or a release.
 
 ### 4. ADR-0024's "previous release" stays `HEAD^1`
 
@@ -132,6 +134,9 @@ translators' data.
   commit at today's size, and they grow slowly with the history; before, the second commit would have
   moved the first one's tag instead.
 - When a commit's images are reused, `latest` does not move. It is only a convenience for people.
+- A reused image is not scanned again. A CVE published after its build is caught by the daily
+  `image-scan.yml` of what runs on the boxes, not by the CD run that reuses it. Scanning on reuse
+  would block a rollback to an image that prod may already run.
 - GHCR shows no `:0.1.0`. To find the images of a release, look up the tag's commit first.
 - A tag push runs the `cd.yml` of the tagged commit. A tag on a commit from before this change still
   builds again, so a release tag goes only on a commit that contains this change.
@@ -182,9 +187,11 @@ provenance, so they would also run such an image. Naming the image last removes 
 
 ### F. Pin the lookup to the built commit (`--source-digest`)
 
-Rejected. For a run started by CI, the attestation names `github.sha`, which is the tip of `main`
-when the run started, not the commit CD built. Run 43486613717 built `d5d2077` while its `github.sha`
-was `a67f27e`. The check would refuse a good image.
+Rejected. The attestation names the run's `github.sha` (the certificate of `sha-d9ec0f9` shows it).
+For a run started by CI, `github.sha` is the tip of `main` when the run started, and CD builds the
+commit CI tested, `workflow_run.head_sha`. The two can differ: CD run 43486613717 had `head_sha`
+`d5d2077` and `github.sha` `a67f27e` (its gate stopped, so it built nothing). For such a build the
+check would refuse a good image.
 
 ### G. Pin the lookup to a fixed `refs/heads/main`
 

@@ -1118,7 +1118,10 @@ A release is an annotated git tag `vX.Y.Z` plus a GitHub Release with notes (ADR
 page `Wersje-systemu` says what the number means and what 1.0 needs. No workflow listens to the tag
 or the release: cutting one builds nothing and deploys nothing, and the images of a release are the
 `:sha-<short>` images of its commit. To deploy or roll back to a release, run CD by hand from `main`
-with that `image_tag` (mind the build first, in "Two edges worth knowing" above).
+with that `image_tag` (mind the build first, in "Two edges worth knowing" above). Such a run puts
+the release's images next to the config of the tip of `main` (the compose file, the Caddyfile and
+`deploy.sh`), and it skips the N-1 gate with a warning. Before you approve it, check that neither
+the config nor the schema changed in a way the older images cannot run with (#1434).
 
 ### Cutting a release
 

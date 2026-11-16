@@ -522,7 +522,8 @@ build_job_problems() {
             if (on_error) print "the job or a step has continue-on-error"
             if (group !~ /head_sha/ || group !~ /matrix\.image/) print "the job has no concurrency group per commit and image"
             if (!lookup) { print "no lookup step (id: existing)"; exit }
-            if (text[lookup] !~ /scripts\/ci\/commit-image\.sh find/) print "the lookup does not run commit-image.sh find"
+            # The whole line, so `|| true` or `; exit 0` cannot swallow a stop.
+            if (text[lookup] !~ /\n +run: \.\/scripts\/ci\/commit-image\.sh find(\n|$)/) print "the lookup is not exactly run: ./scripts/ci/commit-image.sh find"
             build = 0; name = 0; attest = 0; scan = 0; sign = 0
             for (i = 1; i <= n; i++) {
                 if (id[i] == "build") build = i
@@ -547,7 +548,7 @@ build_job_problems() {
             }
             if (!name) print "no naming step (id: name)"
             else {
-                if (text[name] !~ /scripts\/ci\/commit-image\.sh name/) print "the naming step does not run commit-image.sh name"
+                if (text[name] !~ /\n +run: \.\/scripts\/ci\/commit-image\.sh name(\n|$)/) print "the naming step is not exactly run: ./scripts/ci/commit-image.sh name"
                 if (name != n) print "the naming step is not the last step"
                 if (!attest || attest > name) print "the naming step does not come after the attestation"
                 if (!scan || scan > name) print "the naming step does not come after the Trivy scan"
@@ -655,7 +656,8 @@ expect_build_problem 'no lookup step'       'no lookup step (id: existing)' 's/^
 expect_build_problem 'a push before lookup' 'writes to the registry before the lookup' '/- name: Look up this commit.s existing image/i\      - name: Early push\n        run: docker push ghcr.io/owner/app:sha-abc1234'
 expect_build_problem 'no build step'        'no build step (id: build)'   's/^        id: build$/        id: other/'
 expect_build_problem 'no naming step'       'no naming step (id: name)'   's/^        id: name$/        id: other/'
-expect_build_problem 'a naming step that is not the script' 'the naming step does not run commit-image.sh name' 's#scripts/ci/commit-image.sh name#true#'
+expect_build_problem 'a naming step that is not the script' 'the naming step is not exactly run' 's#scripts/ci/commit-image.sh name#true#'
+expect_build_problem 'a naming step that swallows a stop' 'the naming step is not exactly run' 's#run: ./scripts/ci/commit-image.sh name#run: ./scripts/ci/commit-image.sh name || true#'
 expect_build_problem 'no Trivy scan'        'does not come after the Trivy scan' 's#aquasecurity/trivy-action@#aquasecurity/other-action@#'
 expect_build_problem 'no signing'           'does not come after cosign sign' 's/run: cosign sign /run: cosign verify /'
 expect_build_problem 'an unguarded naming step' 'runs without the exists' '/^        id: name$/{n;/^        if: /d;}'
@@ -668,7 +670,8 @@ expect_build_problem 'a second tagging step' 'writes to the registry besides the
 expect_build_problem 'a semver tag'         'adds a version tag (type=semver)' '/^            type=raw,value=sha-/a\            type=semver,pattern={{version}}'
 expect_build_problem 'a step after naming'  'the naming step is not the last step' '/run: \.\/scripts\/ci\/commit-image\.sh name/a\      - name: After\n        if: steps.existing.outputs.exists == '"'"'false'"'"'\n        run: true'
 expect_build_problem 'no attestation'       'does not come after the attestation' 's#actions/attest-build-provenance@#actions/attest-other@#'
-expect_build_problem 'a lookup that builds' 'the lookup does not run commit-image.sh find' 's#scripts/ci/commit-image.sh find#true#'
+expect_build_problem 'a lookup that builds' 'the lookup is not exactly run' 's#scripts/ci/commit-image.sh find#true#'
+expect_build_problem 'a lookup that swallows a stop' 'the lookup is not exactly run' 's#run: ./scripts/ci/commit-image.sh find#run: ./scripts/ci/commit-image.sh find || true#'
 
 echo
 if [ "$failures" -ne 0 ]; then

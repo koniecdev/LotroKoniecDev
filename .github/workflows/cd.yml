@@ -259,9 +259,10 @@ jobs:
           # would derive from github.sha, which for a workflow_run is main's tip and can race ahead of
           # the tested commit. `latest` likewise must NOT follow {{is_default_branch}} (true for ANY
           # main workflow_run, incl. a raced non-tip commit): it moves only when the tested commit IS
-          # the current main tip (head_sha == github.sha), so latest never regresses to an older commit
-          # under a push race (at worst it lags one tip whose newer sibling's CI is still red — harmless,
-          # latest is human-pull convenience, never deployed).
+          # the current main tip (head_sha == github.sha). It is written in the job's last step, so
+          # when two runs finish out of order it can point to the older of the two until the next
+          # merge, or lag a tip whose CI is still red. Harmless: latest is human-pull convenience,
+          # never deployed.
           tags: |
             type=raw,value=sha-${{ needs.gate.outputs.short_sha }}
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha == github.sha }}

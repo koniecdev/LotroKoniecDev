@@ -19,9 +19,11 @@ public sealed partial class AccountPageArtworkTests : EndpointsTestBase
     public async Task AccountPage_Rendered_ShowsTheLogoInTheBrandLinkInsteadOfTheCircle(string page)
     {
         // Act
-        string html = await ReadPageAsync(page);
+        using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
 
         // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
         string brandLink = BrandLinkRegex().Match(html).Groups["inner"].Value;
         brandLink.ShouldContain(Logo);
         brandLink.ShouldNotContain("<svg");
@@ -32,9 +34,11 @@ public sealed partial class AccountPageArtworkTests : EndpointsTestBase
     public async Task AccountPage_Rendered_LinksTheTabIconInTheHead(string page)
     {
         // Act
-        string html = await ReadPageAsync(page);
+        using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
 
         // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
         HeadRegex().Match(html).Groups["inner"].Value.ShouldContain(TabIcon);
     }
 
@@ -43,9 +47,11 @@ public sealed partial class AccountPageArtworkTests : EndpointsTestBase
     public async Task AccountPage_Rendered_CreditsTheArtistInTheFooter(string page)
     {
         // Act
-        string html = await ReadPageAsync(page);
+        using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
 
         // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
         FooterRegex().Match(html).Groups["inner"].Value.ShouldContain(Credit);
     }
 
@@ -54,7 +60,8 @@ public sealed partial class AccountPageArtworkTests : EndpointsTestBase
     public async Task AccountPage_Rendered_ServesEveryImageAndIconItNames(string page)
     {
         // Arrange
-        string html = await ReadPageAsync(page);
+        using HttpResponseMessage pageResponse = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
+        string html = await pageResponse.Content.ReadAsStringAsync();
         string[] paths =
         [
             .. ImageSourceRegex().Matches(html).Select(match => match.Groups["path"].Value),
@@ -71,18 +78,12 @@ public sealed partial class AccountPageArtworkTests : EndpointsTestBase
         }
 
         // Assert
+        pageResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         paths.ShouldNotBeEmpty();
         answers.ShouldAllBe(answer => answer.EndsWith(" 200 image", StringComparison.Ordinal));
     }
 
     public AccountPageArtworkTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
-
-    private async Task<string> ReadPageAsync(string page)
-    {
-        using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        return await response.Content.ReadAsStringAsync();
-    }
 
     [GeneratedRegex("""<a\b[^>]*\bclass="brand"[^>]*>(?<inner>.*?)</a>""", RegexOptions.Singleline)]
     private static partial Regex BrandLinkRegex();

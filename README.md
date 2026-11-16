@@ -296,8 +296,9 @@ milestones: GitHub issues (`M{milestone}-{nn}` titles).
 ## License & disclaimer
 
 The code of this project is licensed under the [MIT License](LICENSE) © Artur Koniec. MIT covers
-**our code only** — bundled third-party binaries (notably `datexport.dll`) and any game content are
-**not** covered; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for details.
+**our code only** — bundled third-party binaries (notably `datexport.dll`), the logo and banner
+artwork by MoFin, and any game content are **not** covered; see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for details.
 
 This is an unofficial, non-commercial fan project, not affiliated with or endorsed by Standing
 Stone Games or Middle-earth Enterprises. Standing Stone Games and its marks are trademarks of

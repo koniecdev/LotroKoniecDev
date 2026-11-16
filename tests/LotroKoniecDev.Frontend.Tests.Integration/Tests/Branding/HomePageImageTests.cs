@@ -24,13 +24,15 @@ public sealed partial class HomePageImageTests : IClassFixture<ProductionFronten
         // Arrange
         using WebApplicationFactory<Program> host = CreateHost();
         using CookieJarBrowser browser = new(host);
-        string markup = await ReadHomePageAsync(browser);
+        using HttpResponseMessage page = await browser.GetAsync("/");
+        string markup = await page.Content.ReadAsStringAsync();
         string[] sources = [.. ImageSourceRegex().Matches(markup).Select(match => match.Groups["src"].Value)];
 
         // Act
         List<string> answers = await RequestEachAsync(browser, sources);
 
         // Assert
+        page.StatusCode.ShouldBe(HttpStatusCode.OK);
         sources.ShouldNotBeEmpty();
         answers.ShouldAllBe(answer => answer.EndsWith(" 200 image", StringComparison.Ordinal));
     }
@@ -41,13 +43,15 @@ public sealed partial class HomePageImageTests : IClassFixture<ProductionFronten
         // Arrange
         using WebApplicationFactory<Program> host = CreateHost();
         using CookieJarBrowser browser = new(host);
-        string markup = await ReadHomePageAsync(browser);
+        using HttpResponseMessage page = await browser.GetAsync("/");
+        string markup = await page.Content.ReadAsStringAsync();
         string[] icons = [.. IconLinkRegex().Matches(markup).Select(match => match.Groups["href"].Value)];
 
         // Act
         List<string> answers = await RequestEachAsync(browser, icons);
 
         // Assert
+        page.StatusCode.ShouldBe(HttpStatusCode.OK);
         icons.Length.ShouldBe(1);
         answers.ShouldAllBe(answer => answer.EndsWith(" 200 image", StringComparison.Ordinal));
     }
@@ -65,13 +69,6 @@ public sealed partial class HomePageImageTests : IClassFixture<ProductionFronten
         _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
             services.AddHttpClient(DashboardTranslationSystem.ClientName)
                 .ConfigurePrimaryHttpMessageHandler(() => new NotFoundServer())));
-
-    private static async Task<string> ReadHomePageAsync(CookieJarBrowser browser)
-    {
-        using HttpResponseMessage page = await browser.GetAsync("/");
-        page.StatusCode.ShouldBe(HttpStatusCode.OK);
-        return await page.Content.ReadAsStringAsync();
-    }
 
     /// <summary>Each answer as "path: status type", so a failure names the file.</summary>
     private static async Task<List<string>> RequestEachAsync(CookieJarBrowser browser, IEnumerable<string> paths)

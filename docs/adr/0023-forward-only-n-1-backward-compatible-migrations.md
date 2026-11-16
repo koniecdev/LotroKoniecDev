@@ -258,8 +258,9 @@ database undoes every account change made since the restore point, and the priva
 that a restore never brings a deleted account back. So the runbook procedure for §5 saves auth before
 the restore and puts it back afterwards:
 
-- When no auth migration is to blame, it restores a dump of the auth schema taken just before the
-  restore, in one transaction, so auth is exactly as it was. The previous release runs on that newer
+- When no auth migration is to blame and nothing suggests that the bad release's code damaged
+  account rows, it restores a dump of the auth schema taken just before the restore, in one
+  transaction, so auth is exactly as it was. The previous release runs on that newer
   auth schema, which §2 guarantees.
 - When an auth migration is to blame, or that is not clear, it keeps the rewound auth database and
   copies back, from an export taken just before the restore, every account whose deletion date or

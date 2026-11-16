@@ -1297,7 +1297,11 @@ remain.)
 
 **2. Stop the APIs and save auth.** From here to the end of step 5, approve no deploy and run no CD
 rollback: both run the migrator and then start every service (`deploy.sh`), and a CD deploy also
-deletes the MIGR-04 snapshot. Keep clear of 01:00–01:30 UTC (the nightly dump) and of 02:25 UTC
+deletes the MIGR-04 snapshot. On staging there is nothing to approve: CD deploys every green push to
+`main` by itself. So for a staging restore or the rehearsal, pause it first with
+`gh workflow disable cd.yml` (and check with `gh run list --workflow cd.yml --limit 3` that no run is
+in progress), and turn it back on with `gh workflow enable cd.yml` after step 5. A push made in
+between deploys with the next one. Keep clear of 01:00–01:30 UTC (the nightly dump) and of 02:25 UTC
 (ssh closes before the prod box's reboot). A reboot does not start a stopped container. Close every
 other session on `lotro_auth` (a psql shell, an IDE data source): step 4 waits on their locks.
 
@@ -1306,13 +1310,13 @@ below holds password hashes). Take both the dump and the export, whatever path s
 export is the fallback when the dump cannot go back.
 
 ```bash
-dc() { (cd /opt/lotro && docker compose -f compose.hetzner.yaml --env-file .env "$@"); }
 dc stop auth-api tms-api
 read -rs PGPASSWORD && export PGPASSWORD    # neondb_owner's password: Neon console → Connect
 AUTH='host=<direct host> dbname=lotro_auth user=neondb_owner sslmode=require'
+TRANSLATION='host=<direct host> dbname=lotro_translation user=neondb_owner sslmode=require'
 
 # Grants to other roles. The restore in step 4 drops them, so keep this output: nothing is expected.
-psql_in "$AUTH" -At -c "SELECT 'object', relname, relacl::text FROM pg_class WHERE relnamespace = 'authsystem'::regnamespace AND relacl IS NOT NULL UNION ALL SELECT 'schema', nspname, nspacl::text FROM pg_namespace WHERE nspname = 'authsystem' AND nspacl IS NOT NULL UNION ALL SELECT 'default', defaclobjtype::text, defaclacl::text FROM pg_default_acl WHERE defaclnamespace = 'authsystem'::regnamespace"
+psql_in "$AUTH" -At -c "SELECT 'object', relname, relacl::text FROM pg_class WHERE relnamespace = 'authsystem'::regnamespace AND relacl IS NOT NULL UNION ALL SELECT 'column', attrelid::regclass || '.' || attname, attacl::text FROM pg_attribute WHERE attrelid IN (SELECT oid FROM pg_class WHERE relnamespace = 'authsystem'::regnamespace) AND attacl IS NOT NULL UNION ALL SELECT 'schema', nspname, nspacl::text FROM pg_namespace WHERE nspname = 'authsystem' AND nspacl IS NOT NULL UNION ALL SELECT 'default', defaclobjtype::text, defaclacl::text FROM pg_default_acl WHERE defaclnamespace = 'authsystem'::regnamespace"
 
 docker run --rm -i --network host -e PGPASSWORD "$PG_IMAGE" \
   pg_dump --format=custom --schema=authsystem -d "$AUTH" < /dev/null > auth-before.dump
@@ -1368,24 +1372,25 @@ Go on only when it printed `auth is back as it was`.
 - When the restore worked but `cmp` prints a difference, something wrote to `lotro_auth` after
   step 2 (an API that was not stopped, a deploy). Do not start the APIs: find the writer first.
 - The restore is one transaction: when it fails, nothing changed. An error that ends in
-  `because other objects depend on it` names, on its `DETAIL` line, a table that the restored
-  branch has and the dump has not (one that a migration of the bad release dropped). Check that the
-  dump does not hold it, then drop it and run the restore again:
-  `docker run --rm -i "$PG_IMAGE" pg_restore --list < auth-before.dump | grep -F '<table>'` prints
-  nothing, then `psql_in "$AUTH" -c 'DROP TABLE authsystem."<table>"'`.
+  `because other objects depend on it` names, on its `DETAIL` line, an object that the restored
+  branch has and the dump has not (usually a table that a migration of the bad release dropped).
+  Check that the dump does not hold it, then drop it and run the restore again:
+  `docker run --rm -i "$PG_IMAGE" pg_restore --list < auth-before.dump | grep -F ' authsystem <name> '`
+  prints nothing, then `psql_in "$AUTH" -c 'DROP TABLE authsystem."<name>"'` (`DROP SEQUENCE` or
+  `DROP VIEW` when the `DETAIL` line names one).
 - On any other error, take the rewind-auth path below, with the export from step 2.
 - Grant again whatever the grant query of step 2 printed.
 
-Then send every erasure to the translation system again and delete the files. The translation
-database went back to the restore point, so a translator profile erased after it shows its name
-again, and auth never sends an erasure twice on its own. Erasing a profile twice is harmless.
+Then send every erasure to the translation system again. The translation database went back to the
+restore point, so a translator profile erased after it shows its name again, and auth never sends
+an erasure twice on its own. Erasing a profile twice is harmless.
 
 ```bash
 psql_in "$AUTH" -c "UPDATE authsystem.\"OutboxMessages\" SET \"ProcessedOn\" = NULL WHERE \"Type\" = 'AccountErased'"
-rm -f auth-before.dump users-before.tsv auth-before.check auth-after.check
 ```
 
-Note the `UPDATE` count for step 5. Rows of an outbox type that only the bad release knows meet the
+Note the `UPDATE` count for step 5. Keep the step-2 files until step 5 is done: they are the
+fallback if auth-api does not come up. Rows of an outbox type that only the bad release knows meet the
 previous release now: see [Rolling back past ADR-0065](#rolling-back-past-adr-0065).
 
 *Rewind auth.* Keep the rewound database and copy back every account whose deletion date or
@@ -1396,8 +1401,10 @@ e-mail change undone after it. It also brings back password resets and e-mail ch
 restore point: the state before the restore is the truth. An account erased after the restore point
 keeps a placeholder address, so the finalizer erases it again, with its message to the translation
 system. What the redo does not select stays rewound: an e-mail confirmation and a failed-login
-lockout made after the restore point. Both are harmless; a person may be asked to confirm their
-address again.
+lockout made after the restore point (harmless; a person may be asked to confirm their address
+again), and anything outside the `Users` columns it copies, such as a role granted or removed by
+hand, or a row deleted by hand. Check such changes against your own notes. A mail that was still
+waiting in the outbox at the restore point goes out again, built from today's account state.
 
 Do not use the export when it may hold the damage: an auth migration of the bad release writes,
 drops or renames one of its columns; the bad release's code wrote one of them wrongly; that
@@ -1405,7 +1412,7 @@ migration dropped or relaxed the unique index `IX_Users_Email` or `EmailIndex`; 
 in step 2. Then redo each deletion and cancellation by hand, from the sources and with the SQL of
 [Neon is gone](#neon-is-gone-whole-database-restore) step 3 (match Loki's rows by `"Id"`). Finish
 with the last three writes of the block below (the `UPDATE` of `OutboxMessages` and the two
-`DELETE`s), then run the due-list block after it: it also deletes the step-2 files.
+`DELETE`s), then run the due-list block after it.
 
 When the step-2 files are lost, the `pre-restore-*` branch still holds auth as it was at step 2:
 give it a compute in the Neon console and take the dump and the export from its direct host. Use a
@@ -1483,11 +1490,10 @@ SQL
 - A unique-index error means another account still holds one of the addresses, which only a damaged
   export can cause: treat the export as damaged (above).
 
-After the `COMMIT` run, keep the due list for step 5 and delete the files:
+After the `COMMIT` run, keep the due list for step 5:
 
 ```bash
 psql_in "$AUTH" -At -c "SELECT \"Id\" FROM authsystem.\"Users\" WHERE \"DeletionScheduledAt\" <= now() - interval '14 days' AND (\"EmailChangeRevertArmedAt\" IS NULL OR \"EmailChangeRevertArmedAt\" <= now() - interval '14 days') AND \"Email\" NOT LIKE '%@anonymized.local'" > due-ids.txt
-rm -f auth-before.dump users-before.tsv auth-before.check
 ```
 
 **5. Start the APIs.** auth-api first:
@@ -1503,11 +1509,13 @@ waits for it. It has nothing to apply. When it fails, auth-api stays down: read 
 at start, then only once a day.
 
 ```bash
-DUE="{$(paste -sd, due-ids.txt)}"
-for i in $(seq 1 30); do
-  LEFT=$(psql_in "$AUTH" -At -c "SELECT count(*) FROM authsystem.\"Users\" WHERE \"Id\" = ANY('$DUE'::uuid[]) AND \"Email\" NOT LIKE '%@anonymized.local'")
-  [ "$LEFT" = 0 ] && break; sleep 10
-done; echo "left: $LEFT"
+if [ ! -f due-ids.txt ]; then echo 'due-ids.txt is not in this folder: do not go on'; else
+  DUE="{$(paste -sd, due-ids.txt)}"
+  for i in $(seq 1 30); do
+    LEFT=$(psql_in "$AUTH" -At -c "SELECT count(*) FROM authsystem.\"Users\" WHERE \"Id\" = ANY('$DUE'::uuid[]) AND \"Email\" NOT LIKE '%@anonymized.local'")
+    [ "$LEFT" = 0 ] && break; sleep 10
+  done; echo "left: $LEFT"
+fi
 dc logs --no-log-prefix --since "$STARTED" auth-api | grep -F -e '"@mt":"GDPR deletion finalization failed for user' \
   -e '"@mt":"GDPR deletion finalization could not read user' -e '"@mt":"GDPR deletion finalizer run failed'
 ```
@@ -1516,7 +1524,20 @@ dc logs --no-log-prefix --since "$STARTED" auth-api | grep -F -e '"@mt":"GDPR de
 name, run `STARTED=$(date -u +%FT%TZ); dc stop auth-api && dc start auth-api`, and wait again: the
 `grep` reads only the lines since the last start.
 
-Then tms-api, on both paths:
+Then, on both paths, take the names off the translator profiles of every erased account before
+tms-api serves: the translation database went back to the restore point, and the privacy policy
+promises that an erased account's data never come back to the site. This is what the translation
+system's own erasure does (`Translator.Erase`). The `UPDATE` count is how many names the restore
+brought back; the re-sent erasures then find nothing left to do.
+
+```bash
+psql_in "$AUTH" -At -c "SELECT \"Id\" FROM authsystem.\"Users\" WHERE \"Email\" LIKE 'anon-%@anonymized.local' AND \"PasswordHash\" IS NULL" > erased-ids.txt
+{ echo 'CREATE TEMP TABLE erased (id uuid);'; echo '\copy erased FROM STDIN'; cat erased-ids.txt; echo '\.'
+  echo "UPDATE translation.\"Translators\" t SET \"DisplayName\" = 'Usunięte konto', \"Email\" = NULL FROM erased e WHERE t.\"IdentityId\" = e.id AND (t.\"DisplayName\" <> 'Usunięte konto' OR t.\"Email\" IS NOT NULL);"
+} | psql_in "$TRANSLATION"
+```
+
+Then tms-api:
 
 ```bash
 TMS_STARTED=$(date -u +%FT%TZ); dc start tms-api
@@ -1525,12 +1546,12 @@ dc logs --no-log-prefix --since "$TMS_STARTED" tms-api | grep -cF '"@mt":"Erased
 ```
 
 Run the two counts again until they settle. The first reaches 0 within a minute or two. The second
-reaches the `UPDATE` count of the outbox reset in step 4, plus the due list on the rewind path.
-Until then, an erased name can still show in the translation system: for seconds, not longer. Then
-clean up:
+reaches the `UPDATE` count of the outbox reset in step 4, plus every account the finalizer erased at
+start (its `GDPR deletion finalized` lines since `$STARTED`: the due list, and any account whose 14
+days ended while the APIs were down). Then clean up:
 
 ```bash
-rm -f due-ids.txt; unset PGPASSWORD
+rm -f due-ids.txt erased-ids.txt auth-before.dump users-before.tsv auth-before.check auth-after.check; unset PGPASSWORD
 ```
 
 **6. Verify.** Run the [Verifying](#verifying) queries: the bad migration's row must be **gone** from
@@ -1540,7 +1561,10 @@ checked. `dc ps` shows every service up. Then [smoke](#post-deploy-smoke-test) t
 
 **7. Roll forward.** Fix the migration in a new commit and let the normal pipeline redeploy; the
 migrator gate re-applies from the rewound history. On the keep-auth path, the bad release's auth
-migrations stay applied, so the fix must not edit them: EF never runs an applied migration again.
+migrations stay applied, so the fix must not edit or remove them: EF never runs an applied migration
+again, and a `git revert` of the bad release would remove them, so the next auth migration would be
+built against a model snapshot that does not know them. Keep those migration files and the snapshot
+as they are, and fix forward on top.
 Once you are confident, delete the `pre-restore-*` safety branch (the Free plan allows at most 10
 branches per project):
 
@@ -1612,7 +1636,8 @@ the restore point). The dry run changed nothing.
 The real run copied the 13 back, kept placeholders for the three erased ones, ended the session and
 listed exactly those three as due. A real auth-api on that database erased them at start and left
 the cancelled accounts alone, and a real tms-api took four erasures off the translator profiles, the
-re-sent old one included. *Keep auth:* every table and the auth history came back as they were,
+re-sent old one included. Step 5's SQL took four rewound names off before tms-api started, and
+changed nothing on a second run. *Keep auth:* every table and the auth history came back as they were,
 including a table the rewound database did not have, and the grants to another role were gone and
 had to be granted again. A leftover table, with or without a foreign key into `Users`, made the
 restore fail with nothing changed, and it passed once the table was dropped. The rewind block also
@@ -1724,6 +1749,7 @@ export DOCKER_CONFIG=/nonexistent
 mkdir -p /opt/lotro/backups/restore && cd /opt/lotro/backups/restore
 eval "$(bash /opt/lotro/backup.sh --helpers)"; echo "$PG_IMAGE"
 psql_in() { docker run --rm -i --network host -e PGPASSWORD "$PG_IMAGE" psql -v ON_ERROR_STOP=1 -X "$@"; }
+dc() { (cd /opt/lotro && docker compose -f compose.hetzner.yaml --env-file .env "$@"); }
 ```
 
 ### Fetch and decrypt a dump
@@ -2083,8 +2109,9 @@ and that procedure puts auth back as it was just before the restore.
    UPDATE authsystem."OutboxMessages" SET "ProcessedOn" = NULL WHERE "Type" = 'AccountErased';
    ```
 
-   Then save the due list, as [PITR step 4](#procedure) does after its `COMMIT` run (`due-ids.txt`),
-   with `AUTH` naming the new project's `lotro_auth` and `dc` defined as in PITR step 2.
+   Then, in the shell helpers' folder (`cd /opt/lotro/backups/restore`), save the due list as
+   [PITR step 4](#procedure) does after its `COMMIT` run (`due-ids.txt`), with `AUTH` naming the new
+   project's `lotro_auth` and `TRANSLATION` its `lotro_translation`.
 5. Start auth-api on the new database (`--force-recreate`: step 2 changed `.env`, and a plain
    `start` would keep the old connection strings), wait for the finalizer as
    [PITR step 5](#procedure) does (on a failure, set `STARTED` again and run the same `up`), then
@@ -2096,7 +2123,8 @@ and that procedure puts auth back as it was just before the restore.
    docker compose -f compose.hetzner.yaml --env-file .env up -d --no-deps --force-recreate auth-api
    ```
 
-   Wait for the due list, as in PITR step 5. Only then:
+   Back in the shell helpers' folder, wait for the due list and take the names off the translator
+   profiles, as [PITR step 5](#procedure) does. Only then:
 
    ```bash
    docker compose -f compose.hetzner.yaml --env-file .env up -d --no-deps --force-recreate tms-api

@@ -2,6 +2,7 @@ using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Features.TranslationFileSyncing;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
+using LotroKoniecDev.Primitives.Constants;
 using LotroKoniecDev.Primitives.Enums;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -81,6 +82,7 @@ public sealed class SyncTranslationFileCommandHandlerTests
 
     [Theory]
     [InlineData("https://tms.example.com")]
+    [InlineData(TmsConstants.DefaultBaseUrl)]
     [InlineData("http://localhost:5002")]
     [InlineData("http://127.0.0.1:5002")]
     [InlineData("http://[::1]:5002")]

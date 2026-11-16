@@ -189,7 +189,7 @@ message.
 
 - `Shared/`: `TestDataFactory` (binary SubFile builder; extend it, do not hand-roll bytes) and
   `InMemoryDatFileHandler` (a DAT in memory that keeps state across a patch, an update and launches).
-- `Tests/Core/`: `Error`, `ValueObject`, `Result`, `VarLenEncoder`.
+- `Tests/Core/`: `Error`, `ValueObject`, `Result`, `VarLenEncoder`, the default TMS address.
 - `Tests/Extensions/`: the `Result` extensions and the `LoadSubFile` guards against corrupt data.
 - `Tests/Features/`: the handlers and services (export, patch, launch with the Tier 0 wipe repair,
   preflight, TMS file sync, endpoint resolution, integrity, version baseline, update check).

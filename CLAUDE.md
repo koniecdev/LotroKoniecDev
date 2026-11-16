@@ -28,8 +28,8 @@ forbidden. Never add them back.
 
 ## Project status — deployed, versions 0.x, first real users
 
-Active development, numbered **0.x** (v0.1.0 comes once the daily backup, #688, ships); 1.0 is
-the release for players. The wiki page `Wersje-systemu` defines both, and epic #1346 tracks 1.0.
+Active development, numbered **0.x** (v0.1.0 is cut once prod runs a commit with ADR-0070; the
+daily backup it waited for is live, ADR-0071); 1.0 is the release for players. The wiki page `Wersje-systemu` defines both, and epic #1346 tracks 1.0.
 What is done and what is open is in "Roadmap" below. Since 2026-11-11 an outside translator works
 on prod, so **prod data cannot be re-created by hand**. **API/code breaking changes stay free in
 0.x** (owner decision, #1344), because every client ships from this repo and deploys with it: no

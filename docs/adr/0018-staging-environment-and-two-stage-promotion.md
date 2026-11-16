@@ -1,7 +1,7 @@
 # ADR-0018: Staging environment & two-stage promotion (staging auto → prod gated)
 
-**Status:** Accepted
-**Date:** 2026-06-30 (amended 2026-07-01 — shared-environment reality)
+**Status:** Accepted (amended 2026-11-14 by #1336: both environments allow only `main`)
+**Date:** 2026-06-30 (amended 2026-07-01 — shared-environment reality; 2026-11-14 — branch rule)
 **Decision-makers:** Solo maintainer
 **Related:** audit 0001 §H10 (staging CI / promotion model — was future work), §C5 (isolation);
 ADR-0017 (per-env IaC parametrization — made staging *instantiable*), ADR-0012 (CD — single
@@ -32,12 +32,17 @@ staging DB is a separate Neon project (full DB isolation).
 `cd.yml` builds the four images **once** (`build-and-push`, unchanged), then:
 
 ```
-deploy-staging   env: staging      AUTO   (no protection rule)         needs: build-and-push
+deploy-staging   env: staging      AUTO   (no reviewer; main only)     needs: build-and-push
 deploy-prod      env: production    GATED  (required reviewer)          needs: deploy-staging
 ```
 
 The **`production` approval gate IS the staging→prod promotion**: the exact `sha-<short>` that passed
 the staging rollout + smoke is what a human promotes. There is no separate prod build.
+
+> **Amended by #1336 (2026-11-14):** staging still has no reviewer, but both environments now have a
+> deployment branch rule that allows only `main`. Without it, a workflow on any pushed branch could
+> name `staging` and get its deploy key at once. The setting is a one-time step per environment
+> (runbook → "One-time setup per environment").
 
 ### 2. Staging shares the production ACA environment (forced by the 1-env cap)
 

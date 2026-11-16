@@ -1,12 +1,12 @@
 # Reverse proxy for the Hetzner deployment stack (compose.hetzner.yaml, ADR-0034).
 #
 # Same one-origin-per-app topology as the parity stack, but with REAL certificates: Caddy does
-# ACME (Let's Encrypt) for the three public hostnames, which it can only do once the DNS A
+# ACME (Let's Encrypt) for the public hostnames, which it can only do once the DNS A
 # records point at this box — DNS first, ACME self-heals on retry (migration plan gotchas).
 # TLS terminates here; the apps get plain HTTP on :8080 with X-Forwarded-* set (M6-02).
 #
-# The domains come from the per-box env file via compose (DOMAIN_APP/DOMAIN_AUTH/DOMAIN_TMS),
-# so this one file serves prod and staging unchanged.
+# The domains come from the per-box env file via compose (DOMAIN_* and TKS_DOMAIN_*), so this
+# one file serves prod and staging unchanged.
 
 {
 	email {$ACME_EMAIL}
@@ -18,11 +18,11 @@
 	}
 }
 
-# SEO crawler control (#531): every LOTRO vhost stamps X-Robots-Tag from the per-box XROBOTS env
-# var — prod keeps the `all` default (an explicit no-op), the staging box sets `noindex, nofollow`
-# in /opt/lotro/.env so the deliberately-public staging trio never gets indexed as duplicate
-# content of prod. Deliberately NOT imported into the TKS vhosts below: TKS stamps the header
-# app-side (koniecdev/TheKittySaver#390), and a Caddy-level set would override it.
+# SEO crawler control (#531): every LOTRO vhost that serves pages stamps X-Robots-Tag from the
+# per-box XROBOTS env var — prod keeps the `all` default (an explicit no-op), the staging box sets
+# `noindex, nofollow` in /opt/lotro/.env so the deliberately-public staging trio never gets indexed
+# as duplicate content of prod. Deliberately NOT imported into the TKS vhosts below: TKS stamps the
+# header app-side (koniecdev/TheKittySaver#390), and a Caddy-level set would override it.
 (seo_headers) {
 	header X-Robots-Tag "{$XROBOTS:all}"
 }
@@ -42,18 +42,31 @@
 	reverse_proxy tms-api:8080
 }
 
+# www answers with a 301 to the same path and query on the address without www (#1417). The name
+# is its own variable, not www.{$DOMAIN_APP}: staging has no DNS record for a www name, so Caddy
+# would ask the CA for it again and again. Only prod sets it; any other box keeps the inert
+# *.localhost default. No seo_headers: a redirect has no content to index.
+{$DOMAIN_APP_WWW} {
+	redir https://{$DOMAIN_APP}{uri} permanent
+}
+
 # --- TheKittySaver (its stack lives in /opt/tks and joins the segregated `${project}_tks` network
 # this Caddy also sits on — #506; this Caddy terminates TLS for its hostnames too). Caddy resolves
 # these `tks-*` keys via the tks network and our own `frontend`/`auth-api`/`tms-api` via the default
 # network, so the two stacks share only Caddy. The TKS_DOMAIN_* values come from the per-box env
-# file; a box without the TKS stack keeps the compose defaults (*.localhost — internal cert,
-# no ACME, requests just 502) so this file stays valid everywhere.
+# file; a box without the TKS stack keeps the compose defaults (*.localhost: internal cert, no
+# ACME; the app and API sites answer 502) so this file stays valid everywhere.
 {$TKS_DOMAIN_APP} {
 	reverse_proxy tks-frontend:8080
 }
 
 {$TKS_DOMAIN_API} {
 	reverse_proxy tks-adoption-api:8080
+}
+
+# The www redirect for TKS_DOMAIN_APP, built like the one for DOMAIN_APP above.
+{$TKS_DOMAIN_APP_WWW} {
+	redir https://{$TKS_DOMAIN_APP}{uri} permanent
 }
 
 # --- Observability ingest (ADR-0050 §4; #755 / koniecdev/TheKittySaver#599). The backend of the shared

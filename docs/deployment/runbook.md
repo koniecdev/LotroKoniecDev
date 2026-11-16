@@ -314,14 +314,11 @@ These decide **which environment a box is**. The full list with placeholders is 
   (`www.lotro-translator.pl`, `www.uratujkota.pl`). Staging keeps the inert compose defaults,
   because its www names have no DNS record. Set `TKS_DOMAIN_APP_WWW` only together with
   `TKS_DOMAIN_APP`: `caddy validate` does not check either pair. When you add or change one outside
-  a deploy, re-apply the running tag as `deploy`. With the same tag the apps keep running and Caddy
-  is recreated, so the sites on the box stop for a few seconds:
-
-  ```bash
-  ssh deploy@<prod box>
-  # add the value to /opt/lotro/.env, then:
-  IMAGE_TAG=$(sed -n 's/^IMAGE_TAG=//p' /opt/lotro/.env | head -1) bash /opt/lotro/deploy.sh
-  ```
+  a deploy, add the value to `/opt/lotro/.env`, then re-apply the running tag (the `IMAGE_TAG` line
+  in that file) with the check in [Deploy or roll back by hand](#deploy-or-roll-back-by-hand):
+  `deploy.sh` pulls the tag again, so a tag moved since its deploy would slip in without it. With
+  the same tag the apps keep running and Caddy is recreated, so the sites on the box stop for a few
+  seconds.
 
   Never `docker compose up -d caddy` for this: it skips the validate gate in `deploy.sh`, and a
   Caddy that does not start takes every site on the box down.

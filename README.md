@@ -1,5 +1,7 @@
 # LOTRO Polish Translation Platform
 
+<img src="docs/assets/branding/mofin-logo.png" alt="Polskie LOTRO logo: a golden quill inside a golden ring" width="120" />
+
 > An end-to-end platform that lets a community translate **The Lord of the Rings Online** into
 > Polish: a web-based **Translation Management System** for the editorial workflow, plus a
 > game-patching **CLI** that injects the approved translation back into the game.
@@ -17,6 +19,10 @@
 
 **💬 Community:** the [LOTRO po polsku](https://discord.gg/sncXwa64Ex) Discord server, in Polish:
 help with the patcher, reports of bad translations, and agreeing on terms.
+
+<a href="https://discord.gg/sncXwa64Ex"><img src="docs/assets/branding/mofin-discord-banner.png" alt="Tłumacz LOTRO razem z nami. Dołącz do Discorda!" width="600" /></a>
+
+Logo and banner: MoFin (all rights reserved, used with permission)
 
 ---
 

@@ -45,6 +45,24 @@ A build of the zlib compression library by Jean-loup Gailly and Mark Adler, requ
 >    misrepresented as being the original software.
 > 3. This notice may not be removed or altered from any source distribution.
 
+## Logo and banner artwork
+
+Paths:
+
+- `docs/assets/branding/mofin-logo.png` and `docs/assets/branding/mofin-discord-banner.png`
+  (the originals, as the artist sent them)
+- `src/Frontend/LotroKoniecDev.Frontend/wwwroot/logo.png`, `favicon.ico` and
+  `discord-banner.webp`
+- `src/AuthSystem/LotroKoniecDev.AuthSystem.API/wwwroot/logo.png` and `favicon.ico`
+- `src/Player/LotroKoniecDev.DesktopApp.Presentation/Assets/app.ico` and `app.png`
+
+The project logo (a quill inside a golden ring with the words "Polskie LOTRO") and the
+Discord banner are © MoFin, all rights reserved. This project uses them with the artist's
+permission. They are **not** covered by the MIT License, and forks may not use them: a fork
+needs its own logo and artwork. The files above other than the two originals are resized or
+re-encoded copies of them. The Discord name and logo shown in the banner are trademarks of
+Discord Inc.
+
 ## Game content and trademarks
 
 This repository and the lotro-translator.pl platform process text from *The Lord of the

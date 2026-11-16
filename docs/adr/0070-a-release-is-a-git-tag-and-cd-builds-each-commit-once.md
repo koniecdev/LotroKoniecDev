@@ -161,9 +161,12 @@ can still move by:
 - a `v*` tag on a commit from before this ADR, which starts that commit's old tag trigger;
 - a hand run of CD from a ref whose head is from before this ADR, which runs that ref's old `cd.yml`;
 - a re-run of the build job of a CD run from before this ADR, which uses that run's old `cd.yml`
-  (GitHub allows re-runs for 30 days).
+  (GitHub allows re-runs for 30 days);
+- a registry that wrongly answers "not found" for a tag that exists, because CD trusts that answer;
+- the runbook's own recovery for a stuck commit: delete its tagged version, then re-run, which gives
+  the name new bytes. The runbook allows it only for an image no box runs.
 
-The runbook forbids the last three. The first is the reason this option stays open.
+The runbook forbids the third to fifth. The first is the reason this option stays open.
 
 ### D. Build again over an existing image that has no provenance
 

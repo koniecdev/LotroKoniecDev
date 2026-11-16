@@ -535,6 +535,10 @@ build_job_problems() {
                 if (text[i] ~ /build-push-action@|imagetools create|docker push|buildx build/) print "step " i " writes to the registry before the lookup"
             for (i = lookup + 1; i <= n; i++)
                 if (cond[i] != "steps.existing.outputs.exists == '\''false'\''") print "step " i " (" id[i] ") runs without the exists == '\''false'\'' guard"
+            for (i = lookup + 1; i <= n; i++)
+                if (i != build && i != name && text[i] ~ /build-push-action@|imagetools create|docker push|buildx build/) print "step " i " writes to the registry besides the build and the naming step"
+            for (i = 1; i <= n; i++)
+                if (text[i] ~ /type=semver/) print "step " i " adds a version tag (type=semver)"
             if (!build) print "no build step (id: build)"
             else {
                 if (text[build] !~ /push-by-digest=true/) print "the build step does not push by digest"
@@ -660,6 +664,8 @@ expect_build_problem 'a buildx push before lookup' 'writes to the registry befor
 expect_build_problem 'a scan that may fail' 'has continue-on-error'      '/^      - name: Scan image for vulnerabilities/a\        continue-on-error: true'
 expect_build_problem 'a job that may fail'  'has continue-on-error'      '/^    concurrency:/i\    continue-on-error: true'
 expect_build_problem 'no concurrency group' 'no concurrency group per commit and image' '/^      group: cd-build-/d'
+expect_build_problem 'a second tagging step' 'writes to the registry besides the build and the naming step' '/^      - name: Scan image for vulnerabilities/i\      - name: Early name\n        if: steps.existing.outputs.exists == '"'"'false'"'"'\n        run: docker buildx imagetools create --tag ghcr.io/owner/app:sha-abc1234 ghcr.io/owner/app@sha256:1'
+expect_build_problem 'a semver tag'         'adds a version tag (type=semver)' '/^            type=raw,value=sha-/a\            type=semver,pattern={{version}}'
 expect_build_problem 'a step after naming'  'the naming step is not the last step' '/run: \.\/scripts\/ci\/commit-image\.sh name/a\      - name: After\n        if: steps.existing.outputs.exists == '"'"'false'"'"'\n        run: true'
 expect_build_problem 'no attestation'       'does not come after the attestation' 's#actions/attest-build-provenance@#actions/attest-other@#'
 expect_build_problem 'a lookup that builds' 'the lookup does not run commit-image.sh find' 's#scripts/ci/commit-image.sh find#true#'

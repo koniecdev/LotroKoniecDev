@@ -15,20 +15,13 @@
     <title>Zaloguj się — lotro-translator.pl</title>
     <link rel="stylesheet" href="/fonts.css" />
     <link rel="stylesheet" href="/account.css" />
+    <link rel="icon" href="/favicon.ico" />
 </head>
 <body class="page-login">
     <div class="app">
         <header class="auth-brand-strip">
             <div class="container">
-                <a href="@FrontendHome.Url" class="brand">
-                    <span class="brand-mark" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="12" cy="12" r="8.5"/>
-                            <circle cx="12" cy="12" r="1.1" fill="currentColor"/>
-                        </svg>
-                    </span>
-                    <span>lotro-<span class="brand-accent">translator</span>.pl</span>
-                </a>
+                <partial name="_Brand" />
             </div>
         </header>
 
@@ -209,9 +202,7 @@
             </div>
         </section>
 
-        <footer class="foot">
-            <p>lotro-translator.pl — niekomercyjny projekt społeczności polskich graczy LOTRO</p>
-        </footer>
+        <partial name="_Footer" />
     </div>
 
     <script src="/login.js"></script>

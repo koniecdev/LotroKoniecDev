@@ -80,16 +80,7 @@ button { cursor: pointer; }
     font-size: 16px;
     letter-spacing: -0.01em;
 }
-.brand-mark {
-    width: 30px; height: 30px;
-    border-radius: 8px;
-    background: linear-gradient(160deg, var(--accent), var(--accent-dim));
-    color: oklch(0.16 0.012 80);
-    display: grid;
-    place-items: center;
-    box-shadow: 0 0 0 1px oklch(0.60 0.07 84 / 0.5) inset;
-}
-.brand-mark svg { width: 17px; height: 17px; }
+.brand-mark { height: 30px; width: auto; flex: none; }
 .brand-accent { color: var(--accent-hi); }
 .auth-top .top-link {
     display: inline-flex;
@@ -519,6 +510,7 @@ button { cursor: pointer; }
     letter-spacing: 0.08em;
     color: var(--text-mute);
 }
+.foot .foot-credit { margin-top: 6px; }
 
 @media (max-width: 640px) {
     .auth-top { padding: 14px 18px; }
@@ -536,8 +528,7 @@ button { cursor: pointer; }
 /* ── Login: a two-column page with no top bar ── */
 .auth-brand-strip { padding: 22px 0 0; }
 .page-login .brand { gap: 12px; font-size: 17px; }
-.page-login .brand-mark { width: 34px; height: 34px; border-radius: 9px; }
-.page-login .brand-mark svg { width: 22px; height: 22px; }
+.page-login .brand-mark { height: 34px; }
 
 .container {
     width: 100%;

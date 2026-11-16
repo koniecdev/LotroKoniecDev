@@ -479,7 +479,8 @@ jobs:
       # Any branch run of cd.yml can move a `sha-<short>` tag, and a writer can make a staging rollout
       # fail on purpose, so an unchecked rollback would pull whatever the tag names now (#1336). When
       # the tag fails the check, only the config is restored and the summary says what to do; the box
-      # keeps the release that just failed until someone rolls it back by hand.
+      # keeps the release that just failed until someone rolls it back by hand. The logic lives in
+      # scripts/ci/rollback-to-previous-tag.sh, which has its own test.
       #
       # Reached only when deploy.sh had already started (it prints PREVIOUS_IMAGE_TAG before touching
       # anything); an earlier gate failing means the box was never touched, so there is nothing to
@@ -490,50 +491,7 @@ jobs:
         if: failure() && env.PREVIOUS_IMAGE_TAG != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          echo "::error::Rollout or smoke failed — rolling ${HETZNER_HOST} back to ${PREVIOUS_IMAGE_TAG}."
-          verified=""
-          # `if` keeps set -e from ending the step on a refusal: the summary below must still be written.
-          if result="$(./scripts/ci/resolve-verified-digests.sh "$PREVIOUS_IMAGE_TAG")"; then
-            verified="${result#EXPECTED_DIGESTS=}"
-          fi
-          restore_config="cd ${STACK_DIR} && for f in compose.hetzner.yaml .docker/hetzner/Caddyfile deploy.sh; do [ -f \".previous/\$f\" ] && cp -p \".previous/\$f\" \"\$f\" || true; done"
-          rc=0
-          # SC2029: the RUNNER must expand the tag, the digests and the stack dir into the remote
-          # command. The tag was validated at capture time in the deploy step above, and the script
-          # prints only sha256 digests it checked. Intentional.
-          if [ -n "$verified" ]; then
-            # shellcheck disable=SC2029
-            ssh box "set -e; ${restore_config}; IMAGE_TAG='${PREVIOUS_IMAGE_TAG}' EXPECTED_DIGESTS='${verified}' bash ${STACK_DIR}/deploy.sh" || rc=$?
-            {
-              if [ "$rc" -eq 0 ]; then
-                echo "### ⏮️ Rolled back"
-                echo ""
-                echo "\`${ENVIRONMENT}\` was rolled back to image tag \`${PREVIOUS_IMAGE_TAG}\` after a failed rollout/smoke."
-              else
-                echo "### ⚠️ Rollback failed"
-                echo ""
-                echo "The rollback of \`${ENVIRONMENT}\` to \`${PREVIOUS_IMAGE_TAG}\` exited ${rc}. Check the box: runbook → \"Deploy or roll back by hand\"."
-              fi
-            } >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
-            exit "$rc"
-          fi
-          # shellcheck disable=SC2029
-          ssh box "set -e; ${restore_config}" || rc=$?
-          {
-            echo "### ⚠️ Not rolled back"
-            echo ""
-            echo "The previous image tag \`${PREVIOUS_IMAGE_TAG}\` did not pass the provenance check, so it was not deployed. \`${ENVIRONMENT}\` may still run the release that just failed."
-            if [ "$rc" -eq 0 ]; then
-              echo "The config (compose file, Caddyfile, deploy.sh) was restored from \`.previous/\`."
-            else
-              echo "Restoring the config from \`.previous/\` also failed (exit ${rc})."
-            fi
-            echo "Check \`docker compose ps\` on the box, then roll back by hand with a verified tag: runbook → \"Deploy or roll back by hand\"."
-          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
-          echo "::error::Not rolled back: ${PREVIOUS_IMAGE_TAG} did not pass the provenance check."
-          exit 1
+        run: ./scripts/ci/rollback-to-previous-tag.sh
 
       - name: Summarize the rollout
         if: success()

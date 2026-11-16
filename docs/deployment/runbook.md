@@ -530,7 +530,8 @@ exists. Rotate first, then remove the line, in this order:
    [Neon is gone](#neon-is-gone-whole-database-restore) from a dump older than the rotation, rotate
    again. A Neon branch restore ([PITR or a pre-migration snapshot](#procedure)) does not: it puts
    auth back as it was just before the restore, either as a whole or by copying back every account
-   whose security stamp moved, and a password change moves the stamp.
+   whose security stamp moved, and a password change moves the stamp. The exception is a damaged
+   export, when its step 4 redoes deletions by hand: then rotate again too.
 
 **Warning `2353`: the admin username belongs to a different address.** The seeder logs it on every
 start when `AUTH_ADMIN_EMAIL` matches no account but `AUTH_ADMIN_USERNAME` is taken. There are two
@@ -1319,10 +1320,12 @@ docker run --rm -i "$PG_IMAGE" pg_restore --file=/dev/null < auth-before.dump &&
 psql_in "$AUTH" -At -c 'SELECT count(*), md5(string_agg(u::text, chr(10) ORDER BY "Id")) FROM authsystem."Users" u' \
   -c 'SELECT "MigrationId" FROM authsystem."__EFMigrationsHistory" ORDER BY 1' > auth-before.check
 psql_in "$AUTH" -At -c '\copy (SELECT "Id", "Email", "NormalizedEmail", "EmailConfirmed", "PasswordHash", "SecurityStamp", "LockoutEnabled", "LockoutEnd", "AccessFailedCount", "DeletionScheduledAt", "EmailChangeRevertStamp", "EmailChangeRevertTo", "NormalizedEmailChangeRevertTo", "EmailChangeRevertArmedAt" FROM authsystem."Users") TO STDOUT' > users-before.tsv
+[ "$(wc -l < users-before.tsv)" = "$(head -1 auth-before.check | cut -d'|' -f1)" ] && echo 'the export is complete'
 ```
 
-Do not start step 3 before the check printed `the dump is complete`. When the export fails (a
-migration renamed one of its columns), note it: step 4 then counts the export as damaged.
+Do not start step 3 before both checks printed `the dump is complete` and `the export is complete`.
+When the export fails twice (a migration renamed one of its columns), note it: step 4 then counts
+the export as damaged.
 
 **3. Restore the Neon branch to just before the migrator ran.** Use the project + branch ids you
 looked up above and the step-0 timestamp:
@@ -1360,6 +1363,8 @@ psql_in "$AUTH" -At -c 'SELECT count(*), md5(string_agg(u::text, chr(10) ORDER B
 cmp auth-before.check auth-after.check && echo 'auth is back as it was'
 ```
 
+- When the restore worked but `cmp` prints a difference, something wrote to `lotro_auth` after
+  step 2 (an API that was not stopped, a deploy). Do not start the APIs: find the writer first.
 - The restore is one transaction: when it fails, nothing changed. An error that ends in
   `because other objects depend on it` names, on its `DETAIL` line, a table that the restored
   branch has and the dump has not (one that a migration of the bad release dropped). Check that the
@@ -1421,7 +1426,7 @@ SELECT "Id", CASE WHEN erase_again THEN 'erase again' ELSE 'copy back' END AS ac
        restored_deletion, "DeletionScheduledAt" AS deletion_before_restore
 FROM redo
 UNION ALL
-SELECT b."Id", 'NOT IN THE RESTORED DATABASE (registered after the restore point)', NULL, b."DeletionScheduledAt"
+SELECT b."Id", 'NOT IN THE RESTORED DATABASE (registered after the restore point): ' || b."Email", NULL, b."DeletionScheduledAt"
 FROM before_restore b WHERE NOT EXISTS (SELECT 1 FROM authsystem."Users" u WHERE u."Id" = b."Id")
 ORDER BY 2, 1;
 -- Placeholders first: two accounts may have swapped addresses, and the unique index checks every row.
@@ -1452,8 +1457,10 @@ SQL
 
 - The list marks each account `copy back` or `erase again`, with its deletion date in the restored
   database and before the restore. Read it before the `COMMIT` run.
-- `NOT IN THE RESTORED DATABASE` marks an account registered after the restore point. It is gone
-  with the rewind; tell its owner to register again.
+- `NOT IN THE RESTORED DATABASE` marks an account registered after the restore point, with its
+  address. It is gone with the rewind; tell its owner to register again. Skip an address of the
+  form `anon-…@anonymized.local`: that account was erased.
+- Note the third `UPDATE` count of the `COMMIT` run (the outbox reset) for step 5.
 - A unique-index error means another account still holds one of the addresses, which only a damaged
   export can cause: treat the export as damaged (above).
 
@@ -1584,9 +1591,10 @@ re-sent old one included. *Keep auth:* every table and the auth history came bac
 including a table the rewound database did not have, and the grants to another role were gone and
 had to be granted again. A leftover table, with or without a foreign key into `Users`, made the
 restore fail with nothing changed, and it passed once the table was dropped. The rewind block also
-worked over such a database. The new SQL of "Neon is gone" step 3 ran too. Not proven here: the
-restore against Neon (the rehearsal above), the `grep` lines against live CLEF output (the alert
-rules read the same `"@mt"` field), and the LogQL in Grafana.
+worked over such a database. The new SQL of "Neon is gone" step 3 ran too, and its LogQL ran on
+Loki 3.7.7 (the version prod runs) against a line shaped like auth-api's. Not proven here: the
+restore against Neon (the rehearsal above), and the `grep` lines against live CLEF output (the
+alert rules read the same `"@mt"` field).
 
 ## Database backups
 
@@ -1947,9 +1955,10 @@ and that procedure puts auth back as it was just before the restore.
 
    - **Brevo's mail log:** Transactional → Logs, filtered by subject and by time, with a CSV export.
      Brevo's help (read on 2026-11-16) says the logs are kept **indefinitely by default**. It names
-     no shorter limit for any plan, so the same holds on the Free plan this account is on. Only a
-     retention rule (1 to 24 months) shortens it: check **Settings → Transactional emails →
-     Retention rules**. The plan shows under the account name (bottom left) → **My plan**. Sources:
+     no limit per plan, so we take it to hold on the Free plan this account is on too; the help does
+     not say so for Free in words (unconfirmed). Only a retention rule (1 to 24 months) shortens it:
+     check **Settings → Transactional emails → Retention rules**, and check that the log really
+     reaches back to the dump time. The plan shows under the account name (bottom left) → **My plan**. Sources:
      [Manage your transactional logs](https://help.brevo.com/hc/en-us/articles/360021533839),
      [Configure a custom retention period](https://help.brevo.com/hc/en-us/articles/4415743225746),
      [Upgrade to a higher plan](https://help.brevo.com/hc/en-us/articles/209296725).
@@ -1959,7 +1968,7 @@ and that procedure puts auth back as it was just before the restore.
      auth-api logs each request with the account's id (`UserId`) and the time (`At`):
 
      ```logql
-     {project="lotrokoniecdev", box="lotro-prod", container=~".*auth-api.*"} |= `"@mt":"GDPR deletion scheduled for user` | json UserId="UserId", At="@t"
+     {project="lotrokoniecdev", box="lotro-prod", container=~".*auth-api.*"} |= `"@mt":"GDPR deletion scheduled for user` | json UserId="UserId", At="[\"@t\"]"
      ```
 
      The same with `GDPR deletion cancelled for user` and `E-mail change reverted for user`. In the

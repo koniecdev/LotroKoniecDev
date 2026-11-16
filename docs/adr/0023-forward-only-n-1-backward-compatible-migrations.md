@@ -261,8 +261,9 @@ the restore and puts it back afterwards:
 - When no auth migration is to blame, it restores a dump of the auth schema taken just before the
   restore, in one transaction, so auth is exactly as it was. The previous release runs on that newer
   auth schema, which §2 guarantees.
-- When an auth migration is to blame, it keeps the rewound auth database and copies back, from an
-  export taken just before the restore, every account whose deletion date or security stamp moved.
+- When an auth migration is to blame, or that is not clear, it keeps the rewound auth database and
+  copies back, from an export taken just before the restore, every account whose deletion date or
+  security stamp moved.
   Accounts erased after the restore point are erased again, and every session ends, before auth-api
   serves.
 - On both paths every erasure message goes to the translation system again, because its database

@@ -221,7 +221,8 @@ The redo after the loss of the Neon project changes too:
 - A cancellation made after the dump is redone even when the restored row has no deletion waiting,
   and an e-mail change undone after the dump is redone with it.
 - Three sources name what happened after the dump, in this order: Brevo's mail log (kept with no
-  time limit unless a retention rule shortens it), Loki (14 days, best effort), and, when neither
+  time limit unless a retention rule shortens it; Brevo's help names no limit per plan, so for the
+  Free plan this is inferred, not stated), Loki (14 days, best effort), and, when neither
   reaches back to the dump, one e-mail by hand to every account, asking anyone who deleted their
   account since the dump to do it again (owner decision, 2026-11-15).
 - Every erasure message is sent again, because the translation dump may still hold a name that was

@@ -45,13 +45,15 @@ updates:
       - dependency-name: "Microsoft.OpenApi"
         update-types: ["version-update:semver-major"]
       # The .NET band (#1444): packages whose major follows .NET's. A new .NET major comes in a PR of
-      # our own (CLAUDE.md); some 11.0 releases broke the net10.0 build in #1446 (CS0757). Minor and
-      # patch updates still come through the group above, except for the three dotnet/extensions
-      # packages (Caching.Hybrid, Http.Resilience, TimeProvider.Testing): they ship nothing on 10.x
-      # after 11.0.0, so they stay at 10.11.0 until that move. To free one, replace
-      # `Microsoft.Extensions.*` with patterns that leave it out. Security updates ignore this list.
-      # No pattern here may catch a package with its own version line, or it freezes that package.
-      # dotnet-ef is here to stay on the EF Core major we run.
+      # our own (CLAUDE.md), because some 11.0 packages break our net10.0 build (#1446: CS0757).
+      # Minor and patch updates still come through the group above. dotnet/extensions ships nothing
+      # on 10.x after 11.0.0, so Caching.Hybrid, Http.Resilience and TimeProvider.Testing stay at
+      # 10.11.0 until that move. Caching.Hybrid 11.0.0 needs the 11.0.0 runtime packages; the other
+      # two would build on .NET 10 and are held so the whole family moves together (owner decision
+      # on #1444). To free one, replace `Microsoft.Extensions.*` with patterns that leave it out.
+      # This list may also hold back a security fix that exists only on a new major; NuGetAudit
+      # then fails the build. A pattern must not catch a package with its own version line: it
+      # would freeze that package silently. dotnet-ef is here to stay on the EF Core major we run.
       - dependency-name: "Microsoft.AspNetCore.*"
         update-types: ["version-update:semver-major"]
       - dependency-name: "Microsoft.EntityFrameworkCore*"
@@ -93,7 +95,7 @@ updates:
     ignore:
       # No new .NET major from Dependabot (#1444). The 11.0 sdk and aspnet images hold only .NET 11,
       # so they cannot run `dotnet ef`, the tests or our .NET 10 apps: the migrator build and the E2E
-      # stacks stopped with "You must install or update .NET". runtime-deps moves with them. A .NET
+      # stacks fail with "You must install or update .NET". runtime-deps moves with them. A .NET
       # major comes in a PR of our own (CLAUDE.md). Digest refreshes of the 10.0 tags still come
       # through the group above.
       - dependency-name: "dotnet/*"

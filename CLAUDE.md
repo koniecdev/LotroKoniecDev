@@ -598,13 +598,16 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   2028, so moving buys no support time. The .NET 11 sdk and aspnet images cannot run our .NET 10
   apps, `dotnet ef` or the tests, and some .NET 11 packages break our build (#1446). So
   `.github/dependabot.yml` ignores major updates of the `dotnet/*` images and of the NuGet packages
-  whose major follows .NET's. Image digest refreshes, minor and patch updates and security updates
-  still arrive. The exception: the dotnet/extensions packages (`Microsoft.Extensions.Caching.Hybrid`,
+  whose major follows .NET's. Image digest refreshes and minor and patch updates still arrive. The
+  exception: the dotnet/extensions packages (`Microsoft.Extensions.Caching.Hybrid`,
   `.Http.Resilience`, `.TimeProvider.Testing`) ship nothing on 10.x after 11.0.0, so they stay at
-  10.11.0 until the move; the comment in `dependabot.yml` says how to free one. The move is one PR
-  that changes the target frameworks, the images, the SDK version CI installs and those packages
-  together. No pattern in that list may catch a package with its own version line, or it freezes
-  that package without a sound.
+  10.11.0 until the move; the comment in `dependabot.yml` says why and how to free one. The list
+  may also hold back a security fix that exists only on a new major; NuGetAudit then fails the
+  build. It covers only our own references: a package can still bring a .NET 11 package with it
+  (OpenTelemetry 1.21 brings `System.Diagnostics.DiagnosticSource` 11.0.0). The move is one PR that
+  changes the target frameworks, the images, the SDK version CI installs and those packages
+  together. No pattern in that list may catch a package with its own version line, or it silently
+  freezes that package.
 - **Docker restore layers are loud and gated (ADR-0028, amended).** Every Dockerfile that lists
   `.csproj` files must COPY the **full transitive closure** of the projects it restores, because
   `dotnet restore` skips a missing project file and still **exits 0**. Two defences: image builds

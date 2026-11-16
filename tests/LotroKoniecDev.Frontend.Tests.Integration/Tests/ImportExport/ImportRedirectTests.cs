@@ -30,7 +30,7 @@ namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.ImportExport;
 /// </summary>
 public sealed partial class ImportRedirectTests : IClassFixture<ProductionFrontendFactory>, IDisposable
 {
-    private const string ClientId = "lotrokoniecdev-web";
+    private const string ClientId = "lotrokoniecdev-frontend";
     private const string Issuer = "https://auth.staging.invalid";
     private const string TmsOrigin = "https://tms.staging.invalid";
     private const string Subject = "11111111-1111-1111-1111-111111111111";

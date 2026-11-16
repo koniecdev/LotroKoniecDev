@@ -44,6 +44,30 @@ updates:
       # are the first built against 3.x). Minor/patch 2.x updates still flow through the group above.
       - dependency-name: "Microsoft.OpenApi"
         update-types: ["version-update:semver-major"]
+      # The .NET band (#1444): packages whose major follows .NET's. A new .NET major comes in a PR of
+      # our own (CLAUDE.md); some 11.0 releases broke the net10.0 build in #1446 (CS0757). Minor and
+      # patch updates still come through the group above, except for the three dotnet/extensions
+      # packages (Caching.Hybrid, Http.Resilience, TimeProvider.Testing): they ship nothing on 10.x
+      # after 11.0.0, so they stay at 10.11.0 until that move. To free one, replace
+      # `Microsoft.Extensions.*` with patterns that leave it out. Security updates ignore this list.
+      # No pattern here may catch a package with its own version line, or it freezes that package.
+      # dotnet-ef is here to stay on the EF Core major we run.
+      - dependency-name: "Microsoft.AspNetCore.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.EntityFrameworkCore*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "System.Security.Cryptography.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Npgsql.EntityFrameworkCore.PostgreSQL"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Serilog.AspNetCore"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Serilog.Extensions.Logging"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "dotnet-ef"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions referenced across every workflow.
   - package-ecosystem: "github-actions"
@@ -66,6 +90,14 @@ updates:
     groups:
       docker-base-images:
         patterns: ["*"]
+    ignore:
+      # No new .NET major from Dependabot (#1444). The 11.0 sdk and aspnet images hold only .NET 11,
+      # so they cannot run `dotnet ef`, the tests or our .NET 10 apps: the migrator build and the E2E
+      # stacks stopped with "You must install or update .NET". runtime-deps moves with them. A .NET
+      # major comes in a PR of our own (CLAUDE.md). Digest refreshes of the 10.0 tags still come
+      # through the group above.
+      - dependency-name: "dotnet/*"
+        update-types: ["version-update:semver-major"]
 
   # Caddy, the proxy in front of both servers (#1001). Its image is only in compose files, which the
   # `docker` entry above does not read. How its pull request moves the pins: the comment above

@@ -278,11 +278,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Supply-chain gate BEFORE anything touches the box (audit 0001 H9). Every image about to run must
-      # carry a build-provenance attestation signed by THIS repo's cd.yml, from this run's ref. Any
-      # branch can run its own cd.yml and push an attested image or move a tag, so `--repo` alone let
-      # `gh workflow run cd.yml --ref main -f image_tag=sha-<branch build>` put branch code on staging
-      # (#1336). The script fails closed with nothing written to $GITHUB_ENV, before the migrator runs.
+      # Supply-chain gate BEFORE anything touches the box (audit 0001 H9): every image must be built and
+      # attested by this repo's cd.yml from this run's ref. Why the signer and the ref are pinned: the
+      # script's header (#1336). It fails closed with nothing written to $GITHUB_ENV.
       - name: Pin images to verified digests (fail closed before rollout)
         env:
           TAG: ${{ steps.tag.outputs.tag }}
@@ -475,12 +473,8 @@ jobs:
       # would otherwise survive the rollback and re-break the re-run), then the previous deploy.sh is
       # re-run with the previous tag.
       #
-      # The previous tag gets the same provenance check as the rollout, and its digests go to the box.
-      # Any branch run of cd.yml can move a `sha-<short>` tag, and a writer can make a staging rollout
-      # fail on purpose, so an unchecked rollback would pull whatever the tag names now (#1336). When
-      # the tag fails the check, only the config is restored and the summary says what to do; the box
-      # keeps the release that just failed until someone rolls it back by hand. The logic lives in
-      # scripts/ci/rollback-to-previous-tag.sh, which has its own test.
+      # The previous tag gets the same provenance check as the rollout; when it fails, only the config is
+      # restored. Why and every outcome: scripts/ci/rollback-to-previous-tag.sh (#1336).
       #
       # Reached only when deploy.sh had already started (it prints PREVIOUS_IMAGE_TAG before touching
       # anything); an earlier gate failing means the box was never touched, so there is nothing to

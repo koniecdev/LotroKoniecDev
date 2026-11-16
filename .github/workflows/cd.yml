@@ -9,10 +9,11 @@ name: CD
 #                    proceeds only when CI concluded `success` on main, and pins the exact tested
 #                    commit (head_sha) for everything downstream. A manual dispatch passes through.
 #   build-and-push → builds the four OCI images ONCE per commit (ADR-0070: a commit whose `sha-<short>`
-#                    already exists is reused, never rebuilt), pushes them to GHCR by digest, scans
-#                    each with Trivy (fail HIGH/CRITICAL), signs + attests them (cosign + SLSA
-#                    provenance/SBOM), and only then names them `sha-<short>` — the deployment unit
-#                    (ADR-0008 §1/§6; supply-chain hardening, audit 0001 H9 + H1).
+#                    this cd.yml already built from the same ref is reused, and any other existing
+#                    `sha-<short>` stops the job; neither is rebuilt), pushes them to GHCR by
+#                    digest, scans each with Trivy (fail HIGH/CRITICAL), signs + attests them
+#                    (cosign + SLSA provenance/SBOM), and only then names them `sha-<short>` — the
+#                    deployment unit (ADR-0008 §1/§6; supply-chain hardening, audit 0001 H9 + H1).
 #   deploy-staging → calls the reusable deploy.yml under environment: staging — AUTOMATIC (no gate),
 #                    active once vars.STAGING_ENABLED is on (ADR-0018).
 #   deploy-prod    → calls the SAME reusable deploy.yml under environment: production — GATED by the
@@ -181,8 +182,8 @@ jobs:
       id-token: write
       attestations: write
     # Serialize builds of the SAME image for the SAME tested commit (e.g. a CI re-run while the first
-    # build runs). The later run waits, then finds the named image and reuses it (ADR-0070) instead
-    # of building the same commit a second time. Keyed on the tested commit (workflow_run.head_sha,
+    # build runs). The later run waits, then finds the named image and reuses it when it runs from the
+    # same ref, or stops when it does not (ADR-0070); it never builds the same commit a second time. Keyed on the tested commit (workflow_run.head_sha,
     # else github.sha for a dispatch), NOT github.ref: under workflow_run github.ref is always
     # refs/heads/main, so a github.ref key would queue builds of *different* commits behind each
     # other. Deploys are serialized separately (deploy-prod has its own group). The group MUST
@@ -230,9 +231,10 @@ jobs:
 
       # Build once per commit (ADR-0070). A second build never gives the same digest, so building a
       # commit that already has an image would move `sha-<short>` away from the bytes that passed
-      # staging, that prod runs and that a rollback pulls. An existing image with our build
-      # provenance is reused, and every later step is skipped. scripts/tests/commit-image.tests.sh
-      # pins both the script and this job's shape.
+      # staging, that prod runs and that a rollback pulls. An existing image is reused only when this
+      # cd.yml built it from this run's own ref (`--source-ref $GITHUB_REF`), and every later step is
+      # skipped; any other existing image stops the job. scripts/tests/commit-image.tests.sh pins
+      # both the script and this job's shape.
       - name: Look up this commit's existing image
         id: existing
         env:

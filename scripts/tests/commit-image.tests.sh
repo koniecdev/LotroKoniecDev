@@ -7,7 +7,10 @@
 #
 #   1. scripts/ci/commit-image.sh, run with stub `docker` and `gh` first on PATH. `find` may say
 #      "build" only when the registry says the tag is missing, and stops on any answer it cannot
-#      read. `name` never moves an existing tag (except `latest`) and reads the sha tag back.
+#      read. It asks gh for this repo's cd.yml and this run's ref, checked as the exact command
+#      line; that real gh refuses another ref was checked live. `name` never moves an existing tag
+#      (except `latest`) and reads the sha tag back. The docker stub answers a digest only for the
+#      printf format, because some buildx versions print the whole view for a bare one.
 #   2. The workflow shape. No workflow starts on a tag, a release or a created ref. In cd.yml's
 #      build-and-push job, the lookup comes first, every later step runs only when it found nothing,
 #      the build pushes no tag, and naming the image is the last step, after the attestation.
@@ -80,7 +83,19 @@ case "${3-}" in
             exit 0
         fi
         if [ -f "$(tag_file "$ref")" ]; then
-            cat "$(tag_file "$ref")"
+            case "${5-} ${6-}" in
+                '--format {{printf "%s" .Manifest.Digest}}')
+                    cat "$(tag_file "$ref")"
+                    ;;
+                '--format {{.Manifest.Digest}}')
+                    printf 'Name:      %s\nMediaType: application/vnd.oci.image.index.v1+json\nDigest:    %s\n' \
+                        "$ref" "$(cat "$(tag_file "$ref")")"
+                    ;;
+                *)
+                    echo "stub docker: unexpected inspect format: $*" >&2
+                    exit 98
+                    ;;
+            esac
             exit 0
         fi
         printf 'ERROR: %s: not found\n' "$ref" >&2
@@ -157,7 +172,14 @@ run_script() {
 }
 
 run_find() {
-    run_script find IMAGE_REPO="$REPO" IMAGE_TAG='sha-abc1234' GITHUB_REPOSITORY='owner/app' "$@"
+    run_script find IMAGE_REPO="$REPO" IMAGE_TAG='sha-abc1234' GITHUB_REPOSITORY='owner/app' \
+        GITHUB_REF='refs/heads/main' "$@"
+}
+
+# The one gh call find may make for digest $1 on a run from ref $2.
+verify_line() {
+    printf 'attestation verify oci://%s@%s --repo owner/app --signer-workflow owner/app/.github/workflows/cd.yml --source-ref %s' \
+        "$REPO" "$1" "$2"
 }
 
 run_name() {
@@ -185,20 +207,44 @@ has_tag "$REPO:sha-abc1234" "$D1"
 attested "$D1"
 run_find
 if [ "$LAST_STATUS" -eq 0 ] && [ "$(cat "$STATE/out")" = 'exists=true' ] \
-    && grep -qF "attestation verify oci://$REPO@$D1 --repo owner/app" "$STATE/gh.calls"; then
-    pass 'an existing image whose provenance verifies by digest is reused'
+    && [ "$(cat "$STATE/gh.calls")" = "$(verify_line "$D1" refs/heads/main)" ]; then
+    pass 'an image that cd.yml in this repo built from this ref is reused'
 else
-    fail "expected exit 0, exists=true and a verify by digest, got exit $LAST_STATUS and '$(cat "$STATE/out")'"
+    fail "expected exit 0, exists=true and exactly '$(verify_line "$D1" refs/heads/main)', got exit $LAST_STATUS, '$(cat "$STATE/out")' and '$(cat "$STATE/gh.calls")'"
+fi
+
+CASE='find: a run from a branch'
+reset_state
+has_tag "$REPO:sha-abc1234" "$D1"
+attested "$D1"
+run_find GITHUB_REF='refs/heads/1344-some-branch'
+if [ "$LAST_STATUS" -eq 0 ] \
+    && [ "$(cat "$STATE/gh.calls")" = "$(verify_line "$D1" refs/heads/1344-some-branch)" ]; then
+    pass "the check names the run's own ref, not a fixed one"
+else
+    fail "expected exactly '$(verify_line "$D1" refs/heads/1344-some-branch)', got exit $LAST_STATUS and '$(cat "$STATE/gh.calls")'"
 fi
 
 CASE='find: an image without provenance'
 reset_state
 has_tag "$REPO:sha-abc1234" "$D1"
 run_find
-if [ "$LAST_STATUS" -ne 0 ] && [ ! -s "$STATE/out" ]; then
-    pass 'an existing tag that does not verify stops the job and decides nothing'
+if [ "$LAST_STATUS" -ne 0 ] && [ ! -s "$STATE/out" ] \
+    && grep -qF 'built it from refs/heads/main' <<< "$LAST_OUTPUT"; then
+    pass 'an existing tag that does not verify stops the job, decides nothing and names the ref'
 else
-    fail "expected a stop with no output, got exit $LAST_STATUS and '$(cat "$STATE/out")'"
+    fail "expected a stop with no output that names refs/heads/main, got exit $LAST_STATUS and '$(cat "$STATE/out")'"
+fi
+
+CASE='find: no GITHUB_REF'
+reset_state
+has_tag "$REPO:sha-abc1234" "$D1"
+attested "$D1"
+run_script find IMAGE_REPO="$REPO" IMAGE_TAG='sha-abc1234' GITHUB_REPOSITORY='owner/app'
+if [ "$LAST_STATUS" -ne 0 ] && [ ! -s "$STATE/out" ] && [ ! -s "$STATE/gh.calls" ]; then
+    pass 'a run with no ref stops before it asks gh, so the check never loses its ref'
+else
+    fail "expected a stop with no output and no gh call, got exit $LAST_STATUS and '$(cat "$STATE/gh.calls")'"
 fi
 
 for answer in \
@@ -229,7 +275,7 @@ fi
 
 CASE='find: an input is missing'
 reset_state
-run_script find IMAGE_REPO="$REPO" GITHUB_REPOSITORY='owner/app'
+run_script find IMAGE_REPO="$REPO" GITHUB_REPOSITORY='owner/app' GITHUB_REF='refs/heads/main'
 if [ "$LAST_STATUS" -ne 0 ] && [ ! -s "$STATE/out" ]; then
     pass 'a missing IMAGE_TAG stops the job'
 else

@@ -3,9 +3,10 @@
 #
 #   find  Is this commit's image already in GHCR? Writes `exists=true` (reuse it) or `exists=false`
 #         (build it) to $GITHUB_OUTPUT. The job names an image only after Trivy, signing and the
-#         attestation passed (`name`), so a tag CD wrote is a checked image. A tag whose provenance
-#         does not verify stops the job: one from before ADR-0070 with no provenance (built before
-#         signing began, or whose build failed after the push), or one pushed by hand.
+#         attestation passed (`name`), so a tag CD wrote is a checked image. It is reused only when
+#         this repo's cd.yml built it from this run's own ref ($GITHUB_REF). Any other existing tag
+#         stops the job: one built from another ref, workflow or repo, one from before ADR-0070 with
+#         no provenance, or one pushed by hand.
 #   name  Adds the tags to the checked digest, as the job's last step. It never moves an existing
 #         tag to another digest, except `latest`, and reads the other tags back afterwards.
 #
@@ -13,7 +14,8 @@
 # stops the job: a token refused for a moment may still write, and a write could move a tag.
 #
 # Input (env): IMAGE_REPO (ghcr.io/<owner>/<image>). find: IMAGE_TAG (sha-<short>),
-# GITHUB_REPOSITORY, GITHUB_OUTPUT. name: DIGEST (sha256:…) and TAGS (full refs, one per line).
+# GITHUB_REPOSITORY, GITHUB_REF, GITHUB_OUTPUT. name: DIGEST (sha256:…) and TAGS (full refs, one
+# per line).
 # `docker` and `gh` come from PATH, so the tests replace both. Exit 0 = decided, 1 = stop the job.
 #
 # CI-only (Linux runners), like resolve-prod-baseline.sh, so no .ps1 twin.
@@ -39,11 +41,12 @@ is_digest() {
 }
 
 # Prints the digest $1 names and returns 0. Returns 3 when the registry says the tag is not found,
-# and 1 on any other answer.
+# and 1 on any other answer. Some buildx versions print the whole manifest view for a bare
+# `{{.Manifest.Digest}}`, so the format goes through printf.
 digest_of() {
     local ref="$1" error_file printed
     error_file="$(mktemp)"
-    if printed="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}' 2>"$error_file")"; then
+    if printed="$(docker buildx imagetools inspect "$ref" --format '{{printf "%s" .Manifest.Digest}}' 2>"$error_file")"; then
         rm -f "$error_file"
         if is_digest "$printed"; then
             printf '%s\n' "$printed"
@@ -63,17 +66,22 @@ digest_of() {
 }
 
 find_image() {
-    require IMAGE_REPO IMAGE_TAG GITHUB_REPOSITORY GITHUB_OUTPUT
+    require IMAGE_REPO IMAGE_TAG GITHUB_REPOSITORY GITHUB_REF GITHUB_OUTPUT
     local ref="${IMAGE_REPO}:${IMAGE_TAG}" found status=0
     found="$(digest_of "$ref")" || status=$?
     case "$status" in
         0)
-            if gh attestation verify "oci://${IMAGE_REPO}@${found}" --repo "$GITHUB_REPOSITORY" >&2; then
+            if gh attestation verify "oci://${IMAGE_REPO}@${found}" --repo "$GITHUB_REPOSITORY" \
+                --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/cd.yml" \
+                --source-ref "$GITHUB_REF" >&2; then
                 printf 'exists=true\n' >> "$GITHUB_OUTPUT"
                 log "::notice::${ref} was built before (${found}). Nothing is built or pushed; the deploy uses that image."
                 return 0
             fi
-            log "::error::${ref} exists, but its build provenance did not verify. If the check failed for a moment, re-run the job. A tag from before ADR-0070 or one pushed by hand stays: CD never builds over a tag. See the runbook, 'An image that failed its checks'."
+            log "::error::${ref} exists, but gh did not confirm that cd.yml in ${GITHUB_REPOSITORY} built it from ${GITHUB_REF}. The gh output above says why. CD never builds over an existing tag."
+            log "If gh could not reach GitHub, re-run the job."
+            log "If the image was built from another ref or has no provenance: on a run from main, delete that image version or merge a new commit; on a run from another ref, run CD from the ref that built the image (from main, with image_tag, when main built it)."
+            log "See the runbook, 'An image that failed its checks'."
             return 1
             ;;
         3)

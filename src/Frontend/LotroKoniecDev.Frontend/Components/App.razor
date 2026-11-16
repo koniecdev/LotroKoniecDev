@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="@Assets["layout.css"]"/>
     @* No import-map component (#670): it emits an inline script, which our CSP blocks, and a Static SSR
        app never resolves a module specifier. Bring it back only with a CSP nonce. *@
-    <link rel="icon" href="data:,"/>
+    <link rel="icon" href="@Assets["favicon.ico"]"/>
     <HeadOutlet/>
 </head>
 

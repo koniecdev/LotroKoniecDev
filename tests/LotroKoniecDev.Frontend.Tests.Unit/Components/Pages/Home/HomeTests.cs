@@ -140,6 +140,23 @@ public sealed class HomeTests : BunitContext
         discordLink.TextContent.ShouldBe("Discord „LOTRO po polsku”");
     }
 
+    [Fact]
+    public void Render_TranslatorsSection_LinksTheDiscordBannerInANewTab()
+    {
+        AddAuthorization().SetNotAuthorized();
+        StubProgress(ApiResult.Success(new PublicProgressResponse(0, 0, 0, null)));
+
+        IRenderedComponent<HomeComponent> component = RenderHome();
+
+        IElement bannerLink = component.Find("#dla-tlumaczy a.home-banner");
+        bannerLink.GetAttribute("href").ShouldBe("https://discord.gg/sncXwa64Ex");
+        bannerLink.GetAttribute("target").ShouldBe("_blank");
+        bannerLink.GetAttribute("rel").ShouldBe("noopener");
+        IElement banner = bannerLink.QuerySelector("img").ShouldNotBeNull();
+        banner.GetAttribute("src").ShouldBe("discord-banner.webp");
+        banner.GetAttribute("alt").ShouldBe("Tłumacz LOTRO razem z nami. Dołącz do Discorda!");
+    }
+
     private void StubProgress(ApiResult<PublicProgressResponse> result) =>
         _client
             .GetApiResultAsync<PublicProgressResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())

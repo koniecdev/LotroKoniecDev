@@ -153,20 +153,9 @@ code {
 }
 
 .brand-mark {
-    width: 34px;
     height: 34px;
-    border-radius: 9px;
-    background: linear-gradient(160deg, var(--accent), var(--accent-dim));
-    color: var(--accent-ink);
-    display: grid;
-    place-items: center;
-    box-shadow: 0 0 0 1px oklch(0.60 0.07 84 / 0.5) inset;
-    font-weight: 800;
-}
-
-.brand-mark svg {
-    width: 22px;
-    height: 22px;
+    width: auto;
+    flex: none;
 }
 
 .brand-accent {
@@ -811,6 +800,19 @@ code {
 
 .risk-note a:hover {
     color: var(--accent-hi);
+}
+
+.home-banner {
+    display: block;
+    margin-top: 18px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.home-banner img {
+    display: block;
+    width: 100%;
+    height: auto;
 }
 
 .home-tech {
@@ -1611,6 +1613,10 @@ code {
     margin-right: auto !important;
     max-width: 720px;
     line-height: 1.6;
+}
+
+.foot-credit {
+    margin-top: 10px !important;
 }
 
 /* ───────── Cookie consent bar ───────── */

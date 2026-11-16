@@ -83,8 +83,8 @@ still overturn a claim about the client.
 | `[v]` | 12,061 | | `[vs]` | 553 | | `[nm]` | 135 |
 | | | | | | | `[np]` | 107 |
 
-- **The long tail:** 65 more tokens with 1 to 50 rows each, 637 rows in all. Most are the same letters in another
-  order or case (`[mps]`, `[fps]`, `[vsp]`, `[mvn]`, `[psn]`…). The rest:
+- **The long tail:** 65 more tokens with 1 to 50 rows each, 637 rows in all. Most are the same
+  letters in another order or case (`[mps]`, `[fps]`, `[vsp]`, `[mvn]`, `[psn]`…). The rest:
   - Race and class codes: `[L]`, `[O]` 9 each, `[U]` 7, `[D]`, `[B]` 6 each, and `[K]`, `[G]`,
     `[W]`, `[R]`, `[H]`, `[C]`, `[I]`, `[T]` 3 each (section 2).
   - Upper-case forms of the flags: `[P]` 16, `[V]` 9, `[Ps]` 8, `[MN]` 6, `[M]` 4, `[FN]` 3,
@@ -110,14 +110,22 @@ The English texts themselves hold small grammar programs. Three pieces of syntax
 - **A label** `#N:` in front of a placeholder names that argument: `#1:<--DO_NOT_TOUCH!-->`.
   3,595 live rows have one; on 240 of them the number is negative (`#-1:`), which seems to stand
   for the player character (UNPROVEN). A label is a name, not a position: the Russian guide tells
-  translators to pick a number that is not in use yet, and negative numbers are no position at all
-  (an inference; the client was not run). Which value fills which placeholder is decided elsewhere,
-  by the row's `args_order` column (section 4).
+  translators to pick a number that is not in use yet, and in its second example the first
+  placeholder gets `#2:` while the second keeps `#1:`; negative numbers are no position at all
+  either (an inference; the client was not run). Which value fills which placeholder is decided
+  elsewhere, by the row's `args_order` column (section 4).
 - **A choice** `#N:{a[x]|b[y]|c}` prints `a` when argument N carries flag `x`, `b` when it carries
-  `y`, and `c` (the branch with no mark) otherwise. 3,556 live rows have a labelled choice (`#N:` or
-  `#-N:`), and 186 more have a `{…|…}` choice with no label: 33 of them follow a placeholder
-  directly (`<--DO_NOT_TOUCH!--> {coins|coin[1]}`), and most others are in sentences like "Would you
-  like to join `{him[m] | her[f]}`?". Which argument an unlabelled choice reads is UNPROVEN.
+  `y`, and `c` (the branch with no mark) otherwise. A choice may have one branch only:
+  `#1:{the[!n]}` prints "the" or nothing. 3,762 live rows have a choice with a flag in it:
+  - 3,556 have a labelled choice (`#N:` or `#-N:`). 3,047 of these hold the title spacer
+    `#N:{ [E]}` (section 5).
+  - 186 have a `{…|…}` choice with no label: 33 of them follow a placeholder directly
+    (`<--DO_NOT_TOUCH!--> {coins|coin[1]}`), and most others are in sentences like "Would you like
+    to join `{him[m] | her[f]}`?".
+  - 20 have a one-branch choice with no label (`{the[!n]}`).
+
+  By shape: 689 rows have a choice with two or more branches, 3,073 only one-branch choices. Which
+  argument an unlabelled choice reads is UNPROVEN.
 - **Inside the brackets of a branch:** `!x` means "not x" (`#1:{the[!n]}`), `[1]` means the number
   is one (`#1:{second[1]|seconds}`), and a list means any of these (`[U,D,L]`).
 
@@ -135,17 +143,24 @@ Common choices in our English rows (short fragments only):
 | `#1:{None\|…[G]\|…[C]\|…[H]\|…}` | a text chosen by a class code, probably the player's |
 | `#1:{ [E]}`, `#4:{ [!b]}` | a space printed only when the value has `E` / is not `b` (UNPROVEN what `E` and `b` are) |
 
-Flags that the choices select on (bracket tokens inside `{…}`, counted per occurrence): `f` 509,
-`m` 299, `E` 164, `1` 146, `O` 45, `L` 44, `D` 35, `!b` 23, `p` 17, `U` 16, the class codes about
-15 each, `s` 14, `!n` 14, `v` 3, `n` 3. `e` never appears inside a choice.
+Flags that the choices select on (bracket tokens inside `{…}`, counted per occurrence): `E` 6,039
+(almost all of them the title spacer), `f` 509, `m` 299, `1` 149, `!n` 142, `O` 45, `L` 44, `!b` 38,
+`D` 35, `p` 17, `U` 16, the class codes about 15 each, `s` 14, `v` 3, `n` 3. `e` never appears
+inside a choice.
 
-**One English developer test text lists combinations** (FileId 620757433, GossipId 172674726):
-`<--DO_NOT_TOUCH!--> is {a man[mp]|a woman[fp]|a thing[i]|a male thing[m]|a female thing[f]|a man whose name ends in s[mps]|…[fv]|…[fpv]}`.
-It confirms `m`, `f`, `s` and `v`. But it uses `p` for "a person" (`[mp]` "a man", `[m]` "a male
-thing") and `i` for "a thing", while every other choice uses `p` for plural. So `p` may have had a
-second meaning in older texts. It also shows branches with several letters, so how the client
-matches a value like `[mps]` against `[mp]` and `[mps]` (the first branch that fits, or the exact
-set) is UNPROVEN.
+One more brace token is not a choice: `{keepspaces}` stands in 37 live rows, 16 of them with no
+argument. It looks like a directive to the client; what it does is UNPROVEN.
+
+**What looks like an English developer test text lists combinations** (FileId 620757433,
+GossipId 172674726): `…<--DO_NOT_TOUCH!--> is {…[mp]|…[fp]|…[i]|…[m]|…[f]|…[mps]|…[fv]|…[fpv]}`,
+where the branches say "a man" (`[mp]`), "a woman" (`[fp]`), "a thing" (`[i]`), "a male thing"
+(`[m]`), "a female thing" (`[f]`), "a man whose name ends in s" (`[mps]`), and two branches for
+names that begin with a vowel (`[fv]`, `[fpv]`). It confirms `m`, `f`, `s` and `v`. But it uses `p`
+for "a person" and `i` for "a thing", while every other choice uses `p` for plural, so `p` may have
+had a second meaning in older texts. It also shows branches with several letters. How the client
+matches a value like `[mps]` against them is UNPROVEN: the first branch that fits, the exact set,
+or the most specific branch. A hint: its specific branches come after the general ones (`[mps]`
+after `[mp]` and `[m]`), which would never be reached under "the first branch that fits".
 
 **LOTRO Companion models the client the same way** (STRONG THIRD-PARTY EVIDENCE). Its renderer
 fills the player name as `name[m]` or `name[f]`, and the race and class as `name[tag]`, before it
@@ -206,22 +221,21 @@ labels with marks and `fr/factions.xml` has 13.
   screenshot, Companion's `RenderingUtils`).
 - **The client reads the mark of a translated value (`Krasnolud[D]`, `Włamywacz [G]`): UNPROVEN.**
   If it reads the mark from the patched text, a dropped `[D]` probably sends a dwarf player to the
-  default branch of `#-1:{Skógi[D]|Eilian}`. If it reads it from elsewhere, the mark on the value does not
-  matter. The Russian rule keeps every mark, so their practice cannot tell. Live-test item b.
+  default branch of `#-1:{Skógi[D]|Eilian}`. If it reads it from elsewhere, the mark on the value
+  does not matter. The Russian rule keeps every mark, so their practice cannot tell. Live-test item b.
 - **A choice in a text with no argument: UNPROVEN, and probably not.** In our English rows all
-  3,556 labelled choices and all 186 unlabelled ones sit in rows that have arguments
-  (`"ArgsOrder"` is NULL on none of them; the export writes NULL exactly when a fragment has no
-  argument, `ExportTextsQueryHandler.cs:82-93`). The official German and French texts sometimes
-  add a gender choice where English has none: key `620879993:74285333` is "Friend" in English,
+  3,762 rows with a choice have arguments (`"ArgsOrder"` is NULL on none of them; the export
+  writes NULL exactly when a fragment has no argument, `ExportTextsQueryHandler.cs:82-93`). The
+  official German and French texts sometimes add a gender choice where English has none: key `620879993:74285333` is "Friend" in English,
   `${PLAYERNAME:Freund[m]|Freundin[f]}` in German and `${PLAYERNAME:Ami[m]|Amie[f]}` in French
   (`lotro-data` `lore/labels/{en,de,fr}/factions.xml`). An official French label also carries a
   French mark on a value: key `1879330539` is `Cavaliers du Rohan[mp]` (probably masculine plural),
-  where the English label, "Riders of Rohan", has none. That is a hint, for live-test item h, that a localisation may give
-  a value its own flags. Companion shows a DAT argument as
-  `${VAR}` ([lotro-companion-data-model.md](lotro-companion-data-model.md)), so the German DAT
-  probably has an argument there. **Our pipeline cannot add an argument**: it writes only the
-  pieces, and the argument references come from the English fragment (`Fragment.cs:17-21`). Live-test
-  item e.
+  where the English label, "Riders of Rohan", has none. That is a hint, for live-test item h, that
+  a localisation may give a value its own flags. Companion shows a DAT argument as `${VAR}`
+  ([lotro-companion-data-model.md](lotro-companion-data-model.md)), so the German DAT probably has
+  an argument there. **Our pipeline cannot add an argument**: it writes only the pieces, and the
+  argument references come from the English fragment (`Fragment.cs:17-21`). Live-test item e. The
+  `{keepspaces}` rows with no argument (section 2) are a second lead for it.
 - **`${VAR:…}` is Companion's way to show a text, never text to type.** The client syntax is
   `#N:{…}` after a labelled placeholder.
 
@@ -244,8 +258,13 @@ labels with marks and `fr/factions.xml` has 13.
 (README "Translation file format"; `PatchingService.cs:271-278`, `Fragment.TryReorderArgRefs`).
 Moving a labelled placeholder inside the text moves only its label. A TMS translator cannot change
 `args_order`: the save request carries only the Polish text (`UpsertTranslationRequest.cs:6-9`), and
-the file export writes the English `ArgsOrder` stored at import (`PrecomputedTranslationFileProjector.cs:77`).
-No page in this knowledge base shows the client honouring a changed `args_order` in game.
+the file export writes the English `ArgsOrder` stored at import
+(`PrecomputedTranslationFileProjector.cs:77`). The wiki already records this gap as a wiki ↔ product
+disagreement for the owner (`Import-eksportu-z-gry-(exported.txt)`, section "Kolumna 4 —
+`args_order`", note of 26.08.2026). The patcher also reorders from the order the fragment holds
+**now**, not from the English order, so patching the same reordered row a second time moves the
+arguments again (`2-1` twice gives the English order back; #1409, open). No page in this knowledge
+base shows the client honouring a changed `args_order` in game.
 
 **The mark is part of the text's identity** (PROVEN):
 
@@ -290,23 +309,26 @@ Measured against these definitions:
   (3 rows) holds a `#-1:` label and 2 groups (8 rows) hold a `[1]`.
 
 **Recommendation** (for the product tickets after the owner's ruling): one shared definition of a
-mark in the TMS Domain for #1369, #378 and #1423, so three tickets do not write three patterns:
+mark in the TMS for #1369, #378 and #1423, so three tickets do not write three patterns:
 "a bracket token of letters at the end of the text, with an optional space before it" (question 3
 in section 8). #1421 keeps its own "one to three letters anywhere", because what it misses only
 leaves a row visible. The definition stays in the TMS: the patcher shares no code with it and needs
-no mark logic. The Frontend may reach only the Contracts project (architecture test), so an editor
-warning that uses the definition has to get its answer from the API.
+no mark logic. The Frontend cannot reference the TMS Domain, but it does see the Contracts and
+`TranslationSystem.Primitives` (`BoundedContextIsolationTests`); the editor already reads
+`DatFormatConstants` from there. Where the definition lives is for the product ticket.
 
 ## 5. Composed names
 
-- **Player titles are composed in a text we translate** (PROVEN). For example, FileId 620761098
-  holds a title like `#1:<--DO_NOT_TOUCH!-->#1:{ [E]}#2:<--DO_NOT_TOUCH!-->#3:{ [E]}#3:<--DO_NOT_TOUCH!-->, Apprentice Scholar`,
+- **Player titles are composed in a text we translate** (PROVEN). 3,047 live rows hold the title
+  spacer `#N:{ [E]}`; the ones we looked at are player titles, one per file. For example, FileId
+  620761098 holds a title like `#1:<--DO_NOT_TOUCH!-->#1:{ [E]}#2:<--DO_NOT_TOUCH!-->#3:{ [E]}#3:<--DO_NOT_TOUCH!-->, Apprentice Scholar`,
   and FileId 620775362 holds `… #3:<--DO_NOT_TOUCH!--> of Dale`. A translator can change every
   word around the parts ("Uczeń Uczonego" instead of "Apprentice Scholar", a different place for
   the comma). The order of the parts is the row's `args_order` (section 4), which the TMS does not
   let a translator change today. Whether the client honours a changed `args_order` on such a row is
   UNPROVEN (live-test item c). If Polish needs another order, "a translator can set the argument
-  order" is a product-ticket candidate.
+  order" is a product-ticket candidate. It depends on #1409 (a second patch of a reordered row
+  undoes the order), and the wiki already leaves this choice to the owner (section 4).
 - **Race and sub-race names are separate texts.** The race list (FileId 620756996) has
   `Stout-axe[D]` (GossipId 49821557) next to `Dwarf[D]` (3358501). "Stout-axe Dwarf" is a text of
   its own (621025278:228870261), and so is "Get the Stout-axe Dwarf Race" (191177136). No English
@@ -329,11 +351,12 @@ the `dat-format-expert` agent. Record what the game shows, with screenshots.
 - **b. Drop and change a race mark.** On `Krasnolud[D]`: first drop the mark, then write `[x]`.
   Each time, open a text that chooses by race (`#-1:{…[D]|…}`, for example a crafting or starter
   quest objective) with a dwarf character. Does the dwarf branch still show?
-- **c. Word order.** Two separate hand-made rows of a player title, so the two results can be told
-  apart: (1) the same text with the pieces moved and `args_order` set to match (for example
-  `1-3-2`); (2) only the labelled placeholders moved (`#3:` before `#2:`), `args_order` unchanged.
-  Look at the title in game each time. Then find any screen that shows "Stout-axe" next to "Dwarf",
-  and try the Polish order there.
+- **c. Word order.** Two hand-made rows on two different player titles, so the two results can be
+  told apart: (1) one title with the pieces moved and `args_order` set to match (for example
+  `1-3-2`); (2) another title with only the labelled placeholders moved (`#3:` before `#2:`),
+  `args_order` unchanged. Patch each row exactly once, on a DAT restored from the backup, because a
+  second patch undoes a reorder (#1409); write the patch count next to each screenshot. Then find
+  any screen that shows "Stout-axe" next to "Dwarf", and try the Polish order there.
 - **d. `ArgStrings`.** A read-only scan of the English DAT: count the fragments with non-empty
   `ArgStrings`, show what they hold, and list a few that contain marks.
 - **e. A choice with no argument.** Add `#1:{…[m]|…[f]}` to a text whose English fragment has no
@@ -347,8 +370,10 @@ the `dat-format-expert` agent. Record what the game shows, with screenshots.
   female item name) and check that a Polish choice `{…[m]|…[f]|…}` follows it. This decides
   between options A and B below.
 - **i. Branches with several letters.** Give one value `[mn]` and another `[m]`, and show both in a
-  choice `{a[mn]|b[m]|c}` and in `{b[m]|a[mn]|c}`. This shows whether the client takes the first
-  branch that fits or the exact set (the developer test text in section 2).
+  choice `{a[mn]|b[m]|c}` and in `{b[m]|a[mn]|c}`. Then show a value marked `[mn]` in `{b[m]|c}`.
+  Together they show whether the client takes the first branch that fits, the exact set, or the
+  most specific branch (the developer test text in section 2). The last probe is also the case a
+  Polish gender choice on an NPC name (`[mn]`, `[fn]`) depends on.
 
 ## 7. Proposed translator rule (a proposal, not a ruling)
 
@@ -365,7 +390,8 @@ the `dat-format-expert` agent. Record what the game shows, with screenshots.
 > 3. Formy zależnej od płci postaci nie dodawaj sam, dopóki nie sprawdzimy jej w grze.
 
 Open in this proposal: what to do with a choice that has no Polish words, like the English article
-`#1:{ [n]| [p]| an[v]| a}`. The owner rules on it in #1433.
+`#1:{ [n]| [p]| an[v]| a}`, and with the `{keepspaces}` directive, which is not a choice and has no
+words to translate. The owner rules on both in #1433.
 
 **End state, after live-test item h.** Two options, side by side; neither leads yet:
 
@@ -384,7 +410,7 @@ Open in this proposal: what to do with a choice that has no Polish words, like t
 Either way, the editor warning the ticket names (a mark dropped or changed) is cheap and in the
 style of the placeholder check. It belongs to the product tickets after the ruling, because what
 counts as "changed" depends on the option. The same goes for letting a translator set the argument
-order (section 5).
+order (section 5), which also needs #1409 fixed first.
 
 ## 8. Open questions for the owner
 
@@ -415,7 +441,8 @@ These go into #1433, each with a recommended answer:
     `removeMarks`).
   - `lotro-tools`: `src/main/java/delta/games/lotro/tools/extraction/utils/i18n/DefaultStringProcessor.java`,
     `src/main/java/delta/games/lotro/tools/extraction/characters/RaceDataLoader.java`,
-    `MainDatFactionsLoader.java`, `I18nUtils.java`.
+    `src/main/java/delta/games/lotro/tools/extraction/factions/MainDatFactionsLoader.java`,
+    `src/main/java/delta/games/lotro/tools/extraction/utils/i18n/I18nUtils.java`.
   - `lotro-data`: `lore/labels/{en,de,fr,ru}/races.xml`, `lore/labels/{en,de,fr}/factions.xml`,
     `lore/labels/en/titles.xml`, `lore/races.xml`.
 - [russian-project.md](russian-project.md), [lotro-companion-data-model.md](lotro-companion-data-model.md),

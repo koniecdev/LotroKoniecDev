@@ -263,9 +263,8 @@ the restore and puts it back afterwards:
   auth schema, which §2 guarantees.
 - When an auth migration is to blame, or that is not clear, it keeps the rewound auth database and
   copies back, from an export taken just before the restore, every account whose deletion date or
-  security stamp moved.
-  Accounts erased after the restore point are erased again, and every session ends, before auth-api
-  serves.
+  security stamp moved, and it ends every session. Accounts erased after the restore point are
+  erased again by auth-api's finalizer when it starts, and tms-api waits until that is done.
 - On both paths every erasure message goes to the translation system again, because its database
   was rewound too.
 

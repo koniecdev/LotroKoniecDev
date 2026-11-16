@@ -1408,7 +1408,8 @@ with the last three writes of the block below (the `UPDATE` of `OutboxMessages` 
 `DELETE`s), then run the due-list block after it: it also deletes the step-2 files.
 
 When the step-2 files are lost, the `pre-restore-*` branch still holds auth as it was at step 2:
-give it a compute in the Neon console and take the dump and the export from its direct host.
+give it a compute in the Neon console and take the dump and the export from its direct host. Use a
+variable of its own for that host: `AUTH` must still name the restored branch in step 4.
 
 First set the dry run:
 
@@ -1422,7 +1423,7 @@ block again. **The second run must end with `COMMIT`.** When it ends with `ROLLB
 copied back: do not go on.
 
 ```bash
-{ cat <<'SQL'
+[ -s users-before.tsv ] && { cat <<'SQL'
 BEGIN;
 CREATE TEMP TABLE before_restore AS SELECT "Id", "Email", "NormalizedEmail", "EmailConfirmed", "PasswordHash", "SecurityStamp", "LockoutEnabled", "LockoutEnd", "AccessFailedCount", "DeletionScheduledAt", "EmailChangeRevertStamp", "EmailChangeRevertTo", "NormalizedEmailChangeRevertTo", "EmailChangeRevertArmedAt" FROM authsystem."Users" WITH NO DATA;
 \copy before_restore FROM STDIN
@@ -1470,6 +1471,9 @@ SQL
 } | psql_in "$AUTH"
 ```
 
+- When the block prints nothing at all, `users-before.tsv` is empty or missing: the export failed,
+  so treat it as damaged (above). `COPY <n>` must equal the account count in the first line of
+  `auth-before.check`.
 - The list marks each account `copy back` or `erase again`, with its deletion date in the restored
   database and before the restore. Read it before the `COMMIT` run.
 - `NOT IN THE RESTORED DATABASE` marks an account registered after the restore point, with its
@@ -1518,12 +1522,16 @@ Then tms-api, on both paths:
 TMS_STARTED=$(date -u +%FT%TZ); dc start tms-api
 psql_in "$AUTH" -At -c "SELECT count(*) FROM authsystem.\"OutboxMessages\" WHERE \"Type\" = 'AccountErased' AND \"ProcessedOn\" IS NULL"
 dc logs --no-log-prefix --since "$TMS_STARTED" tms-api | grep -cF '"@mt":"Erased the translator profile of user'
-rm -f due-ids.txt; unset PGPASSWORD
 ```
 
-The first count reaches 0 within a minute or two. The second reaches the `UPDATE` count of the
-outbox reset in step 4, plus the due list on the rewind path. Until then, an erased name can still
-show in the translation system: for seconds, not longer.
+Run the two counts again until they settle. The first reaches 0 within a minute or two. The second
+reaches the `UPDATE` count of the outbox reset in step 4, plus the due list on the rewind path.
+Until then, an erased name can still show in the translation system: for seconds, not longer. Then
+clean up:
+
+```bash
+rm -f due-ids.txt; unset PGPASSWORD
+```
 
 **6. Verify.** Run the [Verifying](#verifying) queries: the bad migration's row must be **gone** from
 that context's `__EFMigrationsHistory` (the restore rewinds schema, data and history together). On
@@ -2021,7 +2029,7 @@ and that procedure puts auth back as it was just before the restore.
    ```
 
    The erasure then reaches the translation system as usual
-   ([The account events parking lot](#the-account-events-parking-lot-tmsaccount-erased-dlq)).
+   ([The account events parking lot](#the-account-events-parking-lot-tmsaccount-eraseddlq)).
    `UPDATE 0` means one of two things. The account was created after the dump: nothing of it came
    back, so there is nothing to erase. Or its address changed after the dump: Brevo's log has a mail
    to the earlier address from the same days (the e-mail change mails); use that address. The old
@@ -2086,7 +2094,11 @@ and that procedure puts auth back as it was just before the restore.
    cd /opt/lotro && export DOCKER_CONFIG=/nonexistent
    STARTED=$(date -u +%FT%TZ)
    docker compose -f compose.hetzner.yaml --env-file .env up -d --no-deps --force-recreate auth-api
-   # wait for the due list, as in PITR step 5
+   ```
+
+   Wait for the due list, as in PITR step 5. Only then:
+
+   ```bash
    docker compose -f compose.hetzner.yaml --env-file .env up -d --no-deps --force-recreate tms-api
    ```
 6. Point the `production` environment's `NEON_PROJECT_ID` variable and `NEON_API_KEY` secret at the

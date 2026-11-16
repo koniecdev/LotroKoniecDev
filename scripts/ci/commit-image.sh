@@ -10,8 +10,10 @@
 #   name  Adds the tags to the checked digest, as the job's last step. It never moves an existing
 #         tag to another digest, except `latest`, and reads the other tags back afterwards.
 #
-# Only the registry's "not found" means a tag is missing. Any other failed read, a refusal included,
-# stops the job: a token refused for a moment may still write, and a write could move a tag.
+# Only the registry's "not found" for the tag itself means a tag is missing. Any other failed read
+# stops the job: a refusal (a token refused for a moment may still write, and a write could move a
+# tag), and a missing child manifest of an existing image index, whose error line also ends in
+# ": not found".
 #
 # Input (env): IMAGE_REPO (ghcr.io/<owner>/<image>). find: IMAGE_TAG (sha-<short>),
 # GITHUB_REPOSITORY, GITHUB_REF, GITHUB_OUTPUT. name: DIGEST (sha256:…) and TAGS (full refs, one
@@ -55,7 +57,7 @@ digest_of() {
         log "::error::Could not read the digest of ${ref} (got '${printed:-<empty>}')."
         return 1
     fi
-    if grep -q ': not found$' "$error_file"; then
+    if grep -qxF "ERROR: ${ref}: not found" "$error_file"; then
         rm -f "$error_file"
         return 3
     fi

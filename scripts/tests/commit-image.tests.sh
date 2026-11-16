@@ -14,8 +14,10 @@
 #   2. The workflow shape. No workflow starts on a tag, a release or a created ref. In cd.yml's
 #      build-and-push job, no step before the lookup writes to the registry, every later step runs
 #      only when it found nothing, the build pushes no tag, and naming the image is the last step,
-#      after the Trivy scan, cosign signing and the attestation. A broken copy of the workflows for
-#      each check proves that it still fires.
+#      after the Trivy scan, cosign signing and the attestation. No step and not the job may go on
+#      after an error, and the job has a concurrency group per commit and image, so two runs of one
+#      commit never name it at once. A broken copy of the workflows for each check proves that it
+#      still fires.
 #
 # The YAML reader understands the block style the workflows use: two-space indent, one key per
 # line. Directly under `on:`, a form it cannot follow (`on:` written inline, a list, an odd indent,
@@ -75,6 +77,10 @@ fi
 case "${3-}" in
     inspect)
         ref="$4"
+        if [ -n "${STUB_INSPECT_ERROR_AFTER_CREATE:-}" ] && [ -f "$STUB_STATE/created" ]; then
+            printf '%s\n' "$STUB_INSPECT_ERROR_AFTER_CREATE" >&2
+            exit 1
+        fi
         if [ -n "${STUB_INSPECT_ERROR:-}" ]; then
             printf '%s\n' "$STUB_INSPECT_ERROR" >&2
             exit 1
@@ -103,6 +109,10 @@ case "${3-}" in
         exit 1
         ;;
     create)
+        if [ -n "${STUB_CREATE_ERROR:-}" ]; then
+            printf '%s\n' "$STUB_CREATE_ERROR" >&2
+            exit 1
+        fi
         shift 3
         tags=()
         while [ "$#" -gt 1 ]; do
@@ -116,6 +126,7 @@ case "${3-}" in
         for tag in "${tags[@]}"; do
             printf '%s\n' "$digest" > "$(tag_file "$tag")"
         done
+        : > "$STUB_STATE/created"
         # Another commit's run moving `latest` right after this one wrote it.
         if [ -n "${STUB_LATEST_AFTER_CREATE:-}" ]; then
             printf '%s\n' "$STUB_LATEST_AFTER_CREATE" > "$(tag_file "${1%@*}:latest")"
@@ -266,7 +277,8 @@ for answer in \
     'ERROR: denied: requested access to the resource is denied' \
     'ERROR: unexpected status from HEAD request to https://ghcr.io/v2/owner/app/manifests/sha-abc1234: 503 Service Unavailable' \
     'ERROR: dial tcp: lookup ghcr.io on 127.0.0.53:53: no such host' \
-    'ERROR: context deadline exceeded'; do
+    'ERROR: context deadline exceeded' \
+    'ERROR: failed to copy: httpReadSeeker: failed open: content at https://ghcr.io/v2/owner/app/manifests/sha256:3333333333333333333333333333333333333333333333333333333333333333 not found: not found'; do
     CASE="find: no clear answer (${answer: -24})"
     reset_state
     run_find STUB_INSPECT_ERROR="$answer"
@@ -328,6 +340,17 @@ else
     fail "expected a stop with no retag, got exit $LAST_STATUS"
 fi
 
+# The tag exists, but a child of its image index is gone. That error also ends in ": not found".
+CASE='name: a child of the tagged index is gone'
+reset_state
+has_tag "$REPO:sha-abc1234" "$D2"
+run_name TAGS='ghcr.io/owner/app:sha-abc1234' STUB_INSPECT_ERROR='ERROR: failed to copy: httpReadSeeker: failed open: content at https://ghcr.io/v2/owner/app/manifests/sha256:3333333333333333333333333333333333333333333333333333333333333333 not found: not found'
+if [ "$LAST_STATUS" -ne 0 ] && ! created && [ "$(tag_names "$REPO:sha-abc1234")" = "$D2" ]; then
+    pass 'a missing child manifest is not a missing tag, so no tag is written'
+else
+    fail "expected a stop with no retag, got exit $LAST_STATUS"
+fi
+
 CASE='name: the tag already names this digest'
 reset_state
 has_tag "$REPO:sha-abc1234" "$D1"
@@ -365,6 +388,25 @@ if [ "$LAST_STATUS" -ne 0 ] && ! created; then
     pass 'an unreadable answer stops the job before any tag is written'
 else
     fail "expected a stop with no retag, got exit $LAST_STATUS"
+fi
+
+CASE='name: the registry refuses the write'
+reset_state
+run_name TAGS=$'ghcr.io/owner/app:sha-abc1234\nghcr.io/owner/app:latest' \
+    STUB_CREATE_ERROR='ERROR: denied: permission_denied: write_package'
+if [ "$LAST_STATUS" -ne 0 ] && [ -z "$(tag_names "$REPO:sha-abc1234")" ]; then
+    pass 'a failed write stops the job'
+else
+    fail "expected a stop with no tag written, got exit $LAST_STATUS"
+fi
+
+CASE='name: the tag cannot be read back'
+reset_state
+run_name TAGS='ghcr.io/owner/app:sha-abc1234' STUB_INSPECT_ERROR_AFTER_CREATE='ERROR: context deadline exceeded'
+if [ "$LAST_STATUS" -ne 0 ] && grep -qF 'After tagging' <<< "$LAST_OUTPUT"; then
+    pass 'a read-back that gets no answer stops the job'
+else
+    fail "expected a stop at the read-back, got exit $LAST_STATUS"
 fi
 
 CASE='name: the retag changes the digest'
@@ -456,7 +498,8 @@ tag_trigger_problems() {
     fi
 }
 
-# Prints every way cd.yml ($1) can build over an existing image or name an unchecked one.
+# Prints the shape problems it knows in cd.yml ($1): ways to build over an existing image or to name
+# an unchecked one.
 build_job_problems() {
     if [ ! -r "$1" ]; then
         echo "${1}: cannot read the file"
@@ -466,6 +509,8 @@ build_job_problems() {
         /^  build-and-push:/ { in_job = 1; next }
         in_job && /^  [^ #]/ { in_job = 0 }
         !in_job { next }
+        /^ *continue-on-error:/ { on_error = 1 }
+        /^      group: / { group = $0 }
         /^      - / { n++; text[n] = ""; id[n] = ""; cond[n] = "" }
         n == 0 { next }
         { text[n] = text[n] "\n" $0 }
@@ -474,6 +519,8 @@ build_job_problems() {
         END {
             lookup = 0
             for (i = 1; i <= n; i++) if (id[i] == "existing") lookup = i
+            if (on_error) print "the job or a step has continue-on-error"
+            if (group !~ /head_sha/ || group !~ /matrix\.image/) print "the job has no concurrency group per commit and image"
             if (!lookup) { print "no lookup step (id: existing)"; exit }
             if (text[lookup] !~ /scripts\/ci\/commit-image\.sh find/) print "the lookup does not run commit-image.sh find"
             build = 0; name = 0; attest = 0; scan = 0; sign = 0
@@ -485,7 +532,7 @@ build_job_problems() {
                 if (text[i] ~ /\n +run: cosign sign /) sign = i
             }
             for (i = 1; i < lookup; i++)
-                if (text[i] ~ /build-push-action@|imagetools create|docker push/) print "step " i " writes to the registry before the lookup"
+                if (text[i] ~ /build-push-action@|imagetools create|docker push|buildx build/) print "step " i " writes to the registry before the lookup"
             for (i = lookup + 1; i <= n; i++)
                 if (cond[i] != "steps.existing.outputs.exists == '\''false'\''") print "step " i " (" id[i] ") runs without the exists == '\''false'\'' guard"
             if (!build) print "no build step (id: build)"
@@ -506,6 +553,17 @@ build_job_problems() {
     ' "$1"
 }
 
+CASE='usage: an unknown mode'
+for mode in '' build; do
+    reset_state
+    run_script "$mode" IMAGE_REPO="$REPO"
+    if [ "$LAST_STATUS" -ne 0 ] && ! created && [ ! -s "$STATE/gh.calls" ]; then
+        pass "refused: mode '${mode}'"
+    else
+        fail "expected a stop for mode '${mode}', got exit $LAST_STATUS"
+    fi
+done
+
 echo
 echo '── workflow shape ─────────────────────────────────────────────────────────────────────────────'
 
@@ -518,7 +576,7 @@ else
 fi
 LAST_OUTPUT="$(build_job_problems "$WORKFLOWS/cd.yml")"
 if [ -z "$LAST_OUTPUT" ]; then
-    pass 'cd.yml looks up first, guards every later step, pushes by digest and names last'
+    pass 'no write before the lookup, every later step guarded, a push by digest, the name last'
 else
     fail 'cd.yml build-and-push has the wrong shape'
 fi
@@ -565,6 +623,7 @@ expect_trigger_problem 'a space before :'   'push: lists tags'            '/^  p
 expect_trigger_problem 'a create trigger'   'starts on create'            '/^on:/a\  create:'
 expect_trigger_problem 'an inline push:'    'push: has an inline value'   's/^  push:.*/  push: {branches: [main]}/'
 expect_trigger_problem 'no on: section'     'has no on: section'          's/^on:/jobs-before:/'
+expect_trigger_problem 'a tags-ignore filter' 'push: lists tags'          '/^  push:/a\    tags-ignore: ["v*"]'
 
 CASE='shape fires: an empty workflow folder'
 rm -rf "$TMP_ROOT/empty"
@@ -595,6 +654,12 @@ expect_build_problem 'no naming step'       'no naming step (id: name)'   's/^  
 expect_build_problem 'a naming step that is not the script' 'the naming step does not run commit-image.sh name' 's#scripts/ci/commit-image.sh name#true#'
 expect_build_problem 'no Trivy scan'        'does not come after the Trivy scan' 's#aquasecurity/trivy-action@#aquasecurity/other-action@#'
 expect_build_problem 'no signing'           'does not come after cosign sign' 's/run: cosign sign /run: cosign verify /'
+expect_build_problem 'an unguarded naming step' 'runs without the exists' '/^        id: name$/{n;/^        if: /d;}'
+expect_build_problem 'a build before lookup' 'writes to the registry before the lookup' '/- name: Look up this commit.s existing image/i\      - name: Early build\n        uses: docker/build-push-action@v7'
+expect_build_problem 'a buildx push before lookup' 'writes to the registry before the lookup' '/- name: Look up this commit.s existing image/i\      - name: Early build\n        run: docker buildx build --push .'
+expect_build_problem 'a scan that may fail' 'has continue-on-error'      '/^      - name: Scan image for vulnerabilities/a\        continue-on-error: true'
+expect_build_problem 'a job that may fail'  'has continue-on-error'      '/^    concurrency:/i\    continue-on-error: true'
+expect_build_problem 'no concurrency group' 'no concurrency group per commit and image' '/^      group: cd-build-/d'
 expect_build_problem 'a step after naming'  'the naming step is not the last step' '/run: \.\/scripts\/ci\/commit-image\.sh name/a\      - name: After\n        if: steps.existing.outputs.exists == '"'"'false'"'"'\n        run: true'
 expect_build_problem 'no attestation'       'does not come after the attestation' 's#actions/attest-build-provenance@#actions/attest-other@#'
 expect_build_problem 'a lookup that builds' 'the lookup does not run commit-image.sh find' 's#scripts/ci/commit-image.sh find#true#'

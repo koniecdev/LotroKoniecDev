@@ -827,9 +827,9 @@ against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://
 1. **Owner:** Hetzner console → create the box (Ubuntu LTS, backups on for prod) with the owner's ssh
    **public key** → note the IP.
 2. **DNS first** (ACME needs it to resolve before certificates can issue): registrar panel → A
-   records for every public hostname → the new IP, TTL 300. The hostnames are in the
-   [env matrix](#environment-variable-matrix): prod trio and the two www names → prod IP, staging
-   trio → staging IP.
+   records for every public hostname → the new IP, TTL 300. The hostnames are the box's `DOMAIN_*`
+   and `TKS_DOMAIN_*` values (see the [env matrix](#environment-variable-matrix)). On prod they
+   include the two www names. A variable left blank needs no record.
 3. **Bootstrap** (idempotent: a re-run changes nothing). It asks nothing, so it needs no `ssh -t`:
 
    ```bash

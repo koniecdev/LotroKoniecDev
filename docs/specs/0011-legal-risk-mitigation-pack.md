@@ -112,7 +112,9 @@ the public repo or platform hands a rightsholder an easy, high-value grievance.
   one sentence + ToS link, e.g. *"Spolszczenie modyfikuje pliki gry — formalnie regulamin LOTRO
   nie przewiduje takich modyfikacji, choć przez ponad dekadę działania analogicznych projektów
   (rosyjskiego i hiszpańskiego) nie odnotowano za nie banów. Korzystasz na własną
-  odpowiedzialność."* (b) CLI: same message as a one-line dimmed notice printed by `patch` and
+  odpowiedzialność."* *(Amendment 2026-11-17, #1457: by the owner's decision the note moved out
+  of the download section and is now the first paragraph of the small text block at the bottom
+  of the home page.)* (b) CLI: same message as a one-line dimmed notice printed by `patch` and
   `launch` (Spectre.Console, no confirmation prompt — do not annoy), plus a `NOTICE` file in
   release artifacts. (c) A note in the M4 epic that the Avalonia app ships the same text in its
   About/first-run.

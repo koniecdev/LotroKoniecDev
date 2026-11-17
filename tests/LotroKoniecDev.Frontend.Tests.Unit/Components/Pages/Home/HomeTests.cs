@@ -127,6 +127,20 @@ public sealed class HomeTests : BunitContext
     }
 
     [Fact]
+    public void Render_Always_OpensTheBottomBlockWithTheRiskNoteAndItsTermsLink()
+    {
+        AddAuthorization().SetNotAuthorized();
+        StubProgress(ApiResult.Success(new PublicProgressResponse(0, 0, 0, null)));
+
+        IRenderedComponent<HomeComponent> component = RenderHome();
+
+        IElement riskNote = component.FindAll(".risk-note").ShouldHaveSingleItem();
+        riskNote.ParentElement.ShouldNotBeNull().ClassList.ShouldContain("home-tech");
+        riskNote.PreviousElementSibling.ShouldBeNull();
+        riskNote.QuerySelector("a[href='/regulamin']").ShouldNotBeNull();
+    }
+
+    [Fact]
     public void Render_WhenProgressUnavailable_StillLinksTheDiscordServer()
     {
         AddAuthorization().SetNotAuthorized();

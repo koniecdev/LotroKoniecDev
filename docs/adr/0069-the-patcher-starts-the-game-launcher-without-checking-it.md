@@ -178,14 +178,16 @@ planted launcher or library.
    file sits in, so this is the same class as the installer's log on #42's list of same-user paths.
    A file the load could not use is moved aside before the next save, to a new random name next to
    it, never over an existing file; the temporary file of a save has a random name too. So nothing
-   can be placed in advance at a name the app writes, apart from `config.json` itself.
+   can be placed in advance at a name the settings code writes, apart from `config.json` itself.
+   The app's log, `LotroPoPolsku.log` (#41), is one more fixed name in that folder, open until #42.
    **Before Patch or Play uses the saved folder, #42 closes this read path (for example, settings
    that an elevated app reads from a folder only administrators can write), or the owner accepts it
    in an amendment to this ADR.**
 5. **The notice.** The main window always shows the LEGAL-12 risk note and the app's own launcher
    notice, in the CLI's order. From #42 on, the app runs as administrator (owner decision 4
-   on #43), so the launcher it starts already has those rights. Its text therefore leaves out the CLI's clause that
-   the launcher asks for admin rights itself. `NOTICE` now describes both programs. So §3's "both
+   on #43), so the launcher it starts already has those rights. Its text therefore leaves out the
+   CLI's clause that the launcher asks for admin rights itself. `NOTICE` now describes both
+   programs. So §3's "both
    are also in the `NOTICE` file" and the Implementation Notes' "the same text in `NOTICE`" no
    longer hold word for word: `NOTICE` carries what both texts say, not either text exactly.
 6. **Proton.** Whether the search finds a Steam install under Proton is unproven. The Steam path is

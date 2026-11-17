@@ -107,6 +107,20 @@ public sealed class NavMenuTests : BunitContext
         ]);
     }
 
+    [Fact]
+    public void Render_Brand_ShowsTheLogoImageInsteadOfTheCircle()
+    {
+        // The site name stands next to the logo, so the image has an empty alt (#1371).
+        AddAuthorization().SetNotAuthorized();
+
+        IRenderedComponent<NavMenu> component = RenderNavMenu();
+
+        IElement logo = component.Find("a.brand img.brand-mark");
+        logo.GetAttribute("src").ShouldBe("logo.png");
+        logo.GetAttribute("alt").ShouldBe(string.Empty);
+        component.FindAll("a.brand svg").ShouldBeEmpty();
+    }
+
     /// <summary>
     /// Through a render fragment, because the typed <c>Render&lt;NavMenu&gt;</c> does not see the
     /// asynchronous <c>AuthorizeView</c> on its first pass.

@@ -198,6 +198,14 @@
     </section>
 </section>
 
+@* The wide strip is too thin to read on a phone, so a phone gets the 2:1 banner in its place. *@
+<a class="home-banner" href="@ExternalLinks.Discord" target="_blank" rel="noopener">
+    <picture>
+        <source media="(min-width: 641px)" srcset="@Assets["discord-strip.webp"]" width="2172" height="158"/>
+        <img src="@Assets["discord-banner.webp"]" alt="Tłumacz LOTRO razem z nami. Dołącz do Discorda!" width="1200" height="600" loading="lazy" decoding="async"/>
+    </picture>
+</a>
+
 @code
 {
     private ApiResult<PublicProgressResponse>? _result;

@@ -528,8 +528,8 @@ try
     // [EnableRateLimiting] or [DisableRateLimiting], so a new page cannot be forgotten (#692).
     app.MapRazorPages().RequireRateLimitingByDefault(authPageRateLimitPolicy);
 
-    // The pages' stylesheets (#833), scripts and self-hosted web fonts (LEGAL-06). It sets its own
-    // Cache-Control, which GlobalNoCacheMiddleware leaves alone.
+    // The pages' stylesheets (#833), scripts, self-hosted web fonts (LEGAL-06), logo and tab icon
+    // (#1371). It sets its own Cache-Control, which GlobalNoCacheMiddleware leaves alone.
     app.MapStaticAssets();
 
     // The seed checks for existing rows first, so it is safe to run twice; some integration tests run it

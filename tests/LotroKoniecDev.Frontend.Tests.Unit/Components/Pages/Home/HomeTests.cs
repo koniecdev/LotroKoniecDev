@@ -140,6 +140,50 @@ public sealed class HomeTests : BunitContext
         discordLink.TextContent.ShouldBe("Discord „LOTRO po polsku”");
     }
 
+    [Fact]
+    public void Render_Page_LinksTheDiscordBannerInANewTab()
+    {
+        AddAuthorization().SetNotAuthorized();
+        StubProgress(ApiResult.Success(new PublicProgressResponse(0, 0, 0, null)));
+
+        IRenderedComponent<HomeComponent> component = RenderHome();
+
+        IElement bannerLink = component.Find("a.home-banner");
+        bannerLink.GetAttribute("href").ShouldBe("https://discord.gg/sncXwa64Ex");
+        bannerLink.GetAttribute("target").ShouldBe("_blank");
+        bannerLink.GetAttribute("rel").ShouldBe("noopener");
+        bannerLink.QuerySelector("img").ShouldNotBeNull()
+            .GetAttribute("alt").ShouldBe("Tłumacz LOTRO razem z nami. Dołącz do Discorda!");
+    }
+
+    [Fact]
+    public void Render_Page_PutsTheBannerAfterTheLastSectionOutsideThePanels()
+    {
+        AddAuthorization().SetNotAuthorized();
+        StubProgress(ApiResult.Success(new PublicProgressResponse(0, 0, 0, null)));
+
+        IRenderedComponent<HomeComponent> component = RenderHome();
+
+        IElement bannerLink = component.Find("a.home-banner");
+        bannerLink.Closest("section").ShouldBeNull();
+        bannerLink.PreviousElementSibling.ShouldNotBeNull().ClassList.ShouldContain("content-wrap");
+    }
+
+    [Fact]
+    public void Render_Page_ShowsTheWideStripFrom641PxAndThePhoneBannerBelow()
+    {
+        AddAuthorization().SetNotAuthorized();
+        StubProgress(ApiResult.Success(new PublicProgressResponse(0, 0, 0, null)));
+
+        IRenderedComponent<HomeComponent> component = RenderHome();
+
+        IElement picture = component.Find("a.home-banner > picture");
+        IElement strip = picture.QuerySelector("source").ShouldNotBeNull();
+        strip.GetAttribute("media").ShouldBe("(min-width: 641px)");
+        strip.GetAttribute("srcset").ShouldBe("discord-strip.webp");
+        picture.QuerySelector("img").ShouldNotBeNull().GetAttribute("src").ShouldBe("discord-banner.webp");
+    }
+
     private void StubProgress(ApiResult<PublicProgressResponse> result) =>
         _client
             .GetApiResultAsync<PublicProgressResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())

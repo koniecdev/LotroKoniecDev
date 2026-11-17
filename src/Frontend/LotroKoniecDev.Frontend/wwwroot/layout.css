@@ -153,20 +153,9 @@ code {
 }
 
 .brand-mark {
-    width: 34px;
     height: 34px;
-    border-radius: 9px;
-    background: linear-gradient(160deg, var(--accent), var(--accent-dim));
-    color: var(--accent-ink);
-    display: grid;
-    place-items: center;
-    box-shadow: 0 0 0 1px oklch(0.60 0.07 84 / 0.5) inset;
-    font-weight: 800;
-}
-
-.brand-mark svg {
-    width: 22px;
-    height: 22px;
+    width: auto;
+    flex: none;
 }
 
 .brand-accent {
@@ -811,6 +800,26 @@ code {
 
 .risk-note a:hover {
     color: var(--accent-hi);
+}
+
+/* On a screen taller than the page, the band stays on top of the footer instead of above a gap. */
+main:has(> .home-banner) {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+/* The strip's edges are pure black, so on a screen wider than the strip the band has no seam. */
+.home-banner {
+    display: block;
+    margin-top: auto;
+    background: oklch(0 0 0);
+}
+
+/* No width rule: the image keeps its own width, and the global max-width shrinks it to the screen. */
+.home-banner img {
+    height: auto;
+    margin: 0 auto;
 }
 
 .home-tech {
@@ -1611,6 +1620,10 @@ code {
     margin-right: auto !important;
     max-width: 720px;
     line-height: 1.6;
+}
+
+.foot-credit {
+    margin-top: 10px !important;
 }
 
 /* ───────── Cookie consent bar ───────── */

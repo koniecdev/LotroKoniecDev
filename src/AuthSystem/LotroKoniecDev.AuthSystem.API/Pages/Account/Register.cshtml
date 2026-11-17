@@ -16,14 +16,12 @@
     <title>Załóż konto — lotro-translator.pl</title>
     <link rel="stylesheet" href="/fonts.css" />
     <link rel="stylesheet" href="/account.css" />
+    <link rel="icon" href="/favicon.ico" />
 </head>
 <body class="page-register">
     <div class="app">
         <div class="auth-top">
-            <a href="@FrontendHome.Url" class="brand">
-                <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="1.1" fill="currentColor"/></svg></span>
-                <span class="brand-text">lotro-<span class="brand-accent">translator</span>.pl</span>
-            </a>
+            <partial name="_Brand" />
             <a href="@loginUrl" class="top-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg><span>Zaloguj się</span></a>
         </div>
 
@@ -171,9 +169,7 @@
             </div>
         </div>
 
-        <footer class="foot">
-            <p>lotro-translator.pl — niekomercyjny projekt społeczności polskich graczy LOTRO</p>
-        </footer>
+        <partial name="_Footer" />
     </div>
 </body>
 </html>

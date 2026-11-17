@@ -83,6 +83,14 @@ public sealed class MainLayoutTests : BunitContext
     }
 
     [Fact]
+    public void Render_Footer_CreditsTheArtistOfTheLogoAndTheBanner()
+    {
+        IRenderedComponent<MainLayout> component = RenderMainLayout();
+
+        component.Find("footer .foot-credit").TextContent.ShouldBe("Logo i grafiki: MoFin");
+    }
+
+    [Fact]
     public void Render_Body_IsRenderedInsideMain()
     {
         IRenderedComponent<MainLayout> component = RenderMainLayout();

@@ -13,4 +13,7 @@ public interface ISettingsFile
 
     /// <summary>Replaces the whole file at once, so a crash halfway never leaves half a file.</summary>
     void Write(string contents);
+
+    /// <summary>Moves the file to <c>config.json.broken</c>, over an older copy. Does nothing when there is no file.</summary>
+    void SetAside();
 }

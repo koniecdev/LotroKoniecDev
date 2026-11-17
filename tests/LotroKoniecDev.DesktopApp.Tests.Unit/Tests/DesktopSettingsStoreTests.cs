@@ -56,6 +56,8 @@ public sealed class DesktopSettingsStoreTests
     }
 
     [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
     [InlineData("{")]
     [InlineData("[]")]
     [InlineData("null")]
@@ -230,6 +232,78 @@ public sealed class DesktopSettingsStoreTests
         // Assert
         saved.ShouldBeFalse();
         _builder.Store.Current.ShouldBe(settings);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Save_AfterALoadThatCouldNotUseTheFile_SetsTheOldFileAsideFirst(bool unreadable)
+    {
+        // Arrange: one typo from a hand edit must not cost the player the rest of their settings.
+        const string broken = "{\"gameFolder\": \"C:\\\\Gry\", \"autoPatch\": nie}";
+        _builder.SettingsFile.Contents = broken;
+        if (unreadable)
+        {
+            _builder.SettingsFile.ReadFailure = new IOException("locked");
+        }
+
+        _builder.Store.Load();
+        _builder.SettingsFile.ReadFailure = null;
+
+        // Act
+        bool saved = _builder.Store.Save(DesktopSettings.Default with { GameFolder = GameFolder });
+
+        // Assert
+        saved.ShouldBeTrue();
+        _builder.SettingsFile.SetAsideContents.ShouldBe(broken);
+        _builder.SettingsFile.Contents.ShouldNotBeNull().ShouldContain("gameFolder");
+    }
+
+    [Fact]
+    public void Save_WhenTheOldFileCannotBeSetAside_LeavesItAndReturnsFalse()
+    {
+        // Arrange
+        _builder.SettingsFile.Contents = "{";
+        _builder.Store.Load();
+        _builder.SettingsFile.SetAsideFailure = new IOException("locked");
+        DesktopSettings settings = DesktopSettings.Default with { GameFolder = GameFolder };
+
+        // Act
+        bool saved = _builder.Store.Save(settings);
+
+        // Assert
+        saved.ShouldBeFalse();
+        _builder.SettingsFile.Contents.ShouldBe("{");
+        _builder.Store.Current.ShouldBe(settings);
+    }
+
+    [Fact]
+    public void Save_ASecondTimeAfterTheOldFileWasSetAside_KeepsTheSetAsideCopy()
+    {
+        // Arrange
+        _builder.SettingsFile.Contents = "{";
+        _builder.Store.Load();
+        _builder.Store.Save(DesktopSettings.Default with { GameFolder = GameFolder });
+
+        // Act
+        _builder.Store.Save(DesktopSettings.Default with { GameFolder = GameFolder, AutoPatchOnLaunch = false });
+
+        // Assert
+        _builder.SettingsFile.SetAsideContents.ShouldBe("{");
+    }
+
+    [Fact]
+    public void Save_AfterAGoodLoad_SetsNothingAside()
+    {
+        // Arrange
+        _builder.SettingsFile.Contents = ViewModelBuilder.SettingsJson(GameFolder);
+        _builder.Store.Load();
+
+        // Act
+        _builder.Store.Save(DesktopSettings.Default with { GameFolder = GameFolder, AutoPatchOnLaunch = false });
+
+        // Assert
+        _builder.SettingsFile.SetAsideContents.ShouldBeNull();
     }
 
     [Fact]

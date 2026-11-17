@@ -44,9 +44,6 @@ internal static class GameFolderTexts
     public static string Lost(string lostFolder) =>
         $"W zapisanym folderze {lostFolder} nie ma już gry. {ChooseByHand}";
 
-    public static string NoGameIn(string folder) =>
-        $"W folderze {folder} nie ma pliku {DatFileConstants.DatFileName}. Wskaż folder gry LOTRO.";
-
     public static string SourceLabel(DatFileSource source) => source switch
     {
         DatFileSource.StandingStoneGames => "domyślny folder Standing Stone Games",

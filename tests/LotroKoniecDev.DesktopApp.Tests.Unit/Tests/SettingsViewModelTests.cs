@@ -81,6 +81,45 @@ public sealed class SettingsViewModelTests
         _builder.Store.Current.ShouldBe(new DesktopSettings(GameFolder, null, true, "https://staging.tms.example.com/"));
     }
 
+    [Theory]
+    [InlineData("\"{0}\"")]
+    [InlineData("  \"{0}\"  ")]
+    [InlineData("\" {0} \"")]
+    public void Save_WithPathsInQuotes_SavesThemWithoutTheQuotes(string format)
+    {
+        // Arrange: Explorer's "Copy as path" puts quotes around the path.
+        _builder.Files.AddGame(GameFolder);
+        _builder.Files.Add(TranslationFile);
+        SettingsViewModel viewModel = Editing(
+            string.Format(System.Globalization.CultureInfo.InvariantCulture, format, GameFolder),
+            string.Format(System.Globalization.CultureInfo.InvariantCulture, format, TranslationFile),
+            autoPatch: true,
+            string.Empty);
+
+        // Act
+        bool saved = viewModel.Save();
+
+        // Assert
+        saved.ShouldBeTrue();
+        _builder.Store.Current.GameFolder.ShouldBe(GameFolder);
+        _builder.Store.Current.TranslationFileOverride.ShouldBe(TranslationFile);
+    }
+
+    [Fact]
+    public void Save_WithOneQuoteOnly_KeepsItAndRefusesThePath()
+    {
+        // Arrange
+        _builder.Files.AddGame(GameFolder);
+        SettingsViewModel viewModel = Editing($"\"{GameFolder}", string.Empty, autoPatch: true, string.Empty);
+
+        // Act
+        bool saved = viewModel.Save();
+
+        // Assert
+        saved.ShouldBeFalse();
+        _builder.SettingsFile.Contents.ShouldBeNull();
+    }
+
     [Fact]
     public void Save_WithNoGameFolder_RefusesAndSaysWhatIsMissing()
     {
@@ -265,6 +304,32 @@ public sealed class SettingsViewModelTests
 
         // Assert
         viewModel.GameFolder.ShouldBe(GameFolder);
+    }
+
+    [Fact]
+    public async Task BrowseGameFolderAsync_WhileADialogIsOpen_DisablesTheButtonsThatWouldOpenAnother()
+    {
+        // Arrange
+        TaskCompletionSource<string?> dialog = new();
+        _builder.Picker.PickGameFolderAsync().Returns(dialog.Task);
+        SettingsViewModel viewModel = _builder.Settings();
+        Task first = viewModel.BrowseGameFolderAsync();
+
+        // Act
+        (bool Folder, bool File, bool Save, bool Cancel) enabled = (
+            viewModel.BrowseGameFolderCommand.CanExecute(null),
+            viewModel.BrowseTranslationFileCommand.CanExecute(null),
+            viewModel.SaveCommand.CanExecute(null),
+            viewModel.CancelCommand.CanExecute(null));
+        await viewModel.BrowseTranslationFileAsync();
+        dialog.SetResult(GameFolder);
+        await first;
+
+        // Assert
+        enabled.ShouldBe((false, false, false, true));
+        await _builder.Picker.DidNotReceive().PickTranslationFileAsync();
+        viewModel.GameFolder.ShouldBe(GameFolder);
+        viewModel.SaveCommand.CanExecute(null).ShouldBeTrue();
     }
 
     [Fact]

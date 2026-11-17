@@ -87,8 +87,8 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     /// <returns><c>true</c> when the settings were saved and the window may close.</returns>
     public bool Save()
     {
-        string folder = GameFolder.Trim();
-        string translationFile = TranslationFile.Trim();
+        string folder = WithoutQuotes(GameFolder);
+        string translationFile = WithoutQuotes(TranslationFile);
         string address = ServerAddress.Trim();
 
         if (!_store.ContainsGame(folder))
@@ -173,6 +173,13 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
         {
             SetPicking(false);
         }
+    }
+
+    /// <summary>Explorer's "Copy as path" puts quotes around the path.</summary>
+    private static string WithoutQuotes(string value)
+    {
+        string trimmed = value.Trim();
+        return trimmed is ['"', .., '"'] ? trimmed[1..^1].Trim() : trimmed;
     }
 
     private void SetPicking(bool isPicking)

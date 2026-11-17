@@ -273,7 +273,7 @@ public sealed class GameFolderViewModelTests
 
         // Assert
         viewModel.IsPanelVisible.ShouldBeTrue();
-        viewModel.PromptText.ShouldBe(GameFolderTexts.NoGameIn(PickedFolder));
+        viewModel.PromptText.ShouldBe(SettingsTexts.NoGameIn(PickedFolder));
         _builder.Store.Current.GameFolder.ShouldBeNull();
         _builder.SettingsFile.Contents.ShouldBeNull();
     }
@@ -352,6 +352,104 @@ public sealed class GameFolderViewModelTests
         viewModel.PromptText.ShouldBe(GameFolderTexts.ChooseByHand);
         _builder.Store.Current.GameFolder.ShouldBeNull();
         _builder.SettingsFile.Contents.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ChooseFolderAsync_WhileTheDialogIsOpen_IgnoresASecondClick()
+    {
+        // Arrange
+        TaskCompletionSource<string?> dialog = new();
+        _builder.Picker.PickGameFolderAsync().Returns(dialog.Task);
+        GameFolderViewModel viewModel = _builder.GameFolder();
+        await viewModel.StartAsync();
+        Task first = viewModel.ChooseFolderAsync();
+
+        // Act
+        bool canClickAgain = viewModel.ChooseFolderCommand.CanExecute(null);
+        await viewModel.ChooseFolderAsync();
+        dialog.SetResult(null);
+        await first;
+
+        // Assert: a second dialog over the first would confuse the player.
+        canClickAgain.ShouldBeFalse();
+        await _builder.Picker.Received(1).PickGameFolderAsync();
+        viewModel.ChooseFolderCommand.CanExecute(null).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ChooseCommand_OnAnEntryFromAListThatIsGone_SavesNothing()
+    {
+        // Arrange: the player picked a folder without the game, which replaced the list.
+        GameFolderViewModel viewModel = _builder
+            .Locating(
+                ViewModelBuilder.Location(KnownFolder, DatFileSource.StandingStoneGames),
+                ViewModelBuilder.Location(ScannedFolder, DatFileSource.DiskScan))
+            .PickingFolder(PickedFolder)
+            .GameFolder();
+        await viewModel.StartAsync();
+        GameFolderCandidateViewModel staleEntry = viewModel.Candidates[1];
+        await viewModel.ChooseFolderAsync();
+
+        // Act
+        staleEntry.ChooseCommand.Execute(null);
+
+        // Assert
+        viewModel.IsCandidateListVisible.ShouldBeFalse();
+        _builder.Store.Current.GameFolder.ShouldBeNull();
+        _builder.SettingsFile.Contents.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task StartAsync_WhenTheSettingsReadThrowsSomethingUnexpected_AsksForTheFolder()
+    {
+        // Arrange: not an IO error, so the store does not catch it; the first run must not stop.
+        _builder.SettingsFile.Contents = ViewModelBuilder.SettingsJson(PickedFolder);
+        _builder.SettingsFile.ReadFailure = new InvalidOperationException("bug");
+        GameFolderViewModel viewModel = _builder.GameFolder();
+
+        // Act
+        await viewModel.StartAsync();
+
+        // Assert
+        viewModel.IsPanelVisible.ShouldBeTrue();
+        viewModel.PromptText.ShouldBe(GameFolderTexts.NotFound);
+        viewModel.ChooseFolderCommand.CanExecute(null).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task DropPendingScan_WhileTheSearchForALostFolderRuns_NamesTheLostFolder()
+    {
+        // Arrange
+        using ManualResetEventSlim release = new();
+        _builder.SettingsFile.Contents = ViewModelBuilder.SettingsJson(PickedFolder);
+        StallSearch(release, ViewModelBuilder.Location(KnownFolder, DatFileSource.StandingStoneGames));
+        GameFolderViewModel viewModel = _builder.GameFolder();
+        Task start = viewModel.StartAsync();
+
+        // Act
+        viewModel.DropPendingScan();
+        release.Set();
+        await start;
+
+        // Assert
+        viewModel.PromptText.ShouldBe(GameFolderTexts.Lost(PickedFolder));
+        _builder.Store.Current.GameFolder.ShouldBe(PickedFolder);
+    }
+
+    [Fact]
+    public async Task StartAsync_AfterThePlayerStartedChoosingWithALostFolder_NamesTheLostFolder()
+    {
+        // Arrange
+        _builder.SettingsFile.Contents = ViewModelBuilder.SettingsJson(PickedFolder);
+        GameFolderViewModel viewModel = _builder.GameFolder();
+        viewModel.DropPendingScan();
+
+        // Act
+        await viewModel.StartAsync();
+
+        // Assert
+        viewModel.PromptText.ShouldBe(GameFolderTexts.Lost(PickedFolder));
+        _builder.Locator.DidNotReceive().LocateAll(Arg.Any<Action<string>?>());
     }
 
     [Fact]

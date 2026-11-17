@@ -31,8 +31,10 @@
                         Command="{Binding GameFolder.DeclineCommand}"
                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
             </Grid>
-            <ItemsControl Name="GameFolderCandidates" ItemsSource="{Binding GameFolder.Candidates}"
+            <!-- A scan can find many copies (backups, a second drive), so the list scrolls. -->
+            <ScrollViewer Name="GameFolderCandidatesScroller" MaxHeight="260"
                           IsVisible="{Binding GameFolder.IsCandidateListVisible}">
+            <ItemsControl Name="GameFolderCandidates" ItemsSource="{Binding GameFolder.Candidates}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:GameFolderCandidateViewModel">
                         <Button Command="{Binding ChooseCommand}" Margin="0,0,0,6"
@@ -47,6 +49,7 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+            </ScrollViewer>
             <Button Name="ChooseGameFolderButton" Content="Wybierz folder gry…"
                     Command="{Binding GameFolder.ChooseFolderCommand}"
                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />

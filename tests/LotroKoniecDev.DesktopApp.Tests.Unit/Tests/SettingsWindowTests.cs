@@ -142,10 +142,11 @@ public sealed class SettingsWindowTests
         return window;
     }
 
+    /// <summary>A missing button or command throws here, which fails the test.</summary>
     private static void Click(Window window, string buttonName)
     {
-        Button button = window.FindControl<Button>(buttonName).ShouldNotBeNull();
-        button.Command.ShouldNotBeNull().Execute(button.CommandParameter);
+        Button button = window.FindControl<Button>(buttonName)!;
+        button.Command!.Execute(button.CommandParameter);
         Dispatcher.UIThread.RunJobs();
     }
 }

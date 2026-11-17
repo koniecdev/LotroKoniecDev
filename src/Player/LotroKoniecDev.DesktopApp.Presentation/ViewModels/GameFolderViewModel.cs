@@ -16,6 +16,8 @@ namespace LotroKoniecDev.DesktopApp.Presentation.ViewModels;
 /// <remarks>
 /// The disk scan cannot be cancelled, so its result is dropped once the player opens the folder picker
 /// or the settings window: a late result must never choose for a player who is already choosing.
+/// The settings file and the saved folder are checked on the UI thread before the search starts, so a
+/// saved folder on a network share that does not answer holds the window until the share times out.
 /// </remarks>
 public sealed partial class GameFolderViewModel : INotifyPropertyChanged
 {
@@ -73,7 +75,7 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
             return;
         }
 
-        AskForFolder(_lostFolder is null ? GameFolderTexts.ChooseByHand : GameFolderTexts.Lost(_lostFolder));
+        AskForFolder(HandPrompt());
     }
 
     /// <summary>A folder the player picks counts like the CLI's <c>-d</c>: chosen, so no question (ADR-0069 §2).</summary>
@@ -86,34 +88,31 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
 
         DropPendingScan();
         SetPicking(true);
-        string? folder;
         try
         {
-            folder = await _picker.PickGameFolderAsync();
+            string? folder = await _picker.PickGameFolderAsync();
+            if (folder is null)
+            {
+                return;
+            }
+
+            if (!_store.ContainsGame(folder))
+            {
+                AskForFolder(SettingsTexts.NoGameIn(folder));
+                return;
+            }
+
+            Use(folder);
         }
         catch (Exception ex)
         {
             LogUnexpectedFailure(_logger, ex);
             ShowStatus(GameFolderTexts.PickerFailed);
-            return;
         }
         finally
         {
             SetPicking(false);
         }
-
-        if (folder is null)
-        {
-            return;
-        }
-
-        if (!_store.ContainsGame(folder))
-        {
-            AskForFolder(GameFolderTexts.NoGameIn(folder));
-            return;
-        }
-
-        Use(folder);
     }
 
     /// <summary>Called when the player starts choosing on their own, in the picker or the settings window.</summary>
@@ -126,7 +125,7 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
         }
 
         _isSearching = false;
-        AskForFolder(_lostFolder is null ? GameFolderTexts.ChooseByHand : GameFolderTexts.Lost(_lostFolder));
+        AskForFolder(HandPrompt());
     }
 
     internal static string FolderOf(DatFileLocation location) =>
@@ -174,7 +173,7 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
 
             if (_isScanDropped)
             {
-                AskForFolder(_lostFolder is null ? GameFolderTexts.ChooseByHand : GameFolderTexts.Lost(_lostFolder));
+                AskForFolder(HandPrompt());
                 return;
             }
 
@@ -267,6 +266,9 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
             HidePanel();
         }
     }
+
+    private string HandPrompt() =>
+        _lostFolder is null ? GameFolderTexts.ChooseByHand : GameFolderTexts.Lost(_lostFolder);
 
     private void AskForFolder(string prompt) => ShowPanel(prompt, null, []);
 

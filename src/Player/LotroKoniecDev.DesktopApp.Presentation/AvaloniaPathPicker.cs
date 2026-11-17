@@ -12,6 +12,8 @@ internal sealed class AvaloniaPathPicker : IPathPicker
 {
     private static readonly FilePickerFileType TextFiles = new("Plik tłumaczenia (*.txt)") { Patterns = ["*.txt"] };
 
+    private readonly Func<IApplicationLifetime?> _currentLifetime;
+
     public async Task<string?> PickGameFolderAsync()
     {
         IStorageProvider? provider = ActiveStorageProvider();
@@ -47,19 +49,8 @@ internal sealed class AvaloniaPathPicker : IPathPicker
         return FirstLocalPath(files);
     }
 
-    private static IStorageProvider? ActiveStorageProvider()
-    {
-        if (Avalonia.Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            return null;
-        }
-
-        Window? window = desktop.Windows.FirstOrDefault(candidate => candidate.IsActive) ?? desktop.MainWindow;
-        return window?.StorageProvider;
-    }
-
     /// <summary>A pick that has no local path, such as a cloud item, counts as no pick.</summary>
-    private static string? FirstLocalPath(IReadOnlyList<IStorageItem> items)
+    internal static string? FirstLocalPath(IReadOnlyList<IStorageItem> items)
     {
         try
         {
@@ -72,5 +63,27 @@ internal sealed class AvaloniaPathPicker : IPathPicker
                 item.Dispose();
             }
         }
+    }
+
+    public AvaloniaPathPicker()
+        : this(() => Avalonia.Application.Current?.ApplicationLifetime)
+    {
+    }
+
+    /// <summary>For tests: Avalonia refuses a new lifetime once the app has started.</summary>
+    internal AvaloniaPathPicker(Func<IApplicationLifetime?> currentLifetime)
+    {
+        _currentLifetime = currentLifetime;
+    }
+
+    private IStorageProvider? ActiveStorageProvider()
+    {
+        if (_currentLifetime() is not IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            return null;
+        }
+
+        Window? window = desktop.Windows.FirstOrDefault(candidate => candidate.IsActive) ?? desktop.MainWindow;
+        return window?.StorageProvider;
     }
 }

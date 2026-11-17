@@ -13,6 +13,4 @@ internal sealed class InMemoryFileProbe : IFileProbe
     public void Add(string path) => _files.Add(path);
 
     public void AddGame(string folder) => Add(Path.Combine(folder, DatFileConstants.DatFileName));
-
-    public void Remove(string path) => _files.Remove(path);
 }

@@ -27,6 +27,7 @@ public sealed partial class DesktopSettingsStore
     private readonly ISettingsFile _file;
     private readonly IFileProbe _probe;
     private readonly ILogger<DesktopSettingsStore> _logger;
+    private bool _mustSetAsideFile;
 
     public event EventHandler? Changed;
 
@@ -53,21 +54,18 @@ public sealed partial class DesktopSettingsStore
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             LogFileUnreadable(_logger, ex);
-            Current = DesktopSettings.Default;
-            return [SettingsTexts.FileUnreadable];
+            return UseDefaultsInsteadOfTheFile(SettingsTexts.FileUnreadable);
         }
         catch (JsonException ex)
         {
             LogFileBroken(_logger, ex);
-            Current = DesktopSettings.Default;
-            return [SettingsTexts.FileBroken];
+            return UseDefaultsInsteadOfTheFile(SettingsTexts.FileBroken);
         }
 
         if (document is null)
         {
             LogFileBroken(_logger, null);
-            Current = DesktopSettings.Default;
-            return [SettingsTexts.FileBroken];
+            return UseDefaultsInsteadOfTheFile(SettingsTexts.FileBroken);
         }
 
         List<string> notes = [];
@@ -81,7 +79,8 @@ public sealed partial class DesktopSettingsStore
 
     /// <summary>
     /// Takes the settings for this run at once and then writes them. The caller has already checked
-    /// every value.
+    /// every value. A file the load could not use is set aside first, so a save never wipes what the
+    /// player wrote there.
     /// </summary>
     /// <returns><c>false</c> when the file could not be written; the settings still hold until the app closes.</returns>
     public bool Save(DesktopSettings settings)
@@ -93,6 +92,12 @@ public sealed partial class DesktopSettingsStore
 
         try
         {
+            if (_mustSetAsideFile)
+            {
+                _file.SetAside();
+                _mustSetAsideFile = false;
+            }
+
             _file.Write(JsonSerializer.Serialize(SettingsFileDocument.From(settings), SerializerOptions));
             return true;
         }
@@ -122,6 +127,13 @@ public sealed partial class DesktopSettingsStore
         _file = file;
         _probe = probe;
         _logger = logger;
+    }
+
+    private IReadOnlyList<string> UseDefaultsInsteadOfTheFile(string note)
+    {
+        Current = DesktopSettings.Default;
+        _mustSetAsideFile = true;
+        return [note];
     }
 
     private string? ReadGameFolder(string? folder, List<string> notes)

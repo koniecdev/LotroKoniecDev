@@ -92,6 +92,65 @@ public sealed class DesktopSettingsFileTests : IDisposable
     }
 
     [Fact]
+    public void Write_WhenTheFileCannotBeReplaced_ThrowsAnErrorTheStoreCatchesAndLeavesNoTemporaryFile()
+    {
+        // Arrange: a folder where the file should be stands for a file that cannot be replaced.
+        Directory.CreateDirectory(SettingsPath);
+        SettingsFile sut = new(SettingsPath);
+
+        // Act
+        Exception exception = Should.Throw<Exception>(() => sut.Write(Json));
+
+        // Assert: the store catches only these two, so any other type would end the app.
+        (exception is IOException or UnauthorizedAccessException).ShouldBeTrue(exception.GetType().FullName);
+        Directory.GetFileSystemEntries(Path.GetDirectoryName(SettingsPath)!).ShouldBe([SettingsPath]);
+    }
+
+    [Fact]
+    public void Read_AFileThatStartsWithAByteOrderMark_ReturnsTheTextWithoutIt()
+    {
+        // Arrange: older Windows Notepad writes one, and the player may edit the file.
+        Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
+        File.WriteAllBytes(SettingsPath, [0xEF, 0xBB, 0xBF, .. System.Text.Encoding.UTF8.GetBytes("{}")]);
+        SettingsFile sut = new(SettingsPath);
+
+        // Act
+        string text = sut.Read();
+
+        // Assert
+        text.ShouldBe("{}");
+    }
+
+    [Fact]
+    public void SetAside_WithAFile_MovesItNextToTheSettingsOverAnOlderCopy()
+    {
+        // Arrange
+        SettingsFile sut = new(SettingsPath);
+        sut.Write(Json);
+        File.WriteAllText($"{SettingsPath}.broken", "older copy", new System.Text.UTF8Encoding(false));
+
+        // Act
+        sut.SetAside();
+
+        // Assert
+        sut.Exists().ShouldBeFalse();
+        File.ReadAllText($"{SettingsPath}.broken").ShouldBe(Json);
+    }
+
+    [Fact]
+    public void SetAside_WithNoFile_DoesNothing()
+    {
+        // Arrange
+        SettingsFile sut = new(SettingsPath);
+
+        // Act
+        sut.SetAside();
+
+        // Assert
+        File.Exists($"{SettingsPath}.broken").ShouldBeFalse();
+    }
+
+    [Fact]
     public void FileExists_ForAFileOnDisk_ReturnsTrueAndForAMissingOneFalse()
     {
         // Arrange

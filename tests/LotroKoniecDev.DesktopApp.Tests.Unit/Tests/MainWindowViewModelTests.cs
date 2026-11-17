@@ -14,7 +14,7 @@ public sealed class MainWindowViewModelTests
         // Act
         MainWindowViewModel viewModel = ViewModelBuilder.WithASavedGame().MainWindow();
 
-        // Assert: the values stay static until #42 and #43 read the real ones.
+        // Assert: the values stay static until #42 reads the real ones.
         viewModel.Status.ShouldBe("Ready to play");
         viewModel.GameVersion.ShouldBe(MainWindowViewModel.UnknownValue);
         viewModel.PatchVersion.ShouldBe(MainWindowViewModel.UnknownValue);

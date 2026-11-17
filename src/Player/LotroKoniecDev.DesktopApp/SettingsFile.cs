@@ -43,6 +43,14 @@ internal sealed class SettingsFile : ISettingsFile
         }
     }
 
+    public void SetAside()
+    {
+        if (File.Exists(_path))
+        {
+            File.Move(_path, $"{_path}.broken", overwrite: true);
+        }
+    }
+
     public SettingsFile(string path)
     {
         _path = path;

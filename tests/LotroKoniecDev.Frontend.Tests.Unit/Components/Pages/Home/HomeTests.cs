@@ -134,8 +134,7 @@ public sealed class HomeTests : BunitContext
 
         IRenderedComponent<HomeComponent> component = RenderHome();
 
-        component.FindAll(".risk-note").Count.ShouldBe(1);
-        IElement riskNote = component.Find(".risk-note");
+        IElement riskNote = component.FindAll(".risk-note").ShouldHaveSingleItem();
         riskNote.ParentElement.ShouldNotBeNull().ClassList.ShouldContain("home-tech");
         riskNote.PreviousElementSibling.ShouldBeNull();
         riskNote.QuerySelector("a[href='/regulamin']").ShouldNotBeNull();

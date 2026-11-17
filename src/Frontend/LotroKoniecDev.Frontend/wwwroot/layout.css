@@ -738,6 +738,8 @@ code {
     background: var(--success-dim);
 }
 
+/* stretch: both boxes take the taller one's height, because where a line wraps depends on the
+   browser's font (#1457). */
 .home-duo {
     display: grid;
     grid-template-columns: 1fr 1fr;

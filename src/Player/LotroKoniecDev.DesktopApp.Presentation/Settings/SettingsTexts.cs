@@ -14,7 +14,7 @@ internal static class SettingsTexts
         "Przy pierwszym zapisie odłoży ten plik obok, pod nazwą zaczynającą się od config.json.broken.";
 
     public const string FileSetAside =
-        "Nie dało się użyć pliku ustawień, więc program używa ustawień domyślnych. " +
+        "Nie dało się użyć pliku ustawień, więc program zaczął od ustawień domyślnych. " +
         "Stary plik leży obok config.json, pod nazwą zaczynającą się od config.json.broken.";
 
     public const string GameFolderDropped =
@@ -22,6 +22,9 @@ internal static class SettingsTexts
 
     public const string TranslationFileDropped =
         "Ścieżka do własnego pliku tłumaczenia w pliku ustawień nie jest pełną ścieżką, więc program ją pominął.";
+
+    public const string AutoPatchDropped =
+        "Ustawienie nakładania spolszczenia w pliku ustawień jest nieprawidłowe, więc program używa ustawienia domyślnego (włączone).";
 
     public const string ServerAddressDropped =
         "Adres serwera w pliku ustawień jest nieprawidłowy, więc program używa adresu domyślnego.";

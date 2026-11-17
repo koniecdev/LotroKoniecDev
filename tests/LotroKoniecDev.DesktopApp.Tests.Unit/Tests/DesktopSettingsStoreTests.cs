@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using LotroKoniecDev.DesktopApp.Presentation.Settings;
 using LotroKoniecDev.DesktopApp.Tests.Unit.Shared;
 using LotroKoniecDev.Primitives.Constants;
@@ -62,9 +63,10 @@ public sealed class DesktopSettingsStoreTests
     [InlineData("[]")]
     [InlineData("null")]
     [InlineData("not json at all")]
-    [InlineData("{\"autoPatch\":\"yes\"}")]
-    [InlineData("{\"gameFolder\":42}")]
-    public void Load_WithAFileThatIsNotTheExpectedJson_GivesTheDefaultsAndSaysSo(string contents)
+    [InlineData("42")]
+    [InlineData("\"config\"")]
+    [InlineData("true")]
+    public void Load_WithAFileThatIsNotAJsonObject_GivesTheDefaultsAndSaysSo(string contents)
     {
         // Arrange
         _builder.SettingsFile.Contents = contents;
@@ -75,6 +77,72 @@ public sealed class DesktopSettingsStoreTests
         // Assert
         notes.ShouldBe([SettingsTexts.FileBroken]);
         _builder.Store.Current.ShouldBe(DesktopSettings.Default);
+    }
+
+    [Theory]
+    [InlineData("gameFolder", "42")]
+    [InlineData("gameFolder", "[\"LOTRO\"]")]
+    [InlineData("translationFile", "true")]
+    [InlineData("translationFile", "{}")]
+    [InlineData("autoPatch", "\"yes\"")]
+    [InlineData("autoPatch", "\"false\"")]
+    [InlineData("autoPatch", "0")]
+    [InlineData("serverAddress", "443")]
+    [InlineData("serverAddress", "[]")]
+    public void Load_WithAValueOfTheWrongJsonKind_DropsOnlyThatValue(string field, string wrongValue)
+    {
+        // Arrange: a hand edit like "autoPatch": "yes" must not cost the player the saved game folder.
+        const string ServerAddress = "https://staging.tms.example.com/";
+        _builder.Files.Add(TranslationFile);
+        JsonObject document = JsonNode.Parse(ViewModelBuilder.SettingsJson(
+            GameFolder, TranslationFile, autoPatch: false, serverAddress: ServerAddress))!.AsObject();
+        document[field] = JsonNode.Parse(wrongValue);
+        _builder.SettingsFile.Contents = document.ToJsonString();
+        DesktopSettings everyValue = new(GameFolder, TranslationFile, false, ServerAddress);
+        (DesktopSettings expected, string expectedNote) = field switch
+        {
+            "gameFolder" => (everyValue with { GameFolder = null }, SettingsTexts.GameFolderDropped),
+            "translationFile" => (everyValue with { TranslationFileOverride = null }, SettingsTexts.TranslationFileDropped),
+            "autoPatch" => (everyValue with { AutoPatchOnLaunch = true }, SettingsTexts.AutoPatchDropped),
+            _ => (everyValue with { ServerAddress = TmsConstants.DefaultBaseUrl }, SettingsTexts.ServerAddressDropped)
+        };
+
+        // Act
+        IReadOnlyList<string> notes = _builder.Store.Load();
+
+        // Assert
+        notes.ShouldBe([expectedNote]);
+        _builder.Store.Current.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void Load_WithAJsonNullForEveryValue_ReadsThemAsNotSetWithNoNote()
+    {
+        // Arrange
+        _builder.SettingsFile.Contents =
+            "{\"gameFolder\":null,\"translationFile\":null,\"autoPatch\":null,\"serverAddress\":null}";
+
+        // Act
+        IReadOnlyList<string> notes = _builder.Store.Load();
+
+        // Assert
+        notes.ShouldBeEmpty();
+        _builder.Store.Current.ShouldBe(DesktopSettings.Default);
+    }
+
+    [Fact]
+    public void Load_AfterAFileThatIsNotAJsonObject_SetsItAsideOnTheNextSave()
+    {
+        // Arrange
+        _builder.SettingsFile.Contents = "[]";
+        _builder.Store.Load();
+
+        // Act
+        bool written = _builder.Store.Save(DesktopSettings.Default with { GameFolder = GameFolder });
+
+        // Assert
+        written.ShouldBeTrue();
+        _builder.SettingsFile.SetAsideContents.ShouldBe("[]");
     }
 
     [Theory]
@@ -204,6 +272,20 @@ public sealed class DesktopSettingsStoreTests
             SettingsTexts.TranslationFileMissing(TranslationFile),
             SettingsTexts.ServerAddressDropped
         ]);
+    }
+
+    [Fact]
+    public void Save_WithPolishLettersInAPath_WritesThemAsTheyAre()
+    {
+        // Arrange
+        string folder = ViewModelBuilder.Rooted("Gry", "Władca Pierścieni");
+
+        // Act
+        _builder.Store.Save(DesktopSettings.Default with { GameFolder = folder });
+
+        // Assert
+        _builder.SettingsFile.Contents.ShouldNotBeNull();
+        _builder.SettingsFile.Contents.ShouldContain("Władca Pierścieni");
     }
 
     [Fact]

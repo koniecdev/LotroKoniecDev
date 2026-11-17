@@ -1,5 +1,7 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Unicode;
 using LotroKoniecDev.Application.Features.TranslationFileSyncing;
 using LotroKoniecDev.Primitives.Constants;
 using Microsoft.Extensions.Logging;
@@ -8,8 +10,9 @@ namespace LotroKoniecDev.DesktopApp.Presentation.Settings;
 
 /// <summary>
 /// The settings the first-run panel and the settings window share. The file is input from outside our
-/// trust boundary (ADR-0067 §7), so every value is checked on its own when it is read, and one bad
-/// value never wipes the others.
+/// trust boundary (ADR-0067 §7), so every value is checked on its own when it is read, its JSON kind
+/// included, and one bad value never wipes the others. Only a file that is not a JSON object at all
+/// gives the defaults.
 /// </summary>
 /// <remarks>
 /// Log levels follow the Warning rule (#977): a value only a hand edit or tampering can produce is a
@@ -21,8 +24,15 @@ public sealed partial class DesktopSettingsStore
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        WriteIndented = true
+        WriteIndented = true,
+        // The player may edit the file by hand, so Polish letters in a path stay readable.
+        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
     };
+
+    private static readonly string GameFolderField = FieldName(nameof(SettingsFileDocument.GameFolder));
+    private static readonly string TranslationFileField = FieldName(nameof(SettingsFileDocument.TranslationFile));
+    private static readonly string AutoPatchField = FieldName(nameof(SettingsFileDocument.AutoPatch));
+    private static readonly string ServerAddressField = FieldName(nameof(SettingsFileDocument.ServerAddress));
 
     private readonly ISettingsFile _file;
     private readonly IFileProbe _probe;
@@ -42,7 +52,7 @@ public sealed partial class DesktopSettingsStore
     public IReadOnlyList<string> Load()
     {
         _mustSetAsideFile = false;
-        SettingsFileDocument? document;
+        JsonDocument document;
         try
         {
             if (!_file.Exists())
@@ -51,7 +61,7 @@ public sealed partial class DesktopSettingsStore
                 return [];
             }
 
-            document = JsonSerializer.Deserialize<SettingsFileDocument>(_file.Read(), SerializerOptions);
+            document = JsonDocument.Parse(_file.Read());
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -64,19 +74,23 @@ public sealed partial class DesktopSettingsStore
             return UseDefaultsInsteadOfTheFile(SettingsTexts.FileBroken);
         }
 
-        if (document is null)
+        using (document)
         {
-            LogFileBroken(_logger, null);
-            return UseDefaultsInsteadOfTheFile(SettingsTexts.FileBroken);
-        }
+            JsonElement root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                LogFileBroken(_logger, null);
+                return UseDefaultsInsteadOfTheFile(SettingsTexts.FileBroken);
+            }
 
-        List<string> notes = [];
-        Current = new DesktopSettings(
-            ReadGameFolder(document.GameFolder, notes),
-            ReadTranslationFile(document.TranslationFile, notes),
-            document.AutoPatch ?? DesktopSettings.Default.AutoPatchOnLaunch,
-            ReadServerAddress(document.ServerAddress, notes));
-        return notes;
+            List<string> notes = [];
+            Current = new DesktopSettings(
+                ReadGameFolder(ReadString(root, GameFolderField, SettingsTexts.GameFolderDropped, notes), notes),
+                ReadTranslationFile(ReadString(root, TranslationFileField, SettingsTexts.TranslationFileDropped, notes), notes),
+                ReadAutoPatch(root, notes),
+                ReadServerAddress(ReadString(root, ServerAddressField, SettingsTexts.ServerAddressDropped, notes), notes));
+            return notes;
+        }
     }
 
     /// <summary>
@@ -142,6 +156,51 @@ public sealed partial class DesktopSettingsStore
         return [note];
     }
 
+    private static string FieldName(string propertyName) => JsonNamingPolicy.CamelCase.ConvertName(propertyName);
+
+    /// <summary>A missing field and a JSON <c>null</c> mean "not set". Any other kind than a string is dropped with its note.</summary>
+    private string? ReadString(JsonElement root, string field, string droppedNote, List<string> notes)
+    {
+        if (!root.TryGetProperty(field, out JsonElement value))
+        {
+            return null;
+        }
+
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.String:
+                return value.GetString();
+            case JsonValueKind.Null:
+                return null;
+            default:
+                LogValueRefused(_logger, field);
+                notes.Add(droppedNote);
+                return null;
+        }
+    }
+
+    private bool ReadAutoPatch(JsonElement root, List<string> notes)
+    {
+        if (!root.TryGetProperty(AutoPatchField, out JsonElement value))
+        {
+            return DesktopSettings.Default.AutoPatchOnLaunch;
+        }
+
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.True:
+                return true;
+            case JsonValueKind.False:
+                return false;
+            case JsonValueKind.Null:
+                return DesktopSettings.Default.AutoPatchOnLaunch;
+            default:
+                LogValueRefused(_logger, AutoPatchField);
+                notes.Add(SettingsTexts.AutoPatchDropped);
+                return DesktopSettings.Default.AutoPatchOnLaunch;
+        }
+    }
+
     private string? ReadGameFolder(string? folder, List<string> notes)
     {
         if (string.IsNullOrWhiteSpace(folder))
@@ -151,7 +210,7 @@ public sealed partial class DesktopSettingsStore
 
         if (!Path.IsPathFullyQualified(folder))
         {
-            LogValueRefused(_logger, "gameFolder");
+            LogValueRefused(_logger, GameFolderField);
             notes.Add(SettingsTexts.GameFolderDropped);
             return null;
         }
@@ -168,7 +227,7 @@ public sealed partial class DesktopSettingsStore
 
         if (!Path.IsPathFullyQualified(path))
         {
-            LogValueRefused(_logger, "translationFile");
+            LogValueRefused(_logger, TranslationFileField);
             notes.Add(SettingsTexts.TranslationFileDropped);
             return null;
         }
@@ -192,7 +251,7 @@ public sealed partial class DesktopSettingsStore
 
         if (!TranslationServerAddress.IsAllowed(address))
         {
-            LogValueRefused(_logger, "serverAddress");
+            LogValueRefused(_logger, ServerAddressField);
             notes.Add(SettingsTexts.ServerAddressDropped);
             return TmsConstants.DefaultBaseUrl;
         }
@@ -203,7 +262,7 @@ public sealed partial class DesktopSettingsStore
     [LoggerMessage(Level = LogLevel.Warning, Message = "The desktop app could not read its settings file; it uses the defaults")]
     private static partial void LogFileUnreadable(ILogger logger, Exception exception);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "The desktop app's settings file is not valid JSON of the expected shape; it uses the defaults")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The desktop app's settings file is not a JSON object; it uses the defaults")]
     private static partial void LogFileBroken(ILogger logger, Exception? exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The desktop app's settings file holds a value the app never writes ({Field}); the value is dropped")]

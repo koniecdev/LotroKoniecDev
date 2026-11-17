@@ -32,6 +32,9 @@ internal sealed class SettingsFile : ISettingsFile
             using (StreamWriter writer = new(stream, Utf8WithoutBom))
             {
                 writer.Write(contents);
+                writer.Flush();
+                // On disk before the move, so a power loss after it never leaves an empty config.json.
+                stream.Flush(flushToDisk: true);
             }
 
             // File.Replace needs an existing target, which the first save does not have.

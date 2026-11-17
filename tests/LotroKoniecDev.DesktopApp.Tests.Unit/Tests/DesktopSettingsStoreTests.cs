@@ -115,6 +115,54 @@ public sealed class DesktopSettingsStoreTests
         _builder.Store.Current.ShouldBe(expected);
     }
 
+    [Theory]
+    [InlineData("{\"gameFolder\":\"\\uD800\",\"autoPatch\":false}")]
+    [InlineData("{\"translationFile\":\"a\\uDC00b\",\"autoPatch\":false}")]
+    [InlineData("{\"serverAddress\":\"https://\\uD800.example.com/\",\"autoPatch\":false}")]
+    [InlineData("{\"game\\uD800Folde\":1,\"autoPatch\":false}")]
+    public void Load_WithAnEscapeThatIsNotText_GivesTheDefaultsAndSaysSo(string contents)
+    {
+        // Arrange: a lone surrogate escape parses, but no value or field name can be read from it.
+        _builder.SettingsFile.Contents = contents;
+
+        // Act
+        IReadOnlyList<string> notes = _builder.Store.Load();
+
+        // Assert
+        notes.ShouldBe([SettingsTexts.FileBroken]);
+        _builder.Store.Current.ShouldBe(DesktopSettings.Default);
+    }
+
+    [Fact]
+    public void Save_AfterAnEscapeThatIsNotText_SetsTheOldFileAsideFirst()
+    {
+        // Arrange
+        const string Contents = "{\"gameFolder\":\"\\uD800\",\"autoPatch\":false}";
+        _builder.SettingsFile.Contents = Contents;
+        _builder.Store.Load();
+
+        // Act
+        bool written = _builder.Store.Save(DesktopSettings.Default with { GameFolder = GameFolder });
+
+        // Assert
+        written.ShouldBeTrue();
+        _builder.SettingsFile.SetAsideContents.ShouldBe(Contents);
+    }
+
+    [Fact]
+    public void Load_WithAnEmptyObject_GivesTheDefaultsWithNoNote()
+    {
+        // Arrange
+        _builder.SettingsFile.Contents = "{}";
+
+        // Act
+        IReadOnlyList<string> notes = _builder.Store.Load();
+
+        // Assert
+        notes.ShouldBeEmpty();
+        _builder.Store.Current.ShouldBe(DesktopSettings.Default);
+    }
+
     [Fact]
     public void Load_WithAJsonNullForEveryValue_ReadsThemAsNotSetWithNoNote()
     {
@@ -286,6 +334,23 @@ public sealed class DesktopSettingsStoreTests
         // Assert
         _builder.SettingsFile.Contents.ShouldNotBeNull();
         _builder.SettingsFile.Contents.ShouldContain("Władca Pierścieni");
+    }
+
+    [Fact]
+    public void Save_TheDefaultsWithAFolder_ThenLoad_GivesTheSameSettings()
+    {
+        // Arrange: the file the app writes most often leaves out the override and the default address,
+        // and has auto-patch on.
+        DesktopSettings settings = DesktopSettings.Default with { GameFolder = GameFolder };
+        _builder.Store.Save(settings);
+        DesktopSettingsStore reopened = new(_builder.SettingsFile, _builder.Files, NullLogger<DesktopSettingsStore>.Instance);
+
+        // Act
+        IReadOnlyList<string> notes = reopened.Load();
+
+        // Assert
+        notes.ShouldBeEmpty();
+        reopened.Current.ShouldBe(settings);
     }
 
     [Fact]

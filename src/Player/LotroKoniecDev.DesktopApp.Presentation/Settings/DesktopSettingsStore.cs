@@ -11,8 +11,8 @@ namespace LotroKoniecDev.DesktopApp.Presentation.Settings;
 /// <summary>
 /// The settings the first-run panel and the settings window share. The file is input from outside our
 /// trust boundary (ADR-0067 §7), so every value is checked on its own when it is read, its JSON kind
-/// included, and one bad value never wipes the others. Only a file that is not a JSON object at all
-/// gives the defaults.
+/// included, and one bad value never wipes the others. Only a file that is not a JSON object, or that
+/// holds an escape which is not text, gives the defaults.
 /// </summary>
 /// <remarks>
 /// Log levels follow the Warning rule (#977): a value only a hand edit or tampering can produce is a
@@ -84,11 +84,22 @@ public sealed partial class DesktopSettingsStore
             }
 
             List<string> notes = [];
-            Current = new DesktopSettings(
-                ReadGameFolder(ReadString(root, GameFolderField, SettingsTexts.GameFolderDropped, notes), notes),
-                ReadTranslationFile(ReadString(root, TranslationFileField, SettingsTexts.TranslationFileDropped, notes), notes),
-                ReadAutoPatch(root, notes),
-                ReadServerAddress(ReadString(root, ServerAddressField, SettingsTexts.ServerAddressDropped, notes), notes));
+            try
+            {
+                Current = new DesktopSettings(
+                    ReadGameFolder(ReadString(root, GameFolderField, SettingsTexts.GameFolderDropped, notes), notes),
+                    ReadTranslationFile(ReadString(root, TranslationFileField, SettingsTexts.TranslationFileDropped, notes), notes),
+                    ReadAutoPatch(root, notes),
+                    ReadServerAddress(ReadString(root, ServerAddressField, SettingsTexts.ServerAddressDropped, notes), notes));
+            }
+            catch (InvalidOperationException ex)
+            {
+                // JsonDocument accepts an escape that is not text (a lone "\uD800"); reading a value or
+                // matching a field name with one throws only here.
+                LogFileBroken(_logger, ex);
+                return UseDefaultsInsteadOfTheFile(SettingsTexts.FileBroken);
+            }
+
             return notes;
         }
     }
@@ -262,7 +273,7 @@ public sealed partial class DesktopSettingsStore
     [LoggerMessage(Level = LogLevel.Warning, Message = "The desktop app could not read its settings file; it uses the defaults")]
     private static partial void LogFileUnreadable(ILogger logger, Exception exception);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "The desktop app's settings file is not a JSON object; it uses the defaults")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The desktop app's settings file is not a JSON object of valid text; it uses the defaults")]
     private static partial void LogFileBroken(ILogger logger, Exception? exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The desktop app's settings file holds a value the app never writes ({Field}); the value is dropped")]

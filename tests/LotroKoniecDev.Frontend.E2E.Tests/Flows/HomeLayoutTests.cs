@@ -12,6 +12,7 @@ public sealed class HomeLayoutTests : E2ETestBase
 {
     [Theory]
     [InlineData(1920)]
+    // At 960 px the sign-in button wraps, so the translator box is the taller one.
     [InlineData(960)]
     public async Task Player_and_translator_boxes_side_by_side_have_the_same_height(int width)
     {

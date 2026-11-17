@@ -52,8 +52,10 @@ updates:
       # two would build on .NET 10 and are held so the whole family moves together (owner decision
       # on #1444). To free one, replace `Microsoft.Extensions.*` with patterns that leave it out.
       # This list may also hold back a security fix that exists only on a new major; NuGetAudit
-      # then fails the build. A pattern must not catch a package with its own version line: it
-      # would freeze that package silently. dotnet-ef is here to stay on the EF Core major we run.
+      # then fails the build. A pattern must not catch a package with its own version line: its
+      # major updates would stop, and nothing would show it. A new package whose major follows
+      # .NET's joins this list in the PR that adds it, unless a pattern here already covers it.
+      # dotnet-ef is here to stay on the EF Core major we run.
       - dependency-name: "Microsoft.AspNetCore.*"
         update-types: ["version-update:semver-major"]
       - dependency-name: "Microsoft.EntityFrameworkCore*"

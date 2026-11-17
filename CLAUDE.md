@@ -606,8 +606,9 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   build. It covers only our own references: a package can still bring a .NET 11 package with it
   (OpenTelemetry 1.21 brings `System.Diagnostics.DiagnosticSource` 11.0.0). The move is one PR that
   changes the target frameworks, the images, the SDK version CI installs and those packages
-  together. No pattern in that list may catch a package with its own version line, or it silently
-  freezes that package.
+  together. A new package whose major follows .NET's joins that list in the PR that adds it, unless
+  a pattern there already covers it. No pattern may catch a package with its own version line: its
+  major updates would stop, and nothing would show it.
 - **Docker restore layers are loud and gated (ADR-0028, amended).** Every Dockerfile that lists
   `.csproj` files must COPY the **full transitive closure** of the projects it restores, because
   `dotnet restore` skips a missing project file and still **exits 0**. Two defences: image builds

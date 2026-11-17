@@ -1,3 +1,5 @@
+using LotroKoniecDev.Primitives.Constants;
+
 namespace LotroKoniecDev.DesktopApp.Presentation.ViewModels;
 
 /// <summary>
@@ -6,11 +8,7 @@ namespace LotroKoniecDev.DesktopApp.Presentation.ViewModels;
 /// </summary>
 internal static class PlayerNotices
 {
-    /// <summary>The CLI's <c>RiskNotice</c>, word for word; the CLI's copy is internal to it.</summary>
-    public const string Risk =
-        "Spolszczenie modyfikuje pliki gry — formalnie regulamin LOTRO nie przewiduje takich modyfikacji, " +
-        "choć przez ponad dekadę działania analogicznych projektów (rosyjskiego i hiszpańskiego) " +
-        "nie odnotowano za nie banów. Korzystasz na własną odpowiedzialność.";
+    public const string Risk = PlayerNoticeConstants.Risk;
 
     /// <summary>
     /// The app's own launcher notice. From #42 on, which also enables Play, the app runs as

@@ -144,6 +144,20 @@ public sealed class DesktopSettingsStoreTests
     }
 
     [Fact]
+    public void Load_WithEmptyPaths_ReadsThemAsNotSetWithNoNote()
+    {
+        // Arrange
+        _builder.SettingsFile.Contents = ViewModelBuilder.SettingsJson(string.Empty, string.Empty);
+
+        // Act
+        IReadOnlyList<string> notes = _builder.Store.Load();
+
+        // Assert
+        notes.ShouldBeEmpty();
+        _builder.Store.Current.ShouldBe(DesktopSettings.Default);
+    }
+
+    [Fact]
     public void Load_WithARelativeGameFolder_DropsIt()
     {
         // Arrange: the app never writes one, and it would depend on the folder the app starts from.
@@ -275,6 +289,43 @@ public sealed class DesktopSettingsStoreTests
         saved.ShouldBeFalse();
         _builder.SettingsFile.Contents.ShouldBe("{");
         _builder.Store.Current.ShouldBe(settings);
+    }
+
+    [Fact]
+    public void Save_AgainAfterTheSetAsideFailed_StillSetsTheOldFileAsideFirst()
+    {
+        // Arrange: a second click on Zapisz while the old file is still locked must not wipe it.
+        _builder.SettingsFile.Contents = "{";
+        _builder.Store.Load();
+        _builder.SettingsFile.SetAsideFailure = new IOException("locked");
+        DesktopSettings settings = DesktopSettings.Default with { GameFolder = GameFolder };
+        _builder.Store.Save(settings);
+        bool secondTry = _builder.Store.Save(settings);
+        _builder.SettingsFile.SetAsideFailure = null;
+
+        // Act
+        bool thirdTry = _builder.Store.Save(settings);
+
+        // Assert
+        secondTry.ShouldBeFalse();
+        thirdTry.ShouldBeTrue();
+        _builder.SettingsFile.SetAsideContents.ShouldBe("{");
+    }
+
+    [Fact]
+    public void Save_WhenTheOldFileIsSetAsideButTheWriteFails_KeepsTheOldFileAsideAndReturnsFalse()
+    {
+        // Arrange
+        _builder.SettingsFile.Contents = "{";
+        _builder.Store.Load();
+        _builder.SettingsFile.WriteFailure = new IOException("disk full");
+
+        // Act
+        bool saved = _builder.Store.Save(DesktopSettings.Default with { GameFolder = GameFolder });
+
+        // Assert
+        saved.ShouldBeFalse();
+        _builder.SettingsFile.SetAsideContents.ShouldBe("{");
     }
 
     [Fact]

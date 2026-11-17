@@ -309,8 +309,42 @@ public sealed class GameFolderViewModelTests
         await viewModel.ChooseFolderAsync();
 
         // Assert
-        viewModel.StatusText.ShouldBe(GameFolderTexts.PickerFailed);
+        viewModel.StatusText.ShouldBe(GameFolderTexts.ChooseFailed);
         viewModel.ChooseFolderCommand.CanExecute(null).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ChooseFolderAsync_WhenSomethingFailsAfterThePick_SaysSoAndKeepsTheButton()
+    {
+        // Arrange: not an IO error, so the store does not catch it.
+        _builder.Files.AddGame(PickedFolder);
+        _builder.SettingsFile.WriteFailure = new InvalidOperationException("bug");
+        GameFolderViewModel viewModel = _builder.PickingFolder(PickedFolder).GameFolder();
+        await viewModel.StartAsync();
+
+        // Act
+        await viewModel.ChooseFolderAsync();
+
+        // Assert
+        viewModel.StatusText.ShouldBe(GameFolderTexts.ChooseFailed);
+        viewModel.ChooseFolderCommand.CanExecute(null).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task SettingsSave_AfterALoadNote_TakesTheNoteAway()
+    {
+        // Arrange: the note speaks about the file the save has just replaced.
+        ViewModelBuilder builder = ViewModelBuilder.WithASavedGame();
+        builder.SettingsFile.Contents = "{";
+        GameFolderViewModel viewModel = builder.GameFolder();
+        await viewModel.StartAsync();
+        viewModel.StatusText.ShouldBe(SettingsTexts.FileBroken);
+
+        // Act
+        builder.Store.Save(DesktopSettings.Default with { GameFolder = ViewModelBuilder.SavedGameFolder });
+
+        // Assert
+        viewModel.IsStatusVisible.ShouldBeFalse();
     }
 
     [Fact]

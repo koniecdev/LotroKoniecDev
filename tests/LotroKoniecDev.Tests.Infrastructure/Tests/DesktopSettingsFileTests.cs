@@ -122,19 +122,42 @@ public sealed class DesktopSettingsFileTests : IDisposable
     }
 
     [Fact]
-    public void SetAside_WithAFile_MovesItNextToTheSettingsOverAnOlderCopy()
+    public void SetAside_WithAFile_MovesItToANewNameNextToIt()
     {
-        // Arrange
+        // Arrange: a name planted in advance must never be written over (ADR-0069 amendment, item 4).
         SettingsFile sut = new(SettingsPath);
         sut.Write(Json);
-        File.WriteAllText($"{SettingsPath}.broken", "older copy", new System.Text.UTF8Encoding(false));
+        string planted = $"{SettingsPath}.broken";
+        File.WriteAllText(planted, "planted", new System.Text.UTF8Encoding(false));
 
         // Act
         sut.SetAside();
 
         // Assert
         sut.Exists().ShouldBeFalse();
-        File.ReadAllText($"{SettingsPath}.broken").ShouldBe(Json);
+        File.ReadAllText(planted).ShouldBe("planted");
+        List<string> setAside = SetAsideCopies();
+        setAside.Count.ShouldBe(1);
+        File.ReadAllText(setAside[0]).ShouldBe(Json);
+    }
+
+    [Fact]
+    public void SetAside_TwiceWithAFileEachTime_KeepsBothCopies()
+    {
+        // Arrange
+        SettingsFile sut = new(SettingsPath);
+        sut.Write("first");
+        sut.SetAside();
+        sut.Write("second");
+
+        // Act
+        sut.SetAside();
+
+        // Assert
+        SetAsideCopies()
+            .Select(File.ReadAllText)
+            .Order(StringComparer.Ordinal)
+            .ShouldBe(["first", "second"]);
     }
 
     [Fact]
@@ -167,4 +190,10 @@ public sealed class DesktopSettingsFileTests : IDisposable
         presentExists.ShouldBeTrue();
         missingExists.ShouldBeFalse();
     }
+
+    /// <summary>A search pattern would also match the planted <c>config.json.broken</c>, so the prefix is checked by hand.</summary>
+    private List<string> SetAsideCopies() =>
+        Directory.GetFiles(Path.GetDirectoryName(SettingsPath)!)
+            .Where(path => Path.GetFileName(path).StartsWith("config.json.broken.", StringComparison.Ordinal))
+            .ToList();
 }

@@ -7,11 +7,11 @@ internal static class SettingsTexts
 {
     public const string FileUnreadable =
         "Nie udało się odczytać pliku ustawień, więc program używa ustawień domyślnych. " +
-        "Przy pierwszym zapisie odłoży stary plik jako config.json.broken.";
+        "Przy pierwszym zapisie odłoży ten plik obok, pod nazwą zaczynającą się od config.json.broken.";
 
     public const string FileBroken =
         "Plik ustawień jest uszkodzony, więc program używa ustawień domyślnych. " +
-        "Przy pierwszym zapisie odłoży stary plik jako config.json.broken.";
+        "Przy pierwszym zapisie odłoży ten plik obok, pod nazwą zaczynającą się od config.json.broken.";
 
     public const string GameFolderDropped =
         "Folder gry w pliku ustawień nie jest pełną ścieżką, więc program go pominął.";

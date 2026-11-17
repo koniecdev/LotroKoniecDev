@@ -5,8 +5,9 @@ namespace LotroKoniecDev.DesktopApp;
 
 /// <summary>
 /// <c>config.json</c> in the app's AppData folder. A save writes a new file next to it and moves it over
-/// the old one, so a crash never leaves half a file. The temporary name is random, so nothing can be
-/// placed at it in advance.
+/// the old one, so a crash never leaves half a file. The temporary name and the set-aside name are
+/// random, so nothing can be placed at either in advance: the app may run as administrator in a folder
+/// the player can write to (ADR-0069 amendment of 2026-11-17, item 4).
 /// </summary>
 internal sealed class SettingsFile : ISettingsFile
 {
@@ -47,7 +48,7 @@ internal sealed class SettingsFile : ISettingsFile
     {
         if (File.Exists(_path))
         {
-            File.Move(_path, $"{_path}.broken", overwrite: true);
+            File.Move(_path, $"{_path}.broken.{Path.GetRandomFileName()}", overwrite: false);
         }
     }
 

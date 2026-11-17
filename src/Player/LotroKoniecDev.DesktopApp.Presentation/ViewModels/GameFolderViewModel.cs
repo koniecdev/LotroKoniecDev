@@ -107,7 +107,7 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             LogUnexpectedFailure(_logger, ex);
-            ShowStatus(GameFolderTexts.PickerFailed);
+            ShowStatus(GameFolderTexts.ChooseFailed);
         }
         finally
         {
@@ -257,9 +257,15 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
         ShowStatus(saved ? null : GameFolderTexts.SaveFailed);
     }
 
-    /// <summary>A folder saved in the settings window ends the first run too.</summary>
+    /// <summary>
+    /// A folder saved in the settings window ends the first run too. A save replaces the file the load
+    /// notes speak about, so they go.
+    /// </summary>
     private void OnSettingsChanged(object? sender, EventArgs e)
     {
+        _loadNotes = [];
+        ShowStatus(null);
+
         if (IsPanelVisible && _store.ContainsGame(_store.Current.GameFolder))
         {
             _lostFolder = null;

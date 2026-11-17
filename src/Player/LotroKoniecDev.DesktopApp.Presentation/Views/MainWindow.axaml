@@ -34,21 +34,21 @@
             <!-- A scan can find many copies (backups, a second drive), so the list scrolls. -->
             <ScrollViewer Name="GameFolderCandidatesScroller" MaxHeight="260"
                           IsVisible="{Binding GameFolder.IsCandidateListVisible}">
-            <ItemsControl Name="GameFolderCandidates" ItemsSource="{Binding GameFolder.Candidates}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:GameFolderCandidateViewModel">
-                        <Button Command="{Binding ChooseCommand}" Margin="0,0,0,6"
-                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
-                            <StackPanel Spacing="2">
-                                <TextBlock Text="{Binding Folder}" TextWrapping="Wrap" />
-                                <TextBlock Text="{Binding SourceLabel}" FontSize="12" Opacity="0.7" />
-                                <TextBlock Text="{Binding Warning}" IsVisible="{Binding HasWarning}"
-                                           FontSize="12" TextWrapping="Wrap" />
-                            </StackPanel>
-                        </Button>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                <ItemsControl Name="GameFolderCandidates" ItemsSource="{Binding GameFolder.Candidates}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:GameFolderCandidateViewModel">
+                            <Button Command="{Binding ChooseCommand}" Margin="0,0,0,6"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="{Binding Folder}" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding SourceLabel}" FontSize="12" Opacity="0.7" />
+                                    <TextBlock Text="{Binding Warning}" IsVisible="{Binding HasWarning}"
+                                               FontSize="12" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </ScrollViewer>
             <Button Name="ChooseGameFolderButton" Content="Wybierz folder gry…"
                     Command="{Binding GameFolder.ChooseFolderCommand}"

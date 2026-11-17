@@ -25,7 +25,8 @@ internal static class GameFolderTexts
     public const string SaveFailed =
         "Nie udało się zapisać ustawień. Wybrany folder działa do zamknięcia programu.";
 
-    public const string PickerFailed = "Nie udało się otworzyć okna wyboru folderu.";
+    public const string ChooseFailed =
+        "Coś poszło nie tak przy wyborze folderu gry. Szczegóły są w pliku LotroPoPolsku.log.";
 
     public static string FoundOne(string folder, DatFileSource source) =>
         $"Znaleziono grę w folderze {folder} ({SourceLabel(source)}). {Unchecked} Czy to Twoja instalacja LOTRO?";

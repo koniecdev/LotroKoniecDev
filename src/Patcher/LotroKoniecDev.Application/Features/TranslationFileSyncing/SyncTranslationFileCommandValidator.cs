@@ -8,17 +8,10 @@ public sealed class SyncTranslationFileCommandValidator : AbstractValidator<Sync
     {
         RuleFor(command => command.TmsBaseUrl)
             .NotEmpty()
-            .Must(BeAnAbsoluteHttpsUrl)
+            .Must(TranslationServerAddress.IsAllowed)
             .WithMessage("The TMS base URL must be a valid absolute https URL (plain http is allowed only for localhost).");
 
         RuleFor(command => command.TranslationFilePath)
             .NotEmpty();
     }
-
-    // Over plain http anyone on the path can change the downloaded file (#391). Only loopback, with
-    // no network hop, may skip TLS: that covers local development against a Kestrel on the same
-    // machine.
-    private static bool BeAnAbsoluteHttpsUrl(string value)
-        => Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
-           && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback);
 }

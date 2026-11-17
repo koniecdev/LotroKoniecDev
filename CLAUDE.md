@@ -930,14 +930,14 @@ this repo's settings and their reasons are in `docs/claude-loop.md`.
   **CatalogEntry, never "entity"** (the DDD-Entity misconception; user decision 2026-07-06).
   **DoD:** import fixture → browse `/catalog` → translate a whole quest via editor context → entry
   bulk approve → the artifact contains the rows (E2E).
-- **M4 — desktop player app (Avalonia, ADR-0033): started.** #41 is done: the shell, an x86 exe
-  plus a cross-platform UI project, a splash and a static main window. #43 is done: the first run
-  finds the game and asks before it uses a folder from outside the allow-list (ADR-0069
-  amendment), the settings window keeps `config.json` in the app's AppData folder, and the main
-  window always shows the risk note and the launcher notice. The whole UI is Polish (ADR-0033
-  amendment). #42 and #45 are open; #46 is closed (its tests ship with each ticket). A GUI over
-  the patcher handlers + the same TMS auto-download the CLI ships. The MVP is Windows-only, but the
-  framework keeps the Steam Deck/Proton path open (WPF would close it).
+- **M4 — desktop player app (Avalonia, ADR-0033): started.** #41 is done: the shell, an x86 exe plus
+  a cross-platform UI project, a splash and a static main window. #43 is done: the first run finds
+  the game and asks before it uses a folder from outside the allow-list (ADR-0069 amendment), the
+  settings window keeps `config.json` in the app's AppData folder, and the main window always shows
+  the risk note and the launcher notice. Every new text is Polish, and #42 replaces the English
+  labels #41 left (ADR-0033 amendment). #42 and #45 are open; #46 is closed (its tests ship with
+  each ticket). A GUI over the patcher handlers + the same TMS auto-download the CLI ships. The MVP
+  is Windows-only, but the framework keeps the Steam Deck/Proton path open (WPF would close it).
 - **Post-MVP backlog (cut from MVP):** glossary, `TranslationHistory`, bulk operations, keyboard
   shortcuts, AI review, Discord notifications, public API versioning, crowdsourced game-version
   reports, per-language roles, Companion data auto-fetch from GitHub. **Epic TP-00 (#377)** parks

@@ -168,8 +168,9 @@ planted launcher or library.
    chose it or confirmed it, or it came from the allow-list. A saved folder that lost its game file
    is replaced only after the player says so: a Tak/Nie that names both folders, a pick from the
    list, the folder dialog or a save in the settings window. Until then the file keeps the old
-   folder. When the app could not read or parse the file, it starts from the defaults, so one known
-   install found then is saved with no question, like on a first run.
+   folder. A single bad value in the file drops only that value. When the app could not read the
+   file, or it is not a JSON object, it starts from the defaults, so one known install found then
+   is saved with no question, like on a first run.
 4. **The risk, and who closes it.** Any program that runs as the player can change that file, and
    so point the app at a folder of its choice. Today nothing reaches the launcher or the DAT with it:
    Patch and Play stay disabled until #42. The app also writes the file as administrator in some

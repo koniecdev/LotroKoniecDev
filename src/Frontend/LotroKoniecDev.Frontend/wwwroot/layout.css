@@ -668,7 +668,7 @@ code {
 
 .progress-hero {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 14px;
     flex-wrap: wrap;
 }

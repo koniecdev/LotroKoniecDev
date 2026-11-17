@@ -67,7 +67,7 @@ public sealed class GameFolderViewModelTests
         // Assert
         viewModel.IsPanelVisible.ShouldBeTrue();
         viewModel.IsQuestionVisible.ShouldBeTrue();
-        viewModel.PromptText.ShouldBe(GameFolderTexts.FoundOne(ScannedFolder, source));
+        viewModel.PromptText.ShouldBe(GameFolderTexts.FoundOne(ScannedFolder, source, needsConfirmation: true));
         viewModel.PromptText.ShouldNotBeNull().ShouldContain(GameFolderTexts.Unchecked);
         _builder.Store.Current.GameFolder.ShouldBeNull();
         _builder.SettingsFile.Contents.ShouldBeNull();
@@ -293,7 +293,7 @@ public sealed class GameFolderViewModelTests
 
         // Assert
         viewModel.IsQuestionVisible.ShouldBeTrue();
-        viewModel.PromptText.ShouldBe(GameFolderTexts.FoundOne(ScannedFolder, DatFileSource.DiskScan));
+        viewModel.PromptText.ShouldBe(GameFolderTexts.FoundOne(ScannedFolder, DatFileSource.DiskScan, needsConfirmation: true));
         _builder.SettingsFile.Contents.ShouldBeNull();
     }
 
@@ -333,11 +333,11 @@ public sealed class GameFolderViewModelTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task StartAsync_WithAnUnusableFileAndOneKnownInstall_SavesItAndSaysTheOldFileWasSetAside(bool unreadable)
+    public async Task StartAsync_WithAnUnusableFileAndOneKnownInstall_AsksBeforeItSavesAnything(bool unreadable)
     {
-        // Arrange: the search returns at once here, so the save follows the load with no click.
-        const string broken = "{\"gameFolder\": \"D:\\\\Gry\", \"autoPatch\": false,}";
-        _builder.SettingsFile.Contents = broken;
+        // Arrange: a file that cannot be read may only be locked for now, so no save moves it aside unasked.
+        const string unusable = "{";
+        _builder.SettingsFile.Contents = unusable;
         if (unreadable)
         {
             _builder.SettingsFile.ReadFailure = new IOException("locked");
@@ -349,21 +349,41 @@ public sealed class GameFolderViewModelTests
         await viewModel.StartAsync();
 
         // Assert
-        _builder.Store.Current.GameFolder.ShouldBe(KnownFolder);
-        _builder.SettingsFile.SetAsideContents.ShouldBe(broken);
-        viewModel.StatusText.ShouldBe(SettingsTexts.FileSetAside);
+        viewModel.IsQuestionVisible.ShouldBeTrue();
+        viewModel.PromptText.ShouldBe(GameFolderTexts.FoundOne(KnownFolder, DatFileSource.StandingStoneGames, needsConfirmation: false));
+        _builder.Store.Current.GameFolder.ShouldBeNull();
+        _builder.SettingsFile.Contents.ShouldBe(unusable);
+        _builder.SettingsFile.SetAsideContents.ShouldBeNull();
     }
 
     [Fact]
-    public async Task StartAsync_WithAnUnusableFileAndAFailedSave_KeepsTheNoteAndSaysTheSaveFailed()
+    public async Task Confirm_AfterAnUnusableFile_SetsTheOldFileAsideAndSavesTheFolder()
+    {
+        // Arrange
+        _builder.SettingsFile.Contents = "{";
+        GameFolderViewModel viewModel = _builder.Locating(ViewModelBuilder.Location(KnownFolder, DatFileSource.StandingStoneGames)).GameFolder();
+        await viewModel.StartAsync();
+
+        // Act
+        viewModel.Confirm();
+
+        // Assert
+        _builder.Store.Current.GameFolder.ShouldBe(KnownFolder);
+        _builder.SettingsFile.SetAsideContents.ShouldBe("{");
+        viewModel.IsPanelVisible.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Confirm_AfterAnUnusableFileWhenTheSaveFails_KeepsTheNoteAndSaysTheSaveFailed()
     {
         // Arrange: the old file cannot be moved, so nothing was written and nothing moved.
         _builder.SettingsFile.Contents = "{";
         _builder.SettingsFile.SetAsideFailure = new IOException("locked");
         GameFolderViewModel viewModel = _builder.Locating(ViewModelBuilder.Location(KnownFolder, DatFileSource.Steam)).GameFolder();
+        await viewModel.StartAsync();
 
         // Act
-        await viewModel.StartAsync();
+        viewModel.Confirm();
 
         // Assert
         viewModel.StatusText.ShouldBe($"{SettingsTexts.FileBroken} {GameFolderTexts.SaveFailed}");

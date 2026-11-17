@@ -28,8 +28,10 @@ internal static class GameFolderTexts
     public const string ChooseFailed =
         "Coś poszło nie tak przy wyborze folderu gry. Szczegóły są w pliku LotroPoPolsku.log.";
 
-    public static string FoundOne(string folder, DatFileSource source) =>
-        $"Znaleziono grę w folderze {folder} ({SourceLabel(source)}). {Unchecked} Czy to Twoja instalacja LOTRO?";
+    public static string FoundOne(string folder, DatFileSource source, bool needsConfirmation) =>
+        $"Znaleziono grę w folderze {folder} ({SourceLabel(source)}). " +
+        (needsConfirmation ? $"{Unchecked} " : string.Empty) +
+        "Czy to Twoja instalacja LOTRO?";
 
     public static string FoundInstead(string lostFolder, string folder, DatFileSource source, bool needsConfirmation) =>
         $"W zapisanym folderze {lostFolder} nie ma już gry. Znaleziono ją w folderze {folder} ({SourceLabel(source)}). " +

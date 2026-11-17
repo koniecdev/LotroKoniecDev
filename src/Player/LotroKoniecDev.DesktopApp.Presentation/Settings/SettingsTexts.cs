@@ -43,7 +43,7 @@ internal static class SettingsTexts
     public const string PickerFailed = "Nie udało się otworzyć okna wyboru.";
 
     public static string TranslationFileMissing(string path) =>
-        $"Nie ma już pliku tłumaczenia {path}, więc program go pominął.";
+        $"Nie ma pliku tłumaczenia {path}. Program zostawia go w ustawieniach: podłącz dysk z tym plikiem albo zmień go w ustawieniach.";
 
     public static string NoGameIn(string folder) =>
         $"W folderze {folder} nie ma pliku {DatFileConstants.DatFileName}. Wskaż folder gry LOTRO.";

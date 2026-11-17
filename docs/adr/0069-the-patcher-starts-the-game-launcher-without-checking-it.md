@@ -170,8 +170,10 @@ planted launcher or library.
    list, the folder dialog or a save in the settings window. Until then the file keeps the old
    folder. A single bad value in the file drops only that value. When the app could not read the
    file, it is not a JSON object, or a value the app reads holds an escape that is not text, the app
-   starts from the defaults, so one known install found then is saved with no question, like on a
-   first run.
+   starts from the defaults. Its first save then moves the old file aside, and a file that could
+   not be read may only be locked for now, so the app asks before it saves a known install found
+   then, even one from the allow-list. A translation file the settings name that is gone at start
+   stays in the settings, because its drive may only be unplugged.
 4. **The risk, and who closes it.** Any program that runs as the player can change that file, and
    so point the app at a folder of its choice. Today nothing reaches the launcher or the DAT with it:
    Patch and Play stay disabled until #42. The app also writes the file as administrator in some
@@ -180,7 +182,9 @@ planted launcher or library.
    file sits in, so this is the same class as the installer's log on #42's list of same-user paths.
    A file the load could not use is moved aside before the next save, to a new random name next to
    it, never over an existing file; the temporary file of a save has a random name too. So nothing
-   can be placed in advance at a name the settings code writes, apart from `config.json` itself.
+   can be placed in advance at a name the settings code writes, apart from `config.json` itself. The
+   folder itself is the player's too: a program that runs as the player can swap it for a junction
+   that points somewhere else. #1456 reviews that with the rest of this item.
    The app's log, `LotroPoPolsku.log` (#41), is one more fixed name in that folder, open until #42.
    **Before Patch or Play uses the saved folder, #42 closes this read path (for example, settings
    that an elevated app reads from a folder only administrators can write), or the owner accepts it

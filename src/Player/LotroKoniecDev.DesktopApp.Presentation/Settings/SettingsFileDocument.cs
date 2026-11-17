@@ -17,5 +17,9 @@ internal sealed record SettingsFileDocument(
             settings.GameFolder,
             settings.TranslationFileOverride,
             settings.AutoPatchOnLaunch,
-            settings.ServerAddress == TmsConstants.DefaultBaseUrl ? null : settings.ServerAddress);
+            IsDefaultAddress(settings.ServerAddress) ? null : settings.ServerAddress);
+
+    /// <summary>The default typed without its slash or in capitals is still the default.</summary>
+    private static bool IsDefaultAddress(string address) =>
+        Uri.TryCreate(address, UriKind.Absolute, out Uri? uri) && uri == new Uri(TmsConstants.DefaultBaseUrl);
 }

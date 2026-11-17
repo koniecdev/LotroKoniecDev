@@ -229,15 +229,17 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
             return;
         }
 
+        // After a file the load could not use (it may only be locked for now), the first save moves it
+        // aside, so the player says yes to that save.
         DatFileLocation only = locations[0];
-        if (_lostFolder is null && !only.NeedsConfirmation)
+        if (_lostFolder is null && !only.NeedsConfirmation && !_store.HasUnusableFile)
         {
             UseOnItsOwn(FolderOf(only));
             return;
         }
 
         string prompt = _lostFolder is null
-            ? GameFolderTexts.FoundOne(FolderOf(only), only.Source)
+            ? GameFolderTexts.FoundOne(FolderOf(only), only.Source, only.NeedsConfirmation)
             : GameFolderTexts.FoundInstead(_lostFolder, FolderOf(only), only.Source, only.NeedsConfirmation);
         ShowPanel(prompt, only, []);
     }

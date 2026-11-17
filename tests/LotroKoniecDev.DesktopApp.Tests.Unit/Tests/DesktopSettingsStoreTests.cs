@@ -212,9 +212,9 @@ public sealed class DesktopSettingsStoreTests
     }
 
     [Fact]
-    public void Load_WithAMissingTranslationFile_DropsOnlyThatValue()
+    public void Load_WithAMissingTranslationFile_KeepsItAndSaysSo()
     {
-        // Arrange: the player deleted their own polish.txt. That is a normal act, not a broken file.
+        // Arrange: the file may be on a drive that is unplugged for now. That is a normal act, not a broken file.
         _builder.SettingsFile.Contents = ViewModelBuilder.SettingsJson(
             GameFolder, TranslationFile, autoPatch: false, serverAddress: "https://staging.tms.example.com/");
 
@@ -223,7 +223,55 @@ public sealed class DesktopSettingsStoreTests
 
         // Assert
         notes.ShouldBe([SettingsTexts.TranslationFileMissing(TranslationFile)]);
-        _builder.Store.Current.ShouldBe(new DesktopSettings(GameFolder, null, false, "https://staging.tms.example.com/"));
+        _builder.Store.Current.ShouldBe(new DesktopSettings(GameFolder, TranslationFile, false, "https://staging.tms.example.com/"));
+    }
+
+    [Fact]
+    public void Save_AfterTheTranslationFileWasMissing_KeepsItInTheFile()
+    {
+        // Arrange
+        _builder.SettingsFile.Contents = ViewModelBuilder.SettingsJson(GameFolder, TranslationFile);
+        _builder.Store.Load();
+        _builder.Store.Save(_builder.Store.Current with { AutoPatchOnLaunch = false });
+        _builder.Files.Add(TranslationFile);
+        DesktopSettingsStore reopened = new(_builder.SettingsFile, _builder.Files, NullLogger<DesktopSettingsStore>.Instance);
+
+        // Act
+        reopened.Load();
+
+        // Assert
+        reopened.Current.TranslationFileOverride.ShouldBe(TranslationFile);
+    }
+
+    [Fact]
+    public void Load_WithACommentAndATrailingComma_ReadsEveryValue()
+    {
+        // Arrange: a hand edit may leave either; neither is a bad value.
+        _builder.SettingsFile.Contents =
+            "{\n  // my staging server\n  \"autoPatch\": false,\n  \"serverAddress\": \"https://staging.tms.example.com/\",\n}";
+
+        // Act
+        IReadOnlyList<string> notes = _builder.Store.Load();
+
+        // Assert
+        notes.ShouldBeEmpty();
+        _builder.Store.Current.ShouldBe(new DesktopSettings(null, null, false, "https://staging.tms.example.com/"));
+    }
+
+    [Theory]
+    [InlineData(" https://staging.tms.example.com\t", "https://staging.tms.example.com/")]
+    [InlineData("HTTPS://Staging.TMS.example.com", "https://staging.tms.example.com/")]
+    public void Load_WithAnAddressUriAccepts_KeepsItsParsedForm(string address, string expected)
+    {
+        // Arrange
+        _builder.SettingsFile.Contents = ViewModelBuilder.SettingsJson(serverAddress: address);
+
+        // Act
+        IReadOnlyList<string> notes = _builder.Store.Load();
+
+        // Assert
+        notes.ShouldBeEmpty();
+        _builder.Store.Current.ServerAddress.ShouldBe(expected);
     }
 
     [Theory]
@@ -378,6 +426,18 @@ public sealed class DesktopSettingsStoreTests
         _builder.Store.Save(DesktopSettings.Default with { GameFolder = GameFolder });
 
         // Assert: a later change of the default then reaches every player.
+        _builder.SettingsFile.Contents.ShouldNotBeNull().ShouldNotContain("serverAddress");
+    }
+
+    [Theory]
+    [InlineData("https://tms.lotro-translator.pl")]
+    [InlineData("HTTPS://TMS.lotro-translator.pl/")]
+    public void Save_TheDefaultAddressSpelledAnotherWay_LeavesItOutOfTheFile(string address)
+    {
+        // Act
+        _builder.Store.Save(DesktopSettings.Default with { GameFolder = GameFolder, ServerAddress = address });
+
+        // Assert
         _builder.SettingsFile.Contents.ShouldNotBeNull().ShouldNotContain("serverAddress");
     }
 

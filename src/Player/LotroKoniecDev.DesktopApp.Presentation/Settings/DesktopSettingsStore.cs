@@ -29,6 +29,13 @@ public sealed partial class DesktopSettingsStore
         Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
     };
 
+    /// <summary>A comment or a trailing comma from a hand edit is not a bad value.</summary>
+    private static readonly JsonDocumentOptions HandEditOptions = new()
+    {
+        CommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true
+    };
+
     private static readonly string GameFolderField = FieldName(nameof(SettingsFileDocument.GameFolder));
     private static readonly string TranslationFileField = FieldName(nameof(SettingsFileDocument.TranslationFile));
     private static readonly string AutoPatchField = FieldName(nameof(SettingsFileDocument.AutoPatch));
@@ -37,21 +44,24 @@ public sealed partial class DesktopSettingsStore
     private readonly ISettingsFile _file;
     private readonly IFileProbe _probe;
     private readonly ILogger<DesktopSettingsStore> _logger;
-    private bool _mustSetAsideFile;
 
     /// <summary>Raised after every save, when the settings in use have changed, whether the write worked or not.</summary>
     public event EventHandler<SettingsSavedEventArgs>? Saved;
 
     public DesktopSettings Current { get; private set; } = DesktopSettings.Default;
 
+    /// <summary>The last load could not use the file, so the next save sets it aside first.</summary>
+    public bool HasUnusableFile { get; private set; }
+
     /// <summary>
     /// Reads the file into <see cref="Current"/> and never writes it. A saved game folder is kept even
-    /// when its game file is gone: the first-run panel asks before it replaces it.
+    /// when its game file is gone (the first-run panel asks before it replaces it), and so is a
+    /// translation file that is gone: its drive may only be unplugged for now.
     /// </summary>
     /// <returns>A Polish note for each value the load dropped.</returns>
     public IReadOnlyList<string> Load()
     {
-        _mustSetAsideFile = false;
+        HasUnusableFile = false;
         JsonDocument document;
         try
         {
@@ -61,7 +71,7 @@ public sealed partial class DesktopSettingsStore
                 return [];
             }
 
-            document = JsonDocument.Parse(_file.Read());
+            document = JsonDocument.Parse(_file.Read(), HandEditOptions);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -119,10 +129,10 @@ public sealed partial class DesktopSettingsStore
         bool written;
         try
         {
-            if (_mustSetAsideFile)
+            if (HasUnusableFile)
             {
                 _file.SetAside();
-                _mustSetAsideFile = false;
+                HasUnusableFile = false;
                 fileSetAside = true;
             }
 
@@ -163,7 +173,7 @@ public sealed partial class DesktopSettingsStore
     private IReadOnlyList<string> UseDefaultsInsteadOfTheFile(string note)
     {
         Current = DesktopSettings.Default;
-        _mustSetAsideFile = true;
+        HasUnusableFile = true;
         return [note];
     }
 
@@ -247,7 +257,6 @@ public sealed partial class DesktopSettingsStore
         {
             LogTranslationFileGone(_logger, path);
             notes.Add(SettingsTexts.TranslationFileMissing(path));
-            return null;
         }
 
         return path;
@@ -260,14 +269,15 @@ public sealed partial class DesktopSettingsStore
             return TmsConstants.DefaultBaseUrl;
         }
 
-        if (!TranslationServerAddress.IsAllowed(address))
+        if (!Uri.TryCreate(address, UriKind.Absolute, out Uri? uri) || !TranslationServerAddress.HasAllowedScheme(uri))
         {
             LogValueRefused(_logger, ServerAddressField);
             notes.Add(SettingsTexts.ServerAddressDropped);
             return TmsConstants.DefaultBaseUrl;
         }
 
-        return address;
+        // Uri ignores spaces around the address; the parsed form keeps the load and the save the same.
+        return uri.AbsoluteUri;
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The desktop app could not read its settings file; it uses the defaults")]
@@ -279,7 +289,7 @@ public sealed partial class DesktopSettingsStore
     [LoggerMessage(Level = LogLevel.Warning, Message = "The desktop app's settings file holds a value the app never writes ({Field}); the value is dropped")]
     private static partial void LogValueRefused(ILogger logger, string field);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "The translation file the settings name is gone ({Path}); the override is dropped")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "The translation file the settings name is gone ({Path}); the override is kept")]
     private static partial void LogTranslationFileGone(ILogger logger, string path);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The desktop app could not write its settings file")]

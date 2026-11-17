@@ -593,6 +593,16 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
     `BoundedContextIsolationTests` covers patcher Primitives/Domain/Application and the desktop app's
     Presentation only: Infrastructure, Cli and the desktop exe are `net10.0-windows`, so nothing
     mechanically blocks the next reference added there.
+- **A .NET major moves only in a PR of our own, never through Dependabot (#1444).** The repo stays
+  on .NET 10, an LTS release. .NET 11 is a short-term release whose support ends in November 2028,
+  the same month as .NET 10's, so moving buys no support time. The .NET 11 sdk and aspnet images
+  cannot run our .NET 10 apps, `dotnet ef` or the tests, and some .NET 11 packages break our build
+  (#1446). So `.github/dependabot.yml` ignores major updates of the `dotnet/*` images and of the
+  NuGet packages whose major follows .NET's; its comments say what that holds back. A PR that adds
+  a package checks it against that list: a package whose major follows .NET's must be covered, and
+  no pattern may catch a package with its own version line, or its major updates stop and nothing
+  shows it. The move is one PR that changes the target frameworks, the images, the SDK version CI
+  installs, those packages and every `dependabot.yml` entry that waits for the move.
 - **Docker restore layers are loud and gated (ADR-0028, amended).** Every Dockerfile that lists
   `.csproj` files must COPY the **full transitive closure** of the projects it restores, because
   `dotnet restore` skips a missing project file and still **exits 0**. Two defences: image builds

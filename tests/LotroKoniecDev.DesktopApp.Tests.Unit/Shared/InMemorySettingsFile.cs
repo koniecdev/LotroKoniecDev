@@ -7,7 +7,7 @@ internal sealed class InMemorySettingsFile : ISettingsFile
 {
     public string? Contents { get; set; }
 
-    /// <summary>What <see cref="SetAside"/> moved to <c>config.json.broken</c>.</summary>
+    /// <summary>What <see cref="SetAside"/> moved aside, as the real file moves it to a <c>config.json.broken.</c> name.</summary>
     public string? SetAsideContents { get; private set; }
 
     public Exception? ReadFailure { get; set; }

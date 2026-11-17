@@ -169,8 +169,8 @@ public sealed class DesktopSettingsFileTests : IDisposable
         // Act
         sut.SetAside();
 
-        // Assert
-        File.Exists($"{SettingsPath}.broken").ShouldBeFalse();
+        // Assert: not even the settings folder appears.
+        Directory.Exists(Path.GetDirectoryName(SettingsPath)!).ShouldBeFalse();
     }
 
     [Fact]

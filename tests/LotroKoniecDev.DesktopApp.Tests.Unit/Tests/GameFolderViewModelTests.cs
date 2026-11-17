@@ -330,6 +330,97 @@ public sealed class GameFolderViewModelTests
         viewModel.ChooseFolderCommand.CanExecute(null).ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartAsync_WithAnUnusableFileAndOneKnownInstall_SavesItAndSaysTheOldFileWasSetAside(bool unreadable)
+    {
+        // Arrange: the search returns at once here, so the save follows the load with no click.
+        const string broken = "{\"gameFolder\": \"D:\\\\Gry\", \"autoPatch\": false,}";
+        _builder.SettingsFile.Contents = broken;
+        if (unreadable)
+        {
+            _builder.SettingsFile.ReadFailure = new IOException("locked");
+        }
+
+        GameFolderViewModel viewModel = _builder.Locating(ViewModelBuilder.Location(KnownFolder, DatFileSource.StandingStoneGames)).GameFolder();
+
+        // Act
+        await viewModel.StartAsync();
+
+        // Assert
+        _builder.Store.Current.GameFolder.ShouldBe(KnownFolder);
+        _builder.SettingsFile.SetAsideContents.ShouldBe(broken);
+        viewModel.StatusText.ShouldBe(SettingsTexts.FileSetAside);
+    }
+
+    [Fact]
+    public async Task StartAsync_WithAnUnusableFileAndAFailedSave_KeepsTheNoteAndSaysTheSaveFailed()
+    {
+        // Arrange: the old file cannot be moved, so nothing was written and nothing moved.
+        _builder.SettingsFile.Contents = "{";
+        _builder.SettingsFile.SetAsideFailure = new IOException("locked");
+        GameFolderViewModel viewModel = _builder.Locating(ViewModelBuilder.Location(KnownFolder, DatFileSource.Steam)).GameFolder();
+
+        // Act
+        await viewModel.StartAsync();
+
+        // Assert
+        viewModel.StatusText.ShouldBe($"{SettingsTexts.FileBroken} {GameFolderTexts.SaveFailed}");
+        _builder.SettingsFile.Contents.ShouldBe("{");
+    }
+
+    [Fact]
+    public async Task StartAsync_WithADroppedValueAndOneKnownInstall_KeepsTheNoteAfterTheSave()
+    {
+        // Arrange: a save the player did not make must not hide what the load dropped.
+        _builder.SettingsFile.Contents = ViewModelBuilder.SettingsJson(serverAddress: "http://tms.example.com/");
+        GameFolderViewModel viewModel = _builder.Locating(ViewModelBuilder.Location(KnownFolder, DatFileSource.Registry)).GameFolder();
+
+        // Act
+        await viewModel.StartAsync();
+
+        // Assert
+        _builder.Store.Current.GameFolder.ShouldBe(KnownFolder);
+        viewModel.StatusText.ShouldBe(SettingsTexts.ServerAddressDropped);
+    }
+
+    [Fact]
+    public async Task SettingsSave_ThatFailsAfterALoadNote_KeepsTheNote()
+    {
+        // Arrange
+        ViewModelBuilder builder = ViewModelBuilder.WithASavedGame();
+        builder.SettingsFile.Contents = ViewModelBuilder.SettingsJson(
+            ViewModelBuilder.SavedGameFolder, serverAddress: "http://tms.example.com/");
+        GameFolderViewModel viewModel = builder.GameFolder();
+        await viewModel.StartAsync();
+        builder.SettingsFile.WriteFailure = new IOException("disk full");
+
+        // Act: the settings window shows its own error; the main window must keep the note.
+        builder.Store.Save(builder.Store.Current with { AutoPatchOnLaunch = false });
+
+        // Assert
+        viewModel.StatusText.ShouldBe(SettingsTexts.ServerAddressDropped);
+    }
+
+    [Fact]
+    public async Task SettingsSave_ThatFailsAfterTheOldFileWasSetAside_SaysWhereTheOldFileIs()
+    {
+        // Arrange
+        ViewModelBuilder builder = ViewModelBuilder.WithASavedGame();
+        builder.SettingsFile.Contents = "{";
+        GameFolderViewModel viewModel = builder.GameFolder();
+        await viewModel.StartAsync();
+        builder.SettingsFile.WriteFailure = new IOException("disk full");
+
+        // Act
+        builder.Store.Save(DesktopSettings.Default with { GameFolder = ViewModelBuilder.SavedGameFolder });
+
+        // Assert
+        viewModel.StatusText.ShouldBe(SettingsTexts.FileSetAside);
+        builder.SettingsFile.SetAsideContents.ShouldBe("{");
+    }
+
     [Fact]
     public async Task SettingsSave_AfterALoadNote_TakesTheNoteAway()
     {

@@ -358,17 +358,65 @@ public sealed class DesktopSettingsStoreTests
     }
 
     [Fact]
-    public void Save_Always_TellsTheListeners()
+    public void Save_ThatWorks_TellsTheListenersItWasWritten()
     {
         // Arrange
-        int changes = 0;
-        _builder.Store.Changed += (_, _) => changes++;
+        List<SettingsSavedEventArgs> saves = [];
+        _builder.Store.Saved += (_, e) => saves.Add(e);
 
         // Act
         _builder.Store.Save(DesktopSettings.Default with { GameFolder = GameFolder });
 
         // Assert
-        changes.ShouldBe(1);
+        saves.Select(e => (e.Written, e.FileSetAside)).ShouldBe([(true, false)]);
+    }
+
+    [Fact]
+    public void Save_ThatFails_TellsTheListenersAndTheSettingsInUseAreAlreadyNew()
+    {
+        // Arrange
+        _builder.SettingsFile.WriteFailure = new IOException("disk full");
+        DesktopSettings settings = DesktopSettings.Default with { GameFolder = GameFolder };
+        List<(bool Written, DesktopSettings Current)> saves = [];
+        _builder.Store.Saved += (_, e) => saves.Add((e.Written, _builder.Store.Current));
+
+        // Act
+        _builder.Store.Save(settings);
+
+        // Assert
+        saves.ShouldBe([(false, settings)]);
+    }
+
+    [Fact]
+    public void Save_AfterALoadThatCouldNotUseTheFile_TellsTheListenersTheFileWasSetAside()
+    {
+        // Arrange
+        _builder.SettingsFile.Contents = "{";
+        _builder.Store.Load();
+        List<SettingsSavedEventArgs> saves = [];
+        _builder.Store.Saved += (_, e) => saves.Add(e);
+
+        // Act
+        _builder.Store.Save(DesktopSettings.Default with { GameFolder = GameFolder });
+
+        // Assert
+        saves.Select(e => (e.Written, e.FileSetAside)).ShouldBe([(true, true)]);
+    }
+
+    [Fact]
+    public void Save_AfterAGoodLoadThatFollowedABadOne_SetsNothingAside()
+    {
+        // Arrange: the file was fixed between two loads, so the healthy file must stay.
+        _builder.SettingsFile.Contents = "{";
+        _builder.Store.Load();
+        _builder.SettingsFile.Contents = ViewModelBuilder.SettingsJson(GameFolder);
+        _builder.Store.Load();
+
+        // Act
+        _builder.Store.Save(DesktopSettings.Default with { GameFolder = GameFolder, AutoPatchOnLaunch = false });
+
+        // Assert
+        _builder.SettingsFile.SetAsideContents.ShouldBeNull();
     }
 
     [Theory]

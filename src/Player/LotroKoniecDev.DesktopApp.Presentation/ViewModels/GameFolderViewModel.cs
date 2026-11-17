@@ -32,6 +32,7 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
     private bool _isSearching;
     private bool _isScanDropped;
     private bool _isPicking;
+    private bool _isSavingOnItsOwn;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -145,7 +146,7 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
         ConfirmCommand = new DelegateCommand(Confirm, () => _offered is not null);
         DeclineCommand = new DelegateCommand(Decline, () => _offered is not null);
         ChooseFolderCommand = new DelegateCommand(() => _ = ChooseFolderAsync(), () => !_isPicking);
-        _store.Changed += OnSettingsChanged;
+        _store.Saved += OnSettingsSaved;
     }
 
     /// <summary>
@@ -231,7 +232,7 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
         DatFileLocation only = locations[0];
         if (_lostFolder is null && !only.NeedsConfirmation)
         {
-            Use(FolderOf(only));
+            UseOnItsOwn(FolderOf(only));
             return;
         }
 
@@ -257,13 +258,36 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
         ShowStatus(saved ? null : GameFolderTexts.SaveFailed);
     }
 
-    /// <summary>
-    /// A folder saved in the settings window ends the first run too. A save replaces the file the load
-    /// notes speak about, so they go.
-    /// </summary>
-    private void OnSettingsChanged(object? sender, EventArgs e)
+    /// <summary>The one save the player did not ask for: the load notes must outlive it.</summary>
+    private void UseOnItsOwn(string folder)
     {
-        _loadNotes = [];
+        _isSavingOnItsOwn = true;
+        try
+        {
+            Use(folder);
+        }
+        finally
+        {
+            _isSavingOnItsOwn = false;
+        }
+    }
+
+    /// <summary>
+    /// A folder saved in the settings window ends the first run too. A save the player made that worked
+    /// has replaced the file the load notes speak about, so they go. After any other save they stay,
+    /// except that a file moved aside is now said to be moved.
+    /// </summary>
+    private void OnSettingsSaved(object? sender, SettingsSavedEventArgs e)
+    {
+        if (e.Written && !_isSavingOnItsOwn)
+        {
+            _loadNotes = [];
+        }
+        else if (e.FileSetAside)
+        {
+            _loadNotes = [SettingsTexts.FileSetAside];
+        }
+
         ShowStatus(null);
 
         if (IsPanelVisible && _store.ContainsGame(_store.Current.GameFolder))
@@ -296,7 +320,7 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
         OnPanelChanged();
     }
 
-    /// <summary>The load notes stay on screen next to any later message.</summary>
+    /// <summary>The load notes stay on screen next to any later message, until the player's own save works.</summary>
     private void ShowStatus(string? message)
     {
         IEnumerable<string> lines = message is null ? _loadNotes : _loadNotes.Append(message);

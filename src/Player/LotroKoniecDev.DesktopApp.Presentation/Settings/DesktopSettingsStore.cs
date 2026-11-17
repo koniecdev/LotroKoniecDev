@@ -29,7 +29,8 @@ public sealed partial class DesktopSettingsStore
     private readonly ILogger<DesktopSettingsStore> _logger;
     private bool _mustSetAsideFile;
 
-    public event EventHandler? Changed;
+    /// <summary>Raised after every save, when the settings in use have changed, whether the write worked or not.</summary>
+    public event EventHandler<SettingsSavedEventArgs>? Saved;
 
     public DesktopSettings Current { get; private set; } = DesktopSettings.Default;
 
@@ -40,6 +41,7 @@ public sealed partial class DesktopSettingsStore
     /// <returns>A Polish note for each value the load dropped.</returns>
     public IReadOnlyList<string> Load()
     {
+        _mustSetAsideFile = false;
         SettingsFileDocument? document;
         try
         {
@@ -88,24 +90,28 @@ public sealed partial class DesktopSettingsStore
         ArgumentNullException.ThrowIfNull(settings);
 
         Current = settings;
-        Changed?.Invoke(this, EventArgs.Empty);
-
+        bool fileSetAside = false;
+        bool written;
         try
         {
             if (_mustSetAsideFile)
             {
                 _file.SetAside();
                 _mustSetAsideFile = false;
+                fileSetAside = true;
             }
 
             _file.Write(JsonSerializer.Serialize(SettingsFileDocument.From(settings), SerializerOptions));
-            return true;
+            written = true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             LogSaveFailed(_logger, ex);
-            return false;
+            written = false;
         }
+
+        Saved?.Invoke(this, new SettingsSavedEventArgs(written, fileSetAside));
+        return written;
     }
 
     /// <summary>

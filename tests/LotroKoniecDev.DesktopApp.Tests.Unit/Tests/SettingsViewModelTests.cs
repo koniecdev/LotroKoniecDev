@@ -106,6 +106,21 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void Save_WithOnlyTwoQuotesForTheTranslationFile_SavesNoOverride()
+    {
+        // Arrange
+        _builder.Files.AddGame(GameFolder);
+        SettingsViewModel viewModel = Editing(GameFolder, "\"\"", autoPatch: true, string.Empty);
+
+        // Act
+        bool saved = viewModel.Save();
+
+        // Assert
+        saved.ShouldBeTrue();
+        _builder.Store.Current.TranslationFileOverride.ShouldBeNull();
+    }
+
+    [Fact]
     public void Save_WithOneQuoteOnly_KeepsItAndRefusesThePath()
     {
         // Arrange

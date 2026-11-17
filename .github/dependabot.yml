@@ -46,16 +46,21 @@ updates:
         update-types: ["version-update:semver-major"]
       # The .NET band (#1444): packages whose major follows .NET's. A new .NET major comes in a PR of
       # our own (CLAUDE.md), because some 11.0 packages break our net10.0 build (#1446: CS0757).
-      # Minor and patch updates still come through the group above. dotnet/extensions ships nothing
-      # on 10.x after 11.0.0, so Caching.Hybrid, Http.Resilience and TimeProvider.Testing stay at
-      # 10.11.0 until that move. Caching.Hybrid 11.0.0 needs the 11.0.0 runtime packages; the other
-      # two would build on .NET 10 and are held so the whole family moves together (owner decision
-      # on #1444). To free one, replace `Microsoft.Extensions.*` with patterns that leave it out.
-      # This list may also hold back a security fix that exists only on a new major; NuGetAudit
-      # then fails the build. A pattern must not catch a package with its own version line: its
-      # major updates would stop, and nothing would show it. A new package whose major follows
-      # .NET's joins this list in the PR that adds it, unless a pattern here already covers it.
-      # dotnet-ef is here to stay on the EF Core major we run.
+      # Minor and patch updates still come through the group above, with these limits:
+      # - dotnet/extensions ships nothing on 10.x after 11.0.0, so Caching.Hybrid, Http.Resilience
+      #   and TimeProvider.Testing stay at 10.11.0 until the move. Caching.Hybrid 11.0.0 needs the
+      #   11.0.0 runtime packages. The other two would build on .NET 10; they are held so the family
+      #   moves together (the owner's answer on #1444 named Microsoft.Extensions.* 11). To free one,
+      #   replace `Microsoft.Extensions.*` with patterns that leave it out.
+      # - A security fix that exists only on a new major may be held too. NuGetAudit fails the
+      #   build only for a moderate or worse advisory.
+      # - Only our own references are covered: OpenTelemetry 1.21 still brings
+      #   System.Diagnostics.DiagnosticSource 11.0.0 with it.
+      # A package that a pattern catches must really follow .NET's major (Microsoft.AspNetCore.OData,
+      # on its own 9.x line, does not); otherwise narrow the pattern, or its major updates stop and
+      # nothing shows it. A band package that no pattern covers joins the list. dotnet-ef keeps the
+      # tool manifest on the EF Core major we run; the migrator images do not read the manifest yet
+      # (#1448).
       - dependency-name: "Microsoft.AspNetCore.*"
         update-types: ["version-update:semver-major"]
       - dependency-name: "Microsoft.EntityFrameworkCore*"
@@ -99,7 +104,8 @@ updates:
       # so they cannot run `dotnet ef`, the tests or our .NET 10 apps: the migrator build and the E2E
       # stacks fail with "You must install or update .NET". runtime-deps moves with them. A .NET
       # major comes in a PR of our own (CLAUDE.md). Digest refreshes of the 10.0 tags still come
-      # through the group above.
+      # through the group above. If a dotnet/* image with its own version line (such as
+      # aspire-dashboard) joins a Dockerfile, list the three images by name instead.
       - dependency-name: "dotnet/*"
         update-types: ["version-update:semver-major"]
 

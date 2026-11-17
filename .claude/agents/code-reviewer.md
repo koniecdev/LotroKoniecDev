@@ -337,8 +337,8 @@ after the findings table: `Fix-made defects: none`, or `Fix-made defects:` follo
 each Critical or Major whose defect one of those commits or resolutions wrote, with its commit, for
 example `Fix-made defects: #2 (abc1234)`. Never a count. A defect that was there before those
 commits is not fix-made, even when a commit rewrote the code around it. When you cannot tell, list
-it: that keeps round 4 closed. The caller reads this line to decide whether a confirmation round may
-run, and whether a new count must stop and ask the owner (`/ticket` step 7).
+it: in round 3 that keeps round 4 closed. The caller reads this line to decide whether a
+confirmation round may run, and whether a new count must stop and ask the owner (`/ticket` step 7).
 
 Then emit the **edge-case matrix** from Phase 6 — one row per (code path × applicable edge case):
 

@@ -474,30 +474,35 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
       no behavior;
     - no rebase since round 3 needed a conflict resolved (that changed reviewed code, so stop).
 
-    The fourth reviewer gets the brief above with round 3's list of commits and resolved files (so its
-    report carries a `Fix-made defects:` line too), "this is round 4" in place of "this is round 3",
-    plus "confirmation round: start at the round-3 fix and what it touches". Only its APPROVE goes on, as any APPROVE does: to
-    the second pass below when it applies (never a second run), and the report's `**Proof:**` then
-    names the round-3 finding, its `Fix-made defects` line and the proof, so the maintainer can
-    check that the round was allowed. **Anything else in round 4 (REQUEST CHANGES, NEEDS DISCUSSION,
-    a stall that one nudge does not fix, which gets no replacement), or no APPROVE after three
-    rounds when a check above fails → stop:** push the branch and report without a PR (step 8).
-    There is never a fifth round. Why: the cap is there for a review that does not end, where fixes
-    make new defects and every round finds as much as the one before. A review that is ending (one
-    last finding, not made by an earlier fix, its fix proven) would otherwise stop one round short,
-    and a new session would have to review the whole diff again and open the PR.
+    The fourth reviewer gets the brief above with the round-3 lines made again for round 4: "this is
+    round 4" in place of "this is round 3", and the list of commits and resolved files as it is now,
+    the round-3 fix included (so its report carries a `Fix-made defects:` line too). Add
+    "confirmation round: start at the round-3 fix and what it touches". Only its APPROVE goes on, as
+    any APPROVE does: to the second pass below when it applies (never a second run), and the
+    report's `**Proof:**` then names the round-3 finding, its `Fix-made defects` line and the proof,
+    so the maintainer can check that the round was allowed. **Anything else in round 4 (REQUEST
+    CHANGES, NEEDS DISCUSSION, a stall that one nudge does not fix, which gets no replacement), or
+    no APPROVE after three rounds when a check above fails → stop:** push the branch and report
+    without a PR (step 8). There is never a fifth round. Why: the cap is there for a review that
+    does not end, where fixes make new defects and every round finds as much as the one before. A
+    review that is ending (one last finding, not made by an earlier fix, its fix proven) would
+    otherwise stop one round short, and a new session would have to review the whole diff again and
+    open the PR.
 
-    **A new session that picks up a ticket branch with an earlier run's commits and no PR counts its
-    review rounds from 1 again** (owner decision on #45, 2026-11-17), whether the earlier run pushed
-    the branch or not. Its round 1 reviews the whole `origin/main...HEAD` diff, not only the commits
-    nobody reviewed. Its brief names the earlier rounds and the findings they left alone, as the
-    earlier run's last report on the issue lists them. The second pass runs again after its APPROVE.
+    **When a new session picks up a ticket branch that already holds an earlier run's commits and
+    has no PR, it counts its review rounds from 1 again** (owner decision on #45, 2026-11-17). This
+    holds whether the earlier run pushed the branch or not. Its round 1 reviews the whole
+    `origin/main...HEAD` diff, not only the commits nobody reviewed. Its brief names the earlier
+    rounds and the findings that run left alone, as its last report on the issue lists them, when
+    there is one. The second pass runs again after its APPROVE.
 
     When this count ends with no APPROVE and its last report's `Fix-made defects:` line names a
-    defect, the fixes keep making new defects. Stop as above. Under **Doubts**, ask the owner to look
-    at the design, with "Answer in a comment that starts with `**Owner decision:**`." as the last
-    line. After such a stop, no session reviews the branch again until an `Owner decision` comment
-    (step 2's test) newer than that report answers it.
+    defect, the fixes keep making new defects. Stop as above. Under **Doubts**, name those defects
+    and the fixes that wrote them, and ask the owner to look at the design, with "Answer in a
+    comment that starts with `**Owner decision:**`." as the last line. After such a stop, no session
+    reviews the branch again until an `Owner decision` comment (step 2's test) that is newer than
+    that stop's report comment answers it. A session that finds no such answer stops before any new
+    work and says that the answer is still open.
   - **Trust a verdict only after you check its file:** it exists, it is newer than the commit it
     names, and that commit is `HEAD` or differs from it only by Minor fixes, the second pass's
     bucket-1 fixes (below) or a rebase with no conflict (step 8), with the gates green again (step

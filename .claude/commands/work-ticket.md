@@ -170,8 +170,9 @@ everything that matters must be committed and pushed.
      first), or no APPROVE after the last round `/ticket` step 7 allows** → `STATUS: BLOCKED`
      (category: red-build or review-unclean) with the reason. This replaces `/ticket`'s "push the
      branch and report without a PR": push nothing. Never push broken work. When `/ticket` step 7's
-     new-count rule makes the review stop and ask the owner to look at the design, that ask goes
-     under `QUESTIONS` in step 1's shape, and the block stays review-unclean.
+     new-count rule makes you stop and ask the owner to look at the design, that ask goes under
+     `QUESTIONS`: the fix-made defects, the fixes that wrote them, and the ask itself, ending with
+     step 1's `Owner decision` line. The block stays review-unclean.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish
    line: once it passes, commit any remaining (Minor) fixes and re-run the gates, sync with
    `origin/main` again, run `gate-runner` on the commit you push unless the last

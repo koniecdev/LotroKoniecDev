@@ -169,8 +169,9 @@ planted launcher or library.
    is replaced only after the player says so: a Tak/Nie that names both folders, a pick from the
    list, the folder dialog or a save in the settings window. Until then the file keeps the old
    folder. A single bad value in the file drops only that value. When the app could not read the
-   file, it is not a JSON object, or it holds an escape that is not text, the app starts from the
-   defaults, so one known install found then is saved with no question, like on a first run.
+   file, it is not a JSON object, or a value the app reads holds an escape that is not text, the app
+   starts from the defaults, so one known install found then is saved with no question, like on a
+   first run.
 4. **The risk, and who closes it.** Any program that runs as the player can change that file, and
    so point the app at a folder of its choice. Today nothing reaches the launcher or the DAT with it:
    Patch and Play stay disabled until #42. The app also writes the file as administrator in some

@@ -120,6 +120,7 @@ public sealed class DesktopSettingsStoreTests
     [InlineData("{\"translationFile\":\"a\\uDC00b\",\"autoPatch\":false}")]
     [InlineData("{\"serverAddress\":\"https://\\uD800.example.com/\",\"autoPatch\":false}")]
     [InlineData("{\"game\\uD800Folde\":1,\"autoPatch\":false}")]
+    [InlineData("{\"auto\\uD800Patc\":1}")]
     public void Load_WithAnEscapeThatIsNotText_GivesTheDefaultsAndSaysSo(string contents)
     {
         // Arrange: a lone surrogate escape parses, but no value or field name can be read from it.

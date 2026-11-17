@@ -11,8 +11,8 @@ namespace LotroKoniecDev.DesktopApp.Presentation.Settings;
 /// <summary>
 /// The settings the first-run panel and the settings window share. The file is input from outside our
 /// trust boundary (ADR-0067 §7), so every value is checked on its own when it is read, its JSON kind
-/// included, and one bad value never wipes the others. Only a file that is not a JSON object, or that
-/// holds an escape which is not text, gives the defaults.
+/// included, and one bad value never wipes the others. Only a file that cannot be read, is not a JSON
+/// object, or has an escape that is not text in a value the app reads gives the defaults.
 /// </summary>
 /// <remarks>
 /// Log levels follow the Warning rule (#977): a value only a hand edit or tampering can produce is a

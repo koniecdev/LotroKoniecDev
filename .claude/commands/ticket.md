@@ -485,6 +485,14 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     make new defects and every round finds as much as the one before. A review that is ending (one
     last finding, not made by an earlier fix, its fix proven) would otherwise stop one round short,
     and a new session would have to run that round and open the PR.
+
+    **A new session on a branch an earlier run pushed without a PR counts from round 1 again**
+    (owner decision on #45, 2026-11-17). Its round 1 reviews the whole `origin/main...HEAD` diff, not
+    only the commits nobody reviewed, and its brief names the earlier rounds and the findings they
+    left alone. That new count happens once. When it too ends with no APPROVE and a `Fix-made
+    defects:` line that names a defect, the fixes keep making new defects: stop as above, and under
+    **Doubts** ask the owner to look at the design. No later session starts a third count until the
+    owner has answered.
   - **Trust a verdict only after you check its file:** it exists, it is newer than the commit it
     names, and that commit is `HEAD` or differs from it only by Minor fixes, the second pass's
     bucket-1 fixes (below) or a rebase with no conflict (step 8), with the gates green again (step

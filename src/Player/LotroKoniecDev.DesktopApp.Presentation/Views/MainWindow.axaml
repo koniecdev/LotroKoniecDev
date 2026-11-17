@@ -20,6 +20,46 @@
             <TextBlock Grid.Row="2" Grid.Column="1" Name="PatchVersionText" Text="{Binding PatchVersion}" />
         </Grid>
 
+        <!-- The first run (#43): hidden while a saved folder holds the game. -->
+        <StackPanel Name="GameFolderPanel" Spacing="8" IsVisible="{Binding GameFolder.IsPanelVisible}">
+            <TextBlock Name="GameFolderPromptText" Text="{Binding GameFolder.PromptText}" TextWrapping="Wrap" />
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="16" IsVisible="{Binding GameFolder.IsQuestionVisible}">
+                <Button Grid.Column="0" Name="ConfirmGameFolderButton" Content="Tak"
+                        Command="{Binding GameFolder.ConfirmCommand}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                <Button Grid.Column="1" Name="DeclineGameFolderButton" Content="Nie"
+                        Command="{Binding GameFolder.DeclineCommand}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+            </Grid>
+            <ItemsControl Name="GameFolderCandidates" ItemsSource="{Binding GameFolder.Candidates}"
+                          IsVisible="{Binding GameFolder.IsCandidateListVisible}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:GameFolderCandidateViewModel">
+                        <Button Command="{Binding ChooseCommand}" Margin="0,0,0,6"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="{Binding Folder}" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding SourceLabel}" FontSize="12" Opacity="0.7" />
+                                <TextBlock Text="{Binding Warning}" IsVisible="{Binding HasWarning}"
+                                           FontSize="12" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Button Name="ChooseGameFolderButton" Content="Wybierz folder gry…"
+                    Command="{Binding GameFolder.ChooseFolderCommand}"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+        </StackPanel>
+        <TextBlock Name="GameFolderStatusText" Text="{Binding GameFolder.StatusText}"
+                   IsVisible="{Binding GameFolder.IsStatusVisible}" TextWrapping="Wrap" />
+
+        <!-- Always on screen, so the player reads both before Play (spec 0011 LEGAL-12, ADR-0069 §3). -->
+        <StackPanel Spacing="6" Opacity="0.7">
+            <TextBlock Name="RiskNoticeText" Text="{Binding RiskNotice}" FontSize="11" TextWrapping="Wrap" />
+            <TextBlock Name="LauncherNoticeText" Text="{Binding LauncherNotice}" FontSize="11" TextWrapping="Wrap" />
+        </StackPanel>
+
         <!-- Disabled until #42 wires them, so a click never looks like it did something. -->
         <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
             <Button Grid.Column="0" Name="PatchButton" Content="Patch" IsEnabled="False"
@@ -34,5 +74,7 @@
             <TextBlock Grid.Column="1" Name="ProgressText" MinWidth="36" TextAlignment="Right"
                        Text="{Binding Progress.Percent, StringFormat='{}{0}%'}" VerticalAlignment="Center" />
         </Grid>
+
+        <Button Name="SettingsButton" Content="Ustawienia" Click="OnSettingsClick" HorizontalAlignment="Right" />
     </StackPanel>
 </Window>

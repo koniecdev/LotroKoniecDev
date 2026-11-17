@@ -742,7 +742,7 @@ code {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 22px;
-    align-items: start;
+    align-items: stretch;
 }
 
 .steps {
@@ -785,21 +785,14 @@ code {
     font-size: 12.5px;
 }
 
+/* The font and colours come from .home-tech, the block the note sits in. */
 .risk-note {
     margin: 14px 0 0;
-    color: var(--text-dim);
-    font-size: 12.5px;
     line-height: 1.6;
 }
 
 .risk-note a {
-    color: var(--text-dim);
     text-decoration: underline;
-    transition: color .15s;
-}
-
-.risk-note a:hover {
-    color: var(--accent-hi);
 }
 
 /* On a screen taller than the page, the band stays on top of the footer instead of above a gap. */

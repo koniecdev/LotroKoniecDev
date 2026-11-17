@@ -167,19 +167,24 @@ planted launcher or library.
    `%AppData%\LotroPoPolsku\config.json` and uses it on later starts with no question: the player
    chose it or confirmed it, or it came from the allow-list. A saved folder that lost its game file
    is replaced only after the player says so: a Tak/Nie that names both folders, a pick from the
-   list, or the folder dialog. Until then the file keeps the old folder.
+   list, the folder dialog or a save in the settings window. Until then the file keeps the old
+   folder. When the app could not read or parse the file, it starts from the defaults, so one known
+   install found then is saved with no question, like on a first run.
 4. **The risk, and who closes it.** Any program that runs as the player can change that file, and
    so point the app at a folder of its choice. Today nothing reaches the launcher or the DAT with it:
    Patch and Play stay disabled until #42. The app also writes the file as administrator in some
    runs: right after each install or update (#45's installer starts it with `runascurrentuser`),
    and on every start once #42 adds `requireAdministrator`. The player can write to the folder the
    file sits in, so this is the same class as the installer's log on #42's list of same-user paths.
+   A file the load could not use is moved aside before the next save, to a new random name next to
+   it, never over an existing file; the temporary file of a save has a random name too. So nothing
+   can be placed in advance at a name the app writes, apart from `config.json` itself.
    **Before Patch or Play uses the saved folder, #42 closes this read path (for example, settings
    that an elevated app reads from a folder only administrators can write), or the owner accepts it
    in an amendment to this ADR.**
 5. **The notice.** The main window always shows the LEGAL-12 risk note and the app's own launcher
-   notice, in the CLI's order. From #42 on, the app runs as administrator (owner decision 4 on
-   #43), so the launcher it starts already has those rights. Its text therefore leaves out the CLI's clause that
+   notice, in the CLI's order. From #42 on, the app runs as administrator (owner decision 4
+   on #43), so the launcher it starts already has those rights. Its text therefore leaves out the CLI's clause that
    the launcher asks for admin rights itself. `NOTICE` now describes both programs. So §3's "both
    are also in the `NOTICE` file" and the Implementation Notes' "the same text in `NOTICE`" no
    longer hold word for word: `NOTICE` carries what both texts say, not either text exactly.

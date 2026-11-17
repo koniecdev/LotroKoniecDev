@@ -9,6 +9,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="Avalonia.Fonts.Inter" />
         <PackageReference Include="Avalonia.Headless" />
         <PackageReference Include="coverlet.collector">
             <PrivateAssets>all</PrivateAssets>

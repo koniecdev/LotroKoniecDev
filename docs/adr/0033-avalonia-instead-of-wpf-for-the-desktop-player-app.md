@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-12
 **Decision-makers:** Solo maintainer
-**Related:** M4 milestone (epic #472; tickets #41, #42, #43, #45, #46 — all not started), ADR-0001 §2 (handler consumers), `docs/knowledge-base/russian-project.md`
+**Related:** M4 milestone (epic #472; tickets #41–#46), ADR-0001 §2 (handler consumers), `docs/knowledge-base/russian-project.md`
 
 ## Context
 
@@ -160,6 +160,23 @@ or the Cli, and, like the rest of the patcher, never reaches the TMS.
 **Tests follow the same line.** `DesktopApp.Tests.Unit` runs the real windows on Avalonia's headless
 platform, on any OS. The composition root needs the x86 Windows graph, so its test lives in the
 Windows-only `Tests.Infrastructure` suite.
+
+## Amendment (2026-11-17) — every text in the app is Polish
+
+**Ticket:** #43 (M4-03), owner decision of 2026-11-16 on #43, points 1 and 2.
+
+Every text the app shows is Polish: windows, panels, buttons, dialog titles, errors and notices.
+There is no language switch, because Polish is the only language (YAGNI). The texts are constants
+next to the view model that shows them (`GameFolderTexts`, `SettingsTexts`, `PlayerNotices`), not
+resource files, for the same reason.
+
+The patcher's own texts stay English, because they are for the log and the CLI: the locator's
+install names and progress lines, and the `DomainErrors` messages. The app never shows them. It
+turns each case into its own Polish text.
+
+The English labels #41 put in the main window (Status, Game version, Patch version, Patch, Play)
+stay until #42, which wires those buttons and replaces the labels (owner decision 1 on #42). #42 also
+adds `requireAdministrator` to the manifest and records it in this ADR.
 
 ## References
 

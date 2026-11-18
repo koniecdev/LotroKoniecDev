@@ -215,10 +215,19 @@ the amendment of 2026-11-17.
    exe's folder (`AppContext.BaseDirectory`):
    - `data\`: `config.json` and `LotroPoPolsku.log`;
    - `updates\`: one folder per downloaded installer, and the installer's `update-install.log`;
-   - from #42 on, the downloaded `polish.txt` with its sidecars (`.etag`, `.endpoint`, `.ledger`,
-     `.iterations`) and `last_known_game_version.txt`, under `data\`. The rule: no elevated write
-     next to a path the player chose. When the settings name a translation file of the player's,
-     the app may read it, but its sidecars stay in `data\`; #42 names those files (ADR-0047 §4).
+   - from #42 on, Patch and Play's files, all under `data\`. The patcher writes its small files
+     next to the translation file it reads, so the app gives it only paths in `data\`:
+     - `download\polish.txt` with `.etag` and `.endpoint`: the download from the server;
+     - `polish.txt` with `.ledger` and `.iterations`: the working copy every patch reads. Each run
+       copies the download, or the player's own translation file read as it is, over it, through a
+       temp file with a random name in `data\`;
+     - `last_known_game_version.txt`, the version and the hash of the last patch, and
+       `patched_game_file.txt`, the game file they belong to. When the game file changes, the
+       version file is deleted and the next patch applies the whole file.
+
+     The rule: no elevated write next to a path the player chose. The player's own translation file
+     is only read, and nothing is written next to it. One working copy means one ledger for both
+     sources, so switching between them never leaves rows as `source moved` (ADR-0047 §4).
 
    Installed, that folder is `{autopf}\LotroPoPolsku`, under Program Files (x86). Windows' default
    rights there let only administrators create, change or delete anything, and a folder the

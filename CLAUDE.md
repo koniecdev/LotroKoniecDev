@@ -946,8 +946,10 @@ this repo's settings and their reasons are in `docs/claude-loop.md`.
   amendment). #45 adds the Inno Setup installer, its release workflow and the update at start (spec
   0016). #1464 makes the app ask for admin rights at start and keeps everything it writes under its
   own folder (`data\`, `updates\`), which only administrators can change under Program Files; one
-  copy runs per PC (ADR-0069 amendment of 2026-11-18). #42 is open; #46 is closed (its tests ship
-  with each ticket). A
+  copy runs per PC (ADR-0069 amendment of 2026-11-18). #42 is done: Patch and Play work on the app's
+  own copy of the translation file in `data\`, Patch shares the launch's patch steps
+  (`IPatchIfNeededService`), and every label is Polish (ADR-0033 amendment of 2026-11-18, "Patch and
+  Play"). #46 is closed (its tests ship with each ticket). A
   GUI over the patcher handlers + the same TMS auto-download the CLI ships. The MVP is Windows-only,
   but the framework keeps the Steam Deck/Proton path open (WPF would close it).
 - **Post-MVP backlog (cut from MVP):** glossary, `TranslationHistory`, bulk operations, keyboard

@@ -27,7 +27,7 @@ Full project inventory (17 projects):
 | `LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` | TMS domain unit | nothing (pure); Stryker target |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handlers, auth and endpoints (fake read DbContext, stub accessor and provisioner), and the account event consumer's pauses on a fake clock (#1223) | nothing (pure) |
 | `LotroKoniecDev.Frontend.Tests.Unit` | Blazor SSR components and infrastructure (bUnit) | nothing (pure) |
-| `LotroKoniecDev.DesktopApp.Tests.Unit` | desktop app UI (#41, #43, #45): the view models (incl. the progress bar the patcher handlers report to, the busy gate and the update panel, the first-run search and its questions, the settings and their store over an in-memory `config.json`), the dialog adapter's answers when no dialog can open, the main window and settings window layouts and the splash hand-over, on Avalonia's headless platform; the one-running-copy rule over a fake mutex opener (#1464) | nothing (no screen; runs on Linux too) |
+| `LotroKoniecDev.DesktopApp.Tests.Unit` | desktop app UI (#41, #43, #45): the view models (incl. the progress bar the patcher handlers report to, the busy gate and the update panel, the first-run search and its questions, the settings and their store over an in-memory `config.json`, and Patch and Play over stubbed handlers, #42), the dialog adapter's answers when no dialog can open, the main window and settings window layouts, a run's disabled buttons, bar and refused close, and the splash hand-over, on Avalonia's headless platform; the one-running-copy rule over a fake mutex opener (#1464) | nothing (no screen; runs on Linux too) |
 | `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api: startup settings checks, handlers, middleware, pages, services, outbox and inbox, seed retry policy, when the timed jobs run (#948) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
 | `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |
@@ -248,9 +248,10 @@ stops violating, so the list cleans itself.
 Tests of the patcher's cross-platform adapters (`LotroKoniecDev.Infrastructure`, `net10.0`; ADR-0033,
 2026-11-18 amendment): the sidecar stores (ledger, file cache, iteration snapshot), the check of why
 the game file refuses a write (Read-only flag, a missing file), the network adapters (downloader,
-discovery client, forum fetcher, the desktop app's GitHub release client) and the desktop update's
-download folders (#45). The network tests drive the adapters' integrity, response-size and timeout
-checks over an in-memory stub `HttpMessageHandler`, with no real network. A test that asserts on
+discovery client, forum fetcher, the desktop app's GitHub release client), the desktop update's
+download folders (#45) and Patch and Play's copies of the translation file (#42). The network tests
+drive the adapters' integrity, response-size and timeout checks over an in-memory stub
+`HttpMessageHandler`, with no real network. A test that asserts on
 real file output belongs here or in `Tests.Infrastructure`, never in `Tests.Unit`.
 `InfrastructureDependencyInjectionTests` builds Application and `AddInfrastructureServices()` with
 validation on and stand-ins for the five Windows ports, and resolves every patcher handler. It runs
@@ -271,7 +272,8 @@ Desktop app suites sit here too, because only this Windows suite can load the x8
 `DesktopAppDependencyInjectionTests` builds its composition root with the real adapters,
 `DesktopAppManifestTests` reads the built `LotroPoPolsku.exe`, `DesktopSettingsFileTests`
 saves and reads `config.json` and checks files on the real disk, `DesktopAppDataFolderTests`
-checks that the app keeps its files under the exe's folder (#1464), and
+checks that the app keeps its files under the exe's folder (#1464), `DesktopAppLogTemplateTests`
+that every log line carries its date (#42), and
 `DesktopAppRunningMutexTests` checks the Windows mutex answers behind the one-copy rule.
 
 The project targets `net10.0-windows` with an x86 `PlatformTarget`. It builds everywhere and

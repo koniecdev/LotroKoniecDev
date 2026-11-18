@@ -195,6 +195,36 @@ call shown before Avalonia starts. Wine has `MessageBoxW`, so the Proton path in
 For developers, `dotnet run` and Rider's Run of the app need an elevated session from now on;
 otherwise Windows refuses to start it (error 740).
 
+## Amendment (2026-11-18) — Patch and Play
+
+**Ticket:** #42 (M4-02); owner decisions on #42 of 2026-11-16 and 2026-11-18.
+
+- **The view model composes the steps itself**, as the CLI's `launch` composes the sync and the
+  launch: the download (`SyncTranslationFileCommand`), the app's copy of the translation file, then
+  `PatchIfNeededCommand` for Patch or `GameLaunchingCommand` for Play. §3 holds: the handlers are
+  injected closed. The view model also injects three ports where no rule needs a handler:
+  `IGameProcessDetector` and `IGameLauncher` for Play with auto-patch off, and
+  `IDesktopPatchWorkspace` for the copies under `data\`, as `GameFolderViewModel` injects
+  `IDatFileLocator`.
+- **Patch runs the launch's patch steps without the launch.** The steps that patch when the
+  translation file changed, and otherwise repair the subfiles a game update replaced (spec 0012
+  Tier 0), moved out of `SimplifiedGameLaunchingStrategy` into `IPatchIfNeededService`. The launch
+  calls it with no progress, so the CLI prints what it printed before; the Patch button passes the
+  progress bar.
+- **With auto-patch off, Play uses no translation file.** It checks that the game is not running and
+  starts the launcher: no download, no copy, no Tier 0 repair. Owner decision 3 of 2026-11-18 (a
+  missing override stops Patch and Play) is about a file the run uses, so it does not stop this
+  Play.
+- **The game's exit is not tracked.** The launch does not wait for the game (the settled flow), so
+  Play's last status says that the launcher started, and the buttons come back at once.
+- **The player's close waits for a run.** Closing the last window ends the app, and the end of its
+  one scope disposes the game file's handler, which closes the native handles while a write may
+  still be going. So the main window refuses the player's close during Patch or Play, with a Polish
+  line. A close during an update download is not refused, and the update's own shutdown is not a
+  window close.
+- **The busy gate covers every write:** Patch, Play, the update, the settings window's save and the
+  first-run panel's save.
+
 ## Amendment (2026-11-18) — the patcher Infrastructure is two projects
 
 **Ticket:** #1321 (M4-07).

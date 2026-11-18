@@ -248,6 +248,23 @@ public sealed class DesktopPatchWorkspaceTests : IDisposable
     }
 
     [Fact]
+    public void UseTranslationFile_TheDataFolderCannotBeCreated_ReturnsAFileSystemErrorThatNamesTheDataFolder()
+    {
+        // Arrange: a file where the data folder should be.
+        DesktopPatchWorkspace sut = new(DataFolder);
+        string playersFile = WritePlayersFile("polish.txt", "content");
+        File.WriteAllText(DataFolder, "not a folder");
+
+        // Act
+        Result result = sut.UseTranslationFile(playersFile);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe(DomainErrors.DesktopPatchWorkspace.FileSystemErrorCode);
+        result.Error.Message.ShouldContain(Path.GetFullPath(DataFolder));
+    }
+
+    [Fact]
     public void ResetPatchStateIfGameFileChanged_NoMarkerYet_DeletesTheStoredVersionAndRecordsTheGameFile()
     {
         // Arrange: a version file with no marker was saved for a game file nobody recorded.

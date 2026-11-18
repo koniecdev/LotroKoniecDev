@@ -86,7 +86,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        int frameHeight = (int)Math.Ceiling((ClientSize.Height + TitleBarHeight()) * DesktopScaling);
+        int frameHeight = (int)Math.Ceiling((FrameSize ?? ClientSize).Height * DesktopScaling);
         int top = ScreenFit.FitTop(workArea, Position.Y, frameHeight);
         if (top != Position.Y)
         {

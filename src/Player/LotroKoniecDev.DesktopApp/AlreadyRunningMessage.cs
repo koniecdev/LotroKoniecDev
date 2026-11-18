@@ -12,7 +12,7 @@ internal static partial class AlreadyRunningMessage
     internal const string Caption = "LOTRO po Polsku już działa";
 
     internal const string Text =
-        "LOTRO po Polsku jest już uruchomione. Jeśli nie widzisz jego okna, program działa na innym koncie Windows na tym komputerze.";
+        "LOTRO po Polsku jest już uruchomione. Jego okno może być zminimalizowane albo otwarte na innym koncie Windows na tym komputerze.";
 
     private const uint IconInformation = 0x00000040;
     private const uint SetForeground = 0x00010000;

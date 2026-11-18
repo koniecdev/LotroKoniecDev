@@ -27,6 +27,11 @@ public sealed class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // Whoever starts the elevated app picks its working folder, and a path relative to it (the
+        // locator's data\ probe, a library Windows looks up there) must not land in the player's
+        // folder (ADR-0069 amendment of 2026-11-18).
+        Environment.CurrentDirectory = AppContext.BaseDirectory;
+
         // Before the logger and Avalonia, so a second copy writes nothing and opens no window.
         using RunningCopyClaim runningCopy = RunningCopyClaim.Create(new WindowsRunningMutexOpener());
         if (runningCopy.IsRefused)

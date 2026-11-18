@@ -10,9 +10,20 @@ namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 /// change once the app is installed under Program Files. Nothing goes to the player's AppData or temp
 /// folder, which any program of that player can change.
 /// </summary>
-public sealed class DesktopAppDataFolderTests
+public sealed class DesktopAppDataFolderTests : IDisposable
 {
     private static readonly string ExeFolder = AppContext.BaseDirectory;
+
+    private readonly string _updatesFolder = Path.Combine(ExeFolder, "updates");
+    private readonly bool _updatesFolderExisted;
+
+    public void Dispose()
+    {
+        if (!_updatesFolderExisted && Directory.Exists(_updatesFolder))
+        {
+            Directory.Delete(_updatesFolder, recursive: true);
+        }
+    }
 
     [Fact]
     public void SettingsFilePath_TheAppsSettings_SitInTheDataFolderNextToTheExe()
@@ -40,15 +51,20 @@ public sealed class DesktopAppDataFolderTests
         // Arrange
         using ServiceProvider serviceProvider = DesktopAppDependencyInjection.BuildServiceProvider();
         IAppUpdateWorkspace sut = serviceProvider.GetRequiredService<IAppUpdateWorkspace>();
-        string updatesFolder = Path.Combine(ExeFolder, "updates");
 
         // Act
         Result<string> downloadFolder = sut.CreateDownloadFolder();
         Result<string> installerLog = sut.PrepareInstallerLogPath();
-        sut.DeleteDownloadFolder(downloadFolder.Value);
 
         // Assert
-        Path.GetDirectoryName(downloadFolder.Value).ShouldBe(updatesFolder);
-        installerLog.Value.ShouldBe(Path.Combine(updatesFolder, "update-install.log"));
+        downloadFolder.IsSuccess.ShouldBeTrue();
+        installerLog.IsSuccess.ShouldBeTrue();
+        Path.GetDirectoryName(downloadFolder.Value).ShouldBe(_updatesFolder);
+        installerLog.Value.ShouldBe(Path.Combine(_updatesFolder, "update-install.log"));
+    }
+
+    public DesktopAppDataFolderTests()
+    {
+        _updatesFolderExisted = Directory.Exists(_updatesFolder);
     }
 }

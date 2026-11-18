@@ -63,9 +63,10 @@ public sealed class DesktopAppRunningMutexTests
     }
 
     [Fact]
-    public void Open_ANameWhoseAccessListRefusesUs_IsRefusedInsteadOfThrowing()
+    public void Open_AMutexWhoseAccessListRefusesUs_SaysItAlreadyExistsInsteadOfThrowing()
     {
-        // Arrange: another program's mutex under the name, with an access list that lets nobody open it.
+        // Arrange: a mutex under the name, with an access list that lets nobody open it, as a copy in
+        // another account may hold it.
         string name = $"LotroPoPolsku_Test_{Guid.NewGuid():N}";
         MutexSecurity security = new();
         security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
@@ -80,7 +81,7 @@ public sealed class DesktopAppRunningMutexTests
         RunningMutexAttempt attempt = sut.Open(name);
 
         // Assert: a throw here would end the app before its logger exists, with no trace.
-        attempt.State.ShouldBe(RunningMutexState.Refused);
+        attempt.State.ShouldBe(RunningMutexState.AlreadyExists);
         attempt.Handle.ShouldBeNull();
     }
 }

@@ -68,6 +68,23 @@ public sealed class RunningCopyClaimTests
         opener.Handles.ShouldAllBe(handle => handle.IsDisposed);
     }
 
+    [Fact]
+    public void Create_AGlobalMutexTheAppMayNotOpen_RefusesTheStart()
+    {
+        // Arrange: Windows answers "exists" with no handle when its access list keeps the app out.
+        RunningMutexAttemptOpener opener = new(
+            new RunningMutexAttempt(RunningMutexState.AlreadyExists, Handle: null),
+            new RunningMutexAttempt(RunningMutexState.Created, new FakeRunningMutexOpener.FakeHandle()));
+
+        // Act
+        using RunningCopyClaim claim = RunningCopyClaim.Create(opener);
+
+        // Assert
+        claim.IsRefused.ShouldBeTrue();
+        claim.GlobalHeld.ShouldBeFalse();
+        claim.LocalHeld.ShouldBeFalse();
+    }
+
     [Theory]
     [InlineData(RunningMutexState.Created, RunningMutexState.Created, true, true)]
     [InlineData(RunningMutexState.Refused, RunningMutexState.Created, false, true)]
@@ -89,5 +106,20 @@ public sealed class RunningCopyClaimTests
         claim.IsRefused.ShouldBeFalse();
         claim.GlobalHeld.ShouldBe(expectedGlobalHeld);
         claim.LocalHeld.ShouldBe(expectedLocalHeld);
+    }
+
+    private sealed class RunningMutexAttemptOpener : IRunningMutexOpener
+    {
+        private readonly RunningMutexAttempt _global;
+        private readonly RunningMutexAttempt _local;
+
+        public RunningMutexAttempt Open(string name) =>
+            name is RunningCopyClaim.GlobalMutexName ? _global : _local;
+
+        public RunningMutexAttemptOpener(RunningMutexAttempt global, RunningMutexAttempt local)
+        {
+            _global = global;
+            _local = local;
+        }
     }
 }

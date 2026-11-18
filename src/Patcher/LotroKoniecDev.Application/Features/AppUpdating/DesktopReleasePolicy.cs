@@ -126,8 +126,8 @@ public static partial class DesktopReleasePolicy
     /// <c>\"</c>, which Inno Setup does not read, so the log path would arrive broken and Setup would
     /// stop after the app has closed. <c>/NOCANCEL</c>: the app has closed by then, and a cancelled Setup
     /// would leave the player with no app running. <c>/FORCECLOSEAPPLICATIONS</c> relies on the busy gate,
-    /// which keeps a patch in this copy of the app from running during an update; a second copy cannot
-    /// run, because a second start ends (#1464).
+    /// which keeps a patch in this copy of the app from running during an update. A second start ends
+    /// (#1464), unless another program holds the mutex name as another kind of object.
     /// </summary>
     public static string InstallerArguments(string logFilePath)
     {

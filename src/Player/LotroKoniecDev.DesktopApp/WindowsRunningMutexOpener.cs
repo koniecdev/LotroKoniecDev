@@ -4,7 +4,8 @@ namespace LotroKoniecDev.DesktopApp;
 
 /// <summary>
 /// The app never takes ownership of the mutex: its handle alone keeps the name alive, and that is all
-/// the next copy and the uninstaller look for.
+/// the next copy and the uninstaller look for. A mutex Windows will not let the app open still
+/// exists, most likely held by a copy in another account, so it counts as one.
 /// </summary>
 internal sealed class WindowsRunningMutexOpener : IRunningMutexOpener
 {
@@ -17,7 +18,11 @@ internal sealed class WindowsRunningMutexOpener : IRunningMutexOpener
                 createdNew ? RunningMutexState.Created : RunningMutexState.AlreadyExists,
                 mutex);
         }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or WaitHandleCannotBeOpenedException)
+        catch (UnauthorizedAccessException)
+        {
+            return new RunningMutexAttempt(RunningMutexState.AlreadyExists, Handle: null);
+        }
+        catch (Exception ex) when (ex is IOException or WaitHandleCannotBeOpenedException)
         {
             return new RunningMutexAttempt(RunningMutexState.Refused, Handle: null);
         }

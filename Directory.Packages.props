@@ -102,9 +102,9 @@
     <!-- 4.14.0 is the first Testcontainers that depends on SSH.NET 2026.0.0; every earlier version
          pins SSH.NET 2025.1.0, which GHSA-q939-rpr3-3284 (high) covers, so NuGetAudit fails restore
          for every Testcontainers-using suite. Keep the three in lockstep. -->
-    <PackageVersion Include="Testcontainers" Version="4.16.0" />
-    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
-    <PackageVersion Include="Testcontainers.RabbitMq" Version="4.16.0" />
+    <PackageVersion Include="Testcontainers" Version="4.17.0" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.17.0" />
+    <PackageVersion Include="Testcontainers.RabbitMq" Version="4.17.0" />
     <PackageVersion Include="Microsoft.Playwright" Version="1.64.1" />
   </ItemGroup>
 </Project>

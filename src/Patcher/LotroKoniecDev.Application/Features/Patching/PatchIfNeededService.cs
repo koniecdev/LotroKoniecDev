@@ -7,9 +7,9 @@ using Microsoft.Extensions.Logging;
 namespace LotroKoniecDev.Application.Features.Patching;
 
 /// <summary>
-/// The steps the launch ran before it started the game (spec 0001, spec 0012 Tier 0), shared with the
-/// desktop app's Patch button (#42). The launch passes no progress, so its console output stays as it
-/// was; the button passes the main window's progress bar.
+/// The patch steps before a launch (spec 0001, spec 0012 Tier 0), shared by the launch and the desktop
+/// app's Patch button (#42). The launch passes no progress, because the CLI's progress port prints a
+/// line per report; the button passes the main window's progress bar.
 /// </summary>
 internal sealed partial class PatchIfNeededService : IPatchIfNeededService
 {

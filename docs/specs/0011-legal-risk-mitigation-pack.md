@@ -55,7 +55,7 @@ plan therefore optimizes for step (1): reduce objectionable surface, respond ins
 
 | # | Exposure | Where | Severity |
 |---|---|---|---|
-| E1 | `datexport.dll` (Turbine proprietary) + MSVC runtimes committed to the **public** repo | `src/Patcher/LotroKoniecDev.Infrastructure/*.dll` | highest-value takedown target; precedent says tolerated |
+| E1 | `datexport.dll` (Turbine proprietary) + MSVC runtimes committed to the **public** repo | `src/Patcher/LotroKoniecDev.Infrastructure.Windows/*.dll` | highest-value takedown target; precedent says tolerated |
 | E2 | Verbatim **English** game text (one full quest dialog) + real PL quest translation | `translations/polish.txt`, `docs/knowledge-base/update-48.0/polish-pre-48.txt`, `…48.7/polish-pre-48.7.txt` | small volume, but literal copyrighted text in a public repo |
 | E3 | Full EN corpus **publicly browsable without login** | `ListTranslations` + `/translations` page are `AllowAnonymous` | "making available" of the full text corpus — the largest content exposure by volume |
 | E4 | README says "Open-source" but repo has **no LICENSE file**; no third-party notices | `README.md` §"License & disclaimer" | inconsistency; unclear code/content boundaries |

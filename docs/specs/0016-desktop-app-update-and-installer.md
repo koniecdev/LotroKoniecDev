@@ -227,10 +227,12 @@ ADR-0033's 2026-10-21 amendment says Windows-only code lives in the exe, behind 
 injects; §2 says the Windows bits live behind abstractions. Read together: the UI project holds
 nothing Windows-only, and the Windows parts sit in the exe's Windows-only graph behind a port. So
 the use case is a patcher Application slice (`Features/AppUpdating/`, tested on Linux), and the
-adapters sit in the patcher Infrastructure next to `GameLauncher`: the GitHub client in `Network/`
-(it reuses the internal `BoundedResponseReader` and the shared client, and #1321 will move it with
-the rest of `Network/`), the download folder and the installer start in `AppUpdating/`. The CLI's
-graph registers these too and validates them; it never calls them.
+adapters sit in the patcher Infrastructure: the GitHub client in `Network/` (it reuses the internal
+`BoundedResponseReader` and the shared client) and the download folder in `AppUpdating/`, both in
+the cross-platform project. The installer start sits in `AppUpdating/` of
+`LotroKoniecDev.Infrastructure.Windows` next to `GameLauncher`, because it starts a Windows program
+(#1321, ADR-0033's 2026-11-18 amendment). The CLI's graph registers these too and validates them; it
+never calls them.
 
 ## Contract
 

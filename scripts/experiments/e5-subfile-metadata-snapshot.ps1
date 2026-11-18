@@ -65,7 +65,7 @@ $ErrorActionPreference = 'Stop'
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $DllPath)
 {
-    $DllPath = Join-Path $scriptDirectory '..\..\src\Patcher\LotroKoniecDev.Infrastructure\datexport.dll'
+    $DllPath = Join-Path $scriptDirectory '..\..\src\Patcher\LotroKoniecDev.Infrastructure.Windows\datexport.dll'
 }
 
 if (-not $OutDir)

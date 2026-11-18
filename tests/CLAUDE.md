@@ -8,14 +8,15 @@ This file holds the details per suite.
 ```bash
 dotnet test                                            # everything runnable on this OS; exits 0 when it all passes
 dotnet test tests/LotroKoniecDev.Tests.Unit            # unit only — always green, every OS
-dotnet test tests/LotroKoniecDev.Tests.Infrastructure  # real-infrastructure tests — Windows only; elsewhere prints "not run"
+dotnet test tests/LotroKoniecDev.Infrastructure.Tests.Integration  # cross-platform patcher adapters — every OS, no Docker
+dotnet test tests/LotroKoniecDev.Tests.Infrastructure  # Windows-only adapters and the desktop exe — Windows only; elsewhere prints "not run"
 dotnet test tests/LotroKoniecDev.Tests.E2E             # full CLI pipeline — Windows only; elsewhere prints "not run"
 dotnet test tests/LotroKoniecDev.TranslationSystem.E2E.Tests  # real-process TMS stack — REQUIRES Docker (builds 3 images)
 dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests          # browser stack via Testcontainers — REQUIRES Docker (4 images + Playwright)
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 ```
 
-Full project inventory (16 projects):
+Full project inventory (17 projects):
 
 | Project | Kind | Needs |
 |---|---|---|
@@ -33,7 +34,8 @@ Full project inventory (16 projects):
 | `LotroKoniecDev.Frontend.Tests.Integration` | in-process Frontend host in Production, as every box runs it (`WebApplicationFactory`, #1187): startup checks such as the caller keys (#915); the real OIDC sign-in against a stand-in token endpoint (the token answer it accepts, #1026, the refresh time it stores, #1025, and the client secret and PKCE verifier it sends, ADR-0074); pages and sign-in while the sign-in server is down (#1058, #1153); every page's form post while its data fails to load (#1122, which is why its csproj repeats one Frontend runtime switch); the game versions page's delete question, the address its form posts to and the redirect after a delete (#549); every image and the tab icon the home page names are served (#1371) | nothing (no Docker); a temp keyring folder |
 | `LotroKoniecDev.TranslationSystem.E2E.Tests` | real-process TMS stack over HTTP | Docker (3 images) |
 | `LotroKoniecDev.Frontend.E2E.Tests` | Playwright browser stack | Docker (4 images + browser) |
-| `LotroKoniecDev.Tests.Infrastructure` | patcher real-infrastructure adapters | Windows + the x86 .NET runtime (elsewhere not run) |
+| `LotroKoniecDev.Infrastructure.Tests.Integration` | the patcher's cross-platform adapters against real files and stub HTTP handlers, and the Application + cross-platform registration with stand-ins for the five Windows ports | nothing (no Docker); temp folders |
+| `LotroKoniecDev.Tests.Infrastructure` | the patcher's Windows adapters, the tests that need Windows file semantics, and the desktop exe | Windows + the x86 .NET runtime (elsewhere not run) |
 | `LotroKoniecDev.Tests.E2E` | patcher CLI full pipeline | Windows (elsewhere not run) + real DAT (else skipped) |
 
 > **Bare `dotnet test` needs Docker.** Both `*.E2E.Tests` suites run whenever the whole solution
@@ -220,7 +222,8 @@ reflection (no DB, no filesystem, no network), so it runs in the normal unit gat
 | `CqrsSeparationTests` | a query handler never injects a repository, `IUnitOfWork` or the write DbContext; a command handler injects `IValidator<TCommand>` |
 | `HandlerConventionTests` | handlers are `internal sealed`; no `IValidator<TQuery>` (validators are command-only) |
 | `SealedConventionTests` | every class is sealed unless another production type derives from it |
-| `SuiteSelfTests` | the suite can still say "no": pins a dependency that really exists, and fails when a production project escapes the search set |
+| `PatcherPlatformTests` | ADR-0033: the patcher's `net10.0` assemblies declare no P/Invoke and never use `NativeLibrary`; native code lives in `Infrastructure.Windows` |
+| `SuiteSelfTests` | the suite can still say "no": pins a dependency that really exists, proves the P/Invoke scan finds the runtime's own P/Invokes, and fails when a production project escapes the search set |
 
 **NetArchTest.Rules** checks dependency rules (it scans the full IL of every member); **plain
 reflection** checks the conventions its predicate DSL cannot express ("sealed unless something
@@ -228,25 +231,36 @@ inherits it", a validator's generic argument).
 
 Adding a production project? Add the `ProjectReference` **and** the entry in
 `Shared/ProductionAssemblies.All`; `SuiteSelfTests` fails until you do. The three patcher
-`net10.0-windows` assemblies (Infrastructure, Cli and the desktop app's exe) are left out because a
-`net10.0` project cannot reference them. They sit at the top of the layering, so rules about them
-are stated as forbidden namespaces on the assemblies below.
+`net10.0-windows` assemblies (Infrastructure.Windows, Cli and the desktop app's exe) are left out
+because a `net10.0` project cannot reference them. They sit at the top of the layering, so rules
+about them are stated as forbidden namespaces on the assemblies below.
 
 `SealedConventionTests.KnownViolations` is **empty**: a new violation fails the gate. Adding an
 entry instead of sealing the type needs a ticket to point at, and a second test fails once an entry
 stops violating, so the list cleans itself.
 
+## Cross-platform Infrastructure Tests (LotroKoniecDev.Infrastructure.Tests.Integration)
+
+Tests of the patcher's cross-platform adapters (`LotroKoniecDev.Infrastructure`, `net10.0`; ADR-0033,
+2026-11-18 amendment): the sidecar stores (ledger, file cache, iteration snapshot), the check of why
+the game file refuses a write (Read-only flag, a missing file), the network adapters (downloader,
+discovery client, forum fetcher, the desktop app's GitHub release client) and the desktop update's
+download folders (#45). The network tests drive the adapters' integrity, response-size and timeout
+checks over an in-memory stub `HttpMessageHandler`, with no real network. A test that asserts on
+real file output belongs here or in `Tests.Infrastructure`, never in `Tests.Unit`.
+`InfrastructureDependencyInjectionTests` builds Application and `AddInfrastructureServices()` with
+validation on and stand-ins for the five Windows ports, and resolves every patcher handler. It runs
+in the PR gate on Linux, picked up by its `*.Tests.Integration` name, and needs no Docker.
+
+A case that needs Windows file semantics (an ACL, a sharing violation, a folder Windows will not
+delete while a file in it is open) stays in `Tests.Infrastructure`, in a class with the same name.
+
 ## Infrastructure Tests (LotroKoniecDev.Tests.Infrastructure)
 
-Tests of the patcher's real infrastructure adapters: the game launcher, the `datexport.dll`
-interop, the sidecar stores (ledger, file cache, iteration snapshot), the check of why the game file
-refuses a write (Read-only flag, an ACL, a file held open; #1248), the network adapters
-(downloader, discovery client, forum fetcher, the desktop app's GitHub release client), and the
-desktop update's download folders and held installer (#45). The network tests drive the
-adapters' integrity, response-size and timeout checks over an in-memory stub
-`HttpMessageHandler`, with no real network. TMS PostgreSQL/EF Core coverage lives in the
-`*.Tests.Integration` projects. A test that asserts on real file output belongs here, never in
-`Tests.Unit`.
+Tests of the patcher's Windows adapters (`LotroKoniecDev.Infrastructure.Windows`): the game
+launcher, the `datexport.dll` interop and the desktop update's held installer (#45), plus the
+cases of the cross-platform adapters that need Windows file semantics: the write check's ACL and
+held-file refusals (#1248) and the update folder clean-up while an installer holds its file.
 Three desktop app suites sit here too, because only this Windows suite can load the x86 exe:
 `DesktopAppDependencyInjectionTests` builds its composition root with the real adapters,
 `DesktopAppManifestTests` reads the built `LotroPoPolsku.exe`, and `DesktopSettingsFileTests`

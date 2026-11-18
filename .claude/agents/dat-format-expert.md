@@ -29,7 +29,7 @@ src/Patcher/LotroKoniecDev.Application/
 ├── Parsers/TranslationFileParser.cs                ||-format line parser
 └── Abstractions/DatFilesServices/                  IDatFileHandler & co. (ports)
 
-src/Patcher/LotroKoniecDev.Infrastructure/
+src/Patcher/LotroKoniecDev.Infrastructure.Windows/
 ├── DatFile/DatExportNative.cs   [LibraryImport] P/Invoke into datexport.dll (cdecl, LPStr)
 ├── DatFile/DatFileHandler.cs    safe wrapper: Open/Close, GetAllSubfileSizes, LoadSubFile, write-back
 └── datexport.dll (+ msvc*/zlib1T.dll)   native 32-bit libs — the reason Cli targets win-x86

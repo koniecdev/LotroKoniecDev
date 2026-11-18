@@ -3,7 +3,13 @@ needs-windows-check:
   - changed-files:
       - any-glob-to-any-file:
           - src/Patcher/LotroKoniecDev.Cli/**
-          - src/Patcher/LotroKoniecDev.Infrastructure/**
+          - src/Patcher/LotroKoniecDev.Infrastructure.Windows/**
+          # Cross-platform files whose Windows behaviour only the Windows suite checks: the
+          # registration the hosts combine with the Windows one, and two adapters with a
+          # Windows-only edge case tested in Tests.Infrastructure (ADR-0033, 2026-11-18 amendment).
+          - src/Patcher/LotroKoniecDev.Infrastructure/InfrastructureDependencyInjection.cs
+          - src/Patcher/LotroKoniecDev.Infrastructure/Diagnostics/WriteAccessChecker.cs
+          - src/Patcher/LotroKoniecDev.Infrastructure/AppUpdating/AppUpdateWorkspace.cs
           - src/Player/LotroKoniecDev.DesktopApp/**
           - installer/**
           - tests/LotroKoniecDev.Tests.Infrastructure/**

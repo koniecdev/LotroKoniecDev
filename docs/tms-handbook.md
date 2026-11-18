@@ -581,8 +581,8 @@ src/
   Frontend/
     ...Frontend                     Blazor Static SSR web app (the translators' UI)
 
-  Patcher/                          the Windows CLI (five projects, Clean Architecture):
-    ...{Primitives,Domain,Application,Infrastructure,Cli}
+  Patcher/                          the Windows CLI (six projects, Clean Architecture):
+    ...{Primitives,Domain,Application,Infrastructure,Infrastructure.Windows,Cli}
 
   Utilities/                        small shared helpers (HATEOAS link types, logging redaction,
                                     options validation)
@@ -1151,17 +1151,17 @@ The full rules are in `CLAUDE.md` → "Testing philosophy" and `tests/CLAUDE.md`
 - **The whole suite runs locally before every push**, not just the part you think the change
   touches.
 
-### 9.2 The test pyramid (15 projects)
+### 9.2 The test pyramid (17 projects)
 
 | Level | Projects | How they run |
 |---|---|---|
-| Unit — patcher | `Tests.Unit` | pure; handlers with real validators + mocked boundaries |
+| Unit — patcher | `Tests.Unit`, `DesktopApp.Tests.Unit` | pure; handlers with real validators + mocked boundaries; the desktop app's windows on Avalonia's headless platform |
 | Unit — TMS | `SharedKernel.Tests.Unit`, `TranslationSystem.Domain.Tests.Unit`, `TranslationSystem.API.Tests.Unit`, `AuthSystem.API.Tests.Unit`, `Frontend.Tests.Unit`, `Logging.Tests.Unit` | pure; fake read-DbContext; bUnit component tests for Blazor |
 | Unit — architecture | `Architecture.Tests.Unit` | pure; the structural house rules checked over assembly IL (NetArchTest) |
-| Integration | `TranslationSystem.API.Tests.Integration`, `AuthSystem.API.Tests.Integration`, `Frontend.Tests.Integration` | the real app in-process (`WebApplicationFactory`). The two API suites run against a **real PostgreSQL in Docker** (Testcontainers), with auth faked by self-signed test tokens; the Frontend suite boots the Frontend host alone, with no database (#915) |
+| Integration | `TranslationSystem.API.Tests.Integration`, `AuthSystem.API.Tests.Integration`, `Frontend.Tests.Integration` | the real app in-process (`WebApplicationFactory`). The two API suites run against a **real PostgreSQL in Docker** (Testcontainers), with auth faked by self-signed test tokens; the Frontend suite boots the Frontend host alone, with no database (#915). `Infrastructure.Tests.Integration` tests the patcher's cross-platform adapters on temp files and stub HTTP handlers, with no Docker (ADR-0033) |
 | End-to-end — TMS | `TranslationSystem.E2E.Tests` | the real container images on a private Docker network; **real tokens** issued by the real auth-api and validated by tms-api via live JWKS |
 | End-to-end — browser | `Frontend.E2E.Tests` | full stack + a headless Chromium via Playwright, all inside Testcontainers (ADR-0009): register → confirm email via mailpit → login → logout |
-| End-to-end — patcher | `Tests.E2E`, `Tests.Infrastructure` | Windows only; `Tests.E2E` also needs a real DAT file and skips its tests without one (`SkippableFact`). Off Windows, `dotnet test` compiles both but runs neither (#816) |
+| End-to-end — patcher | `Tests.E2E`, `Tests.Infrastructure` (the Windows adapters) | Windows only; `Tests.E2E` also needs a real DAT file and skips its tests without one (`SkippableFact`). Off Windows, `dotnet test` compiles both but runs neither (#816) |
 
 Also notable:
 

@@ -314,6 +314,7 @@ jobs:
       # The TranslationSystem.API and AuthSystem.API suites start real PostgreSQL through
       # Testcontainers, so they need Docker. Their messaging tests also start RabbitMQ.
       # The Frontend suite boots the Frontend host in memory, with no database and no Docker.
+      # The patcher's Infrastructure suite tests the cross-platform adapters on temp files, with no Docker.
       - name: Run Integration Tests
         if: steps.diff.outputs.code != 'false'
         run: |

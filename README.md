@@ -115,7 +115,7 @@ src/
   AuthSystem/          self-hosted OpenIddict + ASP.NET Identity authorization server
   Frontend/            Blazor static-SSR translator portal (OIDC relying party)
   SharedKernel/        Result/Maybe monads, building blocks, in-house messaging abstraction
-  Patcher/             game-side CLI — Cli · Application · Domain · Infrastructure · Primitives
+  Patcher/             game-side CLI — Cli · Application · Domain · Infrastructure (+ .Windows) · Primitives
   Utilities/           small shared helpers: HATEOAS links, logging, options
 tests/                 Unit · Integration (real PostgreSQL) · E2E (CLI + Playwright browser)
 docs/                  API · domain · invariants · ADRs · specs · deployment runbook · knowledge base

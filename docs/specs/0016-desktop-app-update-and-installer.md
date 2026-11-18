@@ -134,8 +134,9 @@ When a newer version is out, the app offers it at start and installs it after on
   which matters only when Windows refuses the global one. The `[Code]` section checks both in
   `InitializeUninstall`; `CheckForMutexes` is true when either exists. A silent uninstall cannot ask,
   so it stops and removes nothing. This is not an `AppMutex` directive: that one would also stop a
-  silent update, which closes the app itself. A name Windows refuses (another program holds it)
-  never stops the app; the app logs it as a Warning. Every copy runs as admin (#1464), so an
+  silent update, which closes the app itself. A mutex the app may not open counts as a running
+  copy. A name another kind of object holds never stops the app; the app logs it as a Warning.
+  Every copy runs as admin (#1464), so an
   uninstaller run by any admin account sees the mutex. A second copy that only shows its "already
   running" message holds no mutex by design. If the first copy has ended while that message is
   open, the uninstaller does not see that copy: it removes the rest and leaves that exe behind,
@@ -160,17 +161,19 @@ When a newer version is out, the app offers it at start and installs it after on
   Nothing of the app's goes to the player's `%AppData%` or `%TEMP%`, and the exe unpacks nothing at
   start. A developer build uses its own `bin` folder by the same rule.
 - **One copy per PC.** A second start shows a message box with the caption "LOTRO po Polsku już
-  działa" and the text "LOTRO po Polsku jest już uruchomione. Jeśli nie widzisz jego okna, program
-  działa na innym koncie Windows na tym komputerze.", and ends. The first copy keeps running. The
+  działa" and the text "LOTRO po Polsku jest już uruchomione. Jego okno może być zminimalizowane
+  albo otwarte na innym koncie Windows na tym komputerze.", and ends. The first copy keeps running. The
   `Global\` mutex decides, so a copy in another Windows account counts: they share one install, one
-  `data\` and one game. The plain name decides only when Windows refuses the global one, and when
-  Windows refuses both the app starts anyway.
+  `data\` and one game. A global mutex the app may not open counts as such a copy. The plain name
+  decides only when another kind of object holds the global name, and when both names are held that
+  way the app starts anyway.
 - **Per PC, not per account.** Every Windows account on the PC shares the settings and the log, and
   can read them. Before, each admin account had its own. Editing `config.json` by hand needs an
   editor started as administrator.
 - `data\` is not a place for a DAT. The locator's `data\client_local_English.dat` probe resolves
-  against the working directory, which is the install folder for both shortcuts; only an admin can
-  put a file there, and that source still needs the player's confirmation (ADR-0069).
+  against the working directory, which the app sets to its own folder at start, whoever starts it.
+  Only an admin can put a file there, and that source still needs the player's confirmation
+  (ADR-0069).
 - No migration: no desktop release was ever published, so nothing is read from the old
   `%AppData%\LotroPoPolsku`.
 
@@ -227,8 +230,9 @@ When a newer version is out, the app offers it at start and installs it after on
   The arguments are one pinned string, never `ArgumentList`: .NET escapes an inner quote as `\"`,
   which Inno does not read. `/NOCANCEL` hides Setup's Cancel button: the app has closed by then, so
   a cancel would leave the player with no app running. `/FORCECLOSEAPPLICATIONS` relies on the gate,
-  which keeps a patch in this copy of the app from running; there is no second copy, because a
-  second start ends (#1464). Then the app closes; the installer starts the new version at the end.
+  which keeps a patch in this copy of the app from running. A second start ends (#1464), unless
+  another program holds the mutex name as another kind of object. Then the app closes; the
+  installer starts the new version at the end.
 - **Why `runas`:** Inno Setup's installer asks for no admin rights when it starts. It starts itself a
   second time, with them, through Windows' own `runas` (Inno Setup 6.7.1 source:
   `SetupLdrAndSetup.XPTheme-x86.manifest` is `asInvoker`; `Setup.SpawnServer.pas`). Started plainly
@@ -347,8 +351,10 @@ None. The owner answered the business questions on #45 (2026-11-16).
   change. The held handle still covers only the start, but nobody without admin rights can swap the
   file after it. What stays open is in ADR-0069's amendment of 2026-11-18, item 6 (the runtime's
   environment variables, a non-default owner policy), handed to #1456.
-- The busy gate is one object per running copy of the app, and there is one copy per PC (#1464),
-  so the gate covers every patch an update could force-close.
+- The busy gate is one object per running copy of the app, and a second start ends (#1464). When
+  another program holds the mutex name as another kind of object, two copies can run, and from #42
+  on an update in one can force-close a patch in the other. That needs a program that already runs
+  on the PC, and is accepted.
 - A standard user who elevates with an admin's password runs the app as that admin. The app's files
   are per PC, so the settings are the same for both.
 

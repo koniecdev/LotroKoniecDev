@@ -236,9 +236,9 @@ the amendment of 2026-11-17.
    player's own environment loads nothing.
 5. **One running copy.** A second start shows a Polish message and ends; the first copy keeps
    running. The `Global\LotroPoPolsku_Running` mutex decides, so a copy in another Windows account
-   counts: every account shares one install, one `data\` and one game. A program that holds that
-   name can stop the app from starting. That is a denial of service, not a way to admin rights,
-   and is accepted.
+   counts: every account shares one install, one `data\` and one game. A mutex the app may not open
+   counts as such a copy. A program that holds that name can stop the app from starting. That is a
+   denial of service, not a way to admin rights, and is accepted.
 6. **What stays open**, for the review in #1456:
    - The .NET runtime reads variables from the player's own environment (`HKCU\Environment`), which
      the player changes without admin rights. The CLR profiler variables
@@ -257,8 +257,9 @@ the amendment of 2026-11-17.
    read them. Editing `config.json` by hand needs an editor started as administrator. The
    uninstaller leaves `data\` and `updates\` in the install folder (#45 point 4). `data\` is not a
    place for a DAT: the locator's `data\client_local_English.dat` probe resolves against the working
-   directory, which is the install folder for both shortcuts. Only an administrator can put a file
-   there, and that source still needs the player's confirmation (amendment of 2026-11-17, item 1).
+   directory, which the app sets to its own folder at start, whoever starts it. Only an
+   administrator can put a file there, and that source still needs the player's confirmation
+   (amendment of 2026-11-17, item 1).
 
 **Alternatives weighed** (#1464's triage and its two challenges):
 

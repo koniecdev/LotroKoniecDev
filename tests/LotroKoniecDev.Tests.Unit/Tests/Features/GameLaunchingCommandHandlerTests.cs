@@ -377,12 +377,14 @@ public sealed class SimplifiedGameLaunchingStrategyTests
         _launcher = Substitute.For<IGameLauncher>();
 
         _sut = new SimplifiedGameLaunchingStrategy(
-            _processDetector,
-            _fileHasher,
-            _versionStore,
-            _datVersionReader,
-            _patchingService,
-            _wipeDetector,
+            new PatchIfNeededService(
+                _processDetector,
+                _fileHasher,
+                _versionStore,
+                _datVersionReader,
+                _patchingService,
+                _wipeDetector,
+                NullLogger<PatchIfNeededService>.Instance),
             _launcher,
             NullLogger<SimplifiedGameLaunchingStrategy>.Instance);
     }

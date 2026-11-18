@@ -27,19 +27,32 @@ public static partial class DomainErrors
             IoError("DatFileLocation", "NoWriteAccess", $"'{path}'. Run as Administrator.");
     }
 
+    /// <summary>
+    /// The codes the desktop app turns into Polish texts (#42) are constants. Every error here is a
+    /// Failure or NotFound type, so the CLI's exit codes do not depend on the codes.
+    /// </summary>
     public static class GameLaunch
     {
+        public const string AlreadyRunningCode = "GameLaunch.AlreadyRunning";
+
+        public const string LauncherNotFoundCode = "GameLaunch.NotFound";
+
+        public const string LaunchFailedCode = "GameLaunch.Failed";
+
+        public const string RepatchFailedCode = "GameLaunch.RepatchFailed";
+
         public static Error GameAlreadyRunning =>
-            OperationFailed("GameLaunch", "LOTRO is already running. Close the game before launching.");
+            Error.Failure(AlreadyRunningCode, "LOTRO is already running. Close the game before launching.");
 
         public static Error LauncherNotFound(string path) =>
-            NotFound("GameLaunch", $"LotroLauncher.exe at '{path}'");
+            Error.NotFound(LauncherNotFoundCode, $"GameLaunch not found: LotroLauncher.exe at '{path}'");
 
         public static Error LaunchFailed(string message) =>
-            OperationFailed("GameLaunch", message);
+            Error.Failure(LaunchFailedCode, message);
 
+        /// <summary>The patch before a launch, or the desktop app's Patch, could not apply the translations.</summary>
         public static Error RepatchFailed(string message) =>
-            OperationFailed("GameLaunch", $"Re-patching translations after update failed: {message}");
+            Error.Failure(RepatchFailedCode, $"Applying the translations failed: {message}");
     }
 
     public static class IterationSnapshot

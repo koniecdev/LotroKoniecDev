@@ -232,12 +232,14 @@ public sealed class SimplifiedGameLaunchingStrategyWipeRepairTests
         launcher.Launch(DatFilePath).Returns(Result.Success());
 
         _sut = new SimplifiedGameLaunchingStrategy(
-            Substitute.For<IGameProcessDetector>(),
-            fileHasher,
-            versionStore,
-            Substitute.For<IDatVersionReader>(),
-            _patchingService,
-            new SubFileWipeDetector(_dat, _snapshotStore, NullLogger<SubFileWipeDetector>.Instance),
+            new PatchIfNeededService(
+                Substitute.For<IGameProcessDetector>(),
+                fileHasher,
+                versionStore,
+                Substitute.For<IDatVersionReader>(),
+                _patchingService,
+                new SubFileWipeDetector(_dat, _snapshotStore, NullLogger<SubFileWipeDetector>.Instance),
+                NullLogger<PatchIfNeededService>.Instance),
             launcher,
             NullLogger<SimplifiedGameLaunchingStrategy>.Instance);
 

@@ -3,6 +3,7 @@ using LotroKoniecDev.Application.Features.PreflightChecking;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
+using LotroKoniecDev.Primitives.Enums;
 
 namespace LotroKoniecDev.Tests.Unit.Tests.Features;
 
@@ -62,6 +63,60 @@ public sealed class PreflightReportResponseTests
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void EnsureCanPatch_DatFileIsReadOnly_ShouldFailNamingTheFile()
+    {
+        // Arrange
+        PreflightReportResponse report = new(
+            IsGameRunning: false,
+            HasWriteAccess: true,
+            GameUpdateCheckResult: null,
+            new DatFileWriteCheck(DatFileWriteRefusal.ReadOnly));
+
+        // Act
+        Result result = report.EnsureCanPatch(DatFilePath);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(DomainErrors.DatFile.ReadOnly(DatFilePath));
+    }
+
+    [Fact]
+    public void EnsureCanPatch_GameRunningAndDatFileRefuses_ShouldFailWithGameRunning()
+    {
+        // Arrange
+        PreflightReportResponse report = new(
+            IsGameRunning: true,
+            HasWriteAccess: true,
+            GameUpdateCheckResult: null,
+            new DatFileWriteCheck(DatFileWriteRefusal.InUse));
+
+        // Act
+        Result result = report.EnsureCanPatch(DatFilePath);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(DomainErrors.DatFileLocation.GameRunning);
+    }
+
+    [Fact]
+    public void EnsureCanPatch_FolderNotWritableAndDatFileRefuses_ShouldFailWithNoWriteAccess()
+    {
+        // Arrange: the .backup is created in the folder, so the folder's refusal comes first.
+        PreflightReportResponse report = new(
+            IsGameRunning: false,
+            HasWriteAccess: false,
+            GameUpdateCheckResult: null,
+            new DatFileWriteCheck(DatFileWriteRefusal.AccessDenied));
+
+        // Act
+        Result result = report.EnsureCanPatch(DatFilePath);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(DomainErrors.DatFileLocation.NoWriteAccess(GameFolder));
     }
 
     [Theory]

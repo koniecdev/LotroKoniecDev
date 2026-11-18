@@ -1,6 +1,7 @@
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
+using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Models;
 using LotroKoniecDev.Primitives.Constants;
@@ -31,17 +32,20 @@ internal sealed class PatchingService : IPatchingService
     private readonly ITranslationParser _translationParser;
     private readonly ITranslationLedger _translationLedger;
     private readonly ISubFileIterationSnapshotStore _snapshotStore;
+    private readonly IWriteAccessChecker _writeAccessChecker;
 
     public PatchingService(
         IDatFileHandler datFileHandler,
         ITranslationParser translationParser,
         ITranslationLedger translationLedger,
-        ISubFileIterationSnapshotStore snapshotStore)
+        ISubFileIterationSnapshotStore snapshotStore,
+        IWriteAccessChecker writeAccessChecker)
     {
         _datFileHandler = datFileHandler;
         _translationParser = translationParser;
         _translationLedger = translationLedger;
         _snapshotStore = snapshotStore;
+        _writeAccessChecker = writeAccessChecker;
     }
 
     public Result<PatchSummaryResponse> ApplyTranslations(
@@ -79,7 +83,7 @@ internal sealed class PatchingService : IPatchingService
 
         if (datFileOpenResult.IsFailure)
         {
-            return Result.Failure<PatchSummaryResponse>(datFileOpenResult.Error);
+            return Result.Failure<PatchSummaryResponse>(ExplainOpenFailure(datFileOpenResult.Error, datFilePath));
         }
 
         int datFileHandle = datFileOpenResult.Value;
@@ -379,6 +383,23 @@ internal sealed class PatchingService : IPatchingService
     /// <see cref="PatchSummaryResponse.Warnings"/> handle the list one entry at a time (<c>patch</c>
     /// prints it, the launch strategy logs it), so the limit belongs here and not in either of them.
     /// </summary>
+    /// <summary>
+    /// A native refusal comes back with no reason. This is the one read-write open, so asking the
+    /// file why it refuses a write gives patch, launch's re-patch and its repair the same answer
+    /// (#1248). A missing library or an exception already carries its own reason, so it stays.
+    /// </summary>
+    private Error ExplainOpenFailure(Error openError, string datFilePath)
+    {
+        if (openError != DomainErrors.DatFile.CannotOpen(datFilePath))
+        {
+            return openError;
+        }
+
+        Result fileRefusal = _writeAccessChecker.CheckFile(datFilePath).ToResult(datFilePath);
+
+        return fileRefusal.IsFailure ? fileRefusal.Error : openError;
+    }
+
     private sealed class BoundedGuardWarnings
     {
         private readonly List<string> _samples = [];

@@ -17,6 +17,29 @@ public static partial class DomainErrors
 
         public static Error WriteError(int fileId, string message) =>
             IoError("DatFile", "WriteError", $"file {fileId}: {message}");
+
+        public static Error ReadOnly(string path) =>
+            Error.IoError("DatFile.ReadOnly",
+                $"The game file '{path}' is marked read-only, so the patcher cannot write to it. " +
+                "To allow writing, right-click the file, choose Properties, clear the Read-only check box and click OK.");
+
+        public static Error WriteAccessDenied(string path) =>
+            Error.IoError("DatFile.WriteAccessDenied",
+                $"Windows does not let the patcher write to the game file '{path}'. " +
+                "Run the patcher as administrator. " +
+                "If it already runs as administrator, check the file's permissions on the Security tab of its Properties. " +
+                "An antivirus or another security program can also block writing to the file.");
+
+        public static Error InUse(string path) =>
+            Error.IoError("DatFile.InUse",
+                $"Another program has the game file '{path}' open, so the patcher cannot write to it. " +
+                "Close every program that may be using the file, including the game.");
+
+        public static Error CannotOpenForWriting(string path, string? reason) =>
+            Error.IoError("DatFile.CannotOpenForWriting",
+                string.IsNullOrWhiteSpace(reason)
+                    ? $"The patcher cannot open the game file '{path}' for writing."
+                    : $"The patcher cannot open the game file '{path}' for writing: {reason}");
     }
 
     public static class SubFile

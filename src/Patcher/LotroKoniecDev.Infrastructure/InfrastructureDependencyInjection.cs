@@ -21,9 +21,6 @@ public static class InfrastructureDependencyInjection
     /// </summary>
     public const string TranslationSystemHttpClientKey = "translation-system";
 
-    /// <summary>The desktop app's folder name under AppData and the temp folder.</summary>
-    private const string AppDataFolderName = "LotroPoPolsku";
-
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
     {
         services.AddSingleton<IGameProcessDetector, GameProcessDetector>();
@@ -54,9 +51,15 @@ public static class InfrastructureDependencyInjection
         // The desktop app's update (spec 0016). GitHub sends release downloads on to another GitHub
         // host, so this client follows redirects and checks the final address itself.
         services.AddSingleton<IGitHubReleaseClient, GitHubReleaseClient>();
-        services.AddSingleton<IAppUpdateWorkspace>(_ => new AppUpdateWorkspace(
-            Path.Combine(Path.GetTempPath(), AppDataFolderName, "updates"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppDataFolderName)));
+
+        // The downloads and the installer's log stay under the exe's folder, which only administrators
+        // can change once the app is installed: the app runs as administrator and starts the installer
+        // (ADR-0069 amendment of 2026-11-18). The CLI registers it too but never calls the update.
+        services.AddSingleton<IAppUpdateWorkspace>(_ =>
+        {
+            string updatesFolder = Path.Combine(AppContext.BaseDirectory, AppUpdateWorkspace.FolderName);
+            return new AppUpdateWorkspace(updatesFolder, updatesFolder);
+        });
 
         return services;
     }

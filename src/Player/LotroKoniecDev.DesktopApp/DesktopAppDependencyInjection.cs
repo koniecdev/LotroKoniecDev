@@ -18,11 +18,14 @@ internal static class DesktopAppDependencyInjection
     /// <summary>The assembly metadata key the csproj stamps the version under (spec 0016).</summary>
     internal const string VersionMetadataKey = "DesktopVersion";
 
-    /// <summary>The settings sit next to the log file, in the app's own AppData folder (#43).</summary>
-    internal static readonly string SettingsFilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "LotroPoPolsku",
-        "config.json");
+    /// <summary>
+    /// The settings and the log. The app runs as administrator, so it keeps its files under its own
+    /// folder: installed under Program Files, only administrators can change them (ADR-0069 amendment of
+    /// 2026-11-18). A developer build uses its own bin folder by the same rule.
+    /// </summary>
+    internal static readonly string DataFolder = Path.Combine(AppContext.BaseDirectory, "data");
+
+    internal static readonly string SettingsFilePath = Path.Combine(DataFolder, "config.json");
 
     /// <remarks>
     /// The handlers' log lines go to Serilog's static logger, which <see cref="Program"/> points at the

@@ -138,6 +138,23 @@ public sealed class AppUpdateWorkspaceTests : IDisposable
         Directory.Exists(LogFolder).ShouldBeTrue();
     }
 
+    [Fact]
+    public void CleanUpOldDownloads_TheInstallerLogInTheDownloadsFolder_KeepsTheLog()
+    {
+        // Arrange: the desktop app keeps the installer's log in the downloads folder itself.
+        AppUpdateWorkspace sut = new(DownloadsRoot, DownloadsRoot);
+        string old = sut.CreateDownloadFolder().Value;
+        string installerLog = sut.PrepareInstallerLogPath().Value;
+        File.WriteAllText(installerLog, "the last update's log");
+
+        // Act
+        sut.CleanUpOldDownloads();
+
+        // Assert
+        Directory.Exists(old).ShouldBeFalse();
+        File.Exists(installerLog).ShouldBeTrue();
+    }
+
     private string CreateBlockingFile()
     {
         Directory.CreateDirectory(_root);

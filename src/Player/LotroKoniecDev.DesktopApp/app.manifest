@@ -7,11 +7,12 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-        <!-- asInvoker, as in the default manifest the CLI gets. Without this entry Windows treats a
-             32-bit app as a legacy one and quietly redirects its writes under Program Files to the
-             VirtualStore folder, so a patch would never reach the real DAT. Elevation is #42's job,
-             behind an abstraction (ADR-0033 §2). -->
-        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+        <!-- Admin rights once, at start (owner decision 2 on #42, carried out in #1464): a patch writes
+             the game's DAT under Program Files. The app is then safe only because everything it reads
+             or writes sits under its own folder, which only administrators can change (ADR-0069
+             amendment of 2026-11-18). Any level here also keeps Windows from redirecting a 32-bit
+             app's writes to the VirtualStore folder. -->
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>

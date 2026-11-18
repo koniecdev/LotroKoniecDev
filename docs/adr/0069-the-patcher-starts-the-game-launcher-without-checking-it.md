@@ -173,7 +173,8 @@ planted launcher or library.
    starts from the defaults. Its first save then moves the old file aside, and a file that could
    not be read may only be locked for now, so the app asks before it saves a known install found
    then, even one from the allow-list. A translation file the settings name that is gone at start
-   stays in the settings, because its drive may only be unplugged.
+   stays in the settings, because its drive may only be unplugged. Since #1464 the file is
+   `{app}\data\config.json` (amendment of 2026-11-18).
 4. **The risk, and who closes it.** Any program that runs as the player can change that file, and
    so point the app at a folder of its choice. Today nothing reaches the launcher or the DAT with it:
    Patch and Play stay disabled until #42. The app also writes the file as administrator in some
@@ -188,9 +189,9 @@ planted launcher or library.
    The app's log, `LotroPoPolsku.log` (#41), is one more fixed name in that folder, open until #42.
    **Before Patch or Play uses the saved folder, #42 closes this read path (for example, settings
    that an elevated app reads from a folder only administrators can write), or the owner accepts it
-   in an amendment to this ADR.**
+   in an amendment to this ADR.** Closed by #1464: see the amendment of 2026-11-18.
 5. **The notice.** The main window always shows the LEGAL-12 risk note and the app's own launcher
-   notice, in the CLI's order. From #42 on, the app runs as administrator (owner decision 4
+   notice, in the CLI's order. From #1464 on, the app runs as administrator (owner decision 4
    on #43), so the launcher it starts already has those rights. Its text therefore leaves out the
    CLI's clause that the launcher asks for admin rights itself. `NOTICE` now describes both
    programs. So §3's "both
@@ -199,6 +200,82 @@ planted launcher or library.
 6. **Proton.** Whether the search finds a Steam install under Proton is unproven. The Steam path is
    read inside the Wine prefix, and the drive scan may walk the Linux file tree. Nothing here
    promises the folder dialog as the outcome.
+
+## Amendment (2026-11-18) — the app keeps its files where only administrators can write (#1464)
+
+**Ticket:** #1464 (M4-13). Owner rulings: #42 (2026-11-16) point 2 (admin rights once, at start,
+never a restart into an elevated process) and point 3 (the log file is the session's choice); #45
+(2026-11-16) point 4 (uninstall removes only what Setup installed). This amendment closes item 4 of
+the amendment of 2026-11-17.
+
+1. **Admin rights at start.** The manifest asks for `requireAdministrator`, in #1464 instead of
+   #42, because an elevated app is safe only with the folders below, and these folders are safe
+   only for an elevated app. #42 wires Patch and Play on top.
+2. **One folder for everything.** Everything the app reads or writes for itself sits under the
+   exe's folder (`AppContext.BaseDirectory`):
+   - `data\`: `config.json` and `LotroPoPolsku.log`;
+   - `updates\`: one folder per downloaded installer, and the installer's `update-install.log`;
+   - from #42 on, the downloaded `polish.txt` with its sidecars (`.etag`, `.endpoint`, `.ledger`,
+     `.iterations`) and `last_known_game_version.txt`, under `data\`. The rule: no elevated write
+     next to a path the player chose. When the settings name a translation file of the player's,
+     the app may read it, but its sidecars stay in `data\`; #42 names those files (ADR-0047 §4).
+
+   Installed, that folder is `{autopf}\LotroPoPolsku`, under Program Files (x86). Windows' default
+   rights there let only administrators create, change or delete anything, and a folder the
+   elevated app creates inherits them, so the app needs no access-list code of its own. A developer
+   build uses its own `bin` folder by the same rule. The player can write there, as Consequences
+   already accepts for the source tree that `lotro.bat` builds as administrator.
+3. **The installer has no folder page** (`DisableDirPage=yes`). A folder outside Program Files,
+   such as `C:\Games`, inherits write rights for every user from the drive root, which would open
+   every path again and make the exe itself replaceable. `/DIR=` and an earlier install's folder
+   can still move it, and both need an administrator. A per-user install
+   (`PrivilegesRequiredOverridesAllowed`) is never added.
+4. **Code loads only from that folder.** The native libraries (`datexport.dll` and its C runtime,
+   Skia, HarfBuzz, ANGLE) ship loose next to the exe. The exe no longer unpacks them into the
+   player's `%TEMP%` at start. Startup hooks are off in Release, so `DOTNET_STARTUP_HOOKS` in the
+   player's own environment loads nothing.
+5. **One running copy.** A second start shows a Polish message and ends; the first copy keeps
+   running. The `Global\LotroPoPolsku_Running` mutex decides, so a copy in another Windows account
+   counts: every account shares one install, one `data\` and one game. A mutex the app may not open
+   counts as such a copy. A program that holds that name can stop the app from starting. That is a
+   denial of service, not a way to admin rights, and is accepted.
+6. **What stays open**, for the review in #1456:
+   - The .NET runtime reads variables from the player's own environment (`HKCU\Environment`), which
+     the player changes without admin rights. The CLR profiler variables
+     (`CORECLR_ENABLE_PROFILING`, `CORECLR_PROFILER_PATH`) load a DLL into the elevated app, and the
+     EventPipe and crash dump variables make it write to a path the player picks. The player's own
+     `PATH` is one more variable of this kind: Windows searches it for a library it finds nowhere
+     else. No project setting turns these off. UAC on the same desktop is not a security boundary, so this amendment
+     closes the file paths of item 4, not every way from a player's program to admin rights.
+   - The app starts the installer, and from #42 the game launcher, through the Windows shell. The
+     shell reads how to start a program from the player's own registry (`HKCU\Software\Classes`),
+     which the player changes without admin rights. Public UAC-bypass write-ups use this path. Not
+     tested here, because it means changing the owner's registry.
+   - A PC whose policy makes the creator, not Administrators, the owner of what an administrator
+     creates, or that runs Windows Administrator Protection. There `data\` may belong to the player.
+     Not proven either way, and no code of ours covers it.
+   - The game folder. On Steam and in custom folders the player can already write it
+     (Consequences). The rule above protects the app's own files; it does not make such a game
+     folder safe.
+7. **What players see.** The settings and the log are per PC now, not per Windows account: several
+   admin accounts on one PC share one game folder and one set of settings, and every account can
+   read them. Editing `config.json` by hand needs an editor started as administrator. The
+   uninstaller leaves `data\` and `updates\` in the install folder (#45 point 4). `data\` is not a
+   place for a DAT: the locator's `data\client_local_English.dat` probe resolves against the working
+   directory, which the app sets to its own folder at start, whoever starts it. Only an
+   administrator can put a file there, and that source still needs the player's confirmation
+   (amendment of 2026-11-17, item 1).
+
+**Alternatives weighed** (#1464's triage and its two challenges):
+
+- A helper process for Patch and Play only, with the app not elevated: the #42 ruling asks for
+  `requireAdministrator`, and the helper would still act on what the unelevated app tells it.
+- `%ProgramData%` with an access list set by the installer: Users may create folders there, so a
+  program can create the folder first and own it.
+- Settings in HKLM: the log, the downloads and the libraries still need a protected folder.
+- The folder page plus an access list on the chosen folder: the parent folder stays the player's,
+  who can rename the install folder away and put another one in its place.
+- A check at start that refuses a folder the player can write: a replaced exe never runs the check.
 
 ## References
 

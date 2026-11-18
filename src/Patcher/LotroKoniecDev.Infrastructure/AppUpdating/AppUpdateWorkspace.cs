@@ -5,11 +5,14 @@ using LotroKoniecDev.Domain.Core.Monads;
 namespace LotroKoniecDev.Infrastructure.AppUpdating;
 
 /// <summary>
-/// The update's download folders under <c>%TEMP%\LotroPoPolsku\updates</c> and the installer's log
-/// beside the app's own log in <c>%AppData%\LotroPoPolsku</c> (spec 0016).
+/// The update's download folders and the installer's log (spec 0016). The desktop app keeps both in
+/// <see cref="FolderName"/> next to its exe: the log in the folder itself, so the clean-up of old
+/// download folders never removes it.
 /// </summary>
 public sealed class AppUpdateWorkspace : IAppUpdateWorkspace
 {
+    public const string FolderName = "updates";
+
     private const string InstallerLogFileName = "update-install.log";
 
     private readonly string _downloadsRoot;
@@ -70,7 +73,7 @@ public sealed class AppUpdateWorkspace : IAppUpdateWorkspace
     }
 
     /// <param name="downloadsRoot">The folder that holds one sub-folder per update.</param>
-    /// <param name="logFolder">The app's own data folder, where the installer writes its log.</param>
+    /// <param name="logFolder">The folder the installer writes its log to.</param>
     public AppUpdateWorkspace(string downloadsRoot, string logFolder)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(downloadsRoot);

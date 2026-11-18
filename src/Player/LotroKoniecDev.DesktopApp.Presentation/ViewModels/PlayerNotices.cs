@@ -11,8 +11,8 @@ internal static class PlayerNotices
     public const string Risk = PlayerNoticeConstants.Risk;
 
     /// <summary>
-    /// The app's own launcher notice. From #42 on, which also enables Play, the app runs as
-    /// administrator (owner decision 4 on #43). The launcher it starts then never has to ask for those
+    /// The app's own launcher notice. The app runs as administrator (owner decision 4 on #43, carried
+    /// out in #1464). The launcher it starts then never has to ask for those
     /// rights, so the CLI's clause about it is left out.
     /// </summary>
     public const string Launcher =

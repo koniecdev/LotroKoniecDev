@@ -4,9 +4,12 @@
 - **Date:** 2026-11-16
 - **Author:** koniecdev
 - **Ticket:** #45 (M4-05)
+- **Amended:** 2026-11-18 by #1464 (M4-13): admin rights at start, every file of the app under its
+  own folder, one running copy. See "Where the app keeps its files".
 - **Related:** ADR-0070 (amended 2026-11-16 for desktop releases), ADR-0033 (the two desktop
-  projects), ADR-0067 §7 (GitHub is outside our trust boundary), wiki `Wersje-systemu`, #42 (admin
-  rights at start, the Patch and Play buttons), #43 (settings), #1443 (signing), #1321 (moves the
+  projects), ADR-0067 §7 (GitHub is outside our trust boundary), ADR-0069 (amended 2026-11-18 for
+  the app's folders), wiki `Wersje-systemu`, #42 (the Patch and Play buttons), #43 (settings), #1443
+  (signing), #1321 (moves the
   patcher's network adapters to a cross-platform project). Sibling slice to mirror:
   `Application/Features/TranslationFileSyncing/`.
 
@@ -36,17 +39,11 @@ When a newer version is out, the app offers it at start and installs it after on
 ## Out of scope
 
 - Code signing: #1443. Until then Windows SmartScreen warns about an unknown publisher.
-- Admin rights at start (`requireAdministrator`): #42 owns it. An update from an app that runs
-  without admin rights shows one UAC prompt, the one the app asks for when it starts the installer
-  (see "Update"). An app that runs as admin shows none: today the run the installer starts right
-  after an install or update, and every run once #42 lands.
+- Admin rights at start, the native libraries next to the exe and a download folder only admins
+  can write: #1464 added them later (see "Where the app keeps its files"). Every copy now runs as
+  admin, so an update shows no UAC prompt.
 - The Patch and Play buttons and their use of the shared busy gate: #42 (a comment on #42 names the
   gate).
-- Moving `datexport.dll` out of the single-file exe, or downloading into a folder only admins can
-  write. Both would close same-user to admin paths that are open whenever the app runs elevated:
-  today right after each install or update, because the installer starts it with its own admin
-  rights (`runascurrentuser`), and at every start once #42 lands. Reported on #42; accepted here
-  until #42 decides (see Assumptions).
 - Restoring English game files on uninstall: no such feature exists, and the uninstaller never
   touches the game folder.
 
@@ -89,7 +86,8 @@ When a newer version is out, the app offers it at start and installs it after on
 - **Build and smoke test** on `windows-2025`: publish the exe with `-p:Version=X.Y.Z
   -p:DebugType=embedded`, build the installer with the image's Inno Setup 6 (called by its real
   path), install it with the app's update flags, check that the installed exe carries version X.Y.Z,
-  install it a second time over the running app, try a silent uninstall while the app runs (it must
+  check the app's folders (#1464), install it a second time over the running app, start a second
+  copy (it must show its message and end), try a silent uninstall while the app runs (it must
   refuse), uninstall it, and check what each step left behind (the AC list below). The SHA-256 file
   is written on this job, from the very file it installed.
 - **Publish:** only after the smoke test, a job with `contents: write` runs the version check again
@@ -113,38 +111,80 @@ When a newer version is out, the app offers it at start and installs it after on
 - Fixed `AppId` `{53881929-2972-43D8-ACE2-1AED0D822D9F}`. It ties every later version to the same
   install, so never change it.
 - `PrivilegesRequired=admin`, installed for all users into `{autopf}\LotroPoPolsku` (Program Files
-  (x86), because the app is x86). Polish wizard only.
+  (x86), because the app is x86). Polish wizard only. No folder page (`DisableDirPage=yes`, #1464):
+  the app's own files are safe only under Program Files, and a folder such as `C:\Games` inherits
+  write rights for every user from the drive root. Never a per-user install
+  (`PrivilegesRequiredOverridesAllowed`).
 - `MinVersion=10.0`: Microsoft supports .NET 10 on client Windows from Windows 10 on, so Setup
   refuses an older Windows.
-- Files: the publish folder without `*.pdb`, plus `LICENSE` and `THIRD-PARTY-NOTICES.md` from the
-  repo root (`NOTICE` is already in the publish folder, spec 0011 LEGAL-09 and LEGAL-12). No DLL is
-  listed by name: `datexport.dll` and the C runtime DLLs are inside the single-file exe.
+- Files: the publish folder without `*.pdb` and without a root `data` or `updates` folder, plus
+  `LICENSE` and `THIRD-PARTY-NOTICES.md` from the repo root (`NOTICE` is already in the publish
+  folder, spec 0011 LEGAL-09 and LEGAL-12). No DLL is listed by name: the publish folder holds the
+  native DLLs next to the single-file exe (`datexport.dll`, its C runtime, Skia, HarfBuzz, ANGLE;
+  `IncludeNativeLibrariesForSelfExtract=false`, #1464).
 - A desktop shortcut and a Start Menu entry, always (an update puts back a deleted shortcut).
 - `CloseApplications=yes`, `RestartApplications=no`, no `AppMutex`. The `[Run]` entry starts the
   app at the end with `postinstall nowait runascurrentuser`: checked in a normal install, run on its
   own in a silent one, started from the elevated installer so no second prompt and no error 740
-  after #42, and `nowait` so the installer does not wait for the app to close.
+  for an app that asks for admin rights, and `nowait` so the installer does not wait for the app to
+  close.
 - **Uninstall while the app runs:** the uninstaller cannot remove a running exe, so it asks in
   Polish to close the app first (OK checks again, Cancel stops the uninstall). The app holds the
-  named mutex `LotroPoPolsku_Running` (and its `Global\` twin, for other sessions) while it runs, and
-  the `[Code]` section checks both in `InitializeUninstall`. A silent uninstall cannot ask, so it
-  stops and removes nothing. This is not an `AppMutex` directive: that one would also stop a silent
-  update, which closes the app itself. A mutex that cannot be made (another account made it first)
-  never stops the app; only the uninstaller's question is lost then, and the app logs it. The
-  mutexes keep Windows' default access list, so an uninstaller run by another account may not see a
-  copy that runs without admin rights; that case leaves the exe behind, as before. It ends with #42,
-  when every copy runs as admin.
+  named mutex `Global\LotroPoPolsku_Running` while it runs, and `LotroPoPolsku_Running` beside it,
+  which matters only when Windows refuses the global one. The `[Code]` section checks both in
+  `InitializeUninstall`; `CheckForMutexes` is true when either exists. A silent uninstall cannot ask,
+  so it stops and removes nothing. This is not an `AppMutex` directive: that one would also stop a
+  silent update, which closes the app itself. A mutex the app may not open counts as a running
+  copy. A name another kind of object holds never stops the app; the app logs it as a Warning.
+  Every copy runs as admin (#1464), so an
+  uninstaller run by any admin account normally sees the mutex. Unlike the app, Inno Setup's
+  `CheckForMutexes` counts a mutex it may not open as no mutex, so in that case the uninstaller
+  goes on and leaves the running exe behind. A second copy that only shows its "already
+  running" message holds no mutex by design. If the first copy has ended while that message is
+  open, the uninstaller does not see that copy: it removes the rest and leaves that exe behind,
+  and the player deletes it by hand.
 - **Uninstall removes only what the installer put in** (owner decision): the program files, both
-  shortcuts and the uninstall entry. The settings, the downloaded `polish.txt`, its `.ledger`
-  (ADR-0047 §4) and the log stay in `%AppData%\LotroPoPolsku`. The game folder is never touched, so
-  the game stays Polish until the LOTRO launcher repairs its files.
+  shortcuts and the uninstall entry. `{app}\data` (the settings, the log, and from #42 the downloaded
+  `polish.txt` and its `.ledger`, ADR-0047 §4) and `{app}\updates` stay, so the install folder stays
+  too. The game folder is never touched, so the game stays Polish until the LOTRO launcher repairs
+  its files.
+
+### Where the app keeps its files (#1464)
+
+- The app asks for admin rights once, at start (`requireAdministrator`, owner decision 2 on #42),
+  and never starts itself again with them.
+- Everything the app keeps for itself sits under the exe's folder (`AppContext.BaseDirectory`),
+  which only administrators can change once it is installed under Program Files (ADR-0069
+  amendment of 2026-11-18):
+  - `data\config.json` and `data\LotroPoPolsku.log`;
+  - `updates\<guid>\`, one per downloaded installer, and `updates\update-install.log`;
+  - from #42 on, the downloaded translation file and its sidecars, in `data\`.
+
+  Nothing of the app's goes to the player's `%AppData%` or `%TEMP%`, and the exe unpacks nothing at
+  start. A developer build uses its own `bin` folder by the same rule.
+- **One copy per PC.** A second start shows a message box with the caption "LOTRO po Polsku już
+  działa" and the text "LOTRO po Polsku jest już uruchomione. Jego okno może być zminimalizowane
+  albo otwarte na innym koncie Windows na tym komputerze.", and ends. The first copy keeps running. The
+  `Global\` mutex decides, so a copy in another Windows account counts: they share one install, one
+  `data\` and one game. A global mutex the app may not open counts as such a copy. The plain name
+  decides only when another kind of object holds the global name, and when both names are held that
+  way the app starts anyway.
+- **Per PC, not per account.** Every Windows account on the PC shares the settings and the log, and
+  can read them. Before, each admin account had its own. Editing `config.json` by hand needs an
+  editor started as administrator.
+- `data\` is not a place for a DAT. The locator's `data\client_local_English.dat` probe resolves
+  against the working directory, which the app sets to its own folder at start, whoever starts it.
+  Only an admin can put a file there, and that source still needs the player's confirmation
+  (ADR-0069).
+- No migration: no desktop release was ever published, so nothing is read from the old
+  `%AppData%\LotroPoPolsku`.
 
 ### Update check (at start)
 
 - It runs in the background after the main window opens. It never blocks Patch or Play and never
   takes the busy gate.
-- Old update folders under `%TEMP%\LotroPoPolsku\updates` are deleted first. A failure there is
-  ignored.
+- Old update folders under `{app}\updates` are deleted first; the installer log in that folder
+  stays. A failure there is ignored.
 - A 0.0.0 build stops here, with nothing shown.
 - It calls `GET https://api.github.com/repos/koniecdev/LotroKoniecDev/releases?per_page=100`, with
   the GitHub JSON `Accept` header and no pinned `X-GitHub-Api-Version`: GitHub answers `410 Gone` to
@@ -168,7 +208,7 @@ When a newer version is out, the app offers it at start and installs it after on
 
 - It takes the busy gate, so it cannot run during a patch, and a patch cannot start during it.
 - It reads the `.sha256` into memory (at most 1 KiB), then downloads the installer into a fresh
-  folder `%TEMP%\LotroPoPolsku\updates\<guid>` (at most 256 MiB, at most 10 minutes, progress on the
+  folder `{app}\updates\<guid>` (at most 256 MiB, at most 10 minutes, progress on the
   shared progress bar). The 10 minutes cover the whole download, not only a silence: a line too slow to
   finish in that time (below about 0.5 Mbit/s for an installer of about 35 MB) fails with the
   timeout reason every time, and that player installs the new version by hand from the release
@@ -188,20 +228,22 @@ When a newer version is out, the app offers it at start and installs it after on
 - It starts the installer with the `runas` verb (`Verb = "runas"`, `UseShellExecute = true`) and
   exactly these arguments:
   `/SILENT /NOCANCEL /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS "/LOG=<log>"`,
-  where `<log>` is `%AppData%\LotroPoPolsku\update-install.log` and its folder is created first.
+  where `<log>` is `{app}\updates\update-install.log` and its folder is created first.
   The arguments are one pinned string, never `ArgumentList`: .NET escapes an inner quote as `\"`,
   which Inno does not read. `/NOCANCEL` hides Setup's Cancel button: the app has closed by then, so
   a cancel would leave the player with no app running. `/FORCECLOSEAPPLICATIONS` relies on the gate,
-  which keeps a patch in this copy of the app from running; a second running copy is #42's to
-  prevent. Then the app closes; the installer starts the new version at the end.
+  which keeps a patch in this copy of the app from running. A second start ends (#1464), unless
+  another program holds the mutex name as another kind of object. Then the app closes; the
+  installer starts the new version at the end.
 - **Why `runas`:** Inno Setup's installer asks for no admin rights when it starts. It starts itself a
   second time, with them, through Windows' own `runas` (Inno Setup 6.7.1 source:
   `SetupLdrAndSetup.XPTheme-x86.manifest` is `asInvoker`; `Setup.SpawnServer.pas`). Started plainly
   from an app without admin rights, that second start and its prompt came after the app had closed,
   so a "No" left the player with no app running. With `runas` the prompt comes from the app's own
   start, and a "No" comes back to the app as Win32 error 1223. An installer that already has admin
-  rights does not start itself again. An app that already runs as admin (right after an install or
-  update, and every run once #42 lands) gets no prompt.
+  rights does not start itself again. Every copy runs as admin since #1464, so it gets no prompt,
+  and the "No" path is not reached on Windows. The code keeps the `runas` start and its "No", and their unit tests stay.
+  The shell start itself is one of the open paths in ADR-0069 item 6.
 - **What the held handle covers:** Windows creates the installer process, with admin rights, from
   the held file, so the program that starts is the file that was hashed, and no other program can
   write, delete or rename the file until then. Inno Setup then reads the same file again by path to
@@ -242,8 +284,8 @@ never calls them.
 - **Output:** `AppUpdateCheckResponse` (outcome `DevelopmentBuild`, `UpToDate`, `UpdateAvailable` with the
   version and both URLs, or `CheckFailed` with the error); `Result` for the install.
 - **Errors:** `DomainErrors.AppUpdate.*`, each mapped to a Polish reason in the panel.
-- **Files touched:** `%TEMP%\LotroPoPolsku\updates\<guid>\` (the downloaded installer),
-  `%AppData%\LotroPoPolsku\update-install.log` (the installer's log). Never the game folder.
+- **Files touched:** `{app}\updates\<guid>\` (the downloaded installer),
+  `{app}\updates\update-install.log` (the installer's log). Never the game folder.
 
 ## Acceptance criteria
 
@@ -255,8 +297,18 @@ never calls them.
       on the runner: install 1 exits 0 and leaves the exe with `NOTICE`, `LICENSE` and
       `THIRD-PARTY-NOTICES.md` and no `*.pdb`, both shortcuts, the uninstall key, and an app process
       that is still alive after 10 s; install 2 over the running app exits 0 and leaves a new app
-      process; the uninstall removes the install folder, both shortcuts and the key and leaves a
-      marker file in `%APPDATA%\LotroPoPolsku`.
+      process; the uninstall removes what Setup installed, both shortcuts and the key, and leaves
+      only `data\` (and `updates\`) in the install folder, with a marker file in `{app}\data`.
+- [ ] After install 1 (#1464): the installed exe asks for `requireAdministrator`; the app stays
+      alive with `DOTNET_STARTUP_HOOKS` pointing at a file that does not exist, so it loads no
+      startup hook; the app's log is in `{app}\data`; nothing of the app's is in the
+      player's `%APPDATA%` or `%TEMP%`, including the `.net` unpack folder; every native DLL of the
+      publish folder sits next to the exe; the player, Users, Authenticated Users, Everyone and
+      INTERACTIVE have no write right on `{app}` or `{app}\data`, whose owner is Administrators,
+      SYSTEM or TrustedInstaller; no copy shows the "already running" message.
+- [ ] After install 2, a second start from another folder shows the "already running" message,
+      does not keep that folder as its working folder, and ends with exit code 0 once the message
+      is closed; the first copy keeps running.
 - [ ] Only then the tag `desktop-vX.Y.Z` names the dispatched commit and a published release, not
       Latest, carries the installer and a `.sha256` that `sha256sum -c` accepts.
 - [ ] No workflow starts on a tag, a release or a created ref; `commit-image.tests.sh` is unchanged
@@ -295,25 +347,19 @@ None. The owner answered the business questions on #45 (2026-11-16).
 - No green-CI check before a release: `ci.yml` skips docs-only commits and cancels older runs, so
   the tip of `main` often has no run of its own. The runbook says to look at `main`'s CI before
   pressing "Run workflow".
-- Until #42 changes the downloads folder or the single-file extraction, a program running as the
-  same user could change files that the elevated app or installer later uses: the native libraries
-  the single-file exe unpacks into `%TEMP%`, a library dropped beside the downloaded installer in its
-  `%TEMP%` folder, the installer's log under `%AppData%`, the installer file itself, which Inno Setup
-  reads again by path after the app has let go of it, and the update folders that the clean-up at
-  start and after a failed update delete by path. The held handle covers only the start. The app
-  runs elevated today right after each install or update (the installer starts it with
-  `runascurrentuser`), and at every start once `requireAdministrator` lands. Today the swap of the
-  installer file is possible after the player approves the admin prompt; once #42 lands, an update
-  shows no prompt, so the swap no longer needs one. Before #42 such a program could also change the
-  unelevated app itself. The installer-file and folder paths would be closed if #42 downloads into a
-  folder only admins can write, inside a parent folder the user cannot write either: a protected
-  folder inside the user's own `%TEMP%` can probably still be renamed by that user (not proven).
-  Accepted until #42 decides (the notes on #42 list all five).
-- The busy gate is one object per running copy of the app. A second copy is not covered: an update
-  started in one force-closes the other. Harmless while Patch is disabled; #42 decides on a single
-  instance before it wires Patch.
-- A standard user who elevates the installer with an admin's password gets the app's first run
-  under the admin account. That is what `requireAdministrator` does anyway after #42.
+- #1464 closed the five same-user paths the notes on #42 listed (the native libraries unpacked
+  into `%TEMP%`, a library beside the downloaded installer, the installer's log, the installer file
+  that Inno Setup reads again by path, and the update folders the clean-up deletes by path): all of
+  them now sit under `{app}`, inside Program Files, which a program running as the player cannot
+  change. The held handle still covers only the start, but nobody without admin rights can swap the
+  file after it. What stays open is in ADR-0069's amendment of 2026-11-18, item 6 (the runtime's
+  environment variables, a non-default owner policy), handed to #1456.
+- The busy gate is one object per running copy of the app, and a second start ends (#1464). When
+  another program holds the mutex name as another kind of object, two copies can run, and from #42
+  on an update in one can force-close a patch in the other. That needs a program that already runs
+  on the PC, and is accepted.
+- A standard user who elevates with an admin's password runs the app as that admin. The app's files
+  are per PC, so the settings are the same for both.
 
 ## Alternatives considered
 
@@ -321,8 +367,8 @@ None. The owner answered the business questions on #45 (2026-11-16).
   start, after the app had closed (see "Update").
 - **Keep the handle until Inno Setup closes the app:** Inno Setup reads the installer again at
   install time, after the app has closed, so a gap stays.
-- **A download folder only admins can write:** it removes the swap instead of handling it, but the
-  app cannot create one before it runs as admin. It belongs with #42.
+- **A download folder only admins can write:** it removes the swap instead of handling it. Taken in
+  #1464, as `{app}\updates`, once the app runs as admin.
 - **Code signing (#1443):** it tells the player who made the file and quiets SmartScreen, but does
   not stop a read by path of a swapped file.
 - **The newest release through `matching-refs` plus `/releases/tags/{tag}`:** safe from the
@@ -330,6 +376,6 @@ None. The owner answered the business questions on #45 (2026-11-16).
   the check lists the releases.
 - **MSIX, an in-place exe swap, a per-user installer (such as Velopack):** ruled out by the owner
   decisions (Inno Setup, run the installer, for all users). A per-user install would also leave the
-  exe writable by the user once #42 runs it as admin.
+  exe writable by the user, who runs it as admin.
 - **A build started by a tag push, a draft release, a separate repo or the server as the update
   source:** ruled out by the owner decisions and the ADR-0070 amendment.

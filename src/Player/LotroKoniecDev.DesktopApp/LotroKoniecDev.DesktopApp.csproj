@@ -15,7 +15,20 @@
         <SelfContained>true</SelfContained>
         <RuntimeIdentifier>win-x86</RuntimeIdentifier>
         <PublishSingleFile>true</PublishSingleFile>
-        <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+
+    <!-- The app runs as administrator, so it must not load code from a folder the player can change
+         (ADR-0069 amendment of 2026-11-18). The native libraries ship loose next to the exe, under
+         Program Files, instead of being unpacked into the player's %TEMP% at start. Startup hooks
+         (DOTNET_STARTUP_HOOKS in the player's own environment) are off in Release; a Debug build keeps
+         them for hot reload. -->
+    <PropertyGroup>
+        <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+        <StartupHookSupport>false</StartupHookSupport>
     </PropertyGroup>
 
     <!-- 0.0.0 is a developer build, which never checks for updates. The release workflow publishes

@@ -9,22 +9,10 @@ namespace LotroKoniecDev.DesktopApp;
 public sealed class Program
 {
     /// <summary>
-    /// Held while the app runs, under this name and with the <c>Global\</c> prefix, as Inno Setup
-    /// advises for more than one session. The uninstaller checks both and asks the player to close the
-    /// app first, because it cannot remove a running exe (installer/LotroPoPolsku.iss, spec 0016). The
-    /// update does not check them: Setup closes the app itself.
-    /// </summary>
-    private const string RunningMutexName = "LotroPoPolsku_Running";
-
-    /// <summary>
     /// Debug on purpose, like the CLI's patcher.log: it is the trail players attach to a bug report, and
-    /// it never leaves their machine unless they send it (#397). The folder is the app's own AppData
-    /// folder, where #43 keeps the settings.
+    /// it never leaves their machine unless they send it (#397).
     /// </summary>
-    private static readonly string LogFilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "LotroPoPolsku",
-        "LotroPoPolsku.log");
+    internal static readonly string LogFilePath = Path.Combine(DesktopAppDependencyInjection.DataFolder, "LotroPoPolsku.log");
 
     /// <summary>
     /// Also the Avalonia previewer's entry point, which it finds by this exact name. It must not need
@@ -36,28 +24,21 @@ public sealed class Program
             .WithInterFont()
             .LogToTrace();
 
-    /// <summary>
-    /// A mutex another account made first, or a different kind of object under the same name, makes
-    /// Windows refuse this one. The app must start anyway: without the mutex only the uninstaller's
-    /// question is lost.
-    /// </summary>
-    internal static Mutex? TryCreateMutex(string name)
-    {
-        try
-        {
-            return new Mutex(initiallyOwned: false, name);
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or WaitHandleCannotBeOpenedException)
-        {
-            return null;
-        }
-    }
-
     [STAThread]
     private static int Main(string[] args)
     {
-        using Mutex? runningMutex = TryCreateMutex(RunningMutexName);
-        using Mutex? globalRunningMutex = TryCreateMutex(@"Global\" + RunningMutexName);
+        // Whoever starts the elevated app picks its working folder, and a path relative to it (the
+        // locator's data\ probe, a library Windows looks up there) must not land in the player's
+        // folder (ADR-0069 amendment of 2026-11-18).
+        Environment.CurrentDirectory = AppContext.BaseDirectory;
+
+        // Before the logger and Avalonia, so a second copy writes nothing and opens no window.
+        using RunningCopyClaim runningCopy = RunningCopyClaim.Create(new WindowsRunningMutexOpener());
+        if (runningCopy.IsRefused)
+        {
+            AlreadyRunningMessage.Show();
+            return 0;
+        }
 
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Debug()
@@ -66,14 +47,15 @@ public sealed class Program
                 outputTemplate: "{Timestamp:HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
 
-        // Made before the logger, so a refusal is written down here. A refusal is what another
-        // account's copy of the app causes, so it is Information (#977).
-        if (runningMutex is null || globalRunningMutex is null)
+        // Every copy runs as administrator, so no copy of ours can make Windows refuse a name: another
+        // program holds it (#977). With neither name a second copy is not stopped, and the uninstaller
+        // cannot ask to close this one.
+        if (!runningCopy.GlobalHeld || !runningCopy.LocalHeld)
         {
-            Log.Information(
-                "The app-running mutex could not be made (local: {LocalMade}, global: {GlobalMade}); the uninstaller cannot ask to close this copy",
-                runningMutex is not null,
-                globalRunningMutex is not null);
+            Log.Warning(
+                "The app-running mutex could not be made (global: {GlobalHeld}, local: {LocalHeld}); another program holds the name",
+                runningCopy.GlobalHeld,
+                runningCopy.LocalHeld);
         }
 
         try

@@ -4,10 +4,10 @@ using LotroKoniecDev.DesktopApp.Presentation.Settings;
 namespace LotroKoniecDev.DesktopApp;
 
 /// <summary>
-/// <c>config.json</c> in the app's AppData folder. A save writes a new file next to it and moves it over
-/// the old one, so a crash never leaves half a file. The temporary name and the set-aside name are
-/// random, so nothing can be placed at either in advance: the app may run as administrator in a folder
-/// the player can write to (ADR-0069 amendment of 2026-11-17, item 4).
+/// <c>config.json</c> in the app's <c>data</c> folder. A save writes a new file next to it and moves it
+/// over the old one, so a crash never leaves half a file. The temporary name and the set-aside name are
+/// random, so nothing can be placed at either in advance, even in a developer build, whose folder the
+/// player can write to (ADR-0069 amendments of 2026-11-17, item 4, and 2026-11-18).
 /// </summary>
 internal sealed class SettingsFile : ISettingsFile
 {

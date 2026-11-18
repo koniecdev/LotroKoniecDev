@@ -25,6 +25,12 @@ PrivilegesRequired=admin
 ; Microsoft supports .NET 10 on client Windows from Windows 10 on, so Setup refuses an older Windows.
 MinVersion=10.0
 DefaultDirName={autopf}\LotroPoPolsku
+; No folder page: the app runs as administrator and keeps its settings, log and updates in {app}
+; (ADR-0069 amendment of 2026-11-18). That is safe only under Program Files, which only
+; administrators can change; a folder such as C:\Games inherits write rights for every user. /DIR=
+; and an earlier install's folder can still move it, and both need an administrator. Never add
+; PrivilegesRequiredOverridesAllowed: a per-user install puts {autopf} in the player's own profile.
+DisableDirPage=yes
 DisableProgramGroupPage=yes
 OutputBaseFilename=LotroPoPolsku-Setup-{#AppVersion}
 SetupIconFile={#RepoRoot}\src\Player\LotroKoniecDev.DesktopApp.Presentation\Assets\app.ico
@@ -42,8 +48,11 @@ RestartApplications=no
 Name: "polish"; MessagesFile: "compiler:Languages\Polish.isl"
 
 [Files]
-; datexport.dll and the C runtime DLLs are inside the single-file exe, so no DLL is listed here.
-Source: "{#PublishDir}\*"; DestDir: "{app}"; Excludes: "*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
+; The publish folder holds the single-file exe and the native DLLs next to it (datexport.dll, its C
+; runtime, Skia, HarfBuzz, ANGLE): the app runs as administrator, so it never unpacks them into the
+; player's %TEMP%. \data and \updates are the app's own folders at {app}'s root, never shipped, so
+; the uninstaller leaves them alone.
+Source: "{#PublishDir}\*"; DestDir: "{app}"; Excludes: "*.pdb,\data,\updates"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
@@ -52,18 +61,22 @@ Name: "{autoprograms}\LOTRO po Polsku"; Filename: "{app}\LotroPoPolsku.exe"
 Name: "{autodesktop}\LOTRO po Polsku"; Filename: "{app}\LotroPoPolsku.exe"
 
 [Run]
-; runascurrentuser: started by the elevated Setup, so no second prompt and no error 740 once the app
-; asks for admin rights (#42). nowait: Setup must not wait for the app to close. No skipifsilent:
-; after a silent update the new version starts on its own.
+; runascurrentuser: started by the elevated Setup, so no second prompt and no error 740, because the
+; app asks for admin rights (#1464). nowait: Setup must not wait for the app to close. No
+; skipifsilent: after a silent update the new version starts on its own.
 Filename: "{app}\LotroPoPolsku.exe"; Description: "Uruchom LOTRO po Polsku"; Flags: postinstall nowait runascurrentuser
 
-; No [UninstallDelete]: uninstall removes only what Setup installed. The settings, the downloaded
-; translation file and its ledger stay in %AppData%\LotroPoPolsku, and the game folder is never touched.
+; No [UninstallDelete]: uninstall removes only what Setup installed. {app}\data (the settings, the
+; log, and from #42 the downloaded translation file and its ledger) and {app}\updates stay, and the
+; game folder is never touched. Nothing here may delete {app}\updates during an install: the running
+; installer of an update sits in it.
 
 [Code]
 const
-  { Held by the running app (Program.RunningMutexName). Not an AppMutex directive: that would also
-    stop a silent update, which closes the app itself instead. }
+  { Held by the running app (RunningCopyClaim in the Presentation project). Every copy holds the
+    Global\ name; the plain one matters only when Windows refuses the global one. CheckForMutexes is
+    true when any listed name exists. Not an AppMutex directive: that would also stop a silent update,
+    which closes the app itself instead. }
   AppRunningMutex = 'LotroPoPolsku_Running,Global\LotroPoPolsku_Running';
 
 { The uninstaller cannot remove a running exe, so it asks the player to close the app first. A silent

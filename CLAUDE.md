@@ -170,7 +170,7 @@ dotnet run --project src/Patcher/LotroKoniecDev.Cli -- export                 # 
 dotnet run --project src/Patcher/LotroKoniecDev.Cli -- patch polish           # translations/polish.txt → DAT
 dotnet run --project src/Patcher/LotroKoniecDev.Cli -- launch polish          # download (may overwrite translations/polish.txt) → patch if changed → launch; --skip-sync = no download
 # or the .bat wrappers: export.bat (no elevation) / patch.bat, lotro.bat (self-elevate)
-dotnet run --project src/Player/LotroKoniecDev.DesktopApp                     # desktop app LotroPoPolsku.exe (Windows; M4, ADR-0033)
+dotnet run --project src/Player/LotroKoniecDev.DesktopApp                     # desktop app LotroPoPolsku.exe (Windows; M4, ADR-0033); asks for admin rights, so run it (or Rider) elevated, else error 740
 
 # GitHub tickets
 gh issue list --state open                             # backlog; titles follow "M{milestone}-{nn}: Title"
@@ -940,10 +940,13 @@ this repo's settings and their reasons are in `docs/claude-loop.md`.
 - **M4 — desktop player app (Avalonia, ADR-0033): started.** #41 is done: the shell, an x86 exe plus
   a cross-platform UI project, a splash and a static main window. #43 is done: the first run finds
   the game and asks before it uses a folder from outside the allow-list (ADR-0069 amendment), the
-  settings window keeps `config.json` in the app's AppData folder, and the main window always shows
-  the risk note and the launcher notice. Every new text is Polish, and #42 replaces the English
-  labels #41 left (ADR-0033 amendment). #45 adds the Inno Setup installer, its release workflow and
-  the update at start (spec 0016). #42 is open; #46 is closed (its tests ship with each ticket). A
+  settings window saves `config.json`, and the main window always shows the risk note and the
+  launcher notice. Every new text is Polish, and #42 replaces the English labels #41 left (ADR-0033
+  amendment). #45 adds the Inno Setup installer, its release workflow and the update at start (spec
+  0016). #1464 makes the app ask for admin rights at start and keeps everything it writes under its
+  own folder (`data\`, `updates\`), which only administrators can change under Program Files; one
+  copy runs per PC (ADR-0069 amendment of 2026-11-18). #42 is open; #46 is closed (its tests ship
+  with each ticket). A
   GUI over the patcher handlers + the same TMS auto-download the CLI ships. The MVP is Windows-only,
   but the framework keeps the Steam Deck/Proton path open (WPF would close it).
 - **Post-MVP backlog (cut from MVP):** glossary, `TranslationHistory`, bulk operations, keyboard

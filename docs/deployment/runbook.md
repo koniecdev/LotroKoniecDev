@@ -1311,14 +1311,15 @@ this works.
 
 The first real update (from `desktop-v0.1.0` to `desktop-v0.1.1`) is the first proof of the whole
 update path against GitHub. Do not announce `desktop-v0.1.0` to players before these steps passed
-on a real Windows machine, with the app started from its shortcut (so without admin rights, until
-#42):
+on a real Windows machine, with the app started from its shortcut. The app asks for admin rights
+when it starts (#1464), so the update itself shows no prompt:
 
-1. With 0.1.0 installed, publish 0.1.1 and start 0.1.0. The panel offers 0.1.1.
-2. Click "Tak", then "No" on the Windows admin prompt. The app stays open, says "nie zgodzono się na
-   uruchomienie instalatora", and "Tak" works again.
-3. Click "Tak" again, then "Yes". The app closes, the install shows only its progress, 0.1.1
-   starts, and `%AppData%\LotroPoPolsku\update-install.log` exists.
+1. With 0.1.0 installed, publish 0.1.1 and start 0.1.0. Windows asks for admin rights; "No" there
+   means the app does not start. Click "Yes". The panel offers 0.1.1.
+2. Click "Tak". The app closes with no second prompt, the install shows only its progress, 0.1.1
+   starts, and `C:\Program Files (x86)\LotroPoPolsku\updates\update-install.log` exists.
+3. Start the app again while it runs. A message says that it already runs, and the first window
+   stays open.
 
 ### An image that failed its checks
 

@@ -26,7 +26,7 @@ internal static class GameFolderTexts
         "Nie udało się zapisać ustawień. Wybrany folder działa do zamknięcia programu.";
 
     public const string ChooseFailed =
-        "Coś poszło nie tak przy wyborze folderu gry. Szczegóły są w pliku LotroPoPolsku.log.";
+        "Coś poszło nie tak przy wyborze folderu gry. Szczegóły są w pliku data\\LotroPoPolsku.log w folderze programu.";
 
     public static string FoundOne(string folder, DatFileSource source, bool needsConfirmation) =>
         $"Znaleziono grę w folderze {folder} ({SourceLabel(source)}). " +

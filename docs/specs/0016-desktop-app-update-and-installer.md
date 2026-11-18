@@ -138,7 +138,8 @@ When a newer version is out, the app offers it at start and installs it after on
   never stops the app; the app logs it as a Warning. Every copy runs as admin (#1464), so an
   uninstaller run by any admin account sees the mutex. A second copy that only shows its "already
   running" message holds no mutex by design. If the first copy has ended while that message is
-  open, the uninstaller does not see it and cannot remove that exe until the message is closed.
+  open, the uninstaller does not see that copy: it removes the rest and leaves that exe behind,
+  and the player deletes it by hand.
 - **Uninstall removes only what the installer put in** (owner decision): the program files, both
   shortcuts and the uninstall entry. `{app}\data` (the settings, the log, and from #42 the downloaded
   `polish.txt` and its `.ledger`, ADR-0047 §4) and `{app}\updates` stay, so the install folder stays

@@ -219,6 +219,8 @@ jobs:
           # for admin rights. A plain bool, so a failure does not print the binary.
           $exeText = [System.Text.Encoding]::Latin1.GetString([System.IO.File]::ReadAllBytes($appExe))
           if (-not $exeText.Contains('<requestedExecutionLevel level="requireAdministrator"')) { throw 'The installed exe does not ask for admin rights at start.' }
+          # The bundled runtime settings turn startup hooks off; the start checks below prove it too.
+          if (-not $exeText.Contains('"System.StartupHookProvider.IsSupported": false')) { throw 'The installed exe does not turn startup hooks off.' }
 
           # The app starts its composition root with ValidateOnBuild, so a broken DI graph ends it.
           Wait-Until { (Get-App).Count -gt 0 } 60 'the app to start after install 1'

@@ -62,13 +62,18 @@ pass() {
 # STUB_BUILD_FAIL     — 1: `docker build` fails
 # STUB_PRUNE_FAIL     — 1: `docker image prune` fails
 # STUB_RUN_STATUS     — `docker run` exits with this (default: 0)
-# Each docker call is one line in STUB_CALLS: the value of MSYS_NO_PATHCONV, then every argument
-# in brackets. `timeout` writes its own line the same way, then runs the command it got. cygpath
-# marks what it converted with `M:`, as a drive letter would.
+# Each docker call is one line in STUB_CALLS: the values of the two MSYS path-conversion switches,
+# then every argument in brackets. `timeout` answers `--version` as GNU timeout does; any other
+# call writes its own line the same way, then runs the command it got. cygpath marks what it
+# converted with `M:`, as a drive letter would.
 BIN="$TMP_ROOT/bin"
 mkdir -p "$BIN"
 cat > "$BIN/timeout" << 'STUB'
 #!/usr/bin/env bash
+if [ "$1" = --version ]; then
+    echo 'timeout (GNU coreutils) stub'
+    exit 0
+fi
 {
     printf 'timeout'
     printf ' [%s]' "$@"
@@ -89,7 +94,7 @@ STUB
 cat > "$BIN/docker" << 'STUB'
 #!/usr/bin/env bash
 {
-    printf 'docker(MSYS_NO_PATHCONV=%s)' "${MSYS_NO_PATHCONV-unset}"
+    printf 'docker(MSYS_NO_PATHCONV=%s MSYS2_ARG_CONV_EXCL=%s)' "${MSYS_NO_PATHCONV-unset}" "${MSYS2_ARG_CONV_EXCL-unset}"
     printf ' [%s]' "$@"
     printf '\n'
 } >> "$STUB_CALLS"
@@ -151,6 +156,16 @@ cp "$BIN/docker" "$NO_CYGPATH_BIN/docker"
 NO_TIMEOUT_BIN="$TMP_ROOT/no-timeout-bin"
 link_tools "$NO_TIMEOUT_BIN" grep mktemp rm cat cp
 cp "$BIN/docker" "$BIN/cygpath" "$NO_TIMEOUT_BIN/"
+# Windows' own timeout.exe: it refuses `--version`, and it would refuse a docker command too.
+WINDOWS_TIMEOUT_BIN="$TMP_ROOT/windows-timeout-bin"
+mkdir -p "$WINDOWS_TIMEOUT_BIN"
+cat > "$WINDOWS_TIMEOUT_BIN/timeout" << 'STUB'
+#!/usr/bin/env bash
+printf 'windows-timeout [%s]\n' "$*" >> "$STUB_CALLS"
+echo 'ERROR: Invalid syntax.' >&2
+exit 1
+STUB
+chmod +x "$WINDOWS_TIMEOUT_BIN/timeout"
 
 # --- Scratch repos ------------------------------------------------------------------------------
 # make_repo <name> [pin file content] — prints the path of a new committed repo with the runner, a
@@ -316,7 +331,8 @@ expect_err 'cygpath is missing'
 pass 'exit 2'
 
 # Every name Git Bash, MSYS2 and Cygwin give: each one takes the Windows leg.
-for windows_name in "$WINDOWS" 'MSYS_NT-10.0-26300' 'CYGWIN_NT-10.0-26300'; do
+for windows_name in "$WINDOWS" 'MSYS_NT-10.0-26300' 'CYGWIN_NT-10.0-26300' \
+    'UCRT64_NT-10.0-26300' 'CLANG64_NT-10.0-26300'; do
     CASE="windows: Docker is not running ($windows_name)"
     run_runner "$REPO" STUB_UNAME="$windows_name" STUB_INFO_STATUS=1 -- scripts/ok.sh
     expect_status 2
@@ -333,10 +349,18 @@ expect_call 'timeout [30] [docker] [info] [--format] [{{.OSType}}]'
 expect_err 'did not answer within 30s'
 pass 'timeout 30, then exit 2 with the time-out message'
 
+CASE="windows: Windows' own timeout.exe first on PATH is not used"
+run_runner "$REPO" PATH="$WINDOWS_TIMEOUT_BIN:$BIN:$PATH" STUB_UNAME="$WINDOWS" STUB_IMAGE_EXISTS=1 -- scripts/ok.sh
+expect_status 0
+expect_call 'docker(MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL=*) [info] [--format] [{{.OSType}}]'
+expect_no_call 'windows-timeout [30'
+expect_call '[run]'
+pass 'docker info runs plainly, exit 0'
+
 CASE='windows: without timeout, docker info runs plainly'
 run_runner "$REPO" PATH="$NO_TIMEOUT_BIN" STUB_UNAME="$WINDOWS" STUB_IMAGE_EXISTS=1 -- scripts/ok.sh
 expect_status 0
-expect_call 'docker(MSYS_NO_PATHCONV=1) [info] [--format] [{{.OSType}}]'
+expect_call 'docker(MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL=*) [info] [--format] [{{.OSType}}]'
 expect_no_call 'timeout'
 expect_call '[run]'
 pass 'exit 0, no timeout call'
@@ -352,8 +376,8 @@ pass 'exit 2, no container'
 CASE='windows: the image is built from the pinned SDK image'
 run_runner "$REPO" STUB_UNAME="$WINDOWS" -- scripts/ok.sh
 expect_status 0
-expect_call 'docker(MSYS_NO_PATHCONV=1) [info] [--format] [{{.OSType}}]'
-expect_call "docker(MSYS_NO_PATHCONV=1) [build] [--load] [--tag]"
+expect_call 'docker(MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL=*) [info] [--format] [{{.OSType}}]'
+expect_call "docker(MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL=*) [build] [--load] [--tag]"
 [ "$(head -1 "$BUILD_STDIN")" = "FROM $FAKE_PIN" ] || fail "the recipe does not start with FROM $FAKE_PIN"
 for needed in 'LABEL lotrokoniecdev.script-checks=true' 'install -y --no-install-recommends jq locales' \
     'en_US.UTF-8 UTF-8' 'locale-gen' "grep -qx 'en_US.utf8'" 'ENV LANG=C.UTF-8'; do
@@ -369,7 +393,7 @@ expect_call "[$expected_tag] [bash] [/repo/scripts/run-script-checks.sh] [script
 pass "$expected_tag"
 
 CASE='windows: before a build, old labelled images go'
-expect_call 'docker(MSYS_NO_PATHCONV=1) [image] [prune] [--all] [--force] [--filter] [label=lotrokoniecdev.script-checks] [--filter] [until=168h]'
+expect_call 'docker(MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL=*) [image] [prune] [--all] [--force] [--filter] [label=lotrokoniecdev.script-checks] [--filter] [until=168h]'
 [ "$(grep -cF '[prune]' "$CALLS")" -eq 1 ] || fail 'prune ran more than once'
 prune_line="$(grep -nF '[prune]' "$CALLS" | cut -d: -f1)"
 build_line="$(grep -nF '[build]' "$CALLS" | cut -d: -f1)"
@@ -431,7 +455,7 @@ run_runner "$REPO" STUB_UNAME="$WINDOWS" STUB_IMAGE_EXISTS=1 -- scripts/red.sh s
 expect_status 0
 call="$(run_call)"
 [ "$(grep -c . <<< "$call")" -eq 1 ] || fail 'expected exactly one docker run'
-for part in 'docker(MSYS_NO_PATHCONV=1) [run] [--rm] [--init] [--pull] [never] [--user] [1654:1654] [-w] [/repo]' \
+for part in 'docker(MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL=*) [run] [--rm] [--init] [--pull] [never] [--user] [1654:1654] [-w] [/repo]' \
     "[-v] [M:$REPO:/repo:ro]" \
     '[-e] [GIT_CONFIG_COUNT=1] [-e] [GIT_CONFIG_KEY_0=safe.directory] [-e] [GIT_CONFIG_VALUE_0=*]' \
     '[bash] [/repo/scripts/run-script-checks.sh] [scripts/red.sh] [scripts/ok.sh]'; do
@@ -467,6 +491,18 @@ call="$(run_call)"
 grep -qF '[/repo/scripts/run-script-checks.sh] [scripts/ok.sh]' <<< "$call" || fail 'ok.sh did not run'
 ! grep -qF '[scripts/red.sh]' <<< "$call" || fail 'red.sh was sent to the container'
 pass 'exit 126, the other script still ran'
+
+CASE='windows: a path typed in another letter case still has its git mode checked'
+# Windows finds scripts/red.sh whatever the case; here the index spells it scripts/Red.sh.
+CASE_REPO="$(make_repo letter-case)"
+red_blob="$(git -C "$CASE_REPO" hash-object -w scripts/red.sh)"
+git -C "$CASE_REPO" rm -q --cached -- scripts/red.sh
+git -C "$CASE_REPO" update-index --add --cacheinfo "100644,$red_blob,scripts/Red.sh"
+run_runner "$CASE_REPO" STUB_UNAME="$WINDOWS" STUB_IMAGE_EXISTS=1 -- scripts/red.sh scripts/ok.sh
+expect_status 126
+expect_out '== scripts/red.sh: exit 126 (git mode 100644;'
+! grep -qF 'is not in git' "$ERR" || fail 'the path was taken as not in git'
+pass 'exit 126, not "not in git"'
 
 CASE='windows: only scripts git does not mark executable'
 run_runner "$MODE_REPO" STUB_UNAME="$WINDOWS" STUB_IMAGE_EXISTS=1 -- scripts/red.sh

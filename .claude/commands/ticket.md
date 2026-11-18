@@ -396,13 +396,16 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   pin (pure presentation) goes under **Doubts** with the page or step to check by hand.
 - **The guard scripts CI runs, every time** — they are bash greps and take seconds. Run them in
   one call of the runner, which prints a result line for each:
-  `scripts/run-script-checks.sh scripts/check-ssr-purity.sh scripts/check-client-hypermedia.sh
-  scripts/check-dockerfile-restore-graph.sh scripts/check-migration-safety.sh
-  scripts/claude/verify-copy.sh` (the last one is the backlog-loop copy check). On Linux and macOS
-  it runs them directly; on Windows it runs them in a Linux container, because Git Bash is many
-  times slower and fails some self-tests that pass in CI (#1473). So on Windows it needs Docker,
-  and its exit 2 (no Docker, no image) is a red gate, never a skip. A self-test from
-  `scripts/tests/` goes through the same runner.
+
+  ```bash
+  scripts/run-script-checks.sh scripts/check-ssr-purity.sh scripts/check-client-hypermedia.sh scripts/check-dockerfile-restore-graph.sh scripts/check-migration-safety.sh scripts/claude/verify-copy.sh
+  ```
+
+  The last one is the backlog-loop copy check. On Linux and macOS the runner runs them directly;
+  on Windows it runs them in a Linux container, because Git Bash is many times slower and fails
+  some self-tests that pass in CI (#1473). So on Windows it needs Docker, and its exit 2 (no
+  Docker, no image) is a red gate, never a skip. A self-test from `scripts/tests/` goes through
+  the same runner.
 - **Review gate — every diff goes to the `code-reviewer` agent, small ones too** (#1318).
   `git diff --shortstat origin/main...HEAD` sizes it for the report. The base is always
   `origin/main`: a local `main` can be behind it (in a worktree it is never pulled), and a stale

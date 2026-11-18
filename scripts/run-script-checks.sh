@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Runs the repo's bash checks the way CI runs them: the scripts/check-*.sh guards,
-# scripts/claude/verify-copy.sh and the scripts/tests/*.tests.sh self-tests (#1473).
+# Runs the repo's bash checks: the scripts/check-*.sh guards, scripts/claude/verify-copy.sh and the
+# scripts/tests/*.tests.sh self-tests (#1473).
 #
-# On Linux and macOS it runs each script directly. On Windows (Git Bash) it runs them all in one
-# Linux container. Git Bash is many times slower there, and it copies a file when a script asks for
-# a symbolic link, so some self-tests fail although nothing is wrong. The container runs as a
-# non-root user, because CI does, and some self-tests run other cases as root.
+# On Linux and macOS it runs each script directly, in the caller's shell. On Windows (Git Bash) it
+# runs them all in one Linux container set up like CI's runner. Git Bash is many times slower, and
+# it copies a file when a script asks for a symbolic link, so some self-tests fail although nothing
+# is wrong. The container runs as a non-root user, because CI does, and some self-tests run other
+# cases as root.
 #
 #   scripts/run-script-checks.sh <script path from the repo root>...
 #
@@ -49,9 +50,10 @@ check_arguments() {
     done
 }
 
+# Git Bash and MSYS2 name the shell in front: MINGW64_NT-…, MSYS_NT-…, UCRT64_NT-…, CLANG64_NT-….
 is_windows() {
     case "$(uname -s)" in
-        MINGW* | MSYS* | CYGWIN*) return 0 ;;
+        MINGW* | MSYS* | CYGWIN* | *_NT-*) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -77,19 +79,25 @@ run_directly() {
     return "$highest"
 }
 
+# Runs a command with MSYS path conversion off, so docker.exe gets /repo and the other container
+# paths as written. Git for Windows reads the first variable, MSYS2 only the second.
+without_path_conversion() {
+    MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "$@"
+}
+
 check_docker() {
     command -v docker > /dev/null 2>&1 \
         || die 'Docker is needed on Windows: install Docker Desktop and start it. The scripts never fall back to Git Bash.'
     command -v cygpath > /dev/null 2>&1 \
         || die 'cygpath is missing: run this from Git Bash.'
 
-    local os_type status=0
-    if command -v timeout > /dev/null 2>&1; then
-        os_type="$(MSYS_NO_PATHCONV=1 timeout "$DOCKER_INFO_TIMEOUT_SECONDS" \
-            docker info --format '{{.OSType}}' 2> /dev/null)" || status=$?
-    else
-        os_type="$(MSYS_NO_PATHCONV=1 docker info --format '{{.OSType}}' 2> /dev/null)" || status=$?
+    # Only GNU timeout: Windows' own timeout.exe can come first on PATH, and it takes other arguments.
+    local os_type status=0 limit=()
+    if command -v timeout > /dev/null 2>&1 && timeout --version < /dev/null > /dev/null 2>&1; then
+        limit=(timeout "$DOCKER_INFO_TIMEOUT_SECONDS")
     fi
+    os_type="$(without_path_conversion ${limit[@]+"${limit[@]}"} \
+        docker info --format '{{.OSType}}' 2> /dev/null)" || status=$?
     if [ "$status" -eq 124 ]; then
         die "Docker did not answer within ${DOCKER_INFO_TIMEOUT_SECONDS}s. Is Docker Desktop still starting?"
     fi
@@ -135,15 +143,15 @@ ensure_image() {
     hash="$(git hash-object --stdin <<< "$recipe")" || die 'git could not hash the image recipe'
     IMAGE_TAG="$IMAGE_REPOSITORY:${hash:0:16}"
 
-    if ! MSYS_NO_PATHCONV=1 docker image inspect "$IMAGE_TAG" > /dev/null 2>&1; then
+    if ! without_path_conversion docker image inspect "$IMAGE_TAG" > /dev/null 2>&1; then
         # Old check images go by age, not as "every other tag": a second checkout on an older pin
         # may still use its image, and Docker never removes an image a container uses. This runs
         # before the build, because a build from cached layers can keep an old creation time.
-        MSYS_NO_PATHCONV=1 docker image prune --all --force \
+        without_path_conversion docker image prune --all --force \
             --filter "label=$IMAGE_LABEL" --filter "until=$OLD_IMAGE_AGE" > /dev/null 2>&1 || true
         printf 'Building the check image %s. Only the first run does this, and it needs network.\n' \
             "$IMAGE_TAG" >&2
-        if ! build_log="$(MSYS_NO_PATHCONV=1 docker build --load --tag "$IMAGE_TAG" - 2>&1 <<< "$recipe")"; then
+        if ! build_log="$(without_path_conversion docker build --load --tag "$IMAGE_TAG" - 2>&1 <<< "$recipe")"; then
             printf '%s\n' "$build_log" >&2
             die "could not build the check image $IMAGE_TAG (the build log is above)"
         fi
@@ -159,10 +167,12 @@ run_in_container() {
     cd "$REPO_ROOT"
 
     # A mounted file always looks executable in the container, and Git for Windows adds a new file
-    # without the bit. CI then fails with 126, so give the same result here.
+    # without the bit. CI then fails with 126, so give the same result here. Windows finds a file
+    # whatever the letter case, so git must look the path up the same way.
     local path mode highest=0 to_run=() not_executable=''
     for path in "$@"; do
-        mode="$(git ls-files -s -- "$path")" || die "git could not read the index of $REPO_ROOT"
+        mode="$(git ls-files -s -- ":(icase,literal)$path")" \
+            || die "git could not read the index of $REPO_ROOT"
         mode="${mode%% *}"
         if [ -z "$mode" ]; then
             printf 'note: %s is not in git, so its executable bit is not checked\n' "$path" >&2
@@ -206,7 +216,7 @@ run_in_container() {
             mounts+=(-v "$git_mount:/git:ro" -v "$gitfile_mount:/repo/.git:ro")
         fi
 
-        MSYS_NO_PATHCONV=1 docker run --rm --init --pull never --user "$CONTAINER_USER" -w /repo \
+        without_path_conversion docker run --rm --init --pull never --user "$CONTAINER_USER" -w /repo \
             "${mounts[@]}" \
             -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
             "$IMAGE_TAG" bash /repo/scripts/run-script-checks.sh "${to_run[@]}" || status=$?

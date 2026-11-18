@@ -222,6 +222,8 @@ expect 'code=false guards=true images=false' 'the desktop release check'        
 expect 'code=false guards=true images=false' 'the desktop release check self-test'        'scripts/tests/desktop-release-check.tests.sh'
 expect 'code=false guards=true images=false' 'the desktop release clean-up'                'scripts/ci/desktop-release-cleanup.sh'
 expect 'code=false guards=true images=false' 'the desktop release clean-up self-test'      'scripts/tests/desktop-release-cleanup.tests.sh'
+expect 'code=false guards=true images=false' 'the script-check runner'                    'scripts/run-script-checks.sh'
+expect 'code=false guards=true images=false' 'the script-check runner self-test'          'scripts/tests/run-script-checks.tests.sh'
 expect 'code=true guards=true images=false'   'the desktop installer script (unknown path)' 'installer/LotroPoPolsku.iss'
 expect 'code=false guards=false images=false' 'the desktop release workflow'               '.github/workflows/desktop-release.yml'
 

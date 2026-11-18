@@ -1,4 +1,7 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.LogicalTree;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -30,6 +33,9 @@ public sealed class MainWindowTests
         new DesktopVersion(0, 3, 0),
         new Uri("https://github.com/koniecdev/LotroKoniecDev/releases/download/desktop-v0.3.0/LotroPoPolsku-Setup-0.3.0.exe"),
         new Uri("https://github.com/koniecdev/LotroKoniecDev/releases/download/desktop-v0.3.0/LotroPoPolsku-Setup-0.3.0.exe.sha256"));
+
+    /// <summary>The usable height of a 1080p laptop screen at 150%, rounded up (#1463).</summary>
+    private static readonly PixelRect LaptopWorkArea = new(0, 0, 1920, 690);
 
     private readonly HeadlessSessionFixture _fixture;
 
@@ -533,6 +539,381 @@ public sealed class MainWindowTests
         update.AcceptEnabled.ShouldBe(false);
     }
 
+    [Fact]
+    public async Task Show_WithEightInstallsAndAnUpdateOnALaptopScreen_StaysInsideTheWorkArea()
+    {
+        (int Top, double Height, double ScrollRange) shown = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = EightInstallsAndAnUpdate();
+                MainWindow window = ShowWith(viewModel, () => LaptopWorkArea);
+                try
+                {
+                    await WaitForEveryPanel(viewModel);
+                    return (window.Position.Y, window.ClientSize.Height, Scroller(window).ScrollBarMaximum.Y);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        // The panels came after the window was placed, and the content is now taller than the window.
+        shown.ScrollRange.ShouldBeGreaterThan(0);
+        // A headless window has no title bar, so its client area is its whole frame.
+        shown.Top.ShouldBeGreaterThanOrEqualTo(LaptopWorkArea.Y);
+        (shown.Top + shown.Height).ShouldBeLessThanOrEqualTo(LaptopWorkArea.Bottom);
+    }
+
+    [Theory]
+    [InlineData("ChooseGameFolderButton")]
+    [InlineData("PatchButton")]
+    [InlineData("PlayButton")]
+    [InlineData("AcceptUpdateButton")]
+    [InlineData("DeclineUpdateButton")]
+    [InlineData("SettingsButton")]
+    public async Task Scroll_WithEightInstallsAndAnUpdateOnALaptopScreen_BringsTheButtonOnScreen(string buttonName)
+    {
+        (double Top, double Bottom, double WindowTop, double WindowBottom) button = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = EightInstallsAndAnUpdate();
+                MainWindow window = ShowWith(viewModel, () => LaptopWorkArea);
+                try
+                {
+                    await WaitForEveryPanel(viewModel);
+                    return ScreenEdgesAfterScrollingTo(window, window.FindControl<Button>(buttonName).ShouldNotBeNull());
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        // Inside the work area, and inside the window's visible part, not hidden by the scroller.
+        button.Top.ShouldBeGreaterThanOrEqualTo(Math.Max(LaptopWorkArea.Y, button.WindowTop));
+        button.Bottom.ShouldBeLessThanOrEqualTo(Math.Min(LaptopWorkArea.Bottom, button.WindowBottom));
+    }
+
+    [Fact]
+    public async Task Scroll_WithEightInstallsAndAnUpdateOnALaptopScreen_BringsTheLastInstallOnScreen()
+    {
+        (double Top, double Bottom, double WindowTop, double WindowBottom) lastInstall = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = EightInstallsAndAnUpdate();
+                MainWindow window = ShowWith(viewModel, () => LaptopWorkArea);
+                try
+                {
+                    await WaitForEveryPanel(viewModel);
+
+                    // The list scrolls on its own and keeps a scroll request to itself, so the window
+                    // scrolls to the list first.
+                    ScreenEdgesAfterScrollingTo(window, window.FindControl<ScrollViewer>("GameFolderCandidatesScroller").ShouldNotBeNull());
+                    Button last = window.FindControl<ItemsControl>("GameFolderCandidates").ShouldNotBeNull()
+                        .GetVisualDescendants().OfType<Button>()
+                        .Last(button => button.DataContext is GameFolderCandidateViewModel);
+                    return ScreenEdgesAfterScrollingTo(window, last);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        lastInstall.Top.ShouldBeGreaterThanOrEqualTo(Math.Max(LaptopWorkArea.Y, lastInstall.WindowTop));
+        lastInstall.Bottom.ShouldBeLessThanOrEqualTo(Math.Min(LaptopWorkArea.Bottom, lastInstall.WindowBottom));
+    }
+
+    [Fact]
+    public async Task Focus_OnAnInstallAboveTheView_ScrollsTheWindowToIt()
+    {
+        (double Top, double Bottom, double WindowTop, double WindowBottom) firstInstall = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = EightInstallsAndAnUpdate();
+                MainWindow window = ShowWith(viewModel, () => LaptopWorkArea);
+                try
+                {
+                    await WaitForEveryPanel(viewModel);
+                    Scroller(window).ScrollToEnd();
+                    window.FindControl<ScrollViewer>("GameFolderCandidatesScroller").ShouldNotBeNull().ScrollToEnd();
+                    Dispatcher.UIThread.RunJobs();
+
+                    Button first = window.FindControl<ItemsControl>("GameFolderCandidates").ShouldNotBeNull()
+                        .GetVisualDescendants().OfType<Button>()
+                        .First(button => button.DataContext is GameFolderCandidateViewModel);
+                    // Both scrollers react to the focus, so the window scrolls too, not only the list.
+                    first.Focus(NavigationMethod.Tab);
+                    Dispatcher.UIThread.RunJobs();
+                    return ScreenEdges(window, first);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        firstInstall.Top.ShouldBeGreaterThanOrEqualTo(Math.Max(LaptopWorkArea.Y, firstInstall.WindowTop));
+        firstInstall.Bottom.ShouldBeLessThanOrEqualTo(Math.Min(LaptopWorkArea.Bottom, firstInstall.WindowBottom));
+    }
+
+    [Fact]
+    public async Task Show_WithASavedGameAndNoOfferOnALaptopScreen_KeepsItsHeightWithNoScrollBar()
+    {
+        (double Unlimited, double OnTheLaptop, double ScrollRange, Size Content, Size Viewport, Size Client) heights =
+            await _fixture.Session.Dispatch(
+            async () =>
+            {
+                double unlimitedHeight;
+                MainWindowViewModel unlimitedViewModel = CreateViewModel();
+                MainWindow unlimited = ShowWith(unlimitedViewModel, () => null);
+                try
+                {
+                    await Settle(unlimitedViewModel);
+                    unlimitedHeight = unlimited.ClientSize.Height;
+                }
+                finally
+                {
+                    unlimited.Close();
+                }
+
+                MainWindowViewModel viewModel = CreateViewModel();
+                MainWindow window = ShowWith(viewModel, () => LaptopWorkArea);
+                try
+                {
+                    await Settle(viewModel);
+                    ScrollViewer scroller = Scroller(window);
+                    return (unlimitedHeight, window.ClientSize.Height, scroller.ScrollBarMaximum.Y, scroller.Extent, scroller.Viewport, window.ClientSize);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        heights.OnTheLaptop.ShouldBe(heights.Unlimited);
+        heights.ScrollRange.ShouldBe(0);
+        // The scroller adds no padding and keeps no room for a scroll bar, so the content fills the window as before.
+        heights.Content.Height.ShouldBe(heights.Client.Height);
+        heights.Viewport.Width.ShouldBe(heights.Client.Width);
+    }
+
+    [Fact]
+    public async Task ScalingChange_OnALaptopScreen_LimitsTheHeightInTheNewUnitsAndMovesTheWindowBackIn()
+    {
+        (int Top, double Height) shown = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = EightInstallsAndAnUpdate();
+                MainWindow window = ShowWith(viewModel, () => LaptopWorkArea);
+                try
+                {
+                    await WaitForEveryPanel(viewModel);
+                    window.Position = new PixelPoint(window.Position.X, 200);
+                    Dispatcher.UIThread.RunJobs();
+
+                    window.SetRenderScaling(1.5);
+                    Dispatcher.UIThread.RunJobs();
+                    return (window.Position.Y, window.ClientSize.Height);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        // 690 pixels at 150% are 460 units: the window fills the work area from its top.
+        shown.Height.ShouldBe(460, 0.001);
+        shown.Top.ShouldBe(LaptopWorkArea.Y);
+    }
+
+    [Fact]
+    public async Task Grow_AfterAMoveToAnotherScreen_FitsTheWorkAreaOfTheNewScreen()
+    {
+        PixelRect workArea = LaptopWorkArea;
+        PixelRect lowerScreen = new(0, LaptopWorkArea.Bottom, 1920, 690);
+        TaskCompletionSource<Result<AppUpdateCheckResponse>> check = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        (int Top, double Height) shown = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = ViewModelBuilder.WithASavedGame().MainWindow(
+                    ViewModelBuilder.AppUpdate(ViewModelBuilder.CheckAnsweringWhen(check.Task)));
+                MainWindow window = ShowWith(viewModel, () => workArea);
+                try
+                {
+                    await viewModel.GameFolder.StartAsync();
+                    Dispatcher.UIThread.RunJobs();
+
+                    // Moved low on a second screen under the first one. A move alone never resizes the window.
+                    workArea = lowerScreen;
+                    window.Position = new PixelPoint(window.Position.X, lowerScreen.Y + 150);
+                    Dispatcher.UIThread.RunJobs();
+
+                    check.SetResult(Result.Success(AppUpdateCheckResponse.UpdateAvailable(OfferedUpdate)));
+                    await WaitUntil(() => viewModel.AppUpdate.IsPromptVisible);
+                    Dispatcher.UIThread.RunJobs();
+                    return (window.Position.Y, window.ClientSize.Height);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        shown.Top.ShouldBeGreaterThanOrEqualTo(lowerScreen.Y);
+        (shown.Top + shown.Height).ShouldBeLessThanOrEqualTo(lowerScreen.Bottom);
+    }
+
+    [Fact]
+    public async Task Move_ToASmallerScreen_LimitsTheHeightToTheNewWorkArea()
+    {
+        PixelRect workArea = new(0, 0, 1920, 1280);
+        (int Top, double Height) shown = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = EightInstallsAndAnUpdate();
+                MainWindow window = ShowWith(viewModel, () => workArea);
+                try
+                {
+                    await WaitForEveryPanel(viewModel);
+
+                    workArea = LaptopWorkArea;
+                    window.Position = new PixelPoint(window.Position.X, 100);
+                    Dispatcher.UIThread.RunJobs();
+                    return (window.Position.Y, window.ClientSize.Height);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        shown.Top.ShouldBeGreaterThanOrEqualTo(LaptopWorkArea.Y);
+        (shown.Top + shown.Height).ShouldBeLessThanOrEqualTo(LaptopWorkArea.Bottom);
+    }
+
+    [Fact]
+    public async Task Grow_FromTheTopOfTheWorkArea_StaysWithinTheLimitSetWhenTheWindowOpened()
+    {
+        (int Top, double Height, PixelRect WorkArea) shown = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = EightInstallsAndAnUpdate();
+                PixelRect? workArea = null;
+                MainWindow? window = null;
+                window = new MainWindow
+                {
+                    DataContext = viewModel,
+                    // The window opens at the top of this work area, so growing never moves it, and only the
+                    // limit set when it opened keeps it inside.
+                    WorkAreaSource = () => workArea ??= new PixelRect(0, window!.Position.Y, 1920, 690)
+                };
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                try
+                {
+                    await WaitForEveryPanel(viewModel);
+                    return (
+                        window.Position.Y,
+                        window.ClientSize.Height,
+                        workArea ?? throw new InvalidOperationException("The window never asked for its work area."));
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        shown.Top.ShouldBeGreaterThanOrEqualTo(shown.WorkArea.Y);
+        (shown.Top + shown.Height).ShouldBeLessThanOrEqualTo(shown.WorkArea.Bottom);
+    }
+
+    [Fact]
+    public async Task Grow_WhileMinimized_LeavesTheWindowWhereItIs()
+    {
+        TaskCompletionSource<Result<AppUpdateCheckResponse>> check = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        (int Top, double Height) shown = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = ViewModelBuilder.WithASavedGame().MainWindow(
+                    ViewModelBuilder.AppUpdate(ViewModelBuilder.CheckAnsweringWhen(check.Task)));
+                MainWindow window = ShowWith(viewModel, () => LaptopWorkArea);
+                try
+                {
+                    await viewModel.GameFolder.StartAsync();
+                    window.Position = new PixelPoint(window.Position.X, 150);
+                    window.WindowState = WindowState.Minimized;
+                    Dispatcher.UIThread.RunJobs();
+
+                    check.SetResult(Result.Success(AppUpdateCheckResponse.UpdateAvailable(OfferedUpdate)));
+                    await WaitUntil(() => viewModel.AppUpdate.IsPromptVisible);
+                    Dispatcher.UIThread.RunJobs();
+                    return (window.Position.Y, window.ClientSize.Height);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        // The grown window reaches below the work area. It is fitted when it is restored, not before.
+        (150 + shown.Height).ShouldBeGreaterThan(LaptopWorkArea.Bottom);
+        shown.Top.ShouldBe(150);
+    }
+
+    [Fact]
+    public async Task Restore_AfterAGrowthWhileMinimized_MovesTheWindowBackIntoTheWorkArea()
+    {
+        TaskCompletionSource<Result<AppUpdateCheckResponse>> check = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        (int Top, double Height) shown = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = ViewModelBuilder.WithASavedGame().MainWindow(
+                    ViewModelBuilder.AppUpdate(ViewModelBuilder.CheckAnsweringWhen(check.Task)));
+                MainWindow window = ShowWith(viewModel, () => LaptopWorkArea);
+
+                // Windows reports a restore as a resize first, and as the new state right after it, before any
+                // posted job runs.
+                EventHandler<WindowResizedEventArgs> restore = (_, _) =>
+                    Dispatcher.UIThread.Post(() => window.WindowState = WindowState.Normal, DispatcherPriority.Send);
+                try
+                {
+                    await viewModel.GameFolder.StartAsync();
+                    window.Position = new PixelPoint(window.Position.X, 150);
+                    window.WindowState = WindowState.Minimized;
+                    Dispatcher.UIThread.RunJobs();
+
+                    window.Resized += restore;
+                    check.SetResult(Result.Success(AppUpdateCheckResponse.UpdateAvailable(OfferedUpdate)));
+                    await WaitUntil(() => viewModel.AppUpdate.IsPromptVisible);
+                    Dispatcher.UIThread.RunJobs();
+                    return (window.Position.Y, window.ClientSize.Height);
+                }
+                finally
+                {
+                    window.Resized -= restore;
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        // At its old top of 150 the grown window would reach below the work area.
+        (150 + shown.Height).ShouldBeGreaterThan(LaptopWorkArea.Bottom);
+        shown.Top.ShouldBeGreaterThanOrEqualTo(LaptopWorkArea.Y);
+        (shown.Top + shown.Height).ShouldBeLessThanOrEqualTo(LaptopWorkArea.Bottom);
+    }
 
     public MainWindowTests(HeadlessSessionFixture fixture)
     {
@@ -541,12 +922,58 @@ public sealed class MainWindowTests
 
     private static MainWindowViewModel CreateViewModel() => ViewModelBuilder.WithASavedGame().MainWindow();
 
-    private static MainWindow ShowWith(MainWindowViewModel viewModel)
+    /// <summary>The ticket's tallest case (#1463): the list of found copies and the update offer at once.</summary>
+    private static MainWindowViewModel EightInstallsAndAnUpdate() =>
+        new ViewModelBuilder()
+            .Locating(Enumerable.Range(1, 8)
+                .Select(copy => ViewModelBuilder.Location(ViewModelBuilder.Rooted($"Kopia{copy}", "LOTRO"), DatFileSource.DiskScan))
+                .ToArray())
+            .MainWindow(ViewModelBuilder.AppUpdate(
+                ViewModelBuilder.CheckAnswering(AppUpdateCheckResponse.UpdateAvailable(OfferedUpdate))));
+
+    /// <summary>With no work area the window keeps the headless platform's one fixed screen.</summary>
+    private static MainWindow ShowWith(MainWindowViewModel viewModel, Func<PixelRect?>? workArea = null)
     {
-        MainWindow window = new() { DataContext = viewModel };
+        MainWindow window = new() { DataContext = viewModel, WorkAreaSource = workArea };
         window.Show();
         Dispatcher.UIThread.RunJobs();
         return window;
+    }
+
+    private static async Task WaitForEveryPanel(MainWindowViewModel viewModel)
+    {
+        await WaitUntil(() => viewModel.GameFolder.IsCandidateListVisible && viewModel.AppUpdate.IsPromptVisible);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>Both start-up tasks have ended, so the window has its everyday height.</summary>
+    private static async Task Settle(MainWindowViewModel viewModel)
+    {
+        await viewModel.GameFolder.StartAsync();
+        await viewModel.AppUpdate.CheckAsync();
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>A missing scroller fails the test at its first use.</summary>
+    private static ScrollViewer Scroller(MainWindow window) => window.FindControl<ScrollViewer>("WindowScroller")!;
+
+    private static (double Top, double Bottom, double WindowTop, double WindowBottom) ScreenEdgesAfterScrollingTo(
+        MainWindow window, Control control)
+    {
+        control.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        return ScreenEdges(window, control);
+    }
+
+    /// <summary>
+    /// The control's edges and the window's visible part, on screen. On the headless platform the scaling is 1
+    /// and there is no title bar, so window units are screen pixels.
+    /// </summary>
+    private static (double Top, double Bottom, double WindowTop, double WindowBottom) ScreenEdges(MainWindow window, Control control)
+    {
+        Point topLeft = control.TranslatePoint(new Point(0, 0), window)!.Value;
+        double top = window.Position.Y + topLeft.Y;
+        return (top, top + control.Bounds.Height, window.Position.Y, window.Position.Y + window.ClientSize.Height);
     }
 
     /// <summary>

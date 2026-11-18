@@ -254,7 +254,9 @@ checks over an in-memory stub `HttpMessageHandler`, with no real network. A test
 real file output belongs here or in `Tests.Infrastructure`, never in `Tests.Unit`.
 `InfrastructureDependencyInjectionTests` builds Application and `AddInfrastructureServices()` with
 validation on and stand-ins for the five Windows ports, and resolves every patcher handler. It runs
-in the PR gate on Linux, picked up by its `*.Tests.Integration` name, and needs no Docker.
+in the PR gate on Linux, picked up by its `*.Tests.Integration` name, and needs no Docker. The
+`windows-tests` workflow also runs the whole suite on Windows with `--arch x86` (#1450): the CLI and
+the desktop app run these adapters in a 32-bit process.
 
 A case that needs Windows file semantics (an ACL, a sharing violation, a folder Windows will not
 delete while a file in it is open) stays in `Tests.Infrastructure`, in a class with the same name.
@@ -277,7 +279,15 @@ The project targets `net10.0-windows` with an x86 `PlatformTarget`. It builds ev
 `dotnet test` exits 1). Off Windows, `dotnet test` compiles it, runs none of its tests, prints one
 `LotroKoniecDev.Tests.Infrastructure: not run` line and exits 0
 (`tests/Shared/WindowsOnlyTestRun.targets`, #816). None of its tests count as Skipped, because none
-start.
+start. When `DOTNET_ROOT` points at an x64 .NET install, the x86 test host reads it too and aborts
+with `0x800700C1`: set `DOTNET_ROOT_X86` to the x86 install.
+
+**In CI** it runs in `.github/workflows/windows-tests.yml` on a `windows-2025` runner (#1450), for
+every PR and every push to `main` that the change classifier calls code, or that changes that
+workflow. It is not a required check, but `/merge-train` skips a PR whose run failed. The runner
+process has admin rights, so the installer start tests that need them run there, and the one that
+needs a refused prompt skips. That job leaves `Tests.E2E` out: without the game file every E2E
+test skips, so the `needs-windows-check` hand check (`docs/labels.md`) still covers it.
 
 ## E2E Tests (LotroKoniecDev.Tests.E2E)
 
@@ -377,8 +387,10 @@ with its own DbContext must adopt the seam (a new script file name and the same 
   `scripts/ci/classify-changes.sh` matches it (a script under `scripts/`, a root compose file),
   add it to `CODE_INPUTS` there in the same change, with a case in its self-test. Otherwise a PR
   that changes only that file skips the test, and the failure shows up later in someone else's run
-  (#1163). Do not point a test at a file that `paths-ignore` in `.github/workflows/ci.yml` skips
-  (`docs/`, `.claude/`, the inert Markdown): main never re-runs the test after a change to it
+  (#1163). The `windows-tests` workflow reads the same `code` verdict, so this holds for a
+  `Tests.Infrastructure` test too. Do not point a test at a file that `paths-ignore` in
+  `.github/workflows/ci.yml` skips (`docs/`, `.claude/`, the inert Markdown): main never re-runs
+  the test after a change to it
 - Every test database starts from `PostgresImage.Name` (`tests/Shared/PostgresImage.cs`, linked
   into every suite that starts PostgreSQL), never from its own image tag (#1002)
 - A test that needs a host outside Development and Testing (because Testing turns the rule off)

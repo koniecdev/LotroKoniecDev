@@ -50,13 +50,19 @@ public sealed class WriteAccessCheckerTests : IDisposable
         CreateDatFile();
         string account = $"{Environment.UserDomainName}\\{Environment.UserName}";
 
-        // Never write this as /deny "(W)": FILE_GENERIC_WRITE includes SYNCHRONIZE, so denying it
-        // blocks reads too (#629). The precondition checks below catch that trap.
-        int aclExitCode = await RunIcaclsAsync($"\"{DatFilePath}\" /inheritance:r /grant:r \"{account}:(RX)\"");
-        aclExitCode.ShouldBe(0, "the test could not set up its own ACL");
+        // A new temp file on the hosted runner has an explicit Administrators grant, which
+        // /inheritance:r keeps and an elevated process writes through (#1450). /reset makes every
+        // entry inherited first, so the ACL below ends as this account's read and execute only.
+        int resetExitCode = await RunIcaclsAsync($"\"{DatFilePath}\" /reset");
+        resetExitCode.ShouldBe(0, "the test could not reset its own ACL");
 
         try
         {
+            // Never write this as /deny "(W)": FILE_GENERIC_WRITE includes SYNCHRONIZE, so denying it
+            // blocks reads too (#629). The precondition checks below catch that trap.
+            int aclExitCode = await RunIcaclsAsync($"\"{DatFilePath}\" /inheritance:r /grant:r \"{account}:(RX)\"");
+            aclExitCode.ShouldBe(0, "the test could not set up its own ACL");
+
             CanOpen(DatFilePath, FileAccess.Read).ShouldBeTrue(
                 "precondition: the ACL must still allow reads, or this proves nothing");
             CanOpen(DatFilePath, FileAccess.Write).ShouldBeFalse(

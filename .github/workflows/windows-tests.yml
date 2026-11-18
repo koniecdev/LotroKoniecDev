@@ -1,0 +1,141 @@
+name: Windows tests
+
+# Runs the patcher test suites that need Windows on a Windows runner (#1450). pr-verify and ci run on
+# Linux and pick test projects by name (*.Tests.Unit, *.Tests.Integration), so they never run
+# Tests.Infrastructure. Without this job a broken Windows test first shows on someone's PC.
+#
+# - Tests.Infrastructure: the Windows adapters and the desktop exe. Its PlatformTarget is x86.
+# - Infrastructure.Tests.Integration: Linux runs it as x64 in pr-verify. Here it runs once with
+#   --arch x86, because the CLI and the desktop app run these adapters in a 32-bit process.
+# - Not Tests.E2E: every E2E test skips without the game file, which CI does not have. The
+#   needs-windows-check label stays the gate for that hand check (docs/labels.md).
+#
+# Not a required check, so GitHub never blocks a merge on it. /merge-train still skips a PR whose run
+# failed, so re-run the job after a runner or network problem. The verdict comes from the repo's one classifier instead of a path list:
+# any path it does not know counts as code, and a missing or failed verdict runs the tests. The
+# classifier calls this file inert, so the changes job checks it on its own. The push leg tests
+# main after each merge, because main does not require a PR to be up to date before it merges.
+# Main takes squash merges only, so a push is one commit and HEAD^1 is the commit before it.
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+
+# A new push to a PR cancels its older run. Every commit on main gets its own run.
+concurrency:
+  group: windows-tests-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect Windows test changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+      workflow: ${{ steps.self.outputs.workflow }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The merge commit of a PR, or the pushed commit, plus its first parent.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Classify changed paths
+        id: diff
+        run: ./scripts/ci/classify-changes.sh HEAD^1
+
+      # A git error counts as a change, so the tests run.
+      - name: Check whether this workflow changed
+        id: self
+        run: |
+          if git diff --quiet HEAD^1 HEAD -- .github/workflows/windows-tests.yml; then
+            echo 'workflow=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'workflow=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    name: Windows-only patcher tests
+    needs: changes
+    # !cancelled() runs the tests when the changes job failed. An empty verdict is not 'false'.
+    if: ${{ !cancelled() && (needs.changes.outputs.code != 'false' || needs.changes.outputs.workflow != 'false') }}
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Both suites start an x86 test host. setup-dotnet puts an x86 install in its own x86 folder.
+      - name: Setup .NET (x86)
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: '10.0.1xx'
+          architecture: 'x86'
+
+      # The x64 step below sets DOTNET_ROOT to the x64 install, and an x86 host reads DOTNET_ROOT when
+      # DOTNET_ROOT_X86 is not set: it then loads the x64 runtime and the test run aborts.
+      - name: Point the x86 test host at the x86 install
+        run: |
+          $root = $env:DOTNET_ROOT
+          $info = & "$root\dotnet.exe" --info
+          if ($LASTEXITCODE -ne 0) { throw "dotnet --info in $root failed with $LASTEXITCODE." }
+          if (-not ($info -match '^\s*Architecture:\s+x86\s*$')) { throw "$root is not an x86 .NET install." }
+          $runtimes = & "$root\dotnet.exe" --list-runtimes
+          if ($LASTEXITCODE -ne 0) { throw "dotnet --list-runtimes in $root failed with $LASTEXITCODE." }
+          if (-not ($runtimes -match '^Microsoft\.NETCore\.App 10\.')) { throw "$root has no x86 .NET 10 runtime." }
+          "DOTNET_ROOT_X86=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "DOTNET_ROOT_X86=$root"
+
+      # Last, so the x64 dotnet comes first on PATH and builds, as in desktop-release.yml.
+      - name: Setup .NET (x64)
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: '10.0.1xx'
+
+      - name: Check that dotnet on PATH is the x64 install
+        run: |
+          $info = dotnet --info
+          if ($LASTEXITCODE -ne 0) { throw "dotnet --info failed with $LASTEXITCODE." }
+          if (-not ($info -match '^\s*Architecture:\s+x64\s*$')) { throw "The dotnet on PATH is not the x64 install." }
+
+      - name: Build with a .NET 10 SDK
+        run: |
+          # The image also ships a newer SDK, and with no global.json the newest one builds. The repo
+          # stays on .NET 10 (owner decision on #1444), so this job picks the newest 10.0.1xx itself.
+          # #1447 commits a global.json and removes this step; a committed one is never overwritten.
+          if (Test-Path global.json) {
+            Write-Host "A committed global.json picks the SDK."
+          } else {
+            Set-Content -Path global.json -Encoding utf8NoBOM `
+              -Value '{ "sdk": { "version": "10.0.100", "rollForward": "latestPatch" } }'
+          }
+          $sdk = dotnet --version
+          if ($LASTEXITCODE -ne 0) { throw "dotnet --version failed with $LASTEXITCODE." }
+          Write-Host "SDK $sdk"
+          if (-not $sdk.StartsWith('10.')) { throw "Expected a .NET 10 SDK, found $sdk." }
+
+      # One step per suite: a pwsh step reports only the exit code of its last command.
+      - name: Run the Windows adapter tests
+        id: windows-suite
+        run: |
+          dotnet test tests/LotroKoniecDev.Tests.Infrastructure -c Release
+          if ($LASTEXITCODE -ne 0) { throw "Tests.Infrastructure failed with $LASTEXITCODE." }
+
+      # Also after a red first suite, so every run shows both results.
+      - name: Run the cross-platform adapter tests in an x86 process
+        if: ${{ !cancelled() && (steps.windows-suite.outcome == 'success' || steps.windows-suite.outcome == 'failure') }}
+        run: |
+          dotnet test tests/LotroKoniecDev.Infrastructure.Tests.Integration -c Release --arch x86
+          if ($LASTEXITCODE -ne 0) { throw "Infrastructure.Tests.Integration (x86) failed with $LASTEXITCODE." }

@@ -107,7 +107,8 @@ GUARD_INPUTS='^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/tests/check-ssr-puri
 #     tms-api writes (#687). A rule edit that broke that tie would otherwise skip the test.
 # When a unit or integration test reads a file that an INERT rule matches (a script under scripts/,
 # say), that file goes here. The E2E suites read Dockerfiles and scripts too, but they are not on
-# the PR gate, so their reads need no entry.
+# the PR gate, so their reads need no entry. windows-tests.yml reads the code verdict too, so a file
+# a Tests.Infrastructure test reads goes here as well.
 CODE_INPUTS='^\.github/workflows/(pr-verify|ci)\.yml$|^scripts/hetzner/deploy\.sh$|^\.docker/observability/grafana/provisioning/alerting/lotrokoniecdev-alerts\.yaml$'
 
 # Image-build inputs: ANY Dockerfile flavor (a dev-only flavor costs a redundant image build, never

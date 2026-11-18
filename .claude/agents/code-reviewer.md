@@ -44,8 +44,9 @@ results. With no brief, use `HEAD` and the commands below, and skip the comparis
    - `dotnet build LotroKoniecDev.slnx`: green with zero warnings. If it is red, the suite counts
      as not run; go on to the guards.
    - `dotnet test`, with no filter. Keep the result line of each test project. Off Windows, the two
-     Windows-only patcher suites print "not run": that is expected (`needs-windows-check` covers
-     them), not a finding.
+     Windows-only patcher suites print "not run": that is expected (the `windows-tests` workflow
+     runs `Tests.Infrastructure` on every PR that changes code, and `needs-windows-check` covers
+     both), not a finding.
    - every guard script `/ticket` step 7 lists under "The guard scripts CI runs", with no
      argument (each `scripts/check-*.sh` and `scripts/claude/verify-copy.sh`).
 3. **A test project that is red in the full run:** run it again alone

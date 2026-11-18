@@ -81,6 +81,10 @@ that had been red on `main` since 2026-07-11, now passing **with its assertion u
 > code — seen once here, with 7.1 GB of orphaned `%TEMP%\lotro_e2e_*` dirs left by a killed run
 > (24 min wall clock; the clean re-run was 14.6 min, 26/26). **Sweep `%TEMP%\lotro_e2e_*` before
 > trusting a red E2E run.**
+>
+> **Update 2026-11-15 (#1408):** the tests of one class now share one copy, deleted when the class
+> ends. A run normally holds one copy and its backup at a time (measured peak 3.9 GiB, down from
+> 43 GiB) and the suite alone takes about 45 s, down from about 7 minutes.
 
 ## The measurement trap that produced the wrong answer first
 

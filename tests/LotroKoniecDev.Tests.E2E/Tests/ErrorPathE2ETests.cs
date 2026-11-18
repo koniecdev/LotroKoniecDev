@@ -1,13 +1,20 @@
 namespace LotroKoniecDev.Tests.E2E.Tests;
 
+/// <summary>
+/// The patch tests that need a real DAT share one copy (<see cref="SharedDatCopy"/>, #1408). They
+/// fail before the DAT is opened for writing; the garbage and comments-only files fail after the
+/// backup, so the copy gets one backup, which the later patches reuse.
+/// </summary>
 [Collection("E2E")]
-public sealed class ErrorPathE2ETests
+public sealed class ErrorPathE2ETests : IClassFixture<SharedDatCopy>
 {
     private readonly E2ETestFixture _fixture;
+    private readonly SharedDatCopy _sharedDatCopy;
 
-    public ErrorPathE2ETests(E2ETestFixture fixture)
+    public ErrorPathE2ETests(E2ETestFixture fixture, SharedDatCopy sharedDatCopy)
     {
         _fixture = fixture;
+        _sharedDatCopy = sharedDatCopy;
     }
 
     [SkippableFact]
@@ -44,7 +51,7 @@ public sealed class ErrorPathE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        string tempDatPath = _fixture.CreateTempDatCopy();
+        string tempDatPath = _sharedDatCopy.GetDatPath();
         string fakeTranslationsPath = Path.Combine(_fixture.CreateTempDir(), "nonexistent.txt");
 
         CliResult result = await _fixture.RunCliAsync(
@@ -112,7 +119,7 @@ public sealed class ErrorPathE2ETests
             also garbage
             missing||fields
             """);
-        string tempDatPath = _fixture.CreateTempDatCopy();
+        string tempDatPath = _sharedDatCopy.GetDatPath();
 
         //Act
         CliResult result = await _fixture.RunCliAsync(
@@ -136,7 +143,7 @@ public sealed class ErrorPathE2ETests
 
             # Yet another
             """);
-        string tempDatPath = _fixture.CreateTempDatCopy();
+        string tempDatPath = _sharedDatCopy.GetDatPath();
 
         //Act
         CliResult result = await _fixture.RunCliAsync(

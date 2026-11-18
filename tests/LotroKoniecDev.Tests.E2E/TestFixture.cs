@@ -50,7 +50,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
             {
                 if (Directory.GetCreationTimeUtc(dir) < DateTime.UtcNow.AddHours(-1))
                 {
-                    Directory.Delete(dir, true);
+                    DeleteWithReadOnlyFiles(dir);
                 }
             }
             catch
@@ -129,19 +129,9 @@ public sealed class E2ETestFixture : IAsyncLifetime
 
     public Task DisposeAsync()
     {
-        foreach (string dir in _tempDirectories)
+        foreach (string dir in _tempDirectories.ToList())
         {
-            try
-            {
-                if (Directory.Exists(dir))
-                {
-                    Directory.Delete(dir, recursive: true);
-                }
-            }
-            catch
-            {
-                // Best-effort cleanup
-            }
+            DeleteTempDir(dir);
         }
 
         return Task.CompletedTask;
@@ -202,7 +192,18 @@ public sealed class E2ETestFixture : IAsyncLifetime
     {
         string tempDir = CreateTempDir();
         string destPath = Path.Combine(tempDir, DatFileName);
-        File.Copy(DatFilePath, destPath);
+
+        try
+        {
+            File.Copy(DatFilePath, destPath);
+        }
+        catch
+        {
+            // A copy that failed halfway (a full disk) must not stay until the collection ends.
+            DeleteTempDir(tempDir);
+            throw;
+        }
+
         return destPath;
     }
 
@@ -212,6 +213,45 @@ public sealed class E2ETestFixture : IAsyncLifetime
         Directory.CreateDirectory(tempDir);
         _tempDirectories.Add(tempDir);
         return tempDir;
+    }
+
+    /// <summary>
+    /// Deletes a temp folder now, best effort. A folder that cannot be deleted stays on the list, so
+    /// the end of the collection tries again.
+    /// </summary>
+    public void DeleteTempDir(string tempDir)
+    {
+        try
+        {
+            if (Directory.Exists(tempDir))
+            {
+                DeleteWithReadOnlyFiles(tempDir);
+            }
+
+            _tempDirectories.Remove(tempDir);
+        }
+        catch
+        {
+            // Best-effort cleanup
+        }
+    }
+
+    /// <summary>
+    /// <see cref="Directory.Delete(string, bool)"/> refuses a read-only file on Windows, and a test may
+    /// have left one, so the flag goes first.
+    /// </summary>
+    private static void DeleteWithReadOnlyFiles(string dir)
+    {
+        foreach (string file in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
+        {
+            FileAttributes attributes = File.GetAttributes(file);
+            if (attributes.HasFlag(FileAttributes.ReadOnly))
+            {
+                File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+            }
+        }
+
+        Directory.Delete(dir, recursive: true);
     }
 
     private static async Task BuildCliProjectAsync()

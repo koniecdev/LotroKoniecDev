@@ -8,13 +8,15 @@ using LotroKoniecDev.Primitives.Constants;
 namespace LotroKoniecDev.Tests.E2E.Tests;
 
 [Collection("E2E")]
-public sealed class ExportE2ETests
+public sealed class ExportE2ETests : IClassFixture<SharedDatCopy>
 {
     private readonly E2ETestFixture _fixture;
+    private readonly SharedDatCopy _sharedDatCopy;
 
-    public ExportE2ETests(E2ETestFixture fixture)
+    public ExportE2ETests(E2ETestFixture fixture, SharedDatCopy sharedDatCopy)
     {
         _fixture = fixture;
+        _sharedDatCopy = sharedDatCopy;
     }
 
     [SkippableFact]
@@ -113,7 +115,7 @@ public sealed class ExportE2ETests
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
         //Arrange
-        string tempDatPath = _fixture.CreateTempDatCopy();
+        string tempDatPath = _sharedDatCopy.GetDatPath();
         string outputPath = Path.Combine(Path.GetDirectoryName(tempDatPath)!, "readonly_export.txt");
         File.SetAttributes(tempDatPath, File.GetAttributes(tempDatPath) | FileAttributes.ReadOnly);
 
@@ -149,19 +151,23 @@ public sealed class ExportE2ETests
         Skip.IfNot(OperatingSystem.IsWindows(), "ACLs are a Windows concept");
 
         //Arrange
-        string tempDatPath = _fixture.CreateTempDatCopy();
+        string tempDatPath = _sharedDatCopy.GetDatPath();
         string outputPath = Path.Combine(Path.GetDirectoryName(tempDatPath)!, "acl_export.txt");
         string account = $"{Environment.UserDomainName}\\{Environment.UserName}";
 
-        // Give read and execute rights and turn inheritance off, like the game folder's Users:(RX).
-        // Never write this as /deny "(W)": FILE_GENERIC_WRITE includes SYNCHRONIZE, so denying it
-        // blocks reads too and the copy no longer behaves like the Program Files file (#629). The
-        // precondition checks below catch that trap.
-        int aclExitCode = await RunIcaclsAsync($"\"{tempDatPath}\" /inheritance:r /grant:r \"{account}:(RX)\"");
-        aclExitCode.ShouldBe(0, "the test could not set up its own ACL");
+        // The copy is shared with the read-only test: its flag would refuse the write on its own.
+        File.GetAttributes(tempDatPath).HasFlag(FileAttributes.ReadOnly).ShouldBeFalse(
+            "precondition: only the ACL may refuse the write, or this proves nothing");
 
         try
         {
+            // Give read and execute rights and turn inheritance off, like the game folder's Users:(RX).
+            // Never write this as /deny "(W)": FILE_GENERIC_WRITE includes SYNCHRONIZE, so denying it
+            // blocks reads too and the copy no longer behaves like the Program Files file (#629). The
+            // precondition checks below catch that trap.
+            int aclExitCode = await RunIcaclsAsync($"\"{tempDatPath}\" /inheritance:r /grant:r \"{account}:(RX)\"");
+            aclExitCode.ShouldBe(0, "the test could not set up its own ACL");
+
             CanOpen(tempDatPath, FileAccess.Read).ShouldBeTrue(
                 "precondition: the ACL must still allow reads, or this proves nothing");
             CanOpen(tempDatPath, FileAccess.Write).ShouldBeFalse(
@@ -181,9 +187,9 @@ public sealed class ExportE2ETests
         }
         finally
         {
-            // Best-effort restore so the fixture's temp sweep is not fighting our own ACL. Never
-            // assert here: a failure would replace whatever the test was actually reporting.
-            _ = await RunIcaclsAsync($"\"{tempDatPath}\" /inheritance:e /grant \"{account}:(F)\"");
+            // Put back the inherited ACL the copy had, because the other tests of this class share it.
+            // Never assert here: a failure would replace whatever the test was actually reporting.
+            _ = await RunIcaclsAsync($"\"{tempDatPath}\" /reset");
         }
     }
 

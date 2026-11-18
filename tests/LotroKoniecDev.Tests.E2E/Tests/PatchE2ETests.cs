@@ -1,15 +1,25 @@
 using System.Security.Cryptography;
+using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Parsers;
+using LotroKoniecDev.Domain.Core.Monads;
+using LotroKoniecDev.Domain.Models;
 
 namespace LotroKoniecDev.Tests.E2E.Tests;
 
+/// <summary>
+/// Every test here uses one shared copy of the DAT, patched once with the repo's translation file
+/// (<see cref="PatchedDatCopy"/>, #1408).
+/// </summary>
 [Collection("E2E")]
-public sealed class PatchE2ETests
+public sealed class PatchE2ETests : IClassFixture<PatchedDatCopy>
 {
     private readonly E2ETestFixture _fixture;
+    private readonly PatchedDatCopy _patchedDatCopy;
 
-    public PatchE2ETests(E2ETestFixture fixture)
+    public PatchE2ETests(E2ETestFixture fixture, PatchedDatCopy patchedDatCopy)
     {
         _fixture = fixture;
+        _patchedDatCopy = patchedDatCopy;
     }
 
     [SkippableFact]
@@ -17,16 +27,12 @@ public sealed class PatchE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        //Arrange
-        string tempDatPath = _fixture.CreateTempDatCopy();
-
         //Act
-        CliResult result = await _fixture.RunCliAsync(
-            $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
+        PatchedDat patched = await _patchedDatCopy.GetAsync();
 
         //Assert
-        result.ExitCode.ShouldBe((int)CliExitCode.Success, $"stderr: {result.Stderr}");
-        result.Stderr.ShouldBeNullOrWhiteSpace(
+        patched.Patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"stderr: {patched.Patch.Stderr}");
+        patched.Patch.Stderr.ShouldBeNullOrWhiteSpace(
             "Successful operation should not produce stderr output");
     }
 
@@ -35,18 +41,12 @@ public sealed class PatchE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        //Arrange
-        string tempDatPath = _fixture.CreateTempDatCopy();
-        DateTime modifiedBefore = File.GetLastWriteTimeUtc(tempDatPath);
-
         //Act
-        CliResult result = await _fixture.RunCliAsync(
-            $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
+        PatchedDat patched = await _patchedDatCopy.GetAsync();
 
         //Assert
-        result.ExitCode.ShouldBe((int)CliExitCode.Success, $"stderr: {result.Stderr}");
-        DateTime modifiedAfter = File.GetLastWriteTimeUtc(tempDatPath);
-        modifiedAfter.ShouldBeGreaterThan(modifiedBefore,
+        patched.Patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"stderr: {patched.Patch.Stderr}");
+        patched.LastWriteAfterPatchUtc.ShouldBeGreaterThan(patched.LastWriteBeforePatchUtc,
             "DAT file should be modified after patching");
     }
 
@@ -55,20 +55,14 @@ public sealed class PatchE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        //Arrange
-        string tempDatPath = _fixture.CreateTempDatCopy();
-        long originalSize = new FileInfo(tempDatPath).Length;
-        string expectedBackupPath = tempDatPath + ".backup";
-
         //Act
-        CliResult result = await _fixture.RunCliAsync(
-            $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
+        PatchedDat patched = await _patchedDatCopy.GetAsync();
 
         //Assert
-        result.ExitCode.ShouldBe((int)CliExitCode.Success, $"stderr: {result.Stderr}");
-        File.Exists(expectedBackupPath).ShouldBeTrue(
+        patched.Patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"stderr: {patched.Patch.Stderr}");
+        patched.BackupSizeAfterPatch.ShouldNotBeNull(
             "Backup file should be created alongside the DAT file");
-        new FileInfo(expectedBackupPath).Length.ShouldBe(originalSize,
+        patched.BackupSizeAfterPatch.Value.ShouldBe(patched.SizeBeforePatch,
             "Backup should have the same size as the original DAT");
     }
 
@@ -77,22 +71,19 @@ public sealed class PatchE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        //Arrange: first patch creates backup
-        string tempDatPath = _fixture.CreateTempDatCopy();
-        CliResult firstPatch = await _fixture.RunCliAsync(
-            $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
-        firstPatch.ExitCode.ShouldBe((int)CliExitCode.Success, $"First patch failed: {firstPatch.Stderr}");
-
-        string backupPath = tempDatPath + ".backup";
-        DateTime backupModifiedAfterFirst = File.GetLastWriteTimeUtc(backupPath);
+        //Arrange: the shared first patch created the backup
+        PatchedDat patched = await _patchedDatCopy.GetAsync();
+        patched.Patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"First patch failed: {patched.Patch.Stderr}");
+        DateTime backupModifiedAfterFirst = patched.BackupLastWriteAfterPatchUtc.ShouldNotBeNull(
+            "First patch should have created the backup");
 
         //Act: second patch should reuse existing backup
         CliResult secondPatch = await _fixture.RunCliAsync(
-            $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
+            $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{patched.DatPath}\"");
 
         //Assert
         secondPatch.ExitCode.ShouldBe((int)CliExitCode.Success, $"Second patch failed: {secondPatch.Stderr}");
-        File.GetLastWriteTimeUtc(backupPath).ShouldBe(backupModifiedAfterFirst,
+        File.GetLastWriteTimeUtc(patched.BackupPath).ShouldBe(backupModifiedAfterFirst,
             "Backup should not be overwritten on second patch");
     }
 
@@ -107,11 +98,11 @@ public sealed class PatchE2ETests
         Directory.CreateDirectory(translationsDir);
         File.Copy(_fixture.TranslationsPolishPath, Path.Combine(translationsDir, "polish.txt"));
 
-        string tempDatPath = _fixture.CreateTempDatCopy();
+        PatchedDat patched = await _patchedDatCopy.GetAsync();
 
         //Act: use short name "polish" (no path separators, no .txt extension)
         CliResult result = await _fixture.RunCliAsync(
-            $"patch polish -d \"{tempDatPath}\"",
+            $"patch polish -d \"{patched.DatPath}\"",
             workingDirectory: workDir);
 
         //Assert: should resolve "polish" → "translations/polish.txt" and succeed
@@ -129,31 +120,131 @@ public sealed class PatchE2ETests
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
         //Arrange
-        string tempDatPath = _fixture.CreateTempDatCopy();
-        string tempDir = Path.GetDirectoryName(tempDatPath)!;
-        File.SetAttributes(tempDatPath, File.GetAttributes(tempDatPath) | FileAttributes.ReadOnly);
-        byte[] hashBefore = await ComputeFileHashAsync(tempDatPath);
+        PatchedDat patched = await _patchedDatCopy.GetAsync();
 
         try
         {
+            File.SetAttributes(patched.DatPath, File.GetAttributes(patched.DatPath) | FileAttributes.ReadOnly);
+            byte[] hashBefore = await ComputeFileHashAsync(patched.DatPath);
+
             //Act
             CliResult result = await _fixture.RunCliAsync(
-                $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
+                $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{patched.DatPath}\"");
 
             //Assert
             result.ExitCode.ShouldNotBe((int)CliExitCode.Success,
                 "Patching a read-only DAT should fail because the read-write open demands write access");
-            byte[] hashAfter = await ComputeFileHashAsync(tempDatPath);
+            byte[] hashAfter = await ComputeFileHashAsync(patched.DatPath);
             hashAfter.ShouldBe(hashBefore, "A failed patch must not change a single byte of the DAT");
         }
         finally
         {
-            // File.Copy carries the ReadOnly attribute over to the .backup copy, so clear it on every
-            // file, or the fixture's cleanup of the temp directory fails on Windows.
-            foreach (string file in Directory.GetFiles(tempDir))
+            // The other tests of this class patch the same copy again. A backup made from the
+            // read-only DAT gets the flag too, so clear it on every file.
+            foreach (string file in Directory.GetFiles(Path.GetDirectoryName(patched.DatPath)!))
             {
                 File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
             }
+        }
+    }
+
+    [SkippableFact]
+    public async Task Roundtrip_ShouldProducePolishTexts_WhenExportPatchExport()
+    {
+        Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
+
+        //Arrange: parse polish.txt to get target IDs and expected content
+        TranslationFileParser parser = new();
+        Result<TranslationParseResult> polishResult = parser.ParseFile(_fixture.TranslationsPolishPath);
+        polishResult.IsSuccess.ShouldBeTrue(
+            $"polish.txt should parse. Error: {(polishResult.IsFailure ? polishResult.Error.Message : "")}");
+        polishResult.Value.Translations.ShouldNotBeEmpty("polish.txt should contain translations");
+
+        //Arrange: use cached export as "before" (original English DAT)
+        _fixture.CachedExportResult!.ExitCode.ShouldBe((int)CliExitCode.Success,
+            $"Cached export failed: {_fixture.CachedExportResult.Stderr}");
+
+        //Act: the shared copy is patched once and exported right after that patch
+        PatchedDat patched = await _patchedDatCopy.GetAsync();
+        patched.Patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"Patch failed: {patched.Patch.Stderr}");
+        patched.Patch.Stderr.ShouldBeNullOrWhiteSpace(
+            "Patch should not produce stderr output");
+        patched.ExportAfterPatchError.ShouldBeNull($"Export after did not finish: {patched.ExportAfterPatchError}");
+        CliResult exportAfter = patched.ExportAfterPatch.ShouldNotBeNull();
+        exportAfter.ExitCode.ShouldBe((int)CliExitCode.Success, $"Export after failed: {exportAfter.Stderr}");
+        exportAfter.Stderr.ShouldBeNullOrWhiteSpace(
+            "Export after should not produce stderr output");
+
+        //Assert: build O(1) lookup indexes for both exports
+        Dictionary<string, string> beforeIndex = BuildLineIndex(_fixture.CachedExportPath);
+        Dictionary<string, string> afterIndex = BuildLineIndex(patched.ExportAfterPatchPath);
+
+        foreach (Translation expected in polishResult.Value.Translations)
+        {
+            string linePrefix = $"{expected.FileId}||{expected.GossipId}||";
+
+            beforeIndex.TryGetValue(linePrefix, out string? beforeLine);
+            afterIndex.TryGetValue(linePrefix, out string? afterLine);
+
+            beforeLine.ShouldNotBeNull(
+                $"Before export should contain FileId={expected.FileId}, GossipId={expected.GossipId}");
+            afterLine.ShouldNotBeNull(
+                $"After export should contain FileId={expected.FileId}, GossipId={expected.GossipId}");
+
+            Result<Translation> afterParsed = parser.ParseLine(afterLine);
+            afterParsed.IsSuccess.ShouldBeTrue(
+                $"After line should parse for GossipId={expected.GossipId}");
+
+            // After patch content should match the Polish translation exactly
+            afterParsed.Value.Content.ShouldBe(expected.Content,
+                $"Patched content should match polish.txt for GossipId={expected.GossipId}");
+        }
+    }
+
+    [SkippableFact]
+    public async Task Roundtrip_ShouldPreserveUntranslatedTexts_WhenPatchApplied()
+    {
+        Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
+
+        //Arrange: get set of translated IDs to exclude
+        TranslationFileParser parser = new();
+        Result<TranslationParseResult> polishResult = parser.ParseFile(_fixture.TranslationsPolishPath);
+        polishResult.IsSuccess.ShouldBeTrue(
+            $"polish.txt should parse. Error: {(polishResult.IsFailure ? polishResult.Error.Message : "")}");
+
+        HashSet<string> translatedKeys = polishResult.Value.Translations
+            .Select(t => $"{t.FileId}||{t.GossipId}||")
+            .ToHashSet();
+
+        //Arrange: use cached export as "before"
+        _fixture.CachedExportResult!.ExitCode.ShouldBe((int)CliExitCode.Success,
+            $"Cached export failed: {_fixture.CachedExportResult.Stderr}");
+
+        //Act: the shared copy is patched once and exported right after that patch
+        PatchedDat patched = await _patchedDatCopy.GetAsync();
+        patched.Patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"Patch failed: {patched.Patch.Stderr}");
+        patched.ExportAfterPatchError.ShouldBeNull($"Export after did not finish: {patched.ExportAfterPatchError}");
+        CliResult exportAfter = patched.ExportAfterPatch.ShouldNotBeNull();
+        exportAfter.ExitCode.ShouldBe((int)CliExitCode.Success, $"Export after failed: {exportAfter.Stderr}");
+
+        //Assert: sample untranslated lines and verify they're identical
+        Dictionary<string, string> beforeIndex = BuildLineIndex(_fixture.CachedExportPath);
+        Dictionary<string, string> afterIndex = BuildLineIndex(patched.ExportAfterPatchPath);
+
+        List<string> untranslatedKeys = beforeIndex.Keys
+            .Where(k => !translatedKeys.Contains(k))
+            .Take(500)
+            .ToList();
+
+        untranslatedKeys.Count.ShouldBeGreaterThan(0,
+            "Should have untranslated lines to verify");
+
+        foreach (string key in untranslatedKeys)
+        {
+            afterIndex.TryGetValue(key, out string? afterLine);
+            afterLine.ShouldNotBeNull($"Untranslated line {key} should still exist after patch");
+            afterLine.ShouldBe(beforeIndex[key],
+                $"Untranslated line {key} should be identical after patch");
         }
     }
 
@@ -161,5 +252,34 @@ public sealed class PatchE2ETests
     {
         await using FileStream stream = File.OpenRead(filePath);
         return await SHA256.HashDataAsync(stream);
+    }
+
+    private static Dictionary<string, string> BuildLineIndex(string filePath)
+    {
+        Dictionary<string, string> index = new();
+        foreach (string line in File.ReadLines(filePath))
+        {
+            if (string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith('#'))
+            {
+                continue;
+            }
+
+            int firstSep = line.IndexOf("||", StringComparison.Ordinal);
+            if (firstSep < 0)
+            {
+                continue;
+            }
+
+            int secondSep = line.IndexOf("||", firstSep + 2, StringComparison.Ordinal);
+            if (secondSep < 0)
+            {
+                continue;
+            }
+
+            string key = line[..(secondSep + 2)];
+            index.TryAdd(key, line);
+        }
+
+        return index;
     }
 }

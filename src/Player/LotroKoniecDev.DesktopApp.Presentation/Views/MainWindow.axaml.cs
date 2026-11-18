@@ -30,7 +30,6 @@ public sealed partial class MainWindow : Window
         base.OnOpened(e);
         _isOpened = true;
         LimitHeightToWorkArea();
-        FitIntoWorkArea();
 
         if (DataContext is MainWindowViewModel viewModel)
         {
@@ -59,7 +58,10 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>A move only sets the limit and never moves the window: the player put it there.</summary>
+    /// <summary>
+    /// A move alone only sets the limit, because the player put the window there. If the new limit makes the
+    /// window shorter, the resize moves it back into the work area.
+    /// </summary>
     private void OnPositionChanged(object? sender, PixelPointEventArgs e) => LimitHeightToWorkArea();
 
     private void OnScalingChanged(object? sender, EventArgs e) => LimitHeightToWorkArea();

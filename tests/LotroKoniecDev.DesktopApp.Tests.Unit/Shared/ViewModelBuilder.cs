@@ -111,6 +111,17 @@ internal sealed class ViewModelBuilder
         return handler;
     }
 
+    /// <summary>A check that answers only when the test completes <paramref name="answer"/>.</summary>
+    public static IQueryHandler<CheckForAppUpdateQuery, Result<AppUpdateCheckResponse>> CheckAnsweringWhen(
+        Task<Result<AppUpdateCheckResponse>> answer)
+    {
+        IQueryHandler<CheckForAppUpdateQuery, Result<AppUpdateCheckResponse>> handler =
+            Substitute.For<IQueryHandler<CheckForAppUpdateQuery, Result<AppUpdateCheckResponse>>>();
+        handler.Handle(Arg.Any<CheckForAppUpdateQuery>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new ValueTask<Result<AppUpdateCheckResponse>>(answer));
+        return handler;
+    }
+
     public static IQueryHandler<CheckForAppUpdateQuery, Result<AppUpdateCheckResponse>> DevelopmentBuildCheck() =>
         CheckAnswering(AppUpdateCheckResponse.DevelopmentBuild());
 

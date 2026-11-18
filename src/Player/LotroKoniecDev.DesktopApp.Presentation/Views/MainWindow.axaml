@@ -59,7 +59,7 @@
             <TextBlock Name="GameFolderStatusText" Text="{Binding GameFolder.StatusText}"
                        IsVisible="{Binding GameFolder.IsStatusVisible}" TextWrapping="Wrap" />
 
-            <!-- Always on screen, so the player reads both before Play (spec 0011 LEGAL-12, ADR-0069 §3). -->
+            <!-- Always in the window, right above Play, so the player reads both before Play (spec 0011 LEGAL-12, ADR-0069 §3). -->
             <StackPanel Spacing="6" Opacity="0.7">
                 <TextBlock Name="RiskNoticeText" Text="{Binding RiskNotice}" FontSize="11" TextWrapping="Wrap" />
                 <TextBlock Name="LauncherNoticeText" Text="{Binding LauncherNotice}" FontSize="11" TextWrapping="Wrap" />

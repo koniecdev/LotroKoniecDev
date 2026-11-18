@@ -132,7 +132,7 @@ jobs:
             installer\LotroPoPolsku.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE." }
 
-      - name: Install, install again over the running app, uninstall (refused while it runs, then for real)
+      - name: Install, install again over the running app, refuse a second copy, uninstall (refused while it runs, then for real)
         run: |
           $installer = Join-Path $env:RUNNER_TEMP "installer\$env:INSTALLER_NAME"
           $logs = Join-Path $env:RUNNER_TEMP 'smoke'
@@ -143,8 +143,12 @@ jobs:
           $desktopLink = Join-Path $env:PUBLIC 'Desktop\LOTRO po Polsku.lnk'
           $startMenuLink = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\LOTRO po Polsku.lnk'
           $uninstallKey = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{53881929-2972-43D8-ACE2-1AED0D822D9F}_is1'
-          $dataDir = Join-Path $env:APPDATA 'LotroPoPolsku'
+          # The app runs as administrator and keeps every file of its own under its folder (#1464).
+          $dataDir = Join-Path $appDir 'data'
+          $appLog = Join-Path $dataDir 'LotroPoPolsku.log'
           $marker = Join-Path $dataDir 'smoke-marker.txt'
+          # AlreadyRunningMessage.Caption, written with escapes so the script stays ASCII.
+          $refusalCaption = "LOTRO po Polsku ju`u{017C} dzia`u{0142}a"
 
           # Start-Process -Wait would also wait for the app the installer starts. Reading Handle right
           # away keeps the exit code readable after the process ends.
@@ -162,6 +166,34 @@ jobs:
             }
           }
           function Get-App { @(Get-Process -Name 'LotroPoPolsku' -ErrorAction SilentlyContinue) }
+          # A copy that waits on the "already running" message counts as a process too, so every start
+          # check also asks that no copy shows it. Get-Process reads each window title afresh.
+          function Assert-NoRefusedCopy([string] $when) {
+            $refused = @(Get-App | Where-Object { $_.MainWindowTitle -eq $refusalCaption })
+            if ($refused.Count -gt 0) { throw "A copy of the app shows the 'already running' message $when." }
+          }
+          # Only administrators may change the app's folders: no write-type right for the player or any
+          # broad group, and an owner that is not the player. The generic bits are checked too, because
+          # an inherit-only entry keeps them unmapped.
+          function Assert-AdminOnly([string] $path) {
+            & icacls $path | Write-Host
+            $acl = Get-Acl -Path $path
+            $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+            $allowedOwners = @('S-1-5-32-544', 'S-1-5-18', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+            if ($allowedOwners -notcontains $owner) { throw "$path is owned by $owner, not by Administrators, SYSTEM or TrustedInstaller." }
+            $userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+            $watched = @('S-1-5-32-545', 'S-1-5-11', 'S-1-1-0', 'S-1-5-4', $userSid)
+            # WriteData, AppendData, WriteExtendedAttributes, DeleteSubdirectoriesAndFiles, WriteAttributes,
+            # Delete, ChangePermissions, TakeOwnership, GENERIC_ALL, GENERIC_WRITE.
+            $writeMask = 0x2 -bor 0x4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000
+            foreach ($rule in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
+              if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) { continue }
+              if ($watched -notcontains $rule.IdentityReference.Value) { continue }
+              if (([int] $rule.FileSystemRights -band $writeMask) -ne 0) {
+                throw "$($rule.IdentityReference.Value) may write to $path ($($rule.FileSystemRights))."
+              }
+            }
+          }
           # The same flags the app passes on "Tak" (DesktopReleasePolicy.InstallerArguments).
           function Install([string] $logName) {
             $arguments = @('/SILENT', '/NOCANCEL', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/FORCECLOSEAPPLICATIONS', "`"/LOG=$(Join-Path $logs $logName)`"")
@@ -184,9 +216,26 @@ jobs:
           Start-Sleep -Seconds 10
           $first = Get-App
           if ($first.Count -eq 0) { throw 'The app ended within 10 s of its start; see its log in the artifact.' }
+          Assert-NoRefusedCopy 'after install 1'
           $firstIds = $first.Id
 
-          New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+          # Serilog creates the log when the app builds its logger, after the single-copy check, so the
+          # file proves both that check and an elevated write into the app's folder. A normal start
+          # writes no line, so the file may be empty.
+          if (-not (Test-Path $appLog)) { throw "The app wrote no log at $appLog." }
+          foreach ($userPath in @((Join-Path $env:APPDATA 'LotroPoPolsku'), (Join-Path $env:TEMP 'LotroPoPolsku'), (Join-Path $env:TEMP '.net\LotroPoPolsku'))) {
+            if (Test-Path $userPath) { throw "The app wrote to $userPath, a folder the player can change." }
+          }
+          $nativeDlls = @(Get-ChildItem -Path "$env:RUNNER_TEMP\publish" -Filter '*.dll')
+          if (($nativeDlls.Name -notcontains 'datexport.dll') -or ($nativeDlls.Name -notcontains 'libSkiaSharp.dll')) {
+            throw "The publish folder does not hold the native libraries next to the exe: $($nativeDlls.Name -join ', ')."
+          }
+          foreach ($dll in $nativeDlls) {
+            if (-not (Test-Path (Join-Path $appDir $dll.Name))) { throw "Install 1 did not install $($dll.Name) next to the exe." }
+          }
+          Assert-AdminOnly $appDir
+          Assert-AdminOnly $dataDir
+
           Set-Content -Path $marker -Value 'uninstall must keep this'
 
           Install 'install-2.log'
@@ -195,6 +244,24 @@ jobs:
           # The app creates the mutex the uninstaller checks in Main, a moment after its process appears.
           Start-Sleep -Seconds 10
           if (@(Get-App).Count -eq 0) { throw 'The app ended within 10 s of its start after install 2.' }
+          Assert-NoRefusedCopy 'after install 2'
+          $runningIds = (Get-App).Id
+
+          # A second start shows the message and ends; the first copy keeps running.
+          $secondCopy = Start-Process -FilePath $appExe -PassThru
+          $null = $secondCopy.Handle
+          try {
+            Wait-Until { (Get-Process -Id $secondCopy.Id -ErrorAction SilentlyContinue).MainWindowTitle -eq $refusalCaption } 30 "the second copy to show the 'already running' message"
+            if (@(Get-Process -Id $runningIds -ErrorAction SilentlyContinue).Count -ne $runningIds.Count) { throw 'The first copy ended when a second copy started.' }
+            $secondCopy.Refresh()
+            $null = $secondCopy.CloseMainWindow()
+            if (-not $secondCopy.WaitForExit(15000)) { throw 'The second copy did not end after its message was closed.' }
+            if ($secondCopy.ExitCode -ne 0) { throw "The second copy exited with $($secondCopy.ExitCode)." }
+          }
+          finally {
+            if (-not $secondCopy.HasExited) { Stop-Process -Id $secondCopy.Id -Force -ErrorAction SilentlyContinue }
+          }
+          if (@(Get-Process -Id $runningIds -ErrorAction SilentlyContinue).Count -ne $runningIds.Count) { throw 'The first copy ended with the second one.' }
 
           # The uninstaller cannot remove a running exe, so a silent one must refuse and leave all in place.
           $uninstaller = (Get-ItemProperty -Path $uninstallKey).UninstallString.Trim('"')
@@ -209,8 +276,10 @@ jobs:
           Wait-Until { (Get-App).Count -eq 0 } 60 'the app to end before the uninstall'
           $exitCode = Invoke-AndWait $uninstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "`"/LOG=$(Join-Path $logs 'uninstall.log')`"")
           if ($exitCode -ne 0) { throw "The uninstaller exited with $exitCode." }
-          # The uninstaller hands over to a copy of itself and finishes after this process ends.
-          Wait-Until { -not ((Test-Path $appDir) -or (Test-Path $desktopLink) -or (Test-Path $startMenuLink) -or (Test-Path $uninstallKey)) } 120 'the uninstall to remove the install folder, both shortcuts and the uninstall entry'
+          # The uninstaller hands over to a copy of itself and finishes after this process ends. It leaves
+          # the app's own data and updates folders, so the install folder itself stays.
+          function Get-InstalledLeftovers { @(Get-ChildItem -Path $appDir -Force -ErrorAction SilentlyContinue | Where-Object { @('data', 'updates') -notcontains $_.Name }) }
+          Wait-Until { -not ((Get-InstalledLeftovers).Count -gt 0 -or (Test-Path $desktopLink) -or (Test-Path $startMenuLink) -or (Test-Path $uninstallKey)) } 120 'the uninstall to remove what Setup installed, both shortcuts and the uninstall entry'
           if (-not (Test-Path $marker)) { throw "The uninstall removed the app's data folder." }
           Write-Host 'Install, re-install over the running app, the refused uninstall and the uninstall all passed.'
 
@@ -237,8 +306,13 @@ jobs:
         run: |
           $logs = Join-Path $env:RUNNER_TEMP 'smoke'
           New-Item -ItemType Directory -Force -Path $logs | Out-Null
-          $appLog = Join-Path $env:APPDATA 'LotroPoPolsku\LotroPoPolsku.log'
-          if (Test-Path $appLog) { Copy-Item $appLog $logs }
+          # A running app holds its log open, so it is stopped first.
+          Get-Process -Name 'LotroPoPolsku' -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          $appDir = Join-Path ${env:ProgramFiles(x86)} 'LotroPoPolsku'
+          foreach ($log in @((Join-Path $appDir 'data\LotroPoPolsku.log'), (Join-Path $appDir 'updates\update-install.log'))) {
+            if (Test-Path $log) { Copy-Item $log $logs }
+          }
 
       - name: Upload the logs of a failed run
         if: failure()

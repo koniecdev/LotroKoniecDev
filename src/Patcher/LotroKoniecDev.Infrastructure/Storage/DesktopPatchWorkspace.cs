@@ -149,7 +149,6 @@ public sealed class DesktopPatchWorkspace : IDesktopPatchWorkspace
     {
         try
         {
-            ClearReadOnly(path);
             File.Delete(path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

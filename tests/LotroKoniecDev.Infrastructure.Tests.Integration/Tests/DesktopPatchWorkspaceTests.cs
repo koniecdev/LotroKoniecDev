@@ -149,10 +149,12 @@ public sealed class DesktopPatchWorkspaceTests : IDisposable
 
         // Act
         Result first = sut.UseTranslationFile(readOnlyFile);
+        bool readOnlyAfterFirst = File.GetAttributes(sut.WorkingTranslationFilePath).HasFlag(FileAttributes.ReadOnly);
         Result second = sut.UseTranslationFile(plainFile);
 
         // Assert
         first.IsSuccess.ShouldBeTrue();
+        readOnlyAfterFirst.ShouldBeFalse();
         second.IsSuccess.ShouldBeTrue();
         File.ReadAllText(sut.WorkingTranslationFilePath).ShouldBe("second");
         File.GetAttributes(sut.WorkingTranslationFilePath).HasFlag(FileAttributes.ReadOnly).ShouldBeFalse();

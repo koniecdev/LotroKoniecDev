@@ -379,12 +379,6 @@ internal sealed class PatchingService : IPatchingService
     }
 
     /// <summary>
-    /// The warnings of one guard category, as a count plus a few examples. Both users of
-    /// <see cref="PatchSummaryResponse.Warnings"/> handle the list one entry at a time (<c>patch</c>
-    /// prints it, <see cref="PatchIfNeededService"/> logs it), so the limit belongs here and not in
-    /// either of them.
-    /// </summary>
-    /// <summary>
     /// A native refusal comes back with no reason. This is the one read-write open, so asking the
     /// file why it refuses a write gives patch, launch's re-patch and its repair the same answer
     /// (#1248). A missing library or an exception already carries its own reason, so it stays.
@@ -401,6 +395,12 @@ internal sealed class PatchingService : IPatchingService
         return fileRefusal.IsFailure ? fileRefusal.Error : openError;
     }
 
+    /// <summary>
+    /// The warnings of one guard category, as a count plus a few examples. Both users of
+    /// <see cref="PatchSummaryResponse.Warnings"/> handle the list one entry at a time (<c>patch</c>
+    /// prints it, <see cref="PatchIfNeededService"/> logs it), so the limit belongs here and not in
+    /// either of them.
+    /// </summary>
     private sealed class BoundedGuardWarnings
     {
         private readonly List<string> _samples = [];

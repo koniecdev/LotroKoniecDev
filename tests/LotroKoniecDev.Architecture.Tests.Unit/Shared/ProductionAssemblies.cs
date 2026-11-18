@@ -64,6 +64,20 @@ internal static class ProductionAssemblies
     internal static Assembly Options { get; } = Load(Namespaces.Options);
 
     /// <summary>
+    /// The patcher side's <c>net10.0</c> assemblies. The desktop player app is the patcher's second
+    /// shell, so its UI sits on this side too. A new patcher project joins this list as well as
+    /// <see cref="All"/>, or the isolation and platform rules miss it.
+    /// </summary>
+    internal static IReadOnlyList<Assembly> Patcher { get; } =
+    [
+        PatcherPrimitives,
+        PatcherDomain,
+        PatcherApplication,
+        PatcherInfrastructure,
+        DesktopAppPresentation,
+    ];
+
+    /// <summary>
     /// What the repo-wide rules search. A new production project must join it, or it escapes every rule;
     /// <c>SuiteSelfTests</c> fails until it does.
     /// </summary>

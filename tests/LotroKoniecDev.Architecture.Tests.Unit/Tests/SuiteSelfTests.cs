@@ -35,6 +35,9 @@ public sealed class SuiteSelfTests
         platformInvokes.ShouldContain(
             name => name.Contains("g____PInvoke", StringComparison.Ordinal),
             "a scan that skips compiler-generated code misses every [LibraryImport] that marshals");
+        platformInvokes.ShouldContain(
+            name => !name.Contains("g____PInvoke", StringComparison.Ordinal),
+            "a scan that finds only generated functions misses every plain P/Invoke");
     }
 
     [Fact]

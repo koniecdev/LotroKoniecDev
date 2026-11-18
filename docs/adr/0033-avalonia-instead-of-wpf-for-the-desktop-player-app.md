@@ -205,15 +205,16 @@ both and calls both registration methods.
 a Windows DLL, or when it starts a Windows program. Everything else stays cross-platform. That
 includes `GameProcessDetector`: it looks for the game's Windows process names through
 `Process.GetProcessesByName`, which runs on every OS, and where no such process runs it answers "not
-running". It also includes a class whose promise holds everywhere while one edge case reads a
-Windows error code (`WriteAccessChecker`, `AppUpdateWorkspace`). The test of that edge case stays in
-the Windows-only suite.
+running". It also includes a class whose promise holds everywhere while one edge case depends on
+Windows: `WriteAccessChecker` reads the sharing-violation error code, and `AppUpdateWorkspace` leaves
+a folder Windows will not delete. The test of that edge case stays in the Windows-only suite.
 
 **What enforces it.** CA1416 fails the build on a Windows-only .NET API in a `net10.0` project, and
 NU1201 stops a `net10.0` project from referencing the Windows one. `PatcherPlatformTests` in the
 architecture suite now covers the P/Invoke half of the 2026-10-21 review rule: no patcher `net10.0`
 assembly may declare a P/Invoke (into any library, not only a Windows DLL) or use `NativeLibrary`.
-A hard-coded Windows path still compiles anywhere, so that half stays a review rule.
+A hard-coded Windows path still compiles anywhere, so that half stays a review rule, and so does
+"starts a Windows program": starting a process is a cross-platform .NET API.
 
 **Tests follow the same line.** `LotroKoniecDev.Infrastructure.Tests.Integration` (`net10.0`, in the
 Linux gate) tests the cross-platform adapters, and it builds the Application and Infrastructure

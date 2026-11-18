@@ -13,7 +13,6 @@ namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 public sealed class WriteAccessCheckerTests : IDisposable
 {
     private static readonly byte[] FileContent = [0x4C, 0x4F, 0x54, 0x52, 0x4F];
-    private static readonly DateTime FixedLastWriteTimeUtc = new(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc);
 
     private readonly string _directory =
         Path.Combine(Path.GetTempPath(), $"lotro-write-access-tests-{Guid.NewGuid():N}");
@@ -136,6 +135,5 @@ public sealed class WriteAccessCheckerTests : IDisposable
     {
         Directory.CreateDirectory(_directory);
         File.WriteAllBytes(DatFilePath, FileContent);
-        File.SetLastWriteTimeUtc(DatFilePath, FixedLastWriteTimeUtc);
     }
 }

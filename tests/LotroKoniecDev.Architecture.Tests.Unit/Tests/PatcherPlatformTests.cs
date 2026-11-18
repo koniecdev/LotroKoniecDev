@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Runtime.InteropServices;
 using LotroKoniecDev.Architecture.Tests.Unit.Shared;
 using NetArchTest.Rules;
@@ -13,19 +12,10 @@ namespace LotroKoniecDev.Architecture.Tests.Unit.Tests;
 /// </summary>
 public sealed class PatcherPlatformTests
 {
-    private static readonly Assembly[] CrossPlatformPatcherAssemblies =
-    [
-        ProductionAssemblies.PatcherPrimitives,
-        ProductionAssemblies.PatcherDomain,
-        ProductionAssemblies.PatcherApplication,
-        ProductionAssemblies.PatcherInfrastructure,
-        ProductionAssemblies.DesktopAppPresentation,
-    ];
-
     [Fact]
-    public void CrossPlatformPatcherAssemblies_Methods_DeclareNoPlatformInvoke()
+    public void PatcherAssemblies_Methods_DeclareNoPlatformInvoke()
     {
-        List<string> platformInvokes = CrossPlatformPatcherAssemblies
+        List<string> platformInvokes = ProductionAssemblies.Patcher
             .SelectMany(PlatformInvokeMethods.Of)
             .ToList();
 
@@ -34,9 +24,9 @@ public sealed class PatcherPlatformTests
     }
 
     [Fact]
-    public void CrossPlatformPatcherAssemblies_Dependencies_NeverLoadANativeLibraryByHand()
+    public void PatcherAssemblies_Dependencies_NeverLoadANativeLibraryByHand()
     {
-        TestResult result = Types.InAssemblies(CrossPlatformPatcherAssemblies)
+        TestResult result = Types.InAssemblies(ProductionAssemblies.Patcher)
             .Should()
             .NotHaveDependencyOn(typeof(NativeLibrary).FullName!)
             .GetResult();

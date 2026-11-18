@@ -47,7 +47,8 @@ In `Application/Features/<Area>/`:
 Wire the rest — **all of it, every time**:
 
 1. **DI**: handler + validator registrations in `ApplicationDependencyInjection.AddApplicationServices()`
-   (Infrastructure ports in `InfrastructureDependencyInjection`).
+   (Infrastructure ports in `InfrastructureDependencyInjection`; a port that needs Windows in
+   `WindowsInfrastructureDependencyInjection`, ADR-0033).
 2. **Consumer**: CLI command in `Cli/Commands/` injecting the closed handler interface; map
    failures with `ErrorMapper.MapErrorToExitCode`; register the verb in `Program.cs` if new.
 3. **Never** reference `Mediator`/`MediatR`, `ISender`, or pipeline behaviors.

@@ -173,7 +173,8 @@ planted launcher or library.
    starts from the defaults. Its first save then moves the old file aside, and a file that could
    not be read may only be locked for now, so the app asks before it saves a known install found
    then, even one from the allow-list. A translation file the settings name that is gone at start
-   stays in the settings, because its drive may only be unplugged.
+   stays in the settings, because its drive may only be unplugged. Since #1464 the file is
+   `{app}\data\config.json` (amendment of 2026-11-18).
 4. **The risk, and who closes it.** Any program that runs as the player can change that file, and
    so point the app at a folder of its choice. Today nothing reaches the launcher or the DAT with it:
    Patch and Play stay disabled until #42. The app also writes the file as administrator in some

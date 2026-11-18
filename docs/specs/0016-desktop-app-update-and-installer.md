@@ -136,7 +136,9 @@ When a newer version is out, the app offers it at start and installs it after on
   so it stops and removes nothing. This is not an `AppMutex` directive: that one would also stop a
   silent update, which closes the app itself. A name Windows refuses (another program holds it)
   never stops the app; the app logs it as a Warning. Every copy runs as admin (#1464), so an
-  uninstaller run by any admin account sees the mutex.
+  uninstaller run by any admin account sees the mutex. A second copy that only shows its "already
+  running" message holds no mutex by design. If the first copy has ended while that message is
+  open, the uninstaller does not see it and cannot remove that exe until the message is closed.
 - **Uninstall removes only what the installer put in** (owner decision): the program files, both
   shortcuts and the uninstall entry. `{app}\data` (the settings, the log, and from #42 the downloaded
   `polish.txt` and its `.ledger`, ADR-0047 §4) and `{app}\updates` stay, so the install folder stays
@@ -290,7 +292,9 @@ never calls them.
       that is still alive after 10 s; install 2 over the running app exits 0 and leaves a new app
       process; the uninstall removes what Setup installed, both shortcuts and the key, and leaves
       only `data\` (and `updates\`) in the install folder, with a marker file in `{app}\data`.
-- [ ] After install 1 (#1464): the app's log is in `{app}\data`; nothing of the app's is in the
+- [ ] After install 1 (#1464): the installed exe asks for `requireAdministrator`; the app stays
+      alive with `DOTNET_STARTUP_HOOKS` pointing at a file that does not exist, so it loads no
+      startup hook; the app's log is in `{app}\data`; nothing of the app's is in the
       player's `%APPDATA%` or `%TEMP%`, including the `.net` unpack folder; every native DLL of the
       publish folder sits next to the exe; the player, Users, Authenticated Users, Everyone and
       INTERACTIVE have no write right on `{app}` or `{app}\data`, whose owner is Administrators,

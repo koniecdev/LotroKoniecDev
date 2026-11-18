@@ -123,9 +123,9 @@ public sealed class DesktopPatchWorkspaceTests : IDisposable
     }
 
     [Fact]
-    public void UseTranslationFile_AFolderInsteadOfAFile_ReturnsAFileSystemErrorAndLeavesNoTempFile()
+    public void UseTranslationFile_AFolderInsteadOfAFile_ReturnsNotFoundAndWritesNothing()
     {
-        // Arrange
+        // Arrange: a hand-edited config.json can name a folder; there is no file to read.
         DesktopPatchWorkspace sut = new(DataFolder);
         Directory.CreateDirectory(PlayerFolder);
 
@@ -134,8 +134,60 @@ public sealed class DesktopPatchWorkspaceTests : IDisposable
 
         // Assert
         result.IsFailure.ShouldBeTrue();
-        result.Error.Code.ShouldBe(DomainErrors.DesktopPatchWorkspace.FileSystemErrorCode);
-        Directory.GetFiles(DataFolder).ShouldBeEmpty();
+        result.Error.Code.ShouldBe(DomainErrors.DesktopPatchWorkspace.SourceNotFoundCode);
+        Directory.Exists(DataFolder).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void UseTranslationFile_ANetworkShareThatDoesNotAnswer_ReturnsNotFound()
+    {
+        // Arrange: on Windows a share that cannot be reached fails with its own error, not "file not found".
+        DesktopPatchWorkspace sut = new(DataFolder);
+        string onShare = $@"\\localhost\no-such-share-{Guid.NewGuid():N}\polish.txt";
+
+        // Act
+        Result result = sut.UseTranslationFile(onShare);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe(DomainErrors.DesktopPatchWorkspace.SourceNotFoundCode);
+    }
+
+    [Fact]
+    public void UseTranslationFile_AFileAnotherProgramHoldsOpenForWriting_IsStillCopied()
+    {
+        // Arrange: an editor may keep the file open while the player clicks Patch.
+        DesktopPatchWorkspace sut = new(DataFolder);
+        string playersFile = WritePlayersFile("polish.txt", "content");
+        using FileStream editor = new(playersFile, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+
+        // Act
+        Result result = sut.UseTranslationFile(playersFile);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        File.ReadAllText(sut.WorkingTranslationFilePath).ShouldBe("content");
+    }
+
+    [Fact]
+    public void UseTranslationFile_AFileAnotherProgramLocks_NamesTheFileAndKeepsTheWorkingCopy()
+    {
+        // Arrange
+        DesktopPatchWorkspace sut = new(DataFolder);
+        Directory.CreateDirectory(DataFolder);
+        File.WriteAllText(sut.WorkingTranslationFilePath, "earlier copy");
+        string playersFile = WritePlayersFile("polish.txt", "content");
+        using FileStream locker = new(playersFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        // Act
+        Result result = sut.UseTranslationFile(playersFile);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe(DomainErrors.DesktopPatchWorkspace.SourceUnreadableCode);
+        result.Error.Message.ShouldContain(playersFile);
+        File.ReadAllText(sut.WorkingTranslationFilePath).ShouldBe("earlier copy");
+        Directory.GetFiles(DataFolder).ShouldBe([sut.WorkingTranslationFilePath]);
     }
 
     [Fact]

@@ -35,29 +35,41 @@ public sealed class DesktopPatchWorkspace : IDesktopPatchWorkspace
     /// <remarks>
     /// The bytes are copied through streams, so the copy never takes the source's attributes: a
     /// read-only source made through <c>File.Copy</c> would leave a read-only working copy that every
-    /// later run fails to replace.
+    /// later run fails to replace. The source is shared for reading and writing, as <c>File.Copy</c>
+    /// shares it, so a file another program holds open is still read.
     /// </remarks>
     public Result UseTranslationFile(string sourcePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
 
-        string tempPath = TempPath();
+        FileStream source;
         try
         {
-            Directory.CreateDirectory(_dataFolder);
-            using FileStream source = new(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using FileStream target = new(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-            source.CopyTo(target);
-        }
-        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException && !File.Exists(sourcePath))
-        {
-            DeleteQuietly(tempPath);
-            return Result.Failure(DomainErrors.DesktopPatchWorkspace.SourceNotFound(sourcePath));
+            source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            DeleteQuietly(tempPath);
-            return Result.Failure(DomainErrors.DesktopPatchWorkspace.FileSystemError(sourcePath, ex.Message));
+            // An unplugged drive, a missing folder and a network share that does not answer each fail
+            // with their own error, and each means the same to the player: the file is gone.
+            return Result.Failure(File.Exists(sourcePath)
+                ? DomainErrors.DesktopPatchWorkspace.SourceUnreadable(sourcePath, ex.Message)
+                : DomainErrors.DesktopPatchWorkspace.SourceNotFound(sourcePath));
+        }
+
+        string tempPath = TempPath();
+        using (source)
+        {
+            try
+            {
+                Directory.CreateDirectory(_dataFolder);
+                using FileStream target = new(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                source.CopyTo(target);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                DeleteQuietly(tempPath);
+                return Result.Failure(DomainErrors.DesktopPatchWorkspace.FileSystemError(tempPath, ex.Message));
+            }
         }
 
         try

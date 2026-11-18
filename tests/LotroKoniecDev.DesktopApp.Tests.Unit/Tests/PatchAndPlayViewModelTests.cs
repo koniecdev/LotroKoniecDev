@@ -18,7 +18,8 @@ namespace LotroKoniecDev.DesktopApp.Tests.Unit.Tests;
 [Collection(HeadlessSessionCollection.Name)]
 public sealed class PatchAndPlayViewModelTests
 {
-    private const string Server = "https://tms.lotro-translator.pl/";
+    /// <summary>Not the default address, so a view model that ignored the saved one would fail.</summary>
+    private const string Server = "https://tms.staging.example.com/";
 
     private static readonly string OverrideFile = ViewModelBuilder.Rooted("Pendrive", "polish.txt");
 
@@ -220,6 +221,25 @@ public sealed class PatchAndPlayViewModelTests
     }
 
     [Fact]
+    public async Task PatchAsync_TheOverrideCannotBeRead_NamesTheFileAndPatchesNothing()
+    {
+        // Arrange: another program locks the player's file.
+        ViewModelBuilder builder = SavedGameWithTheOverride();
+        builder.Workspace.UseTranslationFile(OverrideFile)
+            .Returns(Result.Failure(DomainErrors.DesktopPatchWorkspace.SourceUnreadable(OverrideFile, "locked")));
+
+        // Act
+        RunResult run = await PatchAsync(builder);
+
+        // Assert
+        run.Status.ShouldBe(
+            $"Nie udało się odczytać pliku {OverrideFile}, wybranego w „Ustawieniach”. Zamknij program, który może go blokować, " +
+            "i spróbuj ponownie. Szczegóły są w pliku data\\LotroPoPolsku.log w folderze programu.");
+        run.Percent.ShouldBe(0);
+        await builder.PatchHandler.DidNotReceive().Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task PatchAsync_TheOverrideCannotBeCopied_SaysTheProgramFolderFailedAndPatchesNothing()
     {
         // Arrange
@@ -236,13 +256,19 @@ public sealed class PatchAndPlayViewModelTests
         await builder.PatchHandler.DidNotReceive().Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task PatchAsync_TheDownloadCannotBeCopied_SaysTheProgramFolderFailedAndPatchesNothing()
+    public static TheoryData<Error> DownloadCopyFailures() =>
+    [
+        DomainErrors.DesktopPatchWorkspace.FileSystemError(ViewModelBuilder.WorkingTranslationFilePath, "denied"),
+        DomainErrors.DesktopPatchWorkspace.SourceUnreadable(ViewModelBuilder.DownloadedTranslationFilePath, "locked")
+    ];
+
+    [Theory]
+    [MemberData(nameof(DownloadCopyFailures))]
+    public async Task PatchAsync_TheDownloadCannotBeCopied_SaysTheProgramFolderFailedAndPatchesNothing(Error error)
     {
-        // Arrange
+        // Arrange: the download sits in the program's own folder, so either failure is the folder's.
         ViewModelBuilder builder = SavedGameUsingTheDownload();
-        builder.Workspace.UseTranslationFile(ViewModelBuilder.DownloadedTranslationFilePath)
-            .Returns(Result.Failure(DomainErrors.DesktopPatchWorkspace.FileSystemError(ViewModelBuilder.WorkingTranslationFilePath, "denied")));
+        builder.Workspace.UseTranslationFile(ViewModelBuilder.DownloadedTranslationFilePath).Returns(Result.Failure(error));
 
         // Act
         RunResult run = await PatchAsync(builder);

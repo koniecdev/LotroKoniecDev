@@ -78,6 +78,10 @@ internal static class PatchAndPlayTexts
         $"Nie znaleziono pliku {path}, wybranego w „Ustawieniach”. Podłącz dysk z tym plikiem albo wyczyść pole " +
         "„Własny plik polish.txt” w „Ustawieniach”, a program pobierze spolszczenie z serwera.";
 
+    public static string OverrideUnreadable(string path) =>
+        $"Nie udało się odczytać pliku {path}, wybranego w „Ustawieniach”. Zamknij program, który może go blokować, " +
+        "i spróbuj ponownie. " + LogHint;
+
     /// <summary>The server confirmed a download that is no longer on disk, so it sends nothing new.</summary>
     public static string DownloadMissing(string path) =>
         $"Brakuje pobranego pliku spolszczenia {path}. Usuń też plik {path}.etag i spróbuj ponownie, " +
@@ -90,6 +94,7 @@ internal static class PatchAndPlayTexts
         DomainErrors.GameLaunch.LaunchFailedCode => LauncherStartFailed,
         DomainErrors.GameLaunch.RepatchFailedCode => PatchFailed,
         DomainErrors.DesktopPatchWorkspace.FileSystemErrorCode => WorkspaceFailed,
+        DomainErrors.DesktopPatchWorkspace.SourceUnreadableCode => WorkspaceFailed,
         _ => Failed
     };
 

@@ -225,9 +225,12 @@ public sealed partial class PatchAndPlayViewModel : INotifyPropertyChanged
             Result copied = await RunAsync("copy the player's translation file", () => _workspace.UseTranslationFile(overridePath));
             if (copied.IsFailure)
             {
-                return PreparedTranslationFile.Failed(copied.Error.Code == DomainErrors.DesktopPatchWorkspace.SourceNotFoundCode
-                    ? PatchAndPlayTexts.OverrideMissing(overridePath)
-                    : PatchAndPlayTexts.ForError(copied.Error));
+                return PreparedTranslationFile.Failed(copied.Error.Code switch
+                {
+                    DomainErrors.DesktopPatchWorkspace.SourceNotFoundCode => PatchAndPlayTexts.OverrideMissing(overridePath),
+                    DomainErrors.DesktopPatchWorkspace.SourceUnreadableCode => PatchAndPlayTexts.OverrideUnreadable(overridePath),
+                    _ => PatchAndPlayTexts.ForError(copied.Error)
+                });
             }
         }
         else

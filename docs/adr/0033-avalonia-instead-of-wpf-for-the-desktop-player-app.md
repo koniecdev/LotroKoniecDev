@@ -175,8 +175,25 @@ install names and progress lines, and the `DomainErrors` messages. The app never
 turns each case into its own Polish text.
 
 The English labels #41 put in the main window (Status, Game version, Patch version, Patch, Play)
-stay until #42, which wires those buttons and replaces the labels (owner decision 1 on #42). #42 also
-adds `requireAdministrator` to the manifest and records it in this ADR.
+stay until #42, which wires those buttons and replaces the labels (owner decision 1 on #42).
+`requireAdministrator` comes with #1464 instead of #42 (amendment of 2026-11-18).
+
+## Amendment (2026-11-18) — admin rights at start come with #1464
+
+**Ticket:** #1464 (M4-13); owner decision 2 on #42 (2026-11-16).
+
+The app asks for admin rights once, at start (`requireAdministrator` in `app.manifest`), and never
+starts itself again with them. #1464 adds it instead of #42, because an elevated app is safe only
+with its files under its own folder, which ADR-0069's amendment of 2026-11-18 sets up in the same
+change.
+
+The 2026-10-21 line holds for the new code. The single-copy rule (`RunningCopyClaim`) is plain code
+in Presentation, behind `IRunningMutexOpener`, so `DesktopApp.Tests.Unit` tests it on Linux. The
+Windows parts sit in the exe: the mutex adapter and the second copy's message, a `MessageBoxW`
+call shown before Avalonia starts. Wine has `MessageBoxW`, so the Proton path in §2 stays open.
+
+For developers, `dotnet run` and Rider's Run of the app need an elevated session from now on;
+otherwise Windows refuses to start it (error 740).
 
 ## Amendment (2026-11-18) — the patcher Infrastructure is two projects
 

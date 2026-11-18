@@ -27,7 +27,7 @@ Full project inventory (17 projects):
 | `LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` | TMS domain unit | nothing (pure); Stryker target |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handlers, auth and endpoints (fake read DbContext, stub accessor and provisioner), and the account event consumer's pauses on a fake clock (#1223) | nothing (pure) |
 | `LotroKoniecDev.Frontend.Tests.Unit` | Blazor SSR components and infrastructure (bUnit) | nothing (pure) |
-| `LotroKoniecDev.DesktopApp.Tests.Unit` | desktop app UI (#41, #43, #45): the view models (incl. the progress bar the patcher handlers report to, the busy gate and the update panel, the first-run search and its questions, the settings and their store over an in-memory `config.json`), the dialog adapter's answers when no dialog can open, the main window and settings window layouts and the splash hand-over, on Avalonia's headless platform | nothing (no screen; runs on Linux too) |
+| `LotroKoniecDev.DesktopApp.Tests.Unit` | desktop app UI (#41, #43, #45): the view models (incl. the progress bar the patcher handlers report to, the busy gate and the update panel, the first-run search and its questions, the settings and their store over an in-memory `config.json`), the dialog adapter's answers when no dialog can open, the main window and settings window layouts and the splash hand-over, on Avalonia's headless platform; the one-running-copy rule over a fake mutex opener (#1464) | nothing (no screen; runs on Linux too) |
 | `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api: startup settings checks, handlers, middleware, pages, services, outbox and inbox, seed retry policy, when the timed jobs run (#948) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
 | `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |
@@ -265,10 +265,12 @@ Tests of the patcher's Windows adapters (`LotroKoniecDev.Infrastructure.Windows`
 launcher, the `datexport.dll` interop and the desktop update's held installer (#45), plus the
 cases of the cross-platform adapters that need Windows file semantics: the write check's ACL and
 held-file refusals (#1248) and the update folder clean-up while an installer holds its file.
-Three desktop app suites sit here too, because only this Windows suite can load the x86 exe:
+Desktop app suites sit here too, because only this Windows suite can load the x86 exe:
 `DesktopAppDependencyInjectionTests` builds its composition root with the real adapters,
-`DesktopAppManifestTests` reads the built `LotroPoPolsku.exe`, and `DesktopSettingsFileTests`
-saves and reads `config.json` and checks files on the real disk.
+`DesktopAppManifestTests` reads the built `LotroPoPolsku.exe`, `DesktopSettingsFileTests`
+saves and reads `config.json` and checks files on the real disk, `DesktopAppDataFolderTests`
+checks that the app keeps its files under the exe's folder (#1464), and
+`DesktopAppRunningMutexTests` checks the Windows mutex answers behind the one-copy rule.
 
 The project targets `net10.0-windows` with an x86 `PlatformTarget`. It builds everywhere and
 **runs on Windows only**, where it needs the x86 .NET runtime (without it the run aborts and
